@@ -1,0 +1,8 @@
+[workspace]
+members = [
+  "crates/halley",
+  "crates/halley-cli",
+  "crates/halley-core", 
+  "crates/halley-wl"
+]
+resolver = "2"

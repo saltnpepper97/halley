@@ -1,0 +1,85 @@
+halley:
+  runtime:
+    tick_ms 200
+  end
+
+  viewport:
+    # Configure outputs explicitly in tty mode.
+    # Unconfigured connected outputs are disabled at startup.
+    DP-1:
+      offset_x 0
+      offset_y 0
+      width 2560
+      height 1440
+    end
+  end
+
+  ring:
+    primary_rx 820.0
+    primary_ry 420.0
+    rotation_rad 0.0
+  end
+
+  clusters:
+    distance_px 280.0
+    dwell_ms 900
+  end
+
+  layout:
+    # If false, disables overlap/bump physics and render smoothing (old choppy mode).
+    physics_enabled true
+
+    # If true, windows snap their center to cursor in Preview/Node and beyond while dragging.
+    # Default false keeps classic "grab point stays under cursor".
+    center_window_to_mouse false
+    
+    # Render follow boost while dragging with mouse; higher = less visual lag.
+    drag_smoothing_boost 6.0
+    
+    # If true, new windows spawn centered and active, previous active windows are moved aside
+    # and demoted to nodes. If false, old windows keep their state and new windows spawn out of the way.
+    new_window_on_top true
+    
+    # Non-overlap spacing in world units.
+    non_overlap_gap_px 20.0
+
+    non_overlap:
+      # Scale only Active<->Active spacing. Lower means windows can sit closer.
+      active_gap_scale 0.22
+    
+      # If true, newer window is displaced; if false, existing one is displaced.
+      bump_newer false
+    
+      # 0.05..1.0, lower = softer / more damped bump animation.
+      bump_damping 0.35
+    end
+  end
+
+  env:
+    XCURSOR_THEME "Adwaita"
+    XCURSOR_SIZE "24"
+  end
+end
+
+keybinds:
+  mod "LSuper"
+  "$var.mod+r" "reload_config"
+  "$var.mod+n" "minimize_focused"
+  "$var.mod+o" "overview_toggle"
+  "$var.mod+Shift+q" "quit_halley"
+  "$var.mod+Return" "kitty"
+end
+
+dev:
+  enabled true
+  show_geometry_overlay true
+  debug_tick_dump false
+  debug_dump_every_ms 1000
+  zoom_decay_enabled true
+  zoom_decay_min_frac 0.07
+  anim:
+    enabled true
+    state_change_ms 360
+    bounce 1.45
+  end
+end

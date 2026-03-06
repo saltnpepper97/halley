@@ -1,0 +1,49 @@
+[package]
+name = "halley-wl"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+session-libseat = ["smithay/backend_session_libseat"]
+
+[dependencies]
+halley-core = { path = "../halley-core" }
+
+# Wayland compositor toolkit
+smithay = { version = "0.7.0", default-features = false, features = [
+  "backend_winit",
+  "backend_drm",
+  "backend_gbm",
+  "backend_egl",
+  "backend_libinput",
+  "backend_udev",
+  "backend_session",
+  "renderer_gl",
+  "wayland_frontend",
+  "desktop",
+] }
+calloop = "0.14.4"
+
+# Input
+xkbcommon = "0.9.0"
+smallvec = "1.15.1"
+
+rustix = "1.1.4"
+
+# Your logging
+eventline = "0.7.4"
+
+# Useful
+once_cell = "1.21.3"
+
+pollster = "0.4.0"
+
+# Rendering/math + serialization (phase 1 alignment with crates.txt)
+glam = "0.30.8"
+wgpu = "26.0.1"
+serde = { version = "1.0.228", features = ["derive"] }
+postcard = { version = "1.1.3", features = ["use-std"] }
+rune-cfg = { version = "0.4.4", path = "../../../../libs/rune-cfg" }
+notify = "8.2.0"
+xcursor = "0.3.10"

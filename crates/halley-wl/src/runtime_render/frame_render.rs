@@ -1,0 +1,301 @@
+use std::error::Error;
+use std::time::Instant;
+
+use smithay::{
+    backend::renderer::{
+        Color32F, Frame, Renderer,
+        element::Kind,
+        element::surface::render_elements_from_surface_tree,
+        gles::{GlesRenderer, GlesTarget},
+        utils::draw_render_elements,
+    },
+    backend::winit::WinitGraphicsBackend,
+    utils::{Physical, Rectangle, Transform},
+};
+
+use crate::interaction::types::ResizeCtx;
+use crate::spatial::node_in_active_area;
+use crate::state::HalleyWlState;
+
+use super::cursor_render::{cursor_surface_hotspot, draw_cursor_sprite};
+use super::cursor_theme::themed_cursor_sprite_with_fallback;
+use super::dock_render::{draw_dock_preview, draw_docked_pairs};
+use super::node_render::{
+    NodeSnapshot, collect_active_surfaces, collect_hover_preview, draw_node_markers,
+};
+use super::render_utils::{draw_outline_rect, draw_rect, draw_ring};
+
+// ---------------------------------------------------------------------------
+// Winit entry point
+// ---------------------------------------------------------------------------
+
+pub(crate) fn draw_debug_frame(
+    backend: &mut WinitGraphicsBackend<GlesRenderer>,
+    st: &mut HalleyWlState,
+    resize_preview: Option<ResizeCtx>,
+    hover_node: Option<halley_core::field::NodeId>,
+    preview_hover_node: Option<halley_core::field::NodeId>,
+) -> Result<(), Box<dyn Error>> {
+    let size = backend.window_size();
+    let damage = Rectangle::<i32, Physical>::from_size(size);
+    {
+        let (renderer, mut framebuffer) = backend.bind()?;
+        draw_debug_frame_to_target(
+            renderer,
+            &mut framebuffer,
+            size,
+            st,
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            None,
+            None,
+            // Winit cursor/input coordinates share screen-space with the
+            // framebuffer, so no transform is needed.
+            Transform::Normal,
+        )?;
+    }
+    backend.submit(Some(&[damage]))?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Backend-agnostic render path
+// ---------------------------------------------------------------------------
+
+pub(crate) fn draw_debug_frame_to_target(
+    renderer: &mut GlesRenderer,
+    framebuffer: &mut GlesTarget<'_>,
+    size: smithay::utils::Size<i32, Physical>,
+    st: &mut HalleyWlState,
+    resize_preview: Option<ResizeCtx>,
+    hover_node: Option<halley_core::field::NodeId>,
+    preview_hover_node: Option<halley_core::field::NodeId>,
+    cursor_screen: Option<(f32, f32)>,
+    cursor_image: Option<&smithay::input::pointer::CursorImageStatus>,
+    frame_transform: Transform,
+) -> Result<(), Box<dyn Error>> {
+    let damage = Rectangle::<i32, Physical>::from_size(size);
+    let now = Instant::now();
+
+    // Keep animator tracks synced so state transitions interpolate immediately.
+    st.tick_animator_frame(now);
+    st.begin_render_frame(now);
+
+    // ------------------------------------------------------------------
+    // 1. Collect active Wayland surface elements
+    // ------------------------------------------------------------------
+    let (active_elements, node_surface_map, overlay_rects, overlay_points, overlap_overlay_rects) =
+        collect_active_surfaces(renderer, st, size, resize_preview, now);
+
+    // ------------------------------------------------------------------
+    // 2. Collect hover-preview elements
+    // ------------------------------------------------------------------
+    let hovered_preview_id = preview_hover_node.and_then(|id| {
+        st.field.node(id).and_then(|n| {
+            (node_in_active_area(st, id)
+                && matches!(
+                    n.state,
+                    halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+                ))
+            .then_some(id)
+        })
+    });
+    let (hover_preview_rect, hover_preview_elements) = collect_hover_preview(
+        renderer,
+        st,
+        size,
+        &node_surface_map,
+        hovered_preview_id,
+        hover_node,
+        now,
+    );
+
+    // ------------------------------------------------------------------
+    // 3. Collect cursor surface elements
+    // ------------------------------------------------------------------
+    let cursor_status = cursor_image
+        .cloned()
+        .unwrap_or_else(smithay::input::pointer::CursorImageStatus::default_named);
+
+    let mut cursor_surface_elements: Vec<
+        smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>,
+    > = Vec::new();
+    if let (Some((sx, sy)), smithay::input::pointer::CursorImageStatus::Surface(surface)) =
+        (cursor_screen, cursor_status.clone())
+    {
+        let (hotspot_x, hotspot_y) = cursor_surface_hotspot(&surface);
+        let loc = (sx.round() as i32 - hotspot_x, sy.round() as i32 - hotspot_y);
+        cursor_surface_elements =
+            render_elements_from_surface_tree(renderer, &surface, loc, 1.0, 1.0, Kind::Unspecified);
+    }
+
+    // ------------------------------------------------------------------
+    // 4. Snapshot node list before the mutable frame borrow
+    // ------------------------------------------------------------------
+    let render_nodes: Vec<NodeSnapshot> = st
+        .field
+        .nodes()
+        .iter()
+        .filter_map(|(&id, node)| {
+            if !st.field.is_visible(id) {
+                return None;
+            }
+            Some(NodeSnapshot {
+                id,
+                state: node.state.clone(),
+                pos: node.pos,
+                intrinsic_size: node.intrinsic_size,
+                label: node.label.clone(),
+            })
+        })
+        .collect();
+
+    // ------------------------------------------------------------------
+    // 5. Draw
+    // ------------------------------------------------------------------
+    let mut frame = renderer.render(framebuffer, size, frame_transform)?;
+    frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[damage])?;
+
+    // Active windows
+    if !active_elements.is_empty() {
+        let _ = draw_render_elements(&mut frame, 1.0, &active_elements, &[damage]);
+    }
+
+    // Overlap tint for windows behind the resize target
+    for (x, y, w, h) in overlap_overlay_rects {
+        draw_rect(
+            &mut frame,
+            x,
+            y,
+            w,
+            h,
+            Color32F::new(0.45, 0.45, 0.45, 0.34),
+            damage,
+        )?;
+        draw_outline_rect(
+            &mut frame,
+            x,
+            y,
+            w,
+            h,
+            Color32F::new(0.72, 0.72, 0.72, 0.78),
+            damage,
+        )?;
+    }
+
+    // Dev geometry overlay
+    if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {
+        for (x, y, w, h, color) in overlay_rects {
+            draw_outline_rect(&mut frame, x, y, w, h, color, damage)?;
+        }
+        for (x, y, color) in overlay_points {
+            draw_rect(&mut frame, x - 2, y - 2, 5, 5, color, damage)?;
+        }
+    }
+
+    // Node markers / proxy thumbnails
+    draw_node_markers(&mut frame, st, size, &render_nodes, hover_node, damage, now)?;
+
+    // Hover preview window
+    if let Some((px, py, pw, ph)) = hover_preview_rect {
+        if !hover_preview_elements.is_empty() {
+            let dl = damage.loc.x;
+            let dt = damage.loc.y;
+            let dr = damage.loc.x + damage.size.w as i32;
+            let db = damage.loc.y + damage.size.h as i32;
+            let l = px.max(dl);
+            let t = py.max(dt);
+            let r = (px + pw).min(dr);
+            let b = (py + ph).min(db);
+            if r > l && b > t {
+                let clip = Rectangle::new((l, t).into(), ((r - l), (b - t)).into());
+                let _ = draw_render_elements(&mut frame, 1.0, &hover_preview_elements, &[clip]);
+            }
+        }
+    }
+
+    // Dock connector lines + dock-preview overlay
+    draw_docked_pairs(&mut frame, st, size, damage, now)?;
+    draw_dock_preview(&mut frame, st, size, damage, now)?;
+
+    // Focus ring
+    let rings = st.active_rings();
+    draw_ring(
+        &mut frame,
+        st,
+        size.w,
+        size.h,
+        rings.primary.radius_x,
+        rings.primary.radius_y,
+        rings.primary.rotation_rad,
+        Color32F::new(0.15, 0.85, 0.85, 0.9),
+        damage,
+    )?;
+
+    // Software cursor (TTY backend has no host cursor)
+    if let Some((sx, sy)) = cursor_screen {
+        let draw_fallback_arrow = match cursor_status {
+            smithay::input::pointer::CursorImageStatus::Hidden => false,
+
+            smithay::input::pointer::CursorImageStatus::Named(icon) => {
+                if let Some(sprite) = themed_cursor_sprite_with_fallback(icon) {
+                    draw_cursor_sprite(&mut frame, damage, (sx, sy), sprite.as_ref())?;
+                    false
+                } else {
+                    true
+                }
+            }
+
+            smithay::input::pointer::CursorImageStatus::Surface(_) => {
+                if !cursor_surface_elements.is_empty() {
+                    let _ =
+                        draw_render_elements(&mut frame, 1.0, &cursor_surface_elements, &[damage]);
+                    false
+                } else {
+                    true
+                }
+            }
+        };
+
+        if draw_fallback_arrow {
+            draw_fallback_cursor_arrow(&mut frame, sx, sy, damage)?;
+        }
+    }
+
+    let _ = frame.finish()?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Fallback arrow cursor
+// ---------------------------------------------------------------------------
+
+/// Tiny software arrow drawn when the themed cursor fails to load.
+fn draw_fallback_cursor_arrow<F>(
+    frame: &mut F,
+    sx: f32,
+    sy: f32,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>>
+where
+    F: smithay::backend::renderer::Frame,
+    F::Error: std::error::Error + 'static,
+{
+    let cx = sx.round() as i32;
+    let cy = sy.round() as i32;
+    let shadow = Color32F::new(0.0, 0.0, 0.0, 0.40);
+    let outline = Color32F::new(0.0, 0.0, 0.0, 0.98);
+    let fill = Color32F::new(1.0, 1.0, 1.0, 0.96);
+
+    draw_rect(frame, cx + 2, cy + 2, 2, 14, shadow, damage)?;
+    draw_rect(frame, cx + 2, cy + 2, 10, 2, shadow, damage)?;
+    draw_rect(frame, cx + 4, cy + 8, 8, 2, shadow, damage)?;
+    draw_rect(frame, cx, cy, 2, 14, outline, damage)?;
+    draw_rect(frame, cx, cy, 10, 2, outline, damage)?;
+    draw_rect(frame, cx + 3, cy + 7, 8, 2, outline, damage)?;
+    draw_rect(frame, cx + 1, cy + 1, 1, 12, fill, damage)?;
+    draw_rect(frame, cx + 1, cy + 1, 8, 1, fill, damage)?;
+    draw_rect(frame, cx + 4, cy + 8, 6, 1, fill, damage)?;
+    Ok(())
+}

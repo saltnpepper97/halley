@@ -1,0 +1,11 @@
+[package]
+name = "halley"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+session-libseat = ["halley-wl/session-libseat"]
+
+[dependencies]
+halley-wl = { path = "../halley-wl", default-features = false }

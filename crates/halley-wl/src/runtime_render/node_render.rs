@@ -1,0 +1,529 @@
+use std::collections::HashMap;
+use std::error::Error;
+use std::time::Instant;
+
+use smithay::{
+    backend::renderer::{
+        Color32F, Frame,
+        element::{Kind, surface::render_elements_from_surface_tree},
+        gles::GlesRenderer,
+    },
+    desktop::utils::bbox_from_surface_tree,
+    reexports::wayland_server::Resource,
+    utils::{Physical, Rectangle, Size},
+};
+
+use crate::interaction::types::{ResizeCtx, ResizeHandle};
+use crate::state::HalleyWlState;
+use crate::surface::window_geometry_for_node;
+
+use super::anim_utils::{
+    active_surface_render_scale, ease_in_out_cubic, ease_out_back, proxy_anim_scale,
+};
+use super::render_utils::{
+    draw_outline_rect, draw_rect, node_marker_bounds, node_marker_metrics, preview_proxy_size,
+    sync_node_size_from_surface, world_to_screen,
+};
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/// Snapshot of per-node data captured before any mutable frame calls so that
+/// node iteration and drawing stay in separate, borrow-clean passes.
+pub(crate) struct NodeSnapshot {
+    pub id: halley_core::field::NodeId,
+    pub state: halley_core::field::NodeState,
+    pub pos: halley_core::field::Vec2,
+    pub intrinsic_size: halley_core::field::Vec2,
+    pub label: String,
+}
+
+// ---------------------------------------------------------------------------
+// Active surface collection
+// ---------------------------------------------------------------------------
+
+/// Build render elements for every active toplevel surface and collect the
+/// geometry/debug overlays that belong to this pass.
+///
+/// Returns:
+/// - Wayland surface render elements in draw order
+/// - `node_surface_map` for later use by hover-preview and cursor collection
+/// - geometry overlay rects/points (only populated with `dev_show_geometry_overlay`)
+/// - overlap overlay rects (windows that visually overlap the resize target)
+pub(crate) fn collect_active_surfaces(
+    renderer: &mut GlesRenderer,
+    st: &mut HalleyWlState,
+    size: Size<i32, Physical>,
+    resize_preview: Option<ResizeCtx>,
+    now: Instant,
+) -> (
+    Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>,
+    HashMap<
+        halley_core::field::NodeId,
+        smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    >,
+    Vec<(i32, i32, i32, i32, Color32F)>, // overlay_rects
+    Vec<(i32, i32, Color32F)>,           // overlay_points
+    Vec<(i32, i32, i32, i32)>,           // overlap_overlay_rects
+) {
+    let mut active_elements = Vec::new();
+    let mut node_surface_map = HashMap::new();
+    let mut overlay_rects: Vec<(i32, i32, i32, i32, Color32F)> = Vec::new();
+    let mut overlay_points: Vec<(i32, i32, Color32F)> = Vec::new();
+    let mut overlap_overlay_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
+
+    let resize_rect_px = resize_preview.map(|rz| {
+        (
+            rz.preview_left_px.min(rz.preview_right_px).round() as i32,
+            rz.preview_top_px.min(rz.preview_bottom_px).round() as i32,
+            rz.preview_left_px.max(rz.preview_right_px).round() as i32,
+            rz.preview_top_px.max(rz.preview_bottom_px).round() as i32,
+            rz.node_id,
+        )
+    });
+
+    let mut wl_surfaces: Vec<_> = if st.overview_mode_active() {
+        Vec::new()
+    } else {
+        st.xdg_shell_state
+            .toplevel_surfaces()
+            .into_iter()
+            .filter_map(|t| {
+                let wl = t.wl_surface().clone();
+                let key = wl.id();
+                let node_id = st.surface_to_node.get(&key).copied()?;
+                node_surface_map.insert(node_id, wl.clone());
+                Some((node_id, wl))
+            })
+            .collect()
+    };
+
+    if st.tuning.new_window_on_top {
+        wl_surfaces.sort_by_key(|(id, _)| std::cmp::Reverse(id.as_u64()));
+    } else {
+        wl_surfaces.sort_by_key(|(id, _)| id.as_u64());
+    }
+
+    for (node_id, wl) in wl_surfaces {
+        let bbox = if resize_preview.is_some_and(|rz| rz.node_id == node_id) {
+            // During interactive resize the live client bbox must not feed back
+            // into node size; the resize path is authoritative.
+            bbox_from_surface_tree(&wl, (0, 0))
+        } else {
+            sync_node_size_from_surface(st, node_id, &wl)
+        };
+
+        let Some(node) = st.field.node(node_id) else {
+            continue;
+        };
+        if node.state != halley_core::field::NodeState::Active || !st.field.is_visible(node_id) {
+            continue;
+        }
+
+        let node_pos = node.pos;
+        let node_state = node.state.clone();
+        let node_intrinsic = node.intrinsic_size;
+        let transition_alpha = st.active_transition_alpha(node_id, now);
+        let anim = st.anim_style_for(node_id, node_state, now);
+        let resizing_this_node = resize_preview.is_some_and(|rz| rz.node_id == node_id);
+
+        let (scale, live_ramp) = if resizing_this_node {
+            (1.0f32, 1.0f32)
+        } else {
+            let s = active_surface_render_scale(
+                anim.scale,
+                st.active_zoom_lock_scale(),
+                node_intrinsic.x,
+                node_intrinsic.y,
+                transition_alpha,
+            );
+            let live_t = ((anim.scale - 0.44) / (1.0 - 0.44)).clamp(0.0, 1.0);
+            let live_ramp = if transition_alpha > 0.0 {
+                ease_out_back((1.0 - transition_alpha).clamp(0.0, 1.0), 1.42).clamp(0.0, 1.08)
+            } else {
+                ease_in_out_cubic(live_t).clamp(0.0, 1.0)
+            };
+            (s, live_ramp)
+        };
+
+        // Anchor by node centre so zoom doesn't slide full windows.
+        let p = st.smoothed_render_pos(node_id, node_pos, now);
+        let (cx, cy, sx, sy) = if let Some(rz) = resize_preview.filter(|rz| rz.node_id == node_id) {
+            let bw = bbox.size.w.max(1);
+            let bh = bbox.size.h.max(1);
+            let bl = bbox.loc.x;
+            let bt = bbox.loc.y;
+            let sx = match rz.handle {
+                ResizeHandle::Left | ResizeHandle::TopLeft | ResizeHandle::BottomLeft => {
+                    rz.preview_right_px.round() as i32 - bw - bl
+                }
+                ResizeHandle::Right
+                | ResizeHandle::TopRight
+                | ResizeHandle::BottomRight
+                | ResizeHandle::Top
+                | ResizeHandle::Bottom => rz.preview_left_px.round() as i32 - bl,
+            };
+            let sy = match rz.handle {
+                ResizeHandle::Top | ResizeHandle::TopLeft | ResizeHandle::TopRight => {
+                    rz.preview_bottom_px.round() as i32 - bh - bt
+                }
+                ResizeHandle::Bottom
+                | ResizeHandle::BottomLeft
+                | ResizeHandle::BottomRight
+                | ResizeHandle::Left
+                | ResizeHandle::Right => rz.preview_top_px.round() as i32 - bt,
+            };
+            let cx = ((rz.preview_left_px + rz.preview_right_px) * 0.5).round() as i32;
+            let cy = ((rz.preview_top_px + rz.preview_bottom_px) * 0.5).round() as i32;
+            (cx, cy, sx, sy)
+        } else {
+            let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
+            let sw = ((bbox.size.w as f32) * scale).round() as i32;
+            let sh = ((bbox.size.h as f32) * scale).round() as i32;
+            let lx = ((bbox.loc.x as f32) * scale).round() as i32;
+            let ly = ((bbox.loc.y as f32) * scale).round() as i32;
+            (cx, cy, cx - (sw / 2) - lx, cy - (sh / 2) - ly)
+        };
+
+        if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {
+            let (geo_lx, geo_ly, geo_w, geo_h) = window_geometry_for_node(st, node_id).unwrap_or((
+                0.0,
+                0.0,
+                node_intrinsic.x,
+                node_intrinsic.y,
+            ));
+            let nx0 = sx + ((geo_lx * scale).round() as i32);
+            let ny0 = sy + ((geo_ly * scale).round() as i32);
+            let nw = ((geo_w * scale).round() as i32).max(1);
+            let nh = ((geo_h * scale).round() as i32).max(1);
+            overlay_rects.push((nx0, ny0, nw, nh, Color32F::new(0.15, 0.85, 0.85, 0.95)));
+            overlay_rects.push((nx0, ny0, nw, nh, Color32F::new(0.95, 0.25, 0.85, 0.95)));
+            overlay_points.push((cx, cy, Color32F::new(0.98, 0.92, 0.22, 0.95)));
+        }
+
+        if let Some((rl, rt, rr, rb, rid)) = resize_rect_px {
+            if node_id != rid {
+                let rw = ((bbox.size.w as f32) * scale).round() as i32;
+                let rh = ((bbox.size.h as f32) * scale).round() as i32;
+                let rx = sx + ((bbox.loc.x as f32) * scale).round() as i32;
+                let ry = sy + ((bbox.loc.y as f32) * scale).round() as i32;
+                let wl2 = rx;
+                let wt = ry;
+                let wr = rx + rw.max(1);
+                let wb = ry + rh.max(1);
+                if wl2 < rr && rl < wr && wt < rb && rt < wb {
+                    overlap_overlay_rects.push((rx, ry, rw.max(1), rh.max(1)));
+                }
+            }
+        }
+
+        active_elements.extend(render_elements_from_surface_tree(
+            renderer,
+            &wl,
+            (sx, sy),
+            scale as f64,
+            (anim.alpha * live_ramp).clamp(0.0, 1.0),
+            Kind::Unspecified,
+        ));
+    }
+
+    (
+        active_elements,
+        node_surface_map,
+        overlay_rects,
+        overlay_points,
+        overlap_overlay_rects,
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Hover preview collection
+// ---------------------------------------------------------------------------
+
+/// Build the clipped render elements for the floating hover-preview window.
+pub(crate) fn collect_hover_preview(
+    renderer: &mut GlesRenderer,
+    st: &mut HalleyWlState,
+    size: Size<i32, Physical>,
+    node_surface_map: &HashMap<
+        halley_core::field::NodeId,
+        smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    >,
+    hovered_preview_id: Option<halley_core::field::NodeId>,
+    hover_node: Option<halley_core::field::NodeId>,
+    now: Instant,
+) -> (
+    Option<(i32, i32, i32, i32)>,
+    Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>,
+) {
+    let _ = hover_node; // reserved for future label-highlight parity
+
+    let Some((preview_id, preview_mix_raw)) = st.node_preview_hover_anim(hovered_preview_id) else {
+        return (None, Vec::new());
+    };
+    let Some(wl) = node_surface_map.get(&preview_id) else {
+        return (None, Vec::new());
+    };
+    let Some((node_state, node_pos, label_len)) = st
+        .field
+        .node(preview_id)
+        .map(|n| (n.state.clone(), n.pos, n.label.len()))
+    else {
+        return (None, Vec::new());
+    };
+
+    if !matches!(
+        node_state,
+        halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+    ) {
+        return (None, Vec::new());
+    }
+
+    let bbox = bbox_from_surface_tree(wl, (0, 0));
+    if bbox.size.w <= 0 || bbox.size.h <= 0 {
+        return (None, Vec::new());
+    }
+
+    let preview_mix = ease_in_out_cubic(preview_mix_raw.clamp(0.0, 1.0));
+    let anim = st.anim_style_for(preview_id, node_state.clone(), now);
+
+    const PROXY_TO_MARKER_START: f32 = 0.50;
+    const PROXY_TO_MARKER_END: f32 = 0.20;
+    let marker_mix_lin = ((PROXY_TO_MARKER_START - anim.scale)
+        / (PROXY_TO_MARKER_START - PROXY_TO_MARKER_END))
+        .clamp(0.0, 1.0);
+    let marker_mix = ease_in_out_cubic(marker_mix_lin);
+
+    let p_smooth = st.smoothed_render_pos(preview_id, node_pos, now);
+    let p = halley_core::field::Vec2 {
+        x: p_smooth.x + (node_pos.x - p_smooth.x) * marker_mix,
+        y: p_smooth.y + (node_pos.y - p_smooth.y) * marker_mix,
+    };
+    let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
+
+    let (dot_half_raw, label_gap, mut label_w, mut label_h) =
+        node_marker_metrics(st, label_len, anim.scale);
+    let dot_half = ((dot_half_raw as f32) * 1.36).round() as i32;
+    label_w = ((label_w as f32) * 1.22).round() as i32;
+    label_h = ((label_h as f32) * 1.22).round() as i32;
+    let min_h = dot_half * 2;
+    label_h = label_h.max(min_h);
+    let visual_h = (dot_half * 2).max(label_h);
+    let render_pad = 8;
+    let (bx, by, bw, bh) =
+        node_marker_bounds(cx, cy, dot_half, label_gap, label_w, visual_h, render_pad);
+
+    let mut preview_size_base = ((size.w.min(size.h) as f32) * 0.30).round() as i32;
+    preview_size_base = preview_size_base.clamp(220, 360);
+    let inset = 10i32;
+    let source_side = bbox.size.w.max(bbox.size.h).max(1);
+    let base_side = (source_side + inset * 2).clamp(120, preview_size_base);
+    let preview_size = ((base_side as f32) * (0.94 + 0.06 * preview_mix))
+        .round()
+        .max(120.0) as i32;
+
+    let anchor_cx = bx + (bw / 2);
+    let anchor_cy = by + (bh / 2);
+    let mut preview_x = anchor_cx - (preview_size / 2);
+    let mut preview_y = anchor_cy - (preview_size / 2);
+    preview_x = preview_x.clamp(10, (size.w - preview_size - 10).max(10));
+    preview_y = preview_y.clamp(10, (size.h - preview_size - 10).max(10));
+
+    let sx = preview_x + inset - bbox.loc.x;
+    let sy = preview_y + inset - bbox.loc.y;
+    let alpha = (preview_mix * preview_mix).clamp(0.0, 1.0);
+
+    let elements =
+        render_elements_from_surface_tree(renderer, wl, (sx, sy), 1.0f64, alpha, Kind::Unspecified);
+
+    (
+        Some((preview_x, preview_y, preview_size, preview_size)),
+        elements,
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Node marker drawing
+// ---------------------------------------------------------------------------
+
+/// Draw the decayed node dots / proxy thumbnails / marker labels for every
+/// visible non-Active node.
+pub(crate) fn draw_node_markers<F>(
+    frame: &mut F,
+    st: &mut HalleyWlState,
+    size: Size<i32, Physical>,
+    render_nodes: &[NodeSnapshot],
+    hover_node: Option<halley_core::field::NodeId>,
+    damage: Rectangle<i32, Physical>,
+    now: Instant,
+) -> Result<(), Box<dyn Error>>
+where
+    F: Frame,
+    F::Error: std::error::Error + 'static,
+{
+    for NodeSnapshot {
+        id,
+        state: node_state,
+        pos: node_pos,
+        intrinsic_size,
+        label: node_label,
+    } in render_nodes
+    {
+        let id = *id;
+        let node_pos = *node_pos;
+        let intrinsic_size = *intrinsic_size;
+
+        let anim = st.anim_style_for(id, node_state.clone(), now);
+        let p_smooth = st.smoothed_render_pos(id, node_pos, now);
+
+        if !matches!(
+            node_state,
+            halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+        ) {
+            continue;
+        }
+
+        const PROXY_TO_MARKER_START: f32 = 0.50;
+        const PROXY_TO_MARKER_END: f32 = 0.20;
+        let marker_mix_lin = ((PROXY_TO_MARKER_START - anim.scale)
+            / (PROXY_TO_MARKER_START - PROXY_TO_MARKER_END))
+            .clamp(0.0, 1.0);
+        let marker_mix = ease_in_out_cubic(marker_mix_lin);
+        let proxy_mix = 1.0 - marker_mix;
+
+        // Blend toward logical position as marker appears to reduce tail lag.
+        let p = halley_core::field::Vec2 {
+            x: p_smooth.x + (node_pos.x - p_smooth.x) * marker_mix,
+            y: p_smooth.y + (node_pos.y - p_smooth.y) * marker_mix,
+        };
+        let (sx, sy) = world_to_screen(st, size.w, size.h, p.x, p.y);
+
+        let (dot_half_raw, mut label_gap, mut label_w, mut label_h) =
+            node_marker_metrics(st, node_label.len(), anim.scale);
+
+        let hover_mix = ease_in_out_cubic(st.node_label_hover_mix(id, hover_node == Some(id)));
+        label_gap += (8.0 * hover_mix).round() as i32;
+        label_w = ((label_w as f32) * (1.0 + 1.25 * hover_mix)).round() as i32;
+        label_h = ((label_h as f32) * (1.0 + 0.95 * hover_mix)).round() as i32;
+        let dot_half = ((dot_half_raw as f32) * 1.36).round() as i32;
+        label_w = ((label_w as f32) * 1.22).round() as i32;
+        label_h = ((label_h as f32) * 1.22).round() as i32;
+        let min_h = ((dot_half * 2) as f32 + 8.0 * hover_mix).round() as i32;
+        label_h = label_h.max(min_h);
+        let visual_h = (dot_half * 2).max(label_h);
+        let render_pad = (8.0 + 6.0 * hover_mix).round() as i32;
+        let (bx, by, bw, bh) =
+            node_marker_bounds(sx, sy, dot_half, label_gap, label_w, visual_h, render_pad);
+
+        let mut container_x = bx;
+        let mut container_y = by;
+        let mut container_w = bw;
+        let mut container_h = bh;
+        let label_w_px = label_w;
+        let label_h_px = visual_h;
+
+        // ---- Proxy thumbnail (fades into marker) ---------------------------
+        if proxy_mix > 0.01 {
+            let proxy_t = ((anim.scale - 0.30) / (0.62 - 0.30)).clamp(0.0, 1.0);
+            let proxy_alpha = (anim.alpha * proxy_t * proxy_t * proxy_mix * proxy_mix * proxy_mix)
+                .clamp(0.0, 1.0);
+
+            let (pw, ph) = preview_proxy_size(intrinsic_size.x, intrinsic_size.y);
+            let s = proxy_anim_scale(anim.scale);
+            let pw = pw * s;
+            let ph = ph * s;
+            let px = p.x - pw * 0.5;
+            let py = p.y - ph * 0.5;
+            let qx = p.x + pw * 0.5;
+            let qy = p.y + ph * 0.5;
+            let (sx0, sy0) = world_to_screen(st, size.w, size.h, px, py);
+            let (sx1, sy1) = world_to_screen(st, size.w, size.h, qx, qy);
+            let p0x = sx0.min(sx1);
+            let p0y = sy0.min(sy1);
+            let p0w = (sx0.max(sx1) - p0x).max(8);
+            let p0h = (sy0.max(sy1) - p0y).max(8);
+
+            let x = ((p0x as f32) + ((bx - p0x) as f32) * marker_mix).round() as i32;
+            let y = ((p0y as f32) + ((by - p0y) as f32) * marker_mix).round() as i32;
+            let w = ((p0w as f32) + ((bw - p0w) as f32) * marker_mix)
+                .round()
+                .max(8.0) as i32;
+            let h = ((p0h as f32) + ((bh - p0h) as f32) * marker_mix)
+                .round()
+                .max(8.0) as i32;
+
+            container_x = x;
+            container_y = y;
+            container_w = w;
+            container_h = h;
+
+            draw_rect(
+                frame,
+                x,
+                y,
+                w,
+                h,
+                Color32F::new(0.18, 0.18, 0.18, 0.58 * proxy_alpha),
+                damage,
+            )?;
+            draw_outline_rect(
+                frame,
+                x,
+                y,
+                w,
+                h,
+                Color32F::new(1.0, 1.0, 1.0, 0.62 * proxy_alpha),
+                damage,
+            )?;
+        }
+
+        // ---- Marker + label ------------------------------------------------
+        let dot_alpha = (anim.alpha * marker_mix).clamp(0.0, 1.0);
+        if dot_alpha <= 0.01 {
+            continue;
+        }
+
+        let inner = (8.0 + 3.0 * hover_mix).round() as i32;
+        let dot_d = dot_half * 2;
+        let dot_x = container_x + inner;
+        let dot_y = container_y + ((container_h - dot_d) / 2);
+        let mut gap_px = label_gap.max(8);
+        let right_limit = container_x + container_w - inner;
+        let min_label_w = 10;
+        let mut label_x = dot_x + dot_d + gap_px;
+        let label_y = container_y + ((container_h - label_h_px) / 2);
+        let mut max_label_w = right_limit - label_x;
+
+        if max_label_w < min_label_w {
+            let need = min_label_w - max_label_w;
+            let reducible = gap_px.saturating_sub(4);
+            let cut = need.min(reducible);
+            gap_px -= cut;
+            label_x = dot_x + dot_d + gap_px;
+            max_label_w = right_limit - label_x;
+        }
+
+        let label_draw_w = label_w_px.min(max_label_w.max(min_label_w));
+
+        draw_rect(
+            frame,
+            label_x,
+            label_y,
+            label_draw_w,
+            label_h_px,
+            Color32F::new(1.0, 1.0, 1.0, 0.88 * dot_alpha),
+            damage,
+        )?;
+        draw_rect(
+            frame,
+            dot_x,
+            dot_y,
+            dot_d,
+            dot_d,
+            Color32F::new(0.88, 0.88, 0.88, 0.80 * dot_alpha),
+            damage,
+        )?;
+    }
+    Ok(())
+}
