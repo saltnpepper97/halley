@@ -1,4 +1,4 @@
-## Halley (Comet Desktop)
+## Halley
 
 `halley-wl` can run nested (`winit`) or on tty.
 
