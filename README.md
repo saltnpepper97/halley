@@ -11,7 +11,7 @@
 
 ### Xwayland via xwayland-satellite
 
-Halley now supports X11 apps through `xwayland-satellite` (recommended first step before native XWM integration).
+Halley now supports X11 apps through `xwayland-satellite`.
 
 Default behavior is on-demand (no env needed): Halley requests satellite startup when launching apps.
 
