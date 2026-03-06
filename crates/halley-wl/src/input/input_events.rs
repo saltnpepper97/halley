@@ -44,7 +44,7 @@ fn is_modifier_keycode(code: u32) -> bool {
         | 126 // Right Super / Meta
         | 58  // Caps Lock
         | 69  // Num Lock
-        | 70  // Scroll Lock
+        | 70 // Scroll Lock
     )
 }
 

@@ -70,9 +70,18 @@ impl HalleyWlState {
         let now_ms = self.now_ms(now);
         self.pan_dominant_until_ms = now_ms.saturating_add(220);
         if self.tuning.restore_last_active_on_pan_return {
-            // Refresh on every pan input so restore target follows the most recent
-            // active surface across successive pan cycles.
-            self.pan_restore_active_focus = self.last_focused_active_surface_node();
+            // Only capture the restore target on the FIRST pan event of each
+            // pan session. Refreshing on every event overwrites the target
+            // with None as soon as the node decays away from Active state,
+            // which permanently breaks restoration for that pan cycle.
+            //
+            // The target is cleared by restore_pan_return_active_focus once
+            // restoration fires, or by set_interaction_focus when the user
+            // explicitly focuses a different window — so successive pan
+            // sessions always start with a fresh capture.
+            if self.pan_restore_active_focus.is_none() {
+                self.pan_restore_active_focus = self.last_focused_active_surface_node();
+            }
         }
         self.suspend_overlap_resolve = false;
         self.suspend_state_checks = false;
@@ -171,8 +180,32 @@ impl HalleyWlState {
         if rings.zone(self.viewport.center, n.pos) != RingZone::Primary {
             return;
         }
+
+        // If the restore target is one half of a docked pair, reopen both —
+        // they were focused together and should return together.
+        let partner = self.docked_links.get(&id).and_then(|link| {
+            let pid = link.partner;
+            self.docked_links
+                .get(&pid)
+                .is_some_and(|back| back.partner == id)
+                .then_some(pid)
+        });
+
         let _ = self.field.set_decay_level(id, DecayLevel::Hot);
         self.mark_active_transition(id, now, 280);
+
+        if let Some(pid) = partner {
+            if self.field.is_visible(pid)
+                && self.field.node(pid).is_some_and(|pn| {
+                    pn.kind == halley_core::field::NodeKind::Surface
+                        && pn.state != halley_core::field::NodeState::Active
+                })
+            {
+                let _ = self.field.set_decay_level(pid, DecayLevel::Hot);
+                self.mark_active_transition(pid, now, 280);
+            }
+        }
+
         self.set_interaction_focus(Some(id), 12_000, now);
         self.pan_restore_active_focus = None;
     }
@@ -196,16 +229,11 @@ impl HalleyWlState {
             self.resize_static_node = Some(id);
             self.resize_static_lock_pos = self.field.node(id).map(|n| n.pos);
             self.resize_static_until_ms = self.now_ms(now).saturating_add(1_200);
-            // Keep keyboard routing on the just-resized surface instead of dropping
-            // focus immediately; resize/layout follow-up should not steal typing.
             self.set_interaction_focus(Some(id), 30_000, now);
         } else {
             self.resize_static_lock_pos = None;
             self.set_interaction_focus(None, 0, now);
         }
-        // Resume runtime checks immediately so overlap is recomputed as soon as
-        // resize ends. The resized node remains protected by resize_static_*,
-        // while surrounding windows can settle right away.
         self.suspend_state_checks = false;
         self.suspend_overlap_resolve = false;
         self.enforce_docked_pairs();
@@ -229,13 +257,8 @@ impl HalleyWlState {
             if id.is_some() {
                 let now_ms = self.now_ms(now);
                 let requested_until = now_ms.saturating_add(hold_ms.max(1));
-                // Refreshing focus for the same surface should never shorten
-                // an already longer focus lease.
                 self.interaction_focus_until_ms =
                     self.interaction_focus_until_ms.max(requested_until);
-                // Input can drift out-of-sync with internal focus state after
-                // client/toolkit focus transitions; cheaply reassert keyboard
-                // focus without touching toplevel configure state.
                 self.reassert_wayland_keyboard_focus_if_drifted(id);
             } else {
                 self.interaction_focus_until_ms = 0;
@@ -252,6 +275,13 @@ impl HalleyWlState {
                     n.kind == halley_core::field::NodeKind::Surface && self.field.is_visible(fid)
                 }) {
                     self.last_surface_focus_ms.insert(fid, now_ms);
+
+                    // Update the pan-restore target whenever the user explicitly
+                    // focuses a new Surface window so that panning away from it
+                    // and back will restore it — not the old pre-focus target.
+                    if self.tuning.restore_last_active_on_pan_return {
+                        self.pan_restore_active_focus = Some(fid);
+                    }
                 }
             }
         } else {

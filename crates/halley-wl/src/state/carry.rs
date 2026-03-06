@@ -38,7 +38,7 @@ impl HalleyWlState {
     const DOCK_SNAP_DIST: f32 = 84.0;
     const DOCK_DWELL_MS: u64 = 360;
 
-    fn dock_partner(&self, id: NodeId) -> Option<NodeId> {
+    pub(crate) fn dock_partner(&self, id: NodeId) -> Option<NodeId> {
         self.docked_links.get(&id).map(|l| l.partner)
     }
 
@@ -251,7 +251,6 @@ impl HalleyWlState {
             return;
         }
         let now_ms = self.now_ms(Instant::now());
-        let rings = self.active_rings();
         let pairs = self.docked_pairs();
 
         for (a, b) in pairs {
@@ -306,31 +305,22 @@ impl HalleyWlState {
             let b_overflow = self.dock_outward_edge_overflow(b_pos, b_edge_fp, link_b.side);
 
             // Collapse when the outward edge exits the viewport (overflow > 0).
-            // Reopen only when the edge has returned by at least reopen_clearance
-            // world units.  Without this dead-band the collapsed (shrunken)
-            // footprint immediately makes overflow go negative, triggering reopen,
-            // which restores the full footprint, making overflow positive again —
-            // causing the active<->node flicker at the boundary.
+            // Do NOT auto-reopen Cold nodes here based on coverage — that
+            // bypasses focus history and causes docked pairs to pop open
+            // whenever they drift into the primary zone, even if a completely
+            // different window was focused last.
             //
-            // Scale the clearance with the current gap so it stays proportional
-            // to window spacing at any zoom level.
-            let gap = self.non_overlap_gap_world();
-            let reopen_clearance = (gap * 3.0).max(24.0);
-            const REOPEN_FRAC: f32 = 0.08;
-
-            let (a_primary, _, _) = self.ring_coverage_fractions(a_pos, a_edge_fp, rings);
-            let (b_primary, _, _) = self.ring_coverage_fractions(b_pos, b_edge_fp, rings);
-
+            // Targeted reopening of the last-focused node (docked or otherwise)
+            // is handled exclusively by restore_pan_return_active_focus.
             let decay_a = if a_overflow > 0.0 {
+                // Outward edge left the viewport — collapse.
                 DecayLevel::Cold
             } else if a_state == halley_core::field::NodeState::Active {
+                // Active and on-screen — keep it.
                 DecayLevel::Hot
             } else {
-                if a_overflow <= -reopen_clearance && a_primary >= REOPEN_FRAC {
-                    DecayLevel::Hot
-                } else {
-                    DecayLevel::Cold
-                }
+                // Cold and on-screen: stay Cold until focus logic reopens it.
+                DecayLevel::Cold
             };
 
             let decay_b = if b_overflow > 0.0 {
@@ -338,11 +328,7 @@ impl HalleyWlState {
             } else if b_state == halley_core::field::NodeState::Active {
                 DecayLevel::Hot
             } else {
-                if b_overflow <= -reopen_clearance && b_primary >= REOPEN_FRAC {
-                    DecayLevel::Hot
-                } else {
-                    DecayLevel::Cold
-                }
+                DecayLevel::Cold
             };
 
             let _ = self.field.set_decay_level(a, decay_a);
@@ -369,6 +355,7 @@ impl HalleyWlState {
             // the outward edge would re-enter the viewport, and the node would
             // reopen — producing the oscillating collapse/reopen flicker.
             // ------------------------------------------------------------------
+            let gap = self.non_overlap_gap_world();
             match link_b.side {
                 DockSide::Left | DockSide::Right => {
                     let sep = (a_edge_fp.x * 0.5 + b_edge_fp.x * 0.5 + gap).max(0.0);
