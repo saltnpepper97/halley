@@ -65,22 +65,10 @@ impl HalleyWlState {
         let half_x = mover_size.x * 0.5 + target_size.x * 0.5 + gap;
         let half_y = mover_size.y * 0.5 + target_size.y * 0.5 + gap;
         let p = match side {
-            DockSide::Left => Vec2 {
-                x: target_n.pos.x - half_x,
-                y: target_n.pos.y,
-            },
-            DockSide::Right => Vec2 {
-                x: target_n.pos.x + half_x,
-                y: target_n.pos.y,
-            },
-            DockSide::Top => Vec2 {
-                x: target_n.pos.x,
-                y: target_n.pos.y + half_y,
-            },
-            DockSide::Bottom => Vec2 {
-                x: target_n.pos.x,
-                y: target_n.pos.y - half_y,
-            },
+            DockSide::Left   => Vec2 { x: target_n.pos.x - half_x, y: target_n.pos.y },
+            DockSide::Right  => Vec2 { x: target_n.pos.x + half_x, y: target_n.pos.y },
+            DockSide::Top    => Vec2 { x: target_n.pos.x, y: target_n.pos.y + half_y },
+            DockSide::Bottom => Vec2 { x: target_n.pos.x, y: target_n.pos.y - half_y },
         };
         Some(p)
     }
@@ -105,15 +93,8 @@ impl HalleyWlState {
             if self.dock_partner(id).is_some() {
                 continue;
             }
-            for side in [
-                DockSide::Left,
-                DockSide::Right,
-                DockSide::Top,
-                DockSide::Bottom,
-            ] {
-                let Some(snap_pos) = self.dock_side_snap_pos(mover, id, side) else {
-                    continue;
-                };
+            for side in [DockSide::Left, DockSide::Right, DockSide::Top, DockSide::Bottom] {
+                let Some(snap_pos) = self.dock_side_snap_pos(mover, id, side) else { continue };
                 let dx = mover_pos.x - snap_pos.x;
                 let dy = mover_pos.y - snap_pos.y;
                 let d = (dx * dx + dy * dy).sqrt();
@@ -163,30 +144,15 @@ impl HalleyWlState {
     fn insert_dock_pair(&mut self, a: NodeId, b: NodeId) {
         let side_a = self.dock_pending.map(|p| p.side).unwrap_or(DockSide::Left);
         let side_b = side_a.opposite();
-        self.docked_links.insert(
-            a,
-            DockLink {
-                partner: b,
-                side: side_a,
-            },
-        );
-        self.docked_links.insert(
-            b,
-            DockLink {
-                partner: a,
-                side: side_b,
-            },
-        );
+        self.docked_links.insert(a, DockLink { partner: b, side: side_a });
+        self.docked_links.insert(b, DockLink { partner: a, side: side_b });
     }
 
     pub fn clear_docking_for_node(&mut self, id: NodeId) {
         if let Some(link) = self.docked_links.remove(&id) {
             self.docked_links.remove(&link.partner);
         }
-        if self
-            .dock_pending
-            .is_some_and(|p| p.mover == id || p.target == id)
-        {
+        if self.dock_pending.is_some_and(|p| p.mover == id || p.target == id) {
             self.dock_pending = None;
         }
     }
@@ -196,19 +162,14 @@ impl HalleyWlState {
             self.docked_links.remove(&id);
             self.docked_links.remove(&partner);
         }
-        if self
-            .dock_pending
-            .is_some_and(|p| p.mover == id || p.target == id)
-        {
+        if self.dock_pending.is_some_and(|p| p.mover == id || p.target == id) {
             self.dock_pending = None;
         }
     }
 
     pub fn finalize_dock_on_drag_release(&mut self, mover: NodeId, now: Instant) -> bool {
         let now_ms = self.now_ms(now);
-        let Some(pending) = self.dock_pending else {
-            return false;
-        };
+        let Some(pending) = self.dock_pending else { return false };
         if pending.mover != mover || now_ms.saturating_sub(pending.since_ms) < Self::DOCK_DWELL_MS {
             return false;
         }
@@ -216,13 +177,15 @@ impl HalleyWlState {
             n.kind == halley_core::field::NodeKind::Surface && self.field.is_visible(pending.mover)
         });
         let target_ok = self.field.node(pending.target).is_some_and(|n| {
-            n.kind == halley_core::field::NodeKind::Surface && self.field.is_visible(pending.target)
+            n.kind == halley_core::field::NodeKind::Surface
+                && self.field.is_visible(pending.target)
         });
         if !mover_ok || !target_ok {
             self.dock_pending = None;
             return false;
         }
-        if self.dock_partner(pending.mover).is_some() || self.dock_partner(pending.target).is_some()
+        if self.dock_partner(pending.mover).is_some()
+            || self.dock_partner(pending.target).is_some()
         {
             self.dock_pending = None;
             return false;
@@ -243,12 +206,10 @@ impl HalleyWlState {
             self.mark_active_transition(pending.mover, now, 280);
             self.mark_active_transition(pending.target, now, 280);
             if let Some(n) = self.field.node(pending.mover) {
-                self.last_active_size
-                    .insert(pending.mover, n.intrinsic_size);
+                self.last_active_size.insert(pending.mover, n.intrinsic_size);
             }
             if let Some(n) = self.field.node(pending.target) {
-                self.last_active_size
-                    .insert(pending.target, n.intrinsic_size);
+                self.last_active_size.insert(pending.target, n.intrinsic_size);
             }
         }
         self.set_interaction_focus(Some(pending.target), 700, now);
@@ -266,63 +227,21 @@ impl HalleyWlState {
     }
 
     #[inline]
-    fn dock_node_target_decay(
-        &self,
-        p_primary: f32,
-        p_outside: f32,
-        was_active: bool,
-    ) -> DecayLevel {
-        // Docked edge behavior:
-        // - if a node is clearly offscreen, allow it to collapse to Node
-        // - if it comes back on-screen enough, reopen to Active
-        // This avoids forcing both sides open while panning at edges.
-        const ACTIVE_RETAIN_FRAC: f32 = 0.04;
-        const ACTIVE_ENTER_FRAC: f32 = 0.10;
-        const OUTSIDE_ENTER_FRAC: f32 = 0.90;
-        if was_active {
-            if p_primary >= ACTIVE_RETAIN_FRAC || p_outside < OUTSIDE_ENTER_FRAC {
-                DecayLevel::Hot
-            } else {
-                DecayLevel::Cold
-            }
-        } else if p_primary >= ACTIVE_ENTER_FRAC {
-            DecayLevel::Hot
-        } else {
-            DecayLevel::Cold
-        }
-    }
-
-    #[inline]
-    fn dock_outward_edge_overflow(
-        &self,
-        pos: Vec2,
-        footprint: Vec2,
-        outward_side: DockSide,
-    ) -> f32 {
+    fn dock_outward_edge_overflow(&self, pos: Vec2, footprint: Vec2, outward_side: DockSide) -> f32 {
         let vp = self.viewport.rect();
-        let half = Vec2 {
-            x: footprint.x * 0.5,
-            y: footprint.y * 0.5,
-        };
-        let min_x = pos.x - half.x;
-        let max_x = pos.x + half.x;
-        let min_y = pos.y - half.y;
-        let max_y = pos.y + half.y;
+        let half = Vec2 { x: footprint.x * 0.5, y: footprint.y * 0.5 };
         match outward_side {
-            DockSide::Left => vp.min.x - min_x,
-            DockSide::Right => max_x - vp.max.x,
-            DockSide::Top => max_y - vp.max.y,
-            DockSide::Bottom => vp.min.y - min_y,
+            DockSide::Left   => vp.min.x - (pos.x - half.x),
+            DockSide::Right  => (pos.x + half.x) - vp.max.x,
+            DockSide::Top    => (pos.y + half.y) - vp.max.y,
+            DockSide::Bottom => vp.min.y - (pos.y - half.y),
         }
     }
 
     #[inline]
     fn dock_state_eval_footprint(&self, id: NodeId, live: Vec2) -> Vec2 {
         match self.last_active_size.get(&id).copied() {
-            Some(last) => Vec2 {
-                x: live.x.max(last.x),
-                y: live.y.max(last.y),
-            },
+            Some(last) => Vec2 { x: live.x.max(last.x), y: live.y.max(last.y) },
             None => live,
         }
     }
@@ -334,13 +253,14 @@ impl HalleyWlState {
         let now_ms = self.now_ms(Instant::now());
         let rings = self.active_rings();
         let pairs = self.docked_pairs();
+
         for (a, b) in pairs {
             if !self.field.is_visible(a) || !self.field.is_visible(b) {
                 continue;
             }
-            if self.is_recently_resized_node(a, now_ms) || self.is_recently_resized_node(b, now_ms)
+            if self.is_recently_resized_node(a, now_ms)
+                || self.is_recently_resized_node(b, now_ms)
             {
-                // Recently resized node(s): do not apply dock snap correction yet.
                 continue;
             }
             let (Some(link_a), Some(link_b)) = (self.dock_link(a), self.dock_link(b)) else {
@@ -349,6 +269,7 @@ impl HalleyWlState {
             if link_a.partner != b || link_b.partner != a {
                 continue;
             }
+
             let (mid, sa, sb, a_state, b_state, a_pos, b_pos) = {
                 let (Some(na), Some(nb)) = (self.field.node(a), self.field.node(b)) else {
                     continue;
@@ -366,55 +287,67 @@ impl HalleyWlState {
                     nb.pos,
                 )
             };
-            let (a_primary, _a_secondary, a_outside) =
-                self.ring_coverage_fractions(a_pos, sa, rings);
-            let (b_primary, _b_secondary, b_outside) =
-                self.ring_coverage_fractions(b_pos, sb, rings);
-            let mut decay_a = self.dock_node_target_decay(
-                a_primary,
-                a_outside,
-                a_state == halley_core::field::NodeState::Active,
-            );
-            let mut decay_b = self.dock_node_target_decay(
-                b_primary,
-                b_outside,
-                b_state == halley_core::field::NodeState::Active,
-            );
-            // Docked edge rule:
-            // - Collapse side immediately when its outward edge crosses viewport boundary.
-            // - Reopen only when that same outward edge is back inside the viewport.
-            let a_outward_overflow = self.dock_outward_edge_overflow(a_pos, sa, link_a.side);
-            let b_outward_overflow = self.dock_outward_edge_overflow(b_pos, sb, link_b.side);
-            let a_outward_outside = a_outward_overflow > 0.0;
-            let b_outward_outside = b_outward_overflow > 0.0;
-            if a_outward_outside || b_outward_outside {
-                if a_outward_outside {
-                    decay_a = DecayLevel::Cold;
-                }
-                if b_outward_outside {
-                    decay_b = DecayLevel::Cold;
-                }
-                if a_outward_outside && !b_outward_outside {
-                    decay_b = DecayLevel::Hot;
-                } else if b_outward_outside && !a_outward_outside {
-                    decay_a = DecayLevel::Hot;
-                }
+
+            // ------------------------------------------------------------------
+            // Edge-collapse: use the full remembered window size so the trigger
+            // fires at the real content edge, not the shrunken animated footprint.
+            //
+            // Each node is decided independently:
+            //   outward edge exits viewport  → collapse to Node immediately
+            //   outward edge inside viewport → reopen once primary coverage returns
+            //
+            // Only the window going out of bounds collapses; its partner is not
+            // affected by that window's overflow.
+            // ------------------------------------------------------------------
+            let a_edge_fp = self.dock_state_eval_footprint(a, sa);
+            let b_edge_fp = self.dock_state_eval_footprint(b, sb);
+
+            let a_overflow = self.dock_outward_edge_overflow(a_pos, a_edge_fp, link_a.side);
+            let b_overflow = self.dock_outward_edge_overflow(b_pos, b_edge_fp, link_b.side);
+
+            // Collapse when the outward edge exits the viewport (overflow > 0).
+            // Reopen only when the edge has returned by at least reopen_clearance
+            // world units.  Without this dead-band the collapsed (shrunken)
+            // footprint immediately makes overflow go negative, triggering reopen,
+            // which restores the full footprint, making overflow positive again —
+            // causing the active<->node flicker at the boundary.
+            //
+            // Scale the clearance with the current gap so it stays proportional
+            // to window spacing at any zoom level.
+            let gap = self.non_overlap_gap_world();
+            let reopen_clearance = (gap * 3.0).max(24.0);
+            const REOPEN_FRAC: f32 = 0.08;
+
+            let (a_primary, _, _) = self.ring_coverage_fractions(a_pos, a_edge_fp, rings);
+            let (b_primary, _, _) = self.ring_coverage_fractions(b_pos, b_edge_fp, rings);
+
+            let decay_a = if a_overflow > 0.0 {
+                DecayLevel::Cold
+            } else if a_state == halley_core::field::NodeState::Active {
+                DecayLevel::Hot
             } else {
-                let either_hot = matches!(decay_a, DecayLevel::Hot)
-                    || matches!(decay_b, DecayLevel::Hot)
-                    || a_state == halley_core::field::NodeState::Active
-                    || b_state == halley_core::field::NodeState::Active;
-                let coupled = if either_hot {
+                if a_overflow <= -reopen_clearance && a_primary >= REOPEN_FRAC {
                     DecayLevel::Hot
                 } else {
                     DecayLevel::Cold
-                };
-                decay_a = coupled;
-                decay_b = coupled;
-            }
+                }
+            };
+
+            let decay_b = if b_overflow > 0.0 {
+                DecayLevel::Cold
+            } else if b_state == halley_core::field::NodeState::Active {
+                DecayLevel::Hot
+            } else {
+                if b_overflow <= -reopen_clearance && b_primary >= REOPEN_FRAC {
+                    DecayLevel::Hot
+                } else {
+                    DecayLevel::Cold
+                }
+            };
 
             let _ = self.field.set_decay_level(a, decay_a);
             let _ = self.field.set_decay_level(b, decay_b);
+
             if decay_a == DecayLevel::Hot {
                 if let Some(n) = self.field.node(a) {
                     self.last_active_size.insert(a, n.intrinsic_size);
@@ -425,13 +358,20 @@ impl HalleyWlState {
                     self.last_active_size.insert(b, n.intrinsic_size);
                 }
             }
-            // Keep docked pairs centered on their shared anchor in both minimized
-            // and reopened states, while preserving orientation and non-overlap.
-            // This prevents midpoint drift when footprints change during reopen.
-            let gap = self.non_overlap_gap_world();
+
+            // ------------------------------------------------------------------
+            // Positional correction — keep the pair centred on their shared
+            // anchor so midpoint doesn't drift when footprints change.
+            //
+            // Use a_edge_fp/b_edge_fp (remembered full sizes) rather than the
+            // live sa/sb.  If we used the animated/shrunken sizes here, sep would
+            // shrink as a node collapses, carry() would move both nodes inward,
+            // the outward edge would re-enter the viewport, and the node would
+            // reopen — producing the oscillating collapse/reopen flicker.
+            // ------------------------------------------------------------------
             match link_b.side {
                 DockSide::Left | DockSide::Right => {
-                    let sep = (sa.x * 0.5 + sb.x * 0.5 + gap).max(0.0);
+                    let sep = (a_edge_fp.x * 0.5 + b_edge_fp.x * 0.5 + gap).max(0.0);
                     let half_sep = sep * 0.5;
                     let (ax, bx) = if link_b.side == DockSide::Right {
                         (mid.x - half_sep, mid.x + half_sep)
@@ -442,7 +382,7 @@ impl HalleyWlState {
                     let _ = self.field.carry(b, Vec2 { x: bx, y: mid.y });
                 }
                 DockSide::Top | DockSide::Bottom => {
-                    let sep = (sa.y * 0.5 + sb.y * 0.5 + gap).max(0.0);
+                    let sep = (a_edge_fp.y * 0.5 + b_edge_fp.y * 0.5 + gap).max(0.0);
                     let half_sep = sep * 0.5;
                     let (ay, by) = if link_b.side == DockSide::Top {
                         (mid.y - half_sep, mid.y + half_sep)
@@ -458,9 +398,6 @@ impl HalleyWlState {
 
     #[inline]
     fn zone_eval_footprint_for(&self, id: NodeId, fallback: Vec2) -> Vec2 {
-        // When Active, state transitions should be driven by pointer/zone intent,
-        // not by large window footprint overlap. Use a compact proxy footprint
-        // until the node is noded again.
         if self
             .field
             .node(id)
@@ -478,10 +415,7 @@ impl HalleyWlState {
         footprint: Vec2,
         rings: FocusRings,
     ) -> (f32, f32, f32) {
-        let sample_fp = Vec2 {
-            x: footprint.x.max(48.0),
-            y: footprint.y.max(48.0),
-        };
+        let sample_fp = Vec2 { x: footprint.x.max(48.0), y: footprint.y.max(48.0) };
         let samples = 7usize;
         let mut c_primary = 0usize;
         let mut c_secondary = 0usize;
@@ -495,9 +429,9 @@ impl HalleyWlState {
                     y: pos.y + fy * sample_fp.y,
                 };
                 match rings.zone(self.viewport.center, sp) {
-                    RingZone::Primary => c_primary += 1,
+                    RingZone::Primary   => c_primary   += 1,
                     RingZone::Secondary => c_secondary += 1,
-                    RingZone::Outside => {}
+                    RingZone::Outside   => {}
                 }
                 c_total += 1;
             }
@@ -505,9 +439,9 @@ impl HalleyWlState {
         if c_total == 0 {
             return (0.0, 0.0, 1.0);
         }
-        let p_primary = c_primary as f32 / c_total as f32;
+        let p_primary   = c_primary   as f32 / c_total as f32;
         let p_secondary = c_secondary as f32 / c_total as f32;
-        let p_outside = (1.0 - p_primary - p_secondary).max(0.0);
+        let p_outside   = (1.0 - p_primary - p_secondary).max(0.0);
         (p_primary, p_secondary, p_outside)
     }
 
@@ -518,14 +452,10 @@ impl HalleyWlState {
             self.ring_coverage_fractions(pos, footprint, rings);
         let prev = self.carry_zone_hint.get(&id).copied();
 
-        // Two-state carry rule with strong hysteresis to prevent edge thrash:
-        // - Active is sticky: retain at very low primary overlap
-        // - collapse only when clearly outside
-        // - Node -> Active needs higher overlap to re-enter
         const ACTIVE_RETAIN_FRAC: f32 = 0.04;
         const ACTIVE_ENTER_FRAC: f32 = 0.10;
         const OUTSIDE_ENTER_FRAC: f32 = 0.90;
-        let direct = match prev {
+        let zone = match prev {
             Some(RingZone::Primary) => {
                 if p_primary >= ACTIVE_RETAIN_FRAC {
                     RingZone::Primary
@@ -536,41 +466,22 @@ impl HalleyWlState {
                 }
             }
             Some(RingZone::Secondary) => {
-                if p_primary >= ACTIVE_ENTER_FRAC {
-                    RingZone::Primary
-                } else {
-                    RingZone::Outside
-                }
-            }
-            Some(RingZone::Outside) => {
-                if p_primary >= ACTIVE_ENTER_FRAC {
-                    RingZone::Primary
-                } else {
-                    RingZone::Outside
-                }
+                if p_primary >= ACTIVE_ENTER_FRAC { RingZone::Primary } else { RingZone::Outside }
             }
             _ => {
-                if p_primary >= ACTIVE_ENTER_FRAC {
-                    RingZone::Primary
-                } else {
-                    RingZone::Outside
-                }
+                if p_primary >= ACTIVE_ENTER_FRAC { RingZone::Primary } else { RingZone::Outside }
             }
         };
-        let zone = direct;
         let now_ms = self.now_ms(Instant::now());
         self.carry_zone_last_change_ms.insert(id, now_ms);
         self.carry_zone_pending.remove(&id);
         self.carry_zone_pending_since_ms.remove(&id);
-
         self.carry_zone_hint.insert(id, zone);
         zone
     }
 
     pub fn finalize_mouse_drag_state(&mut self, id: NodeId, pointer_world: Vec2, _now: Instant) {
-        let Some(n) = self.field.node(id) else {
-            return;
-        };
+        let Some(n) = self.field.node(id) else { return };
         if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {
             return;
         }
@@ -581,13 +492,10 @@ impl HalleyWlState {
         } else {
             DecayLevel::Hot
         };
-        // Keep keyboard focus sticky across drag/finalize operations.
         let _ = self.field.set_decay_level(id, target);
     }
 
     pub fn begin_carry_state_tracking(&mut self, id: NodeId) {
-        // If user starts dragging immediately after resize, cancel the short
-        // post-resize lock/cooldown so drag is not fighting a stale lock target.
         if self.resize_static_node == Some(id) {
             self.resize_static_node = None;
             self.resize_static_lock_pos = None;
@@ -614,10 +522,7 @@ impl HalleyWlState {
         self.carry_zone_pending.remove(&id);
         self.carry_zone_pending_since_ms.remove(&id);
         self.carry_activation_anim_armed.remove(&id);
-        if self
-            .dock_pending
-            .is_some_and(|p| p.mover == id || p.target == id)
-        {
+        if self.dock_pending.is_some_and(|p| p.mover == id || p.target == id) {
             self.dock_pending = None;
         }
         self.suspend_overlap_resolve = false;
@@ -627,16 +532,12 @@ impl HalleyWlState {
     }
 
     pub fn update_carry_state_preview(&mut self, id: NodeId, now: Instant) {
-        let Some(n) = self.field.node(id) else {
-            return;
-        };
+        let Some(n) = self.field.node(id) else { return };
         self.update_carry_state_preview_at(id, n.pos, now);
     }
 
     pub fn update_carry_state_preview_at(&mut self, id: NodeId, source_pos: Vec2, now: Instant) {
-        let Some(n) = self.field.node(id) else {
-            return;
-        };
+        let Some(n) = self.field.node(id) else { return };
         let n_kind = n.kind.clone();
         let was_active = n.state == halley_core::field::NodeState::Active;
         let footprint = self.zone_eval_footprint_for(id, self.collision_size_for_node(n));
@@ -645,13 +546,9 @@ impl HalleyWlState {
         }
         let zone = self.zone_for_pos_with_hysteresis(id, source_pos, footprint);
         let target = match zone {
-            // Dragging a Node into center should not auto-promote it to Active.
             RingZone::Primary if was_active => DecayLevel::Hot,
-            RingZone::Primary => DecayLevel::Cold,
-            RingZone::Secondary => DecayLevel::Cold,
-            RingZone::Outside => DecayLevel::Cold,
+            _ => DecayLevel::Cold,
         };
-        // Keep keyboard focus sticky across drag/zone transitions.
         let _ = self.field.set_decay_level(id, target);
         let is_active = self
             .field
