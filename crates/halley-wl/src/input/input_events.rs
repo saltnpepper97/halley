@@ -11,7 +11,7 @@ use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::screen_to_world;
 use crate::state::HalleyWlState;
 
-use super::input_utils::{key_matches, update_mod_state};
+use super::input_utils::{key_matches, modifier_active, update_mod_state};
 use super::key_actions::{apply_bound_key, spawn_terminal};
 use super::pointer_focus::pointer_focus_for_screen;
 use super::pointer_map_debug_enabled;
@@ -24,6 +24,28 @@ fn now_millis_u32() -> u32 {
         .duration_since(UNIX_EPOCH)
         .map(|d| (d.as_millis() & 0xffff_ffff) as u32)
         .unwrap_or(0)
+}
+
+/// Returns true for physical modifier keys (Super, Alt, Ctrl, Shift, Lock).
+///
+/// These are always forwarded to clients so clients can track modifier state
+/// correctly — intercepting them would break client-side keymaps and IMEs.
+#[inline]
+fn is_modifier_keycode(code: u32) -> bool {
+    matches!(
+        code,
+        29  // Left Ctrl
+        | 97  // Right Ctrl
+        | 42  // Left Shift
+        | 54  // Right Shift
+        | 56  // Left Alt
+        | 100 // Right Alt / AltGr
+        | 125 // Left Super / Meta
+        | 126 // Right Super / Meta
+        | 58  // Caps Lock
+        | 69  // Num Lock
+        | 70  // Scroll Lock
+    )
 }
 
 pub(crate) enum BackendInputEventData {
@@ -57,13 +79,43 @@ pub(crate) fn handle_keyboard_input(
     pressed: bool,
 ) {
     update_mod_state(&mut mod_state.borrow_mut(), code, pressed);
+
     if pressed {
         if let Some(fid) = st.last_input_surface_node() {
-            // Keep interaction focus alive while user is actively typing so
-            // keyboard routing does not depend on short focus-hold timers.
             st.set_interaction_focus(Some(fid), 30_000, Instant::now());
         }
     }
+
+    // ------------------------------------------------------------------
+    // Decide whether this key event should be intercepted before it
+    // reaches any client.
+    //
+    // Rule:
+    //   - Modifier keys (Super, Alt, Ctrl, Shift, Lock) are ALWAYS
+    //     forwarded so clients can track modifier state correctly.
+    //   - While the compositor modifier is held, all non-modifier
+    //     presses are intercepted.
+    //   - A release event is intercepted if and only if its matching
+    //     press was intercepted, preventing stuck-key artefacts in
+    //     clients.
+    // ------------------------------------------------------------------
+    let mods = mod_state.borrow().clone();
+    let modifier_held = modifier_active(&mods, st.tuning.keybinds.modifier);
+    let is_mod_key = is_modifier_keycode(code);
+
+    let intercept = if is_mod_key {
+        false
+    } else if pressed {
+        if modifier_held {
+            mod_state.borrow_mut().intercepted_keys.insert(code);
+            true
+        } else {
+            false
+        }
+    } else {
+        mod_state.borrow_mut().intercepted_keys.remove(&code)
+    };
+
     if let Some(keyboard) = st.seat.get_keyboard() {
         let serial = SERIAL_COUNTER.next_serial();
         let key_state = if pressed {
@@ -71,23 +123,37 @@ pub(crate) fn handle_keyboard_input(
         } else {
             KeyState::Released
         };
-        let _ = keyboard.input(
+        keyboard.input::<(), _>(
             st,
             code.into(),
             key_state,
             serial,
             now_millis_u32(),
-            |_, _, _| FilterResult::<()>::Forward,
+            |_, _, _| {
+                if intercept {
+                    FilterResult::Intercept(())
+                } else {
+                    FilterResult::Forward
+                }
+            },
         );
     }
-    if pressed && apply_bound_key(st, code, &mod_state.borrow(), config_path, wayland_display) {
-        backend.request_redraw();
-        return;
-    }
-    let alt_enter = key_matches(code, 28) || key_matches(code, 96);
-    if pressed && mod_state.borrow().alt_down && alt_enter {
-        if !spawn_terminal(wayland_display) {
-            warn!("terminal launch keybind fired, but no terminal could be spawned");
+
+    // Apply compositor bindings after the client filter so that the
+    // intercept decision above is the single authoritative gate.
+    // Modifier key events and releases are never compositor actions.
+    if pressed && !is_mod_key {
+        if apply_bound_key(st, code, &mods, config_path, wayland_display) {
+            backend.request_redraw();
+            return;
+        }
+
+        // Alt+Enter terminal shortcut.
+        let alt_enter = key_matches(code, 28) || key_matches(code, 96);
+        if mods.alt_down && alt_enter {
+            if !spawn_terminal(wayland_display) {
+                warn!("terminal launch keybind fired, but no terminal could be spawned");
+            }
         }
     }
 }
@@ -120,8 +186,6 @@ pub(crate) fn handle_pointer_axis_input(
         );
     }
 
-    // Always forward wheel/axis events to client surfaces under cursor.
-    // Fallback to compositor viewport panning only when not over a surface.
     let now = Instant::now();
     if let Some(focus) = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now) {
         if let Some(pointer) = st.seat.get_pointer() {

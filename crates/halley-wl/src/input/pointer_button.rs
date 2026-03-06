@@ -95,7 +95,7 @@ pub(crate) fn handle_pointer_button_input(
     }
     match button_state {
         ButtonState::Pressed => {
-            let mods = *mod_state.borrow();
+            let mods = mod_state.borrow().clone();
             let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, Instant::now());
             if pointer_map_debug_enabled() {
                 info!(

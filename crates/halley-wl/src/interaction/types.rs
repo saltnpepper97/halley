@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub(crate) struct ModState {
     pub(crate) super_down: bool,
     pub(crate) left_super_down: bool,
@@ -15,6 +15,10 @@ pub(crate) struct ModState {
     pub(crate) shift_down: bool,
     pub(crate) left_shift_down: bool,
     pub(crate) right_shift_down: bool,
+    /// Keys whose press was intercepted by the compositor (not forwarded to
+    /// clients). The matching release must also be intercepted so clients never
+    /// receive an unpaired release event and end up with stuck keys.
+    pub(crate) intercepted_keys: HashSet<u32>,
 }
 
 #[derive(Clone, Copy)]

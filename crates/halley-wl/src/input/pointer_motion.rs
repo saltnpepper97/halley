@@ -77,7 +77,7 @@ pub(crate) fn handle_pointer_motion_absolute(
         pointer.frame(st);
     }
     let p = screen_to_world(st, ws_w, ws_h, sx, sy);
-    let mods = *mod_state.borrow();
+    let mods = mod_state.borrow().clone();
     let drag_mod_ok = modifier_active(&mods, st.tuning.keybinds.modifier);
     let mut ps = pointer_state.borrow_mut();
     ps.world = p;
