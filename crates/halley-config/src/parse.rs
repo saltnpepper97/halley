@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use super::{KeyModifiers, LaunchBinding};
-use crate::keybinds::{modifiers_empty, parse_chord, parse_modifiers, key_name_to_evdev};
-use crate::legacy::{parse_legacy_keybinds, strip_legacy_keybind_block};
+use crate::keybinds::{key_name_to_evdev, modifiers_empty, parse_chord, parse_modifiers};
 use crate::layout::ViewportOutputConfig;
+use crate::legacy::{parse_legacy_keybinds, strip_legacy_keybind_block};
 use crate::RuntimeTuning;
 
 use rune_cfg::RuneConfig;
@@ -12,212 +12,26 @@ impl RuntimeTuning {
     pub fn from_rune_file(path: &str) -> Option<Self> {
         let raw = std::fs::read_to_string(path).ok()?;
         let legacy_keybinds = parse_legacy_keybinds(raw.as_str());
+
         let cfg = RuneConfig::from_file(path).or_else(|_| {
             let sanitized = strip_legacy_keybind_block(raw.as_str());
             RuneConfig::from_str(sanitized.as_str())
         });
         let cfg = cfg.ok()?;
+
         let mut out = Self::default();
 
-        out.tick_ms = pick_u64(&cfg, &["halley.runtime.tick_ms"], out.tick_ms);
-        out.debug_tick_dump = pick_bool(&cfg, &["dev.debug_tick_dump"], out.debug_tick_dump);
-        out.debug_dump_every_ms =
-            pick_u64(&cfg, &["dev.debug_dump_every_ms"], out.debug_dump_every_ms);
-        out.dev_enabled = pick_bool(&cfg, &["dev.enabled"], out.dev_enabled);
-        out.dev_show_geometry_overlay = pick_bool(
-            &cfg,
-            &["dev.show_geometry_overlay"],
-            out.dev_show_geometry_overlay,
-        );
-        out.dev_zoom_decay_enabled = pick_bool(
-            &cfg,
-            &["dev.zoom_decay_enabled"],
-            out.dev_zoom_decay_enabled,
-        );
-        out.dev_zoom_decay_min_frac = pick_f32(
-            &cfg,
-            &["dev.zoom_decay_min_frac"],
-            out.dev_zoom_decay_min_frac,
-        );
-        out.dev_anim_enabled = pick_bool(&cfg, &["dev.anim.enabled"], out.dev_anim_enabled);
-        out.dev_anim_state_change_ms = pick_u64(
-            &cfg,
-            &["dev.anim.state_change_ms"],
-            out.dev_anim_state_change_ms,
-        );
-        out.dev_anim_bounce = pick_f32(&cfg, &["dev.anim.bounce"], out.dev_anim_bounce);
-        out.cluster_distance_px = pick_f32(
-            &cfg,
-            &["halley.clusters.distance_px"],
-            out.cluster_distance_px,
-        );
-        out.cluster_dwell_ms = pick_u64(&cfg, &["halley.clusters.dwell_ms"], out.cluster_dwell_ms);
-        out.non_overlap_gap_px = pick_f32(
-            &cfg,
-            &["halley.layout.non_overlap_gap_px"],
-            out.non_overlap_gap_px,
-        );
-        out.non_overlap_active_gap_scale = pick_f32(
-            &cfg,
-            &["halley.layout.non_overlap.active_gap_scale"],
-            out.non_overlap_active_gap_scale,
-        );
-        out.new_window_on_top = pick_bool(
-            &cfg,
-            &["halley.layout.new_window_on_top"],
-            out.new_window_on_top,
-        );
-        out.non_overlap_bump_newer = pick_bool(
-            &cfg,
-            &["halley.layout.non_overlap.bump_newer"],
-            out.non_overlap_bump_newer,
-        );
-        out.non_overlap_bump_damping = pick_f32(
-            &cfg,
-            &["halley.layout.non_overlap.bump_damping"],
-            out.non_overlap_bump_damping,
-        );
-        out.drag_smoothing_boost = pick_f32(
-            &cfg,
-            &["halley.layout.drag_smoothing_boost"],
-            out.drag_smoothing_boost,
-        );
-        out.center_window_to_mouse = pick_bool(
-            &cfg,
-            &["halley.layout.center_window_to_mouse"],
-            out.center_window_to_mouse,
-        );
-        out.restore_last_active_on_pan_return = pick_bool(
-            &cfg,
-            &["halley.layout.restore_last_active_on_pan_return"],
-            out.restore_last_active_on_pan_return,
-        );
-        out.physics_enabled = pick_bool(
-            &cfg,
-            &["halley.layout.physics_enabled"],
-            out.physics_enabled,
-        );
+        load_dev_section(&cfg, &mut out);
+        load_env_section(&cfg, &mut out);
+        load_viewport_section(&cfg, &mut out);
+        load_focus_ring_section(&cfg, &mut out);
+        load_nodes_section(&cfg, &mut out);
+        load_clusters_section(&cfg, &mut out);
+        load_tile_section(&cfg, &mut out);
+        load_docking_section(&cfg, &mut out);
+        load_physics_section(&cfg, &mut out);
+        load_keybind_sections(&cfg, &mut out);
 
-        out.viewport_center.x =
-            pick_f32(&cfg, &["halley.viewport.center_x"], out.viewport_center.x);
-        out.viewport_center.y =
-            pick_f32(&cfg, &["halley.viewport.center_y"], out.viewport_center.y);
-        out.viewport_size.x = pick_f32(&cfg, &["halley.viewport.size_w"], out.viewport_size.x);
-        out.viewport_size.y = pick_f32(&cfg, &["halley.viewport.size_h"], out.viewport_size.y);
-        out.tty_viewports = parse_viewport_outputs(&cfg);
-        if let Some(primary) = out.tty_viewports.first() {
-            out.viewport_size.x = primary.width as f32;
-            out.viewport_size.y = primary.height as f32;
-        }
-
-        out.ring_primary_rx = pick_f32(&cfg, &["halley.ring.primary_rx"], out.ring_primary_rx);
-        out.ring_primary_ry = pick_f32(&cfg, &["halley.ring.primary_ry"], out.ring_primary_ry);
-        out.ring_secondary_rx =
-            pick_f32(&cfg, &["halley.ring.secondary_rx"], out.ring_secondary_rx);
-        out.ring_secondary_ry =
-            pick_f32(&cfg, &["halley.ring.secondary_ry"], out.ring_secondary_ry);
-        out.ring_rotation_rad =
-            pick_f32(&cfg, &["halley.ring.rotation_rad"], out.ring_rotation_rad);
-
-        out.secondary_to_node_ms = pick_u64(
-            &cfg,
-            &["halley.decay.secondary_to_node_ms"],
-            out.secondary_to_node_ms,
-        );
-        out.primary_to_preview_ms = pick_u64(
-            &cfg,
-            &["halley.decay.primary_to_preview_ms"],
-            out.primary_to_preview_ms,
-        );
-        out.primary_preview_to_node_ms = pick_u64(
-            &cfg,
-            &["halley.decay.primary_preview_to_node_ms"],
-            out.primary_preview_to_node_ms,
-        );
-        out.primary_hot_inner_frac = pick_f32(
-            &cfg,
-            &["halley.decay.primary_hot_inner_frac"],
-            out.primary_hot_inner_frac,
-        );
-        out.keybinds.modifier =
-            pick_modifiers(&cfg, &["dev.keybinds.modifier"], out.keybinds.modifier);
-        out.keybinds.reload_config = pick_keycode(
-            &cfg,
-            &["dev.keybinds.reload_config"],
-            out.keybinds.reload_config,
-        );
-        out.keybinds.minimize_focused = pick_keycode(
-            &cfg,
-            &["dev.keybinds.minimize_focused"],
-            out.keybinds.minimize_focused,
-        );
-        out.keybinds.overview_toggle = pick_keycode(
-            &cfg,
-            &["dev.keybinds.overview_toggle"],
-            out.keybinds.overview_toggle,
-        );
-        out.keybinds.quit_compositor = pick_keycode(
-            &cfg,
-            &["dev.keybinds.quit_compositor"],
-            out.keybinds.quit_compositor,
-        );
-        out.keybind_launch_command = pick_string(
-            &cfg,
-            &["dev.keybinds.launch_command"],
-            out.keybind_launch_command.as_str(),
-        );
-        out.launch_bindings.clear();
-        out.quit_requires_shift = pick_bool(
-            &cfg,
-            &["dev.keybinds.quit_requires_shift"],
-            out.quit_requires_shift,
-        );
-        out.keybinds.primary_left = pick_keycode(
-            &cfg,
-            &["dev.keybinds.primary_left"],
-            out.keybinds.primary_left,
-        );
-        out.keybinds.primary_right = pick_keycode(
-            &cfg,
-            &["dev.keybinds.primary_right"],
-            out.keybinds.primary_right,
-        );
-        out.keybinds.primary_up =
-            pick_keycode(&cfg, &["dev.keybinds.primary_up"], out.keybinds.primary_up);
-        out.keybinds.primary_down = pick_keycode(
-            &cfg,
-            &["dev.keybinds.primary_down"],
-            out.keybinds.primary_down,
-        );
-        out.keybinds.secondary_left = pick_keycode(
-            &cfg,
-            &["dev.keybinds.secondary_left"],
-            out.keybinds.secondary_left,
-        );
-        out.keybinds.secondary_right = pick_keycode(
-            &cfg,
-            &["dev.keybinds.secondary_right"],
-            out.keybinds.secondary_right,
-        );
-        out.keybinds.secondary_up = pick_keycode(
-            &cfg,
-            &["dev.keybinds.secondary_up"],
-            out.keybinds.secondary_up,
-        );
-        out.keybinds.secondary_down = pick_keycode(
-            &cfg,
-            &["dev.keybinds.secondary_down"],
-            out.keybinds.secondary_down,
-        );
-        out.keybinds.move_left =
-            pick_keycode(&cfg, &["dev.keybinds.move_left"], out.keybinds.move_left);
-        out.keybinds.move_right =
-            pick_keycode(&cfg, &["dev.keybinds.move_right"], out.keybinds.move_right);
-        out.keybinds.move_up = pick_keycode(&cfg, &["dev.keybinds.move_up"], out.keybinds.move_up);
-        out.keybinds.move_down =
-            pick_keycode(&cfg, &["dev.keybinds.move_down"], out.keybinds.move_down);
-        merge_env_map(&cfg, &mut out.env, "halley.env");
-        apply_explicit_keybind_overrides(&cfg, &mut out);
         if !legacy_keybinds.is_empty() {
             apply_explicit_keybind_overrides_map(&legacy_keybinds, &mut out);
         }
@@ -226,10 +40,345 @@ impl RuntimeTuning {
     }
 }
 
+fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.tick_ms = pick_u64(cfg, &["dev.runtime.tick-ms", "dev.runtime.tick_ms"], out.tick_ms);
+
+    out.debug_tick_dump = pick_bool(cfg, &["dev.debug_tick_dump"], out.debug_tick_dump);
+    out.debug_dump_every_ms =
+        pick_u64(cfg, &["dev.debug_dump_every_ms"], out.debug_dump_every_ms);
+
+    out.dev_enabled = pick_bool(cfg, &["dev.enabled"], out.dev_enabled);
+    out.dev_show_geometry_overlay = pick_bool(
+        cfg,
+        &["dev.show_geometry_overlay"],
+        out.dev_show_geometry_overlay,
+    );
+    out.dev_zoom_decay_enabled =
+        pick_bool(cfg, &["dev.zoom_decay_enabled"], out.dev_zoom_decay_enabled);
+    out.dev_zoom_decay_min_frac = pick_f32(
+        cfg,
+        &["dev.zoom_decay_min_frac"],
+        out.dev_zoom_decay_min_frac,
+    );
+
+    out.dev_anim_enabled = pick_bool(cfg, &["dev.anim.enabled"], out.dev_anim_enabled);
+    out.dev_anim_state_change_ms = pick_u64(
+        cfg,
+        &["dev.anim.state_change_ms"],
+        out.dev_anim_state_change_ms,
+    );
+    out.dev_anim_bounce = pick_f32(cfg, &["dev.anim.bounce"], out.dev_anim_bounce);
+
+    out.keybinds.modifier =
+        pick_modifiers(cfg, &["dev.keybinds.modifier"], out.keybinds.modifier);
+
+    out.keybinds.reload_config = pick_keycode(
+        cfg,
+        &["dev.keybinds.reload_config", "dev.keybinds.reload-config"],
+        out.keybinds.reload_config,
+    );
+    out.keybinds.minimize_focused = pick_keycode(
+        cfg,
+        &["dev.keybinds.minimize_focused", "dev.keybinds.minimize-focused"],
+        out.keybinds.minimize_focused,
+    );
+    out.keybinds.overview_toggle = pick_keycode(
+        cfg,
+        &["dev.keybinds.overview_toggle", "dev.keybinds.overview-toggle"],
+        out.keybinds.overview_toggle,
+    );
+    out.keybinds.quit_compositor = pick_keycode(
+        cfg,
+        &["dev.keybinds.quit_compositor", "dev.keybinds.quit-compositor"],
+        out.keybinds.quit_compositor,
+    );
+
+    out.keybind_launch_command = pick_string(
+        cfg,
+        &["dev.keybinds.launch_command", "dev.keybinds.launch-command"],
+        out.keybind_launch_command.as_str(),
+    );
+
+    out.quit_requires_shift = pick_bool(
+        cfg,
+        &[
+            "dev.keybinds.quit_requires_shift",
+            "dev.keybinds.quit-requires-shift",
+        ],
+        out.quit_requires_shift,
+    );
+
+    out.keybinds.primary_left = pick_keycode(
+        cfg,
+        &["dev.keybinds.primary_left", "dev.keybinds.primary-left"],
+        out.keybinds.primary_left,
+    );
+    out.keybinds.primary_right = pick_keycode(
+        cfg,
+        &["dev.keybinds.primary_right", "dev.keybinds.primary-right"],
+        out.keybinds.primary_right,
+    );
+    out.keybinds.primary_up = pick_keycode(
+        cfg,
+        &["dev.keybinds.primary_up", "dev.keybinds.primary-up"],
+        out.keybinds.primary_up,
+    );
+    out.keybinds.primary_down = pick_keycode(
+        cfg,
+        &["dev.keybinds.primary_down", "dev.keybinds.primary-down"],
+        out.keybinds.primary_down,
+    );
+
+    out.keybinds.secondary_left = pick_keycode(
+        cfg,
+        &["dev.keybinds.secondary_left", "dev.keybinds.secondary-left"],
+        out.keybinds.secondary_left,
+    );
+    out.keybinds.secondary_right = pick_keycode(
+        cfg,
+        &["dev.keybinds.secondary_right", "dev.keybinds.secondary-right"],
+        out.keybinds.secondary_right,
+    );
+    out.keybinds.secondary_up = pick_keycode(
+        cfg,
+        &["dev.keybinds.secondary_up", "dev.keybinds.secondary-up"],
+        out.keybinds.secondary_up,
+    );
+    out.keybinds.secondary_down = pick_keycode(
+        cfg,
+        &["dev.keybinds.secondary_down", "dev.keybinds.secondary-down"],
+        out.keybinds.secondary_down,
+    );
+
+    out.keybinds.move_left = pick_keycode(
+        cfg,
+        &["dev.keybinds.move_left", "dev.keybinds.move-left"],
+        out.keybinds.move_left,
+    );
+    out.keybinds.move_right = pick_keycode(
+        cfg,
+        &["dev.keybinds.move_right", "dev.keybinds.move-right"],
+        out.keybinds.move_right,
+    );
+    out.keybinds.move_up = pick_keycode(
+        cfg,
+        &["dev.keybinds.move_up", "dev.keybinds.move-up"],
+        out.keybinds.move_up,
+    );
+    out.keybinds.move_down = pick_keycode(
+        cfg,
+        &["dev.keybinds.move_down", "dev.keybinds.move-down"],
+        out.keybinds.move_down,
+    );
+}
+
+fn load_env_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    merge_env_map(cfg, &mut out.env, "env");
+}
+
+fn load_viewport_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.viewport_center.x = pick_f32(
+        cfg,
+        &["viewport.center-x", "viewport.center_x"],
+        out.viewport_center.x,
+    );
+    out.viewport_center.y = pick_f32(
+        cfg,
+        &["viewport.center-y", "viewport.center_y"],
+        out.viewport_center.y,
+    );
+
+    out.viewport_size.x = pick_f32(
+        cfg,
+        &["viewport.size-w", "viewport.size_w"],
+        out.viewport_size.x,
+    );
+    out.viewport_size.y = pick_f32(
+        cfg,
+        &["viewport.size-h", "viewport.size_h"],
+        out.viewport_size.y,
+    );
+
+    out.tty_viewports = parse_viewport_outputs(cfg, "viewport");
+
+    if let Some(primary) = out.tty_viewports.first() {
+        out.viewport_size.x = primary.width as f32;
+        out.viewport_size.y = primary.height as f32;
+    }
+}
+
+fn load_focus_ring_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.ring_primary_rx = pick_f32(
+        cfg,
+        &["focus-ring.primary-rx", "focus-ring.primary_rx"],
+        out.ring_primary_rx,
+    );
+    out.ring_primary_ry = pick_f32(
+        cfg,
+        &["focus-ring.primary-ry", "focus-ring.primary_ry"],
+        out.ring_primary_ry,
+    );
+
+    out.ring_secondary_rx = pick_f32(
+        cfg,
+        &["focus-ring.secondary-rx", "focus-ring.secondary_rx"],
+        out.ring_secondary_rx,
+    );
+    out.ring_secondary_ry = pick_f32(
+        cfg,
+        &["focus-ring.secondary-ry", "focus-ring.secondary_ry"],
+        out.ring_secondary_ry,
+    );
+    out.ring_rotation_rad = pick_f32(
+        cfg,
+        &["focus-ring.rotation-rad", "focus-ring.rotation_rad"],
+        out.ring_rotation_rad,
+    );
+}
+
+fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.secondary_to_node_ms = pick_u64(
+        cfg,
+        &["nodes.collapse-delay", "nodes.collapse_delay"],
+        out.secondary_to_node_ms,
+    );
+
+    out.primary_to_preview_ms = pick_u64(
+        cfg,
+        &[
+            "nodes.primary-to-preview-ms",
+            "nodes.primary_to_preview_ms",
+            "nodes.preview-delay",
+            "nodes.preview_delay",
+        ],
+        out.primary_to_preview_ms,
+    );
+
+    out.primary_preview_to_node_ms = pick_u64(
+        cfg,
+        &[
+            "nodes.primary-preview-to-node-ms",
+            "nodes.primary_preview_to_node_ms",
+            "nodes.preview-to-node-ms",
+            "nodes.preview_to_node_ms",
+        ],
+        out.primary_preview_to_node_ms,
+    );
+
+    out.primary_hot_inner_frac = pick_f32(
+        cfg,
+        &[
+            "nodes.primary-hot-inner-frac",
+            "nodes.primary_hot_inner_frac",
+            "nodes.hot-inner-frac",
+            "nodes.hot_inner_frac",
+        ],
+        out.primary_hot_inner_frac,
+    );
+}
+
+fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.cluster_distance_px = pick_f32(
+        cfg,
+        &["clusters.distance-px", "clusters.distance_px"],
+        out.cluster_distance_px,
+    );
+    out.cluster_dwell_ms = pick_u64(
+        cfg,
+        &["clusters.dwell-ms", "clusters.dwell_ms"],
+        out.cluster_dwell_ms,
+    );
+}
+
+fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.new_window_on_top = pick_bool(
+        cfg,
+        &["tile.new-on-top", "tile.new_on_top"],
+        out.new_window_on_top,
+    );
+}
+
+fn load_docking_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.non_overlap_gap_px =
+        pick_f32(cfg, &["docking.gap", "docking.gap-px"], out.non_overlap_gap_px);
+
+    out.non_overlap_active_gap_scale = pick_f32(
+        cfg,
+        &[
+            "docking.active-gap-scale",
+            "docking.active_gap_scale",
+            "layout.active-gap-scale",
+            "layout.active_gap_scale",
+        ],
+        out.non_overlap_active_gap_scale,
+    );
+
+    out.non_overlap_bump_newer = pick_bool(
+        cfg,
+        &[
+            "docking.bump-newer",
+            "docking.bump_newer",
+            "layout.bump-newer",
+            "layout.bump_newer",
+        ],
+        out.non_overlap_bump_newer,
+    );
+
+    out.drag_smoothing_boost = pick_f32(
+        cfg,
+        &[
+            "docking.drag-smoothing-boost",
+            "docking.drag_smoothing_boost",
+            "layout.drag-smoothing-boost",
+            "layout.drag_smoothing_boost",
+        ],
+        out.drag_smoothing_boost,
+    );
+
+    out.center_window_to_mouse = pick_bool(
+        cfg,
+        &[
+            "docking.center-window-to-mouse",
+            "docking.center_window_to_mouse",
+            "layout.center-window-to-mouse",
+            "layout.center_window_to_mouse",
+        ],
+        out.center_window_to_mouse,
+    );
+
+    out.restore_last_active_on_pan_return = pick_bool(
+        cfg,
+        &[
+            "docking.restore-last-active-on-pan-return",
+            "docking.restore_last_active_on_pan_return",
+            "layout.restore-last-active-on-pan-return",
+            "layout.restore_last_active_on_pan_return",
+        ],
+        out.restore_last_active_on_pan_return,
+    );
+}
+
+fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.physics_enabled = pick_bool(cfg, &["physics.enabled"], out.physics_enabled);
+
+    out.non_overlap_bump_damping = pick_f32(
+        cfg,
+        &["physics.damping", "physics.bump-damping", "physics.bump_damping"],
+        out.non_overlap_bump_damping,
+    );
+}
+
+fn load_keybind_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.keybinds.modifier = pick_modifiers(cfg, &["keybinds.mod"], out.keybinds.modifier);
+    out.launch_bindings.clear();
+    apply_explicit_keybind_overrides(cfg, out);
+}
+
 fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
     let Ok(Some(entries)) = cfg.get_optional::<HashMap<String, String>>(path) else {
         return;
     };
+
     for (key, value) in entries {
         let key = key.trim();
         let value = value.trim();
@@ -240,41 +389,56 @@ fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str
     }
 }
 
-fn parse_viewport_outputs(cfg: &RuneConfig) -> Vec<ViewportOutputConfig> {
+fn parse_viewport_outputs(cfg: &RuneConfig, root: &str) -> Vec<ViewportOutputConfig> {
     let mut out = Vec::new();
-    let Ok(keys) = cfg.get_keys("halley.viewport") else {
+
+    let Ok(keys) = cfg.get_keys(root) else {
         return out;
     };
+
     for key in keys {
         let width = pick_u32(
             cfg,
             &[
-                format!("halley.viewport.{}.width", key).as_str(),
-                format!("halley.viewport.{}.size_w", key).as_str(),
+                format!("{root}.{key}.width").as_str(),
+                format!("{root}.{key}.size-w").as_str(),
+                format!("{root}.{key}.size_w").as_str(),
             ],
             0,
         );
+
         let height = pick_u32(
             cfg,
             &[
-                format!("halley.viewport.{}.height", key).as_str(),
-                format!("halley.viewport.{}.size_h", key).as_str(),
+                format!("{root}.{key}.height").as_str(),
+                format!("{root}.{key}.size-h").as_str(),
+                format!("{root}.{key}.size_h").as_str(),
             ],
             0,
         );
+
         if width == 0 || height == 0 {
             continue;
         }
+
         let offset_x = pick_i32(
             cfg,
-            &[format!("halley.viewport.{}.offset_x", key).as_str()],
+            &[
+                format!("{root}.{key}.offset-x").as_str(),
+                format!("{root}.{key}.offset_x").as_str(),
+            ],
             0,
         );
+
         let offset_y = pick_i32(
             cfg,
-            &[format!("halley.viewport.{}.offset_y", key).as_str()],
+            &[
+                format!("{root}.{key}.offset-y").as_str(),
+                format!("{root}.{key}.offset_y").as_str(),
+            ],
             0,
         );
+
         out.push(ViewportOutputConfig {
             connector: key,
             offset_x,
@@ -283,9 +447,9 @@ fn parse_viewport_outputs(cfg: &RuneConfig) -> Vec<ViewportOutputConfig> {
             height,
         });
     }
+
     out
 }
-
 
 fn pick_u64(cfg: &RuneConfig, paths: &[&str], default: u64) -> u64 {
     for path in paths {
@@ -383,13 +547,16 @@ fn apply_explicit_keybind_overrides_map(
         .get("mod")
         .cloned()
         .unwrap_or_else(|| out.keybinds.modifier_name());
+
     if let Some(m) = parse_modifiers(mod_token.as_str()) {
         out.keybinds.modifier = m;
     }
+
     for (chord, action) in bindings {
         if chord.eq_ignore_ascii_case("mod") {
             continue;
         }
+
         apply_explicit_binding(
             out,
             mod_token.as_str(),
@@ -410,26 +577,37 @@ fn apply_explicit_binding(
     let expanded = chord
         .replace("$var.mod", mod_token)
         .replace("$mod", mod_token);
+
     let Some((mods, key)) = parse_chord(expanded.as_str()) else {
         return;
     };
+
     let effective_mods = if modifiers_empty(mods) {
         default_mods
     } else {
         mods
     };
-    let action_key = action.trim().to_ascii_lowercase();
+
+    let action_trimmed = action.trim();
+    let action_key = action_trimmed.to_ascii_lowercase();
+
     match action_key.as_str() {
-        "reload_config" => out.keybinds.reload_config = key,
-        "minimize_focused" => out.keybinds.minimize_focused = key,
-        "overview_toggle" => out.keybinds.overview_toggle = key,
-        "quit_halley" | "quit_compositor" => {
+        "reload_config" | "reload-config" => {
+            out.keybinds.reload_config = key;
+        }
+        "minimize_focused" | "minimize-focused" => {
+            out.keybinds.minimize_focused = key;
+        }
+        "overview_toggle" | "overview-toggle" => {
+            out.keybinds.overview_toggle = key;
+        }
+        "quit_halley" | "quit-halley" | "quit_compositor" | "quit-compositor" => {
             out.keybinds.quit_compositor = key;
             out.quit_requires_shift = effective_mods.shift;
         }
         _ => {
-            out.keybind_launch_command = action.trim().to_string();
-            upsert_launch_binding(out, effective_mods, key, action.trim());
+            out.keybind_launch_command = action_trimmed.to_string();
+            upsert_launch_binding(out, effective_mods, key, action_trimmed);
         }
     }
 }
@@ -443,6 +621,7 @@ fn upsert_launch_binding(out: &mut RuntimeTuning, mods: KeyModifiers, key: u32, 
         existing.command = command.to_string();
         return;
     }
+
     out.launch_bindings.push(LaunchBinding {
         modifiers: mods,
         key,

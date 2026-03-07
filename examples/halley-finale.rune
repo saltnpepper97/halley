@@ -111,7 +111,7 @@ field:
 
   zoom:
     # Prevent zooming out past this scale
-    max-zoom-out: 0.1
+    max-zoom-out 0.1
 
     # Multiplier applied to each zoom step
     step 1.15
@@ -135,9 +135,6 @@ nodes:
   # enable the ability to turn windows into Nodes
   # when outside the focus ring 
   enabled true
-
-  # The number of allowed nodes to be active at one time
-  # can be 1 or 2
 
   collapse-delay 3000
   collapse-scale 0.6
@@ -179,6 +176,7 @@ trail:
   max-history 128
 
   # Wrap navigation when reaching the ends
+  wrap-history true
 end
 
 # The Focus Ring defines where windows remain active
@@ -236,12 +234,12 @@ clusters:
     dev:
       launch ["kitty", "firefox"]
 
-    # Placement strategy for the cluster
-    # Options: `around-focus-ring`, `center`, `anywhere`
-    place "around-focus-ring"
+      # Placement strategy for the cluster
+      # Options: `around-focus-ring`, `center`, `anywhere`
+      place "around-focus-ring"
 
-    # Layout used when the cluster becomes active
-    layout "stacking"
+      # Layout used when the cluster becomes active
+      layout "stacking"
     end
   end
 
@@ -327,6 +325,8 @@ end
 # Rules allow matching specific applications
 # and applying behaviour automatically.
 rules:
+# TODO: Figure out making this work with rune-cfg.
+# might need to update rune-cfg
 end
 
 debug:

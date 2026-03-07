@@ -1,4 +1,3 @@
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct KeyModifiers {
     pub super_key: bool,
@@ -50,22 +49,22 @@ impl Default for Keybinds {
                 left_alt: true,
                 ..KeyModifiers::default()
             },
-            reload_config: 19,      // r
-            minimize_focused: 49,   // n
-            overview_toggle: 24,    // o
-            quit_compositor: 16,    // q (with mod+shift hard requirement in key handler)
-            primary_left: 105,      // left
-            primary_right: 106,     // right
-            primary_up: 103,        // up
-            primary_down: 108,      // down
-            secondary_left: 36,     // j
-            secondary_right: 38,    // l
-            secondary_up: 23,       // i
-            secondary_down: 37,     // k
-            move_left: 30,          // a
-            move_right: 32,         // d
-            move_up: 17,            // w
-            move_down: 31,          // s
+            reload_config: 19,    // r
+            minimize_focused: 49, // n
+            overview_toggle: 24,  // o
+            quit_compositor: 16,  // q
+            primary_left: 105,    // left
+            primary_right: 106,   // right
+            primary_up: 103,      // up
+            primary_down: 108,    // down
+            secondary_left: 36,   // j
+            secondary_right: 38,  // l
+            secondary_up: 23,     // i
+            secondary_down: 37,   // k
+            move_left: 30,        // a
+            move_right: 32,       // d
+            move_up: 17,          // w
+            move_down: 31,        // s
         }
     }
 }
@@ -73,6 +72,7 @@ impl Default for Keybinds {
 impl Keybinds {
     pub fn modifier_name(&self) -> String {
         let mut parts = Vec::new();
+
         if self.modifier.left_super {
             parts.push("lsuper");
         }
@@ -82,6 +82,7 @@ impl Keybinds {
         if self.modifier.super_key {
             parts.push("super");
         }
+
         if self.modifier.left_ctrl {
             parts.push("lctrl");
         }
@@ -91,6 +92,7 @@ impl Keybinds {
         if self.modifier.ctrl {
             parts.push("ctrl");
         }
+
         if self.modifier.left_alt {
             parts.push("lalt");
         }
@@ -100,6 +102,7 @@ impl Keybinds {
         if self.modifier.alt {
             parts.push("alt");
         }
+
         if self.modifier.left_shift {
             parts.push("lshift");
         }
@@ -109,6 +112,7 @@ impl Keybinds {
         if self.modifier.shift {
             parts.push("shift");
         }
+
         if parts.is_empty() {
             "none".to_string()
         } else {
@@ -136,12 +140,13 @@ pub fn modifiers_empty(m: KeyModifiers) -> bool {
 pub fn parse_modifiers(text: &str) -> Option<KeyModifiers> {
     let mut out = KeyModifiers::default();
     let mut any = false;
+
     for raw in text.split('+') {
         let t = raw.trim().to_ascii_lowercase();
         match t.as_str() {
             "" => {}
             "none" => {}
-            "super" | "win" | "windows" | "logo" => {
+            "super" | "win" | "windows" | "logo" | "meta" => {
                 out.super_key = true;
                 any = true;
             }
@@ -192,6 +197,7 @@ pub fn parse_modifiers(text: &str) -> Option<KeyModifiers> {
             _ => return None,
         }
     }
+
     if any {
         Some(out)
     } else {
@@ -202,19 +208,24 @@ pub fn parse_modifiers(text: &str) -> Option<KeyModifiers> {
 pub fn parse_chord(chord: &str) -> Option<(KeyModifiers, u32)> {
     let mut mods = KeyModifiers::default();
     let mut key: Option<u32> = None;
+
     for raw in chord.split('+') {
         let t = raw.trim();
         if t.is_empty() {
             continue;
         }
+
         if apply_modifier_token(&mut mods, t) {
             continue;
         }
+
         if key.is_some() {
             return None;
         }
+
         key = key_name_to_evdev(t);
     }
+
     key.map(|k| (mods, k))
 }
 
@@ -275,50 +286,120 @@ fn apply_modifier_token(mods: &mut KeyModifiers, token: &str) -> bool {
 pub fn key_name_to_evdev(name: &str) -> Option<u32> {
     match name.trim().to_ascii_lowercase().as_str() {
         "none" => Some(0),
-        "enter" | "return" => Some(28),
-        "space" => Some(57),
+
         "escape" | "esc" => Some(1),
+        "1" => Some(2),
+        "2" => Some(3),
+        "3" => Some(4),
+        "4" => Some(5),
+        "5" => Some(6),
+        "6" => Some(7),
+        "7" => Some(8),
+        "8" => Some(9),
+        "9" => Some(10),
+        "0" => Some(11),
+        "minus" | "-" => Some(12),
+        "equal" | "=" => Some(13),
+        "backspace" => Some(14),
         "tab" => Some(15),
-        "left" => Some(105),
-        "right" => Some(106),
-        "up" => Some(103),
-        "down" => Some(108),
+
+        "q" => Some(16),
+        "w" => Some(17),
+        "e" => Some(18),
+        "r" => Some(19),
+        "t" => Some(20),
+        "y" => Some(21),
+        "u" => Some(22),
+        "i" => Some(23),
+        "o" => Some(24),
+        "p" => Some(25),
+        "leftbrace" | "[" => Some(26),
+        "rightbrace" | "]" => Some(27),
+        "enter" | "return" => Some(28),
+
+        "a" => Some(30),
+        "s" => Some(31),
+        "d" => Some(32),
+        "f" => Some(33),
+        "g" => Some(34),
+        "h" => Some(35),
+        "j" => Some(36),
+        "k" => Some(37),
+        "l" => Some(38),
+        "semicolon" | ";" => Some(39),
+        "apostrophe" | "'" => Some(40),
+        "grave" | "`" => Some(41),
+        "backslash" | "\\" => Some(43),
+
+        "z" => Some(44),
+        "x" => Some(45),
+        "c" => Some(46),
+        "v" => Some(47),
+        "b" => Some(48),
+        "n" => Some(49),
+        "m" => Some(50),
+        "comma" | "," => Some(51),
+        "dot" | "period" | "." => Some(52),
+        "slash" | "/" => Some(53),
+
+        "space" => Some(57),
+
+        "f1" => Some(59),
+        "f2" => Some(60),
+        "f3" => Some(61),
+        "f4" => Some(62),
         "f5" => Some(63),
         "f6" => Some(64),
         "f7" => Some(65),
         "f8" => Some(66),
         "f9" => Some(67),
-        "p" => Some(25),
-        "q" => Some(16),
-        "r" => Some(19),
-        "w" => Some(17),
-        "i" => Some(23),
-        "a" => Some(30),
-        "s" => Some(31),
-        "d" => Some(32),
-        "j" => Some(36),
-        "k" => Some(37),
-        "l" => Some(38),
-        "m" => Some(50),
-        "n" => Some(49),
-        "o" => Some(24),
-        "t" => Some(20),
-        "u" => Some(22),
-        "v" => Some(47),
-        "x" => Some(45),
-        "y" => Some(21),
-        "z" => Some(44),
+        "f10" => Some(68),
+        "f11" => Some(87),
+        "f12" => Some(88),
+
+        "home" => Some(102),
+        "up" => Some(103),
+        "pageup" => Some(104),
+        "left" => Some(105),
+        "right" => Some(106),
+        "end" => Some(107),
+        "down" => Some(108),
+        "pagedown" => Some(109),
+        "insert" => Some(110),
+        "delete" => Some(111),
+
+        "xf86audiomute" | "audiomute" | "mute" => Some(113),
+        "xf86audiolowervolume" | "audiolowervolume" | "volumedown" => Some(114),
+        "xf86audioraisevolume" | "audioraisevolume" | "volumeup" => Some(115),
+        "xf86audioplay" | "audioplay" | "playpause" => Some(164),
+        "xf86audioprev" | "audioprev" | "previoussong" => Some(165),
+        "xf86audionext" | "audionext" | "nextsong" => Some(163),
+
         _ => None,
     }
 }
 
 pub fn evdev_to_key_name(code: u32) -> &'static str {
     match code {
-        0 => "none",
+        0 => "None",
         1 => "Escape",
+        2 => "1",
+        3 => "2",
+        4 => "3",
+        5 => "4",
+        6 => "5",
+        7 => "6",
+        8 => "7",
+        9 => "8",
+        10 => "9",
+        11 => "0",
+        12 => "Minus",
+        13 => "Equal",
+        14 => "Backspace",
         15 => "Tab",
         16 => "Q",
         17 => "W",
+        18 => "E",
         19 => "R",
         20 => "T",
         21 => "Y",
@@ -326,28 +407,61 @@ pub fn evdev_to_key_name(code: u32) -> &'static str {
         23 => "I",
         24 => "O",
         25 => "P",
+        26 => "[",
+        27 => "]",
         28 => "Return",
         30 => "A",
         31 => "S",
         32 => "D",
+        33 => "F",
+        34 => "G",
+        35 => "H",
         36 => "J",
         37 => "K",
         38 => "L",
+        39 => ";",
+        40 => "'",
+        41 => "`",
+        43 => "\\",
         44 => "Z",
         45 => "X",
+        46 => "C",
         47 => "V",
+        48 => "B",
         49 => "N",
         50 => "M",
+        51 => "Comma",
+        52 => "Period",
+        53 => "Slash",
         57 => "Space",
+        59 => "F1",
+        60 => "F2",
+        61 => "F3",
+        62 => "F4",
         63 => "F5",
         64 => "F6",
         65 => "F7",
         66 => "F8",
         67 => "F9",
+        68 => "F10",
+        87 => "F11",
+        88 => "F12",
+        102 => "Home",
         103 => "Up",
+        104 => "PageUp",
         105 => "Left",
         106 => "Right",
+        107 => "End",
         108 => "Down",
+        109 => "PageDown",
+        110 => "Insert",
+        111 => "Delete",
+        113 => "XF86AudioMute",
+        114 => "XF86AudioLowerVolume",
+        115 => "XF86AudioRaiseVolume",
+        163 => "XF86AudioNext",
+        164 => "XF86AudioPlay",
+        165 => "XF86AudioPrev",
         _ => "?",
     }
 }
