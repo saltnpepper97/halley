@@ -12,7 +12,7 @@ use crate::spatial::screen_to_world;
 use crate::state::HalleyWlState;
 
 use super::input_utils::{key_matches, modifier_active, update_mod_state};
-use super::key_actions::{apply_bound_key, spawn_terminal};
+use super::key_actions::apply_bound_key;
 use super::pointer_focus::pointer_focus_for_screen;
 use super::pointer_map_debug_enabled;
 use smithay::backend::input::{Axis, AxisSource, ButtonState, KeyState};
@@ -146,14 +146,6 @@ pub(crate) fn handle_keyboard_input(
         if apply_bound_key(st, code, &mods, config_path, wayland_display) {
             backend.request_redraw();
             return;
-        }
-
-        // Alt+Enter terminal shortcut.
-        let alt_enter = key_matches(code, 28) || key_matches(code, 96);
-        if mods.alt_down && alt_enter {
-            if !spawn_terminal(wayland_display) {
-                warn!("terminal launch keybind fired, but no terminal could be spawned");
-            }
         }
     }
 }
