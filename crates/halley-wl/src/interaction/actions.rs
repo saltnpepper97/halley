@@ -1,6 +1,7 @@
 use crate::state::HalleyWlState;
 use eventline::info;
 use halley_core::decay::DecayLevel;
+use halley_core::viewport::FocusZone;
 use std::time::Instant;
 
 pub(crate) fn promote_node_level(
@@ -24,10 +25,10 @@ pub(crate) fn promote_node_level(
         .dock_partner(node_id)
         .filter(|&pid| st.dock_partner(pid) == Some(node_id));
 
-    let in_primary = st.active_rings().zone(st.viewport.center, target_pos)
-        == halley_core::viewport::RingZone::Primary;
+    let in_focus_ring =
+        st.active_focus_ring().zone(st.viewport.center, target_pos) == FocusZone::Inside;
 
-    if in_primary {
+    if in_focus_ring {
         let _ = st.field.set_decay_level(node_id, DecayLevel::Hot);
         st.mark_active_transition(node_id, now, 360);
 
@@ -47,7 +48,7 @@ pub(crate) fn promote_node_level(
         return true;
     }
 
-    // Out of primary: pan to center. Set restore target to this node so
+    // Out of the focus ring: pan to center. Set restore target to this node so
     // when it arrives both it and its partner will reopen via
     // restore_pan_return_active_focus (which already handles the pair).
     st.set_interaction_focus(Some(node_id), 30_000, now);

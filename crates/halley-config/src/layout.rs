@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use halley_core::decay::RingDecayPolicy;
+use halley_core::decay::FocusRingDecayPolicy;
 use halley_core::field::Vec2;
-use halley_core::viewport::{EyeRing, FocusRings, Viewport};
+use halley_core::viewport::{FocusRing, Viewport};
 
 use super::{Keybinds, LaunchBinding};
 use crate::keybinds::evdev_to_key_name;
@@ -18,16 +18,14 @@ pub struct RuntimeTuning {
     pub viewport_center: Vec2,
     pub viewport_size: Vec2,
 
-    pub ring_primary_rx: f32,
-    pub ring_primary_ry: f32,
-    pub ring_secondary_rx: f32,
-    pub ring_secondary_ry: f32,
-    pub ring_rotation_rad: f32,
+    pub focus_ring_rx: f32,
+    pub focus_ring_ry: f32,
+    pub focus_ring_rotation_rad: f32,
 
     pub primary_hot_inner_frac: f32,
     pub primary_to_preview_ms: u64,
     pub primary_preview_to_node_ms: u64,
-    pub secondary_to_node_ms: u64,
+
     pub dev_enabled: bool,
     pub dev_show_geometry_overlay: bool,
     pub dev_zoom_decay_enabled: bool,
@@ -35,8 +33,10 @@ pub struct RuntimeTuning {
     pub dev_anim_enabled: bool,
     pub dev_anim_state_change_ms: u64,
     pub dev_anim_bounce: f32,
+
     pub cluster_distance_px: f32,
     pub cluster_dwell_ms: u64,
+
     pub non_overlap_gap_px: f32,
     pub non_overlap_active_gap_scale: f32,
     pub new_window_on_top: bool,
@@ -46,10 +46,12 @@ pub struct RuntimeTuning {
     pub center_window_to_mouse: bool,
     pub restore_last_active_on_pan_return: bool,
     pub physics_enabled: bool,
+
     pub keybinds: Keybinds,
     pub keybind_launch_command: String,
     pub launch_bindings: Vec<LaunchBinding>,
     pub quit_requires_shift: bool,
+
     pub tty_viewports: Vec<ViewportOutputConfig>,
     pub env: HashMap<String, String>,
 }
@@ -74,15 +76,15 @@ impl Default for RuntimeTuning {
                 x: 1920.0,
                 y: 1080.0,
             },
-            ring_primary_rx: 820.0,
-            ring_primary_ry: 420.0,
-            ring_secondary_rx: 920.0,
-            ring_secondary_ry: 460.0,
-            ring_rotation_rad: 0.0,
+
+            focus_ring_rx: 820.0,
+            focus_ring_ry: 420.0,
+            focus_ring_rotation_rad: 0.0,
+
             primary_hot_inner_frac: 0.88,
             primary_to_preview_ms: 1_200_000,
             primary_preview_to_node_ms: 60_000,
-            secondary_to_node_ms: 300_000,
+
             dev_enabled: false,
             dev_show_geometry_overlay: false,
             dev_zoom_decay_enabled: true,
@@ -90,8 +92,10 @@ impl Default for RuntimeTuning {
             dev_anim_enabled: true,
             dev_anim_state_change_ms: 360,
             dev_anim_bounce: 1.45,
+
             cluster_distance_px: 280.0,
             cluster_dwell_ms: 900,
+
             non_overlap_gap_px: 20.0,
             non_overlap_active_gap_scale: 0.22,
             new_window_on_top: true,
@@ -101,10 +105,12 @@ impl Default for RuntimeTuning {
             center_window_to_mouse: false,
             restore_last_active_on_pan_return: true,
             physics_enabled: true,
+
             keybinds: Keybinds::default(),
             keybind_launch_command: String::new(),
             launch_bindings: Vec::new(),
             quit_requires_shift: true,
+
             tty_viewports: Vec::new(),
             env: HashMap::from([
                 ("XCURSOR_THEME".to_string(), "Adwaita".to_string()),
@@ -142,7 +148,6 @@ impl RuntimeTuning {
             if value.is_empty() {
                 continue;
             }
-            // Runtime env controls are configured by trusted local config.
             unsafe { env::set_var(key, value) };
         }
     }
@@ -156,22 +161,23 @@ impl RuntimeTuning {
         self.viewport_size.x = self.viewport_size.x.clamp(320.0, 16_000.0);
         self.viewport_size.y = self.viewport_size.y.clamp(240.0, 16_000.0);
 
-        self.ring_primary_rx = self.ring_primary_rx.clamp(8.0, 16_000.0);
-        self.ring_primary_ry = self.ring_primary_ry.clamp(8.0, 16_000.0);
-        self.ring_secondary_rx = self.ring_secondary_rx.clamp(16.0, 16_000.0);
-        self.ring_secondary_ry = self.ring_secondary_ry.clamp(16.0, 16_000.0);
-        self.ring_rotation_rad = self
-            .ring_rotation_rad
+        self.focus_ring_rx = self.focus_ring_rx.clamp(8.0, 16_000.0);
+        self.focus_ring_ry = self.focus_ring_ry.clamp(8.0, 16_000.0);
+        self.focus_ring_rotation_rad = self
+            .focus_ring_rotation_rad
             .clamp(-std::f32::consts::PI, std::f32::consts::PI);
+
         self.primary_hot_inner_frac = self.primary_hot_inner_frac.clamp(0.1, 1.0);
         self.primary_to_preview_ms = self.primary_to_preview_ms.clamp(250, 7_200_000);
         self.primary_preview_to_node_ms = self.primary_preview_to_node_ms.clamp(250, 7_200_000);
-        self.secondary_to_node_ms = self.secondary_to_node_ms.clamp(250, 7_200_000);
+
         self.dev_zoom_decay_min_frac = self.dev_zoom_decay_min_frac.clamp(0.005, 0.5);
         self.dev_anim_state_change_ms = self.dev_anim_state_change_ms.clamp(30, 3_000);
         self.dev_anim_bounce = self.dev_anim_bounce.clamp(0.0, 3.0);
+
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);
+
         self.non_overlap_gap_px = self.non_overlap_gap_px.clamp(0.0, 256.0);
         self.non_overlap_active_gap_scale = self.non_overlap_active_gap_scale.clamp(0.0, 1.2);
         self.non_overlap_bump_damping = self.non_overlap_bump_damping.clamp(0.05, 1.0);
@@ -186,25 +192,18 @@ impl RuntimeTuning {
         Viewport::new(self.viewport_center, self.viewport_size)
     }
 
-    pub fn rings(&self) -> FocusRings {
-        FocusRings {
-            primary: EyeRing::new(
-                self.ring_primary_rx,
-                self.ring_primary_ry,
-                self.ring_rotation_rad,
-            ),
-            secondary: EyeRing::new(
-                self.ring_secondary_rx,
-                self.ring_secondary_ry,
-                self.ring_rotation_rad,
-            ),
-        }
+    pub fn focus_ring(&self) -> FocusRing {
+        FocusRing::new(
+            self.focus_ring_rx,
+            self.focus_ring_ry,
+            self.focus_ring_rotation_rad,
+        )
     }
 
-    pub fn ring_decay_policy(&self) -> RingDecayPolicy {
-        let mut p = RingDecayPolicy::new(self.secondary_to_node_ms);
-        p.primary_to_preview_ms = self.primary_to_preview_ms;
-        p.primary_preview_to_node_ms = self.primary_preview_to_node_ms;
+    pub fn focus_ring_decay_policy(&self) -> FocusRingDecayPolicy {
+        let mut p = FocusRingDecayPolicy::new();
+        p.inside_to_preview_ms = self.primary_to_preview_ms;
+        p.preview_to_node_ms = self.primary_preview_to_node_ms;
         p
     }
 
@@ -242,12 +241,14 @@ fn default_config_path() -> PathBuf {
             return Path::new(trimmed).join("halley/halley.rune");
         }
     }
+
     if let Ok(home) = env::var("HOME") {
         let trimmed = home.trim();
         if !trimmed.is_empty() {
             return Path::new(trimmed).join(".config/halley/halley.rune");
         }
     }
+
     PathBuf::from("halley.rune")
 }
 

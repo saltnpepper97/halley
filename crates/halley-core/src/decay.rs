@@ -1,6 +1,5 @@
 use crate::field::{Field, NodeId, NodeKind, Vec2};
-
-use crate::viewport::{FocusRings, RingZone, Viewport};
+use crate::viewport::{FocusRing, FocusZone, Viewport};
 
 #[cfg(test)]
 use crate::field::NodeState;
@@ -36,7 +35,6 @@ impl DecayPolicy {
 pub fn tick_decay(field: &mut Field, now_ms: u64, policy: DecayPolicy, focused: Option<NodeId>) {
     debug_assert!(policy.node_after_ms >= policy.preview_after_ms);
 
-    // Collect ids first to avoid borrow fights.
     let ids: Vec<NodeId> = field.nodes().keys().copied().collect();
 
     for id in ids {
@@ -64,58 +62,47 @@ pub fn tick_decay(field: &mut Field, now_ms: u64, policy: DecayPolicy, focused: 
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RingDecayPolicy {
-    /// In the Primary ring:
-    /// - age < primary_to_preview_ms => Hot/Active
-    /// - age < primary_to_preview_ms + primary_preview_to_node_ms => Warm/Preview
+pub struct FocusRingDecayPolicy {
+    /// Inside the focus ring:
+    /// - age < inside_to_preview_ms => Hot/Active
+    /// - age < inside_to_preview_ms + preview_to_node_ms => Warm/Preview
     /// - otherwise => Cold/Node
-    pub primary_to_preview_ms: u64,
+    pub inside_to_preview_ms: u64,
 
-    /// Additional time spent in Preview before Node once primary_to_preview_ms is reached.
-    pub primary_preview_to_node_ms: u64,
+    /// Additional time spent in Preview before Node once inside_to_preview_ms is reached.
+    pub preview_to_node_ms: u64,
 
-    /// When in Secondary ring:
-    /// - immediately Warm
-    pub secondary_preview: bool,
-
-    /// When in Secondary ring and age >= secondary_to_node_ms => Cold
-    pub secondary_to_node_ms: u64,
-
-    /// When Outside secondary ring => immediately Cold
+    /// Outside the focus ring:
+    /// - if true => immediately Cold/Node
     pub outside_immediate_cold: bool,
 }
 
-impl RingDecayPolicy {
-    pub fn new(secondary_to_node_ms: u64) -> Self {
+impl FocusRingDecayPolicy {
+    pub fn new() -> Self {
         Self {
-            primary_to_preview_ms: 1_200_000,
-            primary_preview_to_node_ms: 60_000,
-            secondary_preview: true,
-            secondary_to_node_ms,
+            inside_to_preview_ms: 1_200_000,
+            preview_to_node_ms: 60_000,
             outside_immediate_cold: true,
         }
     }
 }
 
-/// Ring-aware decay:
-/// - Primary ring: Hot, then Preview, then Node based on primary timers
-/// - Secondary ring: Warm immediately; after secondary_to_node_ms => Cold
-/// - Outside: Cold immediately
+/// Focus-ring-aware decay:
+/// - Inside focus ring: Hot, then Preview, then Node based on timers
+/// - Outside focus ring: Cold immediately
 /// - Focused node: Hot
 /// - Core nodes do not decay
-pub fn tick_decay_rings(
+pub fn tick_decay_focus_ring(
     field: &mut Field,
     vp: &Viewport,
     now_ms: u64,
-    rings: FocusRings,
-    policy: RingDecayPolicy,
+    focus_ring: FocusRing,
+    policy: FocusRingDecayPolicy,
     focused: Option<NodeId>,
 ) {
-    // Collect ids first to avoid borrow fights.
     let ids: Vec<NodeId> = field.nodes().keys().copied().collect();
 
     for id in ids {
-        // Copy the pieces we need, then release the immutable borrow before mutating.
         let (kind, pos, intrinsic_size, last_touch_ms) = {
             let Some(n) = field.node(id) else { continue };
             (n.kind.clone(), n.pos, n.intrinsic_size, n.last_touch_ms)
@@ -130,13 +117,14 @@ pub fn tick_decay_rings(
             continue;
         }
 
-        let zone = dominant_ring_zone(rings, vp.center, pos, intrinsic_size);
+        let zone = dominant_focus_zone(focus_ring, vp.center, pos, intrinsic_size);
 
         match zone {
-            RingZone::Primary => {
+            FocusZone::Inside => {
                 let age = now_ms.saturating_sub(last_touch_ms);
-                let to_preview = policy.primary_to_preview_ms;
-                let to_node = to_preview.saturating_add(policy.primary_preview_to_node_ms);
+                let to_preview = policy.inside_to_preview_ms;
+                let to_node = to_preview.saturating_add(policy.preview_to_node_ms);
+
                 if age >= to_node {
                     field.set_decay_level(id, DecayLevel::Cold);
                 } else if age >= to_preview {
@@ -145,46 +133,47 @@ pub fn tick_decay_rings(
                     field.set_decay_level(id, DecayLevel::Hot);
                 }
             }
-            RingZone::Secondary => {
-                // Warm immediately (or Hot if configured)
-                if policy.secondary_preview {
-                    field.set_decay_level(id, DecayLevel::Warm);
-                } else {
-                    field.set_decay_level(id, DecayLevel::Hot);
-                }
-
-                let age = now_ms.saturating_sub(last_touch_ms);
-                if age >= policy.secondary_to_node_ms {
-                    field.set_decay_level(id, DecayLevel::Cold);
-                }
-            }
-            RingZone::Outside => {
+            FocusZone::Outside => {
                 if policy.outside_immediate_cold {
                     field.set_decay_level(id, DecayLevel::Cold);
                 } else {
-                    field.set_decay_level(id, DecayLevel::Cold);
+                    let age = now_ms.saturating_sub(last_touch_ms);
+                    let to_preview = policy.inside_to_preview_ms;
+                    let to_node = to_preview.saturating_add(policy.preview_to_node_ms);
+
+                    if age >= to_node {
+                        field.set_decay_level(id, DecayLevel::Cold);
+                    } else if age >= to_preview {
+                        field.set_decay_level(id, DecayLevel::Warm);
+                    } else {
+                        field.set_decay_level(id, DecayLevel::Hot);
+                    }
                 }
             }
         }
     }
 }
 
-fn dominant_ring_zone(rings: FocusRings, vp_center: Vec2, pos: Vec2, footprint: Vec2) -> RingZone {
+fn dominant_focus_zone(
+    focus_ring: FocusRing,
+    vp_center: Vec2,
+    pos: Vec2,
+    footprint: Vec2,
+) -> FocusZone {
     // Approximate "where the window mostly is" using a small deterministic sample grid.
     // Majority semantics:
-    // - >50% in primary => Primary
-    // - else >50% inside secondary (primary+secondary) => Secondary
-    // - else => Outside
+    // - >50% inside => Inside
+    // - otherwise => Outside
     let w = footprint.x.abs();
     let h = footprint.y.abs();
+
     if w < 1.0 || h < 1.0 {
-        return rings.zone(vp_center, pos);
+        return focus_ring.zone(vp_center, pos);
     }
 
     let sx = 5usize;
     let sy = 5usize;
-    let mut c_primary = 0usize;
-    let mut c_secondary = 0usize;
+    let mut inside = 0usize;
 
     let min_x = pos.x - w * 0.5;
     let min_y = pos.y - h * 0.5;
@@ -197,24 +186,20 @@ fn dominant_ring_zone(rings: FocusRings, vp_center: Vec2, pos: Vec2, footprint: 
                 x: min_x + tx * w,
                 y: min_y + ty * h,
             };
-            match rings.zone(vp_center, p) {
-                RingZone::Primary => c_primary += 1,
-                RingZone::Secondary => c_secondary += 1,
-                RingZone::Outside => {}
+
+            if focus_ring.zone(vp_center, p) == FocusZone::Inside {
+                inside += 1;
             }
         }
     }
 
     let total = (sx * sy) as f32;
-    let p_primary = c_primary as f32 / total;
-    let p_inside_secondary = (c_primary + c_secondary) as f32 / total;
+    let frac_inside = inside as f32 / total;
 
-    if p_primary > 0.5 {
-        RingZone::Primary
-    } else if p_inside_secondary > 0.5 {
-        RingZone::Secondary
+    if frac_inside > 0.5 {
+        FocusZone::Inside
     } else {
-        RingZone::Outside
+        FocusZone::Outside
     }
 }
 
@@ -222,13 +207,9 @@ fn dominant_ring_zone(rings: FocusRings, vp_center: Vec2, pos: Vec2, footprint: 
 mod tests {
     use super::*;
     use crate::field::Vec2;
-    use crate::viewport::{EyeRing, FocusRings};
 
-    fn default_rings() -> FocusRings {
-        FocusRings {
-            primary: EyeRing::new(50.0, 30.0, 0.0),
-            secondary: EyeRing::new(200.0, 120.0, 0.0),
-        }
+    fn default_focus_ring() -> FocusRing {
+        FocusRing::new(50.0, 30.0, 0.0)
     }
 
     #[test]
@@ -282,111 +263,86 @@ mod tests {
     }
 
     #[test]
-    fn primary_ring_never_decays() {
+    fn inside_focus_ring_near_center_stays_hot() {
         let mut f = Field::new();
         let a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
         assert!(f.touch(a, 0));
 
         let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let rings = default_rings();
-        let policy = RingDecayPolicy::new(5 * 60 * 1000);
+        let ring = default_focus_ring();
+        let policy = FocusRingDecayPolicy::new();
 
-        tick_decay_rings(&mut f, &vp, 999_999, rings, policy, None);
+        tick_decay_focus_ring(&mut f, &vp, 999_999, ring, policy, None);
 
         assert_eq!(f.node(a).unwrap().decay, DecayLevel::Hot);
         assert_eq!(f.node(a).unwrap().state, NodeState::Active);
     }
 
     #[test]
-    fn near_primary_edge_defaults_to_preview() {
+    fn inside_focus_ring_can_decay_to_preview() {
         let mut f = Field::new();
-        // default_rings().primary radius_x is 50; x=49 is barely inside.
         let a = f.spawn_surface("A", Vec2 { x: 49.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
         assert!(f.touch(a, 0));
 
         let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let rings = default_rings();
-        let policy = RingDecayPolicy::new(5_000);
+        let ring = default_focus_ring();
+        let mut policy = FocusRingDecayPolicy::new();
+        policy.inside_to_preview_ms = 1000;
+        policy.preview_to_node_ms = 5000;
 
-        tick_decay_rings(&mut f, &vp, 1_000, rings, policy, None);
+        tick_decay_focus_ring(&mut f, &vp, 1500, ring, policy, None);
+
         assert_eq!(f.node(a).unwrap().decay, DecayLevel::Warm);
         assert_eq!(f.node(a).unwrap().state, NodeState::Preview);
     }
 
     #[test]
-    fn majority_secondary_beats_center_inside_primary() {
+    fn inside_focus_ring_can_decay_to_node() {
         let mut f = Field::new();
-        // Center is just inside primary ring (x=49 in rx=50),
-        // but wide footprint puts most samples in secondary.
-        let a = f.spawn_surface("A", Vec2 { x: 49.0, y: 0.0 }, Vec2 { x: 200.0, y: 40.0 });
+        let a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
         assert!(f.touch(a, 0));
 
         let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let rings = default_rings();
-        let mut policy = RingDecayPolicy::new(5_000);
-        policy.primary_hot_inner_frac = 1.0; // disable inner hot cut to isolate zone classification
+        let ring = default_focus_ring();
+        let mut policy = FocusRingDecayPolicy::new();
+        policy.inside_to_preview_ms = 1000;
+        policy.preview_to_node_ms = 5000;
 
-        tick_decay_rings(&mut f, &vp, 1_000, rings, policy, None);
-        assert_eq!(f.node(a).unwrap().decay, DecayLevel::Warm);
-        assert_eq!(f.node(a).unwrap().state, NodeState::Preview);
-    }
+        tick_decay_focus_ring(&mut f, &vp, 7000, ring, policy, None);
 
-    #[test]
-    fn mostly_outside_secondary_goes_node_immediately() {
-        let mut f = Field::new();
-        // Only a small left slice is inside secondary; most of area is outside.
-        let a = f.spawn_surface("A", Vec2 { x: 210.0, y: 0.0 }, Vec2 { x: 80.0, y: 80.0 });
-        assert!(f.touch(a, 0));
-
-        let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let rings = default_rings();
-        let policy = RingDecayPolicy::new(5_000);
-
-        tick_decay_rings(&mut f, &vp, 1_000, rings, policy, None);
         assert_eq!(f.node(a).unwrap().decay, DecayLevel::Cold);
         assert_eq!(f.node(a).unwrap().state, NodeState::Node);
     }
 
     #[test]
-    fn secondary_ring_goes_preview_then_node_after_threshold() {
+    fn outside_focus_ring_goes_cold_immediately() {
         let mut f = Field::new();
-        // Place in secondary ring but outside primary.
-        let a = f.spawn_surface("A", Vec2 { x: 100.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
+        let a = f.spawn_surface("A", Vec2 { x: 500.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
         assert!(f.touch(a, 0));
 
         let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let rings = default_rings();
-        let policy = RingDecayPolicy::new(5_000);
+        let ring = default_focus_ring();
+        let policy = FocusRingDecayPolicy::new();
 
-        tick_decay_rings(&mut f, &vp, 1_000, rings, policy, None);
-        assert_eq!(f.node(a).unwrap().decay, DecayLevel::Warm);
-        assert_eq!(f.node(a).unwrap().state, NodeState::Preview);
+        tick_decay_focus_ring(&mut f, &vp, 1000, ring, policy, None);
 
-        tick_decay_rings(&mut f, &vp, 6_000, rings, policy, None);
         assert_eq!(f.node(a).unwrap().decay, DecayLevel::Cold);
         assert_eq!(f.node(a).unwrap().state, NodeState::Node);
     }
 
     #[test]
-    fn outside_secondary_immediately_cold() {
+    fn focused_node_stays_hot_with_focus_ring_policy() {
         let mut f = Field::new();
-        let a = f.spawn_surface(
-            "A",
-            Vec2 {
-                x: 10_000.0,
-                y: 0.0,
-            },
-            Vec2 { x: 10.0, y: 10.0 },
-        );
+        let a = f.spawn_surface("A", Vec2 { x: 500.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
         assert!(f.touch(a, 0));
 
         let vp = Viewport::new(Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 50.0 });
-        let rings = default_rings();
-        let policy = RingDecayPolicy::new(5_000);
+        let ring = default_focus_ring();
+        let policy = FocusRingDecayPolicy::new();
 
-        tick_decay_rings(&mut f, &vp, 1_000, rings, policy, None);
+        tick_decay_focus_ring(&mut f, &vp, 999_999, ring, policy, Some(a));
 
-        assert_eq!(f.node(a).unwrap().decay, DecayLevel::Cold);
-        assert_eq!(f.node(a).unwrap().state, NodeState::Node);
+        assert_eq!(f.node(a).unwrap().decay, DecayLevel::Hot);
+        assert_eq!(f.node(a).unwrap().state, NodeState::Active);
     }
 }

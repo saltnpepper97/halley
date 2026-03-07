@@ -1,4 +1,5 @@
 use super::*;
+use halley_core::viewport::{FocusRing, FocusZone};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DockSide {
@@ -336,39 +337,17 @@ impl HalleyWlState {
                 )
             };
 
-            // ------------------------------------------------------------------
-            // Edge-collapse: use the full remembered window size so the trigger
-            // fires at the real content edge, not the shrunken animated footprint.
-            //
-            // Each node is decided independently:
-            //   outward edge exits viewport  → collapse to Node immediately
-            //   outward edge inside viewport → reopen once primary coverage returns
-            //
-            // Only the window going out of bounds collapses; its partner is not
-            // affected by that window's overflow.
-            // ------------------------------------------------------------------
             let a_edge_fp = self.dock_state_eval_footprint(a, sa);
             let b_edge_fp = self.dock_state_eval_footprint(b, sb);
 
             let a_overflow = self.dock_outward_edge_overflow(a_pos, a_edge_fp, link_a.side);
             let b_overflow = self.dock_outward_edge_overflow(b_pos, b_edge_fp, link_b.side);
 
-            // Collapse when the outward edge exits the viewport (overflow > 0).
-            // Do NOT auto-reopen Cold nodes here based on coverage — that
-            // bypasses focus history and causes docked pairs to pop open
-            // whenever they drift into the primary zone, even if a completely
-            // different window was focused last.
-            //
-            // Targeted reopening of the last-focused node (docked or otherwise)
-            // is handled exclusively by restore_pan_return_active_focus.
             let decay_a = if a_overflow > 0.0 {
-                // Outward edge left the viewport — collapse.
                 DecayLevel::Cold
             } else if a_state == halley_core::field::NodeState::Active {
-                // Active and on-screen — keep it.
                 DecayLevel::Hot
             } else {
-                // Cold and on-screen: stay Cold until focus logic reopens it.
                 DecayLevel::Cold
             };
 
@@ -394,16 +373,6 @@ impl HalleyWlState {
                 }
             }
 
-            // ------------------------------------------------------------------
-            // Positional correction — keep the pair centred on their shared
-            // anchor so midpoint doesn't drift when footprints change.
-            //
-            // Use a_edge_fp/b_edge_fp (remembered full sizes) rather than the
-            // live sa/sb.  If we used the animated/shrunken sizes here, sep would
-            // shrink as a node collapses, carry() would move both nodes inward,
-            // the outward edge would re-enter the viewport, and the node would
-            // reopen — producing the oscillating collapse/reopen flicker.
-            // ------------------------------------------------------------------
             let gap = self.non_overlap_gap_world();
             match link_b.side {
                 DockSide::Left | DockSide::Right => {
@@ -445,19 +414,18 @@ impl HalleyWlState {
         }
     }
 
-    fn ring_coverage_fractions(
+    fn focus_ring_coverage_fractions(
         &self,
         pos: Vec2,
         footprint: Vec2,
-        rings: FocusRings,
-    ) -> (f32, f32, f32) {
+        focus_ring: FocusRing,
+    ) -> (f32, f32) {
         let sample_fp = Vec2 {
             x: footprint.x.max(48.0),
             y: footprint.y.max(48.0),
         };
         let samples = 7usize;
-        let mut c_primary = 0usize;
-        let mut c_secondary = 0usize;
+        let mut c_inside = 0usize;
         let mut c_total = 0usize;
         for ix in 0..samples {
             for iy in 0..samples {
@@ -467,58 +435,51 @@ impl HalleyWlState {
                     x: pos.x + fx * sample_fp.x,
                     y: pos.y + fy * sample_fp.y,
                 };
-                match rings.zone(self.viewport.center, sp) {
-                    RingZone::Primary => c_primary += 1,
-                    RingZone::Secondary => c_secondary += 1,
-                    RingZone::Outside => {}
+                match focus_ring.zone(self.viewport.center, sp) {
+                    FocusZone::Inside => c_inside += 1,
+                    FocusZone::Outside => {}
                 }
                 c_total += 1;
             }
         }
         if c_total == 0 {
-            return (0.0, 0.0, 1.0);
+            return (0.0, 1.0);
         }
-        let p_primary = c_primary as f32 / c_total as f32;
-        let p_secondary = c_secondary as f32 / c_total as f32;
-        let p_outside = (1.0 - p_primary - p_secondary).max(0.0);
-        (p_primary, p_secondary, p_outside)
+        let p_inside = c_inside as f32 / c_total as f32;
+        let p_outside = (1.0 - p_inside).max(0.0);
+        (p_inside, p_outside)
     }
 
-    fn zone_for_pos_with_hysteresis(&mut self, id: NodeId, pos: Vec2, footprint: Vec2) -> RingZone {
-        let rings = self.active_rings();
+    fn zone_for_pos_with_hysteresis(&mut self, id: NodeId, pos: Vec2, footprint: Vec2) -> FocusZone {
+        let focus_ring = self.active_focus_ring();
         let footprint = self.zone_eval_footprint_for(id, footprint);
-        let (p_primary, _p_secondary, p_outside) =
-            self.ring_coverage_fractions(pos, footprint, rings);
+        let (p_inside, p_outside) =
+            self.focus_ring_coverage_fractions(pos, footprint, focus_ring);
         let prev = self.carry_zone_hint.get(&id).copied();
 
         const ACTIVE_RETAIN_FRAC: f32 = 0.04;
         const ACTIVE_ENTER_FRAC: f32 = 0.10;
         const OUTSIDE_ENTER_FRAC: f32 = 0.90;
+
         let zone = match prev {
-            Some(RingZone::Primary) => {
-                if p_primary >= ACTIVE_RETAIN_FRAC {
-                    RingZone::Primary
+            Some(FocusZone::Inside) => {
+                if p_inside >= ACTIVE_RETAIN_FRAC {
+                    FocusZone::Inside
                 } else if p_outside >= OUTSIDE_ENTER_FRAC {
-                    RingZone::Outside
+                    FocusZone::Outside
                 } else {
-                    RingZone::Primary
-                }
-            }
-            Some(RingZone::Secondary) => {
-                if p_primary >= ACTIVE_ENTER_FRAC {
-                    RingZone::Primary
-                } else {
-                    RingZone::Outside
+                    FocusZone::Inside
                 }
             }
             _ => {
-                if p_primary >= ACTIVE_ENTER_FRAC {
-                    RingZone::Primary
+                if p_inside >= ACTIVE_ENTER_FRAC {
+                    FocusZone::Inside
                 } else {
-                    RingZone::Outside
+                    FocusZone::Outside
                 }
             }
         };
+
         let now_ms = self.now_ms(Instant::now());
         self.carry_zone_last_change_ms.insert(id, now_ms);
         self.carry_zone_pending.remove(&id);
@@ -532,9 +493,9 @@ impl HalleyWlState {
         if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {
             return;
         }
-        let rings = self.active_rings();
-        let pointer_zone = rings.zone(self.viewport.center, pointer_world);
-        let target = if pointer_zone != RingZone::Primary {
+        let focus_ring = self.active_focus_ring();
+        let pointer_zone = focus_ring.zone(self.viewport.center, pointer_world);
+        let target = if pointer_zone != FocusZone::Inside {
             DecayLevel::Cold
         } else {
             DecayLevel::Hot
@@ -596,7 +557,7 @@ impl HalleyWlState {
         }
         let zone = self.zone_for_pos_with_hysteresis(id, source_pos, footprint);
         let target = match zone {
-            RingZone::Primary if was_active => DecayLevel::Hot,
+            FocusZone::Inside if was_active => DecayLevel::Hot,
             _ => DecayLevel::Cold,
         };
         let _ = self.field.set_decay_level(id, target);

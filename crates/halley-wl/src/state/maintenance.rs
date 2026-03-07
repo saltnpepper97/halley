@@ -1,27 +1,32 @@
 use std::collections::HashSet;
 
 use super::*;
+use halley_core::viewport::{FocusRing, FocusZone};
 
 impl HalleyWlState {
-    pub(crate) fn enforce_single_primary_active_unit(&mut self, rings: FocusRings) {
-        let mut primary_ids: Vec<NodeId> = self
+    pub(crate) fn enforce_single_primary_active_unit(&mut self, focus_ring: FocusRing) {
+        let mut inside_ids: Vec<NodeId> = self
             .field
             .nodes()
             .iter()
             .filter_map(|(&id, n)| {
                 (self.field.is_visible(id)
                     && n.kind == halley_core::field::NodeKind::Surface
-                    && rings.zone(self.viewport.center, n.pos) == RingZone::Primary)
+                    && focus_ring.zone(self.viewport.center, n.pos) == FocusZone::Inside)
                     .then_some(id)
             })
             .collect();
-        if primary_ids.is_empty() {
+
+        if inside_ids.is_empty() {
             return;
         }
-        primary_ids.sort_by_key(|id| id.as_u64());
+
+        inside_ids.sort_by_key(|id| id.as_u64());
+
         let mut units: Vec<Vec<NodeId>> = Vec::new();
         let mut seen: HashSet<NodeId> = HashSet::new();
-        for id in primary_ids {
+
+        for id in inside_ids {
             if seen.contains(&id) {
                 continue;
             }
@@ -44,6 +49,7 @@ impl HalleyWlState {
             seen.insert(id);
             units.push(unit);
         }
+
         if units.is_empty() {
             return;
         }
@@ -62,6 +68,7 @@ impl HalleyWlState {
                     .then_some(idx)
             })
             .collect();
+
         if active_unit_indices.len() <= 1 {
             return;
         }
@@ -84,6 +91,7 @@ impl HalleyWlState {
             let latest_id = unit.iter().map(|id| id.as_u64()).max().unwrap_or(0);
             (preferred_rank, focus_rank, latest_focus, latest_id)
         });
+
         let Some(selected_idx) = selected_idx else {
             return;
         };
@@ -118,6 +126,7 @@ impl HalleyWlState {
             .iter()
             .filter_map(|(&id, &at)| (now_ms >= at).then_some(id))
             .collect();
+
         for id in due {
             self.pending_spawn_activate_at_ms.remove(&id);
             if !self.field.is_visible(id) {
@@ -134,18 +143,18 @@ impl HalleyWlState {
                 self.last_active_size.insert(id, nn.intrinsic_size);
             }
             self.mark_active_transition(id, now, 620);
-            // New toplevels should remain typeable after map/activation.
             self.set_interaction_focus(Some(id), 30_000, now);
             self.push_neighbors_for_activation(id);
         }
     }
 
     pub(crate) fn enforce_carry_zone_states(&mut self) {
-        let tracked: Vec<(NodeId, RingZone)> = self
+        let tracked: Vec<(NodeId, FocusZone)> = self
             .carry_zone_hint
             .iter()
             .map(|(&id, &z)| (id, z))
             .collect();
+
         for (id, zone) in tracked {
             if !self.field.is_visible(id) {
                 continue;
@@ -157,20 +166,19 @@ impl HalleyWlState {
                 continue;
             }
             let target = match zone {
-                // Dragging a Node into center should not auto-promote it to Active.
-                RingZone::Primary if n.state == halley_core::field::NodeState::Active => {
+                FocusZone::Inside if n.state == halley_core::field::NodeState::Active => {
                     DecayLevel::Hot
                 }
-                RingZone::Primary => DecayLevel::Cold,
-                RingZone::Secondary => DecayLevel::Cold,
-                RingZone::Outside => DecayLevel::Cold,
+                FocusZone::Inside => DecayLevel::Cold,
+                FocusZone::Outside => DecayLevel::Cold,
             };
             let _ = self.field.set_decay_level(id, target);
         }
     }
 
-    pub(crate) fn enforce_pan_dominant_zone_states(&mut self, rings: FocusRings, _now_ms: u64) {
+    pub(crate) fn enforce_pan_dominant_zone_states(&mut self, focus_ring: FocusRing, _now_ms: u64) {
         let ids: Vec<NodeId> = self.field.nodes().keys().copied().collect();
+
         for id in ids {
             if !self.field.is_visible(id) {
                 continue;
@@ -181,6 +189,7 @@ impl HalleyWlState {
             if n.kind != halley_core::field::NodeKind::Surface {
                 continue;
             }
+
             let n_state = n.state.clone();
             let pos = n.pos;
             let fp_raw = self.collision_size_for_node(n);
@@ -192,10 +201,11 @@ impl HalleyWlState {
                     y: fp_raw.y.max(48.0),
                 }
             };
+
             let samples = 7usize;
-            let mut c_primary = 0usize;
-            let mut c_secondary = 0usize;
+            let mut c_inside = 0usize;
             let mut c_total = 0usize;
+
             for ix in 0..samples {
                 for iy in 0..samples {
                     let fx = (ix as f32 / (samples - 1) as f32) - 0.5;
@@ -204,27 +214,24 @@ impl HalleyWlState {
                         x: pos.x + fx * fp.x,
                         y: pos.y + fy * fp.y,
                     };
-                    match rings.zone(self.viewport.center, sp) {
-                        RingZone::Primary => c_primary += 1,
-                        RingZone::Secondary => c_secondary += 1,
-                        RingZone::Outside => {}
+                    match focus_ring.zone(self.viewport.center, sp) {
+                        FocusZone::Inside => c_inside += 1,
+                        FocusZone::Outside => {}
                     }
                     c_total += 1;
                 }
             }
-            let p_primary = if c_total > 0 {
-                c_primary as f32 / c_total as f32
+
+            let p_inside = if c_total > 0 {
+                c_inside as f32 / c_total as f32
             } else {
                 0.0
             };
-            let p_secondary = if c_total > 0 {
-                c_secondary as f32 / c_total as f32
-            } else {
-                0.0
-            };
-            let p_outside = (1.0 - p_primary - p_secondary).max(0.0);
+            let p_outside = (1.0 - p_inside).max(0.0);
+
             let was_active = n_state == halley_core::field::NodeState::Active;
             let pair_gap = self.non_overlap_gap_world();
+
             let overlap_active = self
                 .field
                 .nodes()
@@ -246,22 +253,23 @@ impl HalleyWlState {
                     let dy = (on.pos.y - pos.y).abs();
                     dx < req_x && dy < req_y
                 });
+
             const ACTIVE_RETAIN_FRAC: f32 = 0.04;
             const ACTIVE_OVERLAP_RETAIN_FRAC: f32 = 0.22;
             const OUTSIDE_ENTER_FRAC: f32 = 0.90;
+
             let target = if was_active {
                 let retain_frac = if overlap_active {
                     ACTIVE_OVERLAP_RETAIN_FRAC
                 } else {
                     ACTIVE_RETAIN_FRAC
                 };
-                if p_primary >= retain_frac {
+
+                if p_inside >= retain_frac {
                     DecayLevel::Hot
                 } else if p_outside >= OUTSIDE_ENTER_FRAC {
                     DecayLevel::Cold
                 } else if overlap_active {
-                    // Exception: overlap should not let tiny-in-ring windows
-                    // self-pin to Active indefinitely.
                     DecayLevel::Cold
                 } else {
                     DecayLevel::Hot
@@ -269,6 +277,7 @@ impl HalleyWlState {
             } else {
                 DecayLevel::Cold
             };
+
             let _ = self.field.set_decay_level(id, target);
         }
     }
@@ -306,6 +315,7 @@ impl HalleyWlState {
                 Some((id, n.pos, osize, d2))
             })
             .collect();
+
         others.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut moved = 0usize;
@@ -344,6 +354,7 @@ impl HalleyWlState {
     pub(crate) fn reconcile_surface_bindings(&mut self) {
         const STALE_SURFACE_GRACE_MS: u64 = 1500;
         let now = Instant::now();
+
         let alive: HashSet<ObjectId> = self
             .xdg_shell_state
             .toplevel_surfaces()
@@ -405,6 +416,7 @@ impl HalleyWlState {
                 let _ = self.field.remove(id);
             }
         }
+
         self.surface_activity.retain(|k, _| alive.contains(k));
     }
 }

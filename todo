@@ -1,0 +1,9 @@
+[x] land this config/parser cleanup
+
+[ ] do a small config audit and delete knobs you know you no longer want
+
+[ ] then build basic halley-ipc
+
+[ ] then move core user actions onto IPC
+
+[ ] then return to focus-ring/interactions with cleaner control surfaces
