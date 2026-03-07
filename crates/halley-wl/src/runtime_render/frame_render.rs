@@ -25,10 +25,6 @@ use super::node_render::{
 };
 use super::render_utils::{draw_outline_rect, draw_rect, draw_ring};
 
-// ---------------------------------------------------------------------------
-// Winit entry point
-// ---------------------------------------------------------------------------
-
 pub(crate) fn draw_debug_frame(
     backend: &mut WinitGraphicsBackend<GlesRenderer>,
     st: &mut HalleyWlState,
@@ -50,18 +46,12 @@ pub(crate) fn draw_debug_frame(
             preview_hover_node,
             None,
             None,
-            // Winit cursor/input coordinates share screen-space with the
-            // framebuffer, so no transform is needed.
             Transform::Normal,
         )?;
     }
     backend.submit(Some(&[damage]))?;
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Backend-agnostic render path
-// ---------------------------------------------------------------------------
 
 pub(crate) fn draw_debug_frame_to_target(
     renderer: &mut GlesRenderer,
@@ -78,13 +68,9 @@ pub(crate) fn draw_debug_frame_to_target(
     let damage = Rectangle::<i32, Physical>::from_size(size);
     let now = Instant::now();
 
-    // Keep animator tracks synced so state transitions interpolate immediately.
     st.tick_animator_frame(now);
     st.begin_render_frame(now);
 
-    // ------------------------------------------------------------------
-    // 1. Collect active Wayland surface elements
-    // ------------------------------------------------------------------
     let (
         active_elements,
         node_surface_map,
@@ -94,9 +80,6 @@ pub(crate) fn draw_debug_frame_to_target(
         overlap_overlay_rects,
     ) = collect_active_surfaces(renderer, st, size, resize_preview, now);
 
-    // ------------------------------------------------------------------
-    // 2. Collect hover-preview elements
-    // ------------------------------------------------------------------
     let hovered_preview_id = preview_hover_node.and_then(|id| {
         st.field.node(id).and_then(|n| {
             (node_in_active_area(st, id)
@@ -117,9 +100,6 @@ pub(crate) fn draw_debug_frame_to_target(
         now,
     );
 
-    // ------------------------------------------------------------------
-    // 3. Collect cursor surface elements
-    // ------------------------------------------------------------------
     let cursor_status = cursor_image
         .cloned()
         .unwrap_or_else(smithay::input::pointer::CursorImageStatus::default_named);
@@ -136,9 +116,6 @@ pub(crate) fn draw_debug_frame_to_target(
             render_elements_from_surface_tree(renderer, &surface, loc, 1.0, 1.0, Kind::Unspecified);
     }
 
-    // ------------------------------------------------------------------
-    // 4. Snapshot node list before the mutable frame borrow
-    // ------------------------------------------------------------------
     let render_nodes: Vec<NodeSnapshot> = st
         .field
         .nodes()
@@ -157,13 +134,9 @@ pub(crate) fn draw_debug_frame_to_target(
         })
         .collect();
 
-    // ------------------------------------------------------------------
-    // 5. Draw
-    // ------------------------------------------------------------------
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[damage])?;
 
-    // Active window borders
     for rect in &border_rects {
         let color = if rect.focused {
             Color32F::new(0.22, 0.82, 0.92, 1.0)
@@ -183,12 +156,10 @@ pub(crate) fn draw_debug_frame_to_target(
         )?;
     }
 
-    // Active windows
     if !active_elements.is_empty() {
         let _ = draw_render_elements(&mut frame, 1.0, &active_elements, &[damage]);
     }
 
-    // Overlap tint for windows behind the resize target
     for (x, y, w, h) in overlap_overlay_rects {
         draw_rect(
             &mut frame,
@@ -210,7 +181,6 @@ pub(crate) fn draw_debug_frame_to_target(
         )?;
     }
 
-    // Dev geometry overlay
     if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {
         for (x, y, w, h, color) in overlay_rects {
             draw_outline_rect(&mut frame, x, y, w, h, color, damage)?;
@@ -220,10 +190,8 @@ pub(crate) fn draw_debug_frame_to_target(
         }
     }
 
-    // Node markers / proxy thumbnails
     draw_node_markers(&mut frame, st, size, &render_nodes, hover_node, damage, now)?;
 
-    // Hover preview window
     if let Some((px, py, pw, ph)) = hover_preview_rect {
         if !hover_preview_elements.is_empty() {
             let dl = damage.loc.x;
@@ -241,25 +209,22 @@ pub(crate) fn draw_debug_frame_to_target(
         }
     }
 
-    // Dock connector lines + dock-preview overlay
     draw_docked_pairs(&mut frame, st, size, damage, now)?;
     draw_dock_preview(&mut frame, st, size, damage, now)?;
 
-    // Focus ring
-    let rings = st.active_rings();
+    let focus_ring = st.active_focus_ring();
     draw_ring(
         &mut frame,
         st,
         size.w,
         size.h,
-        rings.primary.radius_x,
-        rings.primary.radius_y,
-        rings.primary.rotation_rad,
+        focus_ring.radius_x,
+        focus_ring.radius_y,
+        focus_ring.rotation_rad,
         Color32F::new(0.15, 0.85, 0.85, 0.9),
         damage,
     )?;
 
-    // Software cursor (TTY backend has no host cursor)
     if let Some((sx, sy)) = cursor_screen {
         let draw_fallback_arrow = match cursor_status {
             smithay::input::pointer::CursorImageStatus::Hidden => false,
@@ -293,11 +258,6 @@ pub(crate) fn draw_debug_frame_to_target(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Fallback arrow cursor
-// ---------------------------------------------------------------------------
-
-/// Tiny software arrow drawn when the themed cursor fails to load.
 fn draw_fallback_cursor_arrow<F>(
     frame: &mut F,
     sx: f32,

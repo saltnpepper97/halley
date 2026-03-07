@@ -208,41 +208,36 @@ fn load_viewport_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 }
 
 fn load_focus_ring_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    out.ring_primary_rx = pick_f32(
+    out.focus_ring_rx = pick_f32(
         cfg,
-        &["focus-ring.primary-rx", "focus-ring.primary_rx"],
-        out.ring_primary_rx,
+        &["focus-ring.rx", "focus-ring.radius-x", "focus-ring.radius_x"],
+        out.focus_ring_rx,
     );
-    out.ring_primary_ry = pick_f32(
+    out.focus_ring_ry = pick_f32(
         cfg,
-        &["focus-ring.primary-ry", "focus-ring.primary_ry"],
-        out.ring_primary_ry,
+        &["focus-ring.ry", "focus-ring.radius-y", "focus-ring.radius_y"],
+        out.focus_ring_ry,
     );
-
-    out.ring_secondary_rx = pick_f32(
-        cfg,
-        &["focus-ring.secondary-rx", "focus-ring.secondary_rx"],
-        out.ring_secondary_rx,
-    );
-    out.ring_secondary_ry = pick_f32(
-        cfg,
-        &["focus-ring.secondary-ry", "focus-ring.secondary_ry"],
-        out.ring_secondary_ry,
-    );
-    out.ring_rotation_rad = pick_f32(
+    out.focus_ring_rotation_rad = pick_f32(
         cfg,
         &["focus-ring.rotation-rad", "focus-ring.rotation_rad"],
-        out.ring_rotation_rad,
+        out.focus_ring_rotation_rad,
+    );
+
+    // Transitional compatibility with the older config shape.
+    out.focus_ring_rx = pick_f32(
+        cfg,
+        &["focus-ring.primary-rx", "focus-ring.primary_rx"],
+        out.focus_ring_rx,
+    );
+    out.focus_ring_ry = pick_f32(
+        cfg,
+        &["focus-ring.primary-ry", "focus-ring.primary_ry"],
+        out.focus_ring_ry,
     );
 }
 
 fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    out.secondary_to_node_ms = pick_u64(
-        cfg,
-        &["nodes.collapse-delay", "nodes.collapse_delay"],
-        out.secondary_to_node_ms,
-    );
-
     out.primary_to_preview_ms = pick_u64(
         cfg,
         &[

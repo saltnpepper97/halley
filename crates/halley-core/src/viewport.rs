@@ -62,30 +62,28 @@ impl Viewport {
     }
 }
 
-/// Which focus-ring zone a point is in (relative to a viewport center).
+/// Which focus zone a point is in (relative to a viewport center).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RingZone {
-    Primary,
-    Secondary,
+pub enum FocusZone {
+    Inside,
     Outside,
 }
 
-/// An "eye ring" modeled as a rotated ellipse in Field coordinates.
+/// A focus ring modeled as a rotated ellipse in Field coordinates.
 ///
 /// We use normalized ellipse distance:
 ///   d2 = (x'/rx)^2 + (y'/ry)^2
 /// If d2 <= 1 => inside.
 ///
-/// This is deterministic, cheap, and gives you the "eye" vibe via ellipse + rotation.
-/// If you later want a truer eye shape, you can replace just `contains()`.
+/// This is deterministic, cheap, and keeps the current ellipse/eye-like model.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct EyeRing {
+pub struct FocusRing {
     pub radius_x: f32,
     pub radius_y: f32,
     pub rotation_rad: f32,
 }
 
-impl EyeRing {
+impl FocusRing {
     pub fn new(radius_x: f32, radius_y: f32, rotation_rad: f32) -> Self {
         Self {
             radius_x,
@@ -98,6 +96,14 @@ impl EyeRing {
         self.normalized_distance2(center, p) <= 1.0
     }
 
+    pub fn zone(&self, vp_center: Vec2, p: Vec2) -> FocusZone {
+        if self.contains(vp_center, p) {
+            FocusZone::Inside
+        } else {
+            FocusZone::Outside
+        }
+    }
+
     /// Return normalized squared distance inside this ellipse:
     /// d2 = (x'/rx)^2 + (y'/ry)^2
     /// - d2 <= 1.0: inside/on boundary
@@ -108,8 +114,7 @@ impl EyeRing {
 
         let (s, c) = self.rotation_rad.sin_cos();
 
-        // Rotate into ring-local space.
-        // (x, y) = R(-rot) * (dx, dy)
+        // Rotate into focus-ring-local space.
         let x = c * dx + s * dy;
         let y = -s * dx + c * dy;
 
@@ -120,24 +125,6 @@ impl EyeRing {
         let ny = y / ry;
 
         nx * nx + ny * ny
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct FocusRings {
-    pub primary: EyeRing,
-    pub secondary: EyeRing,
-}
-
-impl FocusRings {
-    pub fn zone(&self, vp_center: Vec2, p: Vec2) -> RingZone {
-        if self.primary.contains(vp_center, p) {
-            RingZone::Primary
-        } else if self.secondary.contains(vp_center, p) {
-            RingZone::Secondary
-        } else {
-            RingZone::Outside
-        }
     }
 }
 
@@ -167,28 +154,24 @@ mod tests {
     }
 
     #[test]
-    fn eye_ring_contains_axis_aligned() {
-        let ring = EyeRing::new(10.0, 5.0, 0.0);
+    fn focus_ring_contains_axis_aligned() {
+        let ring = FocusRing::new(10.0, 5.0, 0.0);
         let c = Vec2 { x: 0.0, y: 0.0 };
 
         assert!(ring.contains(c, Vec2 { x: 0.0, y: 0.0 }));
-        assert!(ring.contains(c, Vec2 { x: 10.0, y: 0.0 })); // on edge
-        assert!(ring.contains(c, Vec2 { x: 0.0, y: 5.0 })); // on edge
+        assert!(ring.contains(c, Vec2 { x: 10.0, y: 0.0 }));
+        assert!(ring.contains(c, Vec2 { x: 0.0, y: 5.0 }));
 
         assert!(!ring.contains(c, Vec2 { x: 10.01, y: 0.0 }));
         assert!(!ring.contains(c, Vec2 { x: 0.0, y: 5.01 }));
     }
 
     #[test]
-    fn focus_rings_zone_classifies() {
-        let rings = FocusRings {
-            primary: EyeRing::new(10.0, 10.0, 0.0),
-            secondary: EyeRing::new(50.0, 50.0, 0.0),
-        };
+    fn focus_zone_classifies() {
+        let ring = FocusRing::new(10.0, 10.0, 0.0);
         let c = Vec2 { x: 0.0, y: 0.0 };
 
-        assert_eq!(rings.zone(c, Vec2 { x: 0.0, y: 0.0 }), RingZone::Primary);
-        assert_eq!(rings.zone(c, Vec2 { x: 20.0, y: 0.0 }), RingZone::Secondary);
-        assert_eq!(rings.zone(c, Vec2 { x: 100.0, y: 0.0 }), RingZone::Outside);
+        assert_eq!(ring.zone(c, Vec2 { x: 0.0, y: 0.0 }), FocusZone::Inside);
+        assert_eq!(ring.zone(c, Vec2 { x: 20.0, y: 0.0 }), FocusZone::Outside);
     }
 }

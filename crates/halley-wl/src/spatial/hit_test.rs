@@ -8,6 +8,7 @@ use crate::runtime_render::{
     active_surface_render_scale, node_marker_bounds, node_marker_metrics, world_to_screen,
 };
 use crate::state::HalleyWlState;
+use halley_core::viewport::FocusZone;
 
 pub(crate) fn pick_hit_node_at(
     st: &HalleyWlState,
@@ -62,9 +63,6 @@ pub(crate) fn pick_hit_node_at(
                 let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
                 let sw = rw.round();
                 let sh = rh.round();
-                // Align hit bounds with actual render placement.
-                // Rendering anchors the visible window rect at center - scaled_size/2,
-                // with bbox local offsets applied only to the surface-tree origin.
                 let x = ((cx as f32) - sw * 0.5).round() as i32;
                 let y = ((cy as f32) - sh * 0.5).round() as i32;
                 let ww = sw.max(1.0) as i32;
@@ -116,7 +114,6 @@ pub(crate) fn pick_hit_node_at(
         };
     }
 
-    // Newer ids are treated as visually on top in this prototype.
     active.sort_by_key(|h| std::cmp::Reverse(h.node_id.as_u64()));
     node_dot.sort_by_key(|h| std::cmp::Reverse(h.node_id.as_u64()));
 
@@ -130,9 +127,9 @@ pub(crate) fn node_in_active_area(st: &HalleyWlState, node_id: halley_core::fiel
     let Some(n) = st.field.node(node_id) else {
         return false;
     };
-    let rings = st.active_rings();
+    let focus_ring = st.active_focus_ring();
     matches!(
-        rings.zone(st.viewport.center, n.pos),
-        halley_core::viewport::RingZone::Primary
+        focus_ring.zone(st.viewport.center, n.pos),
+        FocusZone::Inside
     )
 }

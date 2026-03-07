@@ -1,5 +1,6 @@
 use super::*;
 use eventline::info;
+use halley_core::viewport::FocusZone;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::utils::SERIAL_COUNTER;
@@ -70,15 +71,6 @@ impl HalleyWlState {
         let now_ms = self.now_ms(now);
         self.pan_dominant_until_ms = now_ms.saturating_add(220);
         if self.tuning.restore_last_active_on_pan_return {
-            // Only capture the restore target on the FIRST pan event of each
-            // pan session. Refreshing on every event overwrites the target
-            // with None as soon as the node decays away from Active state,
-            // which permanently breaks restoration for that pan cycle.
-            //
-            // The target is cleared by restore_pan_return_active_focus once
-            // restoration fires, or by set_interaction_focus when the user
-            // explicitly focuses a different window — so successive pan
-            // sessions always start with a fresh capture.
             if self.pan_restore_active_focus.is_none() {
                 self.pan_restore_active_focus = self.last_focused_active_surface_node();
             }
@@ -176,13 +168,12 @@ impl HalleyWlState {
             self.pan_restore_active_focus = None;
             return;
         }
-        let rings = self.active_rings();
-        if rings.zone(self.viewport.center, n.pos) != RingZone::Primary {
+
+        let focus_ring = self.active_focus_ring();
+        if focus_ring.zone(self.viewport.center, n.pos) != FocusZone::Inside {
             return;
         }
 
-        // If the restore target is one half of a docked pair, reopen both —
-        // they were focused together and should return together.
         let partner = self.docked_links.get(&id).and_then(|link| {
             let pid = link.partner;
             self.docked_links
@@ -275,10 +266,6 @@ impl HalleyWlState {
                     n.kind == halley_core::field::NodeKind::Surface && self.field.is_visible(fid)
                 }) {
                     self.last_surface_focus_ms.insert(fid, now_ms);
-
-                    // Update the pan-restore target whenever the user explicitly
-                    // focuses a new Surface window so that panning away from it
-                    // and back will restore it — not the old pre-focus target.
                     if self.tuning.restore_last_active_on_pan_return {
                         self.pan_restore_active_focus = Some(fid);
                     }

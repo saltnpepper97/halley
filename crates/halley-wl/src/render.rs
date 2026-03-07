@@ -1,12 +1,11 @@
 use glam::{Vec2, Vec4};
 use halley_core::field::Field;
-use halley_core::viewport::{FocusRings, RingZone, Viewport};
+use halley_core::viewport::{FocusRing, FocusZone, Viewport};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DebugPalette {
     pub clear: Vec4,
-    pub ring_primary: Vec4,
-    pub ring_secondary: Vec4,
+    pub focus_ring: Vec4,
     pub node_active: Vec4,
     pub node_preview: Vec4,
     pub node_cold: Vec4,
@@ -16,8 +15,7 @@ impl Default for DebugPalette {
     fn default() -> Self {
         Self {
             clear: Vec4::new(0.04, 0.05, 0.06, 1.0),
-            ring_primary: Vec4::new(0.15, 0.85, 0.85, 0.75),
-            ring_secondary: Vec4::new(0.85, 0.65, 0.15, 0.55),
+            focus_ring: Vec4::new(0.15, 0.85, 0.85, 0.75),
             node_active: Vec4::new(0.25, 0.95, 0.35, 1.0),
             node_preview: Vec4::new(0.95, 0.85, 0.25, 0.95),
             node_cold: Vec4::new(0.65, 0.70, 0.78, 0.9),
@@ -35,8 +33,7 @@ pub struct RingDebugGeom {
 
 #[derive(Clone, Debug, Default)]
 pub struct ZoneCounts {
-    pub primary: usize,
-    pub secondary: usize,
+    pub inside: usize,
     pub outside: usize,
 }
 
@@ -44,15 +41,14 @@ pub struct ZoneCounts {
 pub struct DebugScene {
     pub viewport_center: Vec2,
     pub viewport_size: Vec2,
-    pub primary_ring: RingDebugGeom,
-    pub secondary_ring: RingDebugGeom,
+    pub focus_ring: RingDebugGeom,
     pub node_count_visible: usize,
     pub zones: ZoneCounts,
 }
 
 /// Minimal render-facing snapshot for upcoming debug drawing.
 /// This is intentionally independent from smithay backend wiring.
-pub fn build_debug_scene(field: &Field, vp: &Viewport, rings: FocusRings) -> DebugScene {
+pub fn build_debug_scene(field: &Field, vp: &Viewport, focus_ring: FocusRing) -> DebugScene {
     let mut zones = ZoneCounts::default();
     let mut visible = 0usize;
 
@@ -61,27 +57,20 @@ pub fn build_debug_scene(field: &Field, vp: &Viewport, rings: FocusRings) -> Deb
             continue;
         }
         visible += 1;
-        match rings.zone(vp.center, node.pos) {
-            RingZone::Primary => zones.primary += 1,
-            RingZone::Secondary => zones.secondary += 1,
-            RingZone::Outside => zones.outside += 1,
+        match focus_ring.zone(vp.center, node.pos) {
+            FocusZone::Inside => zones.inside += 1,
+            FocusZone::Outside => zones.outside += 1,
         }
     }
 
     DebugScene {
         viewport_center: Vec2::new(vp.center.x, vp.center.y),
         viewport_size: Vec2::new(vp.size.x, vp.size.y),
-        primary_ring: RingDebugGeom {
+        focus_ring: RingDebugGeom {
             center: Vec2::new(vp.center.x, vp.center.y),
-            radius_x: rings.primary.radius_x,
-            radius_y: rings.primary.radius_y,
-            rotation_rad: rings.primary.rotation_rad,
-        },
-        secondary_ring: RingDebugGeom {
-            center: Vec2::new(vp.center.x, vp.center.y),
-            radius_x: rings.secondary.radius_x,
-            radius_y: rings.secondary.radius_y,
-            rotation_rad: rings.secondary.rotation_rad,
+            radius_x: focus_ring.radius_x,
+            radius_y: focus_ring.radius_y,
+            rotation_rad: focus_ring.rotation_rad,
         },
         node_count_visible: visible,
         zones,
@@ -113,10 +102,10 @@ impl Default for GpuBootstrap {
 mod tests {
     use super::*;
     use halley_core::field::{Field, Vec2};
-    use halley_core::viewport::EyeRing;
+    use halley_core::viewport::FocusRing;
 
     #[test]
-    fn scene_counts_visible_nodes_by_ring_zone() {
+    fn scene_counts_visible_nodes_by_focus_zone() {
         let mut f = Field::new();
         let _a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
         let _b = f.spawn_surface("B", Vec2 { x: 500.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
@@ -130,15 +119,11 @@ mod tests {
                 y: 1080.0,
             },
         );
-        let rings = FocusRings {
-            primary: EyeRing::new(200.0, 120.0, 0.0),
-            secondary: EyeRing::new(1200.0, 700.0, 0.0),
-        };
+        let focus_ring = FocusRing::new(200.0, 120.0, 0.0);
 
-        let s = build_debug_scene(&f, &vp, rings);
+        let s = build_debug_scene(&f, &vp, focus_ring);
         assert_eq!(s.node_count_visible, 2);
-        assert_eq!(s.zones.primary, 1);
-        assert_eq!(s.zones.secondary, 1);
-        assert_eq!(s.zones.outside, 0);
+        assert_eq!(s.zones.inside, 1);
+        assert_eq!(s.zones.outside, 1);
     }
 }

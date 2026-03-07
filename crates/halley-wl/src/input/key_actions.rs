@@ -4,11 +4,11 @@ use std::time::Instant;
 use eventline::{info, warn};
 
 use super::input_utils::{key_matches, key_matches_xkb_only, modifier_active};
-use halley_config::RuntimeTuning;
 use crate::interaction::actions::{minimize_focused_active_node, move_latest_node};
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
 use crate::state::HalleyWlState;
+use halley_config::RuntimeTuning;
 
 pub(crate) fn apply_bound_key(
     st: &mut HalleyWlState,
@@ -19,7 +19,9 @@ pub(crate) fn apply_bound_key(
 ) -> bool {
     const STEP_RX: f32 = 24.0;
     const STEP_RY: f32 = 16.0;
+    const STEP_ROT: f32 = 0.05;
     const STEP_NODE: f32 = 80.0;
+
     let kb = st.tuning.keybinds.clone();
     if key_matches(key_code, kb.quit_compositor) {
         if modifier_active(mods, kb.modifier) && (!st.tuning.quit_requires_shift || mods.shift_down)
@@ -31,8 +33,6 @@ pub(crate) fn apply_bound_key(
         return false;
     }
 
-    // Custom launch bindings can define their own modifiers; do not gate these
-    // behind the global keybind modifier.
     for binding in st.tuning.launch_bindings.clone() {
         if key_matches(key_code, binding.key) && modifier_active(mods, binding.modifiers) {
             return spawn_command(binding.command.as_str(), wayland_display, "command");
@@ -47,10 +47,7 @@ pub(crate) fn apply_bound_key(
         let next = RuntimeTuning::load_from_path(config_path);
         st.apply_tuning(next);
         info!("manual config reload from {}", config_path);
-        info!(
-            "resolved keybinds: {}",
-            st.tuning.keybinds_resolved_summary()
-        );
+        info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
         return true;
     }
     if key_matches(key_code, kb.minimize_focused) {
@@ -66,7 +63,6 @@ pub(crate) fn apply_bound_key(
     }
 
     let changed = match key_code {
-        // Keep window movement keys highest priority in dev mode.
         code if key_matches(code, kb.move_left) => {
             move_latest_node(st, -STEP_NODE, 0.0);
             true
@@ -83,36 +79,43 @@ pub(crate) fn apply_bound_key(
             move_latest_node(st, 0.0, -STEP_NODE);
             true
         }
+
+        // Primary dev tuning: ring radii
         code if key_matches(code, kb.primary_left) => {
-            st.tuning.ring_primary_rx -= STEP_RX;
+            st.tuning.focus_ring_rx -= STEP_RX;
             true
         }
         code if key_matches(code, kb.primary_right) => {
-            st.tuning.ring_primary_rx += STEP_RX;
+            st.tuning.focus_ring_rx += STEP_RX;
             true
         }
         code if key_matches(code, kb.primary_up) => {
-            st.tuning.ring_primary_ry += STEP_RY;
+            st.tuning.focus_ring_ry += STEP_RY;
             true
         }
         code if key_matches(code, kb.primary_down) => {
-            st.tuning.ring_primary_ry -= STEP_RY;
+            st.tuning.focus_ring_ry -= STEP_RY;
             true
         }
+
+        // Secondary dev tuning repurposed for single-ring testing:
+        // horizontal = rotation, vertical = uniform scale.
         code if key_matches(code, kb.secondary_left) => {
-            st.tuning.ring_secondary_rx -= STEP_RX;
+            st.tuning.focus_ring_rotation_rad -= STEP_ROT;
             true
         }
         code if key_matches(code, kb.secondary_right) => {
-            st.tuning.ring_secondary_rx += STEP_RX;
+            st.tuning.focus_ring_rotation_rad += STEP_ROT;
             true
         }
         code if key_matches(code, kb.secondary_up) => {
-            st.tuning.ring_secondary_ry += STEP_RY;
+            st.tuning.focus_ring_rx += STEP_RX;
+            st.tuning.focus_ring_ry += STEP_RY;
             true
         }
         code if key_matches(code, kb.secondary_down) => {
-            st.tuning.ring_secondary_ry -= STEP_RY;
+            st.tuning.focus_ring_rx -= STEP_RX;
+            st.tuning.focus_ring_ry -= STEP_RY;
             true
         }
         _ => false,
@@ -121,12 +124,10 @@ pub(crate) fn apply_bound_key(
     if changed {
         st.tuning.enforce_guards();
         info!(
-            "rings primary={:.0}x{:.0} secondary={:.0}x{:.0} rot={:.2}",
-            st.tuning.ring_primary_rx,
-            st.tuning.ring_primary_ry,
-            st.tuning.ring_secondary_rx,
-            st.tuning.ring_secondary_ry,
-            st.tuning.ring_rotation_rad
+            "focus-ring {:.0}x{:.0} rot={:.2}",
+            st.tuning.focus_ring_rx,
+            st.tuning.focus_ring_ry,
+            st.tuning.focus_ring_rotation_rad
         );
     }
 
@@ -134,7 +135,6 @@ pub(crate) fn apply_bound_key(
 }
 
 fn spawn_command(command: &str, wayland_display: &str, label: &str) -> bool {
-    // On-demand xwayland: launcher/spawn activity can request the satellite.
     request_xwayland_start();
     match Command::new("sh")
         .arg("-lc")

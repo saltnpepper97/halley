@@ -5,7 +5,7 @@ use halley_core::cluster::{ActiveLayoutMode, ClusterId};
 use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_cluster_formation};
 use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2, Visibility};
-use halley_core::viewport::{FocusRings, RingZone, Viewport};
+use halley_core::viewport::{FocusZone, Viewport};
 use halley_config::RuntimeTuning;
 
 use smithay::{
@@ -102,9 +102,9 @@ pub struct HalleyWlState {
     pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
     active_transition_until_ms: HashMap<NodeId, u64>,
     primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
-    carry_zone_hint: HashMap<NodeId, RingZone>,
+    carry_zone_hint: HashMap<NodeId, FocusZone>,
     carry_zone_last_change_ms: HashMap<NodeId, u64>,
-    carry_zone_pending: HashMap<NodeId, RingZone>,
+    carry_zone_pending: HashMap<NodeId, FocusZone>,
     carry_zone_pending_since_ms: HashMap<NodeId, u64>,
     carry_activation_anim_armed: HashSet<NodeId>,
     docked_links: HashMap<NodeId, DockLink>,
@@ -123,7 +123,7 @@ pub struct HalleyWlState {
     viewport_pan_anim: Option<ViewportPanAnim>,
     pan_dominant_until_ms: u64,
     exit_requested: bool,
-    
+
     pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
 
     spawn_cursor: u32,
@@ -208,9 +208,9 @@ impl HalleyWlState {
             viewport_pan_anim: None,
             pan_dominant_until_ms: 0,
             exit_requested: false,
-            
+
             bbox_loc: HashMap::new(),
-            
+
             spawn_cursor: 0,
             started_at: now,
             last_debug_dump_at: now,
@@ -240,7 +240,7 @@ impl HalleyWlState {
         self.tick_overview_animation(now_ms);
         self.tick_viewport_pan_animation(now_ms);
         if self.overview_mode {
-            // Overview mode is authoritative: don't let decay/rings/resize logic
+            // Overview mode is authoritative: don't let decay/focus-ring/resize logic
             // pull nodes back into Active while in the overview workspace.
             self.animator.observe_field(&self.field, now);
             return;
@@ -252,9 +252,6 @@ impl HalleyWlState {
         }
         if let Some(fid) = self.interaction_focus {
             if now_ms >= self.interaction_focus_until_ms {
-                // Keep keyboard focus sticky while the focused surface still exists/visible.
-                // This mirrors the expected compositor behavior: focus only changes due to
-                // explicit focus operations, not passive timer expiry.
                 let keep = self.field.node(fid).is_some_and(|n| {
                     self.field.is_visible(fid) && n.kind == halley_core::field::NodeKind::Surface
                 });
@@ -308,30 +305,21 @@ impl HalleyWlState {
             self.animator.observe_field(&self.field, now);
             return;
         }
-        let rings = self.active_rings();
+        let focus_ring = self.active_focus_ring();
         let pan_dominant = now_ms < self.pan_dominant_until_ms;
         if !self.suspend_state_checks {
-            // Single source of truth for runtime state transitions.
-            // Avoid mixing ring-decay + promote-center policies, which can
-            // issue contradictory Hot/Cold writes near boundaries.
-            self.enforce_pan_dominant_zone_states(rings, now_ms);
+            self.enforce_pan_dominant_zone_states(focus_ring, now_ms);
             self.enforce_carry_zone_states();
         }
         if let Some(id) = self.resize_active {
             let _ = self.field.touch(id, now_ms);
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
         }
-        // State updates are handled by a single ring policy path above.
-        // Never run zoom-driven client resize while interactive resize is active
-        // (or in its short static cooldown), otherwise two configure sources
-        // fight and cause visible drift/jitter at some size thresholds.
         if self.resize_active.is_none()
             && !(self.resize_static_node.is_some() && now_ms < self.resize_static_until_ms)
         {
             self.update_zoom_live_surface_sizes();
         }
-        // TEMP safety rollback: keep runtime cluster auto-formation disabled while we
-        // stabilize app-mapping/rendering behavior.
         let _ = tick_cluster_formation(
             &mut self.field,
             now_ms,
@@ -349,7 +337,7 @@ impl HalleyWlState {
         {
             self.enforce_docked_pairs();
         }
-        self.enforce_single_primary_active_unit(rings);
+        self.enforce_single_primary_active_unit(focus_ring);
         if !self.suspend_state_checks
             && self.resize_active.is_none()
             && !(self.resize_static_node.is_some() && now_ms < self.resize_static_until_ms)
