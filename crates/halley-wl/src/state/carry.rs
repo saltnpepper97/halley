@@ -65,10 +65,22 @@ impl HalleyWlState {
         let half_x = mover_size.x * 0.5 + target_size.x * 0.5 + gap;
         let half_y = mover_size.y * 0.5 + target_size.y * 0.5 + gap;
         let p = match side {
-            DockSide::Left   => Vec2 { x: target_n.pos.x - half_x, y: target_n.pos.y },
-            DockSide::Right  => Vec2 { x: target_n.pos.x + half_x, y: target_n.pos.y },
-            DockSide::Top    => Vec2 { x: target_n.pos.x, y: target_n.pos.y + half_y },
-            DockSide::Bottom => Vec2 { x: target_n.pos.x, y: target_n.pos.y - half_y },
+            DockSide::Left => Vec2 {
+                x: target_n.pos.x - half_x,
+                y: target_n.pos.y,
+            },
+            DockSide::Right => Vec2 {
+                x: target_n.pos.x + half_x,
+                y: target_n.pos.y,
+            },
+            DockSide::Top => Vec2 {
+                x: target_n.pos.x,
+                y: target_n.pos.y + half_y,
+            },
+            DockSide::Bottom => Vec2 {
+                x: target_n.pos.x,
+                y: target_n.pos.y - half_y,
+            },
         };
         Some(p)
     }
@@ -93,8 +105,15 @@ impl HalleyWlState {
             if self.dock_partner(id).is_some() {
                 continue;
             }
-            for side in [DockSide::Left, DockSide::Right, DockSide::Top, DockSide::Bottom] {
-                let Some(snap_pos) = self.dock_side_snap_pos(mover, id, side) else { continue };
+            for side in [
+                DockSide::Left,
+                DockSide::Right,
+                DockSide::Top,
+                DockSide::Bottom,
+            ] {
+                let Some(snap_pos) = self.dock_side_snap_pos(mover, id, side) else {
+                    continue;
+                };
                 let dx = mover_pos.x - snap_pos.x;
                 let dy = mover_pos.y - snap_pos.y;
                 let d = (dx * dx + dy * dy).sqrt();
@@ -144,15 +163,30 @@ impl HalleyWlState {
     fn insert_dock_pair(&mut self, a: NodeId, b: NodeId) {
         let side_a = self.dock_pending.map(|p| p.side).unwrap_or(DockSide::Left);
         let side_b = side_a.opposite();
-        self.docked_links.insert(a, DockLink { partner: b, side: side_a });
-        self.docked_links.insert(b, DockLink { partner: a, side: side_b });
+        self.docked_links.insert(
+            a,
+            DockLink {
+                partner: b,
+                side: side_a,
+            },
+        );
+        self.docked_links.insert(
+            b,
+            DockLink {
+                partner: a,
+                side: side_b,
+            },
+        );
     }
 
     pub fn clear_docking_for_node(&mut self, id: NodeId) {
         if let Some(link) = self.docked_links.remove(&id) {
             self.docked_links.remove(&link.partner);
         }
-        if self.dock_pending.is_some_and(|p| p.mover == id || p.target == id) {
+        if self
+            .dock_pending
+            .is_some_and(|p| p.mover == id || p.target == id)
+        {
             self.dock_pending = None;
         }
     }
@@ -162,14 +196,19 @@ impl HalleyWlState {
             self.docked_links.remove(&id);
             self.docked_links.remove(&partner);
         }
-        if self.dock_pending.is_some_and(|p| p.mover == id || p.target == id) {
+        if self
+            .dock_pending
+            .is_some_and(|p| p.mover == id || p.target == id)
+        {
             self.dock_pending = None;
         }
     }
 
     pub fn finalize_dock_on_drag_release(&mut self, mover: NodeId, now: Instant) -> bool {
         let now_ms = self.now_ms(now);
-        let Some(pending) = self.dock_pending else { return false };
+        let Some(pending) = self.dock_pending else {
+            return false;
+        };
         if pending.mover != mover || now_ms.saturating_sub(pending.since_ms) < Self::DOCK_DWELL_MS {
             return false;
         }
@@ -177,15 +216,13 @@ impl HalleyWlState {
             n.kind == halley_core::field::NodeKind::Surface && self.field.is_visible(pending.mover)
         });
         let target_ok = self.field.node(pending.target).is_some_and(|n| {
-            n.kind == halley_core::field::NodeKind::Surface
-                && self.field.is_visible(pending.target)
+            n.kind == halley_core::field::NodeKind::Surface && self.field.is_visible(pending.target)
         });
         if !mover_ok || !target_ok {
             self.dock_pending = None;
             return false;
         }
-        if self.dock_partner(pending.mover).is_some()
-            || self.dock_partner(pending.target).is_some()
+        if self.dock_partner(pending.mover).is_some() || self.dock_partner(pending.target).is_some()
         {
             self.dock_pending = None;
             return false;
@@ -206,10 +243,12 @@ impl HalleyWlState {
             self.mark_active_transition(pending.mover, now, 280);
             self.mark_active_transition(pending.target, now, 280);
             if let Some(n) = self.field.node(pending.mover) {
-                self.last_active_size.insert(pending.mover, n.intrinsic_size);
+                self.last_active_size
+                    .insert(pending.mover, n.intrinsic_size);
             }
             if let Some(n) = self.field.node(pending.target) {
-                self.last_active_size.insert(pending.target, n.intrinsic_size);
+                self.last_active_size
+                    .insert(pending.target, n.intrinsic_size);
             }
         }
         self.set_interaction_focus(Some(pending.target), 700, now);
@@ -227,13 +266,21 @@ impl HalleyWlState {
     }
 
     #[inline]
-    fn dock_outward_edge_overflow(&self, pos: Vec2, footprint: Vec2, outward_side: DockSide) -> f32 {
+    fn dock_outward_edge_overflow(
+        &self,
+        pos: Vec2,
+        footprint: Vec2,
+        outward_side: DockSide,
+    ) -> f32 {
         let vp = self.viewport.rect();
-        let half = Vec2 { x: footprint.x * 0.5, y: footprint.y * 0.5 };
+        let half = Vec2 {
+            x: footprint.x * 0.5,
+            y: footprint.y * 0.5,
+        };
         match outward_side {
-            DockSide::Left   => vp.min.x - (pos.x - half.x),
-            DockSide::Right  => (pos.x + half.x) - vp.max.x,
-            DockSide::Top    => (pos.y + half.y) - vp.max.y,
+            DockSide::Left => vp.min.x - (pos.x - half.x),
+            DockSide::Right => (pos.x + half.x) - vp.max.x,
+            DockSide::Top => (pos.y + half.y) - vp.max.y,
             DockSide::Bottom => vp.min.y - (pos.y - half.y),
         }
     }
@@ -241,7 +288,10 @@ impl HalleyWlState {
     #[inline]
     fn dock_state_eval_footprint(&self, id: NodeId, live: Vec2) -> Vec2 {
         match self.last_active_size.get(&id).copied() {
-            Some(last) => Vec2 { x: live.x.max(last.x), y: live.y.max(last.y) },
+            Some(last) => Vec2 {
+                x: live.x.max(last.x),
+                y: live.y.max(last.y),
+            },
             None => live,
         }
     }
@@ -257,8 +307,7 @@ impl HalleyWlState {
             if !self.field.is_visible(a) || !self.field.is_visible(b) {
                 continue;
             }
-            if self.is_recently_resized_node(a, now_ms)
-                || self.is_recently_resized_node(b, now_ms)
+            if self.is_recently_resized_node(a, now_ms) || self.is_recently_resized_node(b, now_ms)
             {
                 continue;
             }
@@ -402,7 +451,10 @@ impl HalleyWlState {
         footprint: Vec2,
         rings: FocusRings,
     ) -> (f32, f32, f32) {
-        let sample_fp = Vec2 { x: footprint.x.max(48.0), y: footprint.y.max(48.0) };
+        let sample_fp = Vec2 {
+            x: footprint.x.max(48.0),
+            y: footprint.y.max(48.0),
+        };
         let samples = 7usize;
         let mut c_primary = 0usize;
         let mut c_secondary = 0usize;
@@ -416,9 +468,9 @@ impl HalleyWlState {
                     y: pos.y + fy * sample_fp.y,
                 };
                 match rings.zone(self.viewport.center, sp) {
-                    RingZone::Primary   => c_primary   += 1,
+                    RingZone::Primary => c_primary += 1,
                     RingZone::Secondary => c_secondary += 1,
-                    RingZone::Outside   => {}
+                    RingZone::Outside => {}
                 }
                 c_total += 1;
             }
@@ -426,9 +478,9 @@ impl HalleyWlState {
         if c_total == 0 {
             return (0.0, 0.0, 1.0);
         }
-        let p_primary   = c_primary   as f32 / c_total as f32;
+        let p_primary = c_primary as f32 / c_total as f32;
         let p_secondary = c_secondary as f32 / c_total as f32;
-        let p_outside   = (1.0 - p_primary - p_secondary).max(0.0);
+        let p_outside = (1.0 - p_primary - p_secondary).max(0.0);
         (p_primary, p_secondary, p_outside)
     }
 
@@ -453,10 +505,18 @@ impl HalleyWlState {
                 }
             }
             Some(RingZone::Secondary) => {
-                if p_primary >= ACTIVE_ENTER_FRAC { RingZone::Primary } else { RingZone::Outside }
+                if p_primary >= ACTIVE_ENTER_FRAC {
+                    RingZone::Primary
+                } else {
+                    RingZone::Outside
+                }
             }
             _ => {
-                if p_primary >= ACTIVE_ENTER_FRAC { RingZone::Primary } else { RingZone::Outside }
+                if p_primary >= ACTIVE_ENTER_FRAC {
+                    RingZone::Primary
+                } else {
+                    RingZone::Outside
+                }
             }
         };
         let now_ms = self.now_ms(Instant::now());
@@ -509,7 +569,10 @@ impl HalleyWlState {
         self.carry_zone_pending.remove(&id);
         self.carry_zone_pending_since_ms.remove(&id);
         self.carry_activation_anim_armed.remove(&id);
-        if self.dock_pending.is_some_and(|p| p.mover == id || p.target == id) {
+        if self
+            .dock_pending
+            .is_some_and(|p| p.mover == id || p.target == id)
+        {
             self.dock_pending = None;
         }
         self.suspend_overlap_resolve = false;

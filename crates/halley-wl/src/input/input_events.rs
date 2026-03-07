@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use eventline::{info, warn};
+use eventline::info;
 use smithay::input::keyboard::FilterResult;
 use smithay::input::pointer::AxisFrame;
 use smithay::input::pointer::MotionEvent;
@@ -11,7 +11,7 @@ use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::screen_to_world;
 use crate::state::HalleyWlState;
 
-use super::input_utils::{key_matches, modifier_active, update_mod_state};
+use super::input_utils::{modifier_active, update_mod_state};
 use super::key_actions::apply_bound_key;
 use super::pointer_focus::pointer_focus_for_screen;
 use super::pointer_map_debug_enabled;

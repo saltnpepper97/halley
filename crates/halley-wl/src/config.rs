@@ -31,7 +31,6 @@ pub struct Keybinds {
     pub minimize_focused: u32,
     pub overview_toggle: u32,
     pub quit_compositor: u32,
-    pub launch_pavucontrol: u32,
     pub primary_left: u32,
     pub primary_right: u32,
     pub primary_up: u32,
@@ -64,7 +63,6 @@ impl Default for Keybinds {
             minimize_focused: 49,   // n
             overview_toggle: 24,    // o
             quit_compositor: 16,    // q (with mod+shift hard requirement in key handler)
-            launch_pavucontrol: 25, // p
             primary_left: 105,      // left
             primary_right: 106,     // right
             primary_up: 103,        // up
@@ -237,12 +235,8 @@ impl Default for RuntimeTuning {
             restore_last_active_on_pan_return: true,
             physics_enabled: true,
             keybinds: Keybinds::default(),
-            keybind_launch_command: "pavucontrol".to_string(),
-            launch_bindings: vec![LaunchBinding {
-                modifiers: Keybinds::default().modifier,
-                key: Keybinds::default().launch_pavucontrol,
-                command: "pavucontrol".to_string(),
-            }],
+            keybind_launch_command: String::new(),
+            launch_bindings: Vec::new(),
             quit_requires_shift: true,
             tty_viewports: Vec::new(),
             env: HashMap::from([
@@ -438,22 +432,12 @@ impl RuntimeTuning {
             &["dev.keybinds.quit_compositor"],
             out.keybinds.quit_compositor,
         );
-        out.keybinds.launch_pavucontrol = pick_keycode(
-            &cfg,
-            &["dev.keybinds.launch_pavucontrol"],
-            out.keybinds.launch_pavucontrol,
-        );
         out.keybind_launch_command = pick_string(
             &cfg,
             &["dev.keybinds.launch_command"],
             out.keybind_launch_command.as_str(),
         );
         out.launch_bindings.clear();
-        out.launch_bindings.push(LaunchBinding {
-            modifiers: out.keybinds.modifier,
-            key: out.keybinds.launch_pavucontrol,
-            command: out.keybind_launch_command.clone(),
-        });
         out.quit_requires_shift = pick_bool(
             &cfg,
             &["dev.keybinds.quit_requires_shift"],
@@ -576,15 +560,13 @@ impl RuntimeTuning {
     pub fn keybinds_resolved_summary(&self) -> String {
         let kb = &self.keybinds;
         format!(
-            "mod={} reload={} minimize={} overview={} quit={} (requires_shift={}) launch={}=>`{}` custom_launches={} primary=[{},{},{},{}] secondary=[{},{},{},{}] move=[{},{},{},{}]",
+            "mod={} reload={} minimize={} overview={} quit={} (requires_shift={}) custom_launches={} primary=[{},{},{},{}] secondary=[{},{},{},{}] move=[{},{},{},{}]",
             kb.modifier_name(),
             evdev_to_key_name(kb.reload_config),
             evdev_to_key_name(kb.minimize_focused),
             evdev_to_key_name(kb.overview_toggle),
             evdev_to_key_name(kb.quit_compositor),
             self.quit_requires_shift,
-            evdev_to_key_name(kb.launch_pavucontrol),
-            self.keybind_launch_command,
             self.launch_bindings.len(),
             evdev_to_key_name(kb.primary_left),
             evdev_to_key_name(kb.primary_right),
@@ -976,7 +958,6 @@ fn apply_explicit_binding(
             out.quit_requires_shift = effective_mods.shift;
         }
         _ => {
-            out.keybinds.launch_pavucontrol = key;
             out.keybind_launch_command = action.trim().to_string();
             upsert_launch_binding(out, effective_mods, key, action.trim());
         }

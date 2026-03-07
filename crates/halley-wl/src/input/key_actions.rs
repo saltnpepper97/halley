@@ -56,13 +56,6 @@ pub(crate) fn apply_bound_key(
     if key_matches(key_code, kb.minimize_focused) {
         return minimize_focused_active_node(st);
     }
-    if key_matches(key_code, kb.launch_pavucontrol) {
-        return spawn_command(
-            st.tuning.keybind_launch_command.as_str(),
-            wayland_display,
-            "command",
-        );
-    }
 
     if !st.tuning.dev_enabled {
         return false;
@@ -138,22 +131,6 @@ pub(crate) fn apply_bound_key(
     }
 
     changed
-}
-
-pub(crate) fn spawn_terminal(wayland_display: &str) -> bool {
-    let candidates: Vec<String> = ["kitty", "alacritty", "foot", "wezterm", "xterm"]
-        .into_iter()
-        .map(str::to_string)
-        .collect();
-
-    for cmd in candidates {
-        if spawn_command(&cmd, wayland_display, "terminal") {
-            return true;
-        }
-    }
-
-    warn!("no terminal launcher available");
-    false
 }
 
 fn spawn_command(command: &str, wayland_display: &str, label: &str) -> bool {

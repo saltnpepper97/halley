@@ -1,7 +1,7 @@
-use std::time::Instant;
+use crate::state::HalleyWlState;
 use eventline::info;
 use halley_core::decay::DecayLevel;
-use crate::state::HalleyWlState;
+use std::time::Instant;
 
 pub(crate) fn promote_node_level(
     st: &mut HalleyWlState,
@@ -20,9 +20,9 @@ pub(crate) fn promote_node_level(
     let target_pos = n.pos;
 
     // If this node is one half of a docked pair, promote both together.
-    let partner = st.dock_partner(node_id).filter(|&pid| {
-        st.dock_partner(pid) == Some(node_id)
-    });
+    let partner = st
+        .dock_partner(node_id)
+        .filter(|&pid| st.dock_partner(pid) == Some(node_id));
 
     let in_primary = st.active_rings().zone(st.viewport.center, target_pos)
         == halley_core::viewport::RingZone::Primary;
