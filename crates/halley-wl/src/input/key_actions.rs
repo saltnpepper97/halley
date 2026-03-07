@@ -3,12 +3,77 @@ use std::time::Instant;
 
 use eventline::{info, warn};
 
-use super::input_utils::{key_matches, key_matches_xkb_only, modifier_active};
+use super::input_utils::{key_matches, key_matches_xkb_only, modifier_exact};
 use crate::interaction::actions::{minimize_focused_active_node, move_latest_node};
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
 use crate::state::HalleyWlState;
-use halley_config::RuntimeTuning;
+use halley_config::{KeyModifiers, RuntimeTuning};
+
+fn with_extra_shift(base: KeyModifiers) -> KeyModifiers {
+    let mut out = base;
+    out.shift = true;
+    out
+}
+
+pub(crate) fn key_is_compositor_binding(
+    st: &HalleyWlState,
+    key_code: u32,
+    mods: &ModState,
+) -> bool {
+    let kb = &st.tuning.keybinds;
+
+    // Quit is special: mod+shift+quit
+    if key_matches(key_code, kb.quit_compositor) {
+        let need = if st.tuning.quit_requires_shift {
+            with_extra_shift(kb.modifier)
+        } else {
+            kb.modifier
+        };
+        if modifier_exact(mods, need) {
+            return true;
+        }
+    }
+
+    // Explicit configured launch bindings must match exactly.
+    for binding in &st.tuning.launch_bindings {
+        if key_matches(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
+            return true;
+        }
+    }
+
+    if key_matches(key_code, kb.reload_config) && modifier_exact(mods, kb.modifier) {
+        return true;
+    }
+
+    if key_matches(key_code, kb.minimize_focused) && modifier_exact(mods, kb.modifier) {
+        return true;
+    }
+
+    if !st.tuning.dev_enabled {
+        return false;
+    }
+
+    if key_matches_xkb_only(key_code, kb.overview_toggle) && modifier_exact(mods, kb.modifier) {
+        return true;
+    }
+
+    matches!(
+        key_code,
+        code if key_matches(code, kb.move_left) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.move_right) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.move_up) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.move_down) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.primary_left) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.primary_right) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.primary_up) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.primary_down) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.secondary_left) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.secondary_right) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.secondary_up) && modifier_exact(mods, kb.modifier)
+            || key_matches(code, kb.secondary_down) && modifier_exact(mods, kb.modifier)
+    )
+}
 
 pub(crate) fn apply_bound_key(
     st: &mut HalleyWlState,
@@ -23,9 +88,14 @@ pub(crate) fn apply_bound_key(
     const STEP_NODE: f32 = 80.0;
 
     let kb = st.tuning.keybinds.clone();
+
     if key_matches(key_code, kb.quit_compositor) {
-        if modifier_active(mods, kb.modifier) && (!st.tuning.quit_requires_shift || mods.shift_down)
-        {
+        let need = if st.tuning.quit_requires_shift {
+            with_extra_shift(kb.modifier)
+        } else {
+            kb.modifier
+        };
+        if modifier_exact(mods, need) {
             st.request_exit();
             info!("quit requested via keybind");
             return true;
@@ -34,86 +104,81 @@ pub(crate) fn apply_bound_key(
     }
 
     for binding in st.tuning.launch_bindings.clone() {
-        if key_matches(key_code, binding.key) && modifier_active(mods, binding.modifiers) {
+        if key_matches(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             return spawn_command(binding.command.as_str(), wayland_display, "command");
         }
     }
 
-    if !modifier_active(mods, kb.modifier) {
-        return false;
-    }
-
-    if key_matches(key_code, kb.reload_config) {
+    if key_matches(key_code, kb.reload_config) && modifier_exact(mods, kb.modifier) {
         let next = RuntimeTuning::load_from_path(config_path);
         st.apply_tuning(next);
         info!("manual config reload from {}", config_path);
         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
         return true;
     }
-    if key_matches(key_code, kb.minimize_focused) {
+
+    if key_matches(key_code, kb.minimize_focused) && modifier_exact(mods, kb.modifier) {
         return minimize_focused_active_node(st);
     }
 
     if !st.tuning.dev_enabled {
         return false;
     }
-    if key_matches_xkb_only(key_code, kb.overview_toggle) {
+
+    if key_matches_xkb_only(key_code, kb.overview_toggle) && modifier_exact(mods, kb.modifier) {
         st.toggle_overview_mode(Instant::now());
         return true;
     }
 
     let changed = match key_code {
-        code if key_matches(code, kb.move_left) => {
+        code if key_matches(code, kb.move_left) && modifier_exact(mods, kb.modifier) => {
             move_latest_node(st, -STEP_NODE, 0.0);
             true
         }
-        code if key_matches(code, kb.move_right) => {
+        code if key_matches(code, kb.move_right) && modifier_exact(mods, kb.modifier) => {
             move_latest_node(st, STEP_NODE, 0.0);
             true
         }
-        code if key_matches(code, kb.move_up) => {
+        code if key_matches(code, kb.move_up) && modifier_exact(mods, kb.modifier) => {
             move_latest_node(st, 0.0, STEP_NODE);
             true
         }
-        code if key_matches(code, kb.move_down) => {
+        code if key_matches(code, kb.move_down) && modifier_exact(mods, kb.modifier) => {
             move_latest_node(st, 0.0, -STEP_NODE);
             true
         }
 
-        // Primary dev tuning: ring radii
-        code if key_matches(code, kb.primary_left) => {
+        code if key_matches(code, kb.primary_left) && modifier_exact(mods, kb.modifier) => {
             st.tuning.focus_ring_rx -= STEP_RX;
             true
         }
-        code if key_matches(code, kb.primary_right) => {
+        code if key_matches(code, kb.primary_right) && modifier_exact(mods, kb.modifier) => {
             st.tuning.focus_ring_rx += STEP_RX;
             true
         }
-        code if key_matches(code, kb.primary_up) => {
+        code if key_matches(code, kb.primary_up) && modifier_exact(mods, kb.modifier) => {
             st.tuning.focus_ring_ry += STEP_RY;
             true
         }
-        code if key_matches(code, kb.primary_down) => {
+        code if key_matches(code, kb.primary_down) && modifier_exact(mods, kb.modifier) => {
             st.tuning.focus_ring_ry -= STEP_RY;
             true
         }
 
-        // Secondary dev tuning repurposed for single-ring testing:
-        // horizontal = rotation, vertical = uniform scale.
-        code if key_matches(code, kb.secondary_left) => {
+        code if key_matches(code, kb.secondary_left) && modifier_exact(mods, kb.modifier) => {
             st.tuning.focus_ring_rotation_rad -= STEP_ROT;
             true
         }
-        code if key_matches(code, kb.secondary_right) => {
+        code if key_matches(code, kb.secondary_right) && modifier_exact(mods, kb.modifier) => {
             st.tuning.focus_ring_rotation_rad += STEP_ROT;
             true
         }
-        code if key_matches(code, kb.secondary_up) => {
+        code if key_matches(code, kb.secondary_up) && modifier_exact(mods, kb.modifier) => {
             st.tuning.focus_ring_rx += STEP_RX;
             st.tuning.focus_ring_ry += STEP_RY;
             true
         }
-        code if key_matches(code, kb.secondary_down) => {
+        code if key_matches(code, kb.secondary_down) && modifier_exact(mods, kb.modifier) => {
             st.tuning.focus_ring_rx -= STEP_RX;
             st.tuning.focus_ring_ry -= STEP_RY;
             true

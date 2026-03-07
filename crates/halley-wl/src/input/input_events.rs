@@ -11,8 +11,8 @@ use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::screen_to_world;
 use crate::state::HalleyWlState;
 
-use super::input_utils::{modifier_active, update_mod_state};
-use super::key_actions::apply_bound_key;
+use super::input_utils::update_mod_state;
+use super::key_actions::{apply_bound_key, key_is_compositor_binding};
 use super::pointer_focus::pointer_focus_for_screen;
 use super::pointer_map_debug_enabled;
 use smithay::backend::input::{Axis, AxisSource, ButtonState, KeyState};
@@ -34,17 +34,17 @@ fn now_millis_u32() -> u32 {
 fn is_modifier_keycode(code: u32) -> bool {
     matches!(
         code,
-        29  // Left Ctrl
-        | 97  // Right Ctrl
-        | 42  // Left Shift
-        | 54  // Right Shift
-        | 56  // Left Alt
-        | 100 // Right Alt / AltGr
-        | 125 // Left Super / Meta
-        | 126 // Right Super / Meta
-        | 58  // Caps Lock
-        | 69  // Num Lock
-        | 70 // Scroll Lock
+        29  | 37  // Left Ctrl
+        | 97  | 105 // Right Ctrl
+        | 42  | 50  // Left Shift
+        | 54  | 62  // Right Shift
+        | 56  | 64  // Left Alt
+        | 100 | 108 // Right Alt / AltGr
+        | 125 | 133 // Left Super / Meta
+        | 126 | 134 // Right Super / Meta
+        | 58        // Caps Lock
+        | 69        // Num Lock
+        | 70        // Scroll Lock
     )
 }
 
@@ -86,27 +86,22 @@ pub(crate) fn handle_keyboard_input(
         }
     }
 
-    // ------------------------------------------------------------------
-    // Decide whether this key event should be intercepted before it
-    // reaches any client.
-    //
-    // Rule:
-    //   - Modifier keys (Super, Alt, Ctrl, Shift, Lock) are ALWAYS
-    //     forwarded so clients can track modifier state correctly.
-    //   - While the compositor modifier is held, all non-modifier
-    //     presses are intercepted.
-    //   - A release event is intercepted if and only if its matching
-    //     press was intercepted, preventing stuck-key artefacts in
-    //     clients.
-    // ------------------------------------------------------------------
     let mods = mod_state.borrow().clone();
-    let modifier_held = modifier_active(&mods, st.tuning.keybinds.modifier);
     let is_mod_key = is_modifier_keycode(code);
 
+    // Pure detection only. Do not execute the action yet.
+    let matched_binding = if pressed && !is_mod_key {
+        key_is_compositor_binding(st, code, &mods)
+    } else {
+        false
+    };
+
+    // Only intercept explicit compositor bindings.
+    // Releases are intercepted only if the matching press was intercepted.
     let intercept = if is_mod_key {
         false
     } else if pressed {
-        if modifier_held {
+        if matched_binding {
             mod_state.borrow_mut().intercepted_keys.insert(code);
             true
         } else {
@@ -123,6 +118,7 @@ pub(crate) fn handle_keyboard_input(
         } else {
             KeyState::Released
         };
+
         keyboard.input::<(), _>(
             st,
             code.into(),
@@ -139,13 +135,10 @@ pub(crate) fn handle_keyboard_input(
         );
     }
 
-    // Apply compositor bindings after the client filter so that the
-    // intercept decision above is the single authoritative gate.
-    // Modifier key events and releases are never compositor actions.
-    if pressed && !is_mod_key {
+    // Execute compositor action only after the filter path above.
+    if pressed && matched_binding {
         if apply_bound_key(st, code, &mods, config_path, wayland_display) {
             backend.request_redraw();
-            return;
         }
     }
 }
