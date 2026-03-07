@@ -39,6 +39,14 @@ pub(crate) struct NodeSnapshot {
     pub label: String,
 }
 
+pub(crate) struct ActiveBorderRect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    pub focused: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Active surface collection
 // ---------------------------------------------------------------------------
@@ -49,6 +57,7 @@ pub(crate) struct NodeSnapshot {
 /// Returns:
 /// - Wayland surface render elements in draw order
 /// - `node_surface_map` for later use by hover-preview and cursor collection
+/// - active border rects
 /// - geometry overlay rects/points (only populated with `dev_show_geometry_overlay`)
 /// - overlap overlay rects (windows that visually overlap the resize target)
 pub(crate) fn collect_active_surfaces(
@@ -63,12 +72,14 @@ pub(crate) fn collect_active_surfaces(
         halley_core::field::NodeId,
         smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     >,
+    Vec<ActiveBorderRect>,
     Vec<(i32, i32, i32, i32, Color32F)>, // overlay_rects
     Vec<(i32, i32, Color32F)>,           // overlay_points
     Vec<(i32, i32, i32, i32)>,           // overlap_overlay_rects
 ) {
     let mut active_elements = Vec::new();
     let mut node_surface_map = HashMap::new();
+    let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut overlay_rects: Vec<(i32, i32, i32, i32, Color32F)> = Vec::new();
     let mut overlay_points: Vec<(i32, i32, Color32F)> = Vec::new();
     let mut overlap_overlay_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
@@ -202,12 +213,28 @@ pub(crate) fn collect_active_surfaces(
             overlay_points.push((cx, cy, Color32F::new(0.98, 0.92, 0.22, 0.95)));
         }
 
+        let (geo_lx, geo_ly, geo_w, geo_h) = window_geometry_for_node(st, node_id).unwrap_or((
+            0.0,
+            0.0,
+            node_intrinsic.x,
+            node_intrinsic.y,
+        ));
+
+        let rx = sx + (geo_lx * scale).round() as i32;
+        let ry = sy + (geo_ly * scale).round() as i32;
+        let rw = (geo_w * scale).round() as i32;
+        let rh = (geo_h * scale).round() as i32;
+
+        border_rects.push(ActiveBorderRect {
+            x: rx,
+            y: ry,
+            w: rw.max(1),
+            h: rh.max(1),
+            focused: st.interaction_focus == Some(node_id),
+        });
+
         if let Some((rl, rt, rr, rb, rid)) = resize_rect_px {
             if node_id != rid {
-                let rw = ((bbox.size.w as f32) * scale).round() as i32;
-                let rh = ((bbox.size.h as f32) * scale).round() as i32;
-                let rx = sx + ((bbox.loc.x as f32) * scale).round() as i32;
-                let ry = sy + ((bbox.loc.y as f32) * scale).round() as i32;
                 let wl2 = rx;
                 let wt = ry;
                 let wr = rx + rw.max(1);
@@ -231,6 +258,7 @@ pub(crate) fn collect_active_surfaces(
     (
         active_elements,
         node_surface_map,
+        border_rects,
         overlay_rects,
         overlay_points,
         overlap_overlay_rects,

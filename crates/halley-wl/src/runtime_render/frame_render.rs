@@ -85,8 +85,14 @@ pub(crate) fn draw_debug_frame_to_target(
     // ------------------------------------------------------------------
     // 1. Collect active Wayland surface elements
     // ------------------------------------------------------------------
-    let (active_elements, node_surface_map, overlay_rects, overlay_points, overlap_overlay_rects) =
-        collect_active_surfaces(renderer, st, size, resize_preview, now);
+    let (
+        active_elements,
+        node_surface_map,
+        border_rects,
+        overlay_rects,
+        overlay_points,
+        overlap_overlay_rects,
+    ) = collect_active_surfaces(renderer, st, size, resize_preview, now);
 
     // ------------------------------------------------------------------
     // 2. Collect hover-preview elements
@@ -156,6 +162,26 @@ pub(crate) fn draw_debug_frame_to_target(
     // ------------------------------------------------------------------
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[damage])?;
+
+    // Active window borders
+    for rect in &border_rects {
+        let color = if rect.focused {
+            Color32F::new(0.22, 0.82, 0.92, 1.0)
+        } else {
+            Color32F::new(0.38, 0.42, 0.48, 0.90)
+        };
+
+        let bw = 2;
+        draw_outline_rect(
+            &mut frame,
+            rect.x - bw,
+            rect.y - bw,
+            rect.w + bw * 2,
+            rect.h + bw * 2,
+            color,
+            damage,
+        )?;
+    }
 
     // Active windows
     if !active_elements.is_empty() {

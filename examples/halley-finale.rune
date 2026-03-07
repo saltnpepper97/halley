@@ -1,0 +1,338 @@
+@author "Dustin Pilgrim"
+@description "Spatial Wayland compositor built around infinite workspace navigation"
+
+# This is RUNE: Readable Unified Notation for Everyone.
+#
+# comments begin with `#`.
+# Blocks start with `name:` and end with `end`.
+# Strings use quotes: "example".
+# Lists use brackets: ["item1", "item2"]
+#
+# Any option set to `None` or `null` is treated internally as
+# either false or null, depending on the field
+
+# Top-level variables such as these can be reused throughout
+# the configuration file.
+
+# Programs to launch automatically when Halley starts.
+#
+# `once` runs the command only on startup
+# `on-reload` runs whenever the config is reloaded
+#
+# Common examples include bars, notification daemons,
+# clipboard managers, and background utilities.
+autostart:
+  once "waybar"
+
+  #once "mako"
+  #once "gessod"
+
+  # Example:
+  #on-reload "thunderbird"
+end
+
+# Environment variables applied to programs launched
+# during Halley's session.
+env:
+  XCURSOR_THEME "Adwaita"
+  XCURSOR_SIZE "24"
+end
+
+# Cursor appearance and behavior.
+#
+# These settings affect both the compositor cursor
+# and most applications.
+cursor:
+  theme "Adwaita"
+  size 24
+
+  hide-while-typing true
+end
+
+# Viewports represent physical monitors.
+#
+# Each viewport shows a portion of Halley's infinite
+# spatial field. Each monitor is an entire field
+# of it's own. Windows can traverse monitors
+# via a keybind configured below.
+#
+# Use `halleyctl outputs` to list available monitors.
+viewport:
+  DP-1:
+    enabled true
+
+    # Position of the monitor in the global layout
+    offset-x 0
+    offset-y 0
+
+    width 2560
+    height 1440
+
+    # Refresh rate in Hz
+    rate 180.0
+
+    # Display rotation
+    # 0   = normal
+    # 90  = rotate clockwise
+    # 180 = upside down
+    # 270 = rotated counter-clockwise
+    transform 0
+  end
+  
+  # Example second monitor configuration.
+  #
+  #DP-2:
+  #  enabled true
+  #
+  #  offset-x 2560
+  #  offset-y 0
+  #
+  #  width 1920
+  #  height 1200
+  #
+  #  rate 75.0
+  #  transform 90
+  #end
+end
+
+# The Field is Halley's infinite workspace
+#
+# These options control how the camera moves
+# through the field.
+field:
+  # Allow panning the view with scrolling or dragging
+  scroll-pan false
+
+  # Automaticaly pan when the pointer reaches the edge.
+  #
+  # Note: this does not affect when you are scrolling
+  # to th edge with a grabbed window.
+  edge-pan true
+
+  zoom:
+    # Prevent zooming out past this scale
+    max-zoom-out: 0.1
+
+    # Multiplier applied to each zoom step
+    step 1.15
+
+    # Scroll sensitivity for zoom gestures
+    scroll-speed 0.4
+
+    # Enable smooth animated zooming
+    smooth true
+
+    # Duration of zoom animation (in milliseconds)
+    animation-duration 160
+  end
+end
+
+# Nodes are collapsed versions of windows.
+#
+# When windows move far away from the focus ring
+# they may shrink into nodes to reduce clutter.
+nodes:
+  # enable the ability to turn windows into Nodes
+  # when outside the focus ring 
+  enabled true
+
+  # The number of allowed nodes to be active at one time
+  # can be 1 or 2
+
+  collapse-delay 3000
+  collapse-scale 0.6
+
+  # Display labels when nodes are visible
+  show-labels true
+
+  border-colour-active "use-window-active"
+  border-colour-inactive "use-window-inactive"
+end
+
+# Device and input behavior
+input:
+end
+
+# Trackpad gesture configuration.
+# Post v0.1.0
+gestures:
+  # Pinch to zoom the field
+  pinch-zoom true
+
+  # Three finger swipe to pan across the field
+  three-finger-pan true
+end
+
+# Bearings show 8 directional hints for windows/nodes or clusters
+# that are outside the current viewport.
+bearings:
+  show-distance true
+  show-icons true
+
+  fade-distance 1200
+end
+
+# Trail stores the history of focused windows.
+# This allows quick navigation backwards and forwards
+# through previously focused windows.
+trail:
+  max-history 128
+
+  # Wrap navigation when reaching the ends
+end
+
+# The Focus Ring defines where windows remain active
+# and fully expanded.
+#
+# Windows outside this region may collapse into nodes.
+#
+# Unless docked, only one window is active at a time.
+focus-ring:
+  primary-rx 820.0
+  primary-ry 420.0
+
+  offset-x 0
+  offset-y 0
+
+  # Expand the last focused window when it returns to the focus ring.
+  #
+  # Note: only compatible with nodes. 
+  auto-expand-last true
+end
+
+# Weighted tile layout used inside clusters.
+tile:
+  # Newly opened windows appear with higher priority
+  new-on-top true
+
+  gaps:
+    inner 8
+    outer 12
+  end
+end
+
+# Stacked layout used inside clusters.
+#
+# Typically behaves similar to tabbed or mobile
+# style window stacks.
+stacking:
+end
+
+# Docking allows two windows to snap together.
+#
+# Docked windows behave like a paired group.
+docking:
+  gap 8
+end
+
+# Clusters are halley's primary grouping mechanism
+# and replace traditional workspaces.
+#
+# Windows can form clusters automatically or be created manually 
+# by the user using the lens or within your configuration file 
+# for them to persist.
+clusters:
+  startup:
+    dev:
+      launch ["kitty", "firefox"]
+
+    # Placement strategy for the cluster
+    # Options: `around-focus-ring`, `center`, `anywhere`
+    place "around-focus-ring"
+
+    # Layout used when the cluster becomes active
+    layout "stacking"
+    end
+  end
+
+  # Default layout for newly created clusters
+  default-layout "tile"
+end
+
+decorations:
+  border-size 3
+  border-colour-focused "#fd5e53"
+  border-colour-unfocused "#333333"
+  resize-using-border true
+  border-radius 6
+
+  shadow:
+  end
+
+  # Post v0.1.0
+  blur:
+  end
+
+  # Disable client-side decorations if possible
+  allow-csd false
+end
+
+animations:
+end
+
+physics:
+  enabled true
+
+  # Higher values reduce movement speed faster
+  damping 0.85
+end
+
+# Keyboard shortcuts.
+#
+# Keybinds use the format:
+#
+# "modifier+key" "command"
+#
+keybinds:
+  # primary modifier key
+  #
+  # Examples:
+  #
+  # `lalt`, `lctl`, `ralt`, `rsuper`, etc.
+  #
+  mod "lsuper"
+
+  #  Applications
+  "$var.mod+t" terminal
+  "$var.mod+d" launcher
+
+  # Core compositor controls
+  "$var.mod+n" "halleyctl toggle-state"
+  "$var.mod+h" "halleyctl home"
+
+  # Lock the screen
+  "$var.mod+l" "swaylock"
+
+  # Navigate your app trail
+  "$var.mod+shift+," "halleyctl trail prev"
+  "$var.mod+shift+." "halleyctl trail next"
+
+  # Exit Halley
+  "$var.mod+shift+e" "halleyctl quit"
+
+  # Bearings visibility
+  "$var.mod+z" "halleyctl bearrings"
+  "$var.mod+shift+z" "halleyctl bearings toggle"
+
+  # Tile layout controls
+  "$var.mod+up" "halleyctl tile promote"
+  "$var.mod+down" "halleyctl tile demote"
+
+  # Audio controls
+  "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
+  "XF86AudioLowerVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+  "XF86AudioMute" "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+end
+
+# Rules allow matching specific applications
+# and applying behaviour automatically.
+rules:
+end
+
+debug:
+  # Post v0.1.0
+  overlay-fps false
+
+  # Show focus ring while resizing it, inclusing after resizing in config
+  show-ring-when-resizing true
+end
