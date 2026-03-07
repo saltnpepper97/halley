@@ -829,6 +829,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "halley-config"
+version = "0.1.0"
+dependencies = [
+ "halley-core",
+ "rune-cfg",
+]
+
+[[package]]
 name = "halley-core"
 version = "0.1.0"
 
@@ -839,6 +847,7 @@ dependencies = [
  "calloop 0.14.4",
  "eventline",
  "glam",
+ "halley-config",
  "halley-core",
  "notify",
  "once_cell",

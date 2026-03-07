@@ -9,6 +9,7 @@ session-libseat = ["smithay/backend_session_libseat"]
 
 [dependencies]
 halley-core = { path = "../halley-core" }
+halley-config = { path = "../halley-config" }
 
 # Wayland compositor toolkit
 smithay = { version = "0.7.0", default-features = false, features = [

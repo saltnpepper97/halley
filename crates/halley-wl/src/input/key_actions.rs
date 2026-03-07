@@ -4,7 +4,7 @@ use std::time::Instant;
 use eventline::{info, warn};
 
 use super::input_utils::{key_matches, key_matches_xkb_only, modifier_active};
-use crate::config::RuntimeTuning;
+use halley_config::RuntimeTuning;
 use crate::interaction::actions::{minimize_focused_active_node, move_latest_node};
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;

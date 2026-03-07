@@ -1,8 +1,10 @@
 use super::*;
+
+use halley_config::RuntimeTuning;
+
 use eventline::debug;
 
 use crate::anim::{AnimSpec, AnimStyle};
-use crate::config::RuntimeTuning;
 use crate::render::{DebugScene, build_debug_scene};
 
 impl HalleyWlState {

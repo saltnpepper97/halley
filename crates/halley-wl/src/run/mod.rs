@@ -10,6 +10,8 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use halley_config::RuntimeTuning;
+
 use calloop::EventLoop;
 use calloop::timer::{TimeoutAction, Timer};
 
@@ -48,7 +50,6 @@ use smithay::{
 
 use crate::activity::VisualState;
 use crate::backend_iface::{BackendView, RenderBackend, WinitBackendHandle};
-use crate::config::RuntimeTuning;
 use crate::interaction::types::{ModState, PointerState};
 use crate::state::{ClientState, HalleyWlState};
 

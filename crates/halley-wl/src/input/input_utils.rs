@@ -1,4 +1,4 @@
-use crate::config::KeyModifiers;
+use halley_config::KeyModifiers;
 use crate::interaction::types::ModState;
 
 pub(crate) fn key_matches(actual: u32, evdev_code: u32) -> bool {
