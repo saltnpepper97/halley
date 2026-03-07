@@ -179,7 +179,8 @@ pub(crate) fn handle_pointer_axis_input(
     }
 
     let now = Instant::now();
-    if let Some(focus) = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now) {
+    let resize_preview = pointer_state.borrow().resize;
+    if let Some(focus) = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview) {
         if let Some(pointer) = st.seat.get_pointer() {
             pointer.motion(
                 st,

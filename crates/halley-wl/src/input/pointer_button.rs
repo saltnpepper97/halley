@@ -54,7 +54,8 @@ pub(crate) fn handle_pointer_button_input(
     ps.screen = (sx, sy);
     ps.workspace_size = (ws_w, ws_h);
     if let Some(pointer) = st.seat.get_pointer() {
-        let focus = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, Instant::now());
+        let resize_preview = ps.resize;
+        let focus = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, Instant::now(), resize_preview);
         let motion_serial = SERIAL_COUNTER.next_serial();
         let button_serial = SERIAL_COUNTER.next_serial();
         pointer.motion(
@@ -251,7 +252,7 @@ pub(crate) fn handle_pointer_button_input(
                             let fallback_size = n.intrinsic_size;
                             let fallback_pos = n.pos;
                             let (start_left, start_top, start_right, start_bottom) =
-                                active_node_screen_rect(st, ws_w, ws_h, h.node_id, Instant::now())
+                                active_node_screen_rect(st, ws_w, ws_h, h.node_id, Instant::now(), None)
                                     .unwrap_or_else(|| {
                                         let center_scr = world_to_screen(
                                             st,

@@ -5,6 +5,7 @@ use smithay::desktop::{WindowSurfaceType, utils::under_from_surface_tree};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};
 
+use crate::interaction::types::ResizeCtx;
 use crate::spatial::pick_hit_node_at;
 use crate::state::HalleyWlState;
 
@@ -13,6 +14,10 @@ use super::resize_helpers::active_node_surface_transform_screen_details;
 
 /// Resolve the Wayland surface and compositor-space surface origin for a
 /// given screen-space pointer position.
+///
+/// `resize_preview` must be the same value passed to the current render frame
+/// so that during interactive resize the transform mirrors the render path
+/// (preview edges, scale=1.0) rather than the smoothed-position path.
 ///
 /// # What Smithay expects for `focus.1`
 ///
@@ -26,11 +31,6 @@ use super::resize_helpers::active_node_surface_transform_screen_details;
 /// `event.location` is the raw screen-pixel coordinate `(sx, sy)`.  Therefore
 /// `focus.1` **must** be the screen-space position of the found surface's
 /// `(0, 0)` origin, not a pre-computed local cursor offset.
-///
-/// The previous code returned `local_point − surface_loc`, which at scale = 1
-/// collapsed to the constant `(origin_x + surface_loc.x, origin_y +
-/// surface_loc.y)` — so every click landed at the same spot regardless of
-/// where the cursor actually was.
 pub(crate) fn pointer_focus_for_screen(
     st: &mut HalleyWlState,
     ws_w: i32,
@@ -38,6 +38,7 @@ pub(crate) fn pointer_focus_for_screen(
     sx: f32,
     sy: f32,
     now: Instant,
+    resize_preview: Option<ResizeCtx>,
 ) -> Option<(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
@@ -48,13 +49,16 @@ pub(crate) fn pointer_focus_for_screen(
         return None;
     }
 
-    let xform = active_node_surface_transform_screen_details(st, ws_w, ws_h, hit.node_id, now)?;
+    let xform = active_node_surface_transform_screen_details(
+        st,
+        ws_w,
+        ws_h,
+        hit.node_id,
+        now,
+        resize_preview,
+    )?;
     let scale = xform.scale.max(0.001);
 
-    // `xform.origin_x/y` is the screen-space position of the surface-tree root
-    // (0, 0).  It already incorporates the scaled bbox offset so no second
-    // adjustment is needed here.
-    //
     // Convert screen → surface-tree-root-local so `under_from_surface_tree`
     // can locate the exact (sub)surface under the pointer.
     let local = Point::<f64, Logical>::from((
