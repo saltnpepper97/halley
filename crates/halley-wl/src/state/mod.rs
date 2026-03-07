@@ -10,7 +10,8 @@ use halley_config::RuntimeTuning;
 
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
-    delegate_compositor, delegate_data_device, delegate_seat, delegate_shm, delegate_xdg_shell,
+    delegate_compositor, delegate_data_control, delegate_data_device, delegate_primary_selection,
+    delegate_seat, delegate_shm, delegate_xdg_shell,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
     reexports::wayland_server::{Client, Resource, backend::ObjectId, protocol::wl_seat},
     utils::Serial,
@@ -22,6 +23,8 @@ use smithay::{
             data_device::{
                 ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
             },
+            primary_selection::PrimarySelectionState,
+            wlr_data_control::{DataControlHandler, DataControlState},
         },
         shell::xdg::{
             PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
@@ -56,6 +59,8 @@ pub struct HalleyWlState {
     pub shm_state: ShmState,
     pub seat_state: SeatState<Self>,
     pub data_device_state: DataDeviceState,
+    pub primary_selection_state: PrimarySelectionState,
+    pub data_control_state: DataControlState,
     pub seat: Seat<Self>,
 
     pub field: Field,
@@ -132,12 +137,20 @@ impl HalleyWlState {
         let now = Instant::now();
         let mut seat_state = SeatState::new();
         let seat = seat_state.new_wl_seat(dh, "halley");
+        let primary_selection_state = PrimarySelectionState::new::<HalleyWlState>(dh);
+        let data_control_state = DataControlState::new::<HalleyWlState, _>(
+            dh,
+            Some(&primary_selection_state),
+            |_| true,
+        );
         let mut out = Self {
             compositor_state: CompositorState::new::<HalleyWlState>(dh),
             xdg_shell_state: XdgShellState::new::<HalleyWlState>(dh),
             shm_state: ShmState::new::<HalleyWlState>(dh, vec![]),
             seat_state,
             data_device_state: DataDeviceState::new::<HalleyWlState>(dh),
+            primary_selection_state,
+            data_control_state,
             seat,
 
             field: Field::new(),

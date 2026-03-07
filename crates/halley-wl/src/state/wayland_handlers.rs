@@ -1,4 +1,6 @@
 use super::*;
+use smithay::wayland::selection::primary_selection::{PrimarySelectionHandler, PrimarySelectionState};
+use smithay::wayland::selection::wlr_data_control::DataControlState;
 use eventline::info;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -139,3 +141,19 @@ impl XdgShellHandler for HalleyWlState {
 }
 
 delegate_xdg_shell!(HalleyWlState);
+
+impl PrimarySelectionHandler for HalleyWlState {
+    fn primary_selection_state(&self) -> &PrimarySelectionState {
+        &self.primary_selection_state
+    }
+}
+
+delegate_primary_selection!(HalleyWlState);
+
+impl DataControlHandler for HalleyWlState {
+    fn data_control_state(&self) -> &DataControlState {
+        &self.data_control_state
+    }
+}
+
+delegate_data_control!(HalleyWlState);
