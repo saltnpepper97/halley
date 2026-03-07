@@ -6,6 +6,8 @@ use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_clu
 use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2, Visibility};
 use halley_core::viewport::{FocusRings, RingZone, Viewport};
+use halley_config::RuntimeTuning;
+
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
     delegate_compositor, delegate_data_device, delegate_seat, delegate_shm, delegate_xdg_shell,
@@ -30,7 +32,6 @@ use smithay::{
 
 use crate::activity::CommitActivity;
 use crate::anim::{AnimSpec, Animator};
-use crate::config::RuntimeTuning;
 mod carry;
 mod client;
 mod focus;

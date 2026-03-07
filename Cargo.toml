@@ -1,7 +1,7 @@
 [workspace]
 members = [
   "crates/halley",
-  "crates/halley-cli",
+  "crates/halley-cli", "crates/halley-config",
   "crates/halley-core", 
   "crates/halley-wl"
 ]

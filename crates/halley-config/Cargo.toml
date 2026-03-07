@@ -1,0 +1,9 @@
+[package]
+name = "halley-config"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+halley-core = { path = "../halley-core" }
+
+rune-cfg = { version =  "0.4.4", path = "../../../../libs/rune-cfg" }
