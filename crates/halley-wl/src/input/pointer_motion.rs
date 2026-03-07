@@ -64,7 +64,8 @@ pub(crate) fn handle_pointer_motion_absolute(
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, sx, sy);
     let now = Instant::now();
     if let Some(pointer) = st.seat.get_pointer() {
-        let focus = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now);
+        let resize_preview = pointer_state.borrow().resize;
+        let focus = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview);
         pointer.motion(
             st,
             focus,

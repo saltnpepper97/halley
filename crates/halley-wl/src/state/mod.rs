@@ -123,6 +123,8 @@ pub struct HalleyWlState {
     viewport_pan_anim: Option<ViewportPanAnim>,
     pan_dominant_until_ms: u64,
     exit_requested: bool,
+    
+    pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
 
     spawn_cursor: u32,
     started_at: Instant,
@@ -206,7 +208,9 @@ impl HalleyWlState {
             viewport_pan_anim: None,
             pan_dominant_until_ms: 0,
             exit_requested: false,
-
+            
+            bbox_loc: HashMap::new(),
+            
             spawn_cursor: 0,
             started_at: now,
             last_debug_dump_at: now,

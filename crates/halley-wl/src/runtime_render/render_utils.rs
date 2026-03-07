@@ -1,4 +1,5 @@
 use std::f32::consts::TAU;
+use std::time::Instant;
 
 use smithay::{
     backend::renderer::{Color32F, Frame},
@@ -86,8 +87,16 @@ pub(crate) fn sync_node_size_from_surface(
     wl: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
 ) -> Rectangle<i32, Logical> {
     let bbox = bbox_from_surface_tree(wl, (0, 0));
+
+    st.bbox_loc
+        .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
+
     let bw = bbox.size.w.max(1) as f32;
     let bh = bbox.size.h.max(1) as f32;
+
+    // Do immutable reads before taking node_mut.
+    let now_ms = st.now_ms(Instant::now());
+    let resize_static_active = st.resize_static_active_for(node_id, now_ms);
 
     let Some(node) = st.field.node_mut(node_id) else {
         return bbox;
@@ -99,10 +108,15 @@ pub(crate) fn sync_node_size_from_surface(
         return bbox;
     }
 
+    if resize_static_active {
+        return bbox;
+    }
+
     node.intrinsic_size = halley_core::field::Vec2 { x: bw, y: bh };
     if matches!(node.state, halley_core::field::NodeState::Active) {
         node.footprint = node.intrinsic_size;
     }
+
     bbox
 }
 
