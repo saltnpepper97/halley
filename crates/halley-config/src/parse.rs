@@ -303,50 +303,6 @@ fn load_docking_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.non_overlap_gap_px =
         pick_f32(cfg, &["docking.gap", "docking.gap-px"], out.non_overlap_gap_px);
 
-    out.non_overlap_active_gap_scale = pick_f32(
-        cfg,
-        &[
-            "docking.active-gap-scale",
-            "docking.active_gap_scale",
-            "layout.active-gap-scale",
-            "layout.active_gap_scale",
-        ],
-        out.non_overlap_active_gap_scale,
-    );
-
-    out.non_overlap_bump_newer = pick_bool(
-        cfg,
-        &[
-            "docking.bump-newer",
-            "docking.bump_newer",
-            "layout.bump-newer",
-            "layout.bump_newer",
-        ],
-        out.non_overlap_bump_newer,
-    );
-
-    out.drag_smoothing_boost = pick_f32(
-        cfg,
-        &[
-            "docking.drag-smoothing-boost",
-            "docking.drag_smoothing_boost",
-            "layout.drag-smoothing-boost",
-            "layout.drag_smoothing_boost",
-        ],
-        out.drag_smoothing_boost,
-    );
-
-    out.center_window_to_mouse = pick_bool(
-        cfg,
-        &[
-            "docking.center-window-to-mouse",
-            "docking.center_window_to_mouse",
-            "layout.center-window-to-mouse",
-            "layout.center_window_to_mouse",
-        ],
-        out.center_window_to_mouse,
-    );
-
     out.restore_last_active_on_pan_return = pick_bool(
         cfg,
         &[
