@@ -110,6 +110,8 @@ pub struct HalleyWlState {
     exit_requested: bool,
 
     pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
+    pub(crate) recent_top_node: Option<NodeId>,
+    pub(crate) recent_top_until: Option<Instant>,
 
     spawn_cursor: u32,
     started_at: Instant,
@@ -189,6 +191,8 @@ impl HalleyWlState {
             exit_requested: false,
 
             bbox_loc: HashMap::new(),
+            recent_top_node: None,
+            recent_top_until: None,
 
             spawn_cursor: 0,
             started_at: now,
@@ -199,6 +203,20 @@ impl HalleyWlState {
             bounce: out.tuning.dev_anim_bounce,
         });
         out
+    }
+
+    pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
+        self.recent_top_node = Some(node_id);
+        self.recent_top_until = Some(until);
+    }
+
+    pub fn recent_top_node_active(&mut self, now: Instant) -> Option<NodeId> {
+        if self.recent_top_until.is_some_and(|until| now >= until) {
+            self.recent_top_node = None;
+            self.recent_top_until = None;
+            return None;
+        }
+        self.recent_top_node
     }
 
     pub fn request_exit(&mut self) {
@@ -216,6 +234,7 @@ impl HalleyWlState {
         }
         self.reconcile_surface_bindings();
         let now_ms = now.duration_since(self.started_at).as_millis() as u64;
+        let _ = self.recent_top_node_active(now);
         self.tick_viewport_pan_animation(now_ms);
         if self.active_cluster_workspace.is_some() {
             self.layout_active_cluster_workspace(now_ms);

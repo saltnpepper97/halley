@@ -353,6 +353,10 @@ pub(crate) fn handle_pointer_button_input(
                                     false,
                                 );
                             }
+                            st.set_recent_top_node(
+                                resize.node_id,
+                                now + Duration::from_millis(600),
+                            );
                             st.end_resize_interaction(now);
                             backend.request_redraw();
                             return;
@@ -372,7 +376,12 @@ pub(crate) fn handle_pointer_button_input(
                                 y: final_h as f32,
                             },
                         );
-                        st.end_resize_interaction(Instant::now());
+                        st.set_recent_top_node(
+                            resize.node_id,
+                            now + Duration::from_millis(600),
+                        );
+                        st.end_resize_interaction(now);
+                        backend.request_redraw();
                     }
                 };
             if left {

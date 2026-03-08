@@ -261,10 +261,12 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
             let initial_cursor = Some(pointer_state.borrow().screen);
             let initial_cursor_image = state.cursor_image_status.clone();
+            let initial_resize_preview = pointer_state.borrow().resize;
             if let Err(err) = queue_tty_drm_frame(
                 &drm_probe.gbm_surface,
                 &drm_probe.renderer,
                 &mut state,
+                initial_resize_preview,
                 initial_cursor,
                 Some(&initial_cursor_image),
             ) {
@@ -445,12 +447,17 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     info!("reloaded config from {}", config_path_for_timer.as_str());
                     info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                 }
-                let cursor_screen = Some(pointer_state_for_timer.borrow().screen);
+                let ps = pointer_state_for_timer.borrow();
+                let resize_preview = ps.resize;
+                let cursor_screen = Some(ps.screen);
+                drop(ps);
+
                 let cursor_image = st.cursor_image_status.clone();
                 if let Err(err) = queue_tty_drm_frame(
                     &gbm_surface_for_timer,
                     &renderer_for_timer,
                     st,
+                    resize_preview,
                     cursor_screen,
                     Some(&cursor_image),
                 ) {

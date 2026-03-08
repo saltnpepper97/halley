@@ -55,7 +55,8 @@ pub(crate) struct ActiveBorderRect {
 /// geometry/debug overlays that belong to this pass.
 ///
 /// Returns:
-/// - Wayland surface render elements in draw order
+/// - Wayland surface render elements in draw order excluding the actively resized window
+/// - Wayland surface render elements for the actively resized window only
 /// - `node_surface_map` for later use by hover-preview and cursor collection
 /// - active border rects
 /// - geometry overlay rects/points (only populated with `dev_show_geometry_overlay`)
@@ -68,6 +69,7 @@ pub(crate) fn collect_active_surfaces(
     now: Instant,
 ) -> (
     Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>,
+    Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>,
     HashMap<
         halley_core::field::NodeId,
         smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -78,11 +80,14 @@ pub(crate) fn collect_active_surfaces(
     Vec<(i32, i32, i32, i32)>,           // overlap_overlay_rects
 ) {
     let mut active_elements = Vec::new();
+    let mut resized_active_elements = Vec::new();
     let mut node_surface_map = HashMap::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut overlay_rects: Vec<(i32, i32, i32, i32, Color32F)> = Vec::new();
     let mut overlay_points: Vec<(i32, i32, Color32F)> = Vec::new();
     let mut overlap_overlay_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
+
+    let recent_top_node = st.recent_top_node_active(now);
 
     let resize_rect_px = resize_preview.map(|rz| {
         (
@@ -135,8 +140,9 @@ pub(crate) fn collect_active_surfaces(
         let transition_alpha = st.active_transition_alpha(node_id, now);
         let anim = st.anim_style_for(node_id, node_state, now);
         let resizing_this_node = resize_preview.is_some_and(|rz| rz.node_id == node_id);
+        let draw_top_this_node = resizing_this_node || recent_top_node == Some(node_id);
 
-        let (scale, live_ramp) = if resizing_this_node {
+        let (scale, live_ramp) = if draw_top_this_node {
             (1.0f32, 1.0f32)
         } else {
             let s = active_surface_render_scale(
@@ -242,18 +248,25 @@ pub(crate) fn collect_active_surfaces(
             }
         }
 
-        active_elements.extend(render_elements_from_surface_tree(
+        let elems = render_elements_from_surface_tree(
             renderer,
             &wl,
             (sx, sy),
             scale as f64,
             (anim.alpha * live_ramp).clamp(0.0, 1.0),
             Kind::Unspecified,
-        ));
+        );
+
+        if draw_top_this_node {
+            resized_active_elements.extend(elems);
+        } else {
+            active_elements.extend(elems);
+        }
     }
 
     (
         active_elements,
+        resized_active_elements,
         node_surface_map,
         border_rects,
         overlay_rects,
@@ -417,7 +430,6 @@ where
         let marker_mix = ease_in_out_cubic(marker_mix_lin);
         let proxy_mix = 1.0 - marker_mix;
 
-        // Blend toward logical position as marker appears to reduce tail lag.
         let p = halley_core::field::Vec2 {
             x: p_smooth.x + (node_pos.x - p_smooth.x) * marker_mix,
             y: p_smooth.y + (node_pos.y - p_smooth.y) * marker_mix,
@@ -448,7 +460,6 @@ where
         let label_w_px = label_w;
         let label_h_px = visual_h;
 
-        // ---- Proxy thumbnail (fades into marker) ---------------------------
         if proxy_mix > 0.01 {
             let proxy_t = ((anim.scale - 0.30) / (0.62 - 0.30)).clamp(0.0, 1.0);
             let proxy_alpha = (anim.alpha * proxy_t * proxy_t * proxy_mix * proxy_mix * proxy_mix)
@@ -503,7 +514,6 @@ where
             )?;
         }
 
-        // ---- Marker + label ------------------------------------------------
         let dot_alpha = (anim.alpha * marker_mix).clamp(0.0, 1.0);
         if dot_alpha <= 0.01 {
             continue;
