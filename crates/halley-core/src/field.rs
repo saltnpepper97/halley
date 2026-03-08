@@ -211,9 +211,14 @@ impl Field {
     }
 
     #[inline]
-    pub fn update_dock_preview(&mut self, mover_id: NodeId) -> Option<DockPreview> {
+    pub fn update_dock_preview(
+        &mut self,
+        mover_id: NodeId,
+        viewport_center: Vec2,
+        viewport_size: Vec2,
+    ) -> Option<DockPreview> {
         let mut docking = std::mem::take(&mut self.docking);
-        let out = docking.update_preview(self, mover_id);
+        let out = docking.update_preview(self, mover_id, viewport_center, viewport_size);
         self.docking = docking;
         out
     }
