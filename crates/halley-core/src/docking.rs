@@ -62,22 +62,36 @@ impl DockingState {
     const CROSS_AXIS_MIN: f32 = 28.0;
     const CROSS_AXIS_MAX: f32 = 72.0;
 
-    // Approximate visual node marker width for horizontal docking.
+    // Node pill geometry — calibrated from node_marker_metrics + draw_node_markers at zoom=1 (g=1).
     //
-    // Why this exists:
-    // - field footprint for Node/Preview is only 24x24
-    // - render width is actually dot + gap + label + padding/outline
-    // - docking.rs does not have HalleyWlState, so it cannot call the exact
-    //   renderer metric path directly
+    // node_marker_metrics at z=1, g=1:
+    //   dot_half_raw = round(4 * 1).clamp(4,18) = 4
+    //   label_gap    = round(8 + 0)             = 8
+    //   label_w/char = round(6 * 1.5)           = 9  (then × 1.22 in draw_node_markers)
+    //   label_h_raw  = round(4 * 1)             = 4
     //
-    // This is intentionally a little generous so left/right window->node
-    // docking lines up with what the user sees instead of the raw 24px dot.
-    const NODE_DOT_DIAMETER_EST: f32 = 32.0;
-    const NODE_GAP_EST: f32 = 12.0;
-    const NODE_SIDE_PADDING_EST: f32 = 16.0;
-    const NODE_CHAR_WIDTH_EST: f32 = 9.0;
-    const NODE_LABEL_BASE_EST: f32 = 18.0;
-    const NODE_MIN_VISUAL_WIDTH_EST: f32 = 96.0;
+    // draw_node_markers multipliers (no hover):
+    //   dot_half  = round(dot_half_raw × 1.36) = round(5.44) = 5 px
+    //   label_w   = round(raw × 1.22)  → per char: round(9 × 1.22) ≈ 11 px
+    //   render_pad = 8 px
+    //
+    // Resulting pill bounds from node_marker_bounds (pos = dot centre = node.pos):
+    //   left  = pos.x - dot_half - render_pad = pos.x - 13
+    //   right = pos.x + label_gap + label_w + render_pad
+    //   bw    = dot_half + label_gap + label_w + 2 × render_pad
+    //         = 5 + 8 + (label_len × 11) + 16 = 29 + label_len × 11
+    //   bh    = 2 × dot_half + 2 × render_pad = 10 + 16 = 26
+    //
+    // These constants must stay in sync with node_render.rs / render_utils.rs.
+    const NODE_DOT_HALF_EST: f32 = 5.0;
+    const NODE_LABEL_GAP_EST: f32 = 8.0;
+    const NODE_RENDER_PAD_EST: f32 = 8.0;
+    const NODE_LABEL_CHAR_EST: f32 = 11.0;
+    // Minimum pill width: accounts for label_w clamped to 24 raw (→ 29 after ×1.22).
+    // 5 + 8 + 29 + 16 = 58.
+    const NODE_MIN_VISUAL_WIDTH_EST: f32 = 58.0;
+    // Pill height: 2 × dot_half + 2 × render_pad = 26.
+    const NODE_MIN_VISUAL_HEIGHT_EST: f32 = 26.0;
 
     #[inline]
     pub fn clear_preview(&mut self) {
@@ -171,13 +185,31 @@ impl DockingState {
 
     #[inline]
     fn estimate_node_visual_horizontal_width(label: &str) -> f32 {
-        let label_w = Self::NODE_LABEL_BASE_EST + (label.chars().count() as f32 * Self::NODE_CHAR_WIDTH_EST);
-
-        (Self::NODE_DOT_DIAMETER_EST
-            + Self::NODE_GAP_EST
+        // Pill width = dot_half + label_gap + label_w + 2 × render_pad
+        // (calibrated from node_marker_metrics + draw_node_markers at zoom=1 / g=1)
+        let label_w = label.chars().count() as f32 * Self::NODE_LABEL_CHAR_EST;
+        (Self::NODE_DOT_HALF_EST
+            + Self::NODE_LABEL_GAP_EST
             + label_w
-            + (Self::NODE_SIDE_PADDING_EST * 2.0))
+            + 2.0 * Self::NODE_RENDER_PAD_EST)
             .max(Self::NODE_MIN_VISUAL_WIDTH_EST)
+    }
+
+    /// How far the visual centre of the pill is shifted rightward from `node.pos`
+    /// (the dot centre). Positive = toward the label side.
+    ///
+    /// From node_marker_bounds:
+    ///   left  from pos = dot_half + render_pad
+    ///   right from pos = label_gap + label_w + render_pad
+    ///   centre offset  = (right − left) / 2
+    ///                  = (label_gap + label_w − dot_half) / 2
+    ///
+    /// render_pad is symmetric and cancels in the subtraction.
+    /// Must stay in sync with `estimate_node_visual_horizontal_width`.
+    #[inline]
+    fn node_visual_center_offset(label: &str) -> f32 {
+        let label_w = label.chars().count() as f32 * Self::NODE_LABEL_CHAR_EST;
+        (Self::NODE_LABEL_GAP_EST + label_w - Self::NODE_DOT_HALF_EST) / 2.0
     }
 
     #[inline]
@@ -188,12 +220,19 @@ impl DockingState {
         if matches!(node.state, NodeState::Node | NodeState::Preview) {
             match side {
                 DockSide::Left | DockSide::Right => {
+                    // Use only the rendered pill width (with multipliers applied).
+                    // node.intrinsic_size is the window's old Active size and is
+                    // unrelated to the pill's visual width; including it caused
+                    // different gaps per target depending on window history.
                     size.x = Self::estimate_node_visual_horizontal_width(&node.label)
-                        .max(size.x)
-                        .max(node.intrinsic_size.x.min(220.0));
+                        .max(size.x);
                 }
                 DockSide::Top | DockSide::Bottom => {
-                    // Vertical already feels correct; keep raw footprint semantics.
+                    // The node footprint is 24×24 (spatial occupancy), but the
+                    // rendered pill is taller: 2×dot_half + 2×render_pad = 26 px at
+                    // zoom=1.  Use the visual height so up/down snaps land flush with
+                    // the actual marker bounds rather than cutting into the padding.
+                    size.y = Self::NODE_MIN_VISUAL_HEIGHT_EST.max(size.y);
                 }
             }
         }
@@ -221,28 +260,60 @@ impl DockingState {
         target_id: NodeId,
         side: DockSide,
     ) -> Option<Vec2> {
-        let mover_size = Self::docking_extent_for_side(field, mover_id, side)?;
-        let target = field.node(target_id)?;
+        let mover_node  = field.node(mover_id)?;
+        let target      = field.node(target_id)?;
+        let mover_size  = Self::docking_extent_for_side(field, mover_id, side)?;
         let target_size = Self::docking_extent_for_side(field, target_id, side)?;
+
+        // For node pills the dot sits at `pos` but the pill is not symmetric
+        // around it – the label hangs to the right.  `node_visual_center_offset`
+        // returns how far the pill's visual centre is shifted from the dot centre
+        // (positive = rightward).  Active surfaces have no such offset (they are
+        // centred on `pos` by design once xdg content geometry is used).
+        let mover_offset = if matches!(mover_node.state, NodeState::Node | NodeState::Preview) {
+            Self::node_visual_center_offset(&mover_node.label)
+        } else {
+            0.0
+        };
+        let target_offset = if matches!(target.state, NodeState::Node | NodeState::Preview) {
+            Self::node_visual_center_offset(&target.label)
+        } else {
+            0.0
+        };
+
+        // Visual centre positions in world space:
+        //   target visual centre x  =  target.pos.x + target_offset
+        //   mover  visual centre x  =  snap.x        + mover_offset
+        //
+        // We want the visual edges to meet, i.e.:
+        //   mover_vcx ± half_mover == target_vcx ∓ half_target
+        let target_vcx = target.pos.x + target_offset;
+        let target_vcy = target.pos.y; // vertical is symmetric; no offset
 
         let mut snap = target.pos;
 
         match side {
             DockSide::Left => {
-                snap.x = target.pos.x - ((target_size.x + mover_size.x) * 0.5);
-                snap.y = target.pos.y;
+                // Mover's right visual edge == target's left visual edge
+                // → mover_vcx + mover_size.x/2 == target_vcx - target_size.x/2
+                // → mover_vcx = target_vcx - (target_size.x + mover_size.x) * 0.5
+                // → snap.x (dot pos) = mover_vcx - mover_offset
+                snap.x = target_vcx - (target_size.x + mover_size.x) * 0.5 - mover_offset;
+                snap.y = target_vcy;
             }
             DockSide::Right => {
-                snap.x = target.pos.x + ((target_size.x + mover_size.x) * 0.5);
-                snap.y = target.pos.y;
+                // Mover's left visual edge == target's right visual edge
+                snap.x = target_vcx + (target_size.x + mover_size.x) * 0.5 - mover_offset;
+                snap.y = target_vcy;
             }
             DockSide::Top => {
+                // Vertical axis is symmetric: no center-offset correction needed.
                 snap.x = target.pos.x;
-                snap.y = target.pos.y + ((target_size.y + mover_size.y) * 0.5);
+                snap.y = target.pos.y + (target_size.y + mover_size.y) * 0.5;
             }
             DockSide::Bottom => {
                 snap.x = target.pos.x;
-                snap.y = target.pos.y - ((target_size.y + mover_size.y) * 0.5);
+                snap.y = target.pos.y - (target_size.y + mover_size.y) * 0.5;
             }
         }
 
@@ -304,12 +375,14 @@ impl DockingState {
         let Some(mover) = field.node(mover_id) else {
             return false;
         };
-        let Some(target) = field.node(target_id) else {
-            return false;
-        };
 
-        let dx = mover.pos.x - target.pos.x;
-        let dy = mover.pos.y - target.pos.y;
+        // `snap_pos` is already the correct snap position produced by
+        // `snap_position_for_target` – it accounts for visual-centre offsets on
+        // node pills.  Measuring the mover's distance from snap_pos is therefore
+        // exact; recomputing a "desired" distance from target.pos would be wrong
+        // for any node/window combination where the centre offsets differ.
+        let dx_snap = mover.pos.x - snap_pos.x;
+        let dy_snap = mover.pos.y - snap_pos.y;
 
         let mover_size =
             Self::docking_extent_for_side(field, mover_id, side).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
@@ -331,18 +404,12 @@ impl DockingState {
 
         match side {
             DockSide::Left | DockSide::Right => {
-                let desired = (mover_size.x + target_size.x) * 0.5;
-                let axis_delta = (dx.abs() - desired).abs();
-                let cross_delta = dy.abs();
                 let cross_slack = Self::cross_axis_slack(target_size.y, mover_size.y);
-                axis_delta <= axis_slack && cross_delta <= cross_slack
+                dx_snap.abs() <= axis_slack && dy_snap.abs() <= cross_slack
             }
             DockSide::Top | DockSide::Bottom => {
-                let desired = (mover_size.y + target_size.y) * 0.5;
-                let axis_delta = (dy.abs() - desired).abs();
-                let cross_delta = dx.abs();
                 let cross_slack = Self::cross_axis_slack(target_size.x, mover_size.x);
-                axis_delta <= axis_slack && cross_delta <= cross_slack
+                dy_snap.abs() <= axis_slack && dx_snap.abs() <= cross_slack
             }
         }
     }
@@ -359,12 +426,12 @@ impl DockingState {
         let Some(mover) = field.node(mover_id) else {
             return false;
         };
-        let Some(target) = field.node(target_id) else {
-            return false;
-        };
 
-        let dx = mover.pos.x - target.pos.x;
-        let dy = mover.pos.y - target.pos.y;
+        // Same rationale as `candidate_is_close_enough`: snap_pos already encodes
+        // all geometry correctly; measure from it rather than re-deriving a desired
+        // centre-to-centre distance that would be wrong for asymmetric node pills.
+        let dx_snap = mover.pos.x - snap_pos.x;
+        let dy_snap = mover.pos.y - snap_pos.y;
 
         let mover_size =
             Self::docking_extent_for_side(field, mover_id, side).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
@@ -386,16 +453,12 @@ impl DockingState {
 
         match side {
             DockSide::Left | DockSide::Right => {
-                let desired = (mover_size.x + target_size.x) * 0.5;
-                let axis_ok = (dx.abs() - desired).abs() <= arm_slack;
-                let cross_ok = dy.abs() <= Self::cross_axis_slack(target_size.y, mover_size.y);
-                axis_ok && cross_ok
+                let cross_slack = Self::cross_axis_slack(target_size.y, mover_size.y);
+                dx_snap.abs() <= arm_slack && dy_snap.abs() <= cross_slack
             }
             DockSide::Top | DockSide::Bottom => {
-                let desired = (mover_size.y + target_size.y) * 0.5;
-                let axis_ok = (dy.abs() - desired).abs() <= arm_slack;
-                let cross_ok = dx.abs() <= Self::cross_axis_slack(target_size.x, mover_size.x);
-                axis_ok && cross_ok
+                let cross_slack = Self::cross_axis_slack(target_size.x, mover_size.x);
+                dy_snap.abs() <= arm_slack && dx_snap.abs() <= cross_slack
             }
         }
     }
