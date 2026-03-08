@@ -75,7 +75,6 @@ impl HalleyWlState {
                 let ox = req_x - dx.abs();
                 let oy = req_y - dy.abs();
 
-                // Small soft zone so windows begin easing apart before true overlap.
                 let soft_zone = 1.0;
                 let sx = (req_x + soft_zone) - dx.abs();
                 let sy = (req_y + soft_zone) - dy.abs();
@@ -398,15 +397,7 @@ impl HalleyWlState {
                         continue;
                     }
 
-                    if self
-                        .docked_links
-                        .get(&a)
-                        .is_some_and(|link| link.partner == b)
-                        || self
-                            .docked_links
-                            .get(&b)
-                            .is_some_and(|link| link.partner == a)
-                    {
+                    if self.field.dock_partner(a) == Some(b) || self.field.dock_partner(b) == Some(a) {
                         continue;
                     }
 
@@ -458,9 +449,23 @@ impl HalleyWlState {
                     }
 
                     let (mover_id, mover_pos, anchor_pos, mx, my, mover_pinned) = if primary_id == a {
-                        (a, a_pos, b_pos, if dx >= 0.0 { -1.0 } else { 1.0 }, if dy >= 0.0 { -1.0 } else { 1.0 }, a_pinned)
+                        (
+                            a,
+                            a_pos,
+                            b_pos,
+                            if dx >= 0.0 { -1.0 } else { 1.0 },
+                            if dy >= 0.0 { -1.0 } else { 1.0 },
+                            a_pinned,
+                        )
                     } else {
-                        (b, b_pos, a_pos, if dx >= 0.0 { 1.0 } else { -1.0 }, if dy >= 0.0 { 1.0 } else { -1.0 }, b_pinned)
+                        (
+                            b,
+                            b_pos,
+                            a_pos,
+                            if dx >= 0.0 { 1.0 } else { -1.0 },
+                            if dy >= 0.0 { 1.0 } else { -1.0 },
+                            b_pinned,
+                        )
                     };
 
                     if mover_pinned {

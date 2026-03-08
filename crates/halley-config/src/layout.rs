@@ -24,8 +24,7 @@ pub struct RuntimeTuning {
     pub focus_ring_offset_y: f32,
 
     pub primary_hot_inner_frac: f32,
-    pub primary_to_preview_ms: u64,
-    pub primary_preview_to_node_ms: u64,
+    pub primary_to_node_ms: u64,
 
     pub dev_enabled: bool,
     pub dev_show_geometry_overlay: bool,
@@ -84,8 +83,7 @@ impl Default for RuntimeTuning {
             focus_ring_offset_y: 0.0,
 
             primary_hot_inner_frac: 0.88,
-            primary_to_preview_ms: 1_200_000,
-            primary_preview_to_node_ms: 60_000,
+            primary_to_node_ms: 1_260_000,
 
             dev_enabled: false,
             dev_show_geometry_overlay: false,
@@ -169,8 +167,7 @@ impl RuntimeTuning {
         self.focus_ring_offset_y = self.focus_ring_offset_y.clamp(-16_000.0, 16_000.0);
 
         self.primary_hot_inner_frac = self.primary_hot_inner_frac.clamp(0.1, 1.0);
-        self.primary_to_preview_ms = self.primary_to_preview_ms.clamp(250, 7_200_000);
-        self.primary_preview_to_node_ms = self.primary_preview_to_node_ms.clamp(250, 7_200_000);
+        self.primary_to_node_ms = self.primary_to_node_ms.clamp(250, 7_200_000);
 
         self.dev_zoom_decay_min_frac = self.dev_zoom_decay_min_frac.clamp(0.005, 0.5);
         self.dev_anim_state_change_ms = self.dev_anim_state_change_ms.clamp(30, 3_000);
@@ -204,8 +201,7 @@ impl RuntimeTuning {
 
     pub fn focus_ring_decay_policy(&self) -> FocusRingDecayPolicy {
         let mut p = FocusRingDecayPolicy::new();
-        p.inside_to_preview_ms = self.primary_to_preview_ms;
-        p.preview_to_node_ms = self.primary_preview_to_node_ms;
+        p.inside_to_node_ms = self.primary_to_node_ms;
         p
     }
 

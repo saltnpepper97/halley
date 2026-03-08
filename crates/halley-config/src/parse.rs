@@ -244,7 +244,19 @@ fn load_focus_ring_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 }
 
 fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    out.primary_to_preview_ms = pick_u64(
+    out.primary_to_node_ms = pick_u64(
+        cfg,
+        &[
+            "nodes.primary-to-node-ms",
+            "nodes.primary_to_node_ms",
+            "nodes.node-delay",
+            "nodes.node_delay",
+        ],
+        out.primary_to_node_ms,
+    );
+
+    // Backward compatibility for old two-stage configs.
+    let legacy_preview = pick_u64(
         cfg,
         &[
             "nodes.primary-to-preview-ms",
@@ -252,10 +264,9 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
             "nodes.preview-delay",
             "nodes.preview_delay",
         ],
-        out.primary_to_preview_ms,
+        0,
     );
-
-    out.primary_preview_to_node_ms = pick_u64(
+    let legacy_preview_to_node = pick_u64(
         cfg,
         &[
             "nodes.primary-preview-to-node-ms",
@@ -263,8 +274,15 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
             "nodes.preview-to-node-ms",
             "nodes.preview_to_node_ms",
         ],
-        out.primary_preview_to_node_ms,
+        0,
     );
+
+    if legacy_preview > 0 || legacy_preview_to_node > 0 {
+        let combined = legacy_preview.saturating_add(legacy_preview_to_node);
+        if combined > 0 {
+            out.primary_to_node_ms = combined;
+        }
+    }
 
     out.primary_hot_inner_frac = pick_f32(
         cfg,

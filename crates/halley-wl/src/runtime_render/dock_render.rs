@@ -1,22 +1,18 @@
 use std::error::Error;
 use std::time::Instant;
 
+use halley_core::docking::DockSide;
 use smithay::{
     backend::renderer::{Color32F, Frame},
     utils::{Physical, Rectangle, Size},
 };
 
-use crate::state::{DockSide, HalleyWlState};
+use crate::state::HalleyWlState;
 
 use super::render_utils::{
     draw_outline_rect, draw_rect, node_marker_bounds, node_marker_metrics, world_to_screen,
 };
 
-// ---------------------------------------------------------------------------
-// Geometry helpers
-// ---------------------------------------------------------------------------
-
-/// Return the screen-space anchor point on one side of a rectangle.
 #[inline]
 pub(crate) fn rect_side_anchor(x: i32, y: i32, w: i32, h: i32, side: DockSide) -> (i32, i32) {
     let cx = x + (w / 2);
@@ -29,11 +25,6 @@ pub(crate) fn rect_side_anchor(x: i32, y: i32, w: i32, h: i32, side: DockSide) -
     }
 }
 
-// ---------------------------------------------------------------------------
-// Docked-pair connection lines
-// ---------------------------------------------------------------------------
-
-/// Draw the connector lines (and midpoint dots) between every docked node pair.
 pub(crate) fn draw_docked_pairs<F>(
     frame: &mut F,
     st: &mut HalleyWlState,
@@ -45,7 +36,7 @@ where
     F: Frame,
     F::Error: std::error::Error + 'static,
 {
-    for (a, b) in st.docked_pairs() {
+    for (a, b) in st.field.docked_pairs() {
         let (Some(na), Some(nb)) = (st.field.node(a), st.field.node(b)) else {
             continue;
         };
@@ -92,7 +83,7 @@ where
             let rb_t = rb_y;
             let rb_b = rb_y + rb_h;
 
-            if let Some((a_side, b_side)) = st.dock_sides_for_pair(a, b) {
+            if let Some((a_side, b_side)) = st.field.dock_sides_for_pair(a, b) {
                 (
                     rect_side_anchor(ra_x, ra_y, ra_w, ra_h, a_side),
                     rect_side_anchor(rb_x, rb_y, rb_w, rb_h, b_side),
@@ -129,11 +120,6 @@ where
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Dock-preview overlay
-// ---------------------------------------------------------------------------
-
-/// Draw the dock snap-preview: target highlight, anchor dots, and mover ghost.
 pub(crate) fn draw_dock_preview<F>(
     frame: &mut F,
     st: &mut HalleyWlState,
@@ -145,9 +131,15 @@ where
     F: Frame,
     F::Error: std::error::Error + 'static,
 {
-    let Some((mover_id, target_id, side, snap_pos, armed)) = st.dock_preview(now) else {
+    let Some(preview) = st.field.dock_preview() else {
         return Ok(());
     };
+
+    let mover_id = preview.mover_id;
+    let target_id = preview.target_id;
+    let side = preview.side;
+    let snap_pos = preview.snap_pos;
+    let armed = preview.armed;
 
     let (sx, sy) = world_to_screen(st, size.w, size.h, snap_pos.x, snap_pos.y);
     let marker = if armed {
@@ -159,7 +151,6 @@ where
     draw_outline_rect(frame, sx - 12, sy - 12, 24, 24, marker, damage)?;
     draw_rect(frame, sx - 2, sy - 2, 5, 5, marker, damage)?;
 
-    // Mover ghost bounding box.
     if let Some(m) = st.field.node(mover_id) {
         let (mx, my) = world_to_screen(st, size.w, size.h, m.pos.x, m.pos.y);
         let lx = mx.min(sx);
@@ -177,7 +168,6 @@ where
         )?;
     }
 
-    // Target node highlight with per-side anchor dots.
     if let Some(t) = st.field.node(target_id) {
         let (tx, ty) = world_to_screen(st, size.w, size.h, t.pos.x, t.pos.y);
         let target_is_node = matches!(

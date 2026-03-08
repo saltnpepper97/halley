@@ -26,7 +26,6 @@ impl HalleyWlState {
             return id;
         }
 
-        // Spawn around the current viewport center so new windows are discoverable.
         let n = self.spawn_cursor;
         self.spawn_cursor += 1;
         let size = Vec2 {
@@ -115,7 +114,6 @@ impl HalleyWlState {
                 {
                     pos = p;
                 } else {
-                    // Fallback: ring search around viewport center.
                     for i in 0..24u32 {
                         let ring = 200.0 + ((i / 8) as f32) * 120.0;
                         let theta = (i % 8) as f32 * std::f32::consts::TAU / 8.0;
@@ -133,7 +131,6 @@ impl HalleyWlState {
         }
 
         let id = self.field.spawn_surface(label.to_string(), pos, size);
-        // Two-state model: new windows start Active.
         let _ = self
             .field
             .set_state(id, halley_core::field::NodeState::Active);
@@ -186,7 +183,8 @@ impl HalleyWlState {
             if self.pan_restore_active_focus == Some(id) {
                 self.pan_restore_active_focus = None;
             }
-            self.clear_docking_for_node(id);
+            let _ = self.field.undock_node(id);
+            self.field.clear_dock_preview();
             self.zoom_nominal_size.remove(&id);
             self.zoom_resize_fallback.remove(&id);
             self.zoom_resize_reject_streak.remove(&id);
