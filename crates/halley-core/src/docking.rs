@@ -184,7 +184,49 @@ impl DockingState {
         Some(snap)
     }
 
-    fn is_armed(field: &Field, mover_id: NodeId, target_id: NodeId, side: DockSide) -> bool {
+    /// Returns true if the node's bounding rect overlaps the viewport rect.
+    fn node_intersects_viewport(
+        field: &Field,
+        node_id: NodeId,
+        viewport_center: Vec2,
+        viewport_size: Vec2,
+    ) -> bool {
+        let Some(node) = field.node(node_id) else {
+            return false;
+        };
+        let size = Self::node_extent(field, node_id).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
+        let half_vw = viewport_size.x * 0.5;
+        let half_vh = viewport_size.y * 0.5;
+        let vl = viewport_center.x - half_vw;
+        let vr = viewport_center.x + half_vw;
+        let vt = viewport_center.y - half_vh;
+        let vb = viewport_center.y + half_vh;
+        let nl = node.pos.x - size.x * 0.5;
+        let nr = node.pos.x + size.x * 0.5;
+        let nt = node.pos.y - size.y * 0.5;
+        let nb = node.pos.y + size.y * 0.5;
+        nr > vl && nl < vr && nb > vt && nt < vb
+    }
+
+    /// Returns true if `pos` is within the viewport bounds.
+    fn pos_inside_viewport(pos: Vec2, viewport_center: Vec2, viewport_size: Vec2) -> bool {
+        let half_vw = viewport_size.x * 0.5;
+        let half_vh = viewport_size.y * 0.5;
+        pos.x >= viewport_center.x - half_vw
+            && pos.x <= viewport_center.x + half_vw
+            && pos.y >= viewport_center.y - half_vh
+            && pos.y <= viewport_center.y + half_vh
+    }
+
+    fn is_armed(
+        field: &Field,
+        mover_id: NodeId,
+        target_id: NodeId,
+        side: DockSide,
+        snap_pos: Vec2,
+        viewport_center: Vec2,
+        viewport_size: Vec2,
+    ) -> bool {
         let Some(mover) = field.node(mover_id) else {
             return false;
         };
@@ -198,7 +240,10 @@ impl DockingState {
         let mover_size = Self::node_extent(field, mover_id).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
         let target_size = Self::node_extent(field, target_id).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
 
-        let arm_slack = 140.0_f32;
+        // Use a tighter snap threshold when the mover would land off-screen after
+        // docking — the user must be more deliberate to dock onto an off-screen side.
+        let snap_on_screen = Self::pos_inside_viewport(snap_pos, viewport_center, viewport_size);
+        let arm_slack = if snap_on_screen { 140.0_f32 } else { 40.0_f32 };
 
         match side {
             DockSide::Left | DockSide::Right => {
@@ -220,6 +265,8 @@ impl DockingState {
         &self,
         field: &Field,
         mover_id: NodeId,
+        viewport_center: Vec2,
+        viewport_size: Vec2,
     ) -> Option<(NodeId, DockSide, Vec2, bool)> {
         let mover = field.node(mover_id)?;
 
@@ -232,6 +279,10 @@ impl DockingState {
             if !Self::can_participate(field, candidate_id) {
                 continue;
             }
+            // A target that is entirely off-screen cannot be docked to.
+            if !Self::node_intersects_viewport(field, candidate_id, viewport_center, viewport_size) {
+                continue;
+            }
 
             let delta = Vec2 {
                 x: mover.pos.x - candidate.pos.x,
@@ -239,7 +290,8 @@ impl DockingState {
             };
 
             let side = Self::choose_side(delta);
-            let Some(snap_pos) = Self::snap_position_for_target(field, mover_id, candidate_id, side)
+            let Some(snap_pos) =
+                Self::snap_position_for_target(field, mover_id, candidate_id, side)
             else {
                 continue;
             };
@@ -250,7 +302,15 @@ impl DockingState {
                 (sx * sx) + (sy * sy)
             };
 
-            let armed = Self::is_armed(field, mover_id, candidate_id, side);
+            let armed = Self::is_armed(
+                field,
+                mover_id,
+                candidate_id,
+                side,
+                snap_pos,
+                viewport_center,
+                viewport_size,
+            );
 
             match best {
                 None => best = Some((candidate_id, side, snap_pos, armed, dist2)),
@@ -267,13 +327,20 @@ impl DockingState {
         best.map(|(target_id, side, snap_pos, armed, _)| (target_id, side, snap_pos, armed))
     }
 
-    pub fn update_preview(&mut self, field: &Field, mover_id: NodeId) -> Option<DockPreview> {
+    pub fn update_preview(
+        &mut self,
+        field: &Field,
+        mover_id: NodeId,
+        viewport_center: Vec2,
+        viewport_size: Vec2,
+    ) -> Option<DockPreview> {
         if !Self::can_participate(field, mover_id) {
             self.preview = None;
             return None;
         }
 
-        let Some((target_id, side, snap_pos, armed)) = self.choose_target_for_mover(field, mover_id)
+        let Some((target_id, side, snap_pos, armed)) =
+            self.choose_target_for_mover(field, mover_id, viewport_center, viewport_size)
         else {
             self.preview = None;
             return None;
@@ -336,6 +403,14 @@ mod tests {
     use super::*;
     use crate::decay::DecayLevel;
     use crate::field::{Field, NodeState, Vec2};
+
+    /// A viewport large enough that all test nodes (placed near origin) are on-screen.
+    fn test_viewport() -> (Vec2, Vec2) {
+        (
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 10_000.0, y: 10_000.0 },
+        )
+    }
 
     fn spawn_pair() -> (Field, NodeId, NodeId) {
         let mut f = Field::new();
@@ -450,7 +525,7 @@ mod tests {
         );
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover).unwrap();
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
 
         assert_eq!(preview.mover_id, mover);
         assert_eq!(preview.target_id, target);
@@ -464,7 +539,7 @@ mod tests {
         let (f, mover, _) = spawn_pair();
         let mut docking = DockingState::default();
 
-        let preview = docking.update_preview(&f, mover).unwrap();
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
         assert!(!preview.armed);
     }
 
@@ -483,7 +558,7 @@ mod tests {
         );
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover).unwrap();
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
         assert!(preview.armed);
 
         assert!(docking.commit_preview(&mut f, mover));
@@ -517,7 +592,7 @@ mod tests {
         );
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover).unwrap();
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
         assert_eq!(preview.target_id, target);
 
         assert!(!docking.commit_preview(&mut f, other));
@@ -530,7 +605,7 @@ mod tests {
         let (mut f, mover, _) = spawn_pair();
         let mut docking = DockingState::default();
 
-        let preview = docking.update_preview(&f, mover).unwrap();
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
         assert!(!preview.armed);
         assert!(!docking.commit_preview(&mut f, mover));
     }
@@ -550,7 +625,7 @@ mod tests {
         );
 
         let mut docking = DockingState::default();
-        let _ = docking.update_preview(&f, mover);
+        let _ = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1);
         assert!(docking.commit_preview(&mut f, mover));
 
         assert!(docking.undock(mover));
@@ -569,7 +644,7 @@ mod tests {
 
         let mut docking = DockingState::default();
 
-        let _ = docking.update_preview(&f, a);
+        let _ = docking.update_preview(&f, a, test_viewport().0, test_viewport().1);
         assert!(docking.commit_preview(&mut f, a));
         assert_eq!(docking.partner(a), Some(b));
 
@@ -577,7 +652,7 @@ mod tests {
             n.pos = Vec2 { x: 405.0, y: 0.0 };
         }
 
-        let _ = docking.update_preview(&f, a);
+        let _ = docking.update_preview(&f, a, test_viewport().0, test_viewport().1);
         assert!(docking.commit_preview(&mut f, a));
 
         assert_eq!(docking.partner(a), Some(c));
@@ -592,7 +667,7 @@ mod tests {
         let b = f.spawn_surface("B", Vec2 { x: 300.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
 
         let mut docking = DockingState::default();
-        let _ = docking.update_preview(&f, a);
+        let _ = docking.update_preview(&f, a, test_viewport().0, test_viewport().1);
         assert!(docking.commit_preview(&mut f, a));
 
         let pairs = docking.pairs();
@@ -610,9 +685,9 @@ mod tests {
         let (mut f, mover, _) = spawn_pair();
         let mut docking = DockingState::default();
 
-        assert!(docking.update_preview(&f, mover).is_some());
+        assert!(docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).is_some());
         assert!(f.set_hidden(mover, true));
-        assert!(docking.update_preview(&f, mover).is_none());
+        assert!(docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).is_none());
         assert!(docking.preview().is_none());
     }
 
@@ -632,7 +707,7 @@ mod tests {
 
         assert!(f.set_state(mover, NodeState::Preview));
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover).unwrap();
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
 
         assert_eq!(preview.target_id, target);
     }
@@ -686,7 +761,7 @@ mod tests {
         assert!(f.set_hidden(hidden, true));
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover).unwrap();
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
 
         assert_eq!(preview.target_id, visible);
     }
@@ -708,7 +783,7 @@ mod tests {
         assert!(f.set_detached(detached, true));
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover);
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1);
 
         assert!(preview.is_none());
     }
@@ -731,7 +806,7 @@ mod tests {
         assert_eq!(f.node(target).unwrap().state, NodeState::Node);
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover).unwrap();
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
         assert_eq!(preview.target_id, target);
     }
 }
