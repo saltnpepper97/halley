@@ -214,10 +214,6 @@ mod tests {
     use super::*;
     use crate::field::Vec2;
 
-    // NOTE: this helper requires a small addition to Field (see below):
-    // `clusters_iter()` that yields &Cluster.
-    // (Or you can replace it in tests by scanning `field.cluster(..)` if you prefer.)
-
     #[test]
     fn forms_cluster_after_dwell() {
         let mut f = Field::new();
@@ -231,6 +227,7 @@ mod tests {
             dwell_ms: 1_000,
             min_members: 2,
             include_anchored: false,
+            include_active: true,
         };
 
         // t=0: start timer but not mature
@@ -283,6 +280,7 @@ mod tests {
             dwell_ms: 1_000,
             min_members: 2,
             include_anchored: false,
+            include_active: true,
         };
 
         // Start near

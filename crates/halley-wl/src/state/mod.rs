@@ -48,8 +48,6 @@ mod surface_lifecycle;
 mod wayland_handlers;
 mod workspace;
 mod zoom;
-pub(crate) use carry::DockSide;
-use carry::{DockLink, DockPending};
 pub use client::ClientState;
 use focus::ViewportPanAnim;
 
@@ -96,8 +94,6 @@ pub struct HalleyWlState {
     carry_zone_pending: HashMap<NodeId, FocusZone>,
     carry_zone_pending_since_ms: HashMap<NodeId, u64>,
     carry_activation_anim_armed: HashSet<NodeId>,
-    docked_links: HashMap<NodeId, DockLink>,
-    dock_pending: Option<DockPending>,
     resize_active: Option<NodeId>,
     resize_static_node: Option<NodeId>,
     resize_static_lock_pos: Option<Vec2>,
@@ -177,8 +173,6 @@ impl HalleyWlState {
             carry_zone_pending: HashMap::new(),
             carry_zone_pending_since_ms: HashMap::new(),
             carry_activation_anim_armed: HashSet::new(),
-            docked_links: HashMap::new(),
-            dock_pending: None,
             resize_active: None,
             resize_static_node: None,
             resize_static_lock_pos: None,

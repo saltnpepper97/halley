@@ -31,17 +31,15 @@ impl HalleyWlState {
                 continue;
             }
             let mut unit = vec![id];
-            if let Some(link) = self.docked_links.get(&id) {
-                let partner = link.partner;
-                if self
-                    .docked_links
-                    .get(&partner)
-                    .is_some_and(|back| back.partner == id)
-                    && self.field.node(partner).is_some_and(|pn| {
-                        self.field.is_visible(partner)
-                            && pn.kind == halley_core::field::NodeKind::Surface
-                    })
-                {
+            if let Some(partner) = self
+                .field
+                .dock_partner(id)
+                .filter(|&pid| self.field.dock_partner(pid) == Some(id))
+            {
+                if self.field.node(partner).is_some_and(|pn| {
+                    self.field.is_visible(partner)
+                        && pn.kind == halley_core::field::NodeKind::Surface
+                }) {
                     unit.push(partner);
                     seen.insert(partner);
                 }
@@ -382,7 +380,8 @@ impl HalleyWlState {
                 if self.pan_restore_active_focus == Some(id) {
                     self.pan_restore_active_focus = None;
                 }
-                self.clear_docking_for_node(id);
+                let _ = self.field.undock_node(id);
+                self.field.clear_dock_preview();
                 self.zoom_nominal_size.remove(&id);
                 self.zoom_resize_fallback.remove(&id);
                 self.zoom_resize_reject_streak.remove(&id);

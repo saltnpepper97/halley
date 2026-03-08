@@ -86,6 +86,9 @@ pub(crate) fn handle_pointer_motion_absolute(
     ps.workspace_size = (ws_w, ws_h);
     if st.has_active_cluster_workspace() {
         ps.hover_node = None;
+        if ps.drag.is_some() {
+            st.field.clear_dock_preview();
+        }
         ps.drag = None;
         ps.resize = None;
         ps.panning = false;
@@ -94,6 +97,7 @@ pub(crate) fn handle_pointer_motion_absolute(
     if let Some(drag) = ps.drag {
         if ps.resize.is_some() || !drag_mod_ok {
             st.end_carry_state_tracking(drag.node_id);
+            st.field.clear_dock_preview();
             ps.drag = None;
         } else {
             let mut next_drag = drag;
@@ -113,7 +117,7 @@ pub(crate) fn handle_pointer_motion_absolute(
                     let _ = st.carry_surface_non_overlap(drag.node_id, centered);
                 }
                 ps.drag = Some(next_drag);
-                st.update_dock_preview(drag.node_id, Instant::now());
+                let _ = st.field.update_dock_preview(drag.node_id);
                 backend.request_redraw();
             }
         }
@@ -173,8 +177,6 @@ pub(crate) fn handle_pointer_motion_absolute(
             .max(min_h)
             .round() as i32;
 
-        // Keep the opposite edge fixed for each handle direction; this avoids
-        // cumulative drift/jitter when repeatedly resizing from left/top.
         let (left, right) = match resize.handle {
             ResizeHandle::Left | ResizeHandle::TopLeft | ResizeHandle::BottomLeft => {
                 let r = resize.start_right_px;
@@ -211,9 +213,6 @@ pub(crate) fn handle_pointer_motion_absolute(
         }
         let center_sx = (left + right) * 0.5;
         let center_sy = (top + bottom) * 0.5;
-        // Freeze screen->world transform to resize press-time dimensions/viewport.
-        // This prevents node center jumps when the backend emits WinitEvent::Resized
-        // while interactive resize is in progress.
         let center_world = screen_to_world_with_view(
             resize.press_view_center,
             resize.press_view_size,

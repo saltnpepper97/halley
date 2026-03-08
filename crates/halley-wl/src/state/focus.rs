@@ -2,7 +2,7 @@ use super::*;
 use eventline::info;
 use halley_core::viewport::FocusZone;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
+use smithay::reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource};
 use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
@@ -181,13 +181,10 @@ impl HalleyWlState {
             return;
         }
 
-        let partner = self.docked_links.get(&id).and_then(|link| {
-            let pid = link.partner;
-            self.docked_links
-                .get(&pid)
-                .is_some_and(|back| back.partner == id)
-                .then_some(pid)
-        });
+        let partner = self
+            .field
+            .dock_partner(id)
+            .filter(|&pid| self.field.dock_partner(pid) == Some(id));
 
         let _ = self.field.set_decay_level(id, DecayLevel::Hot);
         self.mark_active_transition(id, now, 280);
@@ -350,12 +347,11 @@ impl HalleyWlState {
 
     pub fn toggle_last_focused_surface_node(&mut self, now: Instant) -> Option<NodeId> {
         let id = self.last_focused_surface_node()?;
-        let partner = self.docked_links.get(&id).and_then(|link| {
-            self.docked_links
-                .get(&link.partner)
-                .is_some_and(|back| back.partner == id)
-                .then_some(link.partner)
-        });
+        let partner = self
+            .field
+            .dock_partner(id)
+            .filter(|&pid| self.field.dock_partner(pid) == Some(id));
+
         let state = self.field.node(id)?.state.clone();
         match state {
             halley_core::field::NodeState::Active => {

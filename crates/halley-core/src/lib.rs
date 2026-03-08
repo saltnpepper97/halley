@@ -2,6 +2,7 @@ pub mod bearings;
 pub mod cluster;
 pub mod cluster_policy;
 pub mod decay;
+pub mod docking;
 pub mod field;
 pub mod focus;
 pub mod tiling;

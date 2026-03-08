@@ -80,8 +80,6 @@ pub(crate) fn handle_pointer_button_input(
     }
     let world_now = screen_to_world(st, ws_w, ws_h, sx, sy);
     ps.world = world_now;
-    // Non-primary buttons are forwarded to clients above; compositor interactions
-    // are only bound to left/right.
     if !left && !right {
         return;
     }
@@ -118,6 +116,7 @@ pub(crate) fn handle_pointer_button_input(
                                 let _ = st.exit_cluster_workspace_if_member(h.node_id, now);
                                 ps.last_title_click = None;
                                 ps.drag = None;
+                                st.field.clear_dock_preview();
                                 ps.resize = None;
                                 ps.panning = false;
                                 backend.request_redraw();
@@ -133,7 +132,6 @@ pub(crate) fn handle_pointer_button_input(
                         return;
                     }
                     let drag_mod_ok = modifier_active(&mods, st.tuning.keybinds.modifier);
-                    // Click-to-focus: latch keyboard routing on ordinary left-clicks.
                     if !drag_mod_ok
                         && st.field.node(h.node_id).is_some_and(|n| {
                             n.kind == halley_core::field::NodeKind::Surface
@@ -186,9 +184,6 @@ pub(crate) fn handle_pointer_button_input(
                         }
                         ps.drag = Some(drag_ctx);
                         st.begin_carry_state_tracking(h.node_id);
-                        // Drag/pan interactions must not steal keyboard focus.
-                        // Keep typing routed to the dragged surface unless the
-                        // user explicitly focuses another window.
                         st.set_interaction_focus(Some(h.node_id), 30_000, Instant::now());
                         let to = halley_core::field::Vec2 {
                             x: world_now.x - drag_ctx.current_offset.x,
@@ -229,6 +224,7 @@ pub(crate) fn handle_pointer_button_input(
             } else if right {
                 if workspace_active {
                     ps.drag = None;
+                    st.field.clear_dock_preview();
                     ps.resize = None;
                     ps.panning = false;
                     return;
@@ -265,6 +261,7 @@ pub(crate) fn handle_pointer_button_input(
                                 (sx, sy),
                             );
                             ps.drag = None;
+                            st.field.clear_dock_preview();
                             ps.panning = false;
                             ps.move_anim.clear();
                             st.begin_resize_interaction(h.node_id, Instant::now());
@@ -386,11 +383,12 @@ pub(crate) fn handle_pointer_button_input(
                     } else {
                         st.update_carry_state_preview_at(d.node_id, world_now, now);
                     }
-                    let _ = st.finalize_dock_on_drag_release(d.node_id, now);
+                    let _ = st.field.finalize_dock_on_drag_release(d.node_id);
                     st.end_carry_state_tracking(d.node_id);
                     ps.preview_block_until = Some(now + Duration::from_millis(360));
                 }
                 ps.drag = None;
+                st.field.clear_dock_preview();
                 ps.panning = false;
                 if ps.resize.is_some() {
                     finalize_resize(st, &mut ps, backend);

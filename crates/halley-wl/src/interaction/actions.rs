@@ -20,10 +20,10 @@ pub(crate) fn promote_node_level(
     }
     let target_pos = n.pos;
 
-    // If this node is one half of a docked pair, promote both together.
     let partner = st
+        .field
         .dock_partner(node_id)
-        .filter(|&pid| st.dock_partner(pid) == Some(node_id));
+        .filter(|&pid| st.field.dock_partner(pid) == Some(node_id));
 
     let in_focus_ring =
         st.active_focus_ring().zone(st.viewport.center, target_pos) == FocusZone::Inside;
@@ -48,9 +48,6 @@ pub(crate) fn promote_node_level(
         return true;
     }
 
-    // Out of the focus ring: pan to center. Set restore target to this node so
-    // when it arrives both it and its partner will reopen via
-    // restore_pan_return_active_focus (which already handles the pair).
     st.set_interaction_focus(Some(node_id), 30_000, now);
     st.set_pan_restore_focus_target(node_id);
     st.animate_viewport_center_to(target_pos, now)
