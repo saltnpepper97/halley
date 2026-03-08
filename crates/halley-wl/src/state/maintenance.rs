@@ -27,17 +27,43 @@ impl HalleyWlState {
 
         // Special exception:
         // allow exactly one mutually-docked active pair to remain active
-        // alongside one focused, non-docked active surface.
-        let focused_breakout = self.interaction_focus.filter(|&fid| {
-            self.field.node(fid).is_some_and(|n| {
-                self.field.is_visible(fid)
-                    && n.kind == halley_core::field::NodeKind::Surface
-                    && n.state == halley_core::field::NodeState::Active
-            }) && self.field
-                .dock_partner(fid)
-                .filter(|&pid| self.field.dock_partner(pid) == Some(fid))
-                .is_none()
-        });
+        // alongside one non-docked active surface (the "breakout").
+        //
+        // Crucially, we derive the breakout from the full active set — NOT from
+        // interaction_focus alone.  If focus is currently on a docked node we
+        // still need to find and preserve the non-docked third window; using
+        // interaction_focus directly would yield None in that case and cause the
+        // fallback "keep top 2" path to incorrectly collapse one of the docked pair.
+        let non_docked_active: Vec<NodeId> = active_ids
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.field
+                    .dock_partner(id)
+                    .filter(|&pid| self.field.dock_partner(pid) == Some(id))
+                    .is_none()
+            })
+            .collect();
+
+        let focused_breakout: Option<NodeId> = if non_docked_active.is_empty() {
+            None
+        } else {
+            // Prefer whichever non-docked window currently holds interaction
+            // focus; fall back to the most-recently-focused one so that clicking
+            // inside a docked window never drops the breakout.
+            non_docked_active
+                .iter()
+                .copied()
+                .find(|&id| self.interaction_focus == Some(id))
+                .or_else(|| {
+                    non_docked_active
+                        .iter()
+                        .copied()
+                        .max_by_key(|id| {
+                            self.last_surface_focus_ms.get(id).copied().unwrap_or(0)
+                        })
+                })
+        };
 
         let mut docked_pairs: Vec<(NodeId, NodeId, u64)> = Vec::new();
         let mut seen_pair_roots: HashSet<NodeId> = HashSet::new();
