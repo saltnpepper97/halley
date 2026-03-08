@@ -25,22 +25,11 @@ impl HalleyWlState {
             return;
         }
 
-        // Special exception:
-        // allow exactly one mutually-docked active pair to remain active
-        // alongside one focused, non-docked active surface.
-        let focused_breakout = self.interaction_focus.filter(|&fid| {
-            self.field.node(fid).is_some_and(|n| {
-                self.field.is_visible(fid)
-                    && n.kind == halley_core::field::NodeKind::Surface
-                    && n.state == halley_core::field::NodeState::Active
-            }) && self.field
-                .dock_partner(fid)
-                .filter(|&pid| self.field.dock_partner(pid) == Some(fid))
-                .is_none()
-        });
+        let mut keep_set: HashSet<NodeId> = HashSet::new();
 
-        let mut docked_pairs: Vec<(NodeId, NodeId, u64)> = Vec::new();
+        // Find one active mutually-docked pair and preserve it atomically.
         let mut seen_pair_roots: HashSet<NodeId> = HashSet::new();
+        let mut docked_pairs: Vec<(NodeId, NodeId, u64, bool, bool)> = Vec::new();
 
         for &id in &active_ids {
             let Some(pid) = self
@@ -53,6 +42,7 @@ impl HalleyWlState {
 
             let a = if id.as_u64() <= pid.as_u64() { id } else { pid };
             let b = if a == id { pid } else { id };
+
             if !seen_pair_roots.insert(a) {
                 continue;
             }
@@ -75,39 +65,57 @@ impl HalleyWlState {
                 .max()
                 .unwrap_or(0);
 
-            docked_pairs.push((a, b, latest_focus));
+            let pair_has_focus = self.interaction_focus.is_some_and(|fid| fid == a || fid == b);
+            let pair_has_companion = companion.is_some_and(|cid| cid == a || cid == b);
+
+            docked_pairs.push((a, b, latest_focus, pair_has_focus, pair_has_companion));
         }
 
-        let mut keep_set: HashSet<NodeId> = HashSet::new();
-
-        if let Some(fid) = focused_breakout {
-            docked_pairs.sort_by_key(|(a, b, latest_focus)| {
-                let contains_companion =
-                    companion.is_some_and(|cid| cid == *a || cid == *b);
-                let contains_preferred =
-                    preferred_surface.is_some_and(|pid| pid == *a || pid == *b);
-                let any_inside = [*a, *b].iter().any(|nid| {
-                    self.field.node(*nid).is_some_and(|n| {
-                        focus_ring.zone(self.viewport.center, n.pos) == FocusZone::Inside
-                    })
-                });
-                (
-                    u8::from(contains_companion),
-                    u8::from(contains_preferred),
-                    u8::from(any_inside),
-                    *latest_focus,
-                    b.as_u64(),
-                )
+        docked_pairs.sort_by_key(|(a, b, latest_focus, pair_has_focus, pair_has_companion)| {
+            let any_inside = [*a, *b].iter().any(|nid| {
+                self.field.node(*nid).is_some_and(|n| {
+                    focus_ring.zone(self.viewport.center, n.pos) == FocusZone::Inside
+                })
             });
 
-            if let Some((a, b, _)) = docked_pairs.last().copied() {
-                keep_set.insert(fid);
-                keep_set.insert(a);
-                keep_set.insert(b);
-            }
-        }
+            (
+                u8::from(*pair_has_focus),
+                u8::from(*pair_has_companion),
+                u8::from(any_inside),
+                *latest_focus,
+                b.as_u64(),
+            )
+        });
 
-        if keep_set.is_empty() {
+        let preserved_pair = docked_pairs.last().copied().map(|(a, b, _, _, _)| (a, b));
+
+        if let Some((a, b)) = preserved_pair {
+            // Pair mode: keep the pair no matter what.
+            keep_set.insert(a);
+            keep_set.insert(b);
+
+            // Only allow a third window if it is EXPLICITLY chosen:
+            // current interaction focus, non-docked, active, and not part of the pair.
+            let explicit_breakout = self.interaction_focus.filter(|&fid| {
+                fid != a
+                    && fid != b
+                    && self.field.node(fid).is_some_and(|n| {
+                        self.field.is_visible(fid)
+                            && n.kind == halley_core::field::NodeKind::Surface
+                            && n.state == halley_core::field::NodeState::Active
+                    })
+                    && self
+                        .field
+                        .dock_partner(fid)
+                        .filter(|&pid| self.field.dock_partner(pid) == Some(fid))
+                        .is_none()
+            });
+
+            if let Some(fid) = explicit_breakout {
+                keep_set.insert(fid);
+            }
+        } else {
+            // No pair: normal max-2 behavior.
             let mut ranked = active_ids.clone();
             ranked.sort_by_key(|id| {
                 let pos = self
@@ -115,12 +123,14 @@ impl HalleyWlState {
                     .node(*id)
                     .map(|n| n.pos)
                     .unwrap_or(self.viewport.center);
+
                 let preferred_rank = u8::from(preferred_surface == Some(*id));
                 let focus_rank = u8::from(self.interaction_focus == Some(*id));
                 let companion_rank = u8::from(companion == Some(*id));
                 let inside_rank =
                     u8::from(focus_ring.zone(self.viewport.center, pos) == FocusZone::Inside);
                 let latest_focus = self.last_surface_focus_ms.get(id).copied().unwrap_or(0);
+
                 (
                     preferred_rank,
                     focus_rank,
