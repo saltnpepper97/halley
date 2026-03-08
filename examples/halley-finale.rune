@@ -146,6 +146,11 @@ nodes:
   border-colour-inactive "use-window-inactive"
 end
 
+decay:
+  off-screen-delay 300
+  outside-focus-ring-delay 30
+end
+
 # Device and input behavior
 input:
 end

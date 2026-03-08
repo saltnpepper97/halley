@@ -5,116 +5,140 @@ use halley_core::viewport::{FocusRing, FocusZone};
 
 impl HalleyWlState {
     pub(crate) fn enforce_single_primary_active_unit(&mut self, focus_ring: FocusRing) {
-        let mut inside_ids: Vec<NodeId> = self
+        let now_ms = self.now_ms(Instant::now());
+        let companion = self.companion_surface_node(now_ms);
+        let preferred_surface = self.last_input_surface_node();
+
+        let active_ids: Vec<NodeId> = self
             .field
             .nodes()
             .iter()
             .filter_map(|(&id, n)| {
                 (self.field.is_visible(id)
                     && n.kind == halley_core::field::NodeKind::Surface
-                    && focus_ring.zone(self.viewport.center, n.pos) == FocusZone::Inside)
+                    && n.state == halley_core::field::NodeState::Active)
                     .then_some(id)
             })
             .collect();
 
-        if inside_ids.is_empty() {
+        if active_ids.len() <= 2 {
             return;
         }
 
-        inside_ids.sort_by_key(|id| id.as_u64());
+        // Special exception:
+        // allow exactly one mutually-docked active pair to remain active
+        // alongside one focused, non-docked active surface.
+        let focused_breakout = self.interaction_focus.filter(|&fid| {
+            self.field.node(fid).is_some_and(|n| {
+                self.field.is_visible(fid)
+                    && n.kind == halley_core::field::NodeKind::Surface
+                    && n.state == halley_core::field::NodeState::Active
+            }) && self.field
+                .dock_partner(fid)
+                .filter(|&pid| self.field.dock_partner(pid) == Some(fid))
+                .is_none()
+        });
 
-        let mut units: Vec<Vec<NodeId>> = Vec::new();
-        let mut seen: HashSet<NodeId> = HashSet::new();
+        let mut docked_pairs: Vec<(NodeId, NodeId, u64)> = Vec::new();
+        let mut seen_pair_roots: HashSet<NodeId> = HashSet::new();
 
-        for id in inside_ids {
-            if seen.contains(&id) {
-                continue;
-            }
-            let mut unit = vec![id];
-            if let Some(partner) = self
+        for &id in &active_ids {
+            let Some(pid) = self
                 .field
                 .dock_partner(id)
                 .filter(|&pid| self.field.dock_partner(pid) == Some(id))
-            {
-                if self.field.node(partner).is_some_and(|pn| {
-                    self.field.is_visible(partner)
-                        && pn.kind == halley_core::field::NodeKind::Surface
-                }) {
-                    unit.push(partner);
-                    seen.insert(partner);
-                }
+            else {
+                continue;
+            };
+
+            let a = if id.as_u64() <= pid.as_u64() { id } else { pid };
+            let b = if a == id { pid } else { id };
+            if !seen_pair_roots.insert(a) {
+                continue;
             }
-            seen.insert(id);
-            units.push(unit);
-        }
 
-        if units.is_empty() {
-            return;
-        }
+            let pair_active = [a, b].iter().all(|nid| {
+                self.field.node(*nid).is_some_and(|n| {
+                    self.field.is_visible(*nid)
+                        && n.kind == halley_core::field::NodeKind::Surface
+                        && n.state == halley_core::field::NodeState::Active
+                })
+            });
 
-        let active_unit_indices: Vec<usize> = units
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, unit)| {
-                unit.iter()
-                    .any(|id| {
-                        self.field.node(*id).is_some_and(|n| {
-                            n.kind == halley_core::field::NodeKind::Surface
-                                && n.state == halley_core::field::NodeState::Active
-                        })
-                    })
-                    .then_some(idx)
-            })
-            .collect();
+            if !pair_active {
+                continue;
+            }
 
-        if active_unit_indices.len() <= 1 {
-            return;
-        }
-
-        let preferred_surface = self.last_input_surface_node();
-        let selected_idx = active_unit_indices.iter().copied().max_by_key(|idx| {
-            let unit = &units[*idx];
-            let preferred_rank = u8::from(
-                preferred_surface.is_some_and(|preferred| unit.iter().any(|id| *id == preferred)),
-            );
-            let focused = self
-                .interaction_focus
-                .is_some_and(|fid| unit.iter().any(|id| *id == fid));
-            let focus_rank = u8::from(focused);
-            let latest_focus = unit
+            let latest_focus = [a, b]
                 .iter()
-                .filter_map(|id| self.last_surface_focus_ms.get(id).copied())
+                .filter_map(|nid| self.last_surface_focus_ms.get(nid).copied())
                 .max()
                 .unwrap_or(0);
-            let latest_id = unit.iter().map(|id| id.as_u64()).max().unwrap_or(0);
-            (preferred_rank, focus_rank, latest_focus, latest_id)
-        });
 
-        let Some(selected_idx) = selected_idx else {
-            return;
-        };
+            docked_pairs.push((a, b, latest_focus));
+        }
 
-        let mut losing_ids: HashSet<NodeId> = HashSet::new();
-        for idx in active_unit_indices {
-            if idx == selected_idx {
-                continue;
-            }
-            let unit = &units[idx];
-            for id in unit {
-                losing_ids.insert(*id);
+        let mut keep_set: HashSet<NodeId> = HashSet::new();
+
+        if let Some(fid) = focused_breakout {
+            docked_pairs.sort_by_key(|(a, b, latest_focus)| {
+                let contains_companion =
+                    companion.is_some_and(|cid| cid == *a || cid == *b);
+                let contains_preferred =
+                    preferred_surface.is_some_and(|pid| pid == *a || pid == *b);
+                let any_inside = [*a, *b].iter().any(|nid| {
+                    self.field.node(*nid).is_some_and(|n| {
+                        focus_ring.zone(self.viewport.center, n.pos) == FocusZone::Inside
+                    })
+                });
+                (
+                    u8::from(contains_companion),
+                    u8::from(contains_preferred),
+                    u8::from(any_inside),
+                    *latest_focus,
+                    b.as_u64(),
+                )
+            });
+
+            if let Some((a, b, _)) = docked_pairs.last().copied() {
+                keep_set.insert(fid);
+                keep_set.insert(a);
+                keep_set.insert(b);
             }
         }
 
-        for id in losing_ids {
-            if !self.field.is_visible(id) {
+        if keep_set.is_empty() {
+            let mut ranked = active_ids.clone();
+            ranked.sort_by_key(|id| {
+                let pos = self
+                    .field
+                    .node(*id)
+                    .map(|n| n.pos)
+                    .unwrap_or(self.viewport.center);
+                let preferred_rank = u8::from(preferred_surface == Some(*id));
+                let focus_rank = u8::from(self.interaction_focus == Some(*id));
+                let companion_rank = u8::from(companion == Some(*id));
+                let inside_rank =
+                    u8::from(focus_ring.zone(self.viewport.center, pos) == FocusZone::Inside);
+                let latest_focus = self.last_surface_focus_ms.get(id).copied().unwrap_or(0);
+                (
+                    preferred_rank,
+                    focus_rank,
+                    companion_rank,
+                    inside_rank,
+                    latest_focus,
+                    id.as_u64(),
+                )
+            });
+
+            keep_set.extend(ranked.iter().rev().take(2).copied());
+        }
+
+        for id in active_ids {
+            if keep_set.contains(&id) {
                 continue;
             }
-            if self.field.node(id).is_some_and(|n| {
-                n.kind == halley_core::field::NodeKind::Surface
-                    && n.state == halley_core::field::NodeState::Active
-            }) {
-                let _ = self.field.set_decay_level(id, DecayLevel::Cold);
-            }
+            let _ = self.field.set_decay_level(id, DecayLevel::Cold);
         }
     }
 
@@ -174,110 +198,195 @@ impl HalleyWlState {
         }
     }
 
-    pub(crate) fn enforce_pan_dominant_zone_states(&mut self, focus_ring: FocusRing, _now_ms: u64) {
+    pub(crate) fn enforce_pan_dominant_zone_states(
+        &mut self,
+        focus_ring: FocusRing,
+        now_ms: u64,
+    ) {
+        const PRIMARY_OUTSIDE_RING_DELAY_MS: u64 = 120_000;
+        const SECONDARY_OUTSIDE_RING_DELAY_MS: u64 = 30_000;
+        const DOCKED_OFFSCREEN_DELAY_MS: u64 = 300_000;
+
         let ids: Vec<NodeId> = self.field.nodes().keys().copied().collect();
 
         for id in ids {
             if !self.field.is_visible(id) {
+                self.dock_decay_offscreen_since_ms.remove(&id);
                 continue;
             }
             let Some(n) = self.field.node(id) else {
+                self.dock_decay_offscreen_since_ms.remove(&id);
                 continue;
             };
             if n.kind != halley_core::field::NodeKind::Surface {
+                self.dock_decay_offscreen_since_ms.remove(&id);
                 continue;
             }
 
-            let n_state = n.state.clone();
-            let pos = n.pos;
-            let fp_raw = self.collision_size_for_node(n);
-            let fp = if n.state == halley_core::field::NodeState::Active {
-                Vec2 { x: 64.0, y: 64.0 }
-            } else {
-                Vec2 {
-                    x: fp_raw.x.max(48.0),
-                    y: fp_raw.y.max(48.0),
+            if let Some(partner) = self
+                .field
+                .dock_partner(id)
+                .filter(|&pid| self.field.dock_partner(pid) == Some(id))
+            {
+                if id.as_u64() < partner.as_u64() {
+                    self.apply_docked_pair_decay_policy(
+                        id,
+                        partner,
+                        now_ms,
+                        DOCKED_OFFSCREEN_DELAY_MS,
+                    );
                 }
-            };
-
-            let samples = 7usize;
-            let mut c_inside = 0usize;
-            let mut c_total = 0usize;
-
-            for ix in 0..samples {
-                for iy in 0..samples {
-                    let fx = (ix as f32 / (samples - 1) as f32) - 0.5;
-                    let fy = (iy as f32 / (samples - 1) as f32) - 0.5;
-                    let sp = Vec2 {
-                        x: pos.x + fx * fp.x,
-                        y: pos.y + fy * fp.y,
-                    };
-                    match focus_ring.zone(self.viewport.center, sp) {
-                        FocusZone::Inside => c_inside += 1,
-                        FocusZone::Outside => {}
-                    }
-                    c_total += 1;
-                }
+                continue;
             }
 
-            let p_inside = if c_total > 0 {
-                c_inside as f32 / c_total as f32
-            } else {
-                0.0
-            };
-            let p_outside = (1.0 - p_inside).max(0.0);
-
-            let was_active = n_state == halley_core::field::NodeState::Active;
-            let pair_gap = self.non_overlap_gap_world();
-
-            let overlap_active = self
-                .field
-                .nodes()
-                .iter()
-                .filter_map(|(&oid, on)| {
-                    if oid == id
-                        || !self.field.is_visible(oid)
-                        || on.kind != halley_core::field::NodeKind::Surface
-                    {
-                        return None;
-                    }
-                    Some((oid, on))
-                })
-                .any(|(_, on)| {
-                    let os = self.collision_size_for_node(on);
-                    let req_x = fp_raw.x * 0.5 + os.x * 0.5 + pair_gap;
-                    let req_y = fp_raw.y * 0.5 + os.y * 0.5 + pair_gap;
-                    let dx = (on.pos.x - pos.x).abs();
-                    let dy = (on.pos.y - pos.y).abs();
-                    dx < req_x && dy < req_y
-                });
-
-            const ACTIVE_RETAIN_FRAC: f32 = 0.04;
-            const ACTIVE_OVERLAP_RETAIN_FRAC: f32 = 0.22;
-            const OUTSIDE_ENTER_FRAC: f32 = 0.90;
-
-            let target = if was_active {
-                let retain_frac = if overlap_active {
-                    ACTIVE_OVERLAP_RETAIN_FRAC
-                } else {
-                    ACTIVE_RETAIN_FRAC
-                };
-
-                if p_inside >= retain_frac {
-                    DecayLevel::Hot
-                } else if p_outside >= OUTSIDE_ENTER_FRAC {
-                    DecayLevel::Cold
-                } else if overlap_active {
-                    DecayLevel::Cold
-                } else {
-                    DecayLevel::Hot
-                }
-            } else {
-                DecayLevel::Cold
-            };
-
-            let _ = self.field.set_decay_level(id, target);
+            self.apply_single_surface_decay_policy(
+                id,
+                focus_ring,
+                now_ms,
+                PRIMARY_OUTSIDE_RING_DELAY_MS,
+                SECONDARY_OUTSIDE_RING_DELAY_MS,
+            );
         }
+
+        self.dock_decay_offscreen_since_ms.retain(|id, _| {
+            self.field.node(*id).is_some_and(|n| {
+                self.field.is_visible(*id)
+                    && n.kind == halley_core::field::NodeKind::Surface
+            })
+        });
+    }
+
+    fn apply_single_surface_decay_policy(
+        &mut self,
+        id: NodeId,
+        focus_ring: FocusRing,
+        now_ms: u64,
+        primary_delay_ms: u64,
+        secondary_delay_ms: u64,
+    ) {
+        let Some(n) = self.field.node(id) else {
+            self.dock_decay_offscreen_since_ms.remove(&id);
+            return;
+        };
+        if !self.field.is_visible(id) || n.kind != halley_core::field::NodeKind::Surface {
+            self.dock_decay_offscreen_since_ms.remove(&id);
+            return;
+        }
+
+        if self.is_hard_decay_protected(id, now_ms) {
+            self.dock_decay_offscreen_since_ms.remove(&id);
+            let _ = self.field.set_decay_level(id, DecayLevel::Hot);
+            return;
+        }
+
+        let outside_ring = focus_ring.zone(self.viewport.center, n.pos) == FocusZone::Outside;
+        if !outside_ring {
+            self.dock_decay_offscreen_since_ms.remove(&id);
+            let _ = self.field.set_decay_level(id, DecayLevel::Hot);
+            return;
+        }
+
+        let is_primary = self.interaction_focus == Some(id);
+        let is_secondary = self.companion_surface_node(now_ms) == Some(id);
+        let delay_ms = if is_primary {
+            primary_delay_ms
+        } else if is_secondary {
+            secondary_delay_ms
+        } else {
+            secondary_delay_ms
+        };
+
+        let since = self
+            .dock_decay_offscreen_since_ms
+            .get(&id)
+            .copied()
+            .unwrap_or(now_ms);
+
+        self.dock_decay_offscreen_since_ms.insert(id, since);
+
+        if now_ms.saturating_sub(since) >= delay_ms {
+            let _ = self.field.set_decay_level(id, DecayLevel::Cold);
+        } else {
+            let _ = self.field.set_decay_level(id, DecayLevel::Hot);
+        }
+    }
+
+    fn apply_docked_pair_decay_policy(
+        &mut self,
+        a: NodeId,
+        b: NodeId,
+        now_ms: u64,
+        delay_ms: u64,
+    ) {
+        let a_visible = self.surface_intersects_viewport(a);
+        let b_visible = self.surface_intersects_viewport(b);
+
+        if self.is_hard_decay_protected(a, now_ms) || self.is_hard_decay_protected(b, now_ms) {
+            self.dock_decay_offscreen_since_ms.remove(&a);
+            self.dock_decay_offscreen_since_ms.remove(&b);
+            let _ = self.field.set_decay_level(a, DecayLevel::Hot);
+            let _ = self.field.set_decay_level(b, DecayLevel::Hot);
+            return;
+        }
+
+        if a_visible || b_visible {
+            self.dock_decay_offscreen_since_ms.remove(&a);
+            self.dock_decay_offscreen_since_ms.remove(&b);
+            let _ = self.field.set_decay_level(a, DecayLevel::Hot);
+            let _ = self.field.set_decay_level(b, DecayLevel::Hot);
+            return;
+        }
+
+        let since_a = self.dock_decay_offscreen_since_ms.get(&a).copied();
+        let since_b = self.dock_decay_offscreen_since_ms.get(&b).copied();
+        let since = since_a.or(since_b).unwrap_or(now_ms);
+
+        self.dock_decay_offscreen_since_ms.insert(a, since);
+        self.dock_decay_offscreen_since_ms.insert(b, since);
+
+        if now_ms.saturating_sub(since) >= delay_ms {
+            let _ = self.field.set_decay_level(a, DecayLevel::Cold);
+            let _ = self.field.set_decay_level(b, DecayLevel::Cold);
+        } else {
+            let _ = self.field.set_decay_level(a, DecayLevel::Hot);
+            let _ = self.field.set_decay_level(b, DecayLevel::Hot);
+        }
+    }
+
+    fn is_hard_decay_protected(&self, id: NodeId, now_ms: u64) -> bool {
+        self.interaction_focus == Some(id)
+            || self.resize_active == Some(id)
+            || self.is_recently_resized_node(id, now_ms)
+            || self.carry_zone_hint.contains_key(&id)
+            || self.active_transition_until_ms.contains_key(&id)
+    }
+
+    fn surface_intersects_viewport(&self, id: NodeId) -> bool {
+        let Some(n) = self.field.node(id) else {
+            return false;
+        };
+        if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {
+            return false;
+        }
+
+        let size = self.collision_size_for_node(n);
+        let half_vw = self.viewport.size.x * 0.5;
+        let half_vh = self.viewport.size.y * 0.5;
+
+        let view_left = self.viewport.center.x - half_vw;
+        let view_right = self.viewport.center.x + half_vw;
+        let view_top = self.viewport.center.y - half_vh;
+        let view_bottom = self.viewport.center.y + half_vh;
+
+        let node_left = n.pos.x - size.x * 0.5;
+        let node_right = n.pos.x + size.x * 0.5;
+        let node_top = n.pos.y - size.y * 0.5;
+        let node_bottom = n.pos.y + size.y * 0.5;
+
+        node_right > view_left
+            && node_left < view_right
+            && node_bottom > view_top
+            && node_top < view_bottom
     }
 
     pub(crate) fn push_neighbors_for_activation(&mut self, activated: NodeId) {
@@ -392,6 +501,7 @@ impl HalleyWlState {
                 self.active_transition_until_ms.remove(&id);
                 self.primary_promote_cooldown_until_ms.remove(&id);
                 self.last_surface_focus_ms.remove(&id);
+                self.dock_decay_offscreen_since_ms.remove(&id);
                 self.carry_zone_hint.remove(&id);
                 self.carry_zone_last_change_ms.remove(&id);
                 self.carry_zone_pending.remove(&id);

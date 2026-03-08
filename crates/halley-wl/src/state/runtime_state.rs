@@ -8,6 +8,9 @@ use crate::anim::{AnimSpec, AnimStyle};
 use crate::render::{DebugScene, build_debug_scene};
 
 impl HalleyWlState {
+    const RECENT_INTERACTION_PROTECT_MS: u64 = 7_500;
+    const COMPANION_PROTECT_MS: u64 = 12_000;
+
     pub fn now_ms(&self, now: Instant) -> u64 {
         now.duration_since(self.started_at).as_millis() as u64
     }
@@ -15,6 +18,32 @@ impl HalleyWlState {
     #[inline]
     pub(crate) fn is_recently_resized_node(&self, id: NodeId, now_ms: u64) -> bool {
         self.resize_static_node == Some(id) && now_ms < self.resize_static_until_ms
+    }
+
+    pub(crate) fn companion_surface_node(&self, now_ms: u64) -> Option<NodeId> {
+        let focused = self.interaction_focus;
+        self.last_surface_focus_ms
+            .iter()
+            .filter_map(|(&id, &at)| {
+                if Some(id) == focused {
+                    return None;
+                }
+                if now_ms.saturating_sub(at) > Self::COMPANION_PROTECT_MS {
+                    return None;
+                }
+                self.field.node(id).and_then(|n| {
+                    (self.field.is_visible(id) && n.kind == halley_core::field::NodeKind::Surface)
+                        .then_some((id, at))
+                })
+            })
+            .max_by_key(|(id, at)| (*at, id.as_u64()))
+            .map(|(id, _)| id)
+    }
+
+    pub(crate) fn is_recently_interacted_surface(&self, id: NodeId, now_ms: u64) -> bool {
+        self.last_surface_focus_ms
+            .get(&id)
+            .is_some_and(|&at| now_ms.saturating_sub(at) <= Self::RECENT_INTERACTION_PROTECT_MS)
     }
 
     pub fn mark_active_transition(&mut self, id: NodeId, now: Instant, duration_ms: u64) {

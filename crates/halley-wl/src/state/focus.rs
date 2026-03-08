@@ -248,12 +248,16 @@ impl HalleyWlState {
 
     pub fn set_interaction_focus(&mut self, id: Option<NodeId>, hold_ms: u64, now: Instant) {
         let prev = self.interaction_focus;
+        let now_ms = self.now_ms(now);
+
         if prev == id {
-            if id.is_some() {
-                let now_ms = self.now_ms(now);
+            if let Some(fid) = id {
                 let requested_until = now_ms.saturating_add(hold_ms.max(1));
                 self.interaction_focus_until_ms =
                     self.interaction_focus_until_ms.max(requested_until);
+                let _ = self.field.touch(fid, now_ms);
+                let _ = self.field.set_decay_level(fid, DecayLevel::Hot);
+                self.last_surface_focus_ms.insert(fid, now_ms);
                 self.reassert_wayland_keyboard_focus_if_drifted(id);
             } else {
                 self.interaction_focus_until_ms = 0;
@@ -261,23 +265,24 @@ impl HalleyWlState {
             }
             return;
         }
+
         self.interaction_focus = id;
-        if id.is_some() {
-            let now_ms = self.now_ms(now);
+        if let Some(fid) = id {
             self.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
-            if let Some(fid) = id {
-                if self.field.node(fid).is_some_and(|n| {
-                    n.kind == halley_core::field::NodeKind::Surface && self.field.is_visible(fid)
-                }) {
-                    self.last_surface_focus_ms.insert(fid, now_ms);
-                    if self.tuning.restore_last_active_on_pan_return {
-                        self.pan_restore_active_focus = Some(fid);
-                    }
+            if self.field.node(fid).is_some_and(|n| {
+                n.kind == halley_core::field::NodeKind::Surface && self.field.is_visible(fid)
+            }) {
+                let _ = self.field.touch(fid, now_ms);
+                let _ = self.field.set_decay_level(fid, DecayLevel::Hot);
+                self.last_surface_focus_ms.insert(fid, now_ms);
+                if self.tuning.restore_last_active_on_pan_return {
+                    self.pan_restore_active_focus = Some(fid);
                 }
             }
         } else {
             self.interaction_focus_until_ms = 0;
         }
+
         if prev != id {
             info!(
                 "interaction focus changed: {:?} -> {:?} (hold_ms={})",

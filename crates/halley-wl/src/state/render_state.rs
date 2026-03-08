@@ -29,7 +29,10 @@ impl HalleyWlState {
             self.smoothed_render_pos.insert(id, logical);
             return logical;
         }
-        if self.interaction_focus == Some(id) {
+        if self.interaction_focus == Some(id)
+            || self.companion_surface_node(now_ms) == Some(id)
+            || self.is_recently_interacted_surface(id, now_ms)
+        {
             self.smoothed_render_pos.insert(id, logical);
             return logical;
         }
@@ -40,7 +43,6 @@ impl HalleyWlState {
         let mut alpha = (dt * 18.0).clamp(0.10, 0.42);
         let mut max_step = (dt * 1800.0).clamp(6.0, 70.0);
         if self.carry_zone_hint.contains_key(&id) {
-            // During pointer drag, reduce visual lag by boosting follow response.
             let boost = self.tuning.drag_smoothing_boost.clamp(0.1, 20.0);
             alpha = (alpha * boost).clamp(0.10, 1.0);
             max_step = (max_step * boost).clamp(6.0, 420.0);
@@ -72,6 +74,8 @@ impl HalleyWlState {
         if self.resize_active == Some(id)
             || (self.resize_static_node == Some(id) && now_ms < self.resize_static_until_ms)
             || self.interaction_focus == Some(id)
+            || self.companion_surface_node(now_ms) == Some(id)
+            || self.is_recently_interacted_surface(id, now_ms)
         {
             return logical;
         }
