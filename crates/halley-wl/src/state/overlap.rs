@@ -499,7 +499,25 @@ impl HalleyWlState {
                         }
                     };
 
-                    let target = full_target;
+                    let mut step = Vec2 {
+                        x: (full_target.x - mover_pos.x) * damping,
+                        y: (full_target.y - mover_pos.y) * damping,
+                    };
+
+                    step.x = step.x.clamp(-MAX_RESOLVE_STEP, MAX_RESOLVE_STEP);
+                    step.y = step.y.clamp(-MAX_RESOLVE_STEP, MAX_RESOLVE_STEP);
+
+                    if step.x.abs() < 0.5 && (full_target.x - mover_pos.x).abs() > 0.5 {
+                        step.x = 0.5 * step.x.signum();
+                    }
+                    if step.y.abs() < 0.5 && (full_target.y - mover_pos.y).abs() > 0.5 {
+                        step.y = 0.5 * step.y.signum();
+                    }
+
+                    let target = Vec2 {
+                        x: mover_pos.x + step.x,
+                        y: mover_pos.y + step.y,
+                    };
 
                     if self.field.carry(mover_id, target) {
                         changed = true;
