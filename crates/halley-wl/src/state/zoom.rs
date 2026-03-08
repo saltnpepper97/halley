@@ -93,9 +93,6 @@ impl HalleyWlState {
     }
 
     pub(super) fn decay_tiny_nodes_on_zoom_out(&mut self) {
-        if self.overview_mode {
-            return;
-        }
         if !self.tuning.dev_zoom_decay_enabled {
             return;
         }

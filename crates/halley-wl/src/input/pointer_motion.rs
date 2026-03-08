@@ -84,13 +84,6 @@ pub(crate) fn handle_pointer_motion_absolute(
     ps.world = p;
     ps.screen = (sx, sy);
     ps.workspace_size = (ws_w, ws_h);
-    if st.overview_mode_active() {
-        ps.hover_node = None;
-        ps.drag = None;
-        ps.resize = None;
-        ps.panning = false;
-        return;
-    }
     if st.has_active_cluster_workspace() {
         ps.hover_node = None;
         ps.drag = None;

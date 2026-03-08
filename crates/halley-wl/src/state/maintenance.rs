@@ -388,8 +388,6 @@ impl HalleyWlState {
                 self.zoom_resize_reject_streak.remove(&id);
                 self.zoom_last_observed_size.remove(&id);
                 self.zoom_resize_static_streak.remove(&id);
-                self.overview_saved_positions.remove(&id);
-                self.overview_saved_states.remove(&id);
                 self.last_active_size.remove(&id);
                 self.pending_spawn_activate_at_ms.remove(&id);
                 self.active_transition_until_ms.remove(&id);

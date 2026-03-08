@@ -42,7 +42,6 @@ mod client;
 mod focus;
 mod maintenance;
 mod overlap;
-mod overview;
 mod render_state;
 mod runtime_state;
 mod surface_lifecycle;
@@ -53,7 +52,6 @@ pub(crate) use carry::DockSide;
 use carry::{DockLink, DockPending};
 pub use client::ClientState;
 use focus::ViewportPanAnim;
-use overview::OverviewAnim;
 
 pub struct HalleyWlState {
     pub display_handle: DisplayHandle,
@@ -72,19 +70,12 @@ pub struct HalleyWlState {
     pub zoom_ref_size: Vec2,
     pub cursor_image_status: CursorImageStatus,
 
-    /// wl_surface object id -> commit activity
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
-    /// wl_surface object id -> NodeId
     pub surface_to_node: HashMap<ObjectId, NodeId>,
-    /// Node baseline size used for zoom-driven live toplevel resizing.
     zoom_nominal_size: HashMap<NodeId, Vec2>,
-    /// Nodes whose client doesn't reliably apply configure-driven zoom resizing.
     zoom_resize_fallback: HashSet<NodeId>,
-    /// Consecutive misses where node size stayed far from requested zoom target.
     zoom_resize_reject_streak: HashMap<NodeId, u8>,
-    /// Last observed client-reported size per active surface node.
     zoom_last_observed_size: HashMap<NodeId, Vec2>,
-    /// Consecutive ticks with effectively unchanged client size while zoom target differs.
     zoom_resize_static_streak: HashMap<NodeId, u8>,
     pub animator: Animator,
     pub interaction_focus: Option<NodeId>,
@@ -96,11 +87,6 @@ pub struct HalleyWlState {
     active_cluster_workspace: Option<ClusterId>,
     workspace_hidden_nodes: Vec<NodeId>,
     workspace_prev_viewport: Option<Viewport>,
-    overview_mode: bool,
-    overview_saved_viewport: Option<Viewport>,
-    overview_saved_positions: HashMap<NodeId, Vec2>,
-    overview_saved_states: HashMap<NodeId, halley_core::field::NodeState>,
-    overview_anim: Option<OverviewAnim>,
     last_active_size: HashMap<NodeId, Vec2>,
     pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
     active_transition_until_ms: HashMap<NodeId, u64>,
@@ -182,11 +168,6 @@ impl HalleyWlState {
             active_cluster_workspace: None,
             workspace_hidden_nodes: Vec::new(),
             workspace_prev_viewport: None,
-            overview_mode: false,
-            overview_saved_viewport: None,
-            overview_saved_positions: HashMap::new(),
-            overview_saved_states: HashMap::new(),
-            overview_anim: None,
             last_active_size: HashMap::new(),
             pending_spawn_activate_at_ms: HashMap::new(),
             active_transition_until_ms: HashMap::new(),
@@ -241,12 +222,7 @@ impl HalleyWlState {
         }
         self.reconcile_surface_bindings();
         let now_ms = now.duration_since(self.started_at).as_millis() as u64;
-        self.tick_overview_animation(now_ms);
         self.tick_viewport_pan_animation(now_ms);
-        if self.overview_mode {
-            self.animator.observe_field(&self.field, now);
-            return;
-        }
         if self.active_cluster_workspace.is_some() {
             self.layout_active_cluster_workspace(now_ms);
             self.animator.observe_field(&self.field, now);

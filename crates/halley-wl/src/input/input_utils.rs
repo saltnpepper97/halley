@@ -8,13 +8,6 @@ pub(crate) fn key_matches(actual: u32, evdev_code: u32) -> bool {
     actual == evdev_code + 8
 }
 
-/// Identical to key_matches; kept so call-sites that were already explicit
-/// about wanting XKB-only matching continue to compile without changes.
-#[inline(always)]
-pub(crate) fn key_matches_xkb_only(actual: u32, evdev_code: u32) -> bool {
-    key_matches(actual, evdev_code)
-}
-
 /// Update modifier bookkeeping from a raw XKB keycode.
 ///
 /// Each branch uses only the XKB code (evdev + 8). The old code had both the

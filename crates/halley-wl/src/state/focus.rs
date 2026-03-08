@@ -94,9 +94,6 @@ impl HalleyWlState {
     }
 
     pub fn animate_viewport_center_to(&mut self, target_center: Vec2, now: Instant) -> bool {
-        if self.overview_mode {
-            return false;
-        }
         let from = self.viewport.center;
         let dx = target_center.x - from.x;
         let dy = target_center.y - from.y;

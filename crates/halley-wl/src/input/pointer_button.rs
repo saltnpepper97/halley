@@ -86,14 +86,6 @@ pub(crate) fn handle_pointer_button_input(
         return;
     }
     let workspace_active = st.has_active_cluster_workspace();
-    let overview_active = st.overview_mode_active();
-    if overview_active {
-        ps.drag = None;
-        ps.resize = None;
-        ps.panning = false;
-        ps.last_title_click = None;
-        return;
-    }
     match button_state {
         ButtonState::Pressed => {
             let mods = mod_state.borrow().clone();

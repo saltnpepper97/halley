@@ -1,9 +1,8 @@
 use std::process::Command;
-use std::time::Instant;
 
 use eventline::{info, warn};
 
-use super::input_utils::{key_matches, key_matches_xkb_only, modifier_exact};
+use super::input_utils::{key_matches, modifier_exact};
 use crate::interaction::actions::{minimize_focused_active_node, move_latest_node};
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
@@ -50,10 +49,6 @@ pub(crate) fn key_is_compositor_binding(
 
     if !st.tuning.dev_enabled {
         return false;
-    }
-
-    if key_matches_xkb_only(key_code, kb.overview_toggle) && modifier_exact(mods, kb.modifier) {
-        return true;
     }
 
     matches!(
@@ -121,11 +116,6 @@ pub(crate) fn apply_bound_key(
 
     if !st.tuning.dev_enabled {
         return false;
-    }
-
-    if key_matches_xkb_only(key_code, kb.overview_toggle) && modifier_exact(mods, kb.modifier) {
-        st.toggle_overview_mode(Instant::now());
-        return true;
     }
 
     let changed = match key_code {
