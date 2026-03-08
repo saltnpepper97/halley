@@ -9,6 +9,8 @@ pub(super) struct TtyDrmProbe {
     pub(super) renderer: Rc<RefCell<GlesRenderer>>,
 }
 
+use crate::interaction::types::ResizeCtx;
+
 pub(super) fn probe_tty_drm_device(
     seat: &str,
     tuning: &RuntimeTuning,
@@ -435,6 +437,7 @@ pub(super) fn queue_tty_drm_frame(
     gbm_surface: &Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
     renderer: &Rc<RefCell<GlesRenderer>>,
     st: &mut HalleyWlState,
+    resize_preview: Option<ResizeCtx>,
     cursor_screen: Option<(f32, f32)>,
     cursor_image: Option<&smithay::input::pointer::CursorImageStatus>,
 ) -> Result<(), Box<dyn Error>> {
@@ -447,12 +450,13 @@ pub(super) fn queue_tty_drm_frame(
         let mut target = renderer.bind(&mut dmabuf).map_err(|err| {
             io::Error::other(format!("failed to bind renderer to drm buffer: {}", err))
         })?;
+
         draw_debug_frame_to_target(
             &mut renderer,
             &mut target,
             (w as i32, h as i32).into(),
             st,
-            None,
+            resize_preview,
             None,
             None,
             cursor_screen,

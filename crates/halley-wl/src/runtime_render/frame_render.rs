@@ -73,6 +73,7 @@ pub(crate) fn draw_debug_frame_to_target(
 
     let (
         active_elements,
+        resized_active_elements,
         node_surface_map,
         border_rects,
         overlay_rects,
@@ -179,6 +180,10 @@ pub(crate) fn draw_debug_frame_to_target(
             Color32F::new(0.72, 0.72, 0.72, 0.78),
             damage,
         )?;
+    }
+
+    if !resized_active_elements.is_empty() {
+        let _ = draw_render_elements(&mut frame, 1.0, &resized_active_elements, &[damage]);
     }
 
     if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {

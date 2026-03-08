@@ -55,7 +55,8 @@ pub(crate) fn handle_pointer_button_input(
     ps.workspace_size = (ws_w, ws_h);
     if let Some(pointer) = st.seat.get_pointer() {
         let resize_preview = ps.resize;
-        let focus = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, Instant::now(), resize_preview);
+        let focus =
+            pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, Instant::now(), resize_preview);
         let motion_serial = SERIAL_COUNTER.next_serial();
         let button_serial = SERIAL_COUNTER.next_serial();
         pointer.motion(
@@ -240,22 +241,29 @@ pub(crate) fn handle_pointer_button_input(
                             let fallback_size = n.intrinsic_size;
                             let fallback_pos = n.pos;
                             let (start_left, start_top, start_right, start_bottom) =
-                                active_node_screen_rect(st, ws_w, ws_h, h.node_id, Instant::now(), None)
-                                    .unwrap_or_else(|| {
-                                        let center_scr = world_to_screen(
-                                            st,
-                                            ws_w,
-                                            ws_h,
-                                            fallback_pos.x,
-                                            fallback_pos.y,
-                                        );
-                                        (
-                                            (center_scr.0 as f32) - fallback_size.x * 0.5,
-                                            (center_scr.1 as f32) - fallback_size.y * 0.5,
-                                            (center_scr.0 as f32) + fallback_size.x * 0.5,
-                                            (center_scr.1 as f32) + fallback_size.y * 0.5,
-                                        )
-                                    });
+                                active_node_screen_rect(
+                                    st,
+                                    ws_w,
+                                    ws_h,
+                                    h.node_id,
+                                    Instant::now(),
+                                    None,
+                                )
+                                .unwrap_or_else(|| {
+                                    let center_scr = world_to_screen(
+                                        st,
+                                        ws_w,
+                                        ws_h,
+                                        fallback_pos.x,
+                                        fallback_pos.y,
+                                    );
+                                    (
+                                        (center_scr.0 as f32) - fallback_size.x * 0.5,
+                                        (center_scr.1 as f32) - fallback_size.y * 0.5,
+                                        (center_scr.0 as f32) + fallback_size.x * 0.5,
+                                        (center_scr.1 as f32) + fallback_size.y * 0.5,
+                                    )
+                                });
                             let handle = pick_resize_handle_from_screen(
                                 (start_left, start_top, start_right, start_bottom),
                                 (sx, sy),
@@ -353,7 +361,12 @@ pub(crate) fn handle_pointer_button_input(
                                     false,
                                 );
                             }
+                            st.set_recent_top_node(
+                                resize.node_id,
+                                now + Duration::from_millis(600),
+                            );
                             st.end_resize_interaction(now);
+                            st.resolve_overlap_now();
                             backend.request_redraw();
                             return;
                         }
@@ -372,7 +385,13 @@ pub(crate) fn handle_pointer_button_input(
                                 y: final_h as f32,
                             },
                         );
-                        st.end_resize_interaction(Instant::now());
+                        st.set_recent_top_node(
+                            resize.node_id,
+                            now + Duration::from_millis(600),
+                        );
+                        st.end_resize_interaction(now);
+                        st.resolve_overlap_now();
+                        backend.request_redraw();
                     }
                 };
             if left {
