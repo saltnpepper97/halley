@@ -4,6 +4,8 @@ use halley_core::viewport::FocusZone;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::utils::SERIAL_COUNTER;
+use smithay::wayland::selection::data_device::set_data_device_focus;
+use smithay::wayland::selection::primary_selection::set_primary_focus;
 
 pub(super) struct ViewportPanAnim {
     pub(super) start_ms: u64,
@@ -23,11 +25,18 @@ impl HalleyWlState {
         None
     }
 
+    fn update_selection_focus_from_surface(&self, surface: Option<&WlSurface>) {
+        let client = surface.and_then(|wl| wl.client());
+        set_data_device_focus(&self.display_handle, &self.seat, client.clone());
+        set_primary_focus(&self.display_handle, &self.seat, client);
+    }
+
     fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
         let focus_surface = id.and_then(|fid| self.wl_surface_for_node(fid));
         if let Some(keyboard) = self.seat.get_keyboard() {
             keyboard.set_focus(self, focus_surface.clone(), SERIAL_COUNTER.next_serial());
         }
+        self.update_selection_focus_from_surface(focus_surface.as_ref());
 
         for top in self.xdg_shell_state.toplevel_surfaces() {
             let key = top.wl_surface().id();
@@ -61,7 +70,8 @@ impl HalleyWlState {
                     desired_focus.as_ref().map(|wl| format!("{:?}", wl.id())),
                     current_focus.as_ref().map(|wl| format!("{:?}", wl.id()))
                 );
-                keyboard.set_focus(self, desired_focus, SERIAL_COUNTER.next_serial());
+                keyboard.set_focus(self, desired_focus.clone(), SERIAL_COUNTER.next_serial());
+                self.update_selection_focus_from_surface(desired_focus.as_ref());
             }
         }
     }

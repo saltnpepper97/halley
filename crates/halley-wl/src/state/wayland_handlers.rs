@@ -1,9 +1,16 @@
 use super::*;
-use smithay::wayland::selection::primary_selection::{PrimarySelectionHandler, PrimarySelectionState};
-use smithay::wayland::selection::wlr_data_control::DataControlState;
 use eventline::info;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::reexports::wayland_server::{Client, Resource, protocol::wl_surface::WlSurface};
+use smithay::wayland::selection::data_device::set_data_device_focus;
+use smithay::wayland::selection::primary_selection::{
+    PrimarySelectionHandler, PrimarySelectionState, set_primary_focus,
+};
+use smithay::wayland::selection::wlr_data_control::DataControlState;
+
+fn client_for_surface(surface: Option<&WlSurface>) -> Option<Client> {
+    surface.and_then(|wl| wl.client())
+}
 
 impl SeatHandler for HalleyWlState {
     type KeyboardFocus = WlSurface;
@@ -14,11 +21,15 @@ impl SeatHandler for HalleyWlState {
         &mut self.seat_state
     }
 
-    fn focus_changed(&mut self, _seat: &Seat<Self>, focused: Option<&WlSurface>) {
+    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         info!(
             "seat focus_changed -> {:?}",
             focused.map(|wl| format!("{:?}", wl.id()))
         );
+
+        let client = client_for_surface(focused);
+        set_data_device_focus(&self.display_handle, seat, client.clone());
+        set_primary_focus(&self.display_handle, seat, client);
     }
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
@@ -41,7 +52,13 @@ impl DataDeviceHandler for HalleyWlState {
 impl ClientDndGrabHandler for HalleyWlState {}
 
 impl ServerDndGrabHandler for HalleyWlState {
-    fn send(&mut self, _mime_type: String, _fd: std::os::unix::io::OwnedFd, _seat: Seat<Self>) {}
+    fn send(
+        &mut self,
+        _mime_type: String,
+        _fd: std::os::unix::io::OwnedFd,
+        _seat: Seat<Self>,
+    ) {
+    }
 }
 
 delegate_data_device!(HalleyWlState);
@@ -111,7 +128,12 @@ impl XdgShellHandler for HalleyWlState {
         let _ = popup.send_configure();
     }
 
-    fn move_request(&mut self, _surface: ToplevelSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
+    fn move_request(
+        &mut self,
+        _surface: ToplevelSurface,
+        _seat: wl_seat::WlSeat,
+        _serial: Serial,
+    ) {
         // Interactive move is compositor-driven (configured modifier + drag), not
         // client-request driven.
     }
