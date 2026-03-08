@@ -20,7 +20,8 @@ pub struct RuntimeTuning {
 
     pub focus_ring_rx: f32,
     pub focus_ring_ry: f32,
-    pub focus_ring_rotation_rad: f32,
+    pub focus_ring_offset_x: f32,
+    pub focus_ring_offset_y: f32,
 
     pub primary_hot_inner_frac: f32,
     pub primary_to_preview_ms: u64,
@@ -79,7 +80,8 @@ impl Default for RuntimeTuning {
 
             focus_ring_rx: 820.0,
             focus_ring_ry: 420.0,
-            focus_ring_rotation_rad: 0.0,
+            focus_ring_offset_x: 0.0,
+            focus_ring_offset_y: 0.0,
 
             primary_hot_inner_frac: 0.88,
             primary_to_preview_ms: 1_200_000,
@@ -163,9 +165,8 @@ impl RuntimeTuning {
 
         self.focus_ring_rx = self.focus_ring_rx.clamp(8.0, 16_000.0);
         self.focus_ring_ry = self.focus_ring_ry.clamp(8.0, 16_000.0);
-        self.focus_ring_rotation_rad = self
-            .focus_ring_rotation_rad
-            .clamp(-std::f32::consts::PI, std::f32::consts::PI);
+        self.focus_ring_offset_x = self.focus_ring_offset_x.clamp(-16_000.0, 16_000.0);
+        self.focus_ring_offset_y = self.focus_ring_offset_y.clamp(-16_000.0, 16_000.0);
 
         self.primary_hot_inner_frac = self.primary_hot_inner_frac.clamp(0.1, 1.0);
         self.primary_to_preview_ms = self.primary_to_preview_ms.clamp(250, 7_200_000);
@@ -196,7 +197,8 @@ impl RuntimeTuning {
         FocusRing::new(
             self.focus_ring_rx,
             self.focus_ring_ry,
-            self.focus_ring_rotation_rad,
+            self.focus_ring_offset_x,
+            self.focus_ring_offset_y,
         )
     }
 

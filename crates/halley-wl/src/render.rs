@@ -28,7 +28,8 @@ pub struct RingDebugGeom {
     pub center: Vec2,
     pub radius_x: f32,
     pub radius_y: f32,
-    pub rotation_rad: f32,
+    pub offset_x: f32,
+    pub offset_y: f32,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -46,8 +47,6 @@ pub struct DebugScene {
     pub zones: ZoneCounts,
 }
 
-/// Minimal render-facing snapshot for upcoming debug drawing.
-/// This is intentionally independent from smithay backend wiring.
 pub fn build_debug_scene(field: &Field, vp: &Viewport, focus_ring: FocusRing) -> DebugScene {
     let mut zones = ZoneCounts::default();
     let mut visible = 0usize;
@@ -67,18 +66,17 @@ pub fn build_debug_scene(field: &Field, vp: &Viewport, focus_ring: FocusRing) ->
         viewport_center: Vec2::new(vp.center.x, vp.center.y),
         viewport_size: Vec2::new(vp.size.x, vp.size.y),
         focus_ring: RingDebugGeom {
-            center: Vec2::new(vp.center.x, vp.center.y),
+            center: Vec2::new(vp.center.x + focus_ring.offset_x, vp.center.y + focus_ring.offset_y),
             radius_x: focus_ring.radius_x,
             radius_y: focus_ring.radius_y,
-            rotation_rad: focus_ring.rotation_rad,
+            offset_x: focus_ring.offset_x,
+            offset_y: focus_ring.offset_y,
         },
         node_count_visible: visible,
         zones,
     }
 }
 
-/// Lightweight GPU bootstrap holder for the next step.
-/// No rendering is performed yet.
 #[derive(Debug)]
 pub struct GpuBootstrap {
     pub instance: wgpu::Instance,
@@ -119,7 +117,7 @@ mod tests {
                 y: 1080.0,
             },
         );
-        let focus_ring = FocusRing::new(200.0, 120.0, 0.0);
+        let focus_ring = FocusRing::new(200.0, 120.0, 0.0, 0.0);
 
         let s = build_debug_scene(&f, &vp, focus_ring);
         assert_eq!(s.node_count_visible, 2);

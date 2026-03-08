@@ -69,26 +69,27 @@ pub enum FocusZone {
     Outside,
 }
 
-/// A focus ring modeled as a rotated ellipse in Field coordinates.
+/// A focus ring modeled as an axis-aligned ellipse in Field coordinates,
+/// with an offset relative to the viewport center.
 ///
 /// We use normalized ellipse distance:
-///   d2 = (x'/rx)^2 + (y'/ry)^2
+///   d2 = (x/rx)^2 + (y/ry)^2
 /// If d2 <= 1 => inside.
-///
-/// This is deterministic, cheap, and keeps the current ellipse/eye-like model.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FocusRing {
     pub radius_x: f32,
     pub radius_y: f32,
-    pub rotation_rad: f32,
+    pub offset_x: f32,
+    pub offset_y: f32,
 }
 
 impl FocusRing {
-    pub fn new(radius_x: f32, radius_y: f32, rotation_rad: f32) -> Self {
+    pub fn new(radius_x: f32, radius_y: f32, offset_x: f32, offset_y: f32) -> Self {
         Self {
             radius_x,
             radius_y,
-            rotation_rad,
+            offset_x,
+            offset_y,
         }
     }
 
@@ -105,24 +106,23 @@ impl FocusRing {
     }
 
     /// Return normalized squared distance inside this ellipse:
-    /// d2 = (x'/rx)^2 + (y'/ry)^2
+    /// d2 = (x/rx)^2 + (y/ry)^2
     /// - d2 <= 1.0: inside/on boundary
     /// - d2 > 1.0: outside
     pub fn normalized_distance2(&self, center: Vec2, p: Vec2) -> f32 {
-        let dx = p.x - center.x;
-        let dy = p.y - center.y;
+        let ring_center = Vec2 {
+            x: center.x + self.offset_x,
+            y: center.y + self.offset_y,
+        };
 
-        let (s, c) = self.rotation_rad.sin_cos();
-
-        // Rotate into focus-ring-local space.
-        let x = c * dx + s * dy;
-        let y = -s * dx + c * dy;
+        let dx = p.x - ring_center.x;
+        let dy = p.y - ring_center.y;
 
         let rx = self.radius_x.max(0.0001);
         let ry = self.radius_y.max(0.0001);
 
-        let nx = x / rx;
-        let ny = y / ry;
+        let nx = dx / rx;
+        let ny = dy / ry;
 
         nx * nx + ny * ny
     }
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn focus_ring_contains_axis_aligned() {
-        let ring = FocusRing::new(10.0, 5.0, 0.0);
+        let ring = FocusRing::new(10.0, 5.0, 0.0, 0.0);
         let c = Vec2 { x: 0.0, y: 0.0 };
 
         assert!(ring.contains(c, Vec2 { x: 0.0, y: 0.0 }));
@@ -167,8 +167,21 @@ mod tests {
     }
 
     #[test]
+    fn focus_ring_respects_offset() {
+        let ring = FocusRing::new(10.0, 5.0, 4.0, -2.0);
+        let c = Vec2 { x: 0.0, y: 0.0 };
+
+        assert!(ring.contains(c, Vec2 { x: 4.0, y: -2.0 }));
+        assert!(ring.contains(c, Vec2 { x: 14.0, y: -2.0 }));
+        assert!(ring.contains(c, Vec2 { x: 4.0, y: 3.0 }));
+
+        assert!(!ring.contains(c, Vec2 { x: 14.01, y: -2.0 }));
+        assert!(!ring.contains(c, Vec2 { x: 4.0, y: 3.01 }));
+    }
+
+    #[test]
     fn focus_zone_classifies() {
-        let ring = FocusRing::new(10.0, 10.0, 0.0);
+        let ring = FocusRing::new(10.0, 10.0, 0.0, 0.0);
         let c = Vec2 { x: 0.0, y: 0.0 };
 
         assert_eq!(ring.zone(c, Vec2 { x: 0.0, y: 0.0 }), FocusZone::Inside);

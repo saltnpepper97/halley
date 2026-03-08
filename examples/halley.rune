@@ -10,7 +10,8 @@ end
 focus-ring:
   primary-rx 820.0
   primary-ry 420.0
-  rotation-rad 0.0
+  offset-x 0
+  offset-y 0
 end
 
 clusters:

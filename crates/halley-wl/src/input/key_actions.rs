@@ -23,7 +23,6 @@ pub(crate) fn key_is_compositor_binding(
 ) -> bool {
     let kb = &st.tuning.keybinds;
 
-    // Quit is special: mod+shift+quit
     if key_matches(key_code, kb.quit_compositor) {
         let need = if st.tuning.quit_requires_shift {
             with_extra_shift(kb.modifier)
@@ -35,7 +34,6 @@ pub(crate) fn key_is_compositor_binding(
         }
     }
 
-    // Explicit configured launch bindings must match exactly.
     for binding in &st.tuning.launch_bindings {
         if key_matches(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             return true;
@@ -84,7 +82,7 @@ pub(crate) fn apply_bound_key(
 ) -> bool {
     const STEP_RX: f32 = 24.0;
     const STEP_RY: f32 = 16.0;
-    const STEP_ROT: f32 = 0.05;
+    const STEP_OFFSET: f32 = 24.0;
     const STEP_NODE: f32 = 80.0;
 
     let kb = st.tuning.keybinds.clone();
@@ -166,21 +164,19 @@ pub(crate) fn apply_bound_key(
         }
 
         code if key_matches(code, kb.secondary_left) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_rotation_rad -= STEP_ROT;
+            st.tuning.focus_ring_offset_x -= STEP_OFFSET;
             true
         }
         code if key_matches(code, kb.secondary_right) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_rotation_rad += STEP_ROT;
+            st.tuning.focus_ring_offset_x += STEP_OFFSET;
             true
         }
         code if key_matches(code, kb.secondary_up) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_rx += STEP_RX;
-            st.tuning.focus_ring_ry += STEP_RY;
+            st.tuning.focus_ring_offset_y += STEP_OFFSET;
             true
         }
         code if key_matches(code, kb.secondary_down) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_rx -= STEP_RX;
-            st.tuning.focus_ring_ry -= STEP_RY;
+            st.tuning.focus_ring_offset_y -= STEP_OFFSET;
             true
         }
         _ => false,
@@ -189,10 +185,11 @@ pub(crate) fn apply_bound_key(
     if changed {
         st.tuning.enforce_guards();
         info!(
-            "focus-ring {:.0}x{:.0} rot={:.2}",
+            "focus-ring {:.0}x{:.0} offset=({:.0},{:.0})",
             st.tuning.focus_ring_rx,
             st.tuning.focus_ring_ry,
-            st.tuning.focus_ring_rotation_rad
+            st.tuning.focus_ring_offset_x,
+            st.tuning.focus_ring_offset_y
         );
     }
 
