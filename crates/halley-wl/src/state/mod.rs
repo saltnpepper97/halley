@@ -13,7 +13,9 @@ use smithay::{
     delegate_compositor, delegate_data_control, delegate_data_device, delegate_primary_selection,
     delegate_seat, delegate_shm, delegate_xdg_shell,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
-    reexports::wayland_server::{Client, Resource, backend::ObjectId, protocol::wl_seat},
+    reexports::wayland_server::{
+        DisplayHandle, Resource, backend::ObjectId, protocol::wl_seat,
+    },
     utils::Serial,
     wayland::{
         buffer::BufferHandler,
@@ -54,6 +56,7 @@ use focus::ViewportPanAnim;
 use overview::OverviewAnim;
 
 pub struct HalleyWlState {
+    pub display_handle: DisplayHandle,
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
     pub shm_state: ShmState,
@@ -146,6 +149,7 @@ impl HalleyWlState {
             |_| true,
         );
         let mut out = Self {
+            display_handle: dh.clone(),
             compositor_state: CompositorState::new::<HalleyWlState>(dh),
             xdg_shell_state: XdgShellState::new::<HalleyWlState>(dh),
             shm_state: ShmState::new::<HalleyWlState>(dh, vec![]),
@@ -240,8 +244,6 @@ impl HalleyWlState {
         self.tick_overview_animation(now_ms);
         self.tick_viewport_pan_animation(now_ms);
         if self.overview_mode {
-            // Overview mode is authoritative: don't let decay/focus-ring/resize logic
-            // pull nodes back into Active while in the overview workspace.
             self.animator.observe_field(&self.field, now);
             return;
         }
