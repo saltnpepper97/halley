@@ -1,37 +1,59 @@
 use crate::interaction::types::ModState;
 use halley_config::KeyModifiers;
 
+/// Match an incoming XKB keycode against a stored evdev keycode.
+/// Incoming codes from libinput/the backend are always XKB (evdev + 8).
+/// Config and keybind tables store evdev codes, so we normalise here.
 pub(crate) fn key_matches(actual: u32, evdev_code: u32) -> bool {
-    actual == evdev_code || actual == evdev_code + 8
-}
-
-pub(crate) fn key_matches_xkb_only(actual: u32, evdev_code: u32) -> bool {
     actual == evdev_code + 8
 }
 
+/// Identical to key_matches; kept so call-sites that were already explicit
+/// about wanting XKB-only matching continue to compile without changes.
+#[inline(always)]
+pub(crate) fn key_matches_xkb_only(actual: u32, evdev_code: u32) -> bool {
+    key_matches(actual, evdev_code)
+}
+
+/// Update modifier bookkeeping from a raw XKB keycode.
+///
+/// Each branch uses only the XKB code (evdev + 8). The old code had both the
+/// evdev code and the XKB code in every branch (e.g. `29 || 37` for Left
+/// Ctrl). That meant an ordinary key whose XKB code happened to equal some
+/// modifier's *evdev* code would silently flip a modifier flag — most
+/// visibly, XKB 54 (the letter C) was being treated as Right Shift's evdev
+/// code 54, corrupting `right_shift_down` on every Ctrl+Shift+C press.
 pub(crate) fn update_mod_state(mods: &mut ModState, code: u32, pressed: bool) {
-    if code == 125 || code == 133 {
+    if code == 133 {
+        // Left Super  (evdev 125 + 8)
         mods.left_super_down = pressed;
         mods.super_down = mods.left_super_down || mods.right_super_down;
-    } else if code == 126 || code == 134 {
+    } else if code == 134 {
+        // Right Super  (evdev 126 + 8)
         mods.right_super_down = pressed;
         mods.super_down = mods.left_super_down || mods.right_super_down;
-    } else if code == 56 || code == 64 {
+    } else if code == 64 {
+        // Left Alt  (evdev 56 + 8)
         mods.left_alt_down = pressed;
         mods.alt_down = mods.left_alt_down || mods.right_alt_down;
-    } else if code == 100 || code == 108 {
+    } else if code == 108 {
+        // Right Alt / AltGr  (evdev 100 + 8)
         mods.right_alt_down = pressed;
         mods.alt_down = mods.left_alt_down || mods.right_alt_down;
-    } else if code == 29 || code == 37 {
+    } else if code == 37 {
+        // Left Ctrl  (evdev 29 + 8)
         mods.left_ctrl_down = pressed;
         mods.ctrl_down = mods.left_ctrl_down || mods.right_ctrl_down;
-    } else if code == 97 || code == 105 {
+    } else if code == 105 {
+        // Right Ctrl  (evdev 97 + 8)
         mods.right_ctrl_down = pressed;
         mods.ctrl_down = mods.left_ctrl_down || mods.right_ctrl_down;
-    } else if code == 42 || code == 50 {
+    } else if code == 50 {
+        // Left Shift  (evdev 42 + 8)
         mods.left_shift_down = pressed;
         mods.shift_down = mods.left_shift_down || mods.right_shift_down;
-    } else if code == 54 || code == 62 {
+    } else if code == 62 {
+        // Right Shift  (evdev 54 + 8)
         mods.right_shift_down = pressed;
         mods.shift_down = mods.left_shift_down || mods.right_shift_down;
     }

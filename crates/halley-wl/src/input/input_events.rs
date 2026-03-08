@@ -30,21 +30,26 @@ fn now_millis_u32() -> u32 {
 ///
 /// These are always forwarded to clients so clients can track modifier state
 /// correctly — intercepting them would break client-side keymaps and IMEs.
+///
+/// All codes are XKB (evdev + 8), matching the raw codes delivered by the
+/// input backend. The old list included bare evdev codes alongside the XKB
+/// codes. That caused collisions: evdev 54 (Right Shift) == XKB 54 (letter C),
+/// so Ctrl+Shift+C was being misidentified as a modifier keypress.
 #[inline]
 fn is_modifier_keycode(code: u32) -> bool {
     matches!(
         code,
-        29  | 37  // Left Ctrl
-        | 97  | 105 // Right Ctrl
-        | 42  | 50  // Left Shift
-        | 54  | 62  // Right Shift
-        | 56  | 64  // Left Alt
-        | 100 | 108 // Right Alt / AltGr
-        | 125 | 133 // Left Super / Meta
-        | 126 | 134 // Right Super / Meta
-        | 58        // Caps Lock
-        | 69        // Num Lock
-        | 70        // Scroll Lock
+        37        // Left Ctrl   (evdev 29 + 8)
+        | 105     // Right Ctrl  (evdev 97 + 8)
+        | 50      // Left Shift  (evdev 42 + 8)
+        | 62      // Right Shift (evdev 54 + 8)
+        | 64      // Left Alt    (evdev 56 + 8)
+        | 108     // Right Alt / AltGr (evdev 100 + 8)
+        | 133     // Left Super  (evdev 125 + 8)
+        | 134     // Right Super (evdev 126 + 8)
+        | 66      // Caps Lock   (evdev 58 + 8)
+        | 77      // Num Lock    (evdev 69 + 8)
+        | 78      // Scroll Lock (evdev 70 + 8)
     )
 }
 
