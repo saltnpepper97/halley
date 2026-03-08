@@ -89,6 +89,8 @@ pub struct HalleyWlState {
     pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
     active_transition_until_ms: HashMap<NodeId, u64>,
     primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
+
+    dock_decay_offscreen_since_ms: HashMap<NodeId, u64>,
     carry_zone_hint: HashMap<NodeId, FocusZone>,
     carry_zone_last_change_ms: HashMap<NodeId, u64>,
     carry_zone_pending: HashMap<NodeId, FocusZone>,
@@ -170,6 +172,7 @@ impl HalleyWlState {
             pending_spawn_activate_at_ms: HashMap::new(),
             active_transition_until_ms: HashMap::new(),
             primary_promote_cooldown_until_ms: HashMap::new(),
+            dock_decay_offscreen_since_ms: HashMap::new(),
             carry_zone_hint: HashMap::new(),
             carry_zone_last_change_ms: HashMap::new(),
             carry_zone_pending: HashMap::new(),

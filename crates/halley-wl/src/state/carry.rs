@@ -4,26 +4,6 @@ use halley_core::viewport::{FocusRing, FocusZone};
 
 impl HalleyWlState {
     #[inline]
-    fn dock_outward_edge_overflow(
-        &self,
-        pos: Vec2,
-        footprint: Vec2,
-        outward_side: DockSide,
-    ) -> f32 {
-        let vp = self.viewport.rect();
-        let half = Vec2 {
-            x: footprint.x * 0.5,
-            y: footprint.y * 0.5,
-        };
-        match outward_side {
-            DockSide::Left => vp.min.x - (pos.x - half.x),
-            DockSide::Right => (pos.x + half.x) - vp.max.x,
-            DockSide::Top => (pos.y + half.y) - vp.max.y,
-            DockSide::Bottom => vp.min.y - (pos.y - half.y),
-        }
-    }
-
-    #[inline]
     fn dock_state_eval_footprint(&self, id: NodeId, live: Vec2) -> Vec2 {
         match self.last_active_size.get(&id).copied() {
             Some(last) => Vec2 {
@@ -46,16 +26,15 @@ impl HalleyWlState {
             if !self.field.is_visible(a) || !self.field.is_visible(b) {
                 continue;
             }
-            if self.is_recently_resized_node(a, now_ms) || self.is_recently_resized_node(b, now_ms)
-            {
+            if self.is_recently_resized_node(a, now_ms) || self.is_recently_resized_node(b, now_ms) {
                 continue;
             }
 
-            let Some((link_a_side, link_b_side)) = self.field.dock_sides_for_pair(a, b) else {
+            let Some((_, link_b_side)) = self.field.dock_sides_for_pair(a, b) else {
                 continue;
             };
 
-            let (mid, sa, sb, a_state, b_state, a_pos, b_pos) = {
+            let (mid, sa, sb) = {
                 let (Some(na), Some(nb)) = (self.field.node(a), self.field.node(b)) else {
                     continue;
                 };
@@ -66,45 +45,24 @@ impl HalleyWlState {
                     },
                     self.collision_size_for_node(na),
                     self.collision_size_for_node(nb),
-                    na.state.clone(),
-                    nb.state.clone(),
-                    na.pos,
-                    nb.pos,
                 )
             };
 
             let a_edge_fp = self.dock_state_eval_footprint(a, sa);
             let b_edge_fp = self.dock_state_eval_footprint(b, sb);
 
-            let a_overflow = self.dock_outward_edge_overflow(a_pos, a_edge_fp, link_a_side);
-            let b_overflow = self.dock_outward_edge_overflow(b_pos, b_edge_fp, link_b_side);
+            // Docked-pair geometry should not decide decay anymore.
+            // Maintenance owns docked-pair decay policy now.
+            let _ = self.field.set_decay_level(a, DecayLevel::Hot);
+            let _ = self.field.set_decay_level(b, DecayLevel::Hot);
 
-            let decay_a = if a_overflow > 0.0 {
-                DecayLevel::Cold
-            } else if a_state == halley_core::field::NodeState::Active {
-                DecayLevel::Hot
-            } else {
-                DecayLevel::Cold
-            };
-
-            let decay_b = if b_overflow > 0.0 {
-                DecayLevel::Cold
-            } else if b_state == halley_core::field::NodeState::Active {
-                DecayLevel::Hot
-            } else {
-                DecayLevel::Cold
-            };
-
-            let _ = self.field.set_decay_level(a, decay_a);
-            let _ = self.field.set_decay_level(b, decay_b);
-
-            if decay_a == DecayLevel::Hot {
-                if let Some(n) = self.field.node(a) {
+            if let Some(n) = self.field.node(a) {
+                if n.state == halley_core::field::NodeState::Active {
                     self.last_active_size.insert(a, n.intrinsic_size);
                 }
             }
-            if decay_b == DecayLevel::Hot {
-                if let Some(n) = self.field.node(b) {
+            if let Some(n) = self.field.node(b) {
+                if n.state == halley_core::field::NodeState::Active {
                     self.last_active_size.insert(b, n.intrinsic_size);
                 }
             }
