@@ -223,7 +223,7 @@ impl HalleyWlState {
         if let Some(id) = ended {
             self.resize_static_node = Some(id);
             self.resize_static_lock_pos = self.field.node(id).map(|n| n.pos);
-            self.resize_static_until_ms = self.now_ms(now).saturating_add(1_200);
+            self.resize_static_until_ms = self.now_ms(now).saturating_add(120);
             self.set_interaction_focus(Some(id), 30_000, now);
         } else {
             self.resize_static_lock_pos = None;

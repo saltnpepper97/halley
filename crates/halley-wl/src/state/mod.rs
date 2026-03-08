@@ -318,10 +318,7 @@ impl HalleyWlState {
             },
             &mut self.cluster_form_state,
         );
-        if !self.suspend_state_checks
-            && self.resize_active.is_none()
-            && !(self.resize_static_node.is_some() && now_ms < self.resize_static_until_ms)
-        {
+       if !self.suspend_state_checks && self.resize_active.is_none() {
             self.enforce_docked_pairs();
         }
         self.enforce_single_primary_active_unit(focus_ring);
