@@ -25,11 +25,22 @@ impl HalleyWlState {
             return;
         }
 
-        let mut keep_set: HashSet<NodeId> = HashSet::new();
+        // Special exception:
+        // allow exactly one mutually-docked active pair to remain active
+        // alongside one focused, non-docked active surface.
+        let focused_breakout = self.interaction_focus.filter(|&fid| {
+            self.field.node(fid).is_some_and(|n| {
+                self.field.is_visible(fid)
+                    && n.kind == halley_core::field::NodeKind::Surface
+                    && n.state == halley_core::field::NodeState::Active
+            }) && self.field
+                .dock_partner(fid)
+                .filter(|&pid| self.field.dock_partner(pid) == Some(fid))
+                .is_none()
+        });
 
-        // Find one active mutually-docked pair and preserve it atomically.
+        let mut docked_pairs: Vec<(NodeId, NodeId, u64)> = Vec::new();
         let mut seen_pair_roots: HashSet<NodeId> = HashSet::new();
-        let mut docked_pairs: Vec<(NodeId, NodeId, u64, bool, bool)> = Vec::new();
 
         for &id in &active_ids {
             let Some(pid) = self
@@ -42,7 +53,6 @@ impl HalleyWlState {
 
             let a = if id.as_u64() <= pid.as_u64() { id } else { pid };
             let b = if a == id { pid } else { id };
-
             if !seen_pair_roots.insert(a) {
                 continue;
             }
@@ -65,57 +75,39 @@ impl HalleyWlState {
                 .max()
                 .unwrap_or(0);
 
-            let pair_has_focus = self.interaction_focus.is_some_and(|fid| fid == a || fid == b);
-            let pair_has_companion = companion.is_some_and(|cid| cid == a || cid == b);
-
-            docked_pairs.push((a, b, latest_focus, pair_has_focus, pair_has_companion));
+            docked_pairs.push((a, b, latest_focus));
         }
 
-        docked_pairs.sort_by_key(|(a, b, latest_focus, pair_has_focus, pair_has_companion)| {
-            let any_inside = [*a, *b].iter().any(|nid| {
-                self.field.node(*nid).is_some_and(|n| {
-                    focus_ring.zone(self.viewport.center, n.pos) == FocusZone::Inside
-                })
-            });
+        let mut keep_set: HashSet<NodeId> = HashSet::new();
 
-            (
-                u8::from(*pair_has_focus),
-                u8::from(*pair_has_companion),
-                u8::from(any_inside),
-                *latest_focus,
-                b.as_u64(),
-            )
-        });
-
-        let preserved_pair = docked_pairs.last().copied().map(|(a, b, _, _, _)| (a, b));
-
-        if let Some((a, b)) = preserved_pair {
-            // Pair mode: keep the pair no matter what.
-            keep_set.insert(a);
-            keep_set.insert(b);
-
-            // Only allow a third window if it is EXPLICITLY chosen:
-            // current interaction focus, non-docked, active, and not part of the pair.
-            let explicit_breakout = self.interaction_focus.filter(|&fid| {
-                fid != a
-                    && fid != b
-                    && self.field.node(fid).is_some_and(|n| {
-                        self.field.is_visible(fid)
-                            && n.kind == halley_core::field::NodeKind::Surface
-                            && n.state == halley_core::field::NodeState::Active
+        if let Some(fid) = focused_breakout {
+            docked_pairs.sort_by_key(|(a, b, latest_focus)| {
+                let contains_companion =
+                    companion.is_some_and(|cid| cid == *a || cid == *b);
+                let contains_preferred =
+                    preferred_surface.is_some_and(|pid| pid == *a || pid == *b);
+                let any_inside = [*a, *b].iter().any(|nid| {
+                    self.field.node(*nid).is_some_and(|n| {
+                        focus_ring.zone(self.viewport.center, n.pos) == FocusZone::Inside
                     })
-                    && self
-                        .field
-                        .dock_partner(fid)
-                        .filter(|&pid| self.field.dock_partner(pid) == Some(fid))
-                        .is_none()
+                });
+                (
+                    u8::from(contains_companion),
+                    u8::from(contains_preferred),
+                    u8::from(any_inside),
+                    *latest_focus,
+                    b.as_u64(),
+                )
             });
 
-            if let Some(fid) = explicit_breakout {
+            if let Some((a, b, _)) = docked_pairs.last().copied() {
                 keep_set.insert(fid);
+                keep_set.insert(a);
+                keep_set.insert(b);
             }
-        } else {
-            // No pair: normal max-2 behavior.
+        }
+
+        if keep_set.is_empty() {
             let mut ranked = active_ids.clone();
             ranked.sort_by_key(|id| {
                 let pos = self
@@ -123,14 +115,12 @@ impl HalleyWlState {
                     .node(*id)
                     .map(|n| n.pos)
                     .unwrap_or(self.viewport.center);
-
                 let preferred_rank = u8::from(preferred_surface == Some(*id));
                 let focus_rank = u8::from(self.interaction_focus == Some(*id));
                 let companion_rank = u8::from(companion == Some(*id));
                 let inside_rank =
                     u8::from(focus_ring.zone(self.viewport.center, pos) == FocusZone::Inside);
                 let latest_focus = self.last_surface_focus_ms.get(id).copied().unwrap_or(0);
-
                 (
                     preferred_rank,
                     focus_rank,
@@ -213,9 +203,9 @@ impl HalleyWlState {
         focus_ring: FocusRing,
         now_ms: u64,
     ) {
-        const PRIMARY_OUTSIDE_RING_DELAY_MS: u64 = 120_000;
-        const SECONDARY_OUTSIDE_RING_DELAY_MS: u64 = 30_000;
-        const DOCKED_OFFSCREEN_DELAY_MS: u64 = 300_000;
+        let primary_outside_ring_delay_ms = self.tuning.primary_outside_ring_delay_ms;
+        let secondary_outside_ring_delay_ms = self.tuning.secondary_outside_ring_delay_ms;
+        let docked_offscreen_delay_ms = self.tuning.docked_offscreen_delay_ms;
 
         let ids: Vec<NodeId> = self.field.nodes().keys().copied().collect();
 
@@ -243,7 +233,7 @@ impl HalleyWlState {
                         id,
                         partner,
                         now_ms,
-                        DOCKED_OFFSCREEN_DELAY_MS,
+                        docked_offscreen_delay_ms,
                     );
                 }
                 continue;
@@ -253,8 +243,8 @@ impl HalleyWlState {
                 id,
                 focus_ring,
                 now_ms,
-                PRIMARY_OUTSIDE_RING_DELAY_MS,
-                SECONDARY_OUTSIDE_RING_DELAY_MS,
+                primary_outside_ring_delay_ms,
+                secondary_outside_ring_delay_ms,
             );
         }
 
