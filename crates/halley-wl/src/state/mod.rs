@@ -292,10 +292,6 @@ impl HalleyWlState {
             self.resize_static_lock_pos = None;
             self.resize_static_until_ms = 0;
         }
-        if resize_settling {
-            self.animator.observe_field(&self.field, now);
-            return;
-        }
         let focus_ring = self.active_focus_ring();
         let pan_dominant = now_ms < self.pan_dominant_until_ms;
         if !self.suspend_state_checks {
@@ -329,10 +325,7 @@ impl HalleyWlState {
             self.enforce_docked_pairs();
         }
         self.enforce_single_primary_active_unit(focus_ring);
-        if !self.suspend_state_checks
-            && self.resize_active.is_none()
-            && !(self.resize_static_node.is_some() && now_ms < self.resize_static_until_ms)
-        {
+        if !self.suspend_state_checks && self.resize_active.is_none() {
             self.resolve_surface_overlap();
         }
         if !self.suspend_state_checks && !pan_dominant {

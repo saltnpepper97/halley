@@ -357,7 +357,6 @@ impl HalleyWlState {
             return;
         }
 
-        let now_ms = self.now_ms(Instant::now());
         let mut ids: Vec<NodeId> = self
             .field
             .nodes()
@@ -379,7 +378,7 @@ impl HalleyWlState {
 
         let gap = self.non_overlap_gap_world();
         let focus_id = self.interaction_focus;
-        let damping = self.tuning.non_overlap_bump_damping.clamp(0.05, 0.35);
+        let damping = self.tuning.non_overlap_bump_damping.clamp(0.25, 1.0);
 
         const MAX_RESOLVE_STEP: f32 = 18.0;
 
@@ -390,12 +389,6 @@ impl HalleyWlState {
                 for j in (i + 1)..ids.len() {
                     let a = ids[i];
                     let b = ids[j];
-
-                    if self.is_recently_resized_node(a, now_ms)
-                        || self.is_recently_resized_node(b, now_ms)
-                    {
-                        continue;
-                    }
 
                     if self.field.dock_partner(a) == Some(b) || self.field.dock_partner(b) == Some(a) {
                         continue;
@@ -410,8 +403,8 @@ impl HalleyWlState {
 
                     let a_pos = na.pos;
                     let b_pos = nb.pos;
-                    let a_pinned = na.pinned;
-                    let b_pinned = nb.pinned;
+                    let a_pinned = na.pinned || self.resize_static_node == Some(a);
+                    let b_pinned = nb.pinned || self.resize_static_node == Some(b);
 
                     if a_pinned && b_pinned {
                         continue;
@@ -506,25 +499,7 @@ impl HalleyWlState {
                         }
                     };
 
-                    let mut step = Vec2 {
-                        x: (full_target.x - mover_pos.x) * damping,
-                        y: (full_target.y - mover_pos.y) * damping,
-                    };
-
-                    step.x = step.x.clamp(-MAX_RESOLVE_STEP, MAX_RESOLVE_STEP);
-                    step.y = step.y.clamp(-MAX_RESOLVE_STEP, MAX_RESOLVE_STEP);
-
-                    if step.x.abs() < 0.5 && (full_target.x - mover_pos.x).abs() > 0.5 {
-                        step.x = 0.5 * step.x.signum();
-                    }
-                    if step.y.abs() < 0.5 && (full_target.y - mover_pos.y).abs() > 0.5 {
-                        step.y = 0.5 * step.y.signum();
-                    }
-
-                    let target = Vec2 {
-                        x: mover_pos.x + step.x,
-                        y: mover_pos.y + step.y,
-                    };
+                    let target = full_target;
 
                     if self.field.carry(mover_id, target) {
                         changed = true;
