@@ -521,25 +521,34 @@ where
 
         let inner = (8.0 + 3.0 * hover_mix).round() as i32;
         let dot_d = dot_half * 2;
-        let dot_x = container_x + inner;
-        let dot_y = container_y + ((container_h - dot_d) / 2);
         let mut gap_px = label_gap.max(8);
-        let right_limit = container_x + container_w - inner;
         let min_label_w = 10;
-        let mut label_x = dot_x + dot_d + gap_px;
-        let label_y = container_y + ((container_h - label_h_px) / 2);
-        let mut max_label_w = right_limit - label_x;
 
-        if max_label_w < min_label_w {
-            let need = min_label_w - max_label_w;
-            let reducible = gap_px.saturating_sub(4);
-            let cut = need.min(reducible);
-            gap_px -= cut;
-            label_x = dot_x + dot_d + gap_px;
-            max_label_w = right_limit - label_x;
+        let content_left_limit = container_x + inner;
+        let content_right_limit = container_x + container_w - inner;
+        let content_available_w =
+            (content_right_limit - content_left_limit).max(dot_d + min_label_w);
+        let content_cx = container_x + (container_w / 2);
+
+        let desired_content_w = dot_d + gap_px + label_w_px;
+        if desired_content_w > content_available_w {
+            let overflow = desired_content_w - content_available_w;
+            let reducible_gap = gap_px.saturating_sub(4);
+            let gap_cut = overflow.min(reducible_gap);
+            gap_px -= gap_cut;
         }
 
-        let label_draw_w = label_w_px.min(max_label_w.max(min_label_w));
+        let max_label_w = (content_available_w - dot_d - gap_px).max(min_label_w);
+        let label_draw_w = label_w_px.min(max_label_w);
+
+        let final_content_w = dot_d + gap_px + label_draw_w;
+        let content_x = content_cx - (final_content_w / 2);
+
+        let dot_x = content_x;
+        let dot_y = container_y + ((container_h - dot_d) / 2);
+
+        let label_x = dot_x + dot_d + gap_px;
+        let label_y = container_y + ((container_h - label_h_px) / 2);
 
         draw_rect(
             frame,

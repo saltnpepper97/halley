@@ -46,6 +46,51 @@ pub struct DockingState {
 }
 
 impl DockingState {
+    // Preserve current loose feel only as a ceiling.
+    const MAX_ARM_SLACK_ONSCREEN: f32 = 140.0;
+    const MAX_ARM_SLACK_OFFSCREEN: f32 = 40.0;
+
+    // Actual defaults: tighter and more intentional.
+    const DEFAULT_ARM_SLACK_ONSCREEN: f32 = 44.0;
+    const DEFAULT_ARM_SLACK_OFFSCREEN: f32 = 24.0;
+
+    // Candidate gating: too far away = no preview at all.
+    const DEFAULT_CANDIDATE_SLACK_ONSCREEN: f32 = 72.0;
+    const DEFAULT_CANDIDATE_SLACK_OFFSCREEN: f32 = 32.0;
+
+    const CROSS_AXIS_FACTOR: f32 = 0.35;
+    const CROSS_AXIS_MIN: f32 = 28.0;
+    const CROSS_AXIS_MAX: f32 = 72.0;
+
+    // Node pill geometry — calibrated from node_marker_metrics + draw_node_markers at zoom=1 (g=1).
+    //
+    // node_marker_metrics at z=1, g=1:
+    //   dot_half_raw = round(4 * 1).clamp(4,18) = 4
+    //   label_gap    = round(8 + 0)             = 8
+    //   label_w/char = round(6 * 1.5)           = 9  (then × 1.22 in draw_node_markers)
+    //   label_h_raw  = round(4 * 1)             = 4
+    //
+    // draw_node_markers multipliers (no hover):
+    //   dot_half  = round(dot_half_raw × 1.36) = round(5.44) = 5 px
+    //   label_w   = round(raw × 1.22)  → per char: round(9 × 1.22) ≈ 11 px
+    //   render_pad = 8 px
+    //
+    // Resulting pill bounds from centered node_marker_bounds:
+    //   bw    = 2 × dot_half + label_gap + label_w + 2 × render_pad
+    //         = 10 + 8 + (label_len × 11) + 16 = 34 + label_len × 11
+    //   bh    = max(2 × dot_half, label_h) + 2 × render_pad = 10 + 16 = 26
+    //
+    // These constants must stay in sync with node_render.rs / render_utils.rs.
+    const NODE_DOT_HALF_EST: f32 = 5.0;
+    const NODE_LABEL_GAP_EST: f32 = 8.0;
+    const NODE_RENDER_PAD_EST: f32 = 8.0;
+    const NODE_LABEL_CHAR_EST: f32 = 11.0;
+    // Minimum pill width: accounts for label_w clamped to 24 raw (→ 29 after ×1.22).
+    // 10 + 8 + 29 + 16 = 63.
+    const NODE_MIN_VISUAL_WIDTH_EST: f32 = 63.0;
+    // Pill height: 2 × dot_half + 2 × render_pad = 26.
+    const NODE_MIN_VISUAL_HEIGHT_EST: f32 = 26.0;
+
     #[inline]
     pub fn clear_preview(&mut self) {
         self.preview = None;
@@ -136,6 +181,52 @@ impl DockingState {
         })
     }
 
+    #[inline]
+    fn estimate_node_visual_horizontal_width(label: &str) -> f32 {
+        // Pill width = 2 × dot_half + label_gap + label_w + 2 × render_pad
+        // (calibrated from node_marker_metrics + centered draw_node_markers)
+        let label_w = label.chars().count() as f32 * Self::NODE_LABEL_CHAR_EST;
+        (2.0 * Self::NODE_DOT_HALF_EST
+            + Self::NODE_LABEL_GAP_EST
+            + label_w
+            + 2.0 * Self::NODE_RENDER_PAD_EST)
+            .max(Self::NODE_MIN_VISUAL_WIDTH_EST)
+    }
+
+    /// Centered markers have no visual-centre offset from `node.pos`.
+    #[inline]
+    fn node_visual_center_offset(_label: &str) -> f32 {
+        0.0
+    }
+
+    #[inline]
+    fn docking_extent_for_side(field: &Field, node_id: NodeId, side: DockSide) -> Option<Vec2> {
+        let node = field.node(node_id)?;
+        let mut size = Self::node_extent(field, node_id)?;
+
+        if matches!(node.state, NodeState::Node | NodeState::Preview) {
+            match side {
+                DockSide::Left | DockSide::Right => {
+                    // Use only the rendered pill width (with multipliers applied).
+                    // node.intrinsic_size is the window's old Active size and is
+                    // unrelated to the pill's visual width; including it caused
+                    // different gaps per target depending on window history.
+                    size.x = Self::estimate_node_visual_horizontal_width(&node.label)
+                        .max(size.x);
+                }
+                DockSide::Top | DockSide::Bottom => {
+                    // The node footprint is 24×24 (spatial occupancy), but the
+                    // rendered pill is taller: 2×dot_half + 2×render_pad = 26 px at
+                    // zoom=1.  Use the visual height so up/down snaps land flush with
+                    // the actual marker bounds rather than cutting into the padding.
+                    size.y = Self::NODE_MIN_VISUAL_HEIGHT_EST.max(size.y);
+                }
+            }
+        }
+
+        Some(size)
+    }
+
     fn choose_side(delta: Vec2) -> DockSide {
         if delta.x.abs() >= delta.y.abs() {
             if delta.x >= 0.0 {
@@ -156,35 +247,58 @@ impl DockingState {
         target_id: NodeId,
         side: DockSide,
     ) -> Option<Vec2> {
-        let mover_size = Self::node_extent(field, mover_id)?;
-        let target = field.node(target_id)?;
-        let target_size = Self::node_extent(field, target_id)?;
+        let mover_node  = field.node(mover_id)?;
+        let target      = field.node(target_id)?;
+        let mover_size  = Self::docking_extent_for_side(field, mover_id, side)?;
+        let target_size = Self::docking_extent_for_side(field, target_id, side)?;
+
+        // Node markers are centered on `pos`, so node_visual_center_offset is
+        // zero for node pills as well as active surfaces.
+        let mover_offset = if matches!(mover_node.state, NodeState::Node | NodeState::Preview) {
+            Self::node_visual_center_offset(&mover_node.label)
+        } else {
+            0.0
+        };
+        let target_offset = if matches!(target.state, NodeState::Node | NodeState::Preview) {
+            Self::node_visual_center_offset(&target.label)
+        } else {
+            0.0
+        };
+
+        // Visual centre positions in world space.
+        let target_vcx = target.pos.x + target_offset;
+        let target_vcy = target.pos.y; // vertical is symmetric; no offset
 
         let mut snap = target.pos;
 
         match side {
             DockSide::Left => {
-                snap.x = target.pos.x - ((target_size.x + mover_size.x) * 0.5);
-                snap.y = target.pos.y;
+                // Mover's right visual edge == target's left visual edge
+                // → mover_vcx + mover_size.x/2 == target_vcx - target_size.x/2
+                // → mover_vcx = target_vcx - (target_size.x + mover_size.x) * 0.5
+                // → snap.x (dot pos) = mover_vcx - mover_offset
+                snap.x = target_vcx - (target_size.x + mover_size.x) * 0.5 - mover_offset;
+                snap.y = target_vcy;
             }
             DockSide::Right => {
-                snap.x = target.pos.x + ((target_size.x + mover_size.x) * 0.5);
-                snap.y = target.pos.y;
+                // Mover's left visual edge == target's right visual edge
+                snap.x = target_vcx + (target_size.x + mover_size.x) * 0.5 - mover_offset;
+                snap.y = target_vcy;
             }
             DockSide::Top => {
+                // Vertical axis is symmetric: no center-offset correction needed.
                 snap.x = target.pos.x;
-                snap.y = target.pos.y + ((target_size.y + mover_size.y) * 0.5);
+                snap.y = target.pos.y + (target_size.y + mover_size.y) * 0.5;
             }
             DockSide::Bottom => {
                 snap.x = target.pos.x;
-                snap.y = target.pos.y - ((target_size.y + mover_size.y) * 0.5);
+                snap.y = target.pos.y - (target_size.y + mover_size.y) * 0.5;
             }
         }
 
         Some(snap)
     }
 
-    /// Returns true if the node's bounding rect overlaps the viewport rect.
     fn node_intersects_viewport(
         field: &Field,
         node_id: NodeId,
@@ -208,7 +322,6 @@ impl DockingState {
         nr > vl && nl < vr && nb > vt && nt < vb
     }
 
-    /// Returns true if `pos` is within the viewport bounds.
     fn pos_inside_viewport(pos: Vec2, viewport_center: Vec2, viewport_size: Vec2) -> bool {
         let half_vw = viewport_size.x * 0.5;
         let half_vh = viewport_size.y * 0.5;
@@ -216,6 +329,68 @@ impl DockingState {
             && pos.x <= viewport_center.x + half_vw
             && pos.y >= viewport_center.y - half_vh
             && pos.y <= viewport_center.y + half_vh
+    }
+
+    #[inline]
+    fn clamped_slack(default_value: f32, max_value: f32) -> f32 {
+        default_value.min(max_value).max(0.0)
+    }
+
+    #[inline]
+    fn cross_axis_slack(target_span: f32, mover_span: f32) -> f32 {
+        (target_span.min(mover_span) * Self::CROSS_AXIS_FACTOR)
+            .clamp(Self::CROSS_AXIS_MIN, Self::CROSS_AXIS_MAX)
+    }
+
+    fn candidate_is_close_enough(
+        field: &Field,
+        mover_id: NodeId,
+        target_id: NodeId,
+        side: DockSide,
+        snap_pos: Vec2,
+        viewport_center: Vec2,
+        viewport_size: Vec2,
+    ) -> bool {
+        let Some(mover) = field.node(mover_id) else {
+            return false;
+        };
+
+        // `snap_pos` is already the correct snap position produced by
+        // `snap_position_for_target` – it accounts for visual-centre offsets on
+        // node pills.  Measuring the mover's distance from snap_pos is therefore
+        // exact; recomputing a "desired" distance from target.pos would be wrong
+        // for any node/window combination where the centre offsets differ.
+        let dx_snap = mover.pos.x - snap_pos.x;
+        let dy_snap = mover.pos.y - snap_pos.y;
+
+        let mover_size =
+            Self::docking_extent_for_side(field, mover_id, side).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
+        let target_size =
+            Self::docking_extent_for_side(field, target_id, side).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
+
+        let snap_on_screen = Self::pos_inside_viewport(snap_pos, viewport_center, viewport_size);
+        let axis_slack = if snap_on_screen {
+            Self::clamped_slack(
+                Self::DEFAULT_CANDIDATE_SLACK_ONSCREEN,
+                Self::MAX_ARM_SLACK_ONSCREEN,
+            )
+        } else {
+            Self::clamped_slack(
+                Self::DEFAULT_CANDIDATE_SLACK_OFFSCREEN,
+                Self::MAX_ARM_SLACK_OFFSCREEN,
+            )
+        };
+
+        match side {
+            DockSide::Left | DockSide::Right => {
+                let cross_slack = Self::cross_axis_slack(target_size.y, mover_size.y);
+                dx_snap.abs() <= axis_slack && dy_snap.abs() <= cross_slack
+            }
+            DockSide::Top | DockSide::Bottom => {
+                let cross_slack = Self::cross_axis_slack(target_size.x, mover_size.x);
+                dy_snap.abs() <= axis_slack && dx_snap.abs() <= cross_slack
+            }
+        }
     }
 
     fn is_armed(
@@ -230,33 +405,39 @@ impl DockingState {
         let Some(mover) = field.node(mover_id) else {
             return false;
         };
-        let Some(target) = field.node(target_id) else {
-            return false;
-        };
 
-        let dx = mover.pos.x - target.pos.x;
-        let dy = mover.pos.y - target.pos.y;
+        // Same rationale as `candidate_is_close_enough`: snap_pos already encodes
+        // all geometry correctly; measure from it rather than re-deriving a desired
+        // centre-to-centre distance that would be wrong for asymmetric node pills.
+        let dx_snap = mover.pos.x - snap_pos.x;
+        let dy_snap = mover.pos.y - snap_pos.y;
 
-        let mover_size = Self::node_extent(field, mover_id).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
-        let target_size = Self::node_extent(field, target_id).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
+        let mover_size =
+            Self::docking_extent_for_side(field, mover_id, side).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
+        let target_size =
+            Self::docking_extent_for_side(field, target_id, side).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
 
-        // Use a tighter snap threshold when the mover would land off-screen after
-        // docking — the user must be more deliberate to dock onto an off-screen side.
         let snap_on_screen = Self::pos_inside_viewport(snap_pos, viewport_center, viewport_size);
-        let arm_slack = if snap_on_screen { 140.0_f32 } else { 40.0_f32 };
+        let arm_slack = if snap_on_screen {
+            Self::clamped_slack(
+                Self::DEFAULT_ARM_SLACK_ONSCREEN,
+                Self::MAX_ARM_SLACK_ONSCREEN,
+            )
+        } else {
+            Self::clamped_slack(
+                Self::DEFAULT_ARM_SLACK_OFFSCREEN,
+                Self::MAX_ARM_SLACK_OFFSCREEN,
+            )
+        };
 
         match side {
             DockSide::Left | DockSide::Right => {
-                let desired = (mover_size.x + target_size.x) * 0.5;
-                let axis_ok = (dx.abs() - desired).abs() <= arm_slack;
-                let cross_ok = dy.abs() <= target_size.y.max(mover_size.y);
-                axis_ok && cross_ok
+                let cross_slack = Self::cross_axis_slack(target_size.y, mover_size.y);
+                dx_snap.abs() <= arm_slack && dy_snap.abs() <= cross_slack
             }
             DockSide::Top | DockSide::Bottom => {
-                let desired = (mover_size.y + target_size.y) * 0.5;
-                let axis_ok = (dy.abs() - desired).abs() <= arm_slack;
-                let cross_ok = dx.abs() <= target_size.x.max(mover_size.x);
-                axis_ok && cross_ok
+                let cross_slack = Self::cross_axis_slack(target_size.x, mover_size.x);
+                dy_snap.abs() <= arm_slack && dx_snap.abs() <= cross_slack
             }
         }
     }
@@ -279,8 +460,8 @@ impl DockingState {
             if !Self::can_participate(field, candidate_id) {
                 continue;
             }
-            // A target that is entirely off-screen cannot be docked to.
-            if !Self::node_intersects_viewport(field, candidate_id, viewport_center, viewport_size) {
+            if !Self::node_intersects_viewport(field, candidate_id, viewport_center, viewport_size)
+            {
                 continue;
             }
 
@@ -295,6 +476,18 @@ impl DockingState {
             else {
                 continue;
             };
+
+            if !Self::candidate_is_close_enough(
+                field,
+                mover_id,
+                candidate_id,
+                side,
+                snap_pos,
+                viewport_center,
+                viewport_size,
+            ) {
+                continue;
+            }
 
             let dist2 = {
                 let sx = mover.pos.x - snap_pos.x;
@@ -404,11 +597,13 @@ mod tests {
     use crate::decay::DecayLevel;
     use crate::field::{Field, NodeState, Vec2};
 
-    /// A viewport large enough that all test nodes (placed near origin) are on-screen.
     fn test_viewport() -> (Vec2, Vec2) {
         (
             Vec2 { x: 0.0, y: 0.0 },
-            Vec2 { x: 10_000.0, y: 10_000.0 },
+            Vec2 {
+                x: 10_000.0,
+                y: 10_000.0,
+            },
         )
     }
 
@@ -525,7 +720,9 @@ mod tests {
         );
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
+        let preview = docking
+            .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+            .unwrap();
 
         assert_eq!(preview.mover_id, mover);
         assert_eq!(preview.target_id, target);
@@ -535,12 +732,12 @@ mod tests {
     }
 
     #[test]
-    fn update_preview_sets_unarmed_when_far() {
+    fn update_preview_is_none_when_far() {
         let (f, mover, _) = spawn_pair();
         let mut docking = DockingState::default();
 
-        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
-        assert!(!preview.armed);
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1);
+        assert!(preview.is_none());
     }
 
     #[test]
@@ -558,7 +755,9 @@ mod tests {
         );
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
+        let preview = docking
+            .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+            .unwrap();
         assert!(preview.armed);
 
         assert!(docking.commit_preview(&mut f, mover));
@@ -592,7 +791,9 @@ mod tests {
         );
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
+        let preview = docking
+            .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+            .unwrap();
         assert_eq!(preview.target_id, target);
 
         assert!(!docking.commit_preview(&mut f, other));
@@ -601,12 +802,10 @@ mod tests {
     }
 
     #[test]
-    fn commit_preview_rejects_unarmed_preview() {
+    fn commit_preview_rejects_without_preview() {
         let (mut f, mover, _) = spawn_pair();
         let mut docking = DockingState::default();
 
-        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
-        assert!(!preview.armed);
         assert!(!docking.commit_preview(&mut f, mover));
     }
 
@@ -640,7 +839,7 @@ mod tests {
 
         let a = f.spawn_surface("A", Vec2 { x: 205.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
         let b = f.spawn_surface("B", Vec2 { x: 300.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
-        let c = f.spawn_surface("C", Vec2 { x: 505.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
+        let c = f.spawn_surface("C", Vec2 { x: 405.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
 
         let mut docking = DockingState::default();
 
@@ -649,7 +848,7 @@ mod tests {
         assert_eq!(docking.partner(a), Some(b));
 
         if let Some(n) = f.node_mut(a) {
-            n.pos = Vec2 { x: 405.0, y: 0.0 };
+            n.pos = Vec2 { x: 305.0, y: 0.0 };
         }
 
         let _ = docking.update_preview(&f, a, test_viewport().0, test_viewport().1);
@@ -685,9 +884,27 @@ mod tests {
         let (mut f, mover, _) = spawn_pair();
         let mut docking = DockingState::default();
 
-        assert!(docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).is_some());
+        assert!(
+            docking
+                .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+                .is_none()
+        );
+
+        if let Some(n) = f.node_mut(mover) {
+            n.pos = Vec2 { x: 205.0, y: 0.0 };
+        }
+
+        assert!(
+            docking
+                .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+                .is_some()
+        );
         assert!(f.set_hidden(mover, true));
-        assert!(docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).is_none());
+        assert!(
+            docking
+                .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+                .is_none()
+        );
         assert!(docking.preview().is_none());
     }
 
@@ -707,36 +924,11 @@ mod tests {
 
         assert!(f.set_state(mover, NodeState::Preview));
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
+        let preview = docking
+            .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+            .unwrap();
 
         assert_eq!(preview.target_id, target);
-    }
-
-    #[test]
-    fn field_wrapper_methods_work_for_docking() {
-        let mut f = Field::new();
-        let mover = f.spawn_surface(
-            "Mover",
-            Vec2 { x: 205.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
-        let target = f.spawn_surface(
-            "Target",
-            Vec2 { x: 300.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
-
-        let preview = f.update_dock_preview(mover).unwrap();
-        assert_eq!(preview.target_id, target);
-        assert!(f.dock_preview().is_some());
-
-        assert!(f.finalize_dock_on_drag_release(mover));
-        assert_eq!(f.dock_partner(mover), Some(target));
-        assert_eq!(f.dock_partner(target), Some(mover));
-
-        assert!(f.undock_node(mover));
-        assert_eq!(f.dock_partner(mover), None);
-        assert_eq!(f.dock_partner(target), None);
     }
 
     #[test]
@@ -761,7 +953,9 @@ mod tests {
         assert!(f.set_hidden(hidden, true));
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
+        let preview = docking
+            .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+            .unwrap();
 
         assert_eq!(preview.target_id, visible);
     }
@@ -806,7 +1000,141 @@ mod tests {
         assert_eq!(f.node(target).unwrap().state, NodeState::Node);
 
         let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1).unwrap();
+        let preview = docking
+            .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+            .unwrap();
         assert_eq!(preview.target_id, target);
+    }
+
+    #[test]
+    fn preview_is_none_when_candidate_is_too_far_from_snap_band() {
+        let mut f = Field::new();
+        let mover = f.spawn_surface(
+            "Mover",
+            Vec2 { x: 80.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        let _target = f.spawn_surface(
+            "Target",
+            Vec2 { x: 300.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+
+        let mut docking = DockingState::default();
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1);
+
+        assert!(preview.is_none(), "far candidate should not even preview");
+    }
+
+    #[test]
+    fn preview_is_none_when_cross_axis_offset_is_too_large() {
+        let mut f = Field::new();
+        let mover = f.spawn_surface(
+            "Mover",
+            Vec2 { x: 205.0, y: 85.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        let _target = f.spawn_surface(
+            "Target",
+            Vec2 { x: 300.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+
+        let mut docking = DockingState::default();
+        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1);
+
+        assert!(preview.is_none(), "misaligned candidate should not preview");
+    }
+
+    #[test]
+    fn horizontal_window_to_node_uses_visual_label_width_estimate() {
+        let mut f = Field::new();
+        let mover = f.spawn_surface(
+            "Mover",
+            Vec2 { x: 175.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        let target = f.spawn_surface(
+            "Browser",
+            Vec2 { x: 300.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+
+        assert!(f.set_state(target, NodeState::Node));
+        assert_eq!(f.node(target).unwrap().footprint, Vec2 { x: 24.0, y: 24.0 });
+
+        let visual_w = DockingState::docking_extent_for_side(&f, target, DockSide::Left)
+            .unwrap()
+            .x;
+
+        assert!(visual_w > 24.0);
+
+        let mut docking = DockingState::default();
+        let preview = docking
+            .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+            .unwrap();
+
+        assert_eq!(preview.target_id, target);
+        assert_eq!(preview.side, DockSide::Left);
+        assert!(preview.armed);
+    }
+
+    #[test]
+    fn longer_node_labels_produce_wider_horizontal_capture() {
+        let mut f = Field::new();
+        let short = f.spawn_surface(
+            "Term",
+            Vec2 { x: 300.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        let long = f.spawn_surface(
+            "Firefox Developer Edition",
+            Vec2 { x: 600.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+
+        assert!(f.set_state(short, NodeState::Node));
+        assert!(f.set_state(long, NodeState::Node));
+
+        let short_w = DockingState::docking_extent_for_side(&f, short, DockSide::Left)
+            .unwrap()
+            .x;
+        let long_w = DockingState::docking_extent_for_side(&f, long, DockSide::Left)
+            .unwrap()
+            .x;
+
+        assert!(long_w > short_w);
+    }
+
+    #[test]
+    fn vertical_window_to_node_keeps_raw_node_height_behavior() {
+        let mut f = Field::new();
+        let mover = f.spawn_surface(
+            "Mover",
+            Vec2 { x: 300.0, y: 165.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        let target = f.spawn_surface(
+            "NodeTarget",
+            Vec2 { x: 300.0, y: 300.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+
+        assert!(f.set_state(target, NodeState::Node));
+        assert_eq!(f.node(target).unwrap().footprint, Vec2 { x: 24.0, y: 24.0 });
+
+        let vertical_size = DockingState::docking_extent_for_side(&f, target, DockSide::Bottom)
+            .unwrap();
+
+        assert_eq!(vertical_size.y, 24.0);
+
+        let mut docking = DockingState::default();
+        let preview = docking
+            .update_preview(&f, mover, test_viewport().0, test_viewport().1)
+            .unwrap();
+
+        assert_eq!(preview.target_id, target);
+        assert_eq!(preview.side, DockSide::Bottom);
+        assert!(preview.armed);
     }
 }
