@@ -75,12 +75,10 @@ impl DockingState {
     //   label_w   = round(raw × 1.22)  → per char: round(9 × 1.22) ≈ 11 px
     //   render_pad = 8 px
     //
-    // Resulting pill bounds from node_marker_bounds (pos = dot centre = node.pos):
-    //   left  = pos.x - dot_half - render_pad = pos.x - 13
-    //   right = pos.x + label_gap + label_w + render_pad
-    //   bw    = dot_half + label_gap + label_w + 2 × render_pad
-    //         = 5 + 8 + (label_len × 11) + 16 = 29 + label_len × 11
-    //   bh    = 2 × dot_half + 2 × render_pad = 10 + 16 = 26
+    // Resulting pill bounds from centered node_marker_bounds:
+    //   bw    = 2 × dot_half + label_gap + label_w + 2 × render_pad
+    //         = 10 + 8 + (label_len × 11) + 16 = 34 + label_len × 11
+    //   bh    = max(2 × dot_half, label_h) + 2 × render_pad = 10 + 16 = 26
     //
     // These constants must stay in sync with node_render.rs / render_utils.rs.
     const NODE_DOT_HALF_EST: f32 = 5.0;
@@ -88,8 +86,8 @@ impl DockingState {
     const NODE_RENDER_PAD_EST: f32 = 8.0;
     const NODE_LABEL_CHAR_EST: f32 = 11.0;
     // Minimum pill width: accounts for label_w clamped to 24 raw (→ 29 after ×1.22).
-    // 5 + 8 + 29 + 16 = 58.
-    const NODE_MIN_VISUAL_WIDTH_EST: f32 = 58.0;
+    // 10 + 8 + 29 + 16 = 63.
+    const NODE_MIN_VISUAL_WIDTH_EST: f32 = 63.0;
     // Pill height: 2 × dot_half + 2 × render_pad = 26.
     const NODE_MIN_VISUAL_HEIGHT_EST: f32 = 26.0;
 
@@ -185,31 +183,20 @@ impl DockingState {
 
     #[inline]
     fn estimate_node_visual_horizontal_width(label: &str) -> f32 {
-        // Pill width = dot_half + label_gap + label_w + 2 × render_pad
-        // (calibrated from node_marker_metrics + draw_node_markers at zoom=1 / g=1)
+        // Pill width = 2 × dot_half + label_gap + label_w + 2 × render_pad
+        // (calibrated from node_marker_metrics + centered draw_node_markers)
         let label_w = label.chars().count() as f32 * Self::NODE_LABEL_CHAR_EST;
-        (Self::NODE_DOT_HALF_EST
+        (2.0 * Self::NODE_DOT_HALF_EST
             + Self::NODE_LABEL_GAP_EST
             + label_w
             + 2.0 * Self::NODE_RENDER_PAD_EST)
             .max(Self::NODE_MIN_VISUAL_WIDTH_EST)
     }
 
-    /// How far the visual centre of the pill is shifted rightward from `node.pos`
-    /// (the dot centre). Positive = toward the label side.
-    ///
-    /// From node_marker_bounds:
-    ///   left  from pos = dot_half + render_pad
-    ///   right from pos = label_gap + label_w + render_pad
-    ///   centre offset  = (right − left) / 2
-    ///                  = (label_gap + label_w − dot_half) / 2
-    ///
-    /// render_pad is symmetric and cancels in the subtraction.
-    /// Must stay in sync with `estimate_node_visual_horizontal_width`.
+    /// Centered markers have no visual-centre offset from `node.pos`.
     #[inline]
-    fn node_visual_center_offset(label: &str) -> f32 {
-        let label_w = label.chars().count() as f32 * Self::NODE_LABEL_CHAR_EST;
-        (Self::NODE_LABEL_GAP_EST + label_w - Self::NODE_DOT_HALF_EST) / 2.0
+    fn node_visual_center_offset(_label: &str) -> f32 {
+        0.0
     }
 
     #[inline]
@@ -265,11 +252,8 @@ impl DockingState {
         let mover_size  = Self::docking_extent_for_side(field, mover_id, side)?;
         let target_size = Self::docking_extent_for_side(field, target_id, side)?;
 
-        // For node pills the dot sits at `pos` but the pill is not symmetric
-        // around it – the label hangs to the right.  `node_visual_center_offset`
-        // returns how far the pill's visual centre is shifted from the dot centre
-        // (positive = rightward).  Active surfaces have no such offset (they are
-        // centred on `pos` by design once xdg content geometry is used).
+        // Node markers are centered on `pos`, so node_visual_center_offset is
+        // zero for node pills as well as active surfaces.
         let mover_offset = if matches!(mover_node.state, NodeState::Node | NodeState::Preview) {
             Self::node_visual_center_offset(&mover_node.label)
         } else {
@@ -281,12 +265,7 @@ impl DockingState {
             0.0
         };
 
-        // Visual centre positions in world space:
-        //   target visual centre x  =  target.pos.x + target_offset
-        //   mover  visual centre x  =  snap.x        + mover_offset
-        //
-        // We want the visual edges to meet, i.e.:
-        //   mover_vcx ± half_mover == target_vcx ∓ half_target
+        // Visual centre positions in world space.
         let target_vcx = target.pos.x + target_offset;
         let target_vcy = target.pos.y; // vertical is symmetric; no offset
 

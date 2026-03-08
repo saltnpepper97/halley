@@ -152,19 +152,18 @@ pub(crate) fn node_marker_bounds(
     label_h: i32,
     pad: i32,
 ) -> (i32, i32, i32, i32) {
-    let dot_x0 = cx - dot_half;
-    let dot_y0 = cy - dot_half;
-    let dot_x1 = cx + dot_half;
-    let dot_y1 = cy + dot_half;
-    let lbl_x0 = cx + label_gap;
-    let lbl_y0 = cy - (label_h / 2);
-    let lbl_x1 = lbl_x0 + label_w;
-    let lbl_y1 = lbl_y0 + label_h;
-    let x0 = dot_x0.min(lbl_x0) - pad.max(0);
-    let y0 = dot_y0.min(lbl_y0) - pad.max(0);
-    let x1 = dot_x1.max(lbl_x1) + pad.max(0);
-    let y1 = dot_y1.max(lbl_y1) + pad.max(0);
-    let w = (x1 - x0).max(8);
-    let h = (y1 - y0).max(8);
+    let pad = pad.max(0);
+    let dot_d = (dot_half * 2).max(1);
+
+    // Center the full visual marker around (cx, cy) instead of treating the
+    // dot as the centre and letting the label hang only to the right.
+    let content_w = (dot_d + label_gap.max(0) + label_w.max(0)).max(dot_d);
+    let content_h = dot_d.max(label_h).max(1);
+
+    let x0 = cx - (content_w / 2) - pad;
+    let y0 = cy - (content_h / 2) - pad;
+    let w = (content_w + pad * 2).max(8);
+    let h = (content_h + pad * 2).max(8);
+
     (x0, y0, w, h)
 }
