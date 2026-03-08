@@ -17,18 +17,19 @@ pub(crate) fn draw_ring<F: Frame>(
     h: i32,
     rx: f32,
     ry: f32,
-    rot: f32,
+    offset_x: f32,
+    offset_y: f32,
     color: Color32F,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), F::Error> {
     let samples = 96;
-    let (s, c) = rot.sin_cos();
+    let center_x = st.viewport.center.x + offset_x;
+    let center_y = st.viewport.center.y + offset_y;
+
     for i in 0..samples {
         let t = (i as f32 / samples as f32) * TAU;
-        let ex = t.cos() * rx;
-        let ey = t.sin() * ry;
-        let x = c * ex - s * ey + st.viewport.center.x;
-        let y = s * ex + c * ey + st.viewport.center.y;
+        let x = center_x + t.cos() * rx;
+        let y = center_y + t.sin() * ry;
         let (sx, sy) = world_to_screen(st, w, h, x, y);
         draw_rect(frame, sx - 1, sy - 1, 3, 3, color, damage)?;
     }
@@ -94,7 +95,6 @@ pub(crate) fn sync_node_size_from_surface(
     let bw = bbox.size.w.max(1) as f32;
     let bh = bbox.size.h.max(1) as f32;
 
-    // Do immutable reads before taking node_mut.
     let now_ms = st.now_ms(Instant::now());
     let resize_static_active = st.resize_static_active_for(node_id, now_ms);
 
@@ -121,8 +121,6 @@ pub(crate) fn sync_node_size_from_surface(
 }
 
 pub(crate) fn preview_proxy_size(_real_w: f32, _real_h: f32) -> (f32, f32) {
-    // Node/proxy footprint must be source-size invariant.
-    // Keep this fixed so all windows collapse to a uniform node size.
     (220.0, 220.0)
 }
 

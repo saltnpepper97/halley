@@ -85,7 +85,7 @@ impl HalleyWlState {
         }
 
         debug!(
-            "tick-dump nodes={} visible={} state(a/n/c/o)={}/{}/{}/{} zone(i/o)={}/{} vp=({:.0},{:.0}) {:.0}x{:.0} focus-ring({:.0}x{:.0} rot={:.2})",
+            "tick-dump nodes={} visible={} state(a/n/c/o)={}/{}/{}/{} zone(i/o)={}/{} vp=({:.0},{:.0}) {:.0}x{:.0} focus-ring({:.0}x{:.0} offset=({:.0},{:.0}))",
             nodes_total,
             visible_total,
             state_active,
@@ -100,7 +100,8 @@ impl HalleyWlState {
             self.viewport.size.y,
             self.tuning.focus_ring_rx,
             self.tuning.focus_ring_ry,
-            self.tuning.focus_ring_rotation_rad,
+            self.tuning.focus_ring_offset_x,
+            self.tuning.focus_ring_offset_y,
         );
     }
 
@@ -170,6 +171,8 @@ impl HalleyWlState {
 
         ring.radius_x *= sx;
         ring.radius_y *= sy;
+        ring.offset_x *= sx;
+        ring.offset_y *= sy;
         ring
     }
 }

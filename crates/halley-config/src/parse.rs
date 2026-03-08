@@ -218,10 +218,16 @@ fn load_focus_ring_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["focus-ring.ry", "focus-ring.radius-y", "focus-ring.radius_y"],
         out.focus_ring_ry,
     );
-    out.focus_ring_rotation_rad = pick_f32(
+
+    out.focus_ring_offset_x = pick_f32(
         cfg,
-        &["focus-ring.rotation-rad", "focus-ring.rotation_rad"],
-        out.focus_ring_rotation_rad,
+        &["focus-ring.offset-x", "focus-ring.offset_x"],
+        out.focus_ring_offset_x,
+    );
+    out.focus_ring_offset_y = pick_f32(
+        cfg,
+        &["focus-ring.offset-y", "focus-ring.offset_y"],
+        out.focus_ring_offset_y,
     );
 
     // Transitional compatibility with the older config shape.

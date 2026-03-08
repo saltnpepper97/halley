@@ -220,7 +220,8 @@ pub(crate) fn draw_debug_frame_to_target(
         size.h,
         focus_ring.radius_x,
         focus_ring.radius_y,
-        focus_ring.rotation_rad,
+        focus_ring.offset_x,
+        focus_ring.offset_y,
         Color32F::new(0.15, 0.85, 0.85, 0.9),
         damage,
     )?;
