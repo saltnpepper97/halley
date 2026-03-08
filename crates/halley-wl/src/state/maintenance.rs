@@ -358,8 +358,22 @@ impl HalleyWlState {
         if a_visible || b_visible {
             self.dock_decay_offscreen_since_ms.remove(&a);
             self.dock_decay_offscreen_since_ms.remove(&b);
-            let _ = self.field.set_decay_level(a, DecayLevel::Hot);
-            let _ = self.field.set_decay_level(b, DecayLevel::Hot);
+            // Only restore Hot if both nodes are still Active. If they already
+            // decayed to Cold while off screen, leave them alone — re-entry is
+            // passive (the user may just be panning past) and should not
+            // resurrect the 3-window exception without explicit reactivation.
+            let a_active = self
+                .field
+                .node(a)
+                .is_some_and(|n| n.state == halley_core::field::NodeState::Active);
+            let b_active = self
+                .field
+                .node(b)
+                .is_some_and(|n| n.state == halley_core::field::NodeState::Active);
+            if a_active && b_active {
+                let _ = self.field.set_decay_level(a, DecayLevel::Hot);
+                let _ = self.field.set_decay_level(b, DecayLevel::Hot);
+            }
             return;
         }
 

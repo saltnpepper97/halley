@@ -113,6 +113,11 @@ impl XdgShellHandler for HalleyWlState {
         });
         toplevel.send_configure();
 
+        // Detect child/transient toplevels (e.g. browser video-preview popups).
+        // These are spawned by the client as logical children of an existing
+        // surface and should not disturb the spatial layout of their parent.
+        let is_transient = toplevel.parent().is_some();
+
         // Create a core node for the underlying wl_surface.
         let wl = toplevel.wl_surface().clone();
         let id = self.ensure_node_for_surface(&wl, "toplevel", (900, 600));
@@ -121,6 +126,17 @@ impl XdgShellHandler for HalleyWlState {
         // New windows should be immediately typeable and stay focused until
         // the user explicitly focuses another surface.
         self.set_interaction_focus(Some(id), 30_000, now);
+
+        if is_transient {
+            // Cancel the delayed activation that would call
+            // push_neighbors_for_activation. The surface is already Active and
+            // Hot from ensure_node_for_surface; we just don’t want it shoving
+            // the parent window aside when the preview pops up.
+            self.pending_spawn_activate_at_ms.remove(&id);
+            // Still play the appear animation so it doesn’t just snap in.
+            self.mark_active_transition(id, now, 620);
+        }
+
         self.resolve_surface_overlap();
     }
 

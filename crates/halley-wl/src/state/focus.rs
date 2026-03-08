@@ -44,14 +44,24 @@ impl HalleyWlState {
                 Some(fid) => self.surface_to_node.get(&key).copied() == Some(fid),
                 None => false,
             };
-            top.with_pending_state(|s| {
+            // Only send_configure when the Activated state actually changes.
+            // Sending it unconditionally creates a configure storm during video
+            // playback: every mouse-move triggers set_interaction_focus which
+            // called this function, blasting every surface with a configure.
+            // The browser must ack each one before committing the next frame,
+            // so it backs up, stalls its GPU process, and stops accepting input.
+            let state_changed = top.with_pending_state(|s| {
+                let was_active = s.states.contains(xdg_toplevel::State::Activated);
                 if focused {
                     s.states.set(xdg_toplevel::State::Activated);
                 } else {
                     s.states.unset(xdg_toplevel::State::Activated);
                 }
+                was_active != focused
             });
-            top.send_configure();
+            if state_changed {
+                top.send_configure();
+            }
         }
     }
 
