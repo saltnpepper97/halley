@@ -27,6 +27,7 @@ impl RuntimeTuning {
         load_focus_ring_section(&cfg, &mut out);
         load_nodes_section(&cfg, &mut out);
         load_clusters_section(&cfg, &mut out);
+        load_decay_section(&cfg, &mut out);
         load_tile_section(&cfg, &mut out);
         load_docking_section(&cfg, &mut out);
         load_physics_section(&cfg, &mut out);
@@ -307,6 +308,31 @@ fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["clusters.dwell-ms", "clusters.dwell_ms"],
         out.cluster_dwell_ms,
     );
+}
+
+fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    let primary_s = pick_u64(
+        cfg,
+        &["decay.primary-outside-ring-delay", "decay.primary_outside_ring_delay"],
+        out.primary_outside_ring_delay_ms / 1000,
+    );
+    let secondary_s = pick_u64(
+        cfg,
+        &[
+            "decay.secondary-outside-ring-delay",
+            "decay.secondary_outside_ring_delay",
+        ],
+        out.secondary_outside_ring_delay_ms / 1000,
+    );
+    let docked_s = pick_u64(
+        cfg,
+        &["decay.docked-offscreen-delay", "decay.docked_offscreen_delay"],
+        out.docked_offscreen_delay_ms / 1000,
+    );
+
+    out.primary_outside_ring_delay_ms = primary_s.saturating_mul(1000);
+    out.secondary_outside_ring_delay_ms = secondary_s.saturating_mul(1000);
+    out.docked_offscreen_delay_ms = docked_s.saturating_mul(1000);
 }
 
 fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
