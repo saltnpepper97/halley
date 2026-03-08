@@ -94,21 +94,18 @@ pub(crate) fn collect_active_surfaces(
         )
     });
 
-    let mut wl_surfaces: Vec<_> = if st.overview_mode_active() {
-        Vec::new()
-    } else {
-        st.xdg_shell_state
-            .toplevel_surfaces()
-            .into_iter()
-            .filter_map(|t| {
-                let wl = t.wl_surface().clone();
-                let key = wl.id();
-                let node_id = st.surface_to_node.get(&key).copied()?;
-                node_surface_map.insert(node_id, wl.clone());
-                Some((node_id, wl))
-            })
-            .collect()
-    };
+    let mut wl_surfaces: Vec<_> = st
+        .xdg_shell_state
+        .toplevel_surfaces()
+        .into_iter()
+        .filter_map(|t| {
+            let wl = t.wl_surface().clone();
+            let key = wl.id();
+            let node_id = st.surface_to_node.get(&key).copied()?;
+            node_surface_map.insert(node_id, wl.clone());
+            Some((node_id, wl))
+        })
+        .collect();
 
     if st.tuning.new_window_on_top {
         wl_surfaces.sort_by_key(|(id, _)| std::cmp::Reverse(id.as_u64()));
