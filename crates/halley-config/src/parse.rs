@@ -73,11 +73,7 @@ fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.keybinds.modifier =
         pick_modifiers(cfg, &["dev.keybinds.modifier"], out.keybinds.modifier);
 
-    out.keybinds.reload_config = pick_keycode(
-        cfg,
-        &["dev.keybinds.reload_config", "dev.keybinds.reload-config"],
-        out.keybinds.reload_config,
-    );
+    out.keybinds.reload = pick_keycode(cfg, &["dev.keybinds.reload"], out.keybinds.reload);
     out.keybinds.minimize_focused = pick_keycode(
         cfg,
         &["dev.keybinds.minimize_focused", "dev.keybinds.minimize-focused"],
@@ -88,11 +84,7 @@ fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["dev.keybinds.overview_toggle", "dev.keybinds.overview-toggle"],
         out.keybinds.overview_toggle,
     );
-    out.keybinds.quit_compositor = pick_keycode(
-        cfg,
-        &["dev.keybinds.quit_compositor", "dev.keybinds.quit-compositor"],
-        out.keybinds.quit_compositor,
-    );
+    out.keybinds.quit = pick_keycode(cfg, &["dev.keybinds.quit"], out.keybinds.quit);
 
     out.keybind_launch_command = pick_string(
         cfg,
@@ -231,7 +223,6 @@ fn load_focus_ring_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.focus_ring_offset_y,
     );
 
-    // Transitional compatibility with the older config shape.
     out.focus_ring_rx = pick_f32(
         cfg,
         &["focus-ring.primary-rx", "focus-ring.primary_rx"],
@@ -256,7 +247,6 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.primary_to_node_ms,
     );
 
-    // Backward compatibility for old two-stage configs.
     let legacy_preview = pick_u64(
         cfg,
         &[
@@ -593,8 +583,8 @@ fn apply_explicit_binding(
     let action_key = action_trimmed.to_ascii_lowercase();
 
     match action_key.as_str() {
-        "reload_config" | "reload-config" => {
-            out.keybinds.reload_config = key;
+        "reload" => {
+            out.keybinds.reload = key;
         }
         "minimize_focused" | "minimize-focused" => {
             out.keybinds.minimize_focused = key;
@@ -602,8 +592,8 @@ fn apply_explicit_binding(
         "overview_toggle" | "overview-toggle" => {
             out.keybinds.overview_toggle = key;
         }
-        "quit_halley" | "quit-halley" | "quit_compositor" | "quit-compositor" => {
-            out.keybinds.quit_compositor = key;
+        "quit" => {
+            out.keybinds.quit = key;
             out.quit_requires_shift = effective_mods.shift;
         }
         _ => {
