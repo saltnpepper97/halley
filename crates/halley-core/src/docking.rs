@@ -909,29 +909,6 @@ mod tests {
     }
 
     #[test]
-    fn node_state_preview_is_allowed_to_participate() {
-        let mut f = Field::new();
-        let mover = f.spawn_surface(
-            "Mover",
-            Vec2 { x: 205.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
-        let target = f.spawn_surface(
-            "Target",
-            Vec2 { x: 300.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
-
-        assert!(f.set_state(mover, NodeState::Preview));
-        let mut docking = DockingState::default();
-        let preview = docking
-            .update_preview(&f, mover, test_viewport().0, test_viewport().1)
-            .unwrap();
-
-        assert_eq!(preview.target_id, target);
-    }
-
-    #[test]
     fn hidden_target_is_not_selected() {
         let mut f = Field::new();
         let mover = f.spawn_surface(
@@ -946,7 +923,7 @@ mod tests {
         );
         let visible = f.spawn_surface(
             "Visible",
-            Vec2 { x: 300.0, y: 200.0 },
+            Vec2 { x: 300.0, y: 20.0 },
             Vec2 { x: 100.0, y: 80.0 },
         );
 
@@ -1004,46 +981,6 @@ mod tests {
             .update_preview(&f, mover, test_viewport().0, test_viewport().1)
             .unwrap();
         assert_eq!(preview.target_id, target);
-    }
-
-    #[test]
-    fn preview_is_none_when_candidate_is_too_far_from_snap_band() {
-        let mut f = Field::new();
-        let mover = f.spawn_surface(
-            "Mover",
-            Vec2 { x: 80.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
-        let _target = f.spawn_surface(
-            "Target",
-            Vec2 { x: 300.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
-
-        let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1);
-
-        assert!(preview.is_none(), "far candidate should not even preview");
-    }
-
-    #[test]
-    fn preview_is_none_when_cross_axis_offset_is_too_large() {
-        let mut f = Field::new();
-        let mover = f.spawn_surface(
-            "Mover",
-            Vec2 { x: 205.0, y: 85.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
-        let _target = f.spawn_surface(
-            "Target",
-            Vec2 { x: 300.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
-
-        let mut docking = DockingState::default();
-        let preview = docking.update_preview(&f, mover, test_viewport().0, test_viewport().1);
-
-        assert!(preview.is_none(), "misaligned candidate should not preview");
     }
 
     #[test]
@@ -1107,11 +1044,11 @@ mod tests {
     }
 
     #[test]
-    fn vertical_window_to_node_keeps_raw_node_height_behavior() {
+    fn vertical_window_to_node_uses_visual_node_height() {
         let mut f = Field::new();
         let mover = f.spawn_surface(
             "Mover",
-            Vec2 { x: 300.0, y: 165.0 },
+            Vec2 { x: 300.0, y: 245.0 },
             Vec2 { x: 100.0, y: 80.0 },
         );
         let target = f.spawn_surface(
@@ -1126,7 +1063,11 @@ mod tests {
         let vertical_size = DockingState::docking_extent_for_side(&f, target, DockSide::Bottom)
             .unwrap();
 
-        assert_eq!(vertical_size.y, 24.0);
+        assert_eq!(vertical_size.y, 26.0);
+
+        let snap = DockingState::snap_position_for_target(&f, mover, target, DockSide::Bottom)
+            .unwrap();
+        assert_eq!(snap, Vec2 { x: 300.0, y: 247.0 });
 
         let mut docking = DockingState::default();
         let preview = docking

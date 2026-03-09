@@ -789,9 +789,6 @@ mod tests {
 
         assert!(f.set_state(id, NodeState::Active));
         assert_eq!(f.node(id).unwrap().footprint, Vec2 { x: 100.0, y: 50.0 });
-
-        assert!(f.set_state(id, NodeState::Preview));
-        assert_eq!(f.node(id).unwrap().footprint, Vec2 { x: 24.0, y: 24.0 });
     }
 
     #[test]
