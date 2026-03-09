@@ -26,7 +26,9 @@ impl HalleyWlState {
             if !self.field.is_visible(a) || !self.field.is_visible(b) {
                 continue;
             }
-            if self.is_recently_resized_node(a, now_ms) || self.is_recently_resized_node(b, now_ms) {
+            if self.is_recently_resized_node(a, now_ms)
+                || self.is_recently_resized_node(b, now_ms)
+            {
                 continue;
             }
 
@@ -51,10 +53,18 @@ impl HalleyWlState {
             let a_edge_fp = self.dock_state_eval_footprint(a, sa);
             let b_edge_fp = self.dock_state_eval_footprint(b, sb);
 
-            // Docked-pair geometry should not decide decay anymore.
-            // Maintenance owns docked-pair decay policy now.
-            let _ = self.field.set_decay_level(a, DecayLevel::Hot);
-            let _ = self.field.set_decay_level(b, DecayLevel::Hot);
+            // Docked-pair geometry should not auto-resurrect nodes explicitly
+            // collapsed by the user. Keep the pair geometry enforced, but only
+            // re-heat members that are not manually collapsed.
+            let a_manual = self.manual_collapsed_nodes.contains(&a);
+            let b_manual = self.manual_collapsed_nodes.contains(&b);
+
+            if !a_manual {
+                let _ = self.field.set_decay_level(a, DecayLevel::Hot);
+            }
+            if !b_manual {
+                let _ = self.field.set_decay_level(b, DecayLevel::Hot);
+            }
 
             if let Some(n) = self.field.node(a) {
                 if n.state == halley_core::field::NodeState::Active {
@@ -144,7 +154,12 @@ impl HalleyWlState {
         (p_inside, p_outside)
     }
 
-    fn zone_for_pos_with_hysteresis(&mut self, id: NodeId, pos: Vec2, footprint: Vec2) -> FocusZone {
+    fn zone_for_pos_with_hysteresis(
+        &mut self,
+        id: NodeId,
+        pos: Vec2,
+        footprint: Vec2,
+    ) -> FocusZone {
         let focus_ring = self.active_focus_ring();
         let footprint = self.zone_eval_footprint_for(id, footprint);
         let (p_inside, p_outside) =
