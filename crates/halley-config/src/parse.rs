@@ -433,12 +433,12 @@ fn parse_viewport_outputs(cfg: &RuneConfig, root: &str) -> Vec<ViewportOutputCon
             0,
         );
 
-        let refresh_hz = {
+        let refresh_rate = {
             let v = pick_f32(
                 cfg,
                 &[
-                    format!("{root}.{key}.refresh-hz").as_str(),
-                    format!("{root}.{key}.refresh_hz").as_str(),
+                    format!("{root}.{key}.refresh-rate").as_str(),
+                    format!("{root}.{key}.refresh_rate").as_str(),
                     format!("{root}.{key}.rate").as_str(),
                 ],
                 0.0,

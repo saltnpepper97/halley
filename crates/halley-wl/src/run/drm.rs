@@ -358,7 +358,7 @@ pub(super) fn select_tty_scanout(
                     .copied()
                     .find(|m| {
                         m.size() == (wanted.width as u16, wanted.height as u16)
-                            && wanted.refresh_hz.map_or(true, |hz| {
+                            && wanted.refresh_rate.map_or(true, |hz| {
                                 (m.vrefresh() as f64 - hz).abs() < 1.0
                             })
                     })
