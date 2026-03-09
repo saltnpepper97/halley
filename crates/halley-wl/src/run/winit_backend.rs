@@ -1,5 +1,7 @@
 use super::*;
 
+use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
+
 fn apply_host_cursor(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
     image: &smithay::input::pointer::CursorImageStatus,
@@ -21,6 +23,37 @@ fn apply_host_cursor(
     }
 }
 
+fn publish_winit_output_snapshot(width: i32, height: i32, focused: bool, offset_x: i32, offset_y: i32) {
+    let width = width.max(0) as u32;
+    let height = height.max(0) as u32;
+
+    publish_outputs(vec![OutputInfo {
+        name: "winit-0".to_string(),
+        status: OutputStatus::Connected,
+        enabled: true,
+        current_mode: Some(ModeInfo {
+            width,
+            height,
+            refresh_hz: None,
+            preferred: true,
+            current: true,
+        }),
+        modes: vec![ModeInfo {
+            width,
+            height,
+            refresh_hz: None,
+            preferred: true,
+            current: true,
+        }],
+        logical: Some(LogicalOutputInfo {
+            scale: 1.0,
+            focused,
+            offset_x,
+            offset_y,
+        }),
+    }]);
+}
+
 pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
     scope!(
         "halley-wl",
@@ -33,7 +66,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             init_logging()?;
             let _host_backend_guard = ensure_host_display()?;
 
-            // Wayland display (clients + globals live here)
             let mut display: Display<HalleyWlState> = Display::new()?;
             let dh = display.handle();
 
@@ -55,7 +87,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 info!("dev actions enabled: ring tuning + node move (via configured keybinds)");
             }
 
-            // Global compositor state
             let mut state = HalleyWlState::new(&dh, tuning.clone());
             state.seat.add_pointer();
             if state
@@ -113,7 +144,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 (Some(watch_rx), Some(watcher))
             };
 
-            // Wayland listening socket
             let listening = ListeningSocketSource::new_auto().map_err(|err| {
                 let xdg_runtime_dir =
                     env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "<unset>".to_string());
@@ -125,7 +155,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let sock_name = listening.socket_name().to_string_lossy().to_string();
             info!("WAYLAND_DISPLAY={}", sock_name);
 
-            // Winit backend (compositor runs in a window)
             let (backend, winit_source) = winit::init::<GlesRenderer>().map_err(|err| {
                 let wayland_display =
                     env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "<unset>".to_string());
@@ -144,8 +173,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let xwayland_for_timer = xwayland.clone();
             let xwayland_request_for_timer = xwayland_request_rx.clone();
             {
-                // Apply runtime config exactly the same way as manual reload keybind.
-                // This keeps startup baseline consistent with reload behavior.
                 let fresh = RuntimeTuning::load_from_path(config_path.as_str());
                 state.apply_tuning(fresh);
                 let ws = backend.borrow().window_size();
@@ -157,6 +184,7 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             apply_host_cursor(&backend, &state.cursor_image_status);
             let backend_for_winit = backend.clone();
             let backend_for_cursor_timer = backend.clone();
+            let backend_for_output_timer = backend.clone();
             let backend_handle_for_winit = backend_handle.clone();
             let backend_handle_for_timer = backend_handle.clone();
             let config_path_for_winit = config_path.clone();
@@ -178,14 +206,17 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let last_maintenance_at = Rc::new(RefCell::new(Instant::now()));
             let last_maintenance_for_timer = last_maintenance_at.clone();
 
-            // calloop loop
+            {
+                let ws = backend.borrow().window_size();
+                publish_winit_output_snapshot(ws.w as i32, ws.h as i32, true, 0, 0);
+            }
+
             let mut ev: EventLoop<HalleyWlState> = EventLoop::try_new()?;
             let _signal = ev.get_signal();
 
             let mut dh_for_clients = dh.clone();
             ev.handle()
                 .insert_source(listening, move |client_stream, _, _st| {
-                    // attach per-client data (needed by CompositorHandler::client_compositor_state)
                     let _ =
                         dh_for_clients.insert_client(client_stream, Arc::new(ClientState::new()));
                 })?;
@@ -205,8 +236,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                     now.duration_since(at).as_millis() as u64
                                         >= HOVER_PREVIEW_DWELL_MS
                                 });
-                            // Staged hover UX:
-                            // 1) label-only hold, 2) preview appears while label relaxes.
                             let hover_node = if preview_ready { None } else { hovered };
                             let preview_hover_node = if preview_ready { hovered } else { None };
                             if let Err(err) = backend_handle_for_winit.draw_frame(
@@ -240,8 +269,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 }
                                 ps.workspace_size = (new_w, new_h);
                             }
-                            // Keep world camera size stable from config/runtime state.
-                            // Window pixel resize should not mutate world units.
                             let ps = pointer_state_for_winit.borrow();
                             let now = Instant::now();
                             const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
@@ -270,9 +297,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             debug!("winit event: {:?}", event);
                             *mod_state_for_winit.borrow_mut() = ModState::default();
                             let mut ps = pointer_state_for_winit.borrow_mut();
-                            // In nested development, transient focus flicker can happen while
-                            // right-drag resizing. Do not forcibly cancel in-flight interactions
-                            // here; let pointer release/motion handlers finalize cleanly.
                             if ps.resize.is_none() {
                                 ps.drag = None;
                                 ps.move_anim.clear();
@@ -382,12 +406,28 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                 })?;
 
-            // Removed optional extra direct-libinput hookup in winit backend.
-
-            // Periodic tick: evaluate commit activity state transitions (no spam)
             let timer = Timer::from_duration(Duration::from_millis(16));
             ev.handle().insert_source(timer, move |_tick, _, st| {
                 let now = Instant::now();
+
+                drain_ipc_commands(|cmd| match cmd {
+                    RuntimeIpcCommand::Quit => {
+                        info!("ipc: quit requested");
+                        st.request_exit();
+                    }
+                    RuntimeIpcCommand::Reload => {
+                        let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
+                        st.apply_tuning(next);
+                        info!("ipc: reloaded config from {}", config_path_for_timer.as_str());
+                        info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                    }
+                });
+
+                {
+                    let ws = backend_for_output_timer.borrow().window_size();
+                    publish_winit_output_snapshot(ws.w as i32, ws.h as i32, true, 0, 0);
+                }
+
                 {
                     let rx = xwayland_request_for_timer.borrow_mut();
                     while rx.try_recv().is_ok() {
@@ -484,7 +524,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             info!("entering main loop");
 
             loop {
-                // 1) run calloop sources (socket, winit, timer, etc.)
                 ev.dispatch(None, &mut state)?;
 
                 if state.exit_requested() {
@@ -492,10 +531,7 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     break Ok(());
                 }
 
-                // 2) dispatch wayland clients
                 display.dispatch_clients(&mut state)?;
-
-                // 3) flush outgoing events
                 display.flush_clients()?;
             }
         }
