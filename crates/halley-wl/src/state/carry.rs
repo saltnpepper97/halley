@@ -197,21 +197,13 @@ impl HalleyWlState {
         zone
     }
 
-    pub fn finalize_mouse_drag_state(&mut self, id: NodeId, pointer_world: Vec2, _now: Instant) {
+    pub fn finalize_mouse_drag_state(&mut self, id: NodeId, _pointer_world: Vec2, _now: Instant) {
         let Some(n) = self.field.node(id) else {
             return;
         };
         if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {
             return;
         }
-        let focus_ring = self.active_focus_ring();
-        let pointer_zone = focus_ring.zone(self.viewport.center, pointer_world);
-        let target = if pointer_zone != FocusZone::Inside {
-            DecayLevel::Cold
-        } else {
-            DecayLevel::Hot
-        };
-        let _ = self.field.set_decay_level(id, target);
     }
 
     pub fn begin_carry_state_tracking(&mut self, id: NodeId) {

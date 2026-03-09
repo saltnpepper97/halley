@@ -47,7 +47,6 @@ keybinds:
   # Basic compositor controls
   "$var.mod+r" "reload_config"
   "$var.mod+n" "minimize_focused"
-  "$var.mod+o" "overview_toggle"
   
   # Quit Halley
   "$var.mod+shift+q" "quit_halley"
