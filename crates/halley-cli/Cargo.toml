@@ -8,4 +8,4 @@ name = "halleyctl"
 path = "src/main.rs"
 
 [dependencies]
-drm = "0.14.2"
+halley-ipc = { path = "../halley-ipc" }

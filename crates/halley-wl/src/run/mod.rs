@@ -29,7 +29,7 @@ use smithay::{
     backend::egl::{EGLContext, EGLDisplay},
     backend::input::{
         AbsolutePositionEvent, Axis, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
-        PointerButtonEvent, PointerMotionEvent,
+        PointerButtonEvent,
     },
     backend::libinput::LibinputInputBackend,
     backend::renderer::gles::GlesRenderer,
@@ -56,19 +56,21 @@ use crate::state::{ClientState, HalleyWlState};
 use crate::input::{BackendInputEventData, advance_node_move_anim, handle_backend_input_event};
 use crate::runtime_render::draw_debug_frame_to_target;
 use crate::surface::current_surface_size_for_node;
+
 mod common;
 mod drm;
 mod input_backend;
+mod ipc;
 mod tty_backend;
 mod winit_backend;
+
 use common::{
     RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite,
 };
 #[cfg(feature = "session-libseat")]
 use drm::probe_tty_drm_device_via_session;
-use drm::{probe_tty_drm_device, queue_tty_drm_frame};
-use input_backend::build_direct_libinput_backend;
+pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs};
 #[cfg(feature = "session-libseat")]
 use input_backend::build_tty_libinput_backend;
 
@@ -99,6 +101,8 @@ impl BackendView for TtyBackendHandle {
 }
 
 pub fn run() -> Result<(), Box<dyn Error>> {
+    init_ipc()?;
+
     match RuntimeBackend::from_env()? {
         RuntimeBackend::Auto => match auto_backend() {
             RuntimeBackend::Tty => run_tty(),

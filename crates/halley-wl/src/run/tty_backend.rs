@@ -1,4 +1,15 @@
 use super::*;
+
+use crate::run::drm::{collect_outputs_for_ipc, probe_tty_drm_device, queue_tty_drm_frame};
+use crate::run::input_backend::build_direct_libinput_backend;
+#[cfg(feature = "session-libseat")]
+use crate::run::{build_tty_libinput_backend, probe_tty_drm_device_via_session};
+
+use smithay::backend::input::{
+    AbsolutePositionEvent, Axis, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
+    PointerButtonEvent, PointerMotionEvent,
+};
+
 pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
     eprintln!("halley-wl tty: starting");
     scope!(
@@ -14,6 +25,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 return Err(err);
             }
             eprintln!("halley-wl tty: logging initialized");
+
             #[cfg(feature = "session-libseat")]
             let (seat_name, drm_probe, libinput_backend, libinput_context, session_notifier) = {
                 let config_path = RuntimeTuning::config_path();
@@ -39,6 +51,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     session_notifier,
                 )
             };
+
             #[cfg(not(feature = "session-libseat"))]
             let (seat_name, drm_probe, libinput_backend) = {
                 warn!(
@@ -51,6 +64,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 let libinput_backend = build_direct_libinput_backend()?;
                 (seat_name, drm_probe, libinput_backend)
             };
+
             info!(
                 "tty backend starting on seat={} with direct DRM scanout",
                 seat_name
@@ -164,6 +178,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     let _ =
                         dh_for_clients.insert_client(client_stream, Arc::new(ClientState::new()));
                 })?;
+
             #[cfg(feature = "session-libseat")]
             {
                 let libinput_context_for_session = libinput_context.clone();
@@ -225,6 +240,9 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 ps.workspace_size = (backend_handle.width, backend_handle.height);
             }
 
+            let initial_outputs = collect_outputs_for_ipc(&drm_probe.dev);
+            publish_outputs(initial_outputs);
+
             let drm_crtc = drm_probe.crtc;
             let gbm_surface_for_vblank = drm_probe.gbm_surface.clone();
             let warned_vblank_mismatch = Rc::new(RefCell::new(false));
@@ -233,8 +251,6 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 drm_probe.notifier,
                 move |event, metadata, _st| match event {
                     DrmEvent::VBlank(crtc) => {
-                        // Single-output tty path: tolerate occasional CRTC-id mismatch and still
-                        // release the pending frame to avoid scanout stalls.
                         let expected_crtc = { gbm_surface_for_vblank.borrow().crtc() };
                         if crtc != expected_crtc {
                             if !*warned_vblank_mismatch_for_notifier.borrow() {
@@ -280,7 +296,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             info!("tty input: first keyboard event received");
                             *keyboard_seen_for_input.borrow_mut() = true;
                         }
-                        let code = event.key_code().into();
+                        let code: u32 = event.key_code().into();
                         let pressed = event.state() == KeyState::Pressed;
                         if debug_input {
                             info!("tty input keyboard code={} pressed={}", code, pressed);
@@ -406,8 +422,23 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let timer = Timer::from_duration(Duration::from_millis(16));
             let gbm_surface_for_timer = drm_probe.gbm_surface.clone();
             let renderer_for_timer = drm_probe.renderer.clone();
+
             ev.handle().insert_source(timer, move |_tick, _, st| {
                 let now = Instant::now();
+
+                drain_ipc_commands(|cmd| match cmd {
+                    RuntimeIpcCommand::Quit => {
+                        info!("ipc: quit requested");
+                        st.request_exit();
+                    }
+                    RuntimeIpcCommand::Reload => {
+                        let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
+                        st.apply_tuning(next);
+                        info!("ipc: reloaded config from {}", config_path_for_timer.as_str());
+                        info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                    }
+                });
+
                 {
                     let rx = xwayland_request_for_timer.borrow_mut();
                     while rx.try_recv().is_ok() {
@@ -415,22 +446,25 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 xwayland_for_timer.borrow_mut().tick();
-                let resize_active = {
+
+                {
                     let ps = pointer_state_for_timer.borrow();
-                    ps.resize.is_some()
-                };
-                st.tick_animator_frame(now);
-                {
-                    let mut ps = pointer_state_for_timer.borrow_mut();
-                    let _ = advance_node_move_anim(st, &mut ps, now);
-                }
-                {
-                    let mut last = last_maintenance_for_timer.borrow_mut();
-                    if !resize_active
-                        && now.duration_since(*last).as_millis() as u64 >= st.tuning.tick_ms
+                    let resize_active = ps.resize.is_some();
+                    drop(ps);
+
+                    st.tick_animator_frame(now);
                     {
-                        st.tick_maintenance(now);
-                        *last = now;
+                        let mut ps = pointer_state_for_timer.borrow_mut();
+                        let _ = advance_node_move_anim(st, &mut ps, now);
+                    }
+                    {
+                        let mut last = last_maintenance_for_timer.borrow_mut();
+                        if !resize_active
+                            && now.duration_since(*last).as_millis() as u64 >= st.tuning.tick_ms
+                        {
+                            st.tick_maintenance(now);
+                            *last = now;
+                        }
                     }
                 }
 
@@ -447,6 +481,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     info!("reloaded config from {}", config_path_for_timer.as_str());
                     info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                 }
+
                 let ps = pointer_state_for_timer.borrow();
                 let resize_preview = ps.resize;
                 let cursor_screen = Some(ps.screen);
@@ -465,6 +500,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 } else {
                     st.send_frame_callbacks(now);
                 }
+
                 let secs = now.duration_since(input_started_at).as_secs();
                 if secs >= 5
                     && !*keyboard_seen_for_timer.borrow()
@@ -486,6 +522,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     );
                     *warned_pointer_missing_for_timer.borrow_mut() = true;
                 }
+
                 TimeoutAction::ToDuration(Duration::from_millis(16))
             })?;
 

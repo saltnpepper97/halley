@@ -1,15 +1,17 @@
 use super::*;
+
+use crate::interaction::types::ResizeCtx;
+use halley_ipc::{ModeInfo, OutputInfo, OutputStatus};
+
 pub(super) struct TtyDrmProbe {
     pub(super) _card_path: std::path::PathBuf,
-    pub(super) _dev: DrmDevice,
+    pub(super) dev: DrmDevice,
     pub(super) notifier: smithay::backend::drm::DrmDeviceNotifier,
     pub(super) crtc: drm_control::crtc::Handle,
     pub(super) mode: drm_control::Mode,
     pub(super) gbm_surface: Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
     pub(super) renderer: Rc<RefCell<GlesRenderer>>,
 }
-
-use crate::interaction::types::ResizeCtx;
 
 pub(super) fn probe_tty_drm_device(
     seat: &str,
@@ -190,7 +192,7 @@ pub(super) fn probe_tty_drm_device_path(
     );
     Ok(TtyDrmProbe {
         _card_path: card_path.to_path_buf(),
-        _dev: dev,
+        dev,
         notifier,
         crtc,
         mode,
@@ -287,7 +289,7 @@ pub(super) fn probe_tty_drm_device_path_via_session(
     );
     Ok(TtyDrmProbe {
         _card_path: card_path.to_path_buf(),
-        _dev: dev,
+        dev,
         notifier,
         crtc,
         mode,
@@ -431,6 +433,83 @@ pub(super) fn select_tty_scanout(
         selected_conn,
         selected_info.to_string(),
     ))
+}
+
+pub(super) fn collect_outputs_for_ipc(dev: &DrmDevice) -> Vec<OutputInfo> {
+    let mut outputs = Vec::new();
+
+    let Ok(resources) = dev.resource_handles() else {
+        return outputs;
+    };
+
+    for conn in resources.connectors() {
+        let Ok(info) = dev.get_connector(*conn, true) else {
+            continue;
+        };
+
+        let status = match info.state() {
+            drm_control::connector::State::Connected => OutputStatus::Connected,
+            drm_control::connector::State::Disconnected => OutputStatus::Disconnected,
+            drm_control::connector::State::Unknown => OutputStatus::Unknown,
+        };
+
+        let current = current_mode_from_connector(dev, &info);
+        let mut current_mode = None;
+        let mut modes = Vec::new();
+
+        for mode in info.modes() {
+            let (w, h) = mode.size();
+            let hz = mode.vrefresh() as f64;
+            let text = format!("{}x{} @ {:.2}Hz", w, h, hz);
+            let current_match = current.as_deref() == Some(text.as_str());
+
+            let mode_info = ModeInfo {
+                width: w as u32,
+                height: h as u32,
+                refresh_hz: Some(hz),
+                preferred: mode
+                    .mode_type()
+                    .contains(drm_control::ModeTypeFlags::PREFERRED),
+                current: current_match,
+            };
+
+            if current_match {
+                current_mode = Some(mode_info.clone());
+            }
+
+            modes.push(mode_info);
+        }
+
+        outputs.push(OutputInfo {
+            name: info.to_string(),
+            status,
+            enabled: current_mode.is_some(),
+            current_mode,
+            modes,
+            logical: None,
+        });
+    }
+
+    outputs
+}
+
+fn current_mode_from_connector(
+    dev: &DrmDevice,
+    info: &drm_control::connector::Info,
+) -> Option<String> {
+    let encoder = info
+        .current_encoder()
+        .or_else(|| info.encoders().first().copied())?;
+
+    let encoder_info = dev.get_encoder(encoder).ok()?;
+    let crtc = encoder_info.crtc()?;
+    let crtc_info = dev.get_crtc(crtc).ok()?;
+
+    crtc_info.mode().map(|m| {
+        let (w, h) = m.size();
+        let hz = m.vrefresh() as f64;
+        format!("{}x{} @ {:.2}Hz", w, h, hz)
+    })
 }
 
 pub(super) fn queue_tty_drm_frame(

@@ -2,7 +2,7 @@
 members = [
   "crates/halley",
   "crates/halley-cli", "crates/halley-config",
-  "crates/halley-core", 
+  "crates/halley-core", "crates/halley-ipc", 
   "crates/halley-wl"
 ]
 resolver = "2"
