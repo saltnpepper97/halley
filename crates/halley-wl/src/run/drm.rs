@@ -356,7 +356,12 @@ pub(super) fn select_tty_scanout(
                     .modes()
                     .iter()
                     .copied()
-                    .find(|m| m.size() == (wanted.width as u16, wanted.height as u16))
+                    .find(|m| {
+                        m.size() == (wanted.width as u16, wanted.height as u16)
+                            && wanted.refresh_hz.map_or(true, |hz| {
+                                (m.vrefresh() as f64 - hz).abs() < 1.0
+                            })
+                    })
                 else {
                     return Err(io::Error::other(format!(
                         "configured viewport {} requests {}x{}, but no such mode is available",
@@ -435,7 +440,7 @@ pub(super) fn select_tty_scanout(
     ))
 }
 
-pub(super) fn collect_outputs_for_ipc(dev: &DrmDevice) -> Vec<OutputInfo> {
+pub(super) fn collect_outputs_for_ipc(dev: &DrmDevice, active_crtc: drm_control::crtc::Handle) -> Vec<OutputInfo> {
     let mut outputs = Vec::new();
 
     let Ok(resources) = dev.resource_handles() else {
@@ -453,7 +458,7 @@ pub(super) fn collect_outputs_for_ipc(dev: &DrmDevice) -> Vec<OutputInfo> {
             drm_control::connector::State::Unknown => OutputStatus::Unknown,
         };
 
-        let current = current_mode_from_connector(dev, &info);
+        let current = current_mode_from_connector(dev, &info, active_crtc);
         let mut current_mode = None;
         let mut modes = Vec::new();
 
@@ -496,15 +501,21 @@ pub(super) fn collect_outputs_for_ipc(dev: &DrmDevice) -> Vec<OutputInfo> {
 fn current_mode_from_connector(
     dev: &DrmDevice,
     info: &drm_control::connector::Info,
+    active_crtc: drm_control::crtc::Handle,  // add this param
 ) -> Option<String> {
     let encoder = info
         .current_encoder()
         .or_else(|| info.encoders().first().copied())?;
 
     let encoder_info = dev.get_encoder(encoder).ok()?;
-    let crtc = encoder_info.crtc()?;
-    let crtc_info = dev.get_crtc(crtc).ok()?;
+    
+    // Replace: let crtc = encoder_info.crtc()?;
+    // With: only trust the crtc if it matches the known-active one
+    let crtc = encoder_info.crtc()
+        .filter(|c| *c == active_crtc)
+        .unwrap_or(active_crtc);  // fall back to the ground truth
 
+    let crtc_info = dev.get_crtc(crtc).ok()?;
     crtc_info.mode().map(|m| {
         let (w, h) = m.size();
         let hz = m.vrefresh() as f64;

@@ -240,7 +240,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 ps.workspace_size = (backend_handle.width, backend_handle.height);
             }
 
-            let initial_outputs = collect_outputs_for_ipc(&drm_probe.dev);
+            let initial_outputs = collect_outputs_for_ipc(&drm_probe.dev, drm_probe.crtc);
             publish_outputs(initial_outputs);
 
             let drm_crtc = drm_probe.crtc;

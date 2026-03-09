@@ -197,6 +197,9 @@ fn load_viewport_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     if let Some(primary) = out.tty_viewports.first() {
         out.viewport_size.x = primary.width as f32;
         out.viewport_size.y = primary.height as f32;
+
+        out.viewport_center.x = primary.offset_x as f32 + primary.width as f32 / 2.0;
+        out.viewport_center.y = primary.offset_y as f32 + primary.height as f32 / 2.0;
     }
 }
 
@@ -430,12 +433,26 @@ fn parse_viewport_outputs(cfg: &RuneConfig, root: &str) -> Vec<ViewportOutputCon
             0,
         );
 
+        let refresh_hz = {
+            let v = pick_f32(
+                cfg,
+                &[
+                    format!("{root}.{key}.refresh-hz").as_str(),
+                    format!("{root}.{key}.refresh_hz").as_str(),
+                    format!("{root}.{key}.rate").as_str(),
+                ],
+                0.0,
+            );
+            if v > 0.0 { Some(v as f64) } else { None }
+        };
+
         out.push(ViewportOutputConfig {
             connector: key,
             offset_x,
             offset_y,
             width,
             height,
+            refresh_rate,
         });
     }
 
