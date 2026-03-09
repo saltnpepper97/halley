@@ -67,6 +67,7 @@ pub struct ViewportOutputConfig {
     pub offset_y: i32,
     pub width: u32,
     pub height: u32,
+    pub refresh_rate: Option<f64>,
 }
 
 impl Default for RuntimeTuning {
