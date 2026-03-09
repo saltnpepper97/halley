@@ -96,7 +96,6 @@ fn make_visual(field: &Field, id: NodeId, params: VisualParams) -> NodeVisual {
     }
     z += match n.state {
         NodeState::Active => 300,
-        NodeState::Preview => 100,
         NodeState::Drifting => 150,
         NodeState::Node => 100,
         NodeState::Core => 400,

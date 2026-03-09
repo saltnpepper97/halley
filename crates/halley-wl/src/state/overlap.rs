@@ -342,9 +342,6 @@ impl HalleyWlState {
             halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
                 self.node_collision_size(&n.label, anim.scale)
             }
-            halley_core::field::NodeState::Preview => {
-                self.node_collision_size(&n.label, anim.scale)
-            }
             halley_core::field::NodeState::Drifting => n.footprint,
         }
     }
