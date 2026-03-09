@@ -45,12 +45,12 @@ keybinds:
   mod "lsuper"
 
   # Basic compositor controls
-  "$var.mod+r" "reload_config"
+  "$var.mod+r" "reload"
   "$var.mod+n" "minimize_focused"
-  
+
   # Quit Halley
-  "$var.mod+shift+q" "quit_halley"
-  
+  "$var.mod+shift+q" "quit"
+
   # Applications
   "$var.mod+return" "kitty"
   "$var.mod+p" "pavucontrol"

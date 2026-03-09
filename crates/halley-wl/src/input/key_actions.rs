@@ -22,7 +22,7 @@ pub(crate) fn key_is_compositor_binding(
 ) -> bool {
     let kb = &st.tuning.keybinds;
 
-    if key_matches(key_code, kb.quit_compositor) {
+    if key_matches(key_code, kb.quit) {
         let need = if st.tuning.quit_requires_shift {
             with_extra_shift(kb.modifier)
         } else {
@@ -39,7 +39,7 @@ pub(crate) fn key_is_compositor_binding(
         }
     }
 
-    if key_matches(key_code, kb.reload_config) && modifier_exact(mods, kb.modifier) {
+    if key_matches(key_code, kb.reload) && modifier_exact(mods, kb.modifier) {
         return true;
     }
 
@@ -82,7 +82,7 @@ pub(crate) fn apply_bound_key(
 
     let kb = st.tuning.keybinds.clone();
 
-    if key_matches(key_code, kb.quit_compositor) {
+    if key_matches(key_code, kb.quit) {
         let need = if st.tuning.quit_requires_shift {
             with_extra_shift(kb.modifier)
         } else {
@@ -102,7 +102,7 @@ pub(crate) fn apply_bound_key(
         }
     }
 
-    if key_matches(key_code, kb.reload_config) && modifier_exact(mods, kb.modifier) {
+    if key_matches(key_code, kb.reload) && modifier_exact(mods, kb.modifier) {
         let next = RuntimeTuning::load_from_path(config_path);
         st.apply_tuning(next);
         info!("manual config reload from {}", config_path);

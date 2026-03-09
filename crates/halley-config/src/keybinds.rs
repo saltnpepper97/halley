@@ -17,10 +17,10 @@ pub struct KeyModifiers {
 #[derive(Clone, Debug)]
 pub struct Keybinds {
     pub modifier: KeyModifiers,
-    pub reload_config: u32,
+    pub reload: u32,
     pub minimize_focused: u32,
     pub overview_toggle: u32,
-    pub quit_compositor: u32,
+    pub quit: u32,
     pub primary_left: u32,
     pub primary_right: u32,
     pub primary_up: u32,
@@ -49,10 +49,10 @@ impl Default for Keybinds {
                 left_alt: true,
                 ..KeyModifiers::default()
             },
-            reload_config: 19,    // r
+            reload: 19,           // r
             minimize_focused: 49, // n
             overview_toggle: 24,  // o
-            quit_compositor: 16,  // q
+            quit: 16,             // q
             primary_left: 105,    // left
             primary_right: 106,   // right
             primary_up: 103,      // up
