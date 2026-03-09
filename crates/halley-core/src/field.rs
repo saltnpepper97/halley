@@ -111,7 +111,6 @@ pub enum NodeKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NodeState {
     Active,
-    Preview,
     Drifting,
     Node, // dot with label
     Core, // only meaningful for Core kind
@@ -426,7 +425,6 @@ impl Field {
         n.state = state.clone();
         n.footprint = match state {
             NodeState::Active => n.intrinsic_size,
-            NodeState::Preview => DOT,
             NodeState::Drifting => n.footprint,
             NodeState::Node => DOT,
             NodeState::Core => CORE,

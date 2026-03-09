@@ -32,9 +32,7 @@ fn now_millis_u32() -> u32 {
 /// correctly — intercepting them would break client-side keymaps and IMEs.
 ///
 /// All codes are XKB (evdev + 8), matching the raw codes delivered by the
-/// input backend. The old list included bare evdev codes alongside the XKB
-/// codes. That caused collisions: evdev 54 (Right Shift) == XKB 54 (letter C),
-/// so Ctrl+Shift+C was being misidentified as a modifier keypress.
+/// input backend.
 #[inline]
 fn is_modifier_keycode(code: u32) -> bool {
     matches!(
@@ -85,12 +83,6 @@ pub(crate) fn handle_keyboard_input(
 ) {
     update_mod_state(&mut mod_state.borrow_mut(), code, pressed);
 
-    if pressed {
-        if let Some(fid) = st.last_input_surface_node() {
-            st.set_interaction_focus(Some(fid), 30_000, Instant::now());
-        }
-    }
-
     let mods = mod_state.borrow().clone();
     let is_mod_key = is_modifier_keycode(code);
 
@@ -101,13 +93,30 @@ pub(crate) fn handle_keyboard_input(
         false
     };
 
+    // Refresh interaction focus only for keys that are going to clients.
+    // Compositor bindings like minimize should not first re-focus / re-heat
+    // the surface they are about to collapse.
+    if pressed && !matched_binding {
+        if let Some(fid) = st.last_input_surface_node() {
+            st.set_interaction_focus(Some(fid), 30_000, Instant::now());
+        }
+    }
+
     // Only intercept explicit compositor bindings.
     // Releases are intercepted only if the matching press was intercepted.
+    //
+    // Also: execute compositor bindings only on the first physical press.
+    // Ignore repeated press events while the key remains held, otherwise a
+    // toggle binding like minimize_focused will collapse and then immediately
+    // reopen on key repeat.
+    let mut first_binding_press = false;
+
     let intercept = if is_mod_key {
         false
     } else if pressed {
         if matched_binding {
-            mod_state.borrow_mut().intercepted_keys.insert(code);
+            let mut ms = mod_state.borrow_mut();
+            first_binding_press = ms.intercepted_keys.insert(code);
             true
         } else {
             false
@@ -140,8 +149,9 @@ pub(crate) fn handle_keyboard_input(
         );
     }
 
-    // Execute compositor action only after the filter path above.
-    if pressed && matched_binding {
+    // Execute compositor action only after the filter path above,
+    // and only on the first press (not repeats while held).
+    if pressed && matched_binding && first_binding_press {
         if apply_bound_key(st, code, &mods, config_path, wayland_display) {
             backend.request_redraw();
         }

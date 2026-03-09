@@ -25,15 +25,6 @@ impl HalleyWlState {
             return;
         }
 
-        // Special exception:
-        // allow exactly one mutually-docked active pair to remain active
-        // alongside one non-docked active surface (the "breakout").
-        //
-        // Crucially, we derive the breakout from the full active set — NOT from
-        // interaction_focus alone.  If focus is currently on a docked node we
-        // still need to find and preserve the non-docked third window; using
-        // interaction_focus directly would yield None in that case and cause the
-        // fallback "keep top 2" path to incorrectly collapse one of the docked pair.
         let non_docked_active: Vec<NodeId> = active_ids
             .iter()
             .copied()
@@ -48,9 +39,6 @@ impl HalleyWlState {
         let focused_breakout: Option<NodeId> = if non_docked_active.is_empty() {
             None
         } else {
-            // Prefer whichever non-docked window currently holds interaction
-            // focus; fall back to the most-recently-focused one so that clicking
-            // inside a docked window never drops the breakout.
             non_docked_active
                 .iter()
                 .copied()
@@ -186,6 +174,9 @@ impl HalleyWlState {
             if n.kind != halley_core::field::NodeKind::Surface {
                 continue;
             }
+            if self.manual_collapsed_nodes.contains(&id) {
+                continue;
+            }
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
             if let Some(nn) = self.field.node(id) {
                 self.last_active_size.insert(id, nn.intrinsic_size);
@@ -213,6 +204,10 @@ impl HalleyWlState {
             if n.kind != halley_core::field::NodeKind::Surface {
                 continue;
             }
+            if self.manual_collapsed_nodes.contains(&id) {
+                continue;
+            }
+
             let target = match zone {
                 FocusZone::Inside if n.state == halley_core::field::NodeState::Active => {
                     DecayLevel::Hot
@@ -299,6 +294,12 @@ impl HalleyWlState {
             return;
         }
 
+        // Only explicitly/manual-collapsed nodes are sticky.
+        if self.manual_collapsed_nodes.contains(&id) {
+            self.dock_decay_offscreen_since_ms.remove(&id);
+            return;
+        }
+
         if self.is_hard_decay_protected(id, now_ms) {
             self.dock_decay_offscreen_since_ms.remove(&id);
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
@@ -347,6 +348,12 @@ impl HalleyWlState {
         let a_visible = self.surface_intersects_viewport(a);
         let b_visible = self.surface_intersects_viewport(b);
 
+        if self.manual_collapsed_nodes.contains(&a) || self.manual_collapsed_nodes.contains(&b) {
+            self.dock_decay_offscreen_since_ms.remove(&a);
+            self.dock_decay_offscreen_since_ms.remove(&b);
+            return;
+        }
+
         if self.is_hard_decay_protected(a, now_ms) || self.is_hard_decay_protected(b, now_ms) {
             self.dock_decay_offscreen_since_ms.remove(&a);
             self.dock_decay_offscreen_since_ms.remove(&b);
@@ -358,10 +365,7 @@ impl HalleyWlState {
         if a_visible || b_visible {
             self.dock_decay_offscreen_since_ms.remove(&a);
             self.dock_decay_offscreen_since_ms.remove(&b);
-            // Only restore Hot if both nodes are still Active. If they already
-            // decayed to Cold while off screen, leave them alone — re-entry is
-            // passive (the user may just be panning past) and should not
-            // resurrect the 3-window exception without explicit reactivation.
+
             let a_active = self
                 .field
                 .node(a)
@@ -529,6 +533,7 @@ impl HalleyWlState {
                 if self.pan_restore_active_focus == Some(id) {
                     self.pan_restore_active_focus = None;
                 }
+                self.manual_collapsed_nodes.remove(&id);
                 let _ = self.field.undock_node(id);
                 self.field.clear_dock_preview();
                 self.zoom_nominal_size.remove(&id);

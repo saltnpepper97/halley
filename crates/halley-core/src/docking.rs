@@ -170,7 +170,7 @@ impl DockingState {
             return false;
         }
 
-        matches!(node.state, NodeState::Active | NodeState::Node | NodeState::Preview)
+        matches!(node.state, NodeState::Active | NodeState::Node)
     }
 
     fn node_extent(field: &Field, node_id: NodeId) -> Option<Vec2> {
@@ -204,7 +204,7 @@ impl DockingState {
         let node = field.node(node_id)?;
         let mut size = Self::node_extent(field, node_id)?;
 
-        if matches!(node.state, NodeState::Node | NodeState::Preview) {
+        if matches!(node.state, NodeState::Node) {
             match side {
                 DockSide::Left | DockSide::Right => {
                     // Use only the rendered pill width (with multipliers applied).
@@ -254,12 +254,12 @@ impl DockingState {
 
         // Node markers are centered on `pos`, so node_visual_center_offset is
         // zero for node pills as well as active surfaces.
-        let mover_offset = if matches!(mover_node.state, NodeState::Node | NodeState::Preview) {
+        let mover_offset = if matches!(mover_node.state, NodeState::Node) {
             Self::node_visual_center_offset(&mover_node.label)
         } else {
             0.0
         };
-        let target_offset = if matches!(target.state, NodeState::Node | NodeState::Preview) {
+        let target_offset = if matches!(target.state, NodeState::Node) {
             Self::node_visual_center_offset(&target.label)
         } else {
             0.0

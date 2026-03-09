@@ -79,14 +79,14 @@ pub struct HalleyWlState {
     pub interaction_focus: Option<NodeId>,
     interaction_focus_until_ms: u64,
     last_surface_focus_ms: HashMap<NodeId, u64>,
-    pan_restore_active_focus: Option<NodeId>,
+    pub pan_restore_active_focus: Option<NodeId>,
     app_focused: bool,
     cluster_form_state: ClusterFormationState,
     active_cluster_workspace: Option<ClusterId>,
     workspace_hidden_nodes: Vec<NodeId>,
     workspace_prev_viewport: Option<Viewport>,
     last_active_size: HashMap<NodeId, Vec2>,
-    pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
+    pub pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
     active_transition_until_ms: HashMap<NodeId, u64>,
     primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
 
@@ -96,6 +96,11 @@ pub struct HalleyWlState {
     carry_zone_pending: HashMap<NodeId, FocusZone>,
     carry_zone_pending_since_ms: HashMap<NodeId, u64>,
     carry_activation_anim_armed: HashSet<NodeId>,
+
+    // Nodes explicitly collapsed by the user via keybind/toggle.
+    // Maintenance must not auto-resurrect these.
+    pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
+
     resize_active: Option<NodeId>,
     resize_static_node: Option<NodeId>,
     resize_static_lock_pos: Option<Vec2>,
@@ -178,6 +183,7 @@ impl HalleyWlState {
             carry_zone_pending: HashMap::new(),
             carry_zone_pending_since_ms: HashMap::new(),
             carry_activation_anim_armed: HashSet::new(),
+            manual_collapsed_nodes: HashSet::new(),
             resize_active: None,
             resize_static_node: None,
             resize_static_lock_pos: None,
@@ -272,6 +278,9 @@ impl HalleyWlState {
             .retain(|id| alive_ids.contains(id));
         self.last_surface_focus_ms
             .retain(|id, _| alive_ids.contains(id));
+        self.manual_collapsed_nodes
+            .retain(|id| alive_ids.contains(id));
+
         self.process_pending_spawn_activations(now, now_ms);
         let resize_settling = self
             .resize_static_node
@@ -321,7 +330,7 @@ impl HalleyWlState {
             },
             &mut self.cluster_form_state,
         );
-       if !self.suspend_state_checks && self.resize_active.is_none() {
+        if !self.suspend_state_checks && self.resize_active.is_none() {
             self.enforce_docked_pairs();
         }
         self.enforce_single_primary_active_unit(focus_ring);

@@ -44,12 +44,7 @@ impl HalleyWlState {
                 Some(fid) => self.surface_to_node.get(&key).copied() == Some(fid),
                 None => false,
             };
-            // Only send_configure when the Activated state actually changes.
-            // Sending it unconditionally creates a configure storm during video
-            // playback: every mouse-move triggers set_interaction_focus which
-            // called this function, blasting every surface with a configure.
-            // The browser must ack each one before committing the next frame,
-            // so it backs up, stalls its GPU process, and stops accepting input.
+
             let state_changed = top.with_pending_state(|s| {
                 let was_active = s.states.contains(xdg_toplevel::State::Activated);
                 if focused {
@@ -59,6 +54,7 @@ impl HalleyWlState {
                 }
                 was_active != focused
             });
+
             if state_changed {
                 top.send_configure();
             }
@@ -82,6 +78,25 @@ impl HalleyWlState {
                 );
                 keyboard.set_focus(self, desired_focus.clone(), SERIAL_COUNTER.next_serial());
                 self.update_selection_focus_from_surface(desired_focus.as_ref());
+            }
+        }
+    }
+
+    fn update_focus_tracking_for_surface(&mut self, fid: NodeId, now_ms: u64) {
+        let Some(n) = self.field.node(fid) else {
+            return;
+        };
+        if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(fid) {
+            return;
+        }
+
+        self.last_surface_focus_ms.insert(fid, now_ms);
+
+        if n.state == halley_core::field::NodeState::Active {
+            let _ = self.field.touch(fid, now_ms);
+            let _ = self.field.set_decay_level(fid, DecayLevel::Hot);
+            if self.tuning.restore_last_active_on_pan_return {
+                self.pan_restore_active_focus = Some(fid);
             }
         }
     }
@@ -186,6 +201,12 @@ impl HalleyWlState {
             return;
         }
 
+        // Only explicitly/manual-collapsed nodes should be sticky here.
+        if self.manual_collapsed_nodes.contains(&id) {
+            self.pan_restore_active_focus = None;
+            return;
+        }
+
         let focus_ring = self.active_focus_ring();
         if focus_ring.zone(self.viewport.center, n.pos) != FocusZone::Inside {
             return;
@@ -204,6 +225,7 @@ impl HalleyWlState {
                 && self.field.node(pid).is_some_and(|pn| {
                     pn.kind == halley_core::field::NodeKind::Surface
                         && pn.state != halley_core::field::NodeState::Active
+                        && !self.manual_collapsed_nodes.contains(&pid)
                 })
             {
                 let _ = self.field.set_decay_level(pid, DecayLevel::Hot);
@@ -226,6 +248,7 @@ impl HalleyWlState {
         let now_ms = self.now_ms(now);
         let _ = self.field.touch(id, now_ms);
         let _ = self.field.set_decay_level(id, DecayLevel::Hot);
+        self.manual_collapsed_nodes.remove(&id);
     }
 
     pub fn end_resize_interaction(&mut self, now: Instant) {
@@ -265,9 +288,7 @@ impl HalleyWlState {
                 let requested_until = now_ms.saturating_add(hold_ms.max(1));
                 self.interaction_focus_until_ms =
                     self.interaction_focus_until_ms.max(requested_until);
-                let _ = self.field.touch(fid, now_ms);
-                let _ = self.field.set_decay_level(fid, DecayLevel::Hot);
-                self.last_surface_focus_ms.insert(fid, now_ms);
+                self.update_focus_tracking_for_surface(fid, now_ms);
                 self.reassert_wayland_keyboard_focus_if_drifted(id);
             } else {
                 self.interaction_focus_until_ms = 0;
@@ -279,16 +300,7 @@ impl HalleyWlState {
         self.interaction_focus = id;
         if let Some(fid) = id {
             self.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
-            if self.field.node(fid).is_some_and(|n| {
-                n.kind == halley_core::field::NodeKind::Surface && self.field.is_visible(fid)
-            }) {
-                let _ = self.field.touch(fid, now_ms);
-                let _ = self.field.set_decay_level(fid, DecayLevel::Hot);
-                self.last_surface_focus_ms.insert(fid, now_ms);
-                if self.tuning.restore_last_active_on_pan_return {
-                    self.pan_restore_active_focus = Some(fid);
-                }
-            }
+            self.update_focus_tracking_for_surface(fid, now_ms);
         } else {
             self.interaction_focus_until_ms = 0;
         }
@@ -313,7 +325,6 @@ impl HalleyWlState {
                         n.state,
                         halley_core::field::NodeState::Active
                             | halley_core::field::NodeState::Node
-                            | halley_core::field::NodeState::Preview
                     )
             });
             if valid {
@@ -330,7 +341,6 @@ impl HalleyWlState {
                             n.state,
                             halley_core::field::NodeState::Active
                                 | halley_core::field::NodeState::Node
-                                | halley_core::field::NodeState::Preview
                         ))
                     .then_some((id, at))
                 })
@@ -370,18 +380,38 @@ impl HalleyWlState {
         let state = self.field.node(id)?.state.clone();
         match state {
             halley_core::field::NodeState::Active => {
+                let _ = self.field.set_state(id, halley_core::field::NodeState::Node);
                 let _ = self.field.set_decay_level(id, DecayLevel::Cold);
+                self.pending_spawn_activate_at_ms.remove(&id);
+                self.manual_collapsed_nodes.insert(id);
+
                 if let Some(pid) = partner {
-                    let _ = self.field.set_decay_level(pid, DecayLevel::Cold);
+                    if self.field.node(pid).is_some_and(|pn| {
+                        pn.kind == halley_core::field::NodeKind::Surface
+                            && pn.state == halley_core::field::NodeState::Active
+                    }) {
+                        let _ = self.field.set_state(pid, halley_core::field::NodeState::Node);
+                        let _ = self.field.set_decay_level(pid, DecayLevel::Cold);
+                        self.pending_spawn_activate_at_ms.remove(&pid);
+                        self.manual_collapsed_nodes.insert(pid);
+                    }
                 }
-                self.set_interaction_focus(Some(id), 30_000, now);
+
+                self.set_interaction_focus(None, 0, now);
+                self.pan_restore_active_focus = None;
                 Some(id)
             }
-            halley_core::field::NodeState::Node | halley_core::field::NodeState::Preview => {
+            halley_core::field::NodeState::Node => {
+                self.manual_collapsed_nodes.remove(&id);
                 let _ = self.field.set_decay_level(id, DecayLevel::Hot);
+                self.pending_spawn_activate_at_ms.remove(&id);
+
                 if let Some(pid) = partner {
+                    self.manual_collapsed_nodes.remove(&pid);
                     let _ = self.field.set_decay_level(pid, DecayLevel::Hot);
+                    self.pending_spawn_activate_at_ms.remove(&pid);
                 }
+
                 self.mark_active_transition(id, now, 360);
                 if let Some(pid) = partner {
                     self.mark_active_transition(pid, now, 360);

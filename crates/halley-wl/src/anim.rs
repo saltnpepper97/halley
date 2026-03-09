@@ -136,11 +136,6 @@ fn base_style(state: NodeState) -> AnimStyle {
             scale: 1.0,
             alpha: 1.0,
         },
-        // Two-state runtime: any residual Preview tracks should behave as Node.
-        NodeState::Preview => AnimStyle {
-            scale: 0.30,
-            alpha: 1.0,
-        },
         NodeState::Node => AnimStyle {
             scale: 0.30,
             alpha: 1.0,
