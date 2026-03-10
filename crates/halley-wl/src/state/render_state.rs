@@ -14,7 +14,11 @@ impl HalleyWlState {
         self.node_hover_mix.retain(|id, _| alive.contains(id));
     }
 
-    pub(crate) fn resize_static_active_for(&self, node_id: halley_core::field::NodeId, now_ms: u64) -> bool {
+    pub(crate) fn resize_static_active_for(
+        &self,
+        node_id: halley_core::field::NodeId,
+        now_ms: u64,
+    ) -> bool {
         self.resize_static_node == Some(node_id) && now_ms < self.resize_static_until_ms
     }
 

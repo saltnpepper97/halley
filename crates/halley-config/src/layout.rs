@@ -186,7 +186,8 @@ impl RuntimeTuning {
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);
 
         self.primary_outside_ring_delay_ms = self.primary_outside_ring_delay_ms.clamp(0, 7_200_000);
-        self.secondary_outside_ring_delay_ms = self.secondary_outside_ring_delay_ms.clamp(0, 7_200_000);
+        self.secondary_outside_ring_delay_ms =
+            self.secondary_outside_ring_delay_ms.clamp(0, 7_200_000);
         self.docked_offscreen_delay_ms = self.docked_offscreen_delay_ms.clamp(0, 7_200_000);
 
         self.non_overlap_gap_px = self.non_overlap_gap_px.clamp(0.0, 256.0);

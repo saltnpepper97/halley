@@ -106,7 +106,10 @@ pub(crate) fn apply_bound_key(
         let next = RuntimeTuning::load_from_path(config_path);
         st.apply_tuning(next);
         info!("manual config reload from {}", config_path);
-        info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+        info!(
+            "resolved keybinds: {}",
+            st.tuning.keybinds_resolved_summary()
+        );
         return true;
     }
 

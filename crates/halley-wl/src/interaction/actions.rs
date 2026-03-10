@@ -113,7 +113,9 @@ pub(crate) fn minimize_focused_active_node(st: &mut HalleyWlState) -> bool {
     match n.state {
         halley_core::field::NodeState::Active => {
             let _ = st.field.set_state(id, halley_core::field::NodeState::Node);
-            let _ = st.field.set_decay_level(id, halley_core::decay::DecayLevel::Cold);
+            let _ = st
+                .field
+                .set_decay_level(id, halley_core::decay::DecayLevel::Cold);
             st.pending_spawn_activate_at_ms.remove(&id);
             st.manual_collapsed_nodes.insert(id);
 
@@ -123,7 +125,9 @@ pub(crate) fn minimize_focused_active_node(st: &mut HalleyWlState) -> bool {
                         && pn.state == halley_core::field::NodeState::Active
                 }) {
                     let _ = st.field.set_state(pid, halley_core::field::NodeState::Node);
-                    let _ = st.field.set_decay_level(pid, halley_core::decay::DecayLevel::Cold);
+                    let _ = st
+                        .field
+                        .set_decay_level(pid, halley_core::decay::DecayLevel::Cold);
                     st.pending_spawn_activate_at_ms.remove(&pid);
                     st.manual_collapsed_nodes.insert(pid);
                 }
@@ -136,7 +140,9 @@ pub(crate) fn minimize_focused_active_node(st: &mut HalleyWlState) -> bool {
 
         halley_core::field::NodeState::Node => {
             st.manual_collapsed_nodes.remove(&id);
-            let _ = st.field.set_decay_level(id, halley_core::decay::DecayLevel::Hot);
+            let _ = st
+                .field
+                .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
             st.pending_spawn_activate_at_ms.remove(&id);
             st.mark_active_transition(id, now, 360);
 
@@ -146,7 +152,9 @@ pub(crate) fn minimize_focused_active_node(st: &mut HalleyWlState) -> bool {
                     pn.kind == halley_core::field::NodeKind::Surface
                         && pn.state == halley_core::field::NodeState::Node
                 }) {
-                    let _ = st.field.set_decay_level(pid, halley_core::decay::DecayLevel::Hot);
+                    let _ = st
+                        .field
+                        .set_decay_level(pid, halley_core::decay::DecayLevel::Hot);
                     st.pending_spawn_activate_at_ms.remove(&pid);
                     st.mark_active_transition(pid, now, 360);
                 }

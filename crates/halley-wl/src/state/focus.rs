@@ -2,7 +2,7 @@ use super::*;
 use eventline::info;
 use halley_core::viewport::FocusZone;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource};
+use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
@@ -32,6 +32,7 @@ impl HalleyWlState {
     }
 
     fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
+        self.layer_keyboard_focus = None;
         let focus_surface = id.and_then(|fid| self.wl_surface_for_node(fid));
         if let Some(keyboard) = self.seat.get_keyboard() {
             keyboard.set_focus(self, focus_surface.clone(), SERIAL_COUNTER.next_serial());
@@ -62,6 +63,10 @@ impl HalleyWlState {
     }
 
     fn reassert_wayland_keyboard_focus_if_drifted(&mut self, id: Option<NodeId>) {
+        if self.layer_keyboard_focus.is_some() {
+            self.reassert_layer_surface_keyboard_focus_if_drifted();
+            return;
+        }
         let desired_focus = id.and_then(|fid| self.wl_surface_for_node(fid));
         if let Some(keyboard) = self.seat.get_keyboard() {
             let current_focus = keyboard.current_focus();
@@ -323,8 +328,7 @@ impl HalleyWlState {
                     && n.kind == halley_core::field::NodeKind::Surface
                     && matches!(
                         n.state,
-                        halley_core::field::NodeState::Active
-                            | halley_core::field::NodeState::Node
+                        halley_core::field::NodeState::Active | halley_core::field::NodeState::Node
                     )
             });
             if valid {
@@ -380,7 +384,9 @@ impl HalleyWlState {
         let state = self.field.node(id)?.state.clone();
         match state {
             halley_core::field::NodeState::Active => {
-                let _ = self.field.set_state(id, halley_core::field::NodeState::Node);
+                let _ = self
+                    .field
+                    .set_state(id, halley_core::field::NodeState::Node);
                 let _ = self.field.set_decay_level(id, DecayLevel::Cold);
                 self.pending_spawn_activate_at_ms.remove(&id);
                 self.manual_collapsed_nodes.insert(id);
@@ -390,7 +396,9 @@ impl HalleyWlState {
                         pn.kind == halley_core::field::NodeKind::Surface
                             && pn.state == halley_core::field::NodeState::Active
                     }) {
-                        let _ = self.field.set_state(pid, halley_core::field::NodeState::Node);
+                        let _ = self
+                            .field
+                            .set_state(pid, halley_core::field::NodeState::Node);
                         let _ = self.field.set_decay_level(pid, DecayLevel::Cold);
                         self.pending_spawn_activate_at_ms.remove(&pid);
                         self.manual_collapsed_nodes.insert(pid);

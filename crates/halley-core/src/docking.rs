@@ -211,8 +211,7 @@ impl DockingState {
                     // node.intrinsic_size is the window's old Active size and is
                     // unrelated to the pill's visual width; including it caused
                     // different gaps per target depending on window history.
-                    size.x = Self::estimate_node_visual_horizontal_width(&node.label)
-                        .max(size.x);
+                    size.x = Self::estimate_node_visual_horizontal_width(&node.label).max(size.x);
                 }
                 DockSide::Top | DockSide::Bottom => {
                     // The node footprint is 24×24 (spatial occupancy), but the
@@ -247,9 +246,9 @@ impl DockingState {
         target_id: NodeId,
         side: DockSide,
     ) -> Option<Vec2> {
-        let mover_node  = field.node(mover_id)?;
-        let target      = field.node(target_id)?;
-        let mover_size  = Self::docking_extent_for_side(field, mover_id, side)?;
+        let mover_node = field.node(mover_id)?;
+        let target = field.node(target_id)?;
+        let mover_size = Self::docking_extent_for_side(field, mover_id, side)?;
         let target_size = Self::docking_extent_for_side(field, target_id, side)?;
 
         // Node markers are centered on `pos`, so node_visual_center_offset is
@@ -365,8 +364,8 @@ impl DockingState {
 
         let mover_size =
             Self::docking_extent_for_side(field, mover_id, side).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
-        let target_size =
-            Self::docking_extent_for_side(field, target_id, side).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
+        let target_size = Self::docking_extent_for_side(field, target_id, side)
+            .unwrap_or(Vec2 { x: 1.0, y: 1.0 });
 
         let snap_on_screen = Self::pos_inside_viewport(snap_pos, viewport_center, viewport_size);
         let axis_slack = if snap_on_screen {
@@ -414,8 +413,8 @@ impl DockingState {
 
         let mover_size =
             Self::docking_extent_for_side(field, mover_id, side).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
-        let target_size =
-            Self::docking_extent_for_side(field, target_id, side).unwrap_or(Vec2 { x: 1.0, y: 1.0 });
+        let target_size = Self::docking_extent_for_side(field, target_id, side)
+            .unwrap_or(Vec2 { x: 1.0, y: 1.0 });
 
         let snap_on_screen = Self::pos_inside_viewport(snap_pos, viewport_center, viewport_size);
         let arm_slack = if snap_on_screen {
@@ -609,16 +608,8 @@ mod tests {
 
     fn spawn_pair() -> (Field, NodeId, NodeId) {
         let mut f = Field::new();
-        let a = f.spawn_surface(
-            "A",
-            Vec2 { x: 0.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
-        let b = f.spawn_surface(
-            "B",
-            Vec2 { x: 300.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
+        let a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
+        let b = f.spawn_surface("B", Vec2 { x: 300.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
         (f, a, b)
     }
 
@@ -1060,13 +1051,13 @@ mod tests {
         assert!(f.set_state(target, NodeState::Node));
         assert_eq!(f.node(target).unwrap().footprint, Vec2 { x: 24.0, y: 24.0 });
 
-        let vertical_size = DockingState::docking_extent_for_side(&f, target, DockSide::Bottom)
-            .unwrap();
+        let vertical_size =
+            DockingState::docking_extent_for_side(&f, target, DockSide::Bottom).unwrap();
 
         assert_eq!(vertical_size.y, 26.0);
 
-        let snap = DockingState::snap_position_for_target(&f, mover, target, DockSide::Bottom)
-            .unwrap();
+        let snap =
+            DockingState::snap_position_for_target(&f, mover, target, DockSide::Bottom).unwrap();
         assert_eq!(snap, Vec2 { x: 300.0, y: 247.0 });
 
         let mut docking = DockingState::default();

@@ -58,13 +58,7 @@ impl DataDeviceHandler for HalleyWlState {
 impl ClientDndGrabHandler for HalleyWlState {}
 
 impl ServerDndGrabHandler for HalleyWlState {
-    fn send(
-        &mut self,
-        _mime_type: String,
-        _fd: std::os::unix::io::OwnedFd,
-        _seat: Seat<Self>,
-    ) {
-    }
+    fn send(&mut self, _mime_type: String, _fd: std::os::unix::io::OwnedFd, _seat: Seat<Self>) {}
 }
 
 delegate_data_device!(HalleyWlState);
@@ -150,12 +144,7 @@ impl XdgShellHandler for HalleyWlState {
         let _ = popup.send_configure();
     }
 
-    fn move_request(
-        &mut self,
-        _surface: ToplevelSurface,
-        _seat: wl_seat::WlSeat,
-        _serial: Serial,
-    ) {
+    fn move_request(&mut self, _surface: ToplevelSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
         // Interactive move is compositor-driven (configured modifier + drag), not
         // client-request driven.
     }

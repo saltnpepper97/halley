@@ -16,6 +16,10 @@ impl HalleyWlState {
         if let Some(output) = &self.primary_output {
             output.enter(surface);
         }
+
+        // Grant keyboard focus to layer surfaces (e.g. fuzzel) on their first
+        // real commit, when keyboard_interactivity is now populated.
+        self.maybe_grant_layer_surface_focus_on_commit(surface);
     }
 
     pub fn ensure_node_for_surface(

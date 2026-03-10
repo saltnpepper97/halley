@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use super::{KeyModifiers, LaunchBinding};
+use crate::RuntimeTuning;
 use crate::keybinds::{key_name_to_evdev, modifiers_empty, parse_chord, parse_modifiers};
 use crate::layout::ViewportOutputConfig;
 use crate::legacy::{parse_legacy_keybinds, strip_legacy_keybind_block};
-use crate::RuntimeTuning;
 
 use rune_cfg::RuneConfig;
 
@@ -42,11 +42,14 @@ impl RuntimeTuning {
 }
 
 fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    out.tick_ms = pick_u64(cfg, &["dev.runtime.tick-ms", "dev.runtime.tick_ms"], out.tick_ms);
+    out.tick_ms = pick_u64(
+        cfg,
+        &["dev.runtime.tick-ms", "dev.runtime.tick_ms"],
+        out.tick_ms,
+    );
 
     out.debug_tick_dump = pick_bool(cfg, &["dev.debug_tick_dump"], out.debug_tick_dump);
-    out.debug_dump_every_ms =
-        pick_u64(cfg, &["dev.debug_dump_every_ms"], out.debug_dump_every_ms);
+    out.debug_dump_every_ms = pick_u64(cfg, &["dev.debug_dump_every_ms"], out.debug_dump_every_ms);
 
     out.dev_enabled = pick_bool(cfg, &["dev.enabled"], out.dev_enabled);
     out.dev_show_geometry_overlay = pick_bool(
@@ -70,18 +73,23 @@ fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     );
     out.dev_anim_bounce = pick_f32(cfg, &["dev.anim.bounce"], out.dev_anim_bounce);
 
-    out.keybinds.modifier =
-        pick_modifiers(cfg, &["dev.keybinds.modifier"], out.keybinds.modifier);
+    out.keybinds.modifier = pick_modifiers(cfg, &["dev.keybinds.modifier"], out.keybinds.modifier);
 
     out.keybinds.reload = pick_keycode(cfg, &["dev.keybinds.reload"], out.keybinds.reload);
     out.keybinds.minimize_focused = pick_keycode(
         cfg,
-        &["dev.keybinds.minimize_focused", "dev.keybinds.minimize-focused"],
+        &[
+            "dev.keybinds.minimize_focused",
+            "dev.keybinds.minimize-focused",
+        ],
         out.keybinds.minimize_focused,
     );
     out.keybinds.overview_toggle = pick_keycode(
         cfg,
-        &["dev.keybinds.overview_toggle", "dev.keybinds.overview-toggle"],
+        &[
+            "dev.keybinds.overview_toggle",
+            "dev.keybinds.overview-toggle",
+        ],
         out.keybinds.overview_toggle,
     );
     out.keybinds.quit = pick_keycode(cfg, &["dev.keybinds.quit"], out.keybinds.quit);
@@ -129,7 +137,10 @@ fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     );
     out.keybinds.secondary_right = pick_keycode(
         cfg,
-        &["dev.keybinds.secondary_right", "dev.keybinds.secondary-right"],
+        &[
+            "dev.keybinds.secondary_right",
+            "dev.keybinds.secondary-right",
+        ],
         out.keybinds.secondary_right,
     );
     out.keybinds.secondary_up = pick_keycode(
@@ -206,12 +217,20 @@ fn load_viewport_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 fn load_focus_ring_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.focus_ring_rx = pick_f32(
         cfg,
-        &["focus-ring.rx", "focus-ring.radius-x", "focus-ring.radius_x"],
+        &[
+            "focus-ring.rx",
+            "focus-ring.radius-x",
+            "focus-ring.radius_x",
+        ],
         out.focus_ring_rx,
     );
     out.focus_ring_ry = pick_f32(
         cfg,
-        &["focus-ring.ry", "focus-ring.radius-y", "focus-ring.radius_y"],
+        &[
+            "focus-ring.ry",
+            "focus-ring.radius-y",
+            "focus-ring.radius_y",
+        ],
         out.focus_ring_ry,
     );
 
@@ -306,7 +325,10 @@ fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     let primary_s = pick_u64(
         cfg,
-        &["decay.primary-outside-ring-delay", "decay.primary_outside_ring_delay"],
+        &[
+            "decay.primary-outside-ring-delay",
+            "decay.primary_outside_ring_delay",
+        ],
         out.primary_outside_ring_delay_ms / 1000,
     );
     let secondary_s = pick_u64(
@@ -319,7 +341,10 @@ fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     );
     let docked_s = pick_u64(
         cfg,
-        &["decay.docked-offscreen-delay", "decay.docked_offscreen_delay"],
+        &[
+            "decay.docked-offscreen-delay",
+            "decay.docked_offscreen_delay",
+        ],
         out.docked_offscreen_delay_ms / 1000,
     );
 
@@ -337,8 +362,11 @@ fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 }
 
 fn load_docking_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    out.non_overlap_gap_px =
-        pick_f32(cfg, &["docking.gap", "docking.gap-px"], out.non_overlap_gap_px);
+    out.non_overlap_gap_px = pick_f32(
+        cfg,
+        &["docking.gap", "docking.gap-px"],
+        out.non_overlap_gap_px,
+    );
 
     out.restore_last_active_on_pan_return = pick_bool(
         cfg,
@@ -357,7 +385,11 @@ fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
     out.non_overlap_bump_damping = pick_f32(
         cfg,
-        &["physics.damping", "physics.bump-damping", "physics.bump_damping"],
+        &[
+            "physics.damping",
+            "physics.bump-damping",
+            "physics.bump_damping",
+        ],
         out.non_overlap_bump_damping,
     );
 }

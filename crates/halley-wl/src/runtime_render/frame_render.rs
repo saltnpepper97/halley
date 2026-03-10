@@ -73,7 +73,8 @@ pub(crate) fn draw_debug_frame_to_target(
     st.begin_render_frame(now);
     st.configure_layer_shell_surfaces((size.w, size.h).into());
 
-    let (layer_under_elements, layer_over_elements) = collect_layer_surfaces(renderer, st, size, now);
+    let (layer_under_elements, layer_over_elements) =
+        collect_layer_surfaces(renderer, st, size, now);
 
     let (
         active_elements,

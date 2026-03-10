@@ -8,9 +8,7 @@ pub use codec::{
 };
 pub use error::{CodecError, IpcError};
 pub use protocol::{Request, Response};
-pub use types::{
-    LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus, OutputsResponse,
-};
+pub use types::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus, OutputsResponse};
 
 use std::env;
 use std::io;

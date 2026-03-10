@@ -26,8 +26,7 @@ impl HalleyWlState {
             if !self.field.is_visible(a) || !self.field.is_visible(b) {
                 continue;
             }
-            if self.is_recently_resized_node(a, now_ms)
-                || self.is_recently_resized_node(b, now_ms)
+            if self.is_recently_resized_node(a, now_ms) || self.is_recently_resized_node(b, now_ms)
             {
                 continue;
             }
@@ -162,8 +161,7 @@ impl HalleyWlState {
     ) -> FocusZone {
         let focus_ring = self.active_focus_ring();
         let footprint = self.zone_eval_footprint_for(id, footprint);
-        let (p_inside, p_outside) =
-            self.focus_ring_coverage_fractions(pos, footprint, focus_ring);
+        let (p_inside, p_outside) = self.focus_ring_coverage_fractions(pos, footprint, focus_ring);
         let prev = self.carry_zone_hint.get(&id).copied();
 
         const ACTIVE_RETAIN_FRAC: f32 = 0.04;

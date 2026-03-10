@@ -82,7 +82,11 @@ fn print_output(output: &OutputInfo) {
     println!("  status: {}", format_status(output.status));
     println!(
         "  enabled: {}",
-        if output.enabled { "enabled" } else { "disabled" }
+        if output.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
     );
 
     if let Some(current_mode) = &output.current_mode {

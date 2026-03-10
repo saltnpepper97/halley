@@ -23,12 +23,14 @@ pub(crate) fn layer_surface_focus_for_screen(
     Point<f64, Logical>,
 )> {
     let mut placements = st.layer_shell_placements((ws_w.max(1), ws_h.max(1)).into());
-    placements.sort_by_key(|placement| std::cmp::Reverse(match placement.layer {
-        smithay::wayland::shell::wlr_layer::Layer::Background => 0u8,
-        smithay::wayland::shell::wlr_layer::Layer::Bottom => 1u8,
-        smithay::wayland::shell::wlr_layer::Layer::Top => 2u8,
-        smithay::wayland::shell::wlr_layer::Layer::Overlay => 3u8,
-    }));
+    placements.sort_by_key(|placement| {
+        std::cmp::Reverse(match placement.layer {
+            smithay::wayland::shell::wlr_layer::Layer::Background => 0u8,
+            smithay::wayland::shell::wlr_layer::Layer::Bottom => 1u8,
+            smithay::wayland::shell::wlr_layer::Layer::Top => 2u8,
+            smithay::wayland::shell::wlr_layer::Layer::Overlay => 3u8,
+        })
+    });
 
     for placement in placements {
         let local = Point::<f64, Logical>::from((

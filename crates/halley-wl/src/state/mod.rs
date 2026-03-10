@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use halley_config::RuntimeTuning;
 use halley_core::cluster::{ActiveLayoutMode, ClusterId};
 use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_cluster_formation};
 use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2, Visibility};
 use halley_core::viewport::{FocusZone, Viewport};
-use halley_config::RuntimeTuning;
 
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
@@ -14,9 +14,7 @@ use smithay::{
     delegate_output, delegate_primary_selection, delegate_seat, delegate_shm, delegate_xdg_shell,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
-    reexports::wayland_server::{
-        DisplayHandle, Resource, backend::ObjectId, protocol::wl_seat,
-    },
+    reexports::wayland_server::{DisplayHandle, Resource, backend::ObjectId, protocol::wl_seat},
     utils::{Serial, Transform},
     wayland::{
         buffer::BufferHandler,
@@ -68,6 +66,7 @@ pub struct HalleyWlState {
     pub data_control_state: DataControlState,
     pub seat: Seat<Self>,
     pub primary_output: Option<Output>,
+    pub layer_keyboard_focus: Option<ObjectId>,
 
     pub field: Field,
     pub viewport: Viewport,
@@ -141,11 +140,8 @@ impl HalleyWlState {
         let mut seat_state = SeatState::new();
         let seat = seat_state.new_wl_seat(dh, "halley");
         let primary_selection_state = PrimarySelectionState::new::<HalleyWlState>(dh);
-        let data_control_state = DataControlState::new::<HalleyWlState, _>(
-            dh,
-            Some(&primary_selection_state),
-            |_| true,
-        );
+        let data_control_state =
+            DataControlState::new::<HalleyWlState, _>(dh, Some(&primary_selection_state), |_| true);
         let mut out = Self {
             display_handle: dh.clone(),
             compositor_state: CompositorState::new::<HalleyWlState>(dh),
@@ -159,6 +155,7 @@ impl HalleyWlState {
             data_control_state,
             seat,
             primary_output: None,
+            layer_keyboard_focus: None,
 
             field: Field::new(),
             viewport: tuning.viewport(),
@@ -296,6 +293,9 @@ impl HalleyWlState {
                     self.set_interaction_focus(None, 0, now);
                 }
             }
+        }
+        if self.interaction_focus.is_none() && self.layer_keyboard_focus.is_some() {
+            self.reassert_layer_surface_keyboard_focus_if_drifted();
         }
         self.active_transition_until_ms
             .retain(|_, &mut until| until > now_ms);

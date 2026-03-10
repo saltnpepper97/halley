@@ -1,8 +1,8 @@
 use crate::cluster::{Cluster, ClusterId};
-use crate::docking::{DockPreview, DockSide, DockingState};
 use crate::decay::DecayLevel;
+use crate::docking::{DockPreview, DockSide, DockingState};
 use crate::viewport::Viewport;
-use crate::visual::{build_visuals, build_visuals_in_view, NodeVisual, VisualParams};
+use crate::visual::{NodeVisual, VisualParams, build_visuals, build_visuals_in_view};
 
 use std::collections::HashMap;
 
