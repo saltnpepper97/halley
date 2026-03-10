@@ -3,6 +3,7 @@ mod cursor_render;
 mod cursor_theme;
 mod dock_render;
 mod frame_render;
+mod layer_render;
 mod node_render;
 mod render_utils;
 

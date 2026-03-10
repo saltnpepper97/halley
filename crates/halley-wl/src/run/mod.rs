@@ -70,9 +70,9 @@ use common::{
 };
 #[cfg(feature = "session-libseat")]
 use drm::probe_tty_drm_device_via_session;
-pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs};
 #[cfg(feature = "session-libseat")]
 use input_backend::build_tty_libinput_backend;
+pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs};
 
 static XWAYLAND_REQUEST_TX: OnceCell<mpsc::Sender<()>> = OnceCell::new();
 

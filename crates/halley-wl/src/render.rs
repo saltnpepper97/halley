@@ -66,7 +66,10 @@ pub fn build_debug_scene(field: &Field, vp: &Viewport, focus_ring: FocusRing) ->
         viewport_center: Vec2::new(vp.center.x, vp.center.y),
         viewport_size: Vec2::new(vp.size.x, vp.size.y),
         focus_ring: RingDebugGeom {
-            center: Vec2::new(vp.center.x + focus_ring.offset_x, vp.center.y + focus_ring.offset_y),
+            center: Vec2::new(
+                vp.center.x + focus_ring.offset_x,
+                vp.center.y + focus_ring.offset_y,
+            ),
             radius_x: focus_ring.radius_x,
             radius_y: focus_ring.radius_y,
             offset_x: focus_ring.offset_x,

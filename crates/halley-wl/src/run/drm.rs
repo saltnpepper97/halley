@@ -8,6 +8,7 @@ pub(super) struct TtyDrmProbe {
     pub(super) dev: DrmDevice,
     pub(super) notifier: smithay::backend::drm::DrmDeviceNotifier,
     pub(super) crtc: drm_control::crtc::Handle,
+    pub(super) connector_name: String,
     pub(super) mode: drm_control::Mode,
     pub(super) gbm_surface: Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
     pub(super) renderer: Rc<RefCell<GlesRenderer>>,
@@ -195,6 +196,7 @@ pub(super) fn probe_tty_drm_device_path(
         dev,
         notifier,
         crtc,
+        connector_name,
         mode,
         gbm_surface: Rc::new(RefCell::new(gbm_surface)),
         renderer: Rc::new(RefCell::new(renderer)),
@@ -292,6 +294,7 @@ pub(super) fn probe_tty_drm_device_path_via_session(
         dev,
         notifier,
         crtc,
+        connector_name,
         mode,
         gbm_surface: Rc::new(RefCell::new(gbm_surface)),
         renderer: Rc::new(RefCell::new(renderer)),
@@ -352,17 +355,12 @@ pub(super) fn select_tty_scanout(
                 .iter()
                 .find(|(_, info)| info.to_string() == wanted.connector)
             {
-                let Some(mode) = info
-                    .modes()
-                    .iter()
-                    .copied()
-                    .find(|m| {
-                        m.size() == (wanted.width as u16, wanted.height as u16)
-                            && wanted.refresh_rate.map_or(true, |hz| {
-                                (m.vrefresh() as f64 - hz).abs() < 1.0
-                            })
-                    })
-                else {
+                let Some(mode) = info.modes().iter().copied().find(|m| {
+                    m.size() == (wanted.width as u16, wanted.height as u16)
+                        && wanted
+                            .refresh_rate
+                            .map_or(true, |hz| (m.vrefresh() as f64 - hz).abs() < 1.0)
+                }) else {
                     return Err(io::Error::other(format!(
                         "configured viewport {} requests {}x{}, but no such mode is available",
                         wanted.connector, wanted.width, wanted.height
@@ -440,12 +438,18 @@ pub(super) fn select_tty_scanout(
     ))
 }
 
-pub(super) fn collect_outputs_for_ipc(dev: &DrmDevice, active_crtc: drm_control::crtc::Handle) -> Vec<OutputInfo> {
+pub(super) fn collect_outputs_for_ipc(
+    dev: &DrmDevice,
+    active_connector_name: &str,
+    active_mode: drm_control::Mode,
+) -> Vec<OutputInfo> {
     let mut outputs = Vec::new();
 
     let Ok(resources) = dev.resource_handles() else {
         return outputs;
     };
+
+    let active_mode_info = mode_info_from_drm_mode(active_mode, true, false);
 
     for conn in resources.connectors() {
         let Ok(info) = dev.get_connector(*conn, true) else {
@@ -458,25 +462,18 @@ pub(super) fn collect_outputs_for_ipc(dev: &DrmDevice, active_crtc: drm_control:
             drm_control::connector::State::Unknown => OutputStatus::Unknown,
         };
 
-        let current = current_mode_from_connector(dev, &info, active_crtc);
-        let mut current_mode = None;
+        let is_active = info.to_string() == active_connector_name;
+        let mut current_mode = is_active.then(|| active_mode_info.clone());
         let mut modes = Vec::new();
 
         for mode in info.modes() {
-            let (w, h) = mode.size();
-            let hz = mode.vrefresh() as f64;
-            let text = format!("{}x{} @ {:.2}Hz", w, h, hz);
-            let current_match = current.as_deref() == Some(text.as_str());
-
-            let mode_info = ModeInfo {
-                width: w as u32,
-                height: h as u32,
-                refresh_hz: Some(hz),
-                preferred: mode
-                    .mode_type()
+            let current_match = is_active && drm_mode_matches(*mode, active_mode);
+            let mode_info = mode_info_from_drm_mode(
+                *mode,
+                current_match,
+                mode.mode_type()
                     .contains(drm_control::ModeTypeFlags::PREFERRED),
-                current: current_match,
-            };
+            );
 
             if current_match {
                 current_mode = Some(mode_info.clone());
@@ -488,7 +485,7 @@ pub(super) fn collect_outputs_for_ipc(dev: &DrmDevice, active_crtc: drm_control:
         outputs.push(OutputInfo {
             name: info.to_string(),
             status,
-            enabled: current_mode.is_some(),
+            enabled: is_active,
             current_mode,
             modes,
             logical: None,
@@ -498,29 +495,21 @@ pub(super) fn collect_outputs_for_ipc(dev: &DrmDevice, active_crtc: drm_control:
     outputs
 }
 
-fn current_mode_from_connector(
-    dev: &DrmDevice,
-    info: &drm_control::connector::Info,
-    active_crtc: drm_control::crtc::Handle,  // add this param
-) -> Option<String> {
-    let encoder = info
-        .current_encoder()
-        .or_else(|| info.encoders().first().copied())?;
+fn drm_mode_matches(a: drm_control::Mode, b: drm_control::Mode) -> bool {
+    let (aw, ah) = a.size();
+    let (bw, bh) = b.size();
+    aw == bw && ah == bh && a.vrefresh() == b.vrefresh()
+}
 
-    let encoder_info = dev.get_encoder(encoder).ok()?;
-    
-    // Replace: let crtc = encoder_info.crtc()?;
-    // With: only trust the crtc if it matches the known-active one
-    let crtc = encoder_info.crtc()
-        .filter(|c| *c == active_crtc)
-        .unwrap_or(active_crtc);  // fall back to the ground truth
-
-    let crtc_info = dev.get_crtc(crtc).ok()?;
-    crtc_info.mode().map(|m| {
-        let (w, h) = m.size();
-        let hz = m.vrefresh() as f64;
-        format!("{}x{} @ {:.2}Hz", w, h, hz)
-    })
+fn mode_info_from_drm_mode(mode: drm_control::Mode, current: bool, preferred: bool) -> ModeInfo {
+    let (w, h) = mode.size();
+    ModeInfo {
+        width: w as u32,
+        height: h as u32,
+        refresh_hz: Some(mode.vrefresh() as f64),
+        preferred,
+        current,
+    }
 }
 
 pub(super) fn queue_tty_drm_frame(

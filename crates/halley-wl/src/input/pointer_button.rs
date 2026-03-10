@@ -18,7 +18,7 @@ use crate::surface::{current_surface_size_for_node, request_toplevel_resize_mode
 use smithay::backend::input::ButtonState;
 
 use super::input_utils::modifier_active;
-use super::pointer_focus::pointer_focus_for_screen;
+use super::pointer_focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
 use super::pointer_map_debug_enabled;
 use super::resize_helpers::{active_node_screen_rect, pick_resize_handle_from_screen};
 
@@ -53,6 +53,7 @@ pub(crate) fn handle_pointer_button_input(
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, ps.screen.0, ps.screen.1);
     ps.screen = (sx, sy);
     ps.workspace_size = (ws_w, ws_h);
+    let layer_focus = layer_surface_focus_for_screen(st, ws_w, ws_h, sx, sy);
     if let Some(pointer) = st.seat.get_pointer() {
         let resize_preview = ps.resize;
         let focus =
@@ -83,6 +84,13 @@ pub(crate) fn handle_pointer_button_input(
     ps.world = world_now;
     if !left && !right {
         return;
+    }
+    if matches!(button_state, ButtonState::Pressed) {
+        if let Some((surface, _)) = layer_focus {
+            let _ = st.focus_layer_surface(&surface);
+            ps.last_title_click = None;
+            return;
+        }
     }
     let workspace_active = st.has_active_cluster_workspace();
     match button_state {
@@ -334,66 +342,61 @@ pub(crate) fn handle_pointer_button_input(
                     ps.panning
                 );
             }
-            let finalize_resize =
-                |st: &mut HalleyWlState, ps: &mut PointerState, backend: &dyn BackendView| {
-                    let ended_resize = ps.resize.take();
-                    ps.panning = false;
-                    if let Some(resize) = ended_resize {
-                        let now = Instant::now();
-                        ps.move_anim.clear();
-                        if st.tuning.debug_tick_dump {
-                            ps.resize_trace_node = Some(resize.node_id);
-                            ps.resize_trace_until = Some(now + Duration::from_millis(1_200));
-                            ps.resize_trace_last_at = None;
-                        } else {
-                            ps.resize_trace_node = None;
-                            ps.resize_trace_until = None;
-                            ps.resize_trace_last_at = None;
-                        }
-                        ps.preview_block_until = Some(now + Duration::from_millis(360));
-                        if !resize.drag_started {
-                            if resize.resize_mode_sent {
-                                request_toplevel_resize_mode(
-                                    st,
-                                    resize.node_id,
-                                    resize.last_sent_w,
-                                    resize.last_sent_h,
-                                    false,
-                                );
-                            }
-                            st.set_recent_top_node(
+            let finalize_resize = |st: &mut HalleyWlState,
+                                   ps: &mut PointerState,
+                                   backend: &dyn BackendView| {
+                let ended_resize = ps.resize.take();
+                ps.panning = false;
+                if let Some(resize) = ended_resize {
+                    let now = Instant::now();
+                    ps.move_anim.clear();
+                    if st.tuning.debug_tick_dump {
+                        ps.resize_trace_node = Some(resize.node_id);
+                        ps.resize_trace_until = Some(now + Duration::from_millis(1_200));
+                        ps.resize_trace_last_at = None;
+                    } else {
+                        ps.resize_trace_node = None;
+                        ps.resize_trace_until = None;
+                        ps.resize_trace_last_at = None;
+                    }
+                    ps.preview_block_until = Some(now + Duration::from_millis(360));
+                    if !resize.drag_started {
+                        if resize.resize_mode_sent {
+                            request_toplevel_resize_mode(
+                                st,
                                 resize.node_id,
-                                now + Duration::from_millis(600),
+                                resize.last_sent_w,
+                                resize.last_sent_h,
+                                false,
                             );
-                            st.end_resize_interaction(now);
-                            st.resolve_overlap_now();
-                            backend.request_redraw();
-                            return;
                         }
-                        let final_w = resize.last_sent_w.max(96);
-                        let final_h = resize.last_sent_h.max(72);
-                        request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, true);
-                        request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, false);
-                        if let Some(n) = st.field.node_mut(resize.node_id) {
-                            n.intrinsic_size.x = final_w as f32;
-                            n.intrinsic_size.y = final_h as f32;
-                        }
-                        st.set_last_active_size_now(
-                            resize.node_id,
-                            halley_core::field::Vec2 {
-                                x: final_w as f32,
-                                y: final_h as f32,
-                            },
-                        );
-                        st.set_recent_top_node(
-                            resize.node_id,
-                            now + Duration::from_millis(600),
-                        );
+                        st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
                         st.end_resize_interaction(now);
                         st.resolve_overlap_now();
                         backend.request_redraw();
+                        return;
                     }
-                };
+                    let final_w = resize.last_sent_w.max(96);
+                    let final_h = resize.last_sent_h.max(72);
+                    request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, true);
+                    request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, false);
+                    if let Some(n) = st.field.node_mut(resize.node_id) {
+                        n.intrinsic_size.x = final_w as f32;
+                        n.intrinsic_size.y = final_h as f32;
+                    }
+                    st.set_last_active_size_now(
+                        resize.node_id,
+                        halley_core::field::Vec2 {
+                            x: final_w as f32,
+                            y: final_h as f32,
+                        },
+                    );
+                    st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
+                    st.end_resize_interaction(now);
+                    st.resolve_overlap_now();
+                    backend.request_redraw();
+                }
+            };
             if left {
                 if let Some(d) = ps.drag {
                     let now = Instant::now();

@@ -227,6 +227,8 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 x: backend_handle.width.max(1) as f32,
                 y: backend_handle.height.max(1) as f32,
             };
+            state
+                .advertise_primary_output(drm_probe.connector_name.as_str(), drm_probe.mode.into());
             info!(
                 "tty logical backend size={}x{}",
                 backend_handle.width, backend_handle.height
@@ -240,7 +242,11 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 ps.workspace_size = (backend_handle.width, backend_handle.height);
             }
 
-            let initial_outputs = collect_outputs_for_ipc(&drm_probe.dev, drm_probe.crtc);
+            let initial_outputs = collect_outputs_for_ipc(
+                &drm_probe.dev,
+                drm_probe.connector_name.as_str(),
+                drm_probe.mode,
+            );
             publish_outputs(initial_outputs);
 
             let drm_crtc = drm_probe.crtc;

@@ -20,6 +20,7 @@ use crate::state::HalleyWlState;
 use super::cursor_render::{cursor_surface_hotspot, draw_cursor_sprite};
 use super::cursor_theme::themed_cursor_sprite_with_fallback;
 use super::dock_render::{draw_dock_preview, draw_docked_pairs};
+use super::layer_render::collect_layer_surfaces;
 use super::node_render::{
     NodeSnapshot, collect_active_surfaces, collect_hover_preview, draw_node_markers,
 };
@@ -70,6 +71,10 @@ pub(crate) fn draw_debug_frame_to_target(
 
     st.tick_animator_frame(now);
     st.begin_render_frame(now);
+    st.configure_layer_shell_surfaces((size.w, size.h).into());
+
+    let (layer_under_elements, layer_over_elements) =
+        collect_layer_surfaces(renderer, st, size, now);
 
     let (
         active_elements,
@@ -137,6 +142,10 @@ pub(crate) fn draw_debug_frame_to_target(
 
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[damage])?;
+
+    if !layer_under_elements.is_empty() {
+        let _ = draw_render_elements(&mut frame, 1.0, &layer_under_elements, &[damage]);
+    }
 
     for rect in &border_rects {
         let color = if rect.focused {
@@ -216,6 +225,10 @@ pub(crate) fn draw_debug_frame_to_target(
 
     draw_docked_pairs(&mut frame, st, size, damage, now)?;
     draw_dock_preview(&mut frame, st, size, damage, now)?;
+
+    if !layer_over_elements.is_empty() {
+        let _ = draw_render_elements(&mut frame, 1.0, &layer_over_elements, &[damage]);
+    }
 
     let focus_ring = st.active_focus_ring();
     draw_ring(

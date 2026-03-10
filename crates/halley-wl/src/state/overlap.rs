@@ -387,7 +387,9 @@ impl HalleyWlState {
                     let a = ids[i];
                     let b = ids[j];
 
-                    if self.field.dock_partner(a) == Some(b) || self.field.dock_partner(b) == Some(a) {
+                    if self.field.dock_partner(a) == Some(b)
+                        || self.field.dock_partner(b) == Some(a)
+                    {
                         continue;
                     }
 
@@ -438,7 +440,8 @@ impl HalleyWlState {
                         continue;
                     }
 
-                    let (mover_id, mover_pos, anchor_pos, mx, my, mover_pinned) = if primary_id == a {
+                    let (mover_id, mover_pos, anchor_pos, mx, my, mover_pinned) = if primary_id == a
+                    {
                         (
                             a,
                             a_pos,

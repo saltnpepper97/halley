@@ -23,7 +23,13 @@ fn apply_host_cursor(
     }
 }
 
-fn publish_winit_output_snapshot(width: i32, height: i32, focused: bool, offset_x: i32, offset_y: i32) {
+fn publish_winit_output_snapshot(
+    width: i32,
+    height: i32,
+    focused: bool,
+    offset_x: i32,
+    offset_y: i32,
+) {
     let width = width.max(0) as u32;
     let height = height.max(0) as u32;
 
@@ -180,6 +186,13 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     x: ws.w.max(1) as f32,
                     y: ws.h.max(1) as f32,
                 };
+                state.advertise_primary_output(
+                    "winit-0",
+                    smithay::output::Mode {
+                        size: (ws.w.max(1), ws.h.max(1)).into(),
+                        refresh: 0,
+                    },
+                );
             }
             apply_host_cursor(&backend, &state.cursor_image_status);
             let backend_for_winit = backend.clone();
@@ -222,188 +235,191 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 })?;
 
             ev.handle()
-                .insert_source(winit_source, move |event, _, st| {
-                    match event {
-                        WinitEvent::Redraw => {
-                            let ps = pointer_state_for_winit.borrow();
-                            let now = Instant::now();
-                            const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
-                            let resize_preview = ps.resize;
-                            let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
-                            let hovered = if hover_blocked { None } else { ps.hover_node };
-                            let preview_ready = hovered.is_some()
-                                && ps.hover_started_at.is_some_and(|at| {
-                                    now.duration_since(at).as_millis() as u64
-                                        >= HOVER_PREVIEW_DWELL_MS
-                                });
-                            let hover_node = if preview_ready { None } else { hovered };
-                            let preview_hover_node = if preview_ready { hovered } else { None };
-                            if let Err(err) = backend_handle_for_winit.draw_frame(
-                                st,
-                                resize_preview,
-                                hover_node,
-                                preview_hover_node,
-                            ) {
-                                debug!("draw failed: {}", err);
-                            } else {
-                                st.send_frame_callbacks(now);
-                            }
+                .insert_source(winit_source, move |event, _, st| match event {
+                    WinitEvent::Redraw => {
+                        let ps = pointer_state_for_winit.borrow();
+                        let now = Instant::now();
+                        const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
+                        let resize_preview = ps.resize;
+                        let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
+                        let hovered = if hover_blocked { None } else { ps.hover_node };
+                        let preview_ready = hovered.is_some()
+                            && ps.hover_started_at.is_some_and(|at| {
+                                now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
+                            });
+                        let hover_node = if preview_ready { None } else { hovered };
+                        let preview_hover_node = if preview_ready { hovered } else { None };
+                        if let Err(err) = backend_handle_for_winit.draw_frame(
+                            st,
+                            resize_preview,
+                            hover_node,
+                            preview_hover_node,
+                        ) {
+                            debug!("draw failed: {}", err);
+                        } else {
+                            st.send_frame_callbacks(now);
                         }
-                        WinitEvent::Resized { size, .. } => {
-                            debug!("winit event: {:?}", event);
-                            st.zoom_ref_size = halley_core::field::Vec2 {
-                                x: size.w.max(1) as f32,
-                                y: size.h.max(1) as f32,
-                            };
-                            {
-                                let mut ps = pointer_state_for_winit.borrow_mut();
-                                let (old_w, old_h) = ps.workspace_size;
-                                let new_w = size.w.max(1);
-                                let new_h = size.h.max(1);
-                                if old_w > 0 && old_h > 0 {
-                                    let sx = ps.screen.0 * (new_w as f32) / (old_w as f32);
-                                    let sy = ps.screen.1 * (new_h as f32) / (old_h as f32);
-                                    let max_x = (new_w - 1) as f32;
-                                    let max_y = (new_h - 1) as f32;
-                                    ps.screen = (sx.clamp(0.0, max_x), sy.clamp(0.0, max_y));
-                                }
-                                ps.workspace_size = (new_w, new_h);
-                            }
-                            let ps = pointer_state_for_winit.borrow();
-                            let now = Instant::now();
-                            const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
-                            let resize_preview = ps.resize;
-                            let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
-                            let hovered = if hover_blocked { None } else { ps.hover_node };
-                            let preview_ready = hovered.is_some()
-                                && ps.hover_started_at.is_some_and(|at| {
-                                    now.duration_since(at).as_millis() as u64
-                                        >= HOVER_PREVIEW_DWELL_MS
-                                });
-                            let hover_node = if preview_ready { None } else { hovered };
-                            let preview_hover_node = if preview_ready { hovered } else { None };
-                            if let Err(err) = backend_handle_for_winit.draw_frame(
-                                st,
-                                resize_preview,
-                                hover_node,
-                                preview_hover_node,
-                            ) {
-                                debug!("draw failed: {}", err);
-                            } else {
-                                st.send_frame_callbacks(now);
-                            }
-                        }
-                        WinitEvent::Focus(false) => {
-                            debug!("winit event: {:?}", event);
-                            *mod_state_for_winit.borrow_mut() = ModState::default();
-                            let mut ps = pointer_state_for_winit.borrow_mut();
-                            if ps.resize.is_none() {
-                                ps.drag = None;
-                                ps.move_anim.clear();
-                                ps.panning = false;
-                            }
-                            st.set_app_focused(false);
-                        }
-                        WinitEvent::Focus(true) => {
-                            debug!("winit event: {:?}", event);
-                            st.set_app_focused(true);
-                            let now = Instant::now();
-                            if let Some(id) = st.last_input_surface_node() {
-                                st.set_interaction_focus(Some(id), 30_000, now);
-                            }
-                        }
-                        WinitEvent::CloseRequested => {
-                            debug!("winit event: {:?}", event);
-                            st.request_exit();
-                        }
-                        WinitEvent::Input(InputEvent::Keyboard { event }) => {
-                            let code = event.key_code().into();
-                            let pressed = event.state() == KeyState::Pressed;
-                            handle_backend_input_event(
-                                st,
-                                &mod_state_for_winit,
-                                &pointer_state_for_winit,
-                                &backend_handle_for_winit,
-                                config_path_for_winit.as_str(),
-                                wayland_display_for_winit.as_str(),
-                                BackendInputEventData::Keyboard { code, pressed },
-                            );
-                        }
-                        WinitEvent::Input(InputEvent::PointerMotionAbsolute { event }) => {
-                            let ws = backend_for_winit.borrow().window_size();
-                            let sx = event.x_transformed(ws.w) as f32;
-                            let sy = event.y_transformed(ws.h) as f32;
-                            handle_backend_input_event(
-                                st,
-                                &mod_state_for_winit,
-                                &pointer_state_for_winit,
-                                &backend_handle_for_winit,
-                                config_path_for_winit.as_str(),
-                                wayland_display_for_winit.as_str(),
-                                BackendInputEventData::PointerMotionAbsolute {
-                                    ws_w: ws.w,
-                                    ws_h: ws.h,
-                                    sx,
-                                    sy,
-                                },
-                            );
-                        }
-                        WinitEvent::Input(InputEvent::PointerMotion { event }) => {
-                            let ws = backend_for_winit.borrow().window_size();
-                            let (last_sx, last_sy) = pointer_state_for_winit.borrow().screen;
-                            let sx = last_sx
-                                + smithay::backend::input::PointerMotionEvent::<
-                                    smithay::backend::winit::WinitInput,
-                                >::delta_x(&event) as f32;
-                            let sy = last_sy
-                                + smithay::backend::input::PointerMotionEvent::<
-                                    smithay::backend::winit::WinitInput,
-                                >::delta_y(&event) as f32;
-                            handle_backend_input_event(
-                                st,
-                                &mod_state_for_winit,
-                                &pointer_state_for_winit,
-                                &backend_handle_for_winit,
-                                config_path_for_winit.as_str(),
-                                wayland_display_for_winit.as_str(),
-                                BackendInputEventData::PointerMotionAbsolute {
-                                    ws_w: ws.w,
-                                    ws_h: ws.h,
-                                    sx,
-                                    sy,
-                                },
-                            );
-                        }
-                        WinitEvent::Input(InputEvent::PointerButton { event }) => {
-                            handle_backend_input_event(
-                                st,
-                                &mod_state_for_winit,
-                                &pointer_state_for_winit,
-                                &backend_handle_for_winit,
-                                config_path_for_winit.as_str(),
-                                wayland_display_for_winit.as_str(),
-                                BackendInputEventData::PointerButton {
-                                    button_code: event.button_code(),
-                                    state: event.state(),
-                                },
-                            );
-                        }
-                        WinitEvent::Input(InputEvent::PointerAxis { event }) => {
-                            handle_backend_input_event(
-                                st,
-                                &mod_state_for_winit,
-                                &pointer_state_for_winit,
-                                &backend_handle_for_winit,
-                                config_path_for_winit.as_str(),
-                                wayland_display_for_winit.as_str(),
-                                BackendInputEventData::PointerAxis {
-                                    amount_v120_vertical: event.amount_v120(Axis::Vertical),
-                                    amount_vertical: event.amount(Axis::Vertical),
-                                },
-                            );
-                        }
-                        _ => {}
                     }
+                    WinitEvent::Resized { size, .. } => {
+                        debug!("winit event: {:?}", event);
+                        st.zoom_ref_size = halley_core::field::Vec2 {
+                            x: size.w.max(1) as f32,
+                            y: size.h.max(1) as f32,
+                        };
+                        st.advertise_primary_output(
+                            "winit-0",
+                            smithay::output::Mode {
+                                size: (size.w.max(1), size.h.max(1)).into(),
+                                refresh: 0,
+                            },
+                        );
+                        {
+                            let mut ps = pointer_state_for_winit.borrow_mut();
+                            let (old_w, old_h) = ps.workspace_size;
+                            let new_w = size.w.max(1);
+                            let new_h = size.h.max(1);
+                            if old_w > 0 && old_h > 0 {
+                                let sx = ps.screen.0 * (new_w as f32) / (old_w as f32);
+                                let sy = ps.screen.1 * (new_h as f32) / (old_h as f32);
+                                let max_x = (new_w - 1) as f32;
+                                let max_y = (new_h - 1) as f32;
+                                ps.screen = (sx.clamp(0.0, max_x), sy.clamp(0.0, max_y));
+                            }
+                            ps.workspace_size = (new_w, new_h);
+                        }
+                        let ps = pointer_state_for_winit.borrow();
+                        let now = Instant::now();
+                        const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
+                        let resize_preview = ps.resize;
+                        let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
+                        let hovered = if hover_blocked { None } else { ps.hover_node };
+                        let preview_ready = hovered.is_some()
+                            && ps.hover_started_at.is_some_and(|at| {
+                                now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
+                            });
+                        let hover_node = if preview_ready { None } else { hovered };
+                        let preview_hover_node = if preview_ready { hovered } else { None };
+                        if let Err(err) = backend_handle_for_winit.draw_frame(
+                            st,
+                            resize_preview,
+                            hover_node,
+                            preview_hover_node,
+                        ) {
+                            debug!("draw failed: {}", err);
+                        } else {
+                            st.send_frame_callbacks(now);
+                        }
+                    }
+                    WinitEvent::Focus(false) => {
+                        debug!("winit event: {:?}", event);
+                        *mod_state_for_winit.borrow_mut() = ModState::default();
+                        let mut ps = pointer_state_for_winit.borrow_mut();
+                        if ps.resize.is_none() {
+                            ps.drag = None;
+                            ps.move_anim.clear();
+                            ps.panning = false;
+                        }
+                        st.set_app_focused(false);
+                    }
+                    WinitEvent::Focus(true) => {
+                        debug!("winit event: {:?}", event);
+                        st.set_app_focused(true);
+                        let now = Instant::now();
+                        if let Some(id) = st.last_input_surface_node() {
+                            st.set_interaction_focus(Some(id), 30_000, now);
+                        }
+                    }
+                    WinitEvent::CloseRequested => {
+                        debug!("winit event: {:?}", event);
+                        st.request_exit();
+                    }
+                    WinitEvent::Input(InputEvent::Keyboard { event }) => {
+                        let code = event.key_code().into();
+                        let pressed = event.state() == KeyState::Pressed;
+                        handle_backend_input_event(
+                            st,
+                            &mod_state_for_winit,
+                            &pointer_state_for_winit,
+                            &backend_handle_for_winit,
+                            config_path_for_winit.as_str(),
+                            wayland_display_for_winit.as_str(),
+                            BackendInputEventData::Keyboard { code, pressed },
+                        );
+                    }
+                    WinitEvent::Input(InputEvent::PointerMotionAbsolute { event }) => {
+                        let ws = backend_for_winit.borrow().window_size();
+                        let sx = event.x_transformed(ws.w) as f32;
+                        let sy = event.y_transformed(ws.h) as f32;
+                        handle_backend_input_event(
+                            st,
+                            &mod_state_for_winit,
+                            &pointer_state_for_winit,
+                            &backend_handle_for_winit,
+                            config_path_for_winit.as_str(),
+                            wayland_display_for_winit.as_str(),
+                            BackendInputEventData::PointerMotionAbsolute {
+                                ws_w: ws.w,
+                                ws_h: ws.h,
+                                sx,
+                                sy,
+                            },
+                        );
+                    }
+                    WinitEvent::Input(InputEvent::PointerMotion { event }) => {
+                        let ws = backend_for_winit.borrow().window_size();
+                        let (last_sx, last_sy) = pointer_state_for_winit.borrow().screen;
+                        let sx = last_sx
+                            + smithay::backend::input::PointerMotionEvent::<
+                                smithay::backend::winit::WinitInput,
+                            >::delta_x(&event) as f32;
+                        let sy = last_sy
+                            + smithay::backend::input::PointerMotionEvent::<
+                                smithay::backend::winit::WinitInput,
+                            >::delta_y(&event) as f32;
+                        handle_backend_input_event(
+                            st,
+                            &mod_state_for_winit,
+                            &pointer_state_for_winit,
+                            &backend_handle_for_winit,
+                            config_path_for_winit.as_str(),
+                            wayland_display_for_winit.as_str(),
+                            BackendInputEventData::PointerMotionAbsolute {
+                                ws_w: ws.w,
+                                ws_h: ws.h,
+                                sx,
+                                sy,
+                            },
+                        );
+                    }
+                    WinitEvent::Input(InputEvent::PointerButton { event }) => {
+                        handle_backend_input_event(
+                            st,
+                            &mod_state_for_winit,
+                            &pointer_state_for_winit,
+                            &backend_handle_for_winit,
+                            config_path_for_winit.as_str(),
+                            wayland_display_for_winit.as_str(),
+                            BackendInputEventData::PointerButton {
+                                button_code: event.button_code(),
+                                state: event.state(),
+                            },
+                        );
+                    }
+                    WinitEvent::Input(InputEvent::PointerAxis { event }) => {
+                        handle_backend_input_event(
+                            st,
+                            &mod_state_for_winit,
+                            &pointer_state_for_winit,
+                            &backend_handle_for_winit,
+                            config_path_for_winit.as_str(),
+                            wayland_display_for_winit.as_str(),
+                            BackendInputEventData::PointerAxis {
+                                amount_v120_vertical: event.amount_v120(Axis::Vertical),
+                                amount_vertical: event.amount(Axis::Vertical),
+                            },
+                        );
+                    }
+                    _ => {}
                 })?;
 
             let timer = Timer::from_duration(Duration::from_millis(16));

@@ -12,6 +12,46 @@ use crate::state::HalleyWlState;
 use super::pointer_map_debug_enabled;
 use super::resize_helpers::active_node_surface_transform_screen_details;
 
+pub(crate) fn layer_surface_focus_for_screen(
+    st: &HalleyWlState,
+    ws_w: i32,
+    ws_h: i32,
+    sx: f32,
+    sy: f32,
+) -> Option<(
+    smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    Point<f64, Logical>,
+)> {
+    let mut placements = st.layer_shell_placements((ws_w.max(1), ws_h.max(1)).into());
+    placements.sort_by_key(|placement| {
+        std::cmp::Reverse(match placement.layer {
+            smithay::wayland::shell::wlr_layer::Layer::Background => 0u8,
+            smithay::wayland::shell::wlr_layer::Layer::Bottom => 1u8,
+            smithay::wayland::shell::wlr_layer::Layer::Top => 2u8,
+            smithay::wayland::shell::wlr_layer::Layer::Overlay => 3u8,
+        })
+    });
+
+    for placement in placements {
+        let local = Point::<f64, Logical>::from((
+            (sx.round() as i32 - placement.origin.x) as f64,
+            (sy.round() as i32 - placement.origin.y) as f64,
+        ));
+        let Some((surface, surface_loc)) =
+            under_from_surface_tree(&placement.wl_surface, local, (0, 0), WindowSurfaceType::ALL)
+        else {
+            continue;
+        };
+        let focus_origin = Point::<f64, Logical>::from((
+            (placement.origin.x + surface_loc.x) as f64,
+            (placement.origin.y + surface_loc.y) as f64,
+        ));
+        return Some((surface, focus_origin));
+    }
+
+    None
+}
+
 /// Resolve the Wayland surface and compositor-space surface origin for a
 /// given screen-space pointer position.
 ///
@@ -43,6 +83,10 @@ pub(crate) fn pointer_focus_for_screen(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
 )> {
+    if let Some(focus) = layer_surface_focus_for_screen(st, ws_w, ws_h, sx, sy) {
+        return Some(focus);
+    }
+
     let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, now)?;
     let node = st.field.node(hit.node_id)?;
     if node.state != halley_core::field::NodeState::Active {

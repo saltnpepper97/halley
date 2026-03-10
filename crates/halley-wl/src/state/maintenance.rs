@@ -47,9 +47,7 @@ impl HalleyWlState {
                     non_docked_active
                         .iter()
                         .copied()
-                        .max_by_key(|id| {
-                            self.last_surface_focus_ms.get(id).copied().unwrap_or(0)
-                        })
+                        .max_by_key(|id| self.last_surface_focus_ms.get(id).copied().unwrap_or(0))
                 })
         };
 
@@ -96,8 +94,7 @@ impl HalleyWlState {
 
         if let Some(fid) = focused_breakout {
             docked_pairs.sort_by_key(|(a, b, latest_focus)| {
-                let contains_companion =
-                    companion.is_some_and(|cid| cid == *a || cid == *b);
+                let contains_companion = companion.is_some_and(|cid| cid == *a || cid == *b);
                 let contains_preferred =
                     preferred_surface.is_some_and(|pid| pid == *a || pid == *b);
                 let any_inside = [*a, *b].iter().any(|nid| {
@@ -219,11 +216,7 @@ impl HalleyWlState {
         }
     }
 
-    pub(crate) fn enforce_pan_dominant_zone_states(
-        &mut self,
-        focus_ring: FocusRing,
-        now_ms: u64,
-    ) {
+    pub(crate) fn enforce_pan_dominant_zone_states(&mut self, focus_ring: FocusRing, now_ms: u64) {
         let primary_outside_ring_delay_ms = self.tuning.primary_outside_ring_delay_ms;
         let secondary_outside_ring_delay_ms = self.tuning.secondary_outside_ring_delay_ms;
         let docked_offscreen_delay_ms = self.tuning.docked_offscreen_delay_ms;
@@ -271,8 +264,7 @@ impl HalleyWlState {
 
         self.dock_decay_offscreen_since_ms.retain(|id, _| {
             self.field.node(*id).is_some_and(|n| {
-                self.field.is_visible(*id)
-                    && n.kind == halley_core::field::NodeKind::Surface
+                self.field.is_visible(*id) && n.kind == halley_core::field::NodeKind::Surface
             })
         });
     }
@@ -338,13 +330,7 @@ impl HalleyWlState {
         }
     }
 
-    fn apply_docked_pair_decay_policy(
-        &mut self,
-        a: NodeId,
-        b: NodeId,
-        now_ms: u64,
-        delay_ms: u64,
-    ) {
+    fn apply_docked_pair_decay_policy(&mut self, a: NodeId, b: NodeId, now_ms: u64, delay_ms: u64) {
         let a_visible = self.surface_intersects_viewport(a);
         let b_visible = self.surface_intersects_viewport(b);
 

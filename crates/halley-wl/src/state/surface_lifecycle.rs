@@ -13,6 +13,13 @@ impl HalleyWlState {
             .entry(key)
             .or_insert_with(|| CommitActivity::new(now))
             .on_commit(now);
+        if let Some(output) = &self.primary_output {
+            output.enter(surface);
+        }
+
+        // Grant keyboard focus to layer surfaces (e.g. fuzzel) on their first
+        // real commit, when keyboard_interactivity is now populated.
+        self.maybe_grant_layer_surface_focus_on_commit(surface);
     }
 
     pub fn ensure_node_for_surface(
@@ -177,6 +184,9 @@ impl HalleyWlState {
     }
 
     pub fn drop_surface(&mut self, surface: &WlSurface) {
+        if let Some(output) = &self.primary_output {
+            output.leave(surface);
+        }
         let key = Self::surface_key(surface);
         self.surface_activity.remove(&key);
         if let Some(id) = self.surface_to_node.remove(&key) {

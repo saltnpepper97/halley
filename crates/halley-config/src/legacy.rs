@@ -43,7 +43,6 @@ pub fn parse_legacy_keybinds(content: &str) -> HashMap<String, String> {
     out
 }
 
-
 fn parse_legacy_keybind_line(line: &str) -> Option<(String, String)> {
     let mut clean = String::with_capacity(line.len());
     let mut in_quotes = false;
