@@ -1,6 +1,8 @@
 use std::f32::consts::TAU;
 use std::time::Instant;
 
+use smithay::wayland::compositor::with_states;
+use smithay::wayland::shell::xdg::SurfaceCachedState;
 use smithay::{
     backend::renderer::{Color32F, Frame},
     desktop::utils::bbox_from_surface_tree,
@@ -91,6 +93,34 @@ pub(crate) fn sync_node_size_from_surface(
 
     st.bbox_loc
         .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
+    let geometry = with_states(wl, |states| {
+        states
+            .cached_state
+            .get::<SurfaceCachedState>()
+            .current()
+            .geometry
+    });
+    if let Some(g) = geometry {
+        st.window_geometry.insert(
+            node_id,
+            (
+                g.loc.x as f32,
+                g.loc.y as f32,
+                g.size.w as f32,
+                g.size.h as f32,
+            ),
+        );
+    } else {
+        st.window_geometry.insert(
+            node_id,
+            (
+                bbox.loc.x as f32,
+                bbox.loc.y as f32,
+                bbox.size.w.max(1) as f32,
+                bbox.size.h.max(1) as f32,
+            ),
+        );
+    }
 
     let bw = bbox.size.w.max(1) as f32;
     let bh = bbox.size.h.max(1) as f32;

@@ -3,17 +3,6 @@ use halley_core::docking::DockSide;
 use halley_core::viewport::{FocusRing, FocusZone};
 
 impl HalleyWlState {
-    #[inline]
-    fn dock_state_eval_footprint(&self, id: NodeId, live: Vec2) -> Vec2 {
-        match self.last_active_size.get(&id).copied() {
-            Some(last) => Vec2 {
-                x: live.x.max(last.x),
-                y: live.y.max(last.y),
-            },
-            None => live,
-        }
-    }
-
     pub fn enforce_docked_pairs(&mut self) {
         let pairs = self.field.docked_pairs();
         if pairs.is_empty() {
@@ -44,13 +33,10 @@ impl HalleyWlState {
                         x: (na.pos.x + nb.pos.x) * 0.5,
                         y: (na.pos.y + nb.pos.y) * 0.5,
                     },
-                    self.collision_size_for_node(na),
-                    self.collision_size_for_node(nb),
+                    self.collision_extents_for_node(na),
+                    self.collision_extents_for_node(nb),
                 )
             };
-
-            let a_edge_fp = self.dock_state_eval_footprint(a, sa);
-            let b_edge_fp = self.dock_state_eval_footprint(b, sb);
 
             // Docked-pair geometry should not auto-resurrect nodes explicitly
             // collapsed by the user. Keep the pair geometry enforced, but only
@@ -79,7 +65,11 @@ impl HalleyWlState {
             let gap = self.non_overlap_gap_world();
             match link_b_side {
                 DockSide::Left | DockSide::Right => {
-                    let sep = (a_edge_fp.x * 0.5 + b_edge_fp.x * 0.5 + gap).max(0.0);
+                    let sep = if link_b_side == DockSide::Right {
+                        (sa.right + sb.left + gap).max(0.0)
+                    } else {
+                        (sa.left + sb.right + gap).max(0.0)
+                    };
                     let half_sep = sep * 0.5;
                     let (ax, bx) = if link_b_side == DockSide::Right {
                         (mid.x - half_sep, mid.x + half_sep)
@@ -90,7 +80,11 @@ impl HalleyWlState {
                     let _ = self.field.carry(b, Vec2 { x: bx, y: mid.y });
                 }
                 DockSide::Top | DockSide::Bottom => {
-                    let sep = (a_edge_fp.y * 0.5 + b_edge_fp.y * 0.5 + gap).max(0.0);
+                    let sep = if link_b_side == DockSide::Top {
+                        (sa.top + sb.bottom + gap).max(0.0)
+                    } else {
+                        (sa.bottom + sb.top + gap).max(0.0)
+                    };
                     let half_sep = sep * 0.5;
                     let (ay, by) = if link_b_side == DockSide::Top {
                         (mid.y - half_sep, mid.y + half_sep)

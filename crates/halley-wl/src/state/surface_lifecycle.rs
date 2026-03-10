@@ -43,6 +43,7 @@ impl HalleyWlState {
 
         let pair_gap = gap;
         let conflict_at = |p: Vec2, field: &Field, size: Vec2, pair_gap: f32| -> bool {
+            let candidate = super::overlap::CollisionExtents::symmetric(size);
             field.nodes().values().any(|other| {
                 if other.kind != halley_core::field::NodeKind::Surface {
                     return false;
@@ -50,9 +51,9 @@ impl HalleyWlState {
                 if !field.is_visible(other.id) {
                     return false;
                 }
-                let other_size = self.collision_size_for_node(other);
-                let req_x = size.x * 0.5 + other_size.x * 0.5 + pair_gap;
-                let req_y = size.y * 0.5 + other_size.y * 0.5 + pair_gap;
+                let other_ext = self.collision_extents_for_node(other);
+                let req_x = self.required_sep_x(p.x, candidate, other.pos.x, other_ext, pair_gap);
+                let req_y = self.required_sep_y(p.y, candidate, other.pos.y, other_ext, pair_gap);
                 (p.x - other.pos.x).abs() < req_x && (p.y - other.pos.y).abs() < req_y
             })
         };
@@ -85,34 +86,38 @@ impl HalleyWlState {
                 .filter(|n| self.field.is_visible(n.id))
                 .max_by_key(|n| n.id.as_u64());
             if let Some(a) = anchor {
-                let a_size = self.collision_size_for_node(a);
-                let dx = a_size.x * 0.5 + size.x * 0.5 + pair_gap;
-                let dy = a_size.y * 0.5 + size.y * 0.5 + pair_gap;
+                let a_ext = self.collision_extents_for_node(a);
+                let new_ext = super::overlap::CollisionExtents::symmetric(size);
+                let dx_right =
+                    self.required_sep_x(a.pos.x, a_ext, a.pos.x + 1.0, new_ext, pair_gap);
+                let dx_left = self.required_sep_x(a.pos.x, a_ext, a.pos.x - 1.0, new_ext, pair_gap);
+                let dy_down = self.required_sep_y(a.pos.y, a_ext, a.pos.y + 1.0, new_ext, pair_gap);
+                let dy_up = self.required_sep_y(a.pos.y, a_ext, a.pos.y - 1.0, new_ext, pair_gap);
                 let sign = if n.is_multiple_of(2) { 1.0 } else { -1.0 };
                 let candidates = [
                     Vec2 {
-                        x: a.pos.x + sign * dx,
+                        x: a.pos.x + if sign > 0.0 { dx_right } else { -dx_left },
                         y: a.pos.y,
                     },
                     Vec2 {
-                        x: a.pos.x - sign * dx,
+                        x: a.pos.x - if sign > 0.0 { dx_left } else { -dx_right },
                         y: a.pos.y,
                     },
                     Vec2 {
                         x: a.pos.x,
-                        y: a.pos.y + dy,
+                        y: a.pos.y + dy_down,
                     },
                     Vec2 {
                         x: a.pos.x,
-                        y: a.pos.y - dy,
+                        y: a.pos.y - dy_up,
                     },
                     Vec2 {
-                        x: a.pos.x + sign * dx,
-                        y: a.pos.y + dy * 0.5,
+                        x: a.pos.x + if sign > 0.0 { dx_right } else { -dx_left },
+                        y: a.pos.y + dy_down * 0.5,
                     },
                     Vec2 {
-                        x: a.pos.x - sign * dx,
-                        y: a.pos.y - dy * 0.5,
+                        x: a.pos.x - if sign > 0.0 { dx_left } else { -dx_right },
+                        y: a.pos.y - dy_up * 0.5,
                     },
                 ];
                 if let Some(p) = candidates
@@ -149,9 +154,10 @@ impl HalleyWlState {
                     continue;
                 };
                 let old_pos = old.pos;
-                let old_size = self.collision_size_for_node(old);
-                let req_x = old_size.x * 0.5 + size.x * 0.5 + pair_gap;
-                let req_y = old_size.y * 0.5 + size.y * 0.5 + pair_gap;
+                let old_ext = self.collision_extents_for_node(old);
+                let new_ext = super::overlap::CollisionExtents::symmetric(size);
+                let req_x = self.required_sep_x(pos.x, new_ext, old_pos.x, old_ext, pair_gap);
+                let req_y = self.required_sep_y(pos.y, new_ext, old_pos.y, old_ext, pair_gap);
                 let dx = old_pos.x - pos.x;
                 let dy = old_pos.y - pos.y;
                 if dx.abs() < req_x && dy.abs() < req_y {
@@ -201,6 +207,8 @@ impl HalleyWlState {
             self.zoom_last_observed_size.remove(&id);
             self.zoom_resize_static_streak.remove(&id);
             self.last_active_size.remove(&id);
+            self.bbox_loc.remove(&id);
+            self.window_geometry.remove(&id);
             self.pending_spawn_activate_at_ms.remove(&id);
             self.active_transition_until_ms.remove(&id);
             self.primary_promote_cooldown_until_ms.remove(&id);
