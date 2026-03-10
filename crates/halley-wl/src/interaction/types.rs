@@ -46,6 +46,8 @@ pub(crate) struct ResizeCtx {
     pub(crate) node_id: halley_core::field::NodeId,
     pub(crate) start_surface_w: i32,
     pub(crate) start_surface_h: i32,
+    pub(crate) start_bbox_w: i32,
+    pub(crate) start_bbox_h: i32,
     pub(crate) start_left_px: f32,
     pub(crate) start_right_px: f32,
     pub(crate) start_top_px: f32,

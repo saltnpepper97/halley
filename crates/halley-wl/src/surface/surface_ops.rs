@@ -47,6 +47,19 @@ pub(crate) fn current_surface_size_for_node(
         if st.surface_to_node.get(&key).copied() != Some(node_id) {
             continue;
         }
+        let geo = with_states(&wl, |states| {
+            states
+                .cached_state
+                .get::<SurfaceCachedState>()
+                .current()
+                .geometry
+        });
+        if let Some(g) = geo {
+            return Some(halley_core::field::Vec2 {
+                x: g.size.w.max(1) as f32,
+                y: g.size.h.max(1) as f32,
+            });
+        }
         if let Some(sz) = top.current_state().size {
             return Some(halley_core::field::Vec2 {
                 x: sz.w.max(1) as f32,

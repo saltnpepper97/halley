@@ -288,10 +288,16 @@ pub(crate) fn handle_pointer_button_input(
                                     x: start_w as f32,
                                     y: start_h as f32,
                                 });
+                            let start_bbox = halley_core::field::Vec2 {
+                                x: fallback_size.x.max(1.0),
+                                y: fallback_size.y.max(1.0),
+                            };
                             ps.resize = Some(ResizeCtx {
                                 node_id: h.node_id,
                                 start_surface_w: start_surface.x.max(96.0).round() as i32,
                                 start_surface_h: start_surface.y.max(72.0).round() as i32,
+                                start_bbox_w: start_bbox.x.round() as i32,
+                                start_bbox_h: start_bbox.y.round() as i32,
                                 start_left_px: start_left,
                                 start_right_px: start_right,
                                 start_top_px: start_top,
@@ -378,17 +384,23 @@ pub(crate) fn handle_pointer_button_input(
                     }
                     let final_w = resize.last_sent_w.max(96);
                     let final_h = resize.last_sent_h.max(72);
+                    let final_bbox_w = ((resize.start_bbox_w as f32)
+                        + ((final_w - resize.start_surface_w) as f32))
+                        .max(1.0);
+                    let final_bbox_h = ((resize.start_bbox_h as f32)
+                        + ((final_h - resize.start_surface_h) as f32))
+                        .max(1.0);
                     request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, true);
                     request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, false);
                     if let Some(n) = st.field.node_mut(resize.node_id) {
-                        n.intrinsic_size.x = final_w as f32;
-                        n.intrinsic_size.y = final_h as f32;
+                        n.intrinsic_size.x = final_bbox_w;
+                        n.intrinsic_size.y = final_bbox_h;
                     }
                     st.set_last_active_size_now(
                         resize.node_id,
                         halley_core::field::Vec2 {
-                            x: final_w as f32,
-                            y: final_h as f32,
+                            x: final_bbox_w,
+                            y: final_bbox_h,
                         },
                     );
                     st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));

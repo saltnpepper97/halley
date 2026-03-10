@@ -180,15 +180,17 @@ pub(crate) fn handle_pointer_motion_absolute(
         let target_h = ((resize.start_surface_h as f32) + delta_h)
             .max(min_h)
             .round() as i32;
+        let target_bbox_w = ((resize.start_bbox_w as f32) + delta_w).max(1.0).round() as i32;
+        let target_bbox_h = ((resize.start_bbox_h as f32) + delta_h).max(1.0).round() as i32;
 
         let (left, right) = match resize.handle {
             ResizeHandle::Left | ResizeHandle::TopLeft | ResizeHandle::BottomLeft => {
                 let r = resize.start_right_px;
-                (r - target_w as f32, r)
+                (r - target_bbox_w as f32, r)
             }
             ResizeHandle::Right | ResizeHandle::TopRight | ResizeHandle::BottomRight => {
                 let l = resize.start_left_px;
-                (l, l + target_w as f32)
+                (l, l + target_bbox_w as f32)
             }
             ResizeHandle::Top | ResizeHandle::Bottom => {
                 (resize.start_left_px, resize.start_right_px)
@@ -197,11 +199,11 @@ pub(crate) fn handle_pointer_motion_absolute(
         let (top, bottom) = match resize.handle {
             ResizeHandle::Top | ResizeHandle::TopLeft | ResizeHandle::TopRight => {
                 let b = resize.start_bottom_px;
-                (b - target_h as f32, b)
+                (b - target_bbox_h as f32, b)
             }
             ResizeHandle::Bottom | ResizeHandle::BottomLeft | ResizeHandle::BottomRight => {
                 let t = resize.start_top_px;
-                (t, t + target_h as f32)
+                (t, t + target_bbox_h as f32)
             }
             ResizeHandle::Left | ResizeHandle::Right => {
                 (resize.start_top_px, resize.start_bottom_px)
@@ -226,15 +228,15 @@ pub(crate) fn handle_pointer_motion_absolute(
             center_sy,
         );
         if let Some(n) = st.field.node_mut(resize.node_id) {
-            n.intrinsic_size.x = target_w as f32;
-            n.intrinsic_size.y = target_h as f32;
+            n.intrinsic_size.x = target_bbox_w as f32;
+            n.intrinsic_size.y = target_bbox_h as f32;
             n.pos = center_world;
         }
         st.set_last_active_size_now(
             resize.node_id,
             halley_core::field::Vec2 {
-                x: target_w as f32,
-                y: target_h as f32,
+                x: target_bbox_w as f32,
+                y: target_bbox_h as f32,
             },
         );
         next.preview_left_px = left;
