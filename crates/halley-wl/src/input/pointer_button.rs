@@ -18,7 +18,7 @@ use crate::surface::{current_surface_size_for_node, request_toplevel_resize_mode
 use smithay::backend::input::ButtonState;
 
 use super::input_utils::modifier_active;
-use super::pointer_focus::pointer_focus_for_screen;
+use super::pointer_focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
 use super::pointer_map_debug_enabled;
 use super::resize_helpers::{active_node_screen_rect, pick_resize_handle_from_screen};
 
@@ -53,6 +53,7 @@ pub(crate) fn handle_pointer_button_input(
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, ps.screen.0, ps.screen.1);
     ps.screen = (sx, sy);
     ps.workspace_size = (ws_w, ws_h);
+    let layer_focus = layer_surface_focus_for_screen(st, ws_w, ws_h, sx, sy);
     if let Some(pointer) = st.seat.get_pointer() {
         let resize_preview = ps.resize;
         let focus =
@@ -83,6 +84,13 @@ pub(crate) fn handle_pointer_button_input(
     ps.world = world_now;
     if !left && !right {
         return;
+    }
+    if matches!(button_state, ButtonState::Pressed) {
+        if let Some((surface, _)) = layer_focus {
+            let _ = st.focus_layer_surface(&surface);
+            ps.last_title_click = None;
+            return;
+        }
     }
     let workspace_active = st.has_active_cluster_workspace();
     match button_state {

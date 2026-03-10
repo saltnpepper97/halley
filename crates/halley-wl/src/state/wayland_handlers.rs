@@ -1,12 +1,18 @@
 use super::*;
 use eventline::info;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::reexports::wayland_server::{Client, Resource, protocol::wl_surface::WlSurface};
+use smithay::reexports::wayland_server::{
+    Client, Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
+};
+use smithay::wayland::output::OutputHandler;
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::{
     PrimarySelectionHandler, PrimarySelectionState, set_primary_focus,
 };
 use smithay::wayland::selection::wlr_data_control::DataControlState;
+use smithay::wayland::shell::wlr_layer::{
+    Layer, LayerSurface, LayerSurfaceConfigure, WlrLayerShellHandler, WlrLayerShellState,
+};
 
 fn client_for_surface(surface: Option<&WlSurface>) -> Option<Client> {
     surface.and_then(|wl| wl.client())
@@ -179,6 +185,34 @@ impl XdgShellHandler for HalleyWlState {
 }
 
 delegate_xdg_shell!(HalleyWlState);
+
+impl WlrLayerShellHandler for HalleyWlState {
+    fn shell_state(&mut self) -> &mut WlrLayerShellState {
+        &mut self.wlr_layer_shell_state
+    }
+
+    fn new_layer_surface(
+        &mut self,
+        surface: LayerSurface,
+        output: Option<WlOutput>,
+        layer: Layer,
+        namespace: String,
+    ) {
+        self.register_layer_surface(surface, output, layer, namespace);
+    }
+
+    fn ack_configure(&mut self, _surface: WlSurface, _configure: LayerSurfaceConfigure) {}
+
+    fn layer_destroyed(&mut self, surface: LayerSurface) {
+        self.remove_layer_surface(&surface);
+    }
+}
+
+delegate_layer_shell!(HalleyWlState);
+
+impl OutputHandler for HalleyWlState {}
+
+delegate_output!(HalleyWlState);
 
 impl PrimarySelectionHandler for HalleyWlState {
     fn primary_selection_state(&self) -> &PrimarySelectionState {

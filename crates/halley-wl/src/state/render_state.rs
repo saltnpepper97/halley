@@ -129,6 +129,9 @@ impl HalleyWlState {
     pub fn send_frame_callbacks(&mut self, now: Instant) {
         let elapsed_ms = now.duration_since(self.started_at).as_millis();
         let time_ms = elapsed_ms.min(u32::MAX as u128) as u32;
+        for layer in self.wlr_layer_shell_state.layer_surfaces() {
+            send_frames_surface_tree(layer.wl_surface(), time_ms);
+        }
         for top in self.xdg_shell_state.toplevel_surfaces() {
             send_frames_surface_tree(top.wl_surface(), time_ms);
         }

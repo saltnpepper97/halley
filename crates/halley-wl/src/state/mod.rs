@@ -10,16 +10,18 @@ use halley_config::RuntimeTuning;
 
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
-    delegate_compositor, delegate_data_control, delegate_data_device, delegate_primary_selection,
-    delegate_seat, delegate_shm, delegate_xdg_shell,
+    delegate_compositor, delegate_data_control, delegate_data_device, delegate_layer_shell,
+    delegate_output, delegate_primary_selection, delegate_seat, delegate_shm, delegate_xdg_shell,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
+    output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::wayland_server::{
         DisplayHandle, Resource, backend::ObjectId, protocol::wl_seat,
     },
-    utils::Serial,
+    utils::{Serial, Transform},
     wayland::{
         buffer::BufferHandler,
         compositor::{CompositorClientState, CompositorHandler, CompositorState},
+        output::OutputManagerState,
         selection::{
             SelectionHandler,
             data_device::{
@@ -28,6 +30,7 @@ use smithay::{
             primary_selection::PrimarySelectionState,
             wlr_data_control::{DataControlHandler, DataControlState},
         },
+        shell::wlr_layer::WlrLayerShellState,
         shell::xdg::{
             PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
         },
@@ -40,6 +43,7 @@ use crate::anim::{AnimSpec, Animator};
 mod carry;
 mod client;
 mod focus;
+mod layer_shell;
 mod maintenance;
 mod overlap;
 mod render_state;
@@ -55,12 +59,15 @@ pub struct HalleyWlState {
     pub display_handle: DisplayHandle,
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
+    pub wlr_layer_shell_state: WlrLayerShellState,
+    pub output_manager_state: OutputManagerState,
     pub shm_state: ShmState,
     pub seat_state: SeatState<Self>,
     pub data_device_state: DataDeviceState,
     pub primary_selection_state: PrimarySelectionState,
     pub data_control_state: DataControlState,
     pub seat: Seat<Self>,
+    pub primary_output: Option<Output>,
 
     pub field: Field,
     pub viewport: Viewport,
@@ -143,12 +150,15 @@ impl HalleyWlState {
             display_handle: dh.clone(),
             compositor_state: CompositorState::new::<HalleyWlState>(dh),
             xdg_shell_state: XdgShellState::new::<HalleyWlState>(dh),
+            wlr_layer_shell_state: WlrLayerShellState::new::<HalleyWlState>(dh),
+            output_manager_state: OutputManagerState::new_with_xdg_output::<HalleyWlState>(dh),
             shm_state: ShmState::new::<HalleyWlState>(dh, vec![]),
             seat_state,
             data_device_state: DataDeviceState::new::<HalleyWlState>(dh),
             primary_selection_state,
             data_control_state,
             seat,
+            primary_output: None,
 
             field: Field::new(),
             viewport: tuning.viewport(),
@@ -212,6 +222,31 @@ impl HalleyWlState {
             bounce: out.tuning.dev_anim_bounce,
         });
         out
+    }
+
+    pub(crate) fn advertise_primary_output(&mut self, name: &str, mode: OutputMode) {
+        let output = self.primary_output.get_or_insert_with(|| {
+            let output = Output::new(
+                name.to_string(),
+                PhysicalProperties {
+                    size: (0, 0).into(),
+                    subpixel: Subpixel::Unknown,
+                    make: "halley".to_string(),
+                    model: name.to_string(),
+                },
+            );
+            let _ = output.create_global::<HalleyWlState>(&self.display_handle);
+            output
+        });
+
+        output.add_mode(mode);
+        output.set_preferred(mode);
+        output.change_current_state(
+            Some(mode),
+            Some(Transform::Normal),
+            Some(Scale::Integer(1)),
+            Some((0, 0).into()),
+        );
     }
 
     pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {

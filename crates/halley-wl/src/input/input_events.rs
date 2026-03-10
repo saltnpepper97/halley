@@ -96,7 +96,7 @@ pub(crate) fn handle_keyboard_input(
     // Refresh interaction focus only for keys that are going to clients.
     // Compositor bindings like minimize should not first re-focus / re-heat
     // the surface they are about to collapse.
-    if pressed && !matched_binding {
+    if pressed && !matched_binding && !st.keyboard_focus_is_layer_surface() {
         if let Some(fid) = st.last_input_surface_node() {
             st.set_interaction_focus(Some(fid), 30_000, Instant::now());
         }

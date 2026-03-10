@@ -227,6 +227,10 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 x: backend_handle.width.max(1) as f32,
                 y: backend_handle.height.max(1) as f32,
             };
+            state.advertise_primary_output(
+                drm_probe.connector_name.as_str(),
+                drm_probe.mode.into(),
+            );
             info!(
                 "tty logical backend size={}x{}",
                 backend_handle.width, backend_handle.height

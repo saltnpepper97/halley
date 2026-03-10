@@ -25,7 +25,7 @@ impl HalleyWlState {
         None
     }
 
-    fn update_selection_focus_from_surface(&self, surface: Option<&WlSurface>) {
+    pub(super) fn update_selection_focus_from_surface(&self, surface: Option<&WlSurface>) {
         let client = surface.and_then(|wl| wl.client());
         set_data_device_focus(&self.display_handle, &self.seat, client.clone());
         set_primary_focus(&self.display_handle, &self.seat, client);

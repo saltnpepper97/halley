@@ -180,6 +180,13 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     x: ws.w.max(1) as f32,
                     y: ws.h.max(1) as f32,
                 };
+                state.advertise_primary_output(
+                    "winit-0",
+                    smithay::output::Mode {
+                        size: (ws.w.max(1), ws.h.max(1)).into(),
+                        refresh: 0,
+                    },
+                );
             }
             apply_host_cursor(&backend, &state.cursor_image_status);
             let backend_for_winit = backend.clone();
@@ -255,6 +262,13 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 x: size.w.max(1) as f32,
                                 y: size.h.max(1) as f32,
                             };
+                            st.advertise_primary_output(
+                                "winit-0",
+                                smithay::output::Mode {
+                                    size: (size.w.max(1), size.h.max(1)).into(),
+                                    refresh: 0,
+                                },
+                            );
                             {
                                 let mut ps = pointer_state_for_winit.borrow_mut();
                                 let (old_w, old_h) = ps.workspace_size;
