@@ -3,7 +3,6 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::io;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -34,18 +33,15 @@ use smithay::{
     backend::libinput::LibinputInputBackend,
     backend::renderer::gles::GlesRenderer,
     backend::renderer::{Bind, ImportDma},
-    backend::udev::{all_gpus, primary_gpu},
-    backend::winit::{self, WinitEvent},
-    reexports::input::{Libinput, LibinputInterface},
-    reexports::wayland_server::Display,
-    utils::{DeviceFd, Transform},
-    wayland::socket::ListeningSocketSource,
-};
-#[cfg(feature = "session-libseat")]
-use smithay::{
     backend::libinput::LibinputSessionInterface,
     backend::session::libseat::LibSeatSession,
     backend::session::{Event as SessionEvent, Session},
+    backend::udev::{all_gpus, primary_gpu},
+    backend::winit::{self, WinitEvent},
+    reexports::input::Libinput,
+    reexports::wayland_server::Display,
+    utils::{DeviceFd, Transform},
+    wayland::socket::ListeningSocketSource,
 };
 
 use crate::activity::VisualState;
@@ -68,9 +64,7 @@ use common::{
     RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite,
 };
-#[cfg(feature = "session-libseat")]
 use drm::probe_tty_drm_device_via_session;
-#[cfg(feature = "session-libseat")]
 use input_backend::build_tty_libinput_backend;
 pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs};
 
