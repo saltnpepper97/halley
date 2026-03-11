@@ -35,45 +35,34 @@ fn draw_clamped_border_rect<F: smithay::backend::renderer::Frame>(
     framebuffer_size: smithay::utils::Size<i32, Physical>,
 ) -> Result<(), F::Error> {
     let bw = border_width.max(1);
-    let outer_left = rect.0 - bw;
-    let outer_top = rect.1 - bw;
-    let outer_right = rect.0 + rect.2.max(1) + bw;
-    let outer_bottom = rect.1 + rect.3.max(1) + bw;
+    let inner_w = rect.2.max(1);
+    let inner_h = rect.3.max(1);
+    let fb = Rectangle::<i32, Physical>::from_size(framebuffer_size);
 
-    let left = outer_left.clamp(0, framebuffer_size.w);
-    let top = outer_top.clamp(0, framebuffer_size.h);
-    let right = outer_right.clamp(0, framebuffer_size.w);
-    let bottom = outer_bottom.clamp(0, framebuffer_size.h);
+    let mut draw_intersection =
+        |x: i32, y: i32, w: i32, h: i32| -> Result<(), F::Error> {
+            if w <= 0 || h <= 0 {
+                return Ok(());
+            }
+            let edge = Rectangle::<i32, Physical>::new((x, y).into(), (w, h).into());
+            if let Some(visible) = edge.intersection(fb) {
+                draw_rect(
+                    frame,
+                    visible.loc.x,
+                    visible.loc.y,
+                    visible.size.w,
+                    visible.size.h,
+                    color,
+                    damage,
+                )?;
+            }
+            Ok(())
+        };
 
-    if right <= left || bottom <= top {
-        return Ok(());
-    }
-
-    let visible_w = right - left;
-    let visible_h = bottom - top;
-    let h_thickness = bw.min(visible_h);
-    let v_thickness = bw.min(visible_w);
-
-    draw_rect(frame, left, top, visible_w, h_thickness, color, damage)?;
-    draw_rect(
-        frame,
-        left,
-        bottom - h_thickness,
-        visible_w,
-        h_thickness,
-        color,
-        damage,
-    )?;
-    draw_rect(frame, left, top, v_thickness, visible_h, color, damage)?;
-    draw_rect(
-        frame,
-        right - v_thickness,
-        top,
-        v_thickness,
-        visible_h,
-        color,
-        damage,
-    )
+    draw_intersection(rect.0 - bw, rect.1 - bw, inner_w + (bw * 2), bw)?;
+    draw_intersection(rect.0 - bw, rect.1 + inner_h, inner_w + (bw * 2), bw)?;
+    draw_intersection(rect.0 - bw, rect.1 - bw, bw, inner_h + (bw * 2))?;
+    draw_intersection(rect.0 + inner_w, rect.1 - bw, bw, inner_h + (bw * 2))
 }
 
 pub(crate) fn draw_debug_frame(
