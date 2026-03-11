@@ -8,7 +8,7 @@ use smithay::{
         element::{Kind, surface::render_elements_from_surface_tree, utils::CropRenderElement},
         gles::GlesRenderer,
     },
-    desktop::utils::bbox_from_surface_tree,
+    desktop::{PopupManager, utils::bbox_from_surface_tree},
     reexports::wayland_server::Resource,
     utils::{Physical, Rectangle, Size},
 };
@@ -90,6 +90,7 @@ pub(crate) fn collect_active_surfaces(
 ) -> (
     Vec<CroppedSurfaceElement>,
     Vec<CroppedSurfaceElement>,
+    Vec<CroppedSurfaceElement>,
     HashMap<
         halley_core::field::NodeId,
         smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -101,6 +102,7 @@ pub(crate) fn collect_active_surfaces(
 ) {
     let mut active_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut resized_active_elements: Vec<CroppedSurfaceElement> = Vec::new();
+    let mut popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut overlay_rects: Vec<(i32, i32, i32, i32, Color32F)> = Vec::new();
@@ -108,6 +110,7 @@ pub(crate) fn collect_active_surfaces(
     let mut overlap_overlay_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
 
     let recent_top_node = st.recent_top_node_active(now);
+    let output_clip = Rectangle::<i32, Physical>::new((0, 0).into(), size);
 
     let resize_rect_px = resize_preview.map(|rz| {
         (
@@ -261,16 +264,51 @@ pub(crate) fn collect_active_surfaces(
             .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
             .collect();
 
+        let parent_geo = window_geometry_for_node(st, node_id).unwrap_or((
+            0.0,
+            0.0,
+            node_intrinsic.x.max(1.0),
+            node_intrinsic.y.max(1.0),
+        ));
+        let parent_geo_loc = (parent_geo.0.round() as i32, parent_geo.1.round() as i32);
+        let mut popup_cropped = Vec::new();
+        let mut popups: Vec<_> = PopupManager::popups_for_surface(&wl).collect();
+        popups.reverse();
+        for (popup, popup_offset) in popups {
+            let popup_geo = popup.geometry();
+            let popup_sx = sx
+                + ((parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x) as f32 * scale).round()
+                    as i32;
+            let popup_sy = sy
+                + ((parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y) as f32 * scale).round()
+                    as i32;
+            let popup_elems = render_elements_from_surface_tree(
+                renderer,
+                popup.wl_surface(),
+                (popup_sx, popup_sy),
+                scale as f64,
+                (anim.alpha * live_ramp).clamp(0.0, 1.0),
+                Kind::Unspecified,
+            );
+            popup_cropped.extend(
+                popup_elems
+                    .into_iter()
+                    .filter_map(|e| CropRenderElement::from_element(e, 1.0, output_clip)),
+            );
+        }
+
         if draw_top_this_node {
             resized_active_elements.extend(cropped);
         } else {
             active_elements.extend(cropped);
         }
+        popup_elements.extend(popup_cropped);
     }
 
     (
         active_elements,
         resized_active_elements,
+        popup_elements,
         node_surface_map,
         border_rects,
         overlay_rects,

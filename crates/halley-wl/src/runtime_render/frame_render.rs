@@ -39,25 +39,24 @@ fn draw_clamped_border_rect<F: smithay::backend::renderer::Frame>(
     let inner_h = rect.3.max(1);
     let fb = Rectangle::<i32, Physical>::from_size(framebuffer_size);
 
-    let mut draw_intersection =
-        |x: i32, y: i32, w: i32, h: i32| -> Result<(), F::Error> {
-            if w <= 0 || h <= 0 {
-                return Ok(());
-            }
-            let edge = Rectangle::<i32, Physical>::new((x, y).into(), (w, h).into());
-            if let Some(visible) = edge.intersection(fb) {
-                draw_rect(
-                    frame,
-                    visible.loc.x,
-                    visible.loc.y,
-                    visible.size.w,
-                    visible.size.h,
-                    color,
-                    damage,
-                )?;
-            }
-            Ok(())
-        };
+    let mut draw_intersection = |x: i32, y: i32, w: i32, h: i32| -> Result<(), F::Error> {
+        if w <= 0 || h <= 0 {
+            return Ok(());
+        }
+        let edge = Rectangle::<i32, Physical>::new((x, y).into(), (w, h).into());
+        if let Some(visible) = edge.intersection(fb) {
+            draw_rect(
+                frame,
+                visible.loc.x,
+                visible.loc.y,
+                visible.size.w,
+                visible.size.h,
+                color,
+                damage,
+            )?;
+        }
+        Ok(())
+    };
 
     draw_intersection(rect.0 - bw, rect.1 - bw, inner_w + (bw * 2), bw)?;
     draw_intersection(rect.0 - bw, rect.1 + inner_h, inner_w + (bw * 2), bw)?;
@@ -118,6 +117,7 @@ pub(crate) fn draw_debug_frame_to_target(
     let (
         active_elements,
         resized_active_elements,
+        popup_elements,
         node_surface_map,
         border_rects,
         overlay_rects,
@@ -231,6 +231,10 @@ pub(crate) fn draw_debug_frame_to_target(
             damage,
             size,
         )?;
+    }
+
+    if !popup_elements.is_empty() {
+        let _ = draw_render_elements(&mut frame, 1.0, &popup_elements, &[damage]);
     }
 
     if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {

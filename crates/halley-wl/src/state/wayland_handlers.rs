@@ -1,5 +1,6 @@
 use super::*;
 use eventline::info;
+use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
@@ -77,6 +78,7 @@ impl CompositorHandler for HalleyWlState {
 
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
+        self.popup_manager.commit(surface);
         self.note_commit(surface, Instant::now());
     }
 }
@@ -141,6 +143,9 @@ impl XdgShellHandler for HalleyWlState {
     }
 
     fn new_popup(&mut self, popup: PopupSurface, _positioner: PositionerState) {
+        let _ = self
+            .popup_manager
+            .track_popup(PopupKind::from(popup.clone()));
         let _ = popup.send_configure();
     }
 
@@ -160,7 +165,14 @@ impl XdgShellHandler for HalleyWlState {
         // not client-request driven.
     }
 
-    fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {}
+    fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, serial: Serial) {
+        let popup = PopupKind::from(surface);
+        if let Ok(root) = find_popup_root_surface(&popup) {
+            let _ = self
+                .popup_manager
+                .grab_popup::<Self>(root, popup, &self.seat, serial);
+        }
+    }
 
     fn reposition_request(
         &mut self,
@@ -170,6 +182,10 @@ impl XdgShellHandler for HalleyWlState {
     ) {
         surface.send_repositioned(token);
         let _ = surface.send_configure();
+    }
+
+    fn popup_destroyed(&mut self, _surface: PopupSurface) {
+        self.popup_manager.cleanup();
     }
 }
 
