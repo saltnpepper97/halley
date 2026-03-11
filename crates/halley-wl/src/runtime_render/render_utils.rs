@@ -89,6 +89,41 @@ pub(crate) fn sync_node_size_from_surface(
     node_id: halley_core::field::NodeId,
     wl: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
 ) -> Rectangle<i32, Logical> {
+    let bbox = snapshot_surface_geometry(st, node_id, wl);
+
+    let bw = bbox.size.w.max(1) as f32;
+    let bh = bbox.size.h.max(1) as f32;
+
+    let now_ms = st.now_ms(Instant::now());
+    let resize_static_active = st.resize_static_active_for(node_id, now_ms);
+
+    let Some(node) = st.field.node_mut(node_id) else {
+        return bbox;
+    };
+
+    let changed =
+        (node.intrinsic_size.x - bw).abs() > 0.5 || (node.intrinsic_size.y - bh).abs() > 0.5;
+    if !changed {
+        return bbox;
+    }
+
+    if resize_static_active {
+        return bbox;
+    }
+
+    node.intrinsic_size = halley_core::field::Vec2 { x: bw, y: bh };
+    if matches!(node.state, halley_core::field::NodeState::Active) {
+        node.footprint = node.intrinsic_size;
+    }
+
+    bbox
+}
+
+pub(crate) fn snapshot_surface_geometry(
+    st: &mut HalleyWlState,
+    node_id: halley_core::field::NodeId,
+    wl: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+) -> Rectangle<i32, Logical> {
     let bbox = bbox_from_surface_tree(wl, (0, 0));
 
     st.bbox_loc
@@ -120,31 +155,6 @@ pub(crate) fn sync_node_size_from_surface(
                 bbox.size.h.max(1) as f32,
             ),
         );
-    }
-
-    let bw = bbox.size.w.max(1) as f32;
-    let bh = bbox.size.h.max(1) as f32;
-
-    let now_ms = st.now_ms(Instant::now());
-    let resize_static_active = st.resize_static_active_for(node_id, now_ms);
-
-    let Some(node) = st.field.node_mut(node_id) else {
-        return bbox;
-    };
-
-    let changed =
-        (node.intrinsic_size.x - bw).abs() > 0.5 || (node.intrinsic_size.y - bh).abs() > 0.5;
-    if !changed {
-        return bbox;
-    }
-
-    if resize_static_active {
-        return bbox;
-    }
-
-    node.intrinsic_size = halley_core::field::Vec2 { x: bw, y: bh };
-    if matches!(node.state, halley_core::field::NodeState::Active) {
-        node.footprint = node.intrinsic_size;
     }
 
     bbox

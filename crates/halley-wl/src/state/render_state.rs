@@ -9,6 +9,7 @@ use super::*;
 impl HalleyWlState {
     pub fn begin_render_frame(&mut self, now: Instant) {
         self.render_last_tick = now;
+        self.popup_manager.cleanup();
         let alive: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
         self.smoothed_render_pos.retain(|id, _| alive.contains(id));
         self.node_hover_mix.retain(|id, _| alive.contains(id));

@@ -1,8 +1,6 @@
 use super::*;
 
-use crate::run::drm::{collect_outputs_for_ipc, probe_tty_drm_device, queue_tty_drm_frame};
-use crate::run::input_backend::build_direct_libinput_backend;
-#[cfg(feature = "session-libseat")]
+use crate::run::drm::{collect_outputs_for_ipc, queue_tty_drm_frame};
 use crate::run::{build_tty_libinput_backend, probe_tty_drm_device_via_session};
 
 use smithay::backend::input::{
@@ -26,7 +24,6 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             }
             eprintln!("halley-wl tty: logging initialized");
 
-            #[cfg(feature = "session-libseat")]
             let (seat_name, drm_probe, libinput_backend, libinput_context, session_notifier) = {
                 let config_path = RuntimeTuning::config_path();
                 let tuning = RuntimeTuning::load_from_path(config_path.as_str());
@@ -50,19 +47,6 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     libinput_context,
                     session_notifier,
                 )
-            };
-
-            #[cfg(not(feature = "session-libseat"))]
-            let (seat_name, drm_probe, libinput_backend) = {
-                warn!(
-                    "built without `session-libseat`; tty input requires direct /dev/input access (input group or root). Rebuild with `cargo run -p halley --features session-libseat` to use a session broker (logind/elogind preferred; seatd optional)."
-                );
-                let config_path = RuntimeTuning::config_path();
-                let tuning = RuntimeTuning::load_from_path(config_path.as_str());
-                let seat_name = env::var("XDG_SEAT").unwrap_or_else(|_| "seat0".to_string());
-                let drm_probe = probe_tty_drm_device(seat_name.as_str(), &tuning)?;
-                let libinput_backend = build_direct_libinput_backend()?;
-                (seat_name, drm_probe, libinput_backend)
             };
 
             info!(
@@ -179,7 +163,6 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         dh_for_clients.insert_client(client_stream, Arc::new(ClientState::new()));
                 })?;
 
-            #[cfg(feature = "session-libseat")]
             {
                 let libinput_context_for_session = libinput_context.clone();
                 ev.handle()

@@ -130,6 +130,7 @@ pub struct Node {
 
     pub intrinsic_size: Vec2, // "real" size for Active
     pub footprint: Vec2,      // spatial occupancy right now
+    pub resize_footprint: Option<Vec2>,
 
     /// Pinned in place (movement constraint). This was previously called `anchored`.
     pub pinned: bool,
@@ -243,6 +244,7 @@ impl Field {
             pos,
             intrinsic_size: size,
             footprint: size,
+            resize_footprint: None,
             pinned: false,
             anchor: false,
             visibility: Visibility::NONE,
@@ -386,7 +388,7 @@ impl Field {
         // Core is a handle; it doesn't switch representation via touch.
         if n.kind != NodeKind::Core {
             n.state = NodeState::Active;
-            n.footprint = n.intrinsic_size;
+            n.footprint = n.resize_footprint.unwrap_or(n.intrinsic_size);
         }
 
         true
@@ -424,12 +426,36 @@ impl Field {
 
         n.state = state.clone();
         n.footprint = match state {
-            NodeState::Active => n.intrinsic_size,
+            NodeState::Active => n.resize_footprint.unwrap_or(n.intrinsic_size),
             NodeState::Drifting => n.footprint,
             NodeState::Node => DOT,
             NodeState::Core => CORE,
         };
 
+        true
+    }
+
+    pub fn set_resize_footprint(&mut self, id: NodeId, size: Option<Vec2>) -> bool {
+        let Some(n) = self.nodes.get_mut(&id) else {
+            return false;
+        };
+
+        n.resize_footprint = size;
+        if matches!(n.state, NodeState::Active) {
+            n.footprint = n.resize_footprint.unwrap_or(n.intrinsic_size);
+        }
+
+        true
+    }
+
+    pub fn sync_active_footprint_to_intrinsic(&mut self, id: NodeId) -> bool {
+        let Some(n) = self.nodes.get_mut(&id) else {
+            return false;
+        };
+        n.resize_footprint = None;
+        if matches!(n.state, NodeState::Active) {
+            n.footprint = n.intrinsic_size;
+        }
         true
     }
 
@@ -583,6 +609,7 @@ impl Field {
                     pos: core_pos,
                     intrinsic_size: Vec2 { x: 48.0, y: 48.0 },
                     footprint: Vec2 { x: 48.0, y: 48.0 },
+                    resize_footprint: None,
                     pinned: false,
                     anchor: false,
                     visibility: Visibility::NONE,

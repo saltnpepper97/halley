@@ -14,7 +14,9 @@ use crate::interaction::types::{
 use crate::runtime_render::world_to_screen;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
 use crate::state::HalleyWlState;
-use crate::surface::{current_surface_size_for_node, request_toplevel_resize_mode};
+use crate::surface::{
+    current_surface_size_for_node, request_toplevel_resize_mode, window_geometry_for_node,
+};
 use smithay::backend::input::ButtonState;
 
 use super::input_utils::modifier_active;
@@ -96,7 +98,7 @@ pub(crate) fn handle_pointer_button_input(
     match button_state {
         ButtonState::Pressed => {
             let mods = mod_state.borrow().clone();
-            let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, Instant::now());
+            let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, Instant::now(), ps.resize);
             if pointer_map_debug_enabled() {
                 info!(
                     "ptr-map button-press code=0x{:x} ws={}x{} screen=({:.2},{:.2}) world=({:.2},{:.2}) hit={:?}",
@@ -288,16 +290,27 @@ pub(crate) fn handle_pointer_button_input(
                                     x: start_w as f32,
                                     y: start_h as f32,
                                 });
+                            let (start_geo_lx, start_geo_ly, _, _) =
+                                window_geometry_for_node(st, h.node_id).unwrap_or((
+                                    0.0,
+                                    0.0,
+                                    start_surface.x.max(1.0),
+                                    start_surface.y.max(1.0),
+                                ));
                             let start_bbox = halley_core::field::Vec2 {
                                 x: fallback_size.x.max(1.0),
                                 y: fallback_size.y.max(1.0),
                             };
-                            ps.resize = Some(ResizeCtx {
+                            let resize_ctx = ResizeCtx {
                                 node_id: h.node_id,
                                 start_surface_w: start_surface.x.max(96.0).round() as i32,
                                 start_surface_h: start_surface.y.max(72.0).round() as i32,
                                 start_bbox_w: start_bbox.x.round() as i32,
                                 start_bbox_h: start_bbox.y.round() as i32,
+                                start_visual_w: start_w,
+                                start_visual_h: start_h,
+                                start_geo_lx,
+                                start_geo_ly,
                                 start_left_px: start_left,
                                 start_right_px: start_right,
                                 start_top_px: start_top,
@@ -322,7 +335,25 @@ pub(crate) fn handle_pointer_button_input(
                                 press_view_size: st.viewport.size,
                                 drag_started: true,
                                 resize_mode_sent: false,
-                            });
+                            };
+                            if st.tuning.debug_tick_dump {
+                                info!(
+                                    "resize-start id={} handle={:?} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) start_surface=({}, {}) start_bbox=({}, {})",
+                                    resize_ctx.node_id.as_u64(),
+                                    resize_ctx.handle,
+                                    resize_ctx.preview_left_px,
+                                    resize_ctx.preview_top_px,
+                                    resize_ctx.preview_right_px,
+                                    resize_ctx.preview_bottom_px,
+                                    resize_ctx.start_geo_lx,
+                                    resize_ctx.start_geo_ly,
+                                    resize_ctx.start_surface_w,
+                                    resize_ctx.start_surface_h,
+                                    resize_ctx.start_bbox_w,
+                                    resize_ctx.start_bbox_h,
+                                );
+                            }
+                            ps.resize = Some(resize_ctx);
                             backend.request_redraw();
                         }
                     }
@@ -390,12 +421,29 @@ pub(crate) fn handle_pointer_button_input(
                     let final_bbox_h = ((resize.start_bbox_h as f32)
                         + ((final_h - resize.start_surface_h) as f32))
                         .max(1.0);
+                    if st.tuning.debug_tick_dump {
+                        info!(
+                            "resize-end id={} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) final_surface=({}, {}) final_bbox=({:.1}, {:.1})",
+                            resize.node_id.as_u64(),
+                            resize.preview_left_px,
+                            resize.preview_top_px,
+                            resize.preview_right_px,
+                            resize.preview_bottom_px,
+                            resize.start_geo_lx,
+                            resize.start_geo_ly,
+                            final_w,
+                            final_h,
+                            final_bbox_w,
+                            final_bbox_h,
+                        );
+                    }
                     request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, true);
                     request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, false);
                     if let Some(n) = st.field.node_mut(resize.node_id) {
                         n.intrinsic_size.x = final_bbox_w;
                         n.intrinsic_size.y = final_bbox_h;
                     }
+                    let _ = st.field.sync_active_footprint_to_intrinsic(resize.node_id);
                     st.set_last_active_size_now(
                         resize.node_id,
                         halley_core::field::Vec2 {

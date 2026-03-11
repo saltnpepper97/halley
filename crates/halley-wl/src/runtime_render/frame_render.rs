@@ -26,6 +26,44 @@ use super::node_render::{
 };
 use super::render_utils::{draw_outline_rect, draw_rect, draw_ring};
 
+fn draw_clamped_border_rect<F: smithay::backend::renderer::Frame>(
+    frame: &mut F,
+    rect: (i32, i32, i32, i32),
+    border_width: i32,
+    color: Color32F,
+    damage: Rectangle<i32, Physical>,
+    framebuffer_size: smithay::utils::Size<i32, Physical>,
+) -> Result<(), F::Error> {
+    let bw = border_width.max(1);
+    let inner_w = rect.2.max(1);
+    let inner_h = rect.3.max(1);
+    let fb = Rectangle::<i32, Physical>::from_size(framebuffer_size);
+
+    let mut draw_intersection = |x: i32, y: i32, w: i32, h: i32| -> Result<(), F::Error> {
+        if w <= 0 || h <= 0 {
+            return Ok(());
+        }
+        let edge = Rectangle::<i32, Physical>::new((x, y).into(), (w, h).into());
+        if let Some(visible) = edge.intersection(fb) {
+            draw_rect(
+                frame,
+                visible.loc.x,
+                visible.loc.y,
+                visible.size.w,
+                visible.size.h,
+                color,
+                damage,
+            )?;
+        }
+        Ok(())
+    };
+
+    draw_intersection(rect.0 - bw, rect.1 - bw, inner_w + (bw * 2), bw)?;
+    draw_intersection(rect.0 - bw, rect.1 + inner_h, inner_w + (bw * 2), bw)?;
+    draw_intersection(rect.0 - bw, rect.1 - bw, bw, inner_h + (bw * 2))?;
+    draw_intersection(rect.0 + inner_w, rect.1 - bw, bw, inner_h + (bw * 2))
+}
+
 pub(crate) fn draw_debug_frame(
     backend: &mut WinitGraphicsBackend<GlesRenderer>,
     st: &mut HalleyWlState,
@@ -47,7 +85,10 @@ pub(crate) fn draw_debug_frame(
             preview_hover_node,
             None,
             None,
-            Transform::Normal,
+            // Smithay's nested winit path expects a flipped output transform.
+            // The shared world/screen math is already top-left oriented; this
+            // compensates for the final EGL target orientation.
+            Transform::Flipped180,
         )?;
     }
     backend.submit(Some(&[damage]))?;
@@ -79,6 +120,7 @@ pub(crate) fn draw_debug_frame_to_target(
     let (
         active_elements,
         resized_active_elements,
+        popup_elements,
         node_surface_map,
         border_rects,
         overlay_rects,
@@ -147,25 +189,6 @@ pub(crate) fn draw_debug_frame_to_target(
         let _ = draw_render_elements(&mut frame, 1.0, &layer_under_elements, &[damage]);
     }
 
-    for rect in &border_rects {
-        let color = if rect.focused {
-            Color32F::new(0.22, 0.82, 0.92, 1.0)
-        } else {
-            Color32F::new(0.38, 0.42, 0.48, 0.90)
-        };
-
-        let bw = 2;
-        draw_outline_rect(
-            &mut frame,
-            rect.x - bw,
-            rect.y - bw,
-            rect.w + bw * 2,
-            rect.h + bw * 2,
-            color,
-            damage,
-        )?;
-    }
-
     if !active_elements.is_empty() {
         let _ = draw_render_elements(&mut frame, 1.0, &active_elements, &[damage]);
     }
@@ -193,6 +216,28 @@ pub(crate) fn draw_debug_frame_to_target(
 
     if !resized_active_elements.is_empty() {
         let _ = draw_render_elements(&mut frame, 1.0, &resized_active_elements, &[damage]);
+    }
+
+    let bw = 2i32;
+    for rect in &border_rects {
+        let color = if rect.focused {
+            Color32F::new(0.22, 0.82, 0.92, 1.0)
+        } else {
+            Color32F::new(0.38, 0.42, 0.48, 0.90)
+        };
+
+        draw_clamped_border_rect(
+            &mut frame,
+            (rect.x, rect.y, rect.w, rect.h),
+            bw,
+            color,
+            damage,
+            size,
+        )?;
+    }
+
+    if !popup_elements.is_empty() {
+        let _ = draw_render_elements(&mut frame, 1.0, &popup_elements, &[damage]);
     }
 
     if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {

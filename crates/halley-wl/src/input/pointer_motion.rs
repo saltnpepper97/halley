@@ -61,8 +61,16 @@ pub(crate) fn handle_pointer_motion_absolute(
     sx: f32,
     sy: f32,
 ) {
-    let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, sx, sy);
+    let allow_unbounded_screen = {
+        let ps = pointer_state.borrow();
+        ps.drag.is_some() || ps.resize.is_some() || ps.panning
+    };
+
+    let raw_sx = sx;
+    let raw_sy = sy;
+    let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
     let now = Instant::now();
+
     if let Some(pointer) = st.seat.get_pointer() {
         let resize_preview = pointer_state.borrow().resize;
         let focus = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview);
@@ -77,13 +85,19 @@ pub(crate) fn handle_pointer_motion_absolute(
         );
         pointer.frame(st);
     }
-    let p = screen_to_world(st, ws_w, ws_h, sx, sy);
+
+    let active_sx = if allow_unbounded_screen { raw_sx } else { sx };
+    let active_sy = if allow_unbounded_screen { raw_sy } else { sy };
+    let p = screen_to_world(st, ws_w, ws_h, active_sx, active_sy);
+
     let mods = mod_state.borrow().clone();
     let drag_mod_ok = modifier_active(&mods, st.tuning.keybinds.modifier);
+
     let mut ps = pointer_state.borrow_mut();
     ps.world = p;
-    ps.screen = (sx, sy);
+    ps.screen = (active_sx, active_sy);
     ps.workspace_size = (ws_w, ws_h);
+
     if st.has_active_cluster_workspace() {
         ps.hover_node = None;
         if ps.drag.is_some() {
@@ -94,6 +108,7 @@ pub(crate) fn handle_pointer_motion_absolute(
         ps.panning = false;
         return;
     }
+
     if let Some(drag) = ps.drag {
         if ps.resize.is_some() || !drag_mod_ok {
             st.end_carry_state_tracking(drag.node_id);
@@ -126,18 +141,22 @@ pub(crate) fn handle_pointer_motion_absolute(
             }
         }
     }
+
     if let Some(resize) = ps.resize {
         let mut next = resize;
         const RESIZE_DRAG_START_PX: f32 = 3.0;
-        let drag_dx = (sx - resize.press_sx).abs();
-        let drag_dy = (sy - resize.press_sy).abs();
+
+        let drag_dx = (active_sx - resize.press_sx).abs();
+        let drag_dy = (active_sy - resize.press_sy).abs();
         if !next.drag_started && drag_dx.max(drag_dy) < RESIZE_DRAG_START_PX {
             ps.resize = Some(next);
             return;
         }
+
         if !next.drag_started {
             next.drag_started = true;
         }
+
         if !next.resize_mode_sent {
             request_toplevel_resize_mode(
                 st,
@@ -149,66 +168,87 @@ pub(crate) fn handle_pointer_motion_absolute(
             next.resize_mode_sent = true;
             next.last_configure_at = Instant::now();
         }
+
         let min_w = 96.0_f32;
         let min_h = 72.0_f32;
 
-        let delta_w = match resize.handle {
+        // Build preview strictly in visual/screen space.
+        let mut left = resize.start_left_px;
+        let mut right = resize.start_right_px;
+        let mut top = resize.start_top_px;
+        let mut bottom = resize.start_bottom_px;
+
+        // Horizontal movement
+        match resize.handle {
             ResizeHandle::Left | ResizeHandle::TopLeft | ResizeHandle::BottomLeft => {
-                let desired_left = sx - resize.press_off_left_px;
-                resize.start_left_px - desired_left
+                let desired_left = active_sx - resize.press_off_left_px;
+                let max_left = resize.start_right_px - min_w;
+                left = desired_left.min(max_left);
             }
             ResizeHandle::Right | ResizeHandle::TopRight | ResizeHandle::BottomRight => {
-                let desired_right = sx - resize.press_off_right_px;
-                desired_right - resize.start_right_px
+                let desired_right = active_sx - resize.press_off_right_px;
+                let min_right = resize.start_left_px + min_w;
+                right = desired_right.max(min_right);
             }
-            ResizeHandle::Top | ResizeHandle::Bottom => 0.0,
-        };
-        let delta_h = match resize.handle {
+            ResizeHandle::Top | ResizeHandle::Bottom => {}
+        }
+
+        // Vertical movement
+        match resize.handle {
             ResizeHandle::Top | ResizeHandle::TopLeft | ResizeHandle::TopRight => {
-                let desired_top = sy - resize.press_off_top_px;
-                resize.start_top_px - desired_top
+                let desired_top = active_sy - resize.press_off_top_px;
+                let max_top = resize.start_bottom_px - min_h;
+                top = desired_top.min(max_top);
             }
             ResizeHandle::Bottom | ResizeHandle::BottomLeft | ResizeHandle::BottomRight => {
-                let desired_bottom = sy - resize.press_off_bottom_px;
-                desired_bottom - resize.start_bottom_px
+                let desired_bottom = active_sy - resize.press_off_bottom_px;
+                let min_bottom = resize.start_top_px + min_h;
+                bottom = desired_bottom.max(min_bottom);
             }
-            ResizeHandle::Left | ResizeHandle::Right => 0.0,
-        };
-        let target_w = ((resize.start_surface_w as f32) + delta_w)
-            .max(min_w)
-            .round() as i32;
-        let target_h = ((resize.start_surface_h as f32) + delta_h)
-            .max(min_h)
-            .round() as i32;
-        let target_bbox_w = ((resize.start_bbox_w as f32) + delta_w).max(1.0).round() as i32;
-        let target_bbox_h = ((resize.start_bbox_h as f32) + delta_h).max(1.0).round() as i32;
+            ResizeHandle::Left | ResizeHandle::Right => {}
+        }
 
-        let (left, right) = match resize.handle {
+        let target_visual_w = (right - left).round().max(min_w) as i32;
+        let target_visual_h = (bottom - top).round().max(min_h) as i32;
+
+        // Renormalize so the anchored side stays exact.
+        match resize.handle {
             ResizeHandle::Left | ResizeHandle::TopLeft | ResizeHandle::BottomLeft => {
-                let r = resize.start_right_px;
-                (r - target_bbox_w as f32, r)
+                left = resize.start_right_px - target_visual_w as f32;
+                right = resize.start_right_px;
             }
             ResizeHandle::Right | ResizeHandle::TopRight | ResizeHandle::BottomRight => {
-                let l = resize.start_left_px;
-                (l, l + target_bbox_w as f32)
+                left = resize.start_left_px;
+                right = resize.start_left_px + target_visual_w as f32;
             }
             ResizeHandle::Top | ResizeHandle::Bottom => {
-                (resize.start_left_px, resize.start_right_px)
+                left = resize.start_left_px;
+                right = resize.start_right_px;
             }
-        };
-        let (top, bottom) = match resize.handle {
+        }
+
+        match resize.handle {
             ResizeHandle::Top | ResizeHandle::TopLeft | ResizeHandle::TopRight => {
-                let b = resize.start_bottom_px;
-                (b - target_bbox_h as f32, b)
+                top = resize.start_bottom_px - target_visual_h as f32;
+                bottom = resize.start_bottom_px;
             }
             ResizeHandle::Bottom | ResizeHandle::BottomLeft | ResizeHandle::BottomRight => {
-                let t = resize.start_top_px;
-                (t, t + target_bbox_h as f32)
+                top = resize.start_top_px;
+                bottom = resize.start_top_px + target_visual_h as f32;
             }
             ResizeHandle::Left | ResizeHandle::Right => {
-                (resize.start_top_px, resize.start_bottom_px)
+                top = resize.start_top_px;
+                bottom = resize.start_bottom_px;
             }
-        };
+        }
+
+        // Derive client/bbox sizes from visual delta, not the other way around.
+        let visual_delta_w = target_visual_w - resize.start_visual_w;
+        let visual_delta_h = target_visual_h - resize.start_visual_h;
+
+        let target_w = (resize.start_surface_w + visual_delta_w).max(min_w as i32);
+        let target_h = (resize.start_surface_h + visual_delta_h).max(min_h as i32);
+
         let now = Instant::now();
         let size_changed = target_w != resize.last_sent_w || target_h != resize.last_sent_h;
         if size_changed {
@@ -217,6 +257,7 @@ pub(crate) fn handle_pointer_motion_absolute(
             next.last_sent_h = target_h;
             next.last_configure_at = now;
         }
+
         let center_sx = (left + right) * 0.5;
         let center_sy = (top + bottom) * 0.5;
         let center_world = screen_to_world_with_view(
@@ -227,33 +268,36 @@ pub(crate) fn handle_pointer_motion_absolute(
             center_sx,
             center_sy,
         );
+
         if let Some(n) = st.field.node_mut(resize.node_id) {
-            n.intrinsic_size.x = target_bbox_w as f32;
-            n.intrinsic_size.y = target_bbox_h as f32;
             n.pos = center_world;
         }
-        st.set_last_active_size_now(
+        let _ = st.field.set_resize_footprint(
             resize.node_id,
-            halley_core::field::Vec2 {
-                x: target_bbox_w as f32,
-                y: target_bbox_h as f32,
-            },
+            Some(halley_core::field::Vec2 {
+                x: target_visual_w as f32,
+                y: target_visual_h as f32,
+            }),
         );
+
         next.preview_left_px = left;
         next.preview_right_px = right;
         next.preview_top_px = top;
         next.preview_bottom_px = bottom;
         ps.resize = Some(next);
+
         let _ = st
             .field
             .set_decay_level(resize.node_id, halley_core::decay::DecayLevel::Hot);
+
         backend.request_redraw();
         return;
     }
+
     if ps.panning {
         let (lsx, lsy) = ps.pan_last_screen;
-        let dx_px = sx - lsx;
-        let dy_px = sy - lsy;
+        let dx_px = active_sx - lsx;
+        let dy_px = active_sy - lsy;
         let dx_world = dx_px * st.viewport.size.x.max(1.0) / (ws_w as f32).max(1.0);
         let dy_world = -dy_px * st.viewport.size.y.max(1.0) / (ws_h as f32).max(1.0);
         st.note_pan_activity(Instant::now());
@@ -263,11 +307,12 @@ pub(crate) fn handle_pointer_motion_absolute(
         });
         st.tuning.viewport_center = st.viewport.center;
         st.tuning.viewport_size = st.viewport.size;
-        ps.pan_last_screen = (sx, sy);
+        ps.pan_last_screen = (active_sx, active_sy);
         backend.request_redraw();
     }
+
     let next_hover = if ps.drag.is_none() && ps.resize.is_none() && !ps.panning {
-        pick_hit_node_at(st, ws_w, ws_h, sx, sy, Instant::now()).and_then(|hit| {
+        pick_hit_node_at(st, ws_w, ws_h, sx, sy, Instant::now(), ps.resize).and_then(|hit| {
             st.field.node(hit.node_id).and_then(|n| {
                 matches!(
                     n.state,
@@ -279,12 +324,14 @@ pub(crate) fn handle_pointer_motion_absolute(
     } else {
         None
     };
+
     if next_hover != ps.hover_node {
         ps.hover_started_at = next_hover.map(|_| now);
     } else if next_hover.is_none() {
         ps.hover_started_at = None;
     }
     ps.hover_node = next_hover;
+
     if pointer_map_debug_enabled() {
         info!(
             "ptr-map motion ws={}x{} screen=({:.2},{:.2}) world=({:.2},{:.2}) hover={:?} drag={} resize={} panning={}",
@@ -294,7 +341,8 @@ pub(crate) fn handle_pointer_motion_absolute(
             sy,
             p.x,
             p.y,
-            ps.hover_node.map(|id| id.as_u64()),
+            ps.hover_node
+                .map(|id: halley_core::field::NodeId| id.as_u64()),
             ps.drag.is_some(),
             ps.resize.is_some(),
             ps.panning

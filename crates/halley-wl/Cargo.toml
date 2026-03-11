@@ -3,10 +3,6 @@ name = "halley-wl"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-default = []
-session-libseat = ["smithay/backend_session_libseat"]
-
 [dependencies]
 halley-core = { path = "../halley-core" }
 halley-config = { path = "../halley-config" }
@@ -19,6 +15,7 @@ smithay = { version = "0.7.0", default-features = false, features = [
   "backend_gbm",
   "backend_egl",
   "backend_libinput",
+  "backend_session_libseat",
   "backend_udev",
   "backend_session",
   "renderer_gl",

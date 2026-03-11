@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use eventline::info;
-use smithay::desktop::{WindowSurfaceType, utils::under_from_surface_tree};
+use smithay::desktop::{PopupManager, WindowSurfaceType, utils::under_from_surface_tree};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};
 
@@ -11,6 +11,110 @@ use crate::state::HalleyWlState;
 
 use super::pointer_map_debug_enabled;
 use super::resize_helpers::active_node_surface_transform_screen_details;
+
+fn popup_focus_for_screen(
+    st: &mut HalleyWlState,
+    ws_w: i32,
+    ws_h: i32,
+    sx: f32,
+    sy: f32,
+    now: Instant,
+    resize_preview: Option<ResizeCtx>,
+) -> Option<(
+    smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    Point<f64, Logical>,
+)> {
+    let recent_top_node = st.recent_top_node_active(now);
+    let mut toplevels: Vec<_> = st
+        .xdg_shell_state
+        .toplevel_surfaces()
+        .into_iter()
+        .filter_map(|top| {
+            let wl = top.wl_surface().clone();
+            let node_id = st.surface_to_node.get(&wl.id()).copied()?;
+            let node = st.field.node(node_id)?;
+            (node.state == halley_core::field::NodeState::Active && st.field.is_visible(node_id))
+                .then_some((node_id, top, wl, node.intrinsic_size))
+        })
+        .collect();
+
+    if st.tuning.new_window_on_top {
+        toplevels.sort_by_key(|(node_id, _, _, _)| node_id.as_u64());
+    } else {
+        toplevels.sort_by_key(|(node_id, _, _, _)| std::cmp::Reverse(node_id.as_u64()));
+    }
+    if let Some(idx) = toplevels
+        .iter()
+        .position(|(node_id, _, _, _)| Some(*node_id) == recent_top_node)
+    {
+        let top = toplevels.remove(idx);
+        toplevels.push(top);
+    }
+
+    for (node_id, top, wl, intrinsic_size) in toplevels.into_iter().rev() {
+        let Some(xform) = active_node_surface_transform_screen_details(
+            st,
+            ws_w,
+            ws_h,
+            node_id,
+            now,
+            resize_preview,
+        ) else {
+            continue;
+        };
+        let scale = xform.scale.max(0.001);
+        let local = Point::<f64, Logical>::from((
+            ((sx - xform.origin_x) / scale) as f64,
+            ((sy - xform.origin_y) / scale) as f64,
+        ));
+
+        let parent_geo = st
+            .window_geometry
+            .get(&node_id)
+            .map(|&(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
+            .unwrap_or_else(|| {
+                top.current_state()
+                    .size
+                    .map(|sz| (0.0, 0.0, sz.w.max(1) as f32, sz.h.max(1) as f32))
+                    .unwrap_or((0.0, 0.0, intrinsic_size.x.max(1.0), intrinsic_size.y.max(1.0)))
+            });
+        let parent_geo_loc = (parent_geo.0.round() as i32, parent_geo.1.round() as i32);
+
+        let mut popups: Vec<_> = PopupManager::popups_for_surface(&wl).collect();
+        popups.reverse();
+        for (popup, popup_offset) in popups {
+            let popup_geo = popup.geometry();
+            let offset = (
+                parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x,
+                parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y,
+            );
+            let Some((surface, surface_loc)) =
+                under_from_surface_tree(popup.wl_surface(), local, offset, WindowSurfaceType::ALL)
+            else {
+                continue;
+            };
+            let focus_origin = Point::<f64, Logical>::from((
+                (xform.origin_x + surface_loc.x as f32 * scale) as f64,
+                (xform.origin_y + surface_loc.y as f32 * scale) as f64,
+            ));
+
+            if pointer_map_debug_enabled() {
+                info!(
+                    "ptr-map focus-popup node={} popup_loc=({:.2},{:.2}) focus_origin=({:.2},{:.2})",
+                    node_id.as_u64(),
+                    surface_loc.x as f64,
+                    surface_loc.y as f64,
+                    focus_origin.x,
+                    focus_origin.y,
+                );
+            }
+
+            return Some((surface, focus_origin));
+        }
+    }
+
+    None
+}
 
 pub(crate) fn layer_surface_focus_for_screen(
     st: &HalleyWlState,
@@ -86,12 +190,11 @@ pub(crate) fn pointer_focus_for_screen(
     if let Some(focus) = layer_surface_focus_for_screen(st, ws_w, ws_h, sx, sy) {
         return Some(focus);
     }
-
-    let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, now)?;
-    let node = st.field.node(hit.node_id)?;
-    if node.state != halley_core::field::NodeState::Active {
-        return None;
+    if let Some(focus) = popup_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview) {
+        return Some(focus);
     }
+
+    let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, now, resize_preview)?;
 
     let xform = active_node_surface_transform_screen_details(
         st,
@@ -170,6 +273,30 @@ pub(crate) fn pointer_focus_for_screen(
         }
 
         return Some((surface, focus_origin));
+    }
+
+    if resize_preview.is_some_and(|rz| rz.node_id == hit.node_id) {
+        for top in st.xdg_shell_state.toplevel_surfaces() {
+            let wl = top.wl_surface().clone();
+            let key = wl.id();
+            if st.surface_to_node.get(&key).copied() != Some(hit.node_id) {
+                continue;
+            }
+
+            let focus_origin =
+                Point::<f64, Logical>::from((xform.origin_x as f64, xform.origin_y as f64));
+
+            if pointer_map_debug_enabled() {
+                info!(
+                    "ptr-map focus-resize-fallback node={} focus_origin=({:.2},{:.2})",
+                    hit.node_id.as_u64(),
+                    focus_origin.x,
+                    focus_origin.y,
+                );
+            }
+
+            return Some((wl, focus_origin));
+        }
     }
 
     if pointer_map_debug_enabled() {

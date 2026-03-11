@@ -88,9 +88,9 @@ pub fn tick_decay_focus_ring(
     let ids: Vec<NodeId> = field.nodes().keys().copied().collect();
 
     for id in ids {
-        let (kind, pos, intrinsic_size, last_touch_ms) = {
+        let (kind, pos, active_extent, last_touch_ms) = {
             let Some(n) = field.node(id) else { continue };
-            (n.kind.clone(), n.pos, n.intrinsic_size, n.last_touch_ms)
+            (n.kind.clone(), n.pos, n.footprint, n.last_touch_ms)
         };
 
         if kind == NodeKind::Core {
@@ -102,7 +102,7 @@ pub fn tick_decay_focus_ring(
             continue;
         }
 
-        let zone = dominant_focus_zone(focus_ring, vp.center, pos, intrinsic_size);
+        let zone = dominant_focus_zone(focus_ring, vp.center, pos, active_extent);
 
         match zone {
             FocusZone::Inside => {

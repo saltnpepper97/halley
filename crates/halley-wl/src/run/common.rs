@@ -50,26 +50,18 @@ pub(super) fn auto_backend() -> RuntimeBackend {
         return RuntimeBackend::Winit;
     }
 
-    #[cfg(not(feature = "session-libseat"))]
-    {
-        RuntimeBackend::Tty
+    if matches!(session_type.as_deref(), Some("tty")) {
+        return RuntimeBackend::Tty;
     }
 
-    #[cfg(feature = "session-libseat")]
+    if env::var("XDG_VTNR")
+        .ok()
+        .is_some_and(|v| !v.trim().is_empty())
     {
-        if matches!(session_type.as_deref(), Some("tty")) {
-            return RuntimeBackend::Tty;
-        }
-
-        if env::var("XDG_VTNR")
-            .ok()
-            .is_some_and(|v| !v.trim().is_empty())
-        {
-            return RuntimeBackend::Tty;
-        }
-
-        RuntimeBackend::Tty
+        return RuntimeBackend::Tty;
     }
+
+    RuntimeBackend::Tty
 }
 
 pub(super) fn ensure_xdg_runtime_dir() -> Result<(), Box<dyn Error>> {
