@@ -2,6 +2,34 @@ use super::*;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct CollisionExtents {
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+    pub bottom: f32,
+}
+
+impl CollisionExtents {
+    #[inline]
+    pub(super) fn symmetric(size: Vec2) -> Self {
+        Self {
+            left: size.x * 0.5,
+            right: size.x * 0.5,
+            top: size.y * 0.5,
+            bottom: size.y * 0.5,
+        }
+    }
+
+    #[inline]
+    fn size(self) -> Vec2 {
+        Vec2 {
+            x: (self.left + self.right).max(0.0),
+            y: (self.top + self.bottom).max(0.0),
+        }
+    }
+}
+
 impl HalleyWlState {
     #[inline]
     fn world_units_per_px_xy(&self) -> (f32, f32) {
@@ -13,6 +41,38 @@ impl HalleyWlState {
     pub(super) fn non_overlap_gap_world(&self) -> f32 {
         let (wx, wy) = self.world_units_per_px_xy();
         self.tuning.non_overlap_gap_px.max(0.0) * ((wx + wy) * 0.5)
+    }
+
+    #[inline]
+    pub(super) fn required_sep_x(
+        &self,
+        a_pos_x: f32,
+        a_ext: CollisionExtents,
+        b_pos_x: f32,
+        b_ext: CollisionExtents,
+        gap: f32,
+    ) -> f32 {
+        if b_pos_x >= a_pos_x {
+            a_ext.right + b_ext.left + gap
+        } else {
+            a_ext.left + b_ext.right + gap
+        }
+    }
+
+    #[inline]
+    pub(super) fn required_sep_y(
+        &self,
+        a_pos_y: f32,
+        a_ext: CollisionExtents,
+        b_pos_y: f32,
+        b_ext: CollisionExtents,
+        gap: f32,
+    ) -> f32 {
+        if b_pos_y >= a_pos_y {
+            a_ext.bottom + b_ext.top + gap
+        } else {
+            a_ext.top + b_ext.bottom + gap
+        }
     }
 
     pub(crate) fn carry_surface_non_overlap(&mut self, id: NodeId, to: Vec2) -> bool {
@@ -30,7 +90,7 @@ impl HalleyWlState {
             return self.field.carry(id, to);
         }
 
-        let mover_size = self.collision_size_for_node(n);
+        let mover_ext = self.collision_extents_for_node(n);
         let gap = self.non_overlap_gap_world();
         let damping = self.tuning.non_overlap_bump_damping.clamp(0.05, 1.0);
         let mut mover_pos = to;
@@ -39,7 +99,7 @@ impl HalleyWlState {
         const MAX_PUSHES_PER_PASS: usize = 2;
 
         for _ in 0..16 {
-            let others: Vec<(NodeId, Vec2, Vec2, bool)> = self
+            let others: Vec<(NodeId, Vec2, CollisionExtents, bool)> = self
                 .field
                 .nodes()
                 .iter()
@@ -53,7 +113,7 @@ impl HalleyWlState {
                     Some((
                         oid,
                         other.pos,
-                        self.collision_size_for_node(other),
+                        self.collision_extents_for_node(other),
                         other.pinned,
                     ))
                 })
@@ -62,15 +122,15 @@ impl HalleyWlState {
             let mut changed = false;
             let mut pushes_this_pass = 0usize;
 
-            for (oid, opos, osize, opinned) in others {
+            for (oid, opos, oext, opinned) in others {
                 if pushes_this_pass >= MAX_PUSHES_PER_PASS {
                     break;
                 }
 
                 let dx = opos.x - mover_pos.x;
                 let dy = opos.y - mover_pos.y;
-                let req_x = mover_size.x * 0.5 + osize.x * 0.5 + gap;
-                let req_y = mover_size.y * 0.5 + osize.y * 0.5 + gap;
+                let req_x = self.required_sep_x(mover_pos.x, mover_ext, opos.x, oext, gap);
+                let req_y = self.required_sep_y(mover_pos.y, mover_ext, opos.y, oext, gap);
 
                 let ox = req_x - dx.abs();
                 let oy = req_y - dy.abs();
@@ -182,12 +242,12 @@ impl HalleyWlState {
             return self.field.carry(id, to);
         }
 
-        let mover_size = self.collision_size_for_node(n);
+        let mover_ext = self.collision_extents_for_node(n);
         let gap = self.non_overlap_gap_world();
         let mut mover_pos = to;
 
         for _ in 0..24 {
-            let others: Vec<(NodeId, Vec2, Vec2)> = self
+            let others: Vec<(NodeId, Vec2, CollisionExtents)> = self
                 .field
                 .nodes()
                 .iter()
@@ -198,17 +258,17 @@ impl HalleyWlState {
                     if other.kind != halley_core::field::NodeKind::Surface {
                         return None;
                     }
-                    Some((oid, other.pos, self.collision_size_for_node(other)))
+                    Some((oid, other.pos, self.collision_extents_for_node(other)))
                 })
                 .collect();
 
             let mut changed = false;
 
-            for (oid, opos, osize) in others {
+            for (oid, opos, oext) in others {
                 let dx = mover_pos.x - opos.x;
                 let dy = mover_pos.y - opos.y;
-                let req_x = mover_size.x * 0.5 + osize.x * 0.5 + gap;
-                let req_y = mover_size.y * 0.5 + osize.y * 0.5 + gap;
+                let req_x = self.required_sep_x(mover_pos.x, mover_ext, opos.x, oext, gap);
+                let req_y = self.required_sep_y(mover_pos.y, mover_ext, opos.y, oext, gap);
                 let ox = req_x - dx.abs();
                 let oy = req_y - dy.abs();
 
@@ -288,7 +348,7 @@ impl HalleyWlState {
         anim_scale.clamp(0.22, 1.4)
     }
 
-    fn node_collision_size(&self, label: &str, anim_scale: f32) -> Vec2 {
+    fn node_collision_extents(&self, label: &str, anim_scale: f32) -> CollisionExtents {
         let zx = self.viewport.size.x / self.zoom_ref_size.x.max(1.0);
         let zy = self.viewport.size.y / self.zoom_ref_size.y.max(1.0);
         let z = ((zx + zy) * 0.5).clamp(1.0, 8.0);
@@ -302,23 +362,24 @@ impl HalleyWlState {
             .clamp(24.0, 320.0);
         let pad_px = 6.0;
 
-        let left_half_px = dot_half_px + pad_px;
-        let right_half_px = label_gap_px + label_w_px + pad_px;
-        let half_w_px = left_half_px.max(right_half_px).max(4.0);
-        let half_h_px = (dot_half_px.max(label_h_px * 0.5) + pad_px).max(4.0);
-        let bounds_w_px = (half_w_px * 2.0).max(8.0);
-        let bounds_h_px = (half_h_px * 2.0).max(8.0);
+        let dot_d_px = (dot_half_px * 2.0).max(1.0);
+        let marker_w_px = (dot_d_px + label_gap_px + label_w_px + pad_px * 2.0).max(8.0);
+        let marker_h_px = (dot_d_px.max(label_h_px) + pad_px * 2.0).max(8.0);
 
         let world_per_px_x = self.viewport.size.x / self.zoom_ref_size.x.max(1.0);
         let world_per_px_y = self.viewport.size.y / self.zoom_ref_size.y.max(1.0);
-
-        Vec2 {
-            x: bounds_w_px * world_per_px_x.max(0.01),
-            y: bounds_h_px * world_per_px_y.max(0.01),
-        }
+        CollisionExtents::symmetric(Vec2 {
+            // Keep collision bounds aligned with the rendered pill instead of the
+            // larger hover proxy so node-to-window spacing matches window spacing.
+            x: marker_w_px * world_per_px_x.max(0.01),
+            y: marker_h_px * world_per_px_y.max(0.01),
+        })
     }
 
-    pub(super) fn collision_size_for_node(&self, n: &halley_core::field::Node) -> Vec2 {
+    pub(super) fn collision_extents_for_node(
+        &self,
+        n: &halley_core::field::Node,
+    ) -> CollisionExtents {
         let now = Instant::now();
         let anim = self.anim_style_for(n.id, n.state.clone(), now);
 
@@ -331,19 +392,36 @@ impl HalleyWlState {
                     .unwrap_or(n.intrinsic_size);
                 let s = Self::active_collision_scale(anim.scale, basis.x, basis.y);
                 let (world_per_px_x, world_per_px_y) = self.world_units_per_px_xy();
-                let base_w = (basis.x - 4.0).max(32.0);
-                let base_h = (basis.y - 14.0).max(32.0);
+                let bbox_w = n.intrinsic_size.x.max(1.0);
+                let bbox_h = n.intrinsic_size.y.max(1.0);
+                let (bbox_lx, bbox_ly) = self.bbox_loc.get(&n.id).copied().unwrap_or((0.0, 0.0));
+                let (geo_lx, geo_ly, geo_w, geo_h) = self
+                    .window_geometry
+                    .get(&n.id)
+                    .copied()
+                    .unwrap_or((bbox_lx, bbox_ly, bbox_w, bbox_h));
 
-                Vec2 {
-                    x: base_w * s * world_per_px_x,
-                    y: base_h * s * world_per_px_y,
+                let left = (bbox_w * 0.5 + bbox_lx - geo_lx).max(16.0);
+                let right = (geo_lx + geo_w - bbox_lx - bbox_w * 0.5).max(16.0);
+                let top = (bbox_h * 0.5 + bbox_ly - geo_ly).max(16.0);
+                let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
+
+                CollisionExtents {
+                    left: left * s * world_per_px_x,
+                    right: right * s * world_per_px_x,
+                    top: top * s * world_per_px_y,
+                    bottom: bottom * s * world_per_px_y,
                 }
             }
             halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
-                self.node_collision_size(&n.label, anim.scale)
+                self.node_collision_extents(&n.label, anim.scale)
             }
-            halley_core::field::NodeState::Drifting => n.footprint,
+            halley_core::field::NodeState::Drifting => CollisionExtents::symmetric(n.footprint),
         }
+    }
+
+    pub(super) fn collision_size_for_node(&self, n: &halley_core::field::Node) -> Vec2 {
+        self.collision_extents_for_node(n).size()
     }
 
     pub(super) fn resolve_surface_overlap(&mut self) {
@@ -409,14 +487,14 @@ impl HalleyWlState {
                         continue;
                     }
 
-                    let sa = self.collision_size_for_node(na);
-                    let sb = self.collision_size_for_node(nb);
+                    let ea = self.collision_extents_for_node(na);
+                    let eb = self.collision_extents_for_node(nb);
 
                     let dx = b_pos.x - a_pos.x;
                     let dy = b_pos.y - a_pos.y;
 
-                    let req_x = sa.x * 0.5 + sb.x * 0.5 + gap;
-                    let req_y = sa.y * 0.5 + sb.y * 0.5 + gap;
+                    let req_x = self.required_sep_x(a_pos.x, ea, b_pos.x, eb, gap);
+                    let req_y = self.required_sep_y(a_pos.y, ea, b_pos.y, eb, gap);
                     let ox = req_x - dx.abs();
                     let oy = req_y - dy.abs();
 

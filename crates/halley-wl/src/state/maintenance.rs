@@ -399,7 +399,7 @@ impl HalleyWlState {
             return false;
         }
 
-        let size = self.collision_size_for_node(n);
+        let ext = self.collision_extents_for_node(n);
         let half_vw = self.viewport.size.x * 0.5;
         let half_vh = self.viewport.size.y * 0.5;
 
@@ -408,10 +408,10 @@ impl HalleyWlState {
         let view_top = self.viewport.center.y - half_vh;
         let view_bottom = self.viewport.center.y + half_vh;
 
-        let node_left = n.pos.x - size.x * 0.5;
-        let node_right = n.pos.x + size.x * 0.5;
-        let node_top = n.pos.y - size.y * 0.5;
-        let node_bottom = n.pos.y + size.y * 0.5;
+        let node_left = n.pos.x - ext.left;
+        let node_right = n.pos.x + ext.right;
+        let node_top = n.pos.y - ext.top;
+        let node_bottom = n.pos.y + ext.bottom;
 
         node_right > view_left
             && node_left < view_right
@@ -431,10 +431,10 @@ impl HalleyWlState {
             return;
         }
         let apos = a.pos;
-        let asize = self.collision_size_for_node(a);
+        let aext = self.collision_extents_for_node(a);
         let pair_gap = self.non_overlap_gap_world();
 
-        let mut others: Vec<(NodeId, Vec2, Vec2, f32)> = self
+        let mut others: Vec<(NodeId, Vec2, super::overlap::CollisionExtents, f32)> = self
             .field
             .nodes()
             .iter()
@@ -447,23 +447,23 @@ impl HalleyWlState {
                 {
                     return None;
                 }
-                let osize = self.collision_size_for_node(n);
+                let oext = self.collision_extents_for_node(n);
                 let d2 = (n.pos.x - apos.x).powi(2) + (n.pos.y - apos.y).powi(2);
-                Some((id, n.pos, osize, d2))
+                Some((id, n.pos, oext, d2))
             })
             .collect();
 
         others.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut moved = 0usize;
-        for (id, opos, osize, _) in others {
+        for (id, opos, oext, _) in others {
             if moved >= 3 {
                 break;
             }
             let dx = opos.x - apos.x;
             let dy = opos.y - apos.y;
-            let req_x = asize.x * 0.5 + osize.x * 0.5 + pair_gap;
-            let req_y = asize.y * 0.5 + osize.y * 0.5 + pair_gap;
+            let req_x = self.required_sep_x(apos.x, aext, opos.x, oext, pair_gap);
+            let req_y = self.required_sep_y(apos.y, aext, opos.y, oext, pair_gap);
             let ox = req_x - dx.abs();
             let oy = req_y - dy.abs();
             if ox <= 0.0 || oy <= 0.0 {
@@ -528,6 +528,8 @@ impl HalleyWlState {
                 self.zoom_last_observed_size.remove(&id);
                 self.zoom_resize_static_streak.remove(&id);
                 self.last_active_size.remove(&id);
+                self.bbox_loc.remove(&id);
+                self.window_geometry.remove(&id);
                 self.pending_spawn_activate_at_ms.remove(&id);
                 self.active_transition_until_ms.remove(&id);
                 self.primary_promote_cooldown_until_ms.remove(&id);

@@ -123,6 +123,7 @@ pub struct HalleyWlState {
     exit_requested: bool,
 
     pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
+    pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) recent_top_node: Option<NodeId>,
     pub(crate) recent_top_until: Option<Instant>,
 
@@ -207,6 +208,7 @@ impl HalleyWlState {
             exit_requested: false,
 
             bbox_loc: HashMap::new(),
+            window_geometry: HashMap::new(),
             recent_top_node: None,
             recent_top_until: None,
 
