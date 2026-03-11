@@ -85,7 +85,10 @@ pub(crate) fn draw_debug_frame(
             preview_hover_node,
             None,
             None,
-            Transform::Normal,
+            // Smithay's nested winit path expects a flipped output transform.
+            // The shared world/screen math is already top-left oriented; this
+            // compensates for the final EGL target orientation.
+            Transform::Flipped180,
         )?;
     }
     backend.submit(Some(&[damage]))?;
