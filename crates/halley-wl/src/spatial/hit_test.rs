@@ -1,12 +1,9 @@
 use std::time::Instant;
 
-use smithay::desktop::utils::bbox_from_surface_tree;
-use smithay::reexports::wayland_server::Resource;
-
+use crate::input::active_node_screen_rect;
 use crate::interaction::types::HitNode;
-use crate::runtime_render::{
-    active_surface_render_scale, node_marker_bounds, node_marker_metrics, world_to_screen,
-};
+use crate::interaction::types::ResizeCtx;
+use crate::runtime_render::{node_marker_bounds, node_marker_metrics, world_to_screen};
 use crate::state::HalleyWlState;
 use halley_core::viewport::FocusZone;
 
@@ -17,6 +14,7 @@ pub(crate) fn pick_hit_node_at(
     sx: f32,
     sy: f32,
     now: Instant,
+    resize_preview: Option<ResizeCtx>,
 ) -> Option<HitNode> {
     let mut active: Vec<HitNode> = Vec::new();
     let mut node_dot: Vec<HitNode> = Vec::new();
@@ -36,48 +34,27 @@ pub(crate) fn pick_hit_node_at(
         let anim = st.anim_style_for(id, n.state.clone(), now);
         let hit = match n.state {
             halley_core::field::NodeState::Active => {
-                let transition_alpha = st.active_transition_alpha(id, now);
-                let s = active_surface_render_scale(
-                    anim.scale,
-                    st.active_zoom_lock_scale(),
-                    n.intrinsic_size.x,
-                    n.intrinsic_size.y,
-                    transition_alpha,
-                );
-                let mut bbox_w = n.intrinsic_size.x;
-                let mut bbox_h = n.intrinsic_size.y;
-                for top in st.xdg_shell_state.toplevel_surfaces() {
-                    let wl = top.wl_surface();
-                    let key = wl.id();
-                    if st.surface_to_node.get(&key).copied() != Some(id) {
-                        continue;
-                    }
-                    let bbox = bbox_from_surface_tree(&wl, (0, 0));
-                    bbox_w = bbox.size.w.max(1) as f32;
-                    bbox_h = bbox.size.h.max(1) as f32;
-                    break;
-                }
-                let rw = bbox_w * s;
-                let rh = bbox_h * s;
-                let p = st.smoothed_render_pos_read(id, n.pos, now);
-                let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
-                let sw = rw.round();
-                let sh = rh.round();
-                let x = ((cx as f32) - sw * 0.5).round() as i32;
-                let y = ((cy as f32) - sh * 0.5).round() as i32;
-                let ww = sw.max(1.0) as i32;
-                let hh = sh.max(1.0) as i32;
-                if sx >= x as f32
-                    && sx <= (x + ww) as f32
-                    && sy >= y as f32
-                    && sy <= (y + hh) as f32
+                if let Some((left, top, right, bottom)) =
+                    active_node_screen_rect(st, w, h, id, now, resize_preview)
                 {
-                    let title_h = ((hh as f32) * 0.20).round().clamp(28.0, 56.0) as i32;
-                    Some(HitNode {
-                        node_id: id,
-                        on_titlebar: sy <= (y + title_h) as f32,
-                        is_core: false,
-                    })
+                    let x = left.round() as i32;
+                    let y = top.round() as i32;
+                    let ww = (right - left).max(1.0).round() as i32;
+                    let hh = (bottom - top).max(1.0).round() as i32;
+                    if sx >= x as f32
+                        && sx <= (x + ww) as f32
+                        && sy >= y as f32
+                        && sy <= (y + hh) as f32
+                    {
+                        let title_h = ((hh as f32) * 0.20).round().clamp(28.0, 56.0) as i32;
+                        Some(HitNode {
+                            node_id: id,
+                            on_titlebar: sy <= (y + title_h) as f32,
+                            is_core: false,
+                        })
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }

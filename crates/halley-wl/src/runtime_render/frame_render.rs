@@ -26,6 +26,56 @@ use super::node_render::{
 };
 use super::render_utils::{draw_outline_rect, draw_rect, draw_ring};
 
+fn draw_clamped_border_rect<F: smithay::backend::renderer::Frame>(
+    frame: &mut F,
+    rect: (i32, i32, i32, i32),
+    border_width: i32,
+    color: Color32F,
+    damage: Rectangle<i32, Physical>,
+    framebuffer_size: smithay::utils::Size<i32, Physical>,
+) -> Result<(), F::Error> {
+    let bw = border_width.max(1);
+    let outer_left = rect.0 - bw;
+    let outer_top = rect.1 - bw;
+    let outer_right = rect.0 + rect.2.max(1) + bw;
+    let outer_bottom = rect.1 + rect.3.max(1) + bw;
+
+    let left = outer_left.clamp(0, framebuffer_size.w);
+    let top = outer_top.clamp(0, framebuffer_size.h);
+    let right = outer_right.clamp(0, framebuffer_size.w);
+    let bottom = outer_bottom.clamp(0, framebuffer_size.h);
+
+    if right <= left || bottom <= top {
+        return Ok(());
+    }
+
+    let visible_w = right - left;
+    let visible_h = bottom - top;
+    let h_thickness = bw.min(visible_h);
+    let v_thickness = bw.min(visible_w);
+
+    draw_rect(frame, left, top, visible_w, h_thickness, color, damage)?;
+    draw_rect(
+        frame,
+        left,
+        bottom - h_thickness,
+        visible_w,
+        h_thickness,
+        color,
+        damage,
+    )?;
+    draw_rect(frame, left, top, v_thickness, visible_h, color, damage)?;
+    draw_rect(
+        frame,
+        right - v_thickness,
+        top,
+        v_thickness,
+        visible_h,
+        color,
+        damage,
+    )
+}
+
 pub(crate) fn draw_debug_frame(
     backend: &mut WinitGraphicsBackend<GlesRenderer>,
     st: &mut HalleyWlState,
@@ -147,25 +197,6 @@ pub(crate) fn draw_debug_frame_to_target(
         let _ = draw_render_elements(&mut frame, 1.0, &layer_under_elements, &[damage]);
     }
 
-    for rect in &border_rects {
-        let color = if rect.focused {
-            Color32F::new(0.22, 0.82, 0.92, 1.0)
-        } else {
-            Color32F::new(0.38, 0.42, 0.48, 0.90)
-        };
-
-        let bw = 2;
-        draw_outline_rect(
-            &mut frame,
-            rect.x - bw,
-            rect.y - bw,
-            rect.w + bw * 2,
-            rect.h + bw * 2,
-            color,
-            damage,
-        )?;
-    }
-
     if !active_elements.is_empty() {
         let _ = draw_render_elements(&mut frame, 1.0, &active_elements, &[damage]);
     }
@@ -193,6 +224,24 @@ pub(crate) fn draw_debug_frame_to_target(
 
     if !resized_active_elements.is_empty() {
         let _ = draw_render_elements(&mut frame, 1.0, &resized_active_elements, &[damage]);
+    }
+
+    let bw = 2i32;
+    for rect in &border_rects {
+        let color = if rect.focused {
+            Color32F::new(0.22, 0.82, 0.92, 1.0)
+        } else {
+            Color32F::new(0.38, 0.42, 0.48, 0.90)
+        };
+
+        draw_clamped_border_rect(
+            &mut frame,
+            (rect.x, rect.y, rect.w, rect.h),
+            bw,
+            color,
+            damage,
+            size,
+        )?;
     }
 
     if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {

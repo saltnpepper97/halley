@@ -87,7 +87,7 @@ pub(crate) fn pointer_focus_for_screen(
         return Some(focus);
     }
 
-    let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, now)?;
+    let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, now, resize_preview)?;
     let node = st.field.node(hit.node_id)?;
     if node.state != halley_core::field::NodeState::Active {
         return None;
@@ -170,6 +170,30 @@ pub(crate) fn pointer_focus_for_screen(
         }
 
         return Some((surface, focus_origin));
+    }
+
+    if resize_preview.is_some_and(|rz| rz.node_id == hit.node_id) {
+        for top in st.xdg_shell_state.toplevel_surfaces() {
+            let wl = top.wl_surface().clone();
+            let key = wl.id();
+            if st.surface_to_node.get(&key).copied() != Some(hit.node_id) {
+                continue;
+            }
+
+            let focus_origin =
+                Point::<f64, Logical>::from((xform.origin_x as f64, xform.origin_y as f64));
+
+            if pointer_map_debug_enabled() {
+                info!(
+                    "ptr-map focus-resize-fallback node={} focus_origin=({:.2},{:.2})",
+                    hit.node_id.as_u64(),
+                    focus_origin.x,
+                    focus_origin.y,
+                );
+            }
+
+            return Some((wl, focus_origin));
+        }
     }
 
     if pointer_map_debug_enabled() {

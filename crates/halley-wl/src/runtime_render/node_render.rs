@@ -5,7 +5,7 @@ use std::time::Instant;
 use smithay::{
     backend::renderer::{
         Color32F, Frame,
-        element::{Kind, surface::render_elements_from_surface_tree},
+        element::{Kind, surface::render_elements_from_surface_tree, utils::CropRenderElement},
         gles::GlesRenderer,
     },
     desktop::utils::bbox_from_surface_tree,
@@ -13,7 +13,8 @@ use smithay::{
     utils::{Physical, Rectangle, Size},
 };
 
-use crate::interaction::types::{ResizeCtx, ResizeHandle};
+use crate::input::active_resize_geometry_screen;
+use crate::interaction::types::ResizeCtx;
 use crate::state::HalleyWlState;
 use crate::surface::window_geometry_for_node;
 
@@ -24,6 +25,10 @@ use super::render_utils::{
     draw_outline_rect, draw_rect, node_marker_bounds, node_marker_metrics, preview_proxy_size,
     sync_node_size_from_surface, world_to_screen,
 };
+
+type SurfaceElement =
+    smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
+type CroppedSurfaceElement = CropRenderElement<SurfaceElement>;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,6 +52,21 @@ pub(crate) struct ActiveBorderRect {
     pub focused: bool,
 }
 
+fn rect_from_local_geometry(
+    origin_x: i32,
+    origin_y: i32,
+    scale: f32,
+    local_rect: (f32, f32, f32, f32),
+) -> (i32, i32, i32, i32) {
+    let (local_x, local_y, local_w, local_h) = local_rect;
+    (
+        origin_x + (local_x * scale).round() as i32,
+        origin_y + (local_y * scale).round() as i32,
+        (local_w * scale).round().max(1.0) as i32,
+        (local_h * scale).round().max(1.0) as i32,
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Active surface collection
 // ---------------------------------------------------------------------------
@@ -68,8 +88,8 @@ pub(crate) fn collect_active_surfaces(
     resize_preview: Option<ResizeCtx>,
     now: Instant,
 ) -> (
-    Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>,
-    Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>,
+    Vec<CroppedSurfaceElement>,
+    Vec<CroppedSurfaceElement>,
     HashMap<
         halley_core::field::NodeId,
         smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -79,8 +99,8 @@ pub(crate) fn collect_active_surfaces(
     Vec<(i32, i32, Color32F)>,           // overlay_points
     Vec<(i32, i32, i32, i32)>,           // overlap_overlay_rects
 ) {
-    let mut active_elements = Vec::new();
-    let mut resized_active_elements = Vec::new();
+    let mut active_elements: Vec<CroppedSurfaceElement> = Vec::new();
+    let mut resized_active_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut overlay_rects: Vec<(i32, i32, i32, i32, Color32F)> = Vec::new();
@@ -120,8 +140,10 @@ pub(crate) fn collect_active_surfaces(
 
     for (node_id, wl) in wl_surfaces {
         let bbox = if resize_preview.is_some_and(|rz| rz.node_id == node_id) {
-            // During interactive resize the live client bbox must not feed back
-            // into node size; the resize path is authoritative.
+            // During interactive resize, the preview frame and the resize-start
+            // local mapping remain authoritative. Observe the live surface-tree
+            // bbox for clipping/filler only, but do not refresh the shared
+            // geometry caches for this node mid-drag.
             bbox_from_surface_tree(&wl, (0, 0))
         } else {
             sync_node_size_from_surface(st, node_id, &wl)
@@ -139,7 +161,8 @@ pub(crate) fn collect_active_surfaces(
         let node_intrinsic = node.intrinsic_size;
         let transition_alpha = st.active_transition_alpha(node_id, now);
         let anim = st.anim_style_for(node_id, node_state, now);
-        let resizing_this_node = resize_preview.is_some_and(|rz| rz.node_id == node_id);
+        let active_resize = active_resize_geometry_screen(node_id, resize_preview);
+        let resizing_this_node = active_resize.is_some();
         let draw_top_this_node = resizing_this_node || recent_top_node == Some(node_id);
 
         let (scale, live_ramp) = if draw_top_this_node {
@@ -163,34 +186,10 @@ pub(crate) fn collect_active_surfaces(
 
         // Anchor by node centre so zoom doesn't slide full windows.
         let p = st.smoothed_render_pos(node_id, node_pos, now);
-        let (cx, cy, sx, sy) = if let Some(rz) = resize_preview.filter(|rz| rz.node_id == node_id) {
-            let bw = bbox.size.w.max(1);
-            let bh = bbox.size.h.max(1);
-            let bl = bbox.loc.x;
-            let bt = bbox.loc.y;
-            let sx = match rz.handle {
-                ResizeHandle::Left | ResizeHandle::TopLeft | ResizeHandle::BottomLeft => {
-                    rz.preview_right_px.round() as i32 - bw - bl
-                }
-                ResizeHandle::Right
-                | ResizeHandle::TopRight
-                | ResizeHandle::BottomRight
-                | ResizeHandle::Top
-                | ResizeHandle::Bottom => rz.preview_left_px.round() as i32 - bl,
-            };
-            let sy = match rz.handle {
-                ResizeHandle::Top | ResizeHandle::TopLeft | ResizeHandle::TopRight => {
-                    rz.preview_bottom_px.round() as i32 - bh - bt
-                }
-                ResizeHandle::Bottom
-                | ResizeHandle::BottomLeft
-                | ResizeHandle::BottomRight
-                | ResizeHandle::Left
-                | ResizeHandle::Right => rz.preview_top_px.round() as i32 - bt,
-            };
-            let cx = ((rz.preview_left_px + rz.preview_right_px) * 0.5).round() as i32;
-            let cy = ((rz.preview_top_px + rz.preview_bottom_px) * 0.5).round() as i32;
-            (cx, cy, sx, sy)
+        let (cx, cy, sx, sy) = if let Some(active_resize) = active_resize {
+            let (cx, cy) = active_resize.center_px();
+            let (surface_origin_x, surface_origin_y) = active_resize.surface_origin_px();
+            (cx, cy, surface_origin_x, surface_origin_y)
         } else {
             let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
             let sw = ((bbox.size.w as f32) * scale).round() as i32;
@@ -200,34 +199,26 @@ pub(crate) fn collect_active_surfaces(
             (cx, cy, cx - (sw / 2) - lx, cy - (sh / 2) - ly)
         };
 
+        let geometry_rect = active_resize
+            .map(|rz| rz.frame_rect_px())
+            .unwrap_or_else(|| {
+                let local_rect = window_geometry_for_node(st, node_id).unwrap_or((
+                    0.0,
+                    0.0,
+                    node_intrinsic.x,
+                    node_intrinsic.y,
+                ));
+                rect_from_local_geometry(sx, sy, scale, local_rect)
+            });
+
         if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {
-            let (geo_lx, geo_ly, geo_w, geo_h) = window_geometry_for_node(st, node_id).unwrap_or((
-                0.0,
-                0.0,
-                node_intrinsic.x,
-                node_intrinsic.y,
-            ));
-            let nx0 = sx + ((geo_lx * scale).round() as i32);
-            let ny0 = sy + ((geo_ly * scale).round() as i32);
-            let nw = ((geo_w * scale).round() as i32).max(1);
-            let nh = ((geo_h * scale).round() as i32).max(1);
+            let (nx0, ny0, nw, nh) = geometry_rect;
             overlay_rects.push((nx0, ny0, nw, nh, Color32F::new(0.15, 0.85, 0.85, 0.95)));
             overlay_rects.push((nx0, ny0, nw, nh, Color32F::new(0.95, 0.25, 0.85, 0.95)));
             overlay_points.push((cx, cy, Color32F::new(0.98, 0.92, 0.22, 0.95)));
         }
 
-        let (geo_lx, geo_ly, geo_w, geo_h) = window_geometry_for_node(st, node_id).unwrap_or((
-            0.0,
-            0.0,
-            node_intrinsic.x,
-            node_intrinsic.y,
-        ));
-
-        let rx = sx + (geo_lx * scale).round() as i32;
-        let ry = sy + (geo_ly * scale).round() as i32;
-        let rw = (geo_w * scale).round() as i32;
-        let rh = (geo_h * scale).round() as i32;
-
+        let (rx, ry, rw, rh) = geometry_rect;
         border_rects.push(ActiveBorderRect {
             x: rx,
             y: ry,
@@ -257,10 +248,23 @@ pub(crate) fn collect_active_surfaces(
             Kind::Unspecified,
         );
 
+        // (rx, ry, rw, rh) is the correct display rect for every node in every
+        // state: geometry rect during steady-state, preview rect for the node
+        // being actively resized.  Always clip the surface tree to this rect so
+        // CSD shadow/decoration margins never bleed past the border on any edge,
+        // regardless of whether this is the focused window, recently-top window,
+        // or any other active node.
+        let display_clip =
+            Rectangle::<i32, Physical>::new((rx, ry).into(), (rw.max(1), rh.max(1)).into());
+        let cropped: Vec<_> = elems
+            .into_iter()
+            .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
+            .collect();
+
         if draw_top_this_node {
-            resized_active_elements.extend(elems);
+            resized_active_elements.extend(cropped);
         } else {
-            active_elements.extend(elems);
+            active_elements.extend(cropped);
         }
     }
 
