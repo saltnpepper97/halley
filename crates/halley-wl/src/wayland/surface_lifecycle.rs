@@ -84,12 +84,24 @@ impl HalleyWlState {
         Some((id, node.pos, node.intrinsic_size))
     }
 
+    fn viewport_contains_point(&self, pos: Vec2) -> bool {
+        let half_w = self.viewport.size.x * 0.5;
+        let half_h = self.viewport.size.y * 0.5;
+        pos.x >= self.viewport.center.x - half_w
+            && pos.x <= self.viewport.center.x + half_w
+            && pos.y >= self.viewport.center.y - half_h
+            && pos.y <= self.viewport.center.y + half_h
+    }
+
     fn current_spawn_focus(&self) -> (Option<NodeId>, Vec2) {
         if self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
             return (None, self.spawn_view_anchor);
         }
         if let Some(id) = self.last_input_surface_node() {
             if let Some(node) = self.field.node(id) {
+                if !self.viewport_contains_point(node.pos) {
+                    return (None, self.viewport.center);
+                }
                 return (Some(id), node.pos);
             }
         }
@@ -107,6 +119,9 @@ impl HalleyWlState {
             return None;
         }
         let (focus_id, focus_pos, focus_size) = self.focused_surface()?;
+        if !self.viewport_contains_point(focus_pos) {
+            return None;
+        }
         let gap = self.non_overlap_gap_world();
         // Half-extents of the focus and new window, used to compute
         // edge-to-edge offsets so the new window sits flush with a gap.
@@ -555,5 +570,30 @@ mod tests {
 
         assert_eq!(state.spawn_anchor_mode, crate::state::SpawnAnchorMode::View);
         assert_eq!(state.current_spawn_focus(), (None, Vec2 { x: 700.0, y: 0.0 }));
+    }
+
+    #[test]
+    fn current_spawn_focus_uses_viewport_when_focused_surface_is_offscreen() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new(&dh, tuning);
+        state.viewport.center = Vec2 { x: 1200.0, y: 0.0 };
+        state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
+
+        let focused = state.field.spawn_surface(
+            "focused",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        state.last_surface_focus_ms.insert(focused, 1);
+        state.interaction_focus = Some(focused);
+
+        assert_eq!(state.current_spawn_focus(), (None, state.viewport.center));
+        assert!(
+            state.try_spawn_adjacent(Vec2 { x: 100.0, y: 80.0 }).is_none(),
+            "adjacent placement should be skipped when focused surface is off-screen"
+        );
     }
 }
