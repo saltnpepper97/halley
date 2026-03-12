@@ -96,10 +96,12 @@ pub(crate) fn handle_keyboard_input(
     // Refresh interaction focus only for keys that are going to clients.
     // Compositor bindings like minimize should not first re-focus / re-heat
     // the surface they are about to collapse.
-    if pressed && !matched_binding && !st.keyboard_focus_is_layer_surface() {
-        if let Some(fid) = st.last_input_surface_node() {
-            st.set_interaction_focus(Some(fid), 30_000, Instant::now());
-        }
+    if pressed
+        && !matched_binding
+        && !st.keyboard_focus_is_layer_surface()
+        && let Some(fid) = st.last_input_surface_node()
+    {
+        st.set_interaction_focus(Some(fid), 30_000, Instant::now());
     }
 
     // Only intercept explicit compositor bindings.
@@ -151,10 +153,12 @@ pub(crate) fn handle_keyboard_input(
 
     // Execute compositor action only after the filter path above,
     // and only on the first press (not repeats while held).
-    if pressed && matched_binding && first_binding_press {
-        if apply_bound_key(st, code, &mods, config_path, wayland_display) {
-            backend.request_redraw();
-        }
+    if pressed
+        && matched_binding
+        && first_binding_press
+        && apply_bound_key(st, code, &mods, config_path, wayland_display)
+    {
+        backend.request_redraw();
     }
 }
 

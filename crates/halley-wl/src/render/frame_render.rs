@@ -95,6 +95,7 @@ pub(crate) fn draw_debug_frame(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_debug_frame_to_target(
     renderer: &mut GlesRenderer,
     framebuffer: &mut GlesTarget<'_>,
@@ -251,20 +252,20 @@ pub(crate) fn draw_debug_frame_to_target(
 
     draw_node_markers(&mut frame, st, size, &render_nodes, hover_node, damage, now)?;
 
-    if let Some((px, py, pw, ph)) = hover_preview_rect {
-        if !hover_preview_elements.is_empty() {
-            let dl = damage.loc.x;
-            let dt = damage.loc.y;
-            let dr = damage.loc.x + damage.size.w as i32;
-            let db = damage.loc.y + damage.size.h as i32;
-            let l = px.max(dl);
-            let t = py.max(dt);
-            let r = (px + pw).min(dr);
-            let b = (py + ph).min(db);
-            if r > l && b > t {
-                let clip = Rectangle::new((l, t).into(), ((r - l), (b - t)).into());
-                let _ = draw_render_elements(&mut frame, 1.0, &hover_preview_elements, &[clip]);
-            }
+    if let Some((px, py, pw, ph)) = hover_preview_rect
+        && !hover_preview_elements.is_empty()
+    {
+        let dl = damage.loc.x;
+        let dt = damage.loc.y;
+        let dr = damage.loc.x + damage.size.w;
+        let db = damage.loc.y + damage.size.h;
+        let l = px.max(dl);
+        let t = py.max(dt);
+        let r = (px + pw).min(dr);
+        let b = (py + ph).min(db);
+        if r > l && b > t {
+            let clip = Rectangle::new((l, t).into(), ((r - l), (b - t)).into());
+            let _ = draw_render_elements(&mut frame, 1.0, &hover_preview_elements, &[clip]);
         }
     }
 

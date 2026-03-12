@@ -42,6 +42,7 @@ mod render_state;
 mod runtime_state;
 pub use client::ClientState;
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SpawnFrontierPoint {
     pub pos: Vec2,
@@ -49,6 +50,7 @@ pub(crate) struct SpawnFrontierPoint {
     pub dir: Vec2,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct SpawnPatch {
     pub anchor: Vec2,
@@ -170,6 +172,14 @@ pub struct HalleyWlState {
 }
 
 impl HalleyWlState {
+    pub(crate) fn preserve_collapsed_surface(&self, id: NodeId) -> bool {
+        self.manual_collapsed_nodes.contains(&id)
+            || self.field.node(id).is_some_and(|n| {
+                n.kind == halley_core::field::NodeKind::Surface
+                    && n.state == halley_core::field::NodeState::Node
+            })
+    }
+
     pub fn new(
         dh: &smithay::reexports::wayland_server::DisplayHandle,
         tuning: RuntimeTuning,
@@ -372,16 +382,16 @@ impl HalleyWlState {
             self.animator.observe_field(&self.field, now);
             return;
         }
-        if let Some(fid) = self.interaction_focus {
-            if now_ms >= self.interaction_focus_until_ms {
-                let keep = self.field.node(fid).is_some_and(|n| {
-                    self.field.is_visible(fid) && n.kind == halley_core::field::NodeKind::Surface
-                });
-                if keep {
-                    self.interaction_focus_until_ms = now_ms.saturating_add(30_000);
-                } else {
-                    self.set_interaction_focus(None, 0, now);
-                }
+        if let Some(fid) = self.interaction_focus
+            && now_ms >= self.interaction_focus_until_ms
+        {
+            let keep = self.field.node(fid).is_some_and(|n| {
+                self.field.is_visible(fid) && n.kind == halley_core::field::NodeKind::Surface
+            });
+            if keep {
+                self.interaction_focus_until_ms = now_ms.saturating_add(30_000);
+            } else {
+                self.set_interaction_focus(None, 0, now);
             }
         }
         if self.interaction_focus.is_none() && self.layer_keyboard_focus.is_some() {
@@ -410,16 +420,12 @@ impl HalleyWlState {
         let resize_settling = self
             .resize_static_node
             .is_some_and(|_| now_ms < self.resize_static_until_ms);
-        if resize_settling {
-            if let (Some(id), Some(lock_pos)) =
-                (self.resize_static_node, self.resize_static_lock_pos)
-            {
-                if let Some(n) = self.field.node(id) {
-                    if (n.pos.x - lock_pos.x).abs() > 0.05 || (n.pos.y - lock_pos.y).abs() > 0.05 {
-                        let _ = self.field.carry(id, lock_pos);
-                    }
-                }
-            }
+        if resize_settling
+            && let (Some(id), Some(lock_pos)) = (self.resize_static_node, self.resize_static_lock_pos)
+            && let Some(n) = self.field.node(id)
+            && ((n.pos.x - lock_pos.x).abs() > 0.05 || (n.pos.y - lock_pos.y).abs() > 0.05)
+        {
+            let _ = self.field.carry(id, lock_pos);
         }
         if self
             .resize_static_node

@@ -81,6 +81,7 @@ fn rect_from_local_geometry(
 /// - active border rects
 /// - geometry overlay rects/points (only populated with `dev_show_geometry_overlay`)
 /// - overlap overlay rects (windows that visually overlap the resize target)
+#[allow(clippy::type_complexity)]
 pub(crate) fn collect_active_surfaces(
     renderer: &mut GlesRenderer,
     st: &mut HalleyWlState,
@@ -125,7 +126,7 @@ pub(crate) fn collect_active_surfaces(
     let mut wl_surfaces: Vec<_> = st
         .xdg_shell_state
         .toplevel_surfaces()
-        .into_iter()
+        .iter()
         .filter_map(|t| {
             let wl = t.wl_surface().clone();
             let key = wl.id();
@@ -226,15 +227,15 @@ pub(crate) fn collect_active_surfaces(
             focused: st.interaction_focus == Some(node_id),
         });
 
-        if let Some((rl, rt, rr, rb, rid)) = resize_rect_px {
-            if node_id != rid {
-                let wl2 = rx;
-                let wt = ry;
-                let wr = rx + rw.max(1);
-                let wb = ry + rh.max(1);
-                if wl2 < rr && rl < wr && wt < rb && rt < wb {
-                    overlap_overlay_rects.push((rx, ry, rw.max(1), rh.max(1)));
-                }
+        if let Some((rl, rt, rr, rb, rid)) = resize_rect_px
+            && node_id != rid
+        {
+            let wl2 = rx;
+            let wt = ry;
+            let wr = rx + rw.max(1);
+            let wb = ry + rh.max(1);
+            if wl2 < rr && rl < wr && wt < rb && rt < wb {
+                overlap_overlay_rects.push((rx, ry, rw.max(1), rh.max(1)));
             }
         }
 
@@ -318,6 +319,7 @@ pub(crate) fn collect_active_surfaces(
 // ---------------------------------------------------------------------------
 
 /// Build the clipped render elements for the floating hover-preview window.
+#[allow(clippy::type_complexity)]
 pub(crate) fn collect_hover_preview(
     renderer: &mut GlesRenderer,
     st: &mut HalleyWlState,

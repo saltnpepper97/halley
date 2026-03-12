@@ -72,6 +72,12 @@ impl FocusRingDecayPolicy {
     }
 }
 
+impl Default for FocusRingDecayPolicy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Focus-ring-aware decay:
 /// - Inside focus ring: Hot, then Node based on timer
 /// - Outside focus ring: Cold immediately

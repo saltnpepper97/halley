@@ -1,4 +1,5 @@
 use super::*;
+#[allow(clippy::type_complexity)]
 pub(super) fn build_tty_libinput_backend(
     session: Rc<RefCell<LibSeatSession>>,
     seat: &str,

@@ -143,7 +143,7 @@ impl HalleyWlState {
                     let soft = damping * 0.14;
 
                     if sx < sy {
-                        let step = (sx * soft).max(0.35).min(MAX_PUSH_STEP);
+                        let step = (sx * soft).clamp(0.35, MAX_PUSH_STEP);
                         if opinned {
                             let s = if dx >= 0.0 { -1.0 } else { 1.0 };
                             mover_pos.x += s * step;
@@ -164,7 +164,7 @@ impl HalleyWlState {
                         changed = true;
                         pushes_this_pass += 1;
                     } else {
-                        let step = (sy * soft).max(0.35).min(MAX_PUSH_STEP);
+                        let step = (sy * soft).clamp(0.35, MAX_PUSH_STEP);
                         if opinned {
                             let s = if dy >= 0.0 { -1.0 } else { 1.0 };
                             mover_pos.y += s * step;

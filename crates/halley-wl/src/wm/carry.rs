@@ -38,28 +38,24 @@ impl HalleyWlState {
                 )
             };
 
-            // Docked-pair geometry should not auto-resurrect nodes explicitly
-            // collapsed by the user. Keep the pair geometry enforced, but only
-            // re-heat members that are not manually collapsed.
-            let a_manual = self.manual_collapsed_nodes.contains(&a);
-            let b_manual = self.manual_collapsed_nodes.contains(&b);
-
-            if !a_manual {
+            // Keep docked-pair geometry enforced without auto-resurrecting
+            // already-collapsed members.
+            if !self.preserve_collapsed_surface(a) {
                 let _ = self.field.set_decay_level(a, DecayLevel::Hot);
             }
-            if !b_manual {
+            if !self.preserve_collapsed_surface(b) {
                 let _ = self.field.set_decay_level(b, DecayLevel::Hot);
             }
 
-            if let Some(n) = self.field.node(a) {
-                if n.state == halley_core::field::NodeState::Active {
-                    self.last_active_size.insert(a, n.intrinsic_size);
-                }
+            if let Some(n) = self.field.node(a)
+                && n.state == halley_core::field::NodeState::Active
+            {
+                self.last_active_size.insert(a, n.intrinsic_size);
             }
-            if let Some(n) = self.field.node(b) {
-                if n.state == halley_core::field::NodeState::Active {
-                    self.last_active_size.insert(b, n.intrinsic_size);
-                }
+            if let Some(n) = self.field.node(b)
+                && n.state == halley_core::field::NodeState::Active
+            {
+                self.last_active_size.insert(b, n.intrinsic_size);
             }
 
             let gap = self.non_overlap_gap_world();
@@ -193,9 +189,7 @@ impl HalleyWlState {
         let Some(n) = self.field.node(id) else {
             return;
         };
-        if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {
-            return;
-        }
+        if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {}
     }
 
     pub fn begin_carry_state_tracking(&mut self, id: NodeId) {
