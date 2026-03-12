@@ -131,6 +131,12 @@ impl HalleyWlState {
         self.animator.observe_field(&self.field, now);
     }
 
+    pub fn tick_frame_effects(&mut self, now: Instant) {
+        let now_ms = self.now_ms(now);
+        self.tick_viewport_pan_animation(now_ms);
+        self.tick_pending_spawn_pan(now, now_ms);
+    }
+
     pub fn send_frame_callbacks(&mut self, now: Instant) {
         let elapsed_ms = now.duration_since(self.started_at).as_millis();
         let time_ms = elapsed_ms.min(u32::MAX as u128) as u32;

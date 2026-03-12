@@ -6,13 +6,13 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
 };
+use smithay::wayland::compositor::with_states;
 use smithay::wayland::dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, ImportNotifier};
 use smithay::wayland::output::OutputHandler;
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::{
     PrimarySelectionHandler, PrimarySelectionState, set_primary_focus,
 };
-use smithay::wayland::compositor::with_states;
 use smithay::wayland::selection::wlr_data_control::DataControlState;
 use smithay::wayland::shell::wlr_layer::{
     Layer, LayerSurface, LayerSurfaceConfigure, WlrLayerShellHandler, WlrLayerShellState,
@@ -186,14 +186,15 @@ impl XdgShellHandler for HalleyWlState {
 
         // Create a core node for the underlying wl_surface.
         let wl = toplevel.wl_surface().clone();
-        let id = self.ensure_node_for_surface(&wl, "toplevel", initial_toplevel_size(self, &toplevel));
+        let id =
+            self.ensure_node_for_surface(&wl, "toplevel", initial_toplevel_size(self, &toplevel));
         let now = Instant::now();
         let _ = self.field.touch(id, self.now_ms(now));
-        // New windows should be immediately typeable and stay focused until
-        // the user explicitly focuses another surface.
-        self.set_interaction_focus(Some(id), 30_000, now);
 
         if is_transient {
+            // New transient windows should be immediately typeable and stay
+            // focused until the user explicitly focuses another surface.
+            self.set_interaction_focus(Some(id), 30_000, now);
             // Cancel the delayed activation that would call
             // push_neighbors_for_activation. The surface is already Active and
             // Hot from ensure_node_for_surface; we just don’t want it shoving
@@ -201,6 +202,8 @@ impl XdgShellHandler for HalleyWlState {
             self.pending_spawn_activate_at_ms.remove(&id);
             // Still play the appear animation so it doesn’t just snap in.
             self.mark_active_transition(id, now, 620);
+        } else {
+            self.queue_spawn_pan_to_node(id, now);
         }
 
         self.resolve_surface_overlap();

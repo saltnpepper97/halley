@@ -376,6 +376,46 @@ impl HalleyWlState {
         })
     }
 
+    fn surface_window_collision_extents(&self, n: &halley_core::field::Node) -> CollisionExtents {
+        let basis = self
+            .last_active_size
+            .get(&n.id)
+            .copied()
+            .unwrap_or(n.intrinsic_size);
+        let (world_per_px_x, world_per_px_y) = self.world_units_per_px_xy();
+        let bbox_w = n.intrinsic_size.x.max(1.0);
+        let bbox_h = n.intrinsic_size.y.max(1.0);
+        let (bbox_lx, bbox_ly) = self.bbox_loc.get(&n.id).copied().unwrap_or((0.0, 0.0));
+        let (geo_lx, geo_ly, geo_w, geo_h) = self
+            .window_geometry
+            .get(&n.id)
+            .copied()
+            .unwrap_or((bbox_lx, bbox_ly, bbox_w, bbox_h));
+
+        let left = (bbox_w * 0.5 + bbox_lx - geo_lx).max(16.0);
+        let right = (geo_lx + geo_w - bbox_lx - bbox_w * 0.5).max(16.0);
+        let top = (bbox_h * 0.5 + bbox_ly - geo_ly).max(16.0);
+        let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
+
+        CollisionExtents {
+            left: left * basis.x.max(1.0) / bbox_w * world_per_px_x,
+            right: right * basis.x.max(1.0) / bbox_w * world_per_px_x,
+            top: top * basis.y.max(1.0) / bbox_h * world_per_px_y,
+            bottom: bottom * basis.y.max(1.0) / bbox_h * world_per_px_y,
+        }
+    }
+
+    pub(crate) fn spawn_obstacle_extents_for_node(
+        &self,
+        n: &halley_core::field::Node,
+    ) -> CollisionExtents {
+        if n.kind == halley_core::field::NodeKind::Surface {
+            self.surface_window_collision_extents(n)
+        } else {
+            self.collision_extents_for_node(n)
+        }
+    }
+
     pub(crate) fn collision_extents_for_node(
         &self,
         n: &halley_core::field::Node,
@@ -391,29 +431,19 @@ impl HalleyWlState {
                     .copied()
                     .unwrap_or(n.intrinsic_size);
                 let s = Self::active_collision_scale(anim.scale, basis.x, basis.y);
-                let (world_per_px_x, world_per_px_y) = self.world_units_per_px_xy();
-                let bbox_w = n.intrinsic_size.x.max(1.0);
-                let bbox_h = n.intrinsic_size.y.max(1.0);
-                let (bbox_lx, bbox_ly) = self.bbox_loc.get(&n.id).copied().unwrap_or((0.0, 0.0));
-                let (geo_lx, geo_ly, geo_w, geo_h) = self
-                    .window_geometry
-                    .get(&n.id)
-                    .copied()
-                    .unwrap_or((bbox_lx, bbox_ly, bbox_w, bbox_h));
-
-                let left = (bbox_w * 0.5 + bbox_lx - geo_lx).max(16.0);
-                let right = (geo_lx + geo_w - bbox_lx - bbox_w * 0.5).max(16.0);
-                let top = (bbox_h * 0.5 + bbox_ly - geo_ly).max(16.0);
-                let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
+                let ext = self.surface_window_collision_extents(n);
 
                 CollisionExtents {
-                    left: left * s * world_per_px_x,
-                    right: right * s * world_per_px_x,
-                    top: top * s * world_per_px_y,
-                    bottom: bottom * s * world_per_px_y,
+                    left: ext.left * s,
+                    right: ext.right * s,
+                    top: ext.top * s,
+                    bottom: ext.bottom * s,
                 }
             }
-            halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
+            halley_core::field::NodeState::Node => {
+                self.node_collision_extents(&n.label, anim.scale)
+            }
+            halley_core::field::NodeState::Core => {
                 self.node_collision_extents(&n.label, anim.scale)
             }
             halley_core::field::NodeState::Drifting => CollisionExtents::symmetric(n.footprint),
@@ -633,5 +663,44 @@ impl HalleyWlState {
             top.send_configure();
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collapsed_surface_nodes_use_marker_collision_extents() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new(&dh, tuning);
+        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
+        state.zoom_ref_size = Vec2 { x: 1600.0, y: 1200.0 };
+
+        let id = state.field.spawn_surface(
+            "collapsed-firefox",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 1200.0, y: 900.0 },
+        );
+        let _ = state
+            .field
+            .set_state(id, halley_core::field::NodeState::Node);
+
+        let node = state.field.node(id).expect("node");
+        let ext = state.collision_extents_for_node(node);
+
+        assert!(
+            ext.left + ext.right < 300.0,
+            "collapsed node collision width should stay marker-sized, got {:?}",
+            ext
+        );
+        assert!(
+            ext.top + ext.bottom < 120.0,
+            "collapsed node collision height should stay marker-sized, got {:?}",
+            ext
+        );
     }
 }

@@ -226,13 +226,15 @@ pub(crate) fn handle_pointer_axis_input(
     let steps = steps.clamp(-4.0, 4.0);
     pointer_state.borrow_mut().panning = false;
     let step = (steps.abs() * 80.0).max(22.0);
-    st.note_pan_activity(Instant::now());
+    let now = Instant::now();
+    st.note_pan_activity(now);
     st.viewport.pan(halley_core::field::Vec2 {
         x: 0.0,
         y: step * steps.signum(),
     });
     st.tuning.viewport_center = st.viewport.center;
     st.tuning.viewport_size = st.viewport.size;
+    st.note_pan_viewport_change(now);
     backend.request_redraw();
 }
 

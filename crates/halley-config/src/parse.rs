@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use super::{KeyModifiers, LaunchBinding};
-use crate::RuntimeTuning;
 use crate::keybinds::{key_name_to_evdev, modifiers_empty, parse_chord, parse_modifiers};
 use crate::layout::ViewportOutputConfig;
 use crate::legacy::{parse_legacy_keybinds, strip_legacy_keybind_block};
+use crate::RuntimeTuning;
 
 use rune_cfg::RuneConfig;
 
@@ -28,7 +28,6 @@ impl RuntimeTuning {
         load_nodes_section(&cfg, &mut out);
         load_clusters_section(&cfg, &mut out);
         load_decay_section(&cfg, &mut out);
-        load_tile_section(&cfg, &mut out);
         load_docking_section(&cfg, &mut out);
         load_physics_section(&cfg, &mut out);
         load_keybind_sections(&cfg, &mut out);
@@ -353,14 +352,6 @@ fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.docked_offscreen_delay_ms = docked_s.saturating_mul(1000);
 }
 
-fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    out.new_window_on_top = pick_bool(
-        cfg,
-        &["tile.new-on-top", "tile.new_on_top"],
-        out.new_window_on_top,
-    );
-}
-
 fn load_docking_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.non_overlap_gap_px = pick_f32(
         cfg,
@@ -475,7 +466,11 @@ fn parse_viewport_outputs(cfg: &RuneConfig, root: &str) -> Vec<ViewportOutputCon
                 ],
                 0.0,
             );
-            if v > 0.0 { Some(v as f64) } else { None }
+            if v > 0.0 {
+                Some(v as f64)
+            } else {
+                None
+            }
         };
 
         out.push(ViewportOutputConfig {
