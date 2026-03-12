@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::env;
 use std::error::Error;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -14,7 +13,7 @@ use halley_config::RuntimeTuning;
 use calloop::EventLoop;
 use calloop::timer::{TimeoutAction, Timer};
 
-use eventline::{debug, info, scope, warn};
+use eventline::{debug, info, scope, warn, FileSetup, LogLevel, LogPolicy, RunHeader, Setup};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use once_cell::sync::OnceCell;
 
@@ -117,45 +116,44 @@ pub fn run_tty() -> Result<(), Box<dyn Error>> {
 
 fn init_logging() -> Result<(), Box<dyn Error>> {
     scope!("logging-init", success = "ready", {
-        pollster::block_on(eventline::runtime::init());
-
-        eventline::runtime::enable_console_output(true);
-        eventline::runtime::enable_console_color(true);
-        eventline::runtime::enable_console_duration(true);
         let level = env::var("HALLEY_WL_LOG")
             .ok()
-            .map(|v| v.trim().to_ascii_lowercase())
-            .and_then(|v| match v.as_str() {
-                "trace" => Some(eventline::runtime::LogLevel::Debug),
-                "debug" => Some(eventline::runtime::LogLevel::Debug),
-                "info" => Some(eventline::runtime::LogLevel::Info),
-                "warn" | "warning" => Some(eventline::runtime::LogLevel::Warning),
-                "error" => Some(eventline::runtime::LogLevel::Error),
-                "off" => Some(eventline::runtime::LogLevel::Off),
-                _ => None,
-            })
-            .unwrap_or(eventline::runtime::LogLevel::Info);
-        eventline::runtime::set_log_level(level);
+            .and_then(|v| parse_log_level(v.as_str()))
+            .unwrap_or(LogLevel::Info);
 
-        let log_file = env::var("HALLEY_WL_LOG_FILE")
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .or_else(default_halley_log_path);
-        if let Some(path) = log_file {
-            if let Some(parent) = Path::new(path.as_str()).parent() {
-                if let Err(err) = fs::create_dir_all(parent) {
-                    warn!(
-                        "failed to create log directory {}: {}",
-                        parent.display(),
-                        err
-                    );
+        let log_file = configured_halley_log_file();
+        let file = match log_file.as_ref() {
+            Some(None) => Some(FileSetup::Off),
+            Some(Some(path)) => Some(FileSetup::Rotating {
+                path: path.clone(),
+                policy: LogPolicy::default(),
+                header: Some(RunHeader::new("halley-wl")),
+            }),
+            None => default_halley_log_path().map(|path| FileSetup::Rotating {
+                path,
+                policy: LogPolicy::default(),
+                header: Some(RunHeader::new("halley-wl")),
+            }),
+        };
+
+        if let Err(err) = pollster::block_on(eventline::setup(Setup {
+            verbose: true,
+            level: Some(level),
+            file,
+        })) {
+            warn!("failed to configure logging: {}", err);
+        }
+
+        eventline::enable_console_color(true);
+        eventline::enable_console_duration(true);
+
+        match log_file {
+            Some(None) => info!("file logging disabled via HALLEY_WL_LOG_FILE"),
+            Some(Some(path)) => info!("file logging enabled: {}", path.display()),
+            None => {
+                if let Some(path) = default_halley_log_path() {
+                    info!("file logging enabled: {}", path.display());
                 }
-            }
-            if let Err(err) = eventline::runtime::enable_file_output(path.as_str()) {
-                warn!("failed to enable file logging at {}: {}", path, err);
-            } else {
-                info!("file logging enabled: {}", path);
             }
         }
 
@@ -163,42 +161,38 @@ fn init_logging() -> Result<(), Box<dyn Error>> {
     })
 }
 
-fn default_halley_log_path() -> Option<String> {
-    let state_home = env::var("XDG_STATE_HOME")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            env::var("HOME")
-                .ok()
-                .filter(|v| !v.trim().is_empty())
-                .map(|home| Path::new(home.as_str()).join(".local/state"))
-        });
-    if let Some(base) = state_home {
-        return Some(
-            base.join("halley")
-                .join("halley.log")
-                .to_string_lossy()
-                .to_string(),
-        );
+fn parse_log_level(raw: &str) -> Option<LogLevel> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "trace" | "debug" => Some(LogLevel::Debug),
+        "info" => Some(LogLevel::Info),
+        "warn" | "warning" => Some(LogLevel::Warning),
+        "error" => Some(LogLevel::Error),
+        "off" => Some(LogLevel::Off),
+        _ => None,
     }
+}
+
+fn configured_halley_log_file() -> Option<Option<PathBuf>> {
+    let raw = env::var("HALLEY_WL_LOG_FILE").ok()?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if matches!(trimmed.to_ascii_lowercase().as_str(), "off" | "false" | "0") {
+        return Some(None);
+    }
+    Some(Some(PathBuf::from(trimmed)))
+}
+
+fn default_halley_log_path() -> Option<PathBuf> {
     env::var("XDG_RUNTIME_DIR")
         .ok()
         .filter(|v| !v.trim().is_empty())
-        .map(|dir| {
-            Path::new(dir.as_str())
-                .join("halley-wl.log")
-                .to_string_lossy()
-                .to_string()
-        })
+        .map(|dir| Path::new(dir.as_str()).join("halley").join("halley.log"))
         .or_else(|| {
             Some(
-                PathBuf::from(format!(
-                    "/tmp/halley-wl-{}.log",
-                    rustix::process::getuid().as_raw()
-                ))
-                .to_string_lossy()
-                .to_string(),
+                PathBuf::from(format!("/tmp/halley-{}", rustix::process::getuid().as_raw()))
+                    .join("halley.log"),
             )
         })
 }

@@ -564,8 +564,6 @@ dependencies = [
 [[package]]
 name = "eventline"
 version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0e7c4948448b7b133fe5f3b634289a6ae9abc8c6bd29694af9675922b376c18"
 dependencies = [
  "parking_lot",
  "serde",
@@ -850,6 +848,7 @@ dependencies = [
  "halley-config",
  "halley-core",
  "halley-ipc",
+ "libc",
  "notify",
  "once_cell",
  "pollster",

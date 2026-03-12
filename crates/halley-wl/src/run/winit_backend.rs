@@ -1,6 +1,8 @@
 use super::*;
 
+use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
+use crate::backend_iface::DmabufImportBackend;
 
 fn apply_host_cursor(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
@@ -172,6 +174,8 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             })?;
             let backend = Rc::new(RefCell::new(backend));
             let backend_handle = WinitBackendHandle::new(backend.clone());
+            let dmabuf_importer: Rc<dyn DmabufImportBackend> = Rc::new(backend_handle.clone());
+            state.configure_dmabuf_importer(dmabuf_importer, None);
             let xwayland = Rc::new(RefCell::new(ensure_xwayland_satellite(sock_name.as_str())?));
             let (xwayland_request_tx, xwayland_request_rx) = mpsc::channel::<()>();
             register_xwayland_request_channel(xwayland_request_tx);
@@ -233,6 +237,27 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     let _ =
                         dh_for_clients.insert_client(client_stream, Arc::new(ClientState::new()));
                 })?;
+
+            if let Some(listener) = xwayland.borrow().filesystem_listener_source()? {
+                let xwayland_for_x11 = xwayland.clone();
+                ev.handle().insert_source(
+                    Generic::new(listener, Interest::READ, Mode::Level),
+                    move |_readiness, _listener, _st| {
+                        xwayland_for_x11.borrow_mut().request_start();
+                        Ok(PostAction::Continue)
+                    },
+                )?;
+            }
+            if let Some(listener) = xwayland.borrow().abstract_listener_source()? {
+                let xwayland_for_x11 = xwayland.clone();
+                ev.handle().insert_source(
+                    Generic::new(listener, Interest::READ, Mode::Level),
+                    move |_readiness, _listener, _st| {
+                        xwayland_for_x11.borrow_mut().request_start();
+                        Ok(PostAction::Continue)
+                    },
+                )?;
+            }
 
             ev.handle()
                 .insert_source(winit_source, move |event, _, st| match event {
