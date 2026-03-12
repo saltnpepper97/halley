@@ -1,7 +1,7 @@
 use super::*;
 use eventline::info;
 use smithay::backend::allocator::dmabuf::Dmabuf;
-use smithay::desktop::{PopupKind, find_popup_root_surface};
+use smithay::desktop::{PopupKind, find_popup_root_surface, utils::bbox_from_surface_tree};
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
@@ -12,13 +12,43 @@ use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::{
     PrimarySelectionHandler, PrimarySelectionState, set_primary_focus,
 };
+use smithay::wayland::compositor::with_states;
 use smithay::wayland::selection::wlr_data_control::DataControlState;
 use smithay::wayland::shell::wlr_layer::{
     Layer, LayerSurface, LayerSurfaceConfigure, WlrLayerShellHandler, WlrLayerShellState,
 };
+use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 fn client_for_surface(surface: Option<&WlSurface>) -> Option<Client> {
     surface.and_then(|wl| wl.client())
+}
+
+fn initial_toplevel_size(st: &HalleyWlState, toplevel: &ToplevelSurface) -> (i32, i32) {
+    let wl = toplevel.wl_surface();
+
+    let geometry = with_states(wl, |states| {
+        states
+            .cached_state
+            .get::<SurfaceCachedState>()
+            .current()
+            .geometry
+    });
+    if let Some(geometry) = geometry {
+        return (geometry.size.w.max(96), geometry.size.h.max(72));
+    }
+
+    if let Some(size) = toplevel.current_state().size {
+        return (size.w.max(96), size.h.max(72));
+    }
+
+    let bbox = bbox_from_surface_tree(wl, (0, 0));
+    if bbox.size.w > 0 && bbox.size.h > 0 {
+        return (bbox.size.w.max(96), bbox.size.h.max(72));
+    }
+
+    let fallback_w = (st.viewport.size.x * 0.4).round() as i32;
+    let fallback_h = (st.viewport.size.y * 0.45).round() as i32;
+    (fallback_w.max(96), fallback_h.max(72))
 }
 
 impl SeatHandler for HalleyWlState {
@@ -143,9 +173,8 @@ impl XdgShellHandler for HalleyWlState {
 
     fn new_toplevel(&mut self, toplevel: ToplevelSurface) {
         // You MUST send an initial configure or many clients won’t map.
-        // We'll pick a sane default until we have real output sizing.
+        // Leave size unset so clients can choose their own initial dimensions.
         toplevel.with_pending_state(|s| {
-            s.size = Some((900, 600).into());
             s.states.set(xdg_toplevel::State::Activated);
         });
         toplevel.send_configure();
@@ -157,7 +186,7 @@ impl XdgShellHandler for HalleyWlState {
 
         // Create a core node for the underlying wl_surface.
         let wl = toplevel.wl_surface().clone();
-        let id = self.ensure_node_for_surface(&wl, "toplevel", (900, 600));
+        let id = self.ensure_node_for_surface(&wl, "toplevel", initial_toplevel_size(self, &toplevel));
         let now = Instant::now();
         let _ = self.field.touch(id, self.now_ms(now));
         // New windows should be immediately typeable and stay focused until
