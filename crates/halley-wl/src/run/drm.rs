@@ -211,10 +211,10 @@ pub(super) fn select_tty_scanout(
                 .find(|(_, info)| info.to_string() == wanted.connector)
             {
                 let Some(mode) = info.modes().iter().copied().find(|m| {
-                    m.size() == (wanted.width as u16, wanted.height as u16)
-                        && wanted
-                            .refresh_rate
-                            .map_or(true, |hz| (m.vrefresh() as f64 - hz).abs() < 1.0)
+                        m.size() == (wanted.width as u16, wanted.height as u16)
+                            && wanted
+                                .refresh_rate
+                                .is_none_or(|hz| (m.vrefresh() as f64 - hz).abs() < 1.0)
                 }) else {
                     return Err(io::Error::other(format!(
                         "configured viewport {} requests {}x{}, but no such mode is available",
@@ -243,14 +243,13 @@ pub(super) fn select_tty_scanout(
     if let Some(enc) = selected_info
         .current_encoder()
         .or_else(|| selected_info.encoders().first().copied())
+        && let Ok(enc_info) = dev.get_encoder(enc)
     {
-        if let Ok(enc_info) = dev.get_encoder(enc) {
-            if let Some(existing_crtc) = enc_info.crtc() {
-                selected_crtc = Some(existing_crtc);
-            } else {
-                let candidates = resources.filter_crtcs(enc_info.possible_crtcs());
-                selected_crtc = candidates.first().copied();
-            }
+        if let Some(existing_crtc) = enc_info.crtc() {
+            selected_crtc = Some(existing_crtc);
+        } else {
+            let candidates = resources.filter_crtcs(enc_info.possible_crtcs());
+            selected_crtc = candidates.first().copied();
         }
     }
     if selected_crtc.is_none() {

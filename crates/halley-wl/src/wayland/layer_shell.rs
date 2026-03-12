@@ -288,6 +288,7 @@ fn layer_depth(layer: Layer) -> u8 {
     }
 }
 
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::layer_surface_can_take_keyboard_focus;

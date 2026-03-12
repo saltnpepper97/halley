@@ -225,7 +225,7 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
 
             {
                 let ws = backend.borrow().window_size();
-                publish_winit_output_snapshot(ws.w as i32, ws.h as i32, true, 0, 0);
+                publish_winit_output_snapshot(ws.w, ws.h, true, 0, 0);
             }
 
             let mut ev: EventLoop<HalleyWlState> = EventLoop::try_new()?;
@@ -466,7 +466,7 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
 
                 {
                     let ws = backend_for_output_timer.borrow().window_size();
-                    publish_winit_output_snapshot(ws.w as i32, ws.h as i32, true, 0, 0);
+                    publish_winit_output_snapshot(ws.w, ws.h, true, 0, 0);
                 }
 
                 {

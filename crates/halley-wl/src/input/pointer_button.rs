@@ -87,12 +87,12 @@ pub(crate) fn handle_pointer_button_input(
     if !left && !right {
         return;
     }
-    if matches!(button_state, ButtonState::Pressed) {
-        if let Some((surface, _)) = layer_focus {
-            let _ = st.focus_layer_surface(&surface);
-            ps.last_title_click = None;
-            return;
-        }
+    if matches!(button_state, ButtonState::Pressed)
+        && let Some((surface, _)) = layer_focus
+    {
+        let _ = st.focus_layer_surface(&surface);
+        ps.last_title_click = None;
+        return;
     }
     let workspace_active = st.has_active_cluster_workspace();
     match button_state {
@@ -246,19 +246,11 @@ pub(crate) fn handle_pointer_button_input(
                         .node(h.node_id)
                         .is_some_and(|n| n.state == halley_core::field::NodeState::Active);
                     let resize_mod_ok = modifier_active(&mods, st.tuning.keybinds.modifier);
-                    if resize_mod_ok && can_resize {
-                        if let Some(n) = st.field.node(h.node_id) {
-                            let fallback_size = n.intrinsic_size;
-                            let fallback_pos = n.pos;
-                            let (start_left, start_top, start_right, start_bottom) =
-                                active_node_screen_rect(
-                                    st,
-                                    ws_w,
-                                    ws_h,
-                                    h.node_id,
-                                    Instant::now(),
-                                    None,
-                                )
+                    if resize_mod_ok && can_resize && let Some(n) = st.field.node(h.node_id) {
+                        let fallback_size = n.intrinsic_size;
+                        let fallback_pos = n.pos;
+                        let (start_left, start_top, start_right, start_bottom) =
+                            active_node_screen_rect(st, ws_w, ws_h, h.node_id, Instant::now(), None)
                                 .unwrap_or_else(|| {
                                     let center_scr = world_to_screen(
                                         st,
@@ -274,88 +266,87 @@ pub(crate) fn handle_pointer_button_input(
                                         (center_scr.1 as f32) + fallback_size.y * 0.5,
                                     )
                                 });
-                            let handle = pick_resize_handle_from_screen(
-                                (start_left, start_top, start_right, start_bottom),
-                                (sx, sy),
+                        let handle = pick_resize_handle_from_screen(
+                            (start_left, start_top, start_right, start_bottom),
+                            (sx, sy),
+                        );
+                        ps.drag = None;
+                        st.field.clear_dock_preview();
+                        ps.panning = false;
+                        ps.move_anim.clear();
+                        st.begin_resize_interaction(h.node_id, Instant::now());
+                        let start_w = (start_right - start_left).max(96.0).round() as i32;
+                        let start_h = (start_bottom - start_top).max(72.0).round() as i32;
+                        let start_surface = current_surface_size_for_node(st, h.node_id)
+                            .unwrap_or(halley_core::field::Vec2 {
+                                x: start_w as f32,
+                                y: start_h as f32,
+                            });
+                        let (start_geo_lx, start_geo_ly, _, _) =
+                            window_geometry_for_node(st, h.node_id).unwrap_or((
+                                0.0,
+                                0.0,
+                                start_surface.x.max(1.0),
+                                start_surface.y.max(1.0),
+                            ));
+                        let start_bbox = halley_core::field::Vec2 {
+                            x: fallback_size.x.max(1.0),
+                            y: fallback_size.y.max(1.0),
+                        };
+                        let resize_ctx = ResizeCtx {
+                            node_id: h.node_id,
+                            start_surface_w: start_surface.x.max(96.0).round() as i32,
+                            start_surface_h: start_surface.y.max(72.0).round() as i32,
+                            start_bbox_w: start_bbox.x.round() as i32,
+                            start_bbox_h: start_bbox.y.round() as i32,
+                            start_visual_w: start_w,
+                            start_visual_h: start_h,
+                            start_geo_lx,
+                            start_geo_ly,
+                            start_left_px: start_left,
+                            start_right_px: start_right,
+                            start_top_px: start_top,
+                            start_bottom_px: start_bottom,
+                            preview_left_px: start_left,
+                            preview_right_px: start_right,
+                            preview_top_px: start_top,
+                            preview_bottom_px: start_bottom,
+                            last_sent_w: start_surface.x.max(96.0).round() as i32,
+                            last_sent_h: start_surface.y.max(72.0).round() as i32,
+                            last_configure_at: Instant::now(),
+                            handle,
+                            press_sx: sx,
+                            press_sy: sy,
+                            press_off_left_px: sx - start_left,
+                            press_off_right_px: sx - start_right,
+                            press_off_top_px: sy - start_top,
+                            press_off_bottom_px: sy - start_bottom,
+                            press_ws_w: ws_w,
+                            press_ws_h: ws_h,
+                            press_view_center: st.viewport.center,
+                            press_view_size: st.viewport.size,
+                            drag_started: true,
+                            resize_mode_sent: false,
+                        };
+                        if st.tuning.debug_tick_dump {
+                            info!(
+                                "resize-start id={} handle={:?} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) start_surface=({}, {}) start_bbox=({}, {})",
+                                resize_ctx.node_id.as_u64(),
+                                resize_ctx.handle,
+                                resize_ctx.preview_left_px,
+                                resize_ctx.preview_top_px,
+                                resize_ctx.preview_right_px,
+                                resize_ctx.preview_bottom_px,
+                                resize_ctx.start_geo_lx,
+                                resize_ctx.start_geo_ly,
+                                resize_ctx.start_surface_w,
+                                resize_ctx.start_surface_h,
+                                resize_ctx.start_bbox_w,
+                                resize_ctx.start_bbox_h,
                             );
-                            ps.drag = None;
-                            st.field.clear_dock_preview();
-                            ps.panning = false;
-                            ps.move_anim.clear();
-                            st.begin_resize_interaction(h.node_id, Instant::now());
-                            let start_w = (start_right - start_left).max(96.0).round() as i32;
-                            let start_h = (start_bottom - start_top).max(72.0).round() as i32;
-                            let start_surface = current_surface_size_for_node(st, h.node_id)
-                                .unwrap_or(halley_core::field::Vec2 {
-                                    x: start_w as f32,
-                                    y: start_h as f32,
-                                });
-                            let (start_geo_lx, start_geo_ly, _, _) =
-                                window_geometry_for_node(st, h.node_id).unwrap_or((
-                                    0.0,
-                                    0.0,
-                                    start_surface.x.max(1.0),
-                                    start_surface.y.max(1.0),
-                                ));
-                            let start_bbox = halley_core::field::Vec2 {
-                                x: fallback_size.x.max(1.0),
-                                y: fallback_size.y.max(1.0),
-                            };
-                            let resize_ctx = ResizeCtx {
-                                node_id: h.node_id,
-                                start_surface_w: start_surface.x.max(96.0).round() as i32,
-                                start_surface_h: start_surface.y.max(72.0).round() as i32,
-                                start_bbox_w: start_bbox.x.round() as i32,
-                                start_bbox_h: start_bbox.y.round() as i32,
-                                start_visual_w: start_w,
-                                start_visual_h: start_h,
-                                start_geo_lx,
-                                start_geo_ly,
-                                start_left_px: start_left,
-                                start_right_px: start_right,
-                                start_top_px: start_top,
-                                start_bottom_px: start_bottom,
-                                preview_left_px: start_left,
-                                preview_right_px: start_right,
-                                preview_top_px: start_top,
-                                preview_bottom_px: start_bottom,
-                                last_sent_w: start_surface.x.max(96.0).round() as i32,
-                                last_sent_h: start_surface.y.max(72.0).round() as i32,
-                                last_configure_at: Instant::now(),
-                                handle,
-                                press_sx: sx,
-                                press_sy: sy,
-                                press_off_left_px: sx - start_left,
-                                press_off_right_px: sx - start_right,
-                                press_off_top_px: sy - start_top,
-                                press_off_bottom_px: sy - start_bottom,
-                                press_ws_w: ws_w,
-                                press_ws_h: ws_h,
-                                press_view_center: st.viewport.center,
-                                press_view_size: st.viewport.size,
-                                drag_started: true,
-                                resize_mode_sent: false,
-                            };
-                            if st.tuning.debug_tick_dump {
-                                info!(
-                                    "resize-start id={} handle={:?} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) start_surface=({}, {}) start_bbox=({}, {})",
-                                    resize_ctx.node_id.as_u64(),
-                                    resize_ctx.handle,
-                                    resize_ctx.preview_left_px,
-                                    resize_ctx.preview_top_px,
-                                    resize_ctx.preview_right_px,
-                                    resize_ctx.preview_bottom_px,
-                                    resize_ctx.start_geo_lx,
-                                    resize_ctx.start_geo_ly,
-                                    resize_ctx.start_surface_w,
-                                    resize_ctx.start_surface_h,
-                                    resize_ctx.start_bbox_w,
-                                    resize_ctx.start_bbox_h,
-                                );
-                            }
-                            ps.resize = Some(resize_ctx);
-                            backend.request_redraw();
                         }
+                        ps.resize = Some(resize_ctx);
+                        backend.request_redraw();
                     }
                 } else {
                     ps.panning = true;

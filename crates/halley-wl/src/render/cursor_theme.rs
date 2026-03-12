@@ -69,10 +69,18 @@ fn load_cursor_from_theme(
 ) -> Option<Arc<SoftwareCursorSprite>> {
     let theme = CursorTheme::load(theme_name);
     for icon_name in icon_names {
-        let icon_path = theme.load_icon(icon_name)?;
-        let bytes = fs::read(icon_path).ok()?;
-        let images = xcursor::parser::parse_xcursor(&bytes)?;
-        let image = pick_best_cursor_image(&images, requested_size)?;
+        let Some(icon_path) = theme.load_icon(icon_name) else {
+            continue;
+        };
+        let Some(bytes) = fs::read(icon_path).ok() else {
+            continue;
+        };
+        let Some(images) = xcursor::parser::parse_xcursor(&bytes) else {
+            continue;
+        };
+        let Some(image) = pick_best_cursor_image(&images, requested_size) else {
+            continue;
+        };
         let width = usize::try_from(image.width).ok()?;
         let height = usize::try_from(image.height).ok()?;
         let max_hotspot_x = i32::try_from(width.saturating_sub(1)).ok().unwrap_or(0);
@@ -209,10 +217,12 @@ fn themed_cursor_sprite(
     let names = cursor_icon_candidates(icon);
 
     let mut cache = CURSOR_SPRITE_CACHE.lock().ok()?;
-    if let Some(cached) = cache.as_ref() {
-        if cached.theme == theme && cached.size == size && cached.icon_key == icon_key {
-            return cached.sprite.clone();
-        }
+    if let Some(cached) = cache.as_ref()
+        && cached.theme == theme
+        && cached.size == size
+        && cached.icon_key == icon_key
+    {
+        return cached.sprite.clone();
     }
 
     let sprite = load_cursor_from_theme(theme.as_str(), size, names).or_else(|| {

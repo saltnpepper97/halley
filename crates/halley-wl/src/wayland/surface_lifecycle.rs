@@ -49,33 +49,6 @@ impl HalleyWlState {
         surface.id()
     }
 
-    fn vec_sub(a: Vec2, b: Vec2) -> Vec2 {
-        Vec2 {
-            x: a.x - b.x,
-            y: a.y - b.y,
-        }
-    }
-
-    fn vec_len(v: Vec2) -> f32 {
-        (v.x * v.x + v.y * v.y).sqrt()
-    }
-
-    fn vec_dot(a: Vec2, b: Vec2) -> f32 {
-        a.x * b.x + a.y * b.y
-    }
-
-    fn vec_norm(v: Vec2) -> Vec2 {
-        let len = Self::vec_len(v);
-        if len <= 0.001 {
-            Vec2 { x: 0.0, y: 0.0 }
-        } else {
-            Vec2 {
-                x: v.x / len,
-                y: v.y / len,
-            }
-        }
-    }
-
     /// Returns the currently focused surface node's id, center position, and
     /// intrinsic size — the anchor for adjacent placement.
     fn focused_surface(&self) -> Option<(NodeId, Vec2, Vec2)> {
@@ -97,13 +70,13 @@ impl HalleyWlState {
         if self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
             return (None, self.spawn_view_anchor);
         }
-        if let Some(id) = self.last_input_surface_node() {
-            if let Some(node) = self.field.node(id) {
-                if !self.viewport_contains_point(node.pos) {
-                    return (None, self.viewport.center);
-                }
-                return (Some(id), node.pos);
+        if let Some(id) = self.last_input_surface_node()
+            && let Some(node) = self.field.node(id)
+        {
+            if !self.viewport_contains_point(node.pos) {
+                return (None, self.viewport.center);
             }
+            return (Some(id), node.pos);
         }
         (None, self.viewport.center)
     }

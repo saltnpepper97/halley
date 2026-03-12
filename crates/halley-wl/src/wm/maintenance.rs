@@ -171,7 +171,7 @@ impl HalleyWlState {
             if n.kind != halley_core::field::NodeKind::Surface {
                 continue;
             }
-            if self.manual_collapsed_nodes.contains(&id) {
+            if self.preserve_collapsed_surface(id) {
                 continue;
             }
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
@@ -201,7 +201,7 @@ impl HalleyWlState {
             if n.kind != halley_core::field::NodeKind::Surface {
                 continue;
             }
-            if self.manual_collapsed_nodes.contains(&id) {
+            if self.preserve_collapsed_surface(id) {
                 continue;
             }
 
@@ -286,8 +286,7 @@ impl HalleyWlState {
             return;
         }
 
-        // Only explicitly/manual-collapsed nodes are sticky.
-        if self.manual_collapsed_nodes.contains(&id) {
+        if self.preserve_collapsed_surface(id) {
             self.dock_decay_offscreen_since_ms.remove(&id);
             return;
         }
@@ -309,9 +308,8 @@ impl HalleyWlState {
         let is_secondary = self.companion_surface_node(now_ms) == Some(id);
         let delay_ms = if is_primary {
             primary_delay_ms
-        } else if is_secondary {
-            secondary_delay_ms
         } else {
+            let _ = is_secondary;
             secondary_delay_ms
         };
 
@@ -334,7 +332,7 @@ impl HalleyWlState {
         let a_visible = self.surface_intersects_viewport(a);
         let b_visible = self.surface_intersects_viewport(b);
 
-        if self.manual_collapsed_nodes.contains(&a) || self.manual_collapsed_nodes.contains(&b) {
+        if self.preserve_collapsed_surface(a) || self.preserve_collapsed_surface(b) {
             self.dock_decay_offscreen_since_ms.remove(&a);
             self.dock_decay_offscreen_since_ms.remove(&b);
             return;
@@ -495,7 +493,7 @@ impl HalleyWlState {
         let alive: HashSet<ObjectId> = self
             .xdg_shell_state
             .toplevel_surfaces()
-            .into_iter()
+            .iter()
             .map(|t| t.wl_surface().id())
             .collect();
 

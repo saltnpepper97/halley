@@ -2,10 +2,10 @@ use super::*;
 
 impl HalleyWlState {
     pub fn toggle_cluster_workspace_by_core(&mut self, core_id: NodeId, now: Instant) -> bool {
-        if let Some(cid) = self.active_cluster_workspace {
-            if self.field.cluster_id_for_core_public(core_id) == Some(cid) {
-                return self.exit_cluster_workspace(now);
-            }
+        if let Some(cid) = self.active_cluster_workspace
+            && self.field.cluster_id_for_core_public(core_id) == Some(cid)
+        {
+            return self.exit_cluster_workspace(now);
         }
         self.enter_cluster_workspace_by_core(core_id, now)
     }

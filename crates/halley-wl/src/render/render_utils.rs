@@ -12,6 +12,7 @@ use smithay::{
 use super::anim_utils::proxy_anim_scale;
 use crate::state::HalleyWlState;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_ring<F: Frame>(
     frame: &mut F,
     st: &HalleyWlState,

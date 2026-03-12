@@ -533,10 +533,10 @@ fn pick_bool(cfg: &RuneConfig, paths: &[&str], default: bool) -> bool {
 
 fn pick_string(cfg: &RuneConfig, paths: &[&str], default: &str) -> String {
     for path in paths {
-        if let Ok(Some(v)) = cfg.get_optional::<String>(path) {
-            if !v.trim().is_empty() {
-                return v;
-            }
+        if let Ok(Some(v)) = cfg.get_optional::<String>(path)
+            && !v.trim().is_empty()
+        {
+            return v;
         }
     }
     default.to_string()
@@ -544,10 +544,10 @@ fn pick_string(cfg: &RuneConfig, paths: &[&str], default: &str) -> String {
 
 fn pick_modifiers(cfg: &RuneConfig, paths: &[&str], default: KeyModifiers) -> KeyModifiers {
     for path in paths {
-        if let Ok(Some(v)) = cfg.get_optional::<String>(path) {
-            if let Some(m) = parse_modifiers(v.as_str()) {
-                return m;
-            }
+        if let Ok(Some(v)) = cfg.get_optional::<String>(path)
+            && let Some(m) = parse_modifiers(v.as_str())
+        {
+            return m;
         }
     }
     default
@@ -558,10 +558,10 @@ fn pick_keycode(cfg: &RuneConfig, paths: &[&str], default: u32) -> u32 {
         if let Ok(Some(v)) = cfg.get_optional::<u32>(path) {
             return v;
         }
-        if let Ok(Some(name)) = cfg.get_optional::<String>(path) {
-            if let Some(code) = key_name_to_evdev(name.as_str()) {
-                return code;
-            }
+        if let Ok(Some(name)) = cfg.get_optional::<String>(path)
+            && let Some(code) = key_name_to_evdev(name.as_str())
+        {
+            return code;
         }
     }
     default

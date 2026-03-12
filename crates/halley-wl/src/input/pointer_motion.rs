@@ -51,6 +51,7 @@ fn clamp_screen_to_workspace(ws_w: i32, ws_h: i32, sx: f32, sy: f32) -> (f32, f3
     (sx.clamp(0.0, max_x), sy.clamp(0.0, max_y))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_pointer_motion_absolute(
     st: &mut HalleyWlState,
     backend: &impl BackendView,

@@ -53,7 +53,7 @@ pub(crate) fn current_surface_size_for_node(
         if st.surface_to_node.get(&key).copied() != Some(node_id) {
             continue;
         }
-        let geo = with_states(&wl, |states| {
+        let geo = with_states(wl, |states| {
             states
                 .cached_state
                 .get::<SurfaceCachedState>()
@@ -97,7 +97,7 @@ pub(crate) fn window_geometry_for_node(
         if st.surface_to_node.get(&key).copied() != Some(node_id) {
             continue;
         }
-        let geo = with_states(&wl, |states| {
+        let geo = with_states(wl, |states| {
             states
                 .cached_state
                 .get::<SurfaceCachedState>()
@@ -115,7 +115,7 @@ pub(crate) fn window_geometry_for_node(
         if let Some(sz) = top.current_state().size {
             return Some((0.0, 0.0, sz.w as f32, sz.h as f32));
         }
-        let bbox = bbox_from_surface_tree(&wl, (0, 0));
+        let bbox = bbox_from_surface_tree(wl, (0, 0));
         return Some((
             bbox.loc.x as f32,
             bbox.loc.y as f32,

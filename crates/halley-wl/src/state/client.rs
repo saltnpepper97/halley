@@ -14,6 +14,12 @@ impl ClientState {
     }
 }
 
+impl Default for ClientState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClientData for ClientState {
     fn initialized(&self, _client_id: ClientId) {}
 

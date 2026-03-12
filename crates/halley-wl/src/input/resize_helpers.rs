@@ -225,7 +225,7 @@ fn active_node_visual_local_rect(
             continue;
         }
 
-        let geo = with_states(&wl, |states| {
+        let geo = with_states(wl, |states| {
             states
                 .cached_state
                 .get::<SurfaceCachedState>()
@@ -241,7 +241,7 @@ fn active_node_visual_local_rect(
             ));
         }
 
-        let bbox = bbox_from_surface_tree(&wl, (0, 0));
+        let bbox = bbox_from_surface_tree(wl, (0, 0));
         return Some((
             bbox.loc.x as f32,
             bbox.loc.y as f32,

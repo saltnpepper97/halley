@@ -28,7 +28,7 @@ fn popup_focus_for_screen(
     let mut toplevels: Vec<_> = st
         .xdg_shell_state
         .toplevel_surfaces()
-        .into_iter()
+        .iter()
         .filter_map(|top| {
             let wl = top.wl_surface().clone();
             let node_id = st.surface_to_node.get(&wl.id()).copied()?;

@@ -132,6 +132,12 @@ impl WeightModel {
     }
 }
 
+impl Default for WeightModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Select majors/bay deterministically.
 ///
 /// `recency_order` is most-recent-first (index 0 = newest). If you don't have MRU yet,
