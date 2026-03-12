@@ -467,6 +467,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     let resize_active = ps.resize.is_some();
                     drop(ps);
 
+                    st.tick_frame_effects(now);
                     st.tick_animator_frame(now);
                     {
                         let mut ps = pointer_state_for_timer.borrow_mut();

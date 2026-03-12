@@ -9,12 +9,18 @@ use smithay::wayland::selection::primary_selection::set_primary_focus;
 
 pub(crate) struct ViewportPanAnim {
     pub(super) start_ms: u64,
+    pub(super) delay_ms: u64,
     pub(super) duration_ms: u64,
     pub(super) from_center: Vec2,
     pub(super) to_center: Vec2,
 }
 
 impl HalleyWlState {
+    pub(crate) const VIEWPORT_PAN_PRELOAD_MS: u64 = 70;
+    pub(crate) const VIEWPORT_PAN_DURATION_MS: u64 = 260;
+    const SPAWN_VIEW_HANDOFF_PAN_RATIO: f32 = 0.35;
+    const SPAWN_VIEW_HANDOFF_FOCUS_RATIO: f32 = 0.25;
+
     fn wl_surface_for_node(&self, id: NodeId) -> Option<WlSurface> {
         for top in self.xdg_shell_state.toplevel_surfaces() {
             let wl = top.wl_surface().clone();
@@ -110,6 +116,9 @@ impl HalleyWlState {
         self.viewport_pan_anim = None;
         let now_ms = self.now_ms(now);
         self.pan_dominant_until_ms = now_ms.saturating_add(220);
+        self.spawn_last_pan_ms = now_ms;
+        self.spawn_pan_start_center
+            .get_or_insert(self.viewport.center);
         if self.tuning.restore_last_active_on_pan_return {
             if self.pan_restore_active_focus.is_none() {
                 self.pan_restore_active_focus = self.last_focused_active_surface_node();
@@ -119,11 +128,62 @@ impl HalleyWlState {
         self.suspend_state_checks = false;
     }
 
+    fn spawn_view_handoff_pan_distance(&self) -> f32 {
+        self.viewport.size.x.min(self.viewport.size.y) * Self::SPAWN_VIEW_HANDOFF_PAN_RATIO
+    }
+
+    fn spawn_view_handoff_focus_distance(&self) -> f32 {
+        self.viewport.size.x.hypot(self.viewport.size.y) * Self::SPAWN_VIEW_HANDOFF_FOCUS_RATIO
+    }
+
+    pub(crate) fn note_pan_viewport_change(&mut self, _now: Instant) {
+        if self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
+            self.spawn_view_anchor = self.viewport.center;
+        }
+        let Some(start_center) = self.spawn_pan_start_center else {
+            return;
+        };
+
+        let moved = ((self.viewport.center.x - start_center.x).powi(2)
+            + (self.viewport.center.y - start_center.y).powi(2))
+        .sqrt();
+        if moved < self.spawn_view_handoff_pan_distance() {
+            return;
+        }
+
+        let focus_far = self
+            .last_input_surface_node()
+            .and_then(|id| self.field.node(id))
+            .map(|node| {
+                let dx = self.viewport.center.x - node.pos.x;
+                let dy = self.viewport.center.y - node.pos.y;
+                dx.hypot(dy) >= self.spawn_view_handoff_focus_distance()
+            })
+            .unwrap_or(true);
+        if !focus_far {
+            return;
+        }
+
+        self.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
+        self.spawn_view_anchor = self.viewport.center;
+        self.spawn_patch = None;
+        self.spawn_pan_start_center = Some(self.viewport.center);
+    }
+
     pub fn set_pan_restore_focus_target(&mut self, id: NodeId) {
         self.pan_restore_active_focus = Some(id);
     }
 
     pub fn animate_viewport_center_to(&mut self, target_center: Vec2, now: Instant) -> bool {
+        self.animate_viewport_center_to_delayed(target_center, now, 0)
+    }
+
+    pub fn animate_viewport_center_to_delayed(
+        &mut self,
+        target_center: Vec2,
+        now: Instant,
+        delay_ms: u64,
+    ) -> bool {
         let from = self.viewport.center;
         let dx = target_center.x - from.x;
         let dy = target_center.y - from.y;
@@ -132,7 +192,8 @@ impl HalleyWlState {
         }
         self.viewport_pan_anim = Some(ViewportPanAnim {
             start_ms: self.now_ms(now),
-            duration_ms: 260,
+            delay_ms,
+            duration_ms: Self::VIEWPORT_PAN_DURATION_MS,
             from_center: from,
             to_center: target_center,
         });
@@ -143,8 +204,15 @@ impl HalleyWlState {
         let Some(anim) = &self.viewport_pan_anim else {
             return;
         };
+        if now_ms <= anim.start_ms.saturating_add(anim.delay_ms) {
+            self.viewport.center = anim.from_center;
+            self.tuning.viewport_center = self.viewport.center;
+            self.tuning.viewport_size = self.viewport.size;
+            return;
+        }
         let dur = anim.duration_ms.max(1);
-        let t = ((now_ms.saturating_sub(anim.start_ms)) as f32 / dur as f32).clamp(0.0, 1.0);
+        let elapsed_ms = now_ms.saturating_sub(anim.start_ms.saturating_add(anim.delay_ms));
+        let t = (elapsed_ms as f32 / dur as f32).clamp(0.0, 1.0);
         let e = if t < 0.5 {
             4.0 * t * t * t
         } else {
@@ -294,6 +362,8 @@ impl HalleyWlState {
                 self.interaction_focus_until_ms =
                     self.interaction_focus_until_ms.max(requested_until);
                 self.update_focus_tracking_for_surface(fid, now_ms);
+                self.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
+                self.spawn_pan_start_center = None;
                 self.reassert_wayland_keyboard_focus_if_drifted(id);
             } else {
                 self.interaction_focus_until_ms = 0;
@@ -306,6 +376,8 @@ impl HalleyWlState {
         if let Some(fid) = id {
             self.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
             self.update_focus_tracking_for_surface(fid, now_ms);
+            self.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
+            self.spawn_pan_start_center = None;
         } else {
             self.interaction_focus_until_ms = 0;
         }

@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use eventline::info;
-use smithay::desktop::{PopupManager, WindowSurfaceType, utils::under_from_surface_tree};
+use smithay::desktop::{utils::under_from_surface_tree, PopupManager, WindowSurfaceType};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};
 
@@ -38,11 +38,7 @@ fn popup_focus_for_screen(
         })
         .collect();
 
-    if st.tuning.new_window_on_top {
-        toplevels.sort_by_key(|(node_id, _, _, _)| node_id.as_u64());
-    } else {
-        toplevels.sort_by_key(|(node_id, _, _, _)| std::cmp::Reverse(node_id.as_u64()));
-    }
+    toplevels.sort_by_key(|(node_id, _, _, _)| node_id.as_u64());
     if let Some(idx) = toplevels
         .iter()
         .position(|(node_id, _, _, _)| Some(*node_id) == recent_top_node)

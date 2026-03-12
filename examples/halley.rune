@@ -20,7 +20,6 @@ clusters:
 end
 
 tile:
-  new-on-top true
 end
 
 docking:

@@ -43,7 +43,6 @@ pub struct RuntimeTuning {
 
     pub non_overlap_gap_px: f32,
     pub non_overlap_active_gap_scale: f32,
-    pub new_window_on_top: bool,
     pub non_overlap_bump_newer: bool,
     pub non_overlap_bump_damping: f32,
     pub drag_smoothing_boost: f32,
@@ -107,7 +106,6 @@ impl Default for RuntimeTuning {
 
             non_overlap_gap_px: 20.0,
             non_overlap_active_gap_scale: 0.22,
-            new_window_on_top: true,
             non_overlap_bump_newer: false,
             non_overlap_bump_damping: 0.35,
             drag_smoothing_boost: 6.0,

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::os::unix::io::AsFd;
 use std::rc::Rc;
 use std::time::Instant;
@@ -41,6 +41,42 @@ mod client;
 mod render_state;
 mod runtime_state;
 pub use client::ClientState;
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SpawnFrontierPoint {
+    pub pos: Vec2,
+    pub score: f32,
+    pub dir: Vec2,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SpawnPatch {
+    pub anchor: Vec2,
+    pub focus_node: Option<NodeId>,
+    pub focus_pos: Vec2,
+    pub growth_dir: Vec2,
+    pub placements_in_patch: u32,
+    pub frontier: Vec<SpawnFrontierPoint>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PendingSpawnPan {
+    pub node_id: NodeId,
+    pub target_center: Vec2,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ActiveSpawnPan {
+    pub node_id: NodeId,
+    pub pan_start_at_ms: u64,
+    pub reveal_at_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SpawnAnchorMode {
+    Focus,
+    View,
+}
 
 pub struct HalleyWlState {
     pub display_handle: DisplayHandle,
@@ -122,6 +158,13 @@ pub struct HalleyWlState {
     pub(crate) recent_top_until: Option<Instant>,
 
     pub(crate) spawn_cursor: u32,
+    pub(crate) spawn_patch: Option<SpawnPatch>,
+    pub(crate) spawn_anchor_mode: SpawnAnchorMode,
+    pub(crate) spawn_view_anchor: Vec2,
+    pub(crate) spawn_pan_start_center: Option<Vec2>,
+    pub(crate) spawn_last_pan_ms: u64,
+    pub(crate) pending_spawn_pan_queue: VecDeque<PendingSpawnPan>,
+    pub(crate) active_spawn_pan: Option<ActiveSpawnPan>,
     pub(crate) started_at: Instant,
     pub(crate) last_debug_dump_at: Instant,
 }
@@ -132,6 +175,7 @@ impl HalleyWlState {
         tuning: RuntimeTuning,
     ) -> Self {
         let now = Instant::now();
+        let initial_view_anchor = tuning.viewport_center;
         let mut seat_state = SeatState::new();
         let seat = seat_state.new_wl_seat(dh, "halley");
         let primary_selection_state = PrimarySelectionState::new::<HalleyWlState>(dh);
@@ -212,6 +256,13 @@ impl HalleyWlState {
             recent_top_until: None,
 
             spawn_cursor: 0,
+            spawn_patch: None,
+            spawn_anchor_mode: SpawnAnchorMode::Focus,
+            spawn_view_anchor: initial_view_anchor,
+            spawn_pan_start_center: None,
+            spawn_last_pan_ms: 0,
+            pending_spawn_pan_queue: VecDeque::new(),
+            active_spawn_pan: None,
             started_at: now,
             last_debug_dump_at: now,
         };
@@ -316,7 +367,6 @@ impl HalleyWlState {
         self.reconcile_surface_bindings();
         let now_ms = now.duration_since(self.started_at).as_millis() as u64;
         let _ = self.recent_top_node_active(now);
-        self.tick_viewport_pan_animation(now_ms);
         if self.active_cluster_workspace.is_some() {
             self.layout_active_cluster_workspace(now_ms);
             self.animator.observe_field(&self.field, now);

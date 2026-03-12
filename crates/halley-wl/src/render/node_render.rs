@@ -4,11 +4,11 @@ use std::time::Instant;
 
 use smithay::{
     backend::renderer::{
-        Color32F, Frame,
-        element::{Kind, surface::render_elements_from_surface_tree, utils::CropRenderElement},
+        element::{surface::render_elements_from_surface_tree, utils::CropRenderElement, Kind},
         gles::GlesRenderer,
+        Color32F, Frame,
     },
-    desktop::{PopupManager, utils::bbox_from_surface_tree},
+    desktop::{utils::bbox_from_surface_tree, PopupManager},
     reexports::wayland_server::Resource,
     utils::{Physical, Rectangle, Size},
 };
@@ -135,11 +135,7 @@ pub(crate) fn collect_active_surfaces(
         })
         .collect();
 
-    if st.tuning.new_window_on_top {
-        wl_surfaces.sort_by_key(|(id, _)| std::cmp::Reverse(id.as_u64()));
-    } else {
-        wl_surfaces.sort_by_key(|(id, _)| id.as_u64());
-    }
+    wl_surfaces.sort_by_key(|(id, _)| std::cmp::Reverse(id.as_u64()));
 
     for (node_id, wl) in wl_surfaces {
         let bbox = if resize_preview.is_some_and(|rz| rz.node_id == node_id) {

@@ -480,6 +480,7 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     let ps = pointer_state_for_timer.borrow();
                     ps.resize.is_some()
                 };
+                st.tick_frame_effects(now);
                 st.tick_animator_frame(now);
                 {
                     let mut ps = pointer_state_for_timer.borrow_mut();
