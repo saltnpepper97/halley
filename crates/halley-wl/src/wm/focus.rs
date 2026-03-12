@@ -7,7 +7,7 @@ use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
 
-pub(super) struct ViewportPanAnim {
+pub(crate) struct ViewportPanAnim {
     pub(super) start_ms: u64,
     pub(super) duration_ms: u64,
     pub(super) from_center: Vec2,
@@ -25,7 +25,7 @@ impl HalleyWlState {
         None
     }
 
-    pub(super) fn update_selection_focus_from_surface(&self, surface: Option<&WlSurface>) {
+    pub(crate) fn update_selection_focus_from_surface(&self, surface: Option<&WlSurface>) {
         let client = surface.and_then(|wl| wl.client());
         set_data_device_focus(&self.display_handle, &self.seat, client.clone());
         set_primary_focus(&self.display_handle, &self.seat, client);
@@ -139,7 +139,7 @@ impl HalleyWlState {
         true
     }
 
-    pub(super) fn tick_viewport_pan_animation(&mut self, now_ms: u64) {
+    pub(crate) fn tick_viewport_pan_animation(&mut self, now_ms: u64) {
         let Some(anim) = &self.viewport_pan_anim else {
             return;
         };
@@ -185,7 +185,7 @@ impl HalleyWlState {
             .map(|(id, _)| id)
     }
 
-    pub(super) fn restore_pan_return_active_focus(&mut self, now: Instant) {
+    pub(crate) fn restore_pan_return_active_focus(&mut self, now: Instant) {
         if !self.tuning.restore_last_active_on_pan_return {
             self.pan_restore_active_focus = None;
             return;

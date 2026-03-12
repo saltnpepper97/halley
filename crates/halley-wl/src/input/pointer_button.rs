@@ -11,7 +11,7 @@ use crate::interaction::actions::promote_node_level;
 use crate::interaction::types::{
     DragCtx, ModState, NODE_DOUBLE_CLICK_MS, PointerState, ResizeCtx, TitleClickCtx,
 };
-use crate::runtime_render::world_to_screen;
+use crate::render::world_to_screen;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
 use crate::state::HalleyWlState;
 use crate::surface::{

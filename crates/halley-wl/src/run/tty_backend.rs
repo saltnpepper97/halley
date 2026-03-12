@@ -1,9 +1,9 @@
 use super::*;
 
-use calloop::{Interest, Mode, PostAction, generic::Generic};
+use crate::backend_iface::{DmabufImportBackend, TtyDmabufImportBackend};
 use crate::run::drm::{collect_outputs_for_ipc, queue_tty_drm_frame};
 use crate::run::{build_tty_libinput_backend, probe_tty_drm_device_via_session};
-use crate::backend_iface::{DmabufImportBackend, TtyDmabufImportBackend};
+use calloop::{Interest, Mode, PostAction, generic::Generic};
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,

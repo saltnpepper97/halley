@@ -1,8 +1,8 @@
 use super::*;
 
+use crate::backend_iface::DmabufImportBackend;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
-use crate::backend_iface::DmabufImportBackend;
 
 fn apply_host_cursor(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
