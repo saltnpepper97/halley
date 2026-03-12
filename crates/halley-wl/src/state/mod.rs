@@ -4,40 +4,30 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use halley_config::RuntimeTuning;
-use halley_core::cluster::{ActiveLayoutMode, ClusterId};
+use halley_core::cluster::ClusterId;
 use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_cluster_formation};
 use halley_core::decay::DecayLevel;
-use halley_core::field::{Field, NodeId, Vec2, Visibility};
+use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::viewport::{FocusZone, Viewport};
 
 use smithay::{
-    backend::renderer::utils::on_commit_buffer_handler,
-    delegate_compositor, delegate_data_control, delegate_data_device, delegate_dmabuf,
-    delegate_layer_shell, delegate_output, delegate_primary_selection, delegate_seat,
-    delegate_shm, delegate_viewporter, delegate_xdg_shell,
+    delegate_dmabuf,
     desktop::PopupManager,
-    input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
+    input::{Seat, SeatState, pointer::CursorImageStatus},
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
-    reexports::wayland_server::{DisplayHandle, Resource, backend::ObjectId, protocol::wl_seat},
-    utils::{Serial, Transform},
+    reexports::wayland_server::{DisplayHandle, backend::ObjectId},
+    utils::Transform,
     wayland::{
-        buffer::BufferHandler,
-        compositor::{CompositorClientState, CompositorHandler, CompositorState},
+        compositor::CompositorState,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         output::OutputManagerState,
         selection::{
-            SelectionHandler,
-            data_device::{
-                ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
-            },
-            primary_selection::PrimarySelectionState,
-            wlr_data_control::{DataControlHandler, DataControlState},
+            data_device::DataDeviceState, primary_selection::PrimarySelectionState,
+            wlr_data_control::DataControlState,
         },
         shell::wlr_layer::WlrLayerShellState,
-        shell::xdg::{
-            PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
-        },
-        shm::{ShmHandler, ShmState},
+        shell::xdg::XdgShellState,
+        shm::ShmState,
         viewporter::ViewporterState,
     },
 };
@@ -45,20 +35,12 @@ use smithay::{
 use crate::activity::CommitActivity;
 use crate::anim::{AnimSpec, Animator};
 use crate::backend_iface::DmabufImportBackend;
-mod carry;
+use crate::wm::ViewportPanAnim;
+
 mod client;
-mod focus;
-mod layer_shell;
-mod maintenance;
-mod overlap;
 mod render_state;
 mod runtime_state;
-mod surface_lifecycle;
-mod wayland_handlers;
-mod workspace;
-mod zoom;
 pub use client::ClientState;
-use focus::ViewportPanAnim;
 
 pub struct HalleyWlState {
     pub display_handle: DisplayHandle,
@@ -88,60 +70,60 @@ pub struct HalleyWlState {
 
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
     pub surface_to_node: HashMap<ObjectId, NodeId>,
-    zoom_nominal_size: HashMap<NodeId, Vec2>,
-    zoom_resize_fallback: HashSet<NodeId>,
-    zoom_resize_reject_streak: HashMap<NodeId, u8>,
-    zoom_last_observed_size: HashMap<NodeId, Vec2>,
-    zoom_resize_static_streak: HashMap<NodeId, u8>,
+    pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
+    pub(crate) zoom_resize_fallback: HashSet<NodeId>,
+    pub(crate) zoom_resize_reject_streak: HashMap<NodeId, u8>,
+    pub(crate) zoom_last_observed_size: HashMap<NodeId, Vec2>,
+    pub(crate) zoom_resize_static_streak: HashMap<NodeId, u8>,
     pub animator: Animator,
     pub interaction_focus: Option<NodeId>,
-    interaction_focus_until_ms: u64,
-    last_surface_focus_ms: HashMap<NodeId, u64>,
+    pub(crate) interaction_focus_until_ms: u64,
+    pub(crate) last_surface_focus_ms: HashMap<NodeId, u64>,
     pub pan_restore_active_focus: Option<NodeId>,
-    app_focused: bool,
-    cluster_form_state: ClusterFormationState,
-    active_cluster_workspace: Option<ClusterId>,
-    workspace_hidden_nodes: Vec<NodeId>,
-    workspace_prev_viewport: Option<Viewport>,
-    last_active_size: HashMap<NodeId, Vec2>,
+    pub(crate) app_focused: bool,
+    pub(crate) cluster_form_state: ClusterFormationState,
+    pub(crate) active_cluster_workspace: Option<ClusterId>,
+    pub(crate) workspace_hidden_nodes: Vec<NodeId>,
+    pub(crate) workspace_prev_viewport: Option<Viewport>,
+    pub(crate) last_active_size: HashMap<NodeId, Vec2>,
     pub pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
-    active_transition_until_ms: HashMap<NodeId, u64>,
-    primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
+    pub(crate) active_transition_until_ms: HashMap<NodeId, u64>,
+    pub(crate) primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
 
-    dock_decay_offscreen_since_ms: HashMap<NodeId, u64>,
-    carry_zone_hint: HashMap<NodeId, FocusZone>,
-    carry_zone_last_change_ms: HashMap<NodeId, u64>,
-    carry_zone_pending: HashMap<NodeId, FocusZone>,
-    carry_zone_pending_since_ms: HashMap<NodeId, u64>,
-    carry_activation_anim_armed: HashSet<NodeId>,
+    pub(crate) dock_decay_offscreen_since_ms: HashMap<NodeId, u64>,
+    pub(crate) carry_zone_hint: HashMap<NodeId, FocusZone>,
+    pub(crate) carry_zone_last_change_ms: HashMap<NodeId, u64>,
+    pub(crate) carry_zone_pending: HashMap<NodeId, FocusZone>,
+    pub(crate) carry_zone_pending_since_ms: HashMap<NodeId, u64>,
+    pub(crate) carry_activation_anim_armed: HashSet<NodeId>,
 
     // Nodes explicitly collapsed by the user via keybind/toggle.
     // Maintenance must not auto-resurrect these.
     pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
 
-    resize_active: Option<NodeId>,
-    resize_static_node: Option<NodeId>,
-    resize_static_lock_pos: Option<Vec2>,
-    resize_static_until_ms: u64,
-    suspend_overlap_resolve: bool,
-    suspend_state_checks: bool,
-    smoothed_render_pos: HashMap<NodeId, Vec2>,
-    node_hover_mix: HashMap<NodeId, f32>,
-    node_preview_hover_node: Option<NodeId>,
-    node_preview_hover_mix: f32,
-    render_last_tick: Instant,
-    viewport_pan_anim: Option<ViewportPanAnim>,
-    pan_dominant_until_ms: u64,
-    exit_requested: bool,
+    pub(crate) resize_active: Option<NodeId>,
+    pub(crate) resize_static_node: Option<NodeId>,
+    pub(crate) resize_static_lock_pos: Option<Vec2>,
+    pub(crate) resize_static_until_ms: u64,
+    pub(crate) suspend_overlap_resolve: bool,
+    pub(crate) suspend_state_checks: bool,
+    pub(crate) smoothed_render_pos: HashMap<NodeId, Vec2>,
+    pub(crate) node_hover_mix: HashMap<NodeId, f32>,
+    pub(crate) node_preview_hover_node: Option<NodeId>,
+    pub(crate) node_preview_hover_mix: f32,
+    pub(crate) render_last_tick: Instant,
+    pub(crate) viewport_pan_anim: Option<ViewportPanAnim>,
+    pub(crate) pan_dominant_until_ms: u64,
+    pub(crate) exit_requested: bool,
 
     pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
     pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) recent_top_node: Option<NodeId>,
     pub(crate) recent_top_until: Option<Instant>,
 
-    spawn_cursor: u32,
-    started_at: Instant,
-    last_debug_dump_at: Instant,
+    pub(crate) spawn_cursor: u32,
+    pub(crate) started_at: Instant,
+    pub(crate) last_debug_dump_at: Instant,
 }
 
 impl HalleyWlState {
@@ -256,7 +238,10 @@ impl HalleyWlState {
                     .build()
                     .expect("renderer dmabuf feedback should be constructible");
                 self.dmabuf_state
-                    .create_global_with_default_feedback::<HalleyWlState>(&self.display_handle, &feedback)
+                    .create_global_with_default_feedback::<HalleyWlState>(
+                        &self.display_handle,
+                        &feedback,
+                    )
             }
             None => self
                 .dmabuf_state

@@ -76,7 +76,12 @@ fn popup_focus_for_screen(
                 top.current_state()
                     .size
                     .map(|sz| (0.0, 0.0, sz.w.max(1) as f32, sz.h.max(1) as f32))
-                    .unwrap_or((0.0, 0.0, intrinsic_size.x.max(1.0), intrinsic_size.y.max(1.0)))
+                    .unwrap_or((
+                        0.0,
+                        0.0,
+                        intrinsic_size.x.max(1.0),
+                        intrinsic_size.y.max(1.0),
+                    ))
             });
         let parent_geo_loc = (parent_geo.0.round() as i32, parent_geo.1.round() as i32);
 

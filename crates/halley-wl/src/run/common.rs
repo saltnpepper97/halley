@@ -11,14 +11,16 @@ use std::os::unix::fs::FileTypeExt;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Child;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use eventline::{info, warn};
-use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with};
+use rustix::net::{
+    AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum RuntimeBackend {

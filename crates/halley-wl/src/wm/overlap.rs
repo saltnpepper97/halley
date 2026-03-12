@@ -3,7 +3,7 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct CollisionExtents {
+pub(crate) struct CollisionExtents {
     pub left: f32,
     pub right: f32,
     pub top: f32,
@@ -12,7 +12,7 @@ pub(super) struct CollisionExtents {
 
 impl CollisionExtents {
     #[inline]
-    pub(super) fn symmetric(size: Vec2) -> Self {
+    pub(crate) fn symmetric(size: Vec2) -> Self {
         Self {
             left: size.x * 0.5,
             right: size.x * 0.5,
@@ -38,13 +38,13 @@ impl HalleyWlState {
         (wx.max(0.01), wy.max(0.01))
     }
 
-    pub(super) fn non_overlap_gap_world(&self) -> f32 {
+    pub(crate) fn non_overlap_gap_world(&self) -> f32 {
         let (wx, wy) = self.world_units_per_px_xy();
         self.tuning.non_overlap_gap_px.max(0.0) * ((wx + wy) * 0.5)
     }
 
     #[inline]
-    pub(super) fn required_sep_x(
+    pub(crate) fn required_sep_x(
         &self,
         a_pos_x: f32,
         a_ext: CollisionExtents,
@@ -60,7 +60,7 @@ impl HalleyWlState {
     }
 
     #[inline]
-    pub(super) fn required_sep_y(
+    pub(crate) fn required_sep_y(
         &self,
         a_pos_y: f32,
         a_ext: CollisionExtents,
@@ -376,7 +376,7 @@ impl HalleyWlState {
         })
     }
 
-    pub(super) fn collision_extents_for_node(
+    pub(crate) fn collision_extents_for_node(
         &self,
         n: &halley_core::field::Node,
     ) -> CollisionExtents {
@@ -424,7 +424,7 @@ impl HalleyWlState {
         self.collision_extents_for_node(n).size()
     }
 
-    pub(super) fn resolve_surface_overlap(&mut self) {
+    pub(crate) fn resolve_surface_overlap(&mut self) {
         if !self.tuning.physics_enabled {
             return;
         }

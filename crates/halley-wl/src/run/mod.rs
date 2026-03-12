@@ -13,7 +13,7 @@ use halley_config::RuntimeTuning;
 use calloop::EventLoop;
 use calloop::timer::{TimeoutAction, Timer};
 
-use eventline::{debug, info, scope, warn, FileSetup, LogLevel, LogPolicy, RunHeader, Setup};
+use eventline::{FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, info, scope, warn};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use once_cell::sync::OnceCell;
 
@@ -30,9 +30,9 @@ use smithay::{
         PointerButtonEvent,
     },
     backend::libinput::LibinputInputBackend,
+    backend::libinput::LibinputSessionInterface,
     backend::renderer::gles::GlesRenderer,
     backend::renderer::{Bind, ImportDma},
-    backend::libinput::LibinputSessionInterface,
     backend::session::libseat::LibSeatSession,
     backend::session::{Event as SessionEvent, Session},
     backend::udev::{all_gpus, primary_gpu},
@@ -49,7 +49,7 @@ use crate::interaction::types::{ModState, PointerState};
 use crate::state::{ClientState, HalleyWlState};
 
 use crate::input::{BackendInputEventData, advance_node_move_anim, handle_backend_input_event};
-use crate::runtime_render::draw_debug_frame_to_target;
+use crate::render::draw_debug_frame_to_target;
 use crate::surface::current_surface_size_for_node;
 
 mod common;
@@ -191,8 +191,11 @@ fn default_halley_log_path() -> Option<PathBuf> {
         .map(|dir| Path::new(dir.as_str()).join("halley").join("halley.log"))
         .or_else(|| {
             Some(
-                PathBuf::from(format!("/tmp/halley-{}", rustix::process::getuid().as_raw()))
-                    .join("halley.log"),
+                PathBuf::from(format!(
+                    "/tmp/halley-{}",
+                    rustix::process::getuid().as_raw()
+                ))
+                .join("halley.log"),
             )
         })
 }

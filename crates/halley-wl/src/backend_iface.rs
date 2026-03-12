@@ -2,13 +2,13 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::rc::Rc;
 
-use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::ImportDma;
+use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::winit::WinitGraphicsBackend;
 use smithay::backend::{allocator::Format, allocator::dmabuf::Dmabuf};
 
 use crate::interaction::types::ResizeCtx;
-use crate::runtime_render::draw_debug_frame;
+use crate::render::draw_debug_frame;
 use crate::state::HalleyWlState;
 
 pub(crate) trait BackendView {
@@ -43,7 +43,12 @@ impl TtyDmabufImportBackend {
 
 impl DmabufImportBackend for TtyDmabufImportBackend {
     fn dmabuf_formats(&self) -> Vec<Format> {
-        self.inner.borrow().dmabuf_formats().iter().copied().collect()
+        self.inner
+            .borrow()
+            .dmabuf_formats()
+            .iter()
+            .copied()
+            .collect()
     }
 
     fn import_dmabuf(&self, dmabuf: &Dmabuf) -> Result<(), Box<dyn Error>> {
@@ -76,7 +81,10 @@ impl DmabufImportBackend for WinitBackendHandle {
     }
 
     fn import_dmabuf(&self, dmabuf: &Dmabuf) -> Result<(), Box<dyn Error>> {
-        self.inner.borrow_mut().renderer().import_dmabuf(dmabuf, None)?;
+        self.inner
+            .borrow_mut()
+            .renderer()
+            .import_dmabuf(dmabuf, None)?;
         Ok(())
     }
 }

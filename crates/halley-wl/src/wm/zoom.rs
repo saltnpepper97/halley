@@ -1,7 +1,7 @@
 use super::*;
 
 impl HalleyWlState {
-    pub(super) fn update_zoom_live_surface_sizes(&mut self) {
+    pub(crate) fn update_zoom_live_surface_sizes(&mut self) {
         let view_scale_x = self.zoom_ref_size.x.max(1.0) / self.viewport.size.x.max(1.0);
         let view_scale_y = self.zoom_ref_size.y.max(1.0) / self.viewport.size.y.max(1.0);
         let view_scale = ((view_scale_x + view_scale_y) * 0.5).clamp(0.55, 1.0);
@@ -92,7 +92,7 @@ impl HalleyWlState {
         1.0
     }
 
-    pub(super) fn decay_tiny_nodes_on_zoom_out(&mut self) {
+    pub(crate) fn decay_tiny_nodes_on_zoom_out(&mut self) {
         if !self.tuning.dev_zoom_decay_enabled {
             return;
         }

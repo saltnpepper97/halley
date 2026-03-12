@@ -1,5 +1,14 @@
-use super::*;
-use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use std::time::Instant;
+
+use halley_core::decay::DecayLevel;
+use halley_core::field::{Field, NodeId, Vec2};
+use smithay::reexports::wayland_server::{
+    Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
+};
+
+use crate::activity::CommitActivity;
+use crate::state::HalleyWlState;
+use crate::wm::overlap::CollisionExtents;
 
 impl HalleyWlState {
     #[inline]
@@ -43,7 +52,7 @@ impl HalleyWlState {
 
         let pair_gap = gap;
         let conflict_at = |p: Vec2, field: &Field, size: Vec2, pair_gap: f32| -> bool {
-            let candidate = super::overlap::CollisionExtents::symmetric(size);
+            let candidate = CollisionExtents::symmetric(size);
             field.nodes().values().any(|other| {
                 if other.kind != halley_core::field::NodeKind::Surface {
                     return false;
@@ -87,7 +96,7 @@ impl HalleyWlState {
                 .max_by_key(|n| n.id.as_u64());
             if let Some(a) = anchor {
                 let a_ext = self.collision_extents_for_node(a);
-                let new_ext = super::overlap::CollisionExtents::symmetric(size);
+                let new_ext = CollisionExtents::symmetric(size);
                 let dx_right =
                     self.required_sep_x(a.pos.x, a_ext, a.pos.x + 1.0, new_ext, pair_gap);
                 let dx_left = self.required_sep_x(a.pos.x, a_ext, a.pos.x - 1.0, new_ext, pair_gap);
@@ -155,7 +164,7 @@ impl HalleyWlState {
                 };
                 let old_pos = old.pos;
                 let old_ext = self.collision_extents_for_node(old);
-                let new_ext = super::overlap::CollisionExtents::symmetric(size);
+                let new_ext = CollisionExtents::symmetric(size);
                 let req_x = self.required_sep_x(pos.x, new_ext, old_pos.x, old_ext, pair_gap);
                 let req_y = self.required_sep_y(pos.y, new_ext, old_pos.y, old_ext, pair_gap);
                 let dx = old_pos.x - pos.x;

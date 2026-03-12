@@ -79,7 +79,7 @@ impl HalleyWlState {
         let _ = (id, now);
     }
 
-    pub(super) fn debug_dump(&self) {
+    pub(crate) fn debug_dump(&self) {
         let focus_ring = self.active_focus_ring();
 
         let mut nodes_total = 0usize;
