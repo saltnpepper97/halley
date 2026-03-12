@@ -1,16 +1,24 @@
 use std::env;
 use std::error::Error;
 use std::fs;
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::io;
 use std::io::IsTerminal;
+use std::io::Write;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixListener;
+use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use std::path::Path;
 use std::process::Child;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use eventline::{info, warn};
+use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum RuntimeBackend {
@@ -197,11 +205,99 @@ pub(super) struct XwaylandSatellite {
     satellite_bin: String,
     wayland_display: String,
     display: String,
+    x11_sockets: Option<X11SocketReservation>,
     child: Option<Child>,
     restart_delay: Duration,
     restart_after: Option<Instant>,
     request_pending: bool,
     disabled: bool,
+}
+
+struct X11SocketReservation {
+    lock_path: PathBuf,
+    socket_path: PathBuf,
+    _lock_file: File,
+    filesystem_listener: UnixListener,
+    abstract_listener: OwnedFd,
+}
+
+impl X11SocketReservation {
+    fn try_new(display: &str) -> io::Result<Self> {
+        let Some(display_num) = display.strip_prefix(':') else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid X11 display `{display}`; expected :N"),
+            ));
+        };
+        if display_num.is_empty() || !display_num.chars().all(|ch| ch.is_ascii_digit()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid X11 display `{display}`; expected :N"),
+            ));
+        }
+
+        let lock_path = PathBuf::from(format!("/tmp/.X{}-lock", display_num));
+        let socket_path = PathBuf::from(format!("/tmp/.X11-unix/X{}", display_num));
+
+        let mut lock_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)?;
+        let _ = writeln!(lock_file, "{}", std::process::id());
+
+        let reservation = (|| {
+            let filesystem_listener = UnixListener::bind(&socket_path)?;
+            filesystem_listener.set_nonblocking(true)?;
+
+            let abstract_listener = socket_with(
+                AddressFamily::UNIX,
+                SocketType::STREAM,
+                SocketFlags::NONBLOCK | SocketFlags::CLOEXEC,
+                None,
+            )?;
+            let abstract_name = socket_path.to_string_lossy().into_owned();
+            let abstract_addr = SocketAddrUnix::new_abstract_name(abstract_name.as_bytes())?;
+            bind(&abstract_listener, &abstract_addr)?;
+            listen(&abstract_listener, 128)?;
+
+            Ok(Self {
+                lock_path: lock_path.clone(),
+                socket_path: socket_path.clone(),
+                _lock_file: lock_file,
+                filesystem_listener,
+                abstract_listener,
+            })
+        })();
+
+        if reservation.is_err() {
+            let _ = fs::remove_file(&lock_path);
+            let _ = fs::remove_file(&socket_path);
+        }
+
+        reservation
+    }
+
+    fn filesystem_listener_for_event_loop(&self) -> io::Result<UnixListener> {
+        self.filesystem_listener.try_clone()
+    }
+
+    fn abstract_listener_for_event_loop(&self) -> io::Result<OwnedFd> {
+        Ok(rustix::io::dup(&self.abstract_listener)?)
+    }
+
+    fn child_listen_fds(&self) -> io::Result<Vec<OwnedFd>> {
+        Ok(vec![
+            rustix::io::dup(&self.filesystem_listener)?,
+            rustix::io::dup(&self.abstract_listener)?,
+        ])
+    }
+}
+
+impl Drop for X11SocketReservation {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.socket_path);
+        let _ = fs::remove_file(&self.lock_path);
+    }
 }
 
 impl XwaylandSatellite {
@@ -251,20 +347,60 @@ impl XwaylandSatellite {
             return;
         }
 
-        match Command::new(self.satellite_bin.as_str())
-            .arg(self.display.as_str())
-            .env("WAYLAND_DISPLAY", self.wayland_display.as_str())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-        {
+        let spawn_result = if let Some(sockets) = self.x11_sockets.as_ref() {
+            let listen_fds = match sockets.child_listen_fds() {
+                Ok(fds) => fds,
+                Err(err) => {
+                    warn!(
+                        "failed to duplicate X11 listen sockets for xwayland-satellite: {}; retrying",
+                        err
+                    );
+                    self.restart_after = Some(now + self.restart_delay);
+                    return;
+                }
+            };
+
+            let mut command = Command::new(self.satellite_bin.as_str());
+            command
+                .arg(self.display.as_str())
+                .env("WAYLAND_DISPLAY", self.wayland_display.as_str())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit());
+
+            for idx in 0..listen_fds.len() {
+                command.arg("-listenfd").arg((3 + idx).to_string());
+            }
+
+            let raw_fds: Vec<i32> = listen_fds.iter().map(AsRawFd::as_raw_fd).collect();
+            unsafe {
+                command.pre_exec(move || {
+                    for (idx, raw_fd) in raw_fds.iter().enumerate() {
+                        let target_fd = 3 + idx as i32;
+                        if libc::dup2(*raw_fd, target_fd) == -1 {
+                            return Err(io::Error::last_os_error());
+                        }
+                    }
+                    Ok(())
+                });
+            }
+
+            command.spawn()
+        } else {
+            Command::new(self.satellite_bin.as_str())
+                .arg(self.display.as_str())
+                .env("WAYLAND_DISPLAY", self.wayland_display.as_str())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit())
+                .spawn()
+        };
+
+        match spawn_result {
             Ok(child) => {
                 self.child = Some(child);
                 self.request_pending = false;
                 self.restart_after = None;
-                // SAFETY: Called on the main event-loop thread.
-                unsafe { env::set_var("DISPLAY", self.display.as_str()) };
                 info!(
                     "xwayland-satellite started via {} on DISPLAY={} (WAYLAND_DISPLAY={})",
                     self.satellite_bin, self.display, self.wayland_display
@@ -278,6 +414,20 @@ impl XwaylandSatellite {
                 self.restart_after = Some(now + self.restart_delay);
             }
         }
+    }
+
+    pub(super) fn filesystem_listener_source(&self) -> io::Result<Option<UnixListener>> {
+        self.x11_sockets
+            .as_ref()
+            .map(X11SocketReservation::filesystem_listener_for_event_loop)
+            .transpose()
+    }
+
+    pub(super) fn abstract_listener_source(&self) -> io::Result<Option<OwnedFd>> {
+        self.x11_sockets
+            .as_ref()
+            .map(X11SocketReservation::abstract_listener_for_event_loop)
+            .transpose()
     }
 }
 
@@ -303,6 +453,7 @@ pub(super) fn ensure_xwayland_satellite(
             satellite_bin: String::new(),
             wayland_display: wayland_display.to_string(),
             display: String::new(),
+            x11_sockets: None,
             child: None,
             restart_delay: Duration::from_millis(1500),
             restart_after: None,
@@ -341,6 +492,7 @@ pub(super) fn ensure_xwayland_satellite(
                 satellite_bin,
                 wayland_display: wayland_display.to_string(),
                 display: String::new(),
+                x11_sockets: None,
                 child: None,
                 restart_delay: Duration::from_millis(1500),
                 restart_after: None,
@@ -367,6 +519,7 @@ pub(super) fn ensure_xwayland_satellite(
                 satellite_bin,
                 wayland_display: wayland_display.to_string(),
                 display: String::new(),
+                x11_sockets: None,
                 child: None,
                 restart_delay: Duration::from_millis(1500),
                 restart_after: None,
@@ -380,6 +533,12 @@ pub(super) fn ensure_xwayland_satellite(
         .ok()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(next_free_x11_display);
+    let x11_sockets = X11SocketReservation::try_new(display.as_str()).map_err(|err| {
+        io::Error::other(format!(
+            "failed to reserve X11 display {} for xwayland-satellite: {}",
+            display, err
+        ))
+    })?;
     let restart_delay_ms = env::var("HALLEY_DEV_WL_XWAYLAND_RESTART_MS")
         .ok()
         .and_then(|v| v.trim().parse::<u64>().ok())
@@ -390,6 +549,7 @@ pub(super) fn ensure_xwayland_satellite(
         satellite_bin,
         wayland_display: wayland_display.to_string(),
         display,
+        x11_sockets: Some(x11_sockets),
         child: None,
         restart_delay: Duration::from_millis(restart_delay_ms),
         restart_after: None,
@@ -397,11 +557,8 @@ pub(super) fn ensure_xwayland_satellite(
         disabled: false,
     };
 
-    // In on-demand mode, keep DISPLAY unset until first request.
-    if matches!(satellite.mode, XwaylandMode::OnDemand) {
-        // SAFETY: Called during startup before worker threads are spawned.
-        unsafe { env::remove_var("DISPLAY") };
-    }
+    // SAFETY: Called during startup before worker threads are spawned.
+    unsafe { env::set_var("DISPLAY", satellite.display.as_str()) };
     satellite.tick();
     Ok(satellite)
 }

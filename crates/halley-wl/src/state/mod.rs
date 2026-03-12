@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::os::unix::io::AsFd;
+use std::rc::Rc;
 use std::time::Instant;
 
 use halley_config::RuntimeTuning;
@@ -10,8 +12,9 @@ use halley_core::viewport::{FocusZone, Viewport};
 
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
-    delegate_compositor, delegate_data_control, delegate_data_device, delegate_layer_shell,
-    delegate_output, delegate_primary_selection, delegate_seat, delegate_shm, delegate_xdg_shell,
+    delegate_compositor, delegate_data_control, delegate_data_device, delegate_dmabuf,
+    delegate_layer_shell, delegate_output, delegate_primary_selection, delegate_seat,
+    delegate_shm, delegate_viewporter, delegate_xdg_shell,
     desktop::PopupManager,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
@@ -20,6 +23,7 @@ use smithay::{
     wayland::{
         buffer::BufferHandler,
         compositor::{CompositorClientState, CompositorHandler, CompositorState},
+        dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         output::OutputManagerState,
         selection::{
             SelectionHandler,
@@ -34,11 +38,13 @@ use smithay::{
             PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
         },
         shm::{ShmHandler, ShmState},
+        viewporter::ViewporterState,
     },
 };
 
 use crate::activity::CommitActivity;
 use crate::anim::{AnimSpec, Animator};
+use crate::backend_iface::DmabufImportBackend;
 mod carry;
 mod client;
 mod focus;
@@ -57,11 +63,14 @@ use focus::ViewportPanAnim;
 pub struct HalleyWlState {
     pub display_handle: DisplayHandle,
     pub compositor_state: CompositorState,
+    pub viewporter_state: ViewporterState,
     pub xdg_shell_state: XdgShellState,
     pub popup_manager: PopupManager,
     pub wlr_layer_shell_state: WlrLayerShellState,
     pub output_manager_state: OutputManagerState,
     pub shm_state: ShmState,
+    pub dmabuf_state: DmabufState,
+    pub dmabuf_global: Option<DmabufGlobal>,
     pub seat_state: SeatState<Self>,
     pub data_device_state: DataDeviceState,
     pub primary_selection_state: PrimarySelectionState,
@@ -75,6 +84,7 @@ pub struct HalleyWlState {
     pub tuning: RuntimeTuning,
     pub zoom_ref_size: Vec2,
     pub cursor_image_status: CursorImageStatus,
+    pub(crate) dmabuf_importer: Option<Rc<dyn DmabufImportBackend>>,
 
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
     pub surface_to_node: HashMap<ObjectId, NodeId>,
@@ -148,11 +158,14 @@ impl HalleyWlState {
         let mut out = Self {
             display_handle: dh.clone(),
             compositor_state: CompositorState::new::<HalleyWlState>(dh),
+            viewporter_state: ViewporterState::new::<HalleyWlState>(dh),
             xdg_shell_state: XdgShellState::new::<HalleyWlState>(dh),
             popup_manager: PopupManager::default(),
             wlr_layer_shell_state: WlrLayerShellState::new::<HalleyWlState>(dh),
             output_manager_state: OutputManagerState::new_with_xdg_output::<HalleyWlState>(dh),
             shm_state: ShmState::new::<HalleyWlState>(dh, vec![]),
+            dmabuf_state: DmabufState::new(),
+            dmabuf_global: None,
             seat_state,
             data_device_state: DataDeviceState::new::<HalleyWlState>(dh),
             primary_selection_state,
@@ -165,6 +178,7 @@ impl HalleyWlState {
             viewport: tuning.viewport(),
             zoom_ref_size: tuning.viewport_size,
             cursor_image_status: CursorImageStatus::default_named(),
+            dmabuf_importer: None,
             tuning,
 
             surface_activity: HashMap::new(),
@@ -224,6 +238,42 @@ impl HalleyWlState {
             bounce: out.tuning.dev_anim_bounce,
         });
         out
+    }
+
+    pub(crate) fn configure_dmabuf_importer(
+        &mut self,
+        importer: Rc<dyn DmabufImportBackend>,
+        main_device: Option<libc::dev_t>,
+    ) {
+        let formats = importer.dmabuf_formats();
+        if formats.is_empty() {
+            return;
+        }
+
+        let global = match main_device {
+            Some(device) => {
+                let feedback = DmabufFeedbackBuilder::new(device, formats.iter().copied())
+                    .build()
+                    .expect("renderer dmabuf feedback should be constructible");
+                self.dmabuf_state
+                    .create_global_with_default_feedback::<HalleyWlState>(&self.display_handle, &feedback)
+            }
+            None => self
+                .dmabuf_state
+                .create_global::<HalleyWlState>(&self.display_handle, formats.iter().copied()),
+        };
+
+        self.dmabuf_importer = Some(importer);
+        self.dmabuf_global = Some(global);
+    }
+
+    pub(crate) fn configure_dmabuf_importer_for_fd<Fd: AsFd>(
+        &mut self,
+        importer: Rc<dyn DmabufImportBackend>,
+        device_fd: Fd,
+    ) {
+        let main_device = rustix::fs::fstat(device_fd).ok().map(|stat| stat.st_rdev);
+        self.configure_dmabuf_importer(importer, main_device);
     }
 
     pub(crate) fn advertise_primary_output(&mut self, name: &str, mode: OutputMode) {
@@ -392,3 +442,5 @@ impl HalleyWlState {
         }
     }
 }
+
+delegate_dmabuf!(HalleyWlState);

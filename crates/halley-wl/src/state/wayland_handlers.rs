@@ -5,12 +5,14 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
 };
+use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::wayland::output::OutputHandler;
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::{
     PrimarySelectionHandler, PrimarySelectionState, set_primary_focus,
 };
 use smithay::wayland::selection::wlr_data_control::DataControlState;
+use smithay::wayland::dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, ImportNotifier};
 use smithay::wayland::shell::wlr_layer::{
     Layer, LayerSurface, LayerSurfaceConfigure, WlrLayerShellHandler, WlrLayerShellState,
 };
@@ -84,6 +86,7 @@ impl CompositorHandler for HalleyWlState {
 }
 
 delegate_compositor!(HalleyWlState);
+delegate_viewporter!(HalleyWlState);
 
 impl ShmHandler for HalleyWlState {
     fn shm_state(&self) -> &ShmState {
@@ -100,6 +103,38 @@ impl BufferHandler for HalleyWlState {
 }
 
 delegate_shm!(HalleyWlState);
+
+impl DmabufHandler for HalleyWlState {
+    fn dmabuf_state(&mut self) -> &mut smithay::wayland::dmabuf::DmabufState {
+        &mut self.dmabuf_state
+    }
+
+    fn dmabuf_imported(&mut self, global: &DmabufGlobal, dmabuf: Dmabuf, notifier: ImportNotifier) {
+        if self.dmabuf_global != Some(*global) {
+            notifier.failed();
+            return;
+        }
+
+        let Some(importer) = self.dmabuf_importer.as_ref() else {
+            notifier.failed();
+            return;
+        };
+
+        if importer.import_dmabuf(&dmabuf).is_ok() {
+            let _ = notifier.successful::<Self>();
+        } else {
+            notifier.failed();
+        }
+    }
+
+    fn new_surface_feedback(
+        &mut self,
+        _surface: &WlSurface,
+        _global: &DmabufGlobal,
+    ) -> Option<DmabufFeedback> {
+        None
+    }
+}
 
 impl XdgShellHandler for HalleyWlState {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {

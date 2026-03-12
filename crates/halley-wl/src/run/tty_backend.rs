@@ -1,7 +1,9 @@
 use super::*;
 
+use calloop::{Interest, Mode, PostAction, generic::Generic};
 use crate::run::drm::{collect_outputs_for_ipc, queue_tty_drm_frame};
 use crate::run::{build_tty_libinput_backend, probe_tty_drm_device_via_session};
+use crate::backend_iface::{DmabufImportBackend, TtyDmabufImportBackend};
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
@@ -76,6 +78,9 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             }
 
             let mut state = HalleyWlState::new(&dh, tuning.clone());
+            let dmabuf_importer: Rc<dyn DmabufImportBackend> =
+                Rc::new(TtyDmabufImportBackend::new(drm_probe.renderer.clone()));
+            state.configure_dmabuf_importer_for_fd(dmabuf_importer, drm_probe.dev.device_fd());
             state.set_app_focused(true);
             state.seat.add_pointer();
             if state
@@ -162,6 +167,27 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     let _ =
                         dh_for_clients.insert_client(client_stream, Arc::new(ClientState::new()));
                 })?;
+
+            if let Some(listener) = xwayland.borrow().filesystem_listener_source()? {
+                let xwayland_for_x11 = xwayland.clone();
+                ev.handle().insert_source(
+                    Generic::new(listener, Interest::READ, Mode::Level),
+                    move |_readiness, _listener, _st| {
+                        xwayland_for_x11.borrow_mut().request_start();
+                        Ok(PostAction::Continue)
+                    },
+                )?;
+            }
+            if let Some(listener) = xwayland.borrow().abstract_listener_source()? {
+                let xwayland_for_x11 = xwayland.clone();
+                ev.handle().insert_source(
+                    Generic::new(listener, Interest::READ, Mode::Level),
+                    move |_readiness, _listener, _st| {
+                        xwayland_for_x11.borrow_mut().request_start();
+                        Ok(PostAction::Continue)
+                    },
+                )?;
+            }
 
             {
                 let libinput_context_for_session = libinput_context.clone();
