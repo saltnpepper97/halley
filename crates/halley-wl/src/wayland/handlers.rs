@@ -23,7 +23,22 @@ fn client_for_surface(surface: Option<&WlSurface>) -> Option<Client> {
     surface.and_then(|wl| wl.client())
 }
 
-fn initial_toplevel_size(st: &HalleyWlState, toplevel: &ToplevelSurface) -> (i32, i32) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InitialToplevelSize {
+    node_size: (i32, i32),
+    configure_size: Option<(i32, i32)>,
+}
+
+fn clamp_initial_window_size(viewport: halley_core::field::Vec2, size: (i32, i32)) -> (i32, i32) {
+    let min_w = ((viewport.x * 0.30).round() as i32).max(96);
+    let min_h = ((viewport.y * 0.26).round() as i32).max(72);
+    let max_w = ((viewport.x * 0.82).round() as i32).max(min_w);
+    let max_h = ((viewport.y * 0.82).round() as i32).max(min_h);
+
+    (size.0.clamp(min_w, max_w), size.1.clamp(min_h, max_h))
+}
+
+fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i32)> {
     let wl = toplevel.wl_surface();
 
     let geometry = with_states(wl, |states| {
@@ -34,21 +49,36 @@ fn initial_toplevel_size(st: &HalleyWlState, toplevel: &ToplevelSurface) -> (i32
             .geometry
     });
     if let Some(geometry) = geometry {
-        return (geometry.size.w.max(96), geometry.size.h.max(72));
+        return Some((geometry.size.w.max(96), geometry.size.h.max(72)));
     }
 
     if let Some(size) = toplevel.current_state().size {
-        return (size.w.max(96), size.h.max(72));
+        return Some((size.w.max(96), size.h.max(72)));
     }
 
     let bbox = bbox_from_surface_tree(wl, (0, 0));
     if bbox.size.w > 0 && bbox.size.h > 0 {
-        return (bbox.size.w.max(96), bbox.size.h.max(72));
+        return Some((bbox.size.w.max(96), bbox.size.h.max(72)));
     }
 
-    let fallback_w = (st.viewport.size.x * 0.4).round() as i32;
-    let fallback_h = (st.viewport.size.y * 0.45).round() as i32;
-    (fallback_w.max(96), fallback_h.max(72))
+    None
+}
+
+fn initial_toplevel_size(st: &HalleyWlState, toplevel: &ToplevelSurface) -> InitialToplevelSize {
+    let detected = detected_initial_toplevel_size(toplevel);
+    let raw_size = detected.unwrap_or_else(|| {
+        (
+            (st.viewport.size.x * 0.46).round() as i32,
+            (st.viewport.size.y * 0.42).round() as i32,
+        )
+    });
+    let node_size = clamp_initial_window_size(st.viewport.size, raw_size);
+    let configure_size = (detected.is_none() || node_size != raw_size).then_some(node_size);
+
+    InitialToplevelSize {
+        node_size,
+        configure_size,
+    }
 }
 
 impl SeatHandler for HalleyWlState {
@@ -172,10 +202,15 @@ impl XdgShellHandler for HalleyWlState {
     }
 
     fn new_toplevel(&mut self, toplevel: ToplevelSurface) {
+        let initial_size = initial_toplevel_size(self, &toplevel);
         // You MUST send an initial configure or many clients won’t map.
-        // Leave size unset so clients can choose their own initial dimensions.
+        // Only send an explicit size when the client's initial proposal is
+        // absent or obviously outside the viewport-relative startup range.
         toplevel.with_pending_state(|s| {
             s.states.set(xdg_toplevel::State::Activated);
+            if let Some((w, h)) = initial_size.configure_size {
+                s.size = Some((w, h).into());
+            }
         });
         toplevel.send_configure();
 
@@ -186,8 +221,7 @@ impl XdgShellHandler for HalleyWlState {
 
         // Create a core node for the underlying wl_surface.
         let wl = toplevel.wl_surface().clone();
-        let id =
-            self.ensure_node_for_surface(&wl, "toplevel", initial_toplevel_size(self, &toplevel));
+        let id = self.ensure_node_for_surface(&wl, "toplevel", initial_size.node_size);
         let now = Instant::now();
         let _ = self.field.touch(id, self.now_ms(now));
 
@@ -253,6 +287,30 @@ impl XdgShellHandler for HalleyWlState {
 
     fn popup_destroyed(&mut self, _surface: PopupSurface) {
         self.popup_manager.cleanup();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_initial_window_size;
+    use halley_core::field::Vec2;
+
+    #[test]
+    fn clamp_initial_window_size_raises_tiny_windows() {
+        let out = clamp_initial_window_size(Vec2 { x: 1600.0, y: 1200.0 }, (220, 180));
+        assert_eq!(out, (480, 312));
+    }
+
+    #[test]
+    fn clamp_initial_window_size_trims_short_wide_windows() {
+        let out = clamp_initial_window_size(Vec2 { x: 1600.0, y: 1200.0 }, (1600, 240));
+        assert_eq!(out, (1312, 312));
+    }
+
+    #[test]
+    fn clamp_initial_window_size_preserves_sensible_windows() {
+        let out = clamp_initial_window_size(Vec2 { x: 1600.0, y: 1200.0 }, (900, 700));
+        assert_eq!(out, (900, 700));
     }
 }
 
