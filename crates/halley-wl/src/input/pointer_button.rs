@@ -92,6 +92,15 @@ fn dispatch_pointer_button(
     pointer.frame(st);
 }
 
+#[inline]
+fn compositor_button_binding_matches(
+    st: &HalleyWlState,
+    mods: &ModState,
+    button_code: u32,
+) -> bool {
+    matches!(button_code, 0x110 | 0x111) && modifier_active(mods, st.tuning.keybinds.modifier)
+}
+
 fn title_click_is_double(ps: &PointerState, node_id: halley_core::field::NodeId, now: Instant) -> bool {
     ps.last_title_click.is_some_and(|last| {
         last.node_id == node_id && now.duration_since(last.at).as_millis() as u64 <= NODE_DOUBLE_CLICK_MS
@@ -503,12 +512,23 @@ pub(crate) fn handle_pointer_button_input(
         world_now,
         workspace_active: st.has_active_cluster_workspace(),
     };
-    dispatch_pointer_button(st, frame, ps.resize, button_code, button_state);
+    let mods = mod_state.borrow().clone();
+    let intercepted = match button_state {
+        ButtonState::Pressed => compositor_button_binding_matches(st, &mods, button_code),
+        ButtonState::Released => ps.intercepted_buttons.remove(&button_code),
+    };
+    if matches!(button_state, ButtonState::Pressed) && intercepted {
+        ps.intercepted_buttons.insert(button_code);
+    }
+    if !intercepted {
+        dispatch_pointer_button(st, frame, ps.resize, button_code, button_state);
+    }
     ps.world = world_now;
     if !left && !right {
         return;
     }
     if matches!(button_state, ButtonState::Pressed)
+        && !intercepted
         && let Some((surface, _)) = layer_focus
     {
         let _ = st.focus_layer_surface(&surface);
@@ -517,7 +537,6 @@ pub(crate) fn handle_pointer_button_input(
     }
     match button_state {
         ButtonState::Pressed => {
-            let mods = mod_state.borrow().clone();
             let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, Instant::now(), ps.resize);
             if pointer_map_debug_enabled() {
                 info!(

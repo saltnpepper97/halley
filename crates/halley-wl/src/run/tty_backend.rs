@@ -473,6 +473,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let mut ps = pointer_state_for_timer.borrow_mut();
                         let _ = advance_node_move_anim(st, &mut ps, now);
                     }
+                    st.tick_live_overlap();
                     {
                         let mut last = last_maintenance_for_timer.borrow_mut();
                         if !resize_active

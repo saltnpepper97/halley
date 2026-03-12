@@ -108,6 +108,10 @@ pub(crate) struct PointerState {
     pub(crate) screen: (f32, f32),
     pub(crate) workspace_size: (i32, i32),
     pub(crate) hover_node: Option<halley_core::field::NodeId>,
+    /// Pointer buttons whose press was intercepted by the compositor. The
+    /// matching release must also be intercepted so clients do not receive a
+    /// stray release after a compositor-owned drag/resize gesture.
+    pub(crate) intercepted_buttons: HashSet<u32>,
     pub(crate) drag: Option<DragCtx>,
     pub(crate) resize: Option<ResizeCtx>,
     pub(crate) move_anim: HashMap<halley_core::field::NodeId, NodeMoveAnim>,
@@ -128,6 +132,7 @@ impl Default for PointerState {
             screen: (0.0, 0.0),
             workspace_size: (1, 1),
             hover_node: None,
+            intercepted_buttons: HashSet::new(),
             drag: None,
             resize: None,
             move_anim: HashMap::new(),

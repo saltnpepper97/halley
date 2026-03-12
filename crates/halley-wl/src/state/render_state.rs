@@ -137,6 +137,13 @@ impl HalleyWlState {
         self.tick_pending_spawn_pan(now, now_ms);
     }
 
+    pub fn tick_live_overlap(&mut self) {
+        if self.suspend_state_checks || self.resize_active.is_some() {
+            return;
+        }
+        self.resolve_surface_overlap();
+    }
+
     pub fn send_frame_callbacks(&mut self, now: Instant) {
         let elapsed_ms = now.duration_since(self.started_at).as_millis();
         let time_ms = elapsed_ms.min(u32::MAX as u128) as u32;
