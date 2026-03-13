@@ -22,8 +22,6 @@
 # Common examples include bars, notification daemons,
 # clipboard managers, and background utilities.
 autostart:
-  once "waybar"
-
   #once "mako"
   #once "gessod"
 
@@ -329,8 +327,10 @@ end
 # Rules allow matching specific applications
 # and applying behaviour automatically.
 rules:
-# TODO: Figure out making this work with rune-cfg.
-# might need to update rune-cfg
+  kitty:
+    app-id "kitty"
+    monitor "DP-2"
+  end
 end
 
 debug:

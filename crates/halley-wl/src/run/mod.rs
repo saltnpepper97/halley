@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::env;
 use std::error::Error;
 use std::io;
@@ -63,6 +63,7 @@ use common::{
     RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite,
 };
+pub(crate) use common::{run_autostart_commands, spawn_shell_command};
 use drm::probe_tty_drm_device_via_session;
 use input_backend::build_tty_libinput_backend;
 pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs};
@@ -79,15 +80,26 @@ pub(crate) fn request_xwayland_start() {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct TtyBackendHandle {
-    width: i32,
-    height: i32,
+    size: Rc<Cell<(i32, i32)>>,
+}
+
+impl TtyBackendHandle {
+    fn new(width: i32, height: i32) -> Self {
+        Self {
+            size: Rc::new(Cell::new((width, height))),
+        }
+    }
+
+    fn set_size(&self, width: i32, height: i32) {
+        self.size.set((width, height));
+    }
 }
 
 impl BackendView for TtyBackendHandle {
     fn window_size_i32(&self) -> (i32, i32) {
-        (self.width, self.height)
+        self.size.get()
     }
 
     fn request_redraw(&self) {}

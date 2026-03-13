@@ -1,6 +1,5 @@
-use std::process::Command;
-
-use eventline::{info, warn};
+use eventline::info;
+use halley_config::AutostartPhase;
 use halley_ipc::NodeMoveDirection;
 
 use super::input_utils::{key_matches, modifier_exact};
@@ -8,7 +7,7 @@ use crate::interaction::actions::{
     minimize_focused_active_node, move_latest_node_direction, set_docking_active,
 };
 use crate::interaction::types::ModState;
-use crate::run::request_xwayland_start;
+use crate::run::{run_autostart_commands, spawn_shell_command};
 use crate::state::HalleyWlState;
 use halley_config::{KeyModifiers, RuntimeTuning};
 
@@ -119,6 +118,7 @@ pub(crate) fn apply_bound_key(
     if key_matches(key_code, kb.reload) && modifier_exact(mods, kb.reload_modifiers) {
         let next = RuntimeTuning::load_from_path(config_path);
         st.apply_tuning(next);
+        run_autostart_commands(&st.tuning, wayland_display, AutostartPhase::OnReload);
         info!("manual config reload from {}", config_path);
         info!(
             "resolved keybinds: {}",
@@ -217,30 +217,5 @@ pub(crate) fn release_bound_key(st: &mut HalleyWlState, key_code: u32, mods: &Mo
 }
 
 fn spawn_command(command: &str, wayland_display: &str, label: &str) -> bool {
-    request_xwayland_start();
-    match Command::new("sh")
-        .arg("-lc")
-        .arg(command)
-        .env("WAYLAND_DISPLAY", wayland_display)
-        .env("XDG_SESSION_TYPE", "wayland")
-        .env("GDK_BACKEND", "wayland,x11")
-        .env("QT_QPA_PLATFORM", "wayland;xcb")
-        .env("SDL_VIDEODRIVER", "wayland")
-        .env("CLUTTER_BACKEND", "wayland")
-        .env("MOZ_ENABLE_WAYLAND", "1")
-        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
-        .spawn()
-    {
-        Ok(_) => {
-            info!(
-                "spawned {} via `{}` on WAYLAND_DISPLAY={}",
-                label, command, wayland_display
-            );
-            true
-        }
-        Err(err) => {
-            warn!("{} spawn failed via `{}`: {}", label, command, err);
-            false
-        }
-    }
+    spawn_shell_command(command, wayland_display, label)
 }

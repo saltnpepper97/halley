@@ -59,6 +59,12 @@ impl HalleyWlState {
                 } else {
                     s.states.unset(xdg_toplevel::State::Activated);
                 }
+                let fullscreen = self.surface_to_node.get(&key).copied() == self.fullscreen_node;
+                if fullscreen {
+                    s.states.set(xdg_toplevel::State::Fullscreen);
+                } else {
+                    s.states.unset(xdg_toplevel::State::Fullscreen);
+                }
                 was_active != focused
             });
 

@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use super::{KeyModifiers, LaunchBinding, PointerBinding, PointerBindingAction};
+use super::{
+    AutostartCommand, AutostartPhase, KeyModifiers, LaunchBinding, PointerBinding,
+    PointerBindingAction,
+};
 use crate::RuntimeTuning;
 use crate::keybinds::{is_pointer_button_code, key_name_to_evdev, parse_chord, parse_modifiers};
 use crate::layout::{ViewportOutputConfig, default_pointer_bindings};
@@ -22,6 +25,7 @@ impl RuntimeTuning {
         let mut out = Self::default();
 
         load_dev_section(&cfg, &mut out);
+        load_autostart_section(raw.as_str(), &mut out);
         load_env_section(&cfg, &mut out);
         load_viewport_section(&cfg, &mut out);
         load_focus_ring_section(&cfg, &mut out);
@@ -38,6 +42,127 @@ impl RuntimeTuning {
 
         Some(out)
     }
+}
+
+fn load_autostart_section(raw: &str, out: &mut RuntimeTuning) {
+    out.autostart_commands = parse_autostart_commands(raw);
+}
+
+fn parse_autostart_commands(raw: &str) -> Vec<AutostartCommand> {
+    let mut out = Vec::new();
+    let mut in_autostart = false;
+    let mut depth = 0usize;
+
+    for raw_line in raw.lines() {
+        let stripped = strip_rune_comment(raw_line);
+        let line = stripped.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if !in_autostart {
+            if line == "autostart:" {
+                in_autostart = true;
+                depth = 1;
+            }
+            continue;
+        }
+
+        if line == "end" {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                break;
+            }
+            continue;
+        }
+
+        if depth == 1 {
+            if let Some(command) = parse_autostart_command(line, "once") {
+                out.push(AutostartCommand {
+                    phase: AutostartPhase::Once,
+                    command,
+                });
+            } else if let Some(command) = parse_autostart_command(line, "on-reload")
+                .or_else(|| parse_autostart_command(line, "on_reload"))
+            {
+                out.push(AutostartCommand {
+                    phase: AutostartPhase::OnReload,
+                    command,
+                });
+            }
+        }
+
+        if line.ends_with(':') {
+            depth = depth.saturating_add(1);
+        }
+    }
+
+    out
+}
+
+fn strip_rune_comment(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for ch in line.chars() {
+        if escaped {
+            out.push(ch);
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if in_quotes => {
+                out.push(ch);
+                escaped = true;
+            }
+            '"' => {
+                in_quotes = !in_quotes;
+                out.push(ch);
+            }
+            '#' if !in_quotes => break,
+            _ => out.push(ch),
+        }
+    }
+
+    out
+}
+
+fn parse_autostart_command(line: &str, keyword: &str) -> Option<String> {
+    let rest = line.strip_prefix(keyword)?.trim();
+    parse_quoted_string(rest)
+}
+
+fn parse_quoted_string(input: &str) -> Option<String> {
+    let mut chars = input.chars();
+    if chars.next()? != '"' {
+        return None;
+    }
+
+    let mut out = String::new();
+    let mut escaped = false;
+
+    for ch in chars {
+        if escaped {
+            out.push(match ch {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                other => other,
+            });
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => escaped = true,
+            '"' => return Some(out),
+            _ => out.push(ch),
+        }
+    }
+
+    None
 }
 
 fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -747,5 +872,46 @@ mod tests {
         assert!(tuning.keybinds.quit_modifiers.super_key);
         assert!(tuning.keybinds.quit_modifiers.shift);
         assert!(tuning.quit_requires_shift);
+    }
+
+    #[test]
+    fn parses_autostart_commands_from_rune_block() {
+        let raw = r#"
+autostart:
+  once "waybar"
+  # once "ignored"
+  on-reload "makoctl reload"
+end
+"#;
+
+        let commands = parse_autostart_commands(raw);
+
+        assert_eq!(
+            commands,
+            vec![
+                AutostartCommand {
+                    phase: AutostartPhase::Once,
+                    command: "waybar".to_string(),
+                },
+                AutostartCommand {
+                    phase: AutostartPhase::OnReload,
+                    command: "makoctl reload".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_hash_inside_autostart_quotes() {
+        let raw = r#"
+autostart:
+  once "echo # still part of command"
+end
+"#;
+
+        let commands = parse_autostart_commands(raw);
+
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].command, "echo # still part of command");
     }
 }

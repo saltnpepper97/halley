@@ -18,6 +18,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use eventline::{info, warn};
+use halley_config::{AutostartPhase, RuntimeTuning};
 use rustix::net::{
     AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
 };
@@ -176,6 +177,50 @@ pub(super) fn ensure_host_display() -> Result<HostBackendGuard, Box<dyn Error>> 
     }
 
     Ok(HostBackendGuard { child: None })
+}
+
+pub(crate) fn run_autostart_commands(
+    tuning: &RuntimeTuning,
+    wayland_display: &str,
+    phase: AutostartPhase,
+) {
+    let label = match phase {
+        AutostartPhase::Once => "autostart.once",
+        AutostartPhase::OnReload => "autostart.on-reload",
+    };
+
+    for command in tuning.autostart_commands_for(phase) {
+        let _ = spawn_shell_command(command, wayland_display, label);
+    }
+}
+
+pub(crate) fn spawn_shell_command(command: &str, wayland_display: &str, label: &str) -> bool {
+    super::request_xwayland_start();
+    match Command::new("sh")
+        .arg("-lc")
+        .arg(command)
+        .env("WAYLAND_DISPLAY", wayland_display)
+        .env("XDG_SESSION_TYPE", "wayland")
+        .env("GDK_BACKEND", "wayland,x11")
+        .env("QT_QPA_PLATFORM", "wayland;xcb")
+        .env("SDL_VIDEODRIVER", "wayland")
+        .env("CLUTTER_BACKEND", "wayland")
+        .env("MOZ_ENABLE_WAYLAND", "1")
+        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
+        .spawn()
+    {
+        Ok(_) => {
+            info!(
+                "spawned {} via `{}` on WAYLAND_DISPLAY={}",
+                label, command, wayland_display
+            );
+            true
+        }
+        Err(err) => {
+            warn!("{} spawn failed via `{}`: {}", label, command, err);
+            false
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
