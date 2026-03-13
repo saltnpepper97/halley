@@ -180,7 +180,6 @@ impl HalleyWlState {
             }
             self.mark_active_transition(id, now, 620);
             self.set_interaction_focus(Some(id), 30_000, now);
-            self.push_neighbors_for_activation(id);
         }
     }
 
@@ -415,10 +414,6 @@ impl HalleyWlState {
             && node_left < view_right
             && node_bottom > view_top
             && node_top < view_bottom
-    }
-
-    pub(crate) fn push_neighbors_for_activation(&mut self, activated: NodeId) {
-  
     }
 
     pub(crate) fn reconcile_surface_bindings(&mut self) {

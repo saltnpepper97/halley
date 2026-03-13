@@ -420,30 +420,6 @@ impl HalleyWlState {
         self.collision_extents_for_node(n).size()
     }
 
-    fn node_intersects_viewport_for_overlap(&self, id: NodeId) -> bool {
-        let Some(node) = self.field.node(id) else {
-            return false;
-        };
-        if !self.field.is_visible(id) {
-            return false;
-        }
-        let ext = self.spawn_obstacle_extents_for_node(node);
-        let left = node.pos.x - ext.left;
-        let right = node.pos.x + ext.right;
-        let top = node.pos.y - ext.top;
-        let bottom = node.pos.y + ext.bottom;
-
-        let half_w = self.viewport.size.x * 0.5;
-        let half_h = self.viewport.size.y * 0.5;
-        let vx0 = self.viewport.center.x - half_w;
-        let vx1 = self.viewport.center.x + half_w;
-        let vy0 = self.viewport.center.y - half_h;
-        let vy1 = self.viewport.center.y + half_h;
-
-        left < vx1 && right > vx0 && top < vy1 && bottom > vy0
-    }
-
-
     pub(crate) fn resolve_surface_overlap(&mut self) {
         if !self.tuning.physics_enabled {
             return;

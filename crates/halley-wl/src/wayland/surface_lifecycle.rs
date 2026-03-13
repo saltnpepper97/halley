@@ -424,7 +424,6 @@ impl HalleyWlState {
         }
         self.mark_active_transition(active.node_id, now, 620);
         self.set_interaction_focus(Some(active.node_id), 30_000, now);
-        self.push_neighbors_for_activation(active.node_id);
         self.active_spawn_pan = None;
         self.maybe_start_pending_spawn_pan(now);
     }
@@ -458,7 +457,6 @@ impl HalleyWlState {
         if visible_in_view {
             self.mark_active_transition(id, now, 620);
             self.set_interaction_focus(Some(id), 30_000, now);
-            self.push_neighbors_for_activation(id);
         } else {
             self.queue_spawn_pan_to_node(id, now);
         }

@@ -282,7 +282,6 @@ impl HalleyWlState {
                 && self.carry_activation_anim_armed.remove(&id)
             {
                 self.mark_active_transition(id, now, 360);
-                self.push_neighbors_for_activation(id);
             }
         }
     }
