@@ -166,6 +166,7 @@ impl HalleyWlState {
         self.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
         self.spawn_view_anchor = self.viewport.center;
         self.spawn_patch = None;
+        self.pan_restore_active_focus = None;
         self.spawn_pan_start_center = Some(self.viewport.center);
     }
 

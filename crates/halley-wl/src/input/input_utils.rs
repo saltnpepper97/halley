@@ -5,7 +5,7 @@ use halley_config::KeyModifiers;
 /// Incoming codes from libinput/the backend are always XKB (evdev + 8).
 /// Config and keybind tables store evdev codes, so we normalise here.
 pub(crate) fn key_matches(actual: u32, evdev_code: u32) -> bool {
-    actual == evdev_code + 8
+    evdev_code != 0 && actual == evdev_code + 8
 }
 
 /// Update modifier bookkeeping from a raw XKB keycode.

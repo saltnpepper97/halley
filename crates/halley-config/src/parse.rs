@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use super::{KeyModifiers, LaunchBinding, PointerBinding, PointerBindingAction};
-use crate::RuntimeTuning;
-use crate::keybinds::{
-    is_pointer_button_code, key_name_to_evdev, modifiers_empty, parse_chord, parse_modifiers,
+use super::{
+    CompositorBinding, CompositorBindingAction, DirectionalAction, KeyModifiers, LaunchBinding,
+    PointerBinding, PointerBindingAction,
 };
+use crate::RuntimeTuning;
+use crate::keybinds::{is_pointer_button_code, key_name_to_evdev, parse_chord, parse_modifiers};
 use crate::layout::{ViewportOutputConfig, default_pointer_bindings};
 use crate::legacy::{parse_legacy_keybinds, strip_legacy_keybind_block};
 
@@ -23,6 +24,7 @@ impl RuntimeTuning {
 
         let mut out = Self::default();
 
+        load_autostart_section(raw.as_str(), &mut out);
         load_dev_section(&cfg, &mut out);
         load_env_section(&cfg, &mut out);
         load_viewport_section(&cfg, &mut out);
@@ -40,6 +42,62 @@ impl RuntimeTuning {
 
         Some(out)
     }
+}
+
+fn load_autostart_section(raw: &str, out: &mut RuntimeTuning) {
+    let mut in_autostart = false;
+    out.autostart_once.clear();
+    out.autostart_on_reload.clear();
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if !in_autostart {
+            if trimmed == "autostart:" {
+                in_autostart = true;
+            }
+            continue;
+        }
+
+        if trimmed == "end" {
+            break;
+        }
+
+        if let Some(command) = parse_autostart_command(trimmed, "once") {
+            out.autostart_once.push(command);
+            continue;
+        }
+
+        if let Some(command) = parse_autostart_command(trimmed, "on-reload") {
+            out.autostart_on_reload.push(command);
+        }
+    }
+}
+
+fn parse_autostart_command(line: &str, directive: &str) -> Option<String> {
+    let rest = line.strip_prefix(directive)?.trim();
+    if !rest.starts_with('"') {
+        return None;
+    }
+    let rest = &rest[1..];
+    let mut escaped = false;
+    let mut command = String::new();
+    for ch in rest.chars() {
+        if escaped {
+            command.push(ch);
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '"' => return Some(command.trim().to_string()).filter(|value| !value.is_empty()),
+            _ => command.push(ch),
+        }
+    }
+    None
 }
 
 fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -389,6 +447,7 @@ fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
 fn load_keybind_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.keybinds.modifier = pick_modifiers(cfg, &["keybinds.mod"], out.keybinds.modifier);
+    out.compositor_bindings.clear();
     out.launch_bindings.clear();
     out.pointer_bindings = default_pointer_bindings(out.keybinds.modifier);
     apply_explicit_keybind_overrides(cfg, out);
@@ -592,23 +651,11 @@ fn apply_explicit_keybind_overrides_map(
             continue;
         }
 
-        apply_explicit_binding(
-            out,
-            mod_token.as_str(),
-            out.keybinds.modifier,
-            chord.as_str(),
-            action.as_str(),
-        );
+        apply_explicit_binding(out, mod_token.as_str(), chord.as_str(), action.as_str());
     }
 }
 
-fn apply_explicit_binding(
-    out: &mut RuntimeTuning,
-    mod_token: &str,
-    default_mods: KeyModifiers,
-    chord: &str,
-    action: &str,
-) {
+fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str, action: &str) {
     let expanded = chord
         .replace("$var.mod", mod_token)
         .replace("$mod", mod_token);
@@ -617,40 +664,97 @@ fn apply_explicit_binding(
         return;
     };
 
-    let effective_mods = if modifiers_empty(mods) {
-        default_mods
-    } else {
-        mods
-    };
-
     let action_trimmed = action.trim();
     let action_key = action_trimmed.to_ascii_lowercase();
 
     match action_key.as_str() {
         "reload" => {
-            out.keybinds.reload = key;
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::Reload);
         }
         "minimize_focused" | "minimize-focused" => {
-            out.keybinds.minimize_focused = key;
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::MinimizeFocused);
         }
         "overview_toggle" | "overview-toggle" => {
-            out.keybinds.overview_toggle = key;
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::OverviewToggle);
         }
         "quit" => {
-            out.keybinds.quit = key;
-            out.quit_requires_shift = effective_mods.shift;
+            upsert_compositor_binding(
+                out,
+                mods,
+                key,
+                CompositorBindingAction::Quit {
+                    requires_shift: mods.shift,
+                },
+            );
+        }
+        "docking" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::Docking);
+        }
+        "move_left" | "move-left" => {
+            upsert_compositor_binding(
+                out,
+                mods,
+                key,
+                CompositorBindingAction::MoveNode(DirectionalAction::Left),
+            );
+        }
+        "move_right" | "move-right" => {
+            upsert_compositor_binding(
+                out,
+                mods,
+                key,
+                CompositorBindingAction::MoveNode(DirectionalAction::Right),
+            );
+        }
+        "move_up" | "move-up" => {
+            upsert_compositor_binding(
+                out,
+                mods,
+                key,
+                CompositorBindingAction::MoveNode(DirectionalAction::Up),
+            );
+        }
+        "move_down" | "move-down" => {
+            upsert_compositor_binding(
+                out,
+                mods,
+                key,
+                CompositorBindingAction::MoveNode(DirectionalAction::Down),
+            );
         }
         "move_window" | "move-window" if is_pointer_button_code(key) => {
-            upsert_pointer_binding(out, effective_mods, key, PointerBindingAction::MoveWindow);
+            upsert_pointer_binding(out, mods, key, PointerBindingAction::MoveWindow);
         }
         "resize_window" | "resize-window" if is_pointer_button_code(key) => {
-            upsert_pointer_binding(out, effective_mods, key, PointerBindingAction::ResizeWindow);
+            upsert_pointer_binding(out, mods, key, PointerBindingAction::ResizeWindow);
         }
         _ => {
             out.keybind_launch_command = action_trimmed.to_string();
-            upsert_launch_binding(out, effective_mods, key, action_trimmed);
+            upsert_launch_binding(out, mods, key, action_trimmed);
         }
     }
+}
+
+fn upsert_compositor_binding(
+    out: &mut RuntimeTuning,
+    mods: KeyModifiers,
+    key: u32,
+    action: CompositorBindingAction,
+) {
+    if let Some(existing) = out
+        .compositor_bindings
+        .iter_mut()
+        .find(|b| b.key == key && b.modifiers == mods)
+    {
+        existing.action = action;
+        return;
+    }
+
+    out.compositor_bindings.push(CompositorBinding {
+        modifiers: mods,
+        key,
+        action,
+    });
 }
 
 fn upsert_launch_binding(out: &mut RuntimeTuning, mods: KeyModifiers, key: u32, command: &str) {
@@ -690,4 +794,90 @@ fn upsert_pointer_binding(
         button,
         action,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::apply_explicit_keybind_overrides_map;
+    use crate::{
+        CompositorBindingAction, DirectionalAction, RuntimeTuning, keybinds::key_name_to_evdev,
+    };
+
+    #[test]
+    fn explicit_binding_without_modifiers_stays_modless() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("mod".to_string(), "lsuper".to_string()),
+            (
+                "XF86AudioRaiseVolume".to_string(),
+                "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+".to_string(),
+            ),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        let binding = tuning
+            .launch_bindings
+            .iter()
+            .find(|binding| binding.command.contains("set-volume"))
+            .expect("launch binding");
+        assert_eq!(
+            binding.key,
+            key_name_to_evdev("XF86AudioRaiseVolume").expect("media key")
+        );
+        assert!(!binding.modifiers.left_super);
+        assert!(!binding.modifiers.super_key);
+    }
+
+    #[test]
+    fn explicit_docking_and_move_actions_become_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("$mod+x".to_string(), "docking".to_string()),
+            ("shift+h".to_string(), "move_left".to_string()),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::Docking)
+        );
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::MoveNode(DirectionalAction::Left)
+        }));
+    }
+
+    #[test]
+    fn autostart_section_loads_once_and_on_reload_commands() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-autostart-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+autostart:
+  once "waybar"
+  once "mako"
+  on-reload "thunderbird"
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.autostart_once, vec!["waybar", "mako"]);
+        assert_eq!(tuning.autostart_on_reload, vec!["thunderbird"]);
+    }
 }

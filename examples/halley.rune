@@ -1,3 +1,13 @@
+autostart:
+  once "waybar"
+
+  #once "mako"
+  #once "gessod"
+
+  # Example:
+  #on-reload "thunderbird"
+end
+
 viewport:
   DP-1:
     offset-x 0

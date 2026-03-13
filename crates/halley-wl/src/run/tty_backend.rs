@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::backend_iface::{DmabufImportBackend, TtyDmabufImportBackend};
-use crate::run::drm::{collect_outputs_for_ipc, queue_tty_drm_frame};
+use crate::run::drm::{collect_outputs_for_ipc, find_tty_scanout_for_reload, queue_tty_drm_frame};
 use crate::run::{build_tty_libinput_backend, probe_tty_drm_device_via_session};
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 
@@ -9,6 +9,102 @@ use smithay::backend::input::{
     AbsolutePositionEvent, Axis, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
     PointerButtonEvent, PointerMotionEvent,
 };
+
+fn apply_tty_reload(
+    dev: &Rc<RefCell<DrmDevice>>,
+    gbm_surface: &Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
+    backend_handle: &TtyBackendHandle,
+    pointer_state: &Rc<RefCell<PointerState>>,
+    st: &mut HalleyWlState,
+    next: RuntimeTuning,
+    config_path: &str,
+    wayland_display: &str,
+    reason: &str,
+    current_connector_name: &Rc<RefCell<String>>,
+    current_mode: &Rc<RefCell<drm_control::Mode>>,
+    current_crtc: drm_control::crtc::Handle,
+) {
+    let (target_crtc, target_mode, _target_connector, target_connector_name) = {
+        let mut dev_ref = dev.borrow_mut();
+        match find_tty_scanout_for_reload(&mut dev_ref, &next) {
+            Ok(target) => target,
+            Err(err) => {
+                warn!(
+                    "{}: viewport reload rejected for {}: {}; keeping last working tty mode",
+                    reason, config_path, err
+                );
+                return;
+            }
+        }
+    };
+
+    if target_crtc != current_crtc || target_connector_name != *current_connector_name.borrow() {
+        warn!(
+            "{}: live tty viewport reload only supports the current connector/crtc (wanted connector={}, current connector={}); keeping last working mode",
+            reason,
+            target_connector_name,
+            current_connector_name.borrow().as_str()
+        );
+        return;
+    }
+
+    let previous_mode = *current_mode.borrow();
+    {
+        let mut surface = gbm_surface.borrow_mut();
+        if let Err(err) = surface.use_mode(target_mode) {
+            warn!(
+                "{}: tty mode apply failed for {}: {}; keeping last working mode",
+                reason, config_path, err
+            );
+            let _ = surface.use_mode(previous_mode);
+            return;
+        }
+        surface.reset_buffers();
+    }
+
+    let (mw, mh) = target_mode.size();
+    backend_handle.set_size(mw as i32, mh as i32);
+    {
+        let mut ps = pointer_state.borrow_mut();
+        let old = ps.workspace_size;
+        ps.workspace_size = (mw as i32, mh as i32);
+        if old.0 > 0 && old.1 > 0 {
+            let sx = ps.screen.0 * (mw as f32) / (old.0 as f32);
+            let sy = ps.screen.1 * (mh as f32) / (old.1 as f32);
+            ps.screen = (
+                sx.clamp(0.0, (mw.saturating_sub(1)) as f32),
+                sy.clamp(0.0, (mh.saturating_sub(1)) as f32),
+            );
+        }
+    }
+
+    *current_mode.borrow_mut() = target_mode;
+    let mut next = next;
+    next.viewport_size = halley_core::field::Vec2 {
+        x: mw as f32,
+        y: mh as f32,
+    };
+    st.apply_tuning(next);
+    st.advertise_primary_output(current_connector_name.borrow().as_str(), target_mode.into());
+    let outputs = {
+        let dev_ref = dev.borrow();
+        collect_outputs_for_ipc(
+            &dev_ref,
+            current_connector_name.borrow().as_str(),
+            target_mode,
+        )
+    };
+    publish_outputs(outputs);
+    run_autostart_commands(&st.tuning.autostart_on_reload, wayland_display, "autostart");
+    info!(
+        "{}: reloaded config from {} with tty mode {}x{} on {}",
+        reason,
+        config_path,
+        mw,
+        mh,
+        current_connector_name.borrow().as_str()
+    );
+}
 
 pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
     eprintln!("halley-wl tty: starting");
@@ -154,6 +250,11 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let xwayland_request_rx = Rc::new(RefCell::new(xwayland_request_rx));
             let xwayland_for_timer = xwayland.clone();
             let xwayland_request_for_timer = xwayland_request_rx.clone();
+            run_autostart_commands(
+                &state.tuning.autostart_once,
+                sock_name.as_str(),
+                "autostart",
+            );
 
             let libinput_backend = libinput_backend;
             let debug_input = crate::input::pointer_map_debug_enabled();
@@ -225,36 +326,31 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let watch_rx = Rc::new(RefCell::new(watch_rx));
             let watch_rx_for_timer = watch_rx.clone();
             let config_path_for_timer = config_path.clone();
+            let wayland_display_for_timer = sock_name.clone();
             let last_maintenance_at = Rc::new(RefCell::new(Instant::now()));
             let last_maintenance_for_timer = last_maintenance_at.clone();
             let (mw, mh) = drm_probe.mode.size();
-            let backend_handle = TtyBackendHandle {
-                width: mw as i32,
-                height: mh as i32,
-            };
+            let backend_handle = TtyBackendHandle::new(mw as i32, mh as i32);
             state.zoom_ref_size = halley_core::field::Vec2 {
-                x: backend_handle.width.max(1) as f32,
-                y: backend_handle.height.max(1) as f32,
+                x: mw.max(1) as f32,
+                y: mh.max(1) as f32,
             };
             state
                 .advertise_primary_output(drm_probe.connector_name.as_str(), drm_probe.mode.into());
-            info!(
-                "tty logical backend size={}x{}",
-                backend_handle.width, backend_handle.height
-            );
+            info!("tty logical backend size={}x{}", mw, mh);
             {
                 let mut ps = pointer_state.borrow_mut();
-                ps.screen = (
-                    (backend_handle.width as f32) * 0.5,
-                    (backend_handle.height as f32) * 0.5,
-                );
-                ps.workspace_size = (backend_handle.width, backend_handle.height);
+                ps.screen = ((mw as f32) * 0.5, (mh as f32) * 0.5);
+                ps.workspace_size = (mw as i32, mh as i32);
             }
 
+            let dev = Rc::new(RefCell::new(drm_probe.dev));
+            let current_connector_name = Rc::new(RefCell::new(drm_probe.connector_name.clone()));
+            let current_mode = Rc::new(RefCell::new(drm_probe.mode));
             let initial_outputs = collect_outputs_for_ipc(
-                &drm_probe.dev,
-                drm_probe.connector_name.as_str(),
-                drm_probe.mode,
+                &dev.borrow(),
+                current_connector_name.borrow().as_str(),
+                *current_mode.borrow(),
             );
             publish_outputs(initial_outputs);
 
@@ -262,6 +358,10 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let gbm_surface_for_vblank = drm_probe.gbm_surface.clone();
             let warned_vblank_mismatch = Rc::new(RefCell::new(false));
             let warned_vblank_mismatch_for_notifier = warned_vblank_mismatch.clone();
+            let dev_for_timer = dev.clone();
+            let current_connector_name_for_timer = current_connector_name.clone();
+            let current_mode_for_timer = current_mode.clone();
+            let backend_handle_for_timer = backend_handle.clone();
             ev.handle().insert_source(
                 drm_probe.notifier,
                 move |event, metadata, _st| match event {
@@ -448,9 +548,31 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
                     RuntimeIpcCommand::Reload => {
                         let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        st.apply_tuning(next);
-                        info!("ipc: reloaded config from {}", config_path_for_timer.as_str());
+                        apply_tty_reload(
+                            &dev_for_timer,
+                            &gbm_surface_for_timer,
+                            &backend_handle_for_timer,
+                            &pointer_state_for_timer,
+                            st,
+                            next,
+                            config_path_for_timer.as_str(),
+                            wayland_display_for_timer.as_str(),
+                            "ipc",
+                            &current_connector_name_for_timer,
+                            &current_mode_for_timer,
+                            drm_crtc,
+                        );
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                    }
+                    RuntimeIpcCommand::Docking(command) => {
+                        let _ = crate::interaction::actions::set_docking_mode(
+                            st,
+                            matches!(command, halley_ipc::DockingCommand::Begin),
+                        );
+                    }
+                    RuntimeIpcCommand::NodeMove(direction) => {
+                        let _ =
+                            crate::interaction::actions::move_latest_node_direction(st, direction);
                     }
                 });
 
@@ -490,12 +612,24 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 if let Some(rx) = rx_ref.as_mut() {
                     while rx.try_recv().is_ok() {
                         let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        st.apply_tuning(next);
+                        apply_tty_reload(
+                            &dev_for_timer,
+                            &gbm_surface_for_timer,
+                            &backend_handle_for_timer,
+                            &pointer_state_for_timer,
+                            st,
+                            next,
+                            config_path_for_timer.as_str(),
+                            wayland_display_for_timer.as_str(),
+                            "watch",
+                            &current_connector_name_for_timer,
+                            &current_mode_for_timer,
+                            drm_crtc,
+                        );
                         reloaded = true;
                     }
                 }
                 if reloaded {
-                    info!("reloaded config from {}", config_path_for_timer.as_str());
                     info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                 }
 

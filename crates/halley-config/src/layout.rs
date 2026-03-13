@@ -6,7 +6,9 @@ use halley_core::decay::FocusRingDecayPolicy;
 use halley_core::field::Vec2;
 use halley_core::viewport::{FocusRing, Viewport};
 
-use super::{KeyModifiers, Keybinds, LaunchBinding, PointerBinding, PointerBindingAction};
+use super::{
+    CompositorBinding, KeyModifiers, Keybinds, LaunchBinding, PointerBinding, PointerBindingAction,
+};
 use crate::keybinds::evdev_to_key_name;
 
 #[derive(Clone, Debug)]
@@ -52,11 +54,14 @@ pub struct RuntimeTuning {
 
     pub keybinds: Keybinds,
     pub keybind_launch_command: String,
+    pub compositor_bindings: Vec<CompositorBinding>,
     pub launch_bindings: Vec<LaunchBinding>,
     pub pointer_bindings: Vec<PointerBinding>,
     pub quit_requires_shift: bool,
 
     pub tty_viewports: Vec<ViewportOutputConfig>,
+    pub autostart_once: Vec<String>,
+    pub autostart_on_reload: Vec<String>,
     pub env: HashMap<String, String>,
 }
 
@@ -116,11 +121,14 @@ impl Default for RuntimeTuning {
 
             keybinds: Keybinds::default(),
             keybind_launch_command: String::new(),
+            compositor_bindings: Vec::new(),
             launch_bindings: Vec::new(),
             pointer_bindings: default_pointer_bindings(Keybinds::default().modifier),
             quit_requires_shift: true,
 
             tty_viewports: Vec::new(),
+            autostart_once: Vec::new(),
+            autostart_on_reload: Vec::new(),
             env: HashMap::from([
                 ("XCURSOR_THEME".to_string(), "Adwaita".to_string()),
                 ("XCURSOR_SIZE".to_string(), "24".to_string()),
@@ -222,13 +230,14 @@ impl RuntimeTuning {
     pub fn keybinds_resolved_summary(&self) -> String {
         let kb = &self.keybinds;
         format!(
-            "mod={} reload={} minimize={} overview={} quit={} (requires_shift={}) custom_launches={} primary=[{},{},{},{}] secondary=[{},{},{},{}] move=[{},{},{},{}]",
+            "mod={} reload={} minimize={} overview={} quit={} (requires_shift={}) compositor_actions={} custom_launches={} primary=[{},{},{},{}] secondary=[{},{},{},{}] move=[{},{},{},{}]",
             kb.modifier_name(),
             evdev_to_key_name(kb.reload),
             evdev_to_key_name(kb.minimize_focused),
             evdev_to_key_name(kb.overview_toggle),
             evdev_to_key_name(kb.quit),
             self.quit_requires_shift,
+            self.compositor_bindings.len(),
             self.launch_bindings.len(),
             evdev_to_key_name(kb.primary_left),
             evdev_to_key_name(kb.primary_right),

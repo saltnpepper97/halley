@@ -43,6 +43,31 @@ pub struct LaunchBinding {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DirectionalAction {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompositorBindingAction {
+    Reload,
+    MinimizeFocused,
+    OverviewToggle,
+    Quit { requires_shift: bool },
+    Docking,
+    MoveNode(DirectionalAction),
+}
+
+#[derive(Clone, Debug)]
+pub struct CompositorBinding {
+    pub modifiers: KeyModifiers,
+    pub key: u32,
+    pub action: CompositorBindingAction,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerBindingAction {
     MoveWindow,
     ResizeWindow,
@@ -74,10 +99,10 @@ impl Default for Keybinds {
             secondary_right: 38,  // l
             secondary_up: 23,     // i
             secondary_down: 37,   // k
-            move_left: 30,        // a
-            move_right: 32,       // d
-            move_up: 17,          // w
-            move_down: 31,        // s
+            move_left: 0,
+            move_right: 0,
+            move_up: 0,
+            move_down: 0,
         }
     }
 }

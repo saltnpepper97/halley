@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::env;
 use std::error::Error;
@@ -48,7 +49,9 @@ use crate::backend_iface::{BackendView, RenderBackend, WinitBackendHandle};
 use crate::interaction::types::{ModState, PointerState};
 use crate::state::{ClientState, HalleyWlState};
 
-use crate::input::{BackendInputEventData, advance_node_move_anim, handle_backend_input_event};
+use crate::input::{
+    BackendInputEventData, advance_node_move_anim, handle_backend_input_event, spawn_command,
+};
 use crate::render::draw_debug_frame_to_target;
 use crate::surface::current_surface_size_for_node;
 
@@ -79,15 +82,48 @@ pub(crate) fn request_xwayland_start() {
     }
 }
 
-#[derive(Clone, Copy)]
+pub(crate) fn run_autostart_commands(commands: &[String], wayland_display: &str, label: &str) {
+    for command in commands {
+        let command = command.trim();
+        if command.is_empty() {
+            continue;
+        }
+        let _ = spawn_command(command, wayland_display, label);
+    }
+}
+
+pub(crate) fn apply_reloaded_tuning(
+    st: &mut HalleyWlState,
+    next: RuntimeTuning,
+    config_path: &str,
+    wayland_display: &str,
+    reason: &str,
+) {
+    st.apply_tuning(next);
+    run_autostart_commands(&st.tuning.autostart_on_reload, wayland_display, "autostart");
+    info!("{reason}: reloaded config from {}", config_path);
+}
+
+#[derive(Clone)]
 struct TtyBackendHandle {
-    width: i32,
-    height: i32,
+    size: Rc<Cell<(i32, i32)>>,
+}
+
+impl TtyBackendHandle {
+    fn new(width: i32, height: i32) -> Self {
+        Self {
+            size: Rc::new(Cell::new((width, height))),
+        }
+    }
+
+    fn set_size(&self, width: i32, height: i32) {
+        self.size.set((width, height));
+    }
 }
 
 impl BackendView for TtyBackendHandle {
     fn window_size_i32(&self) -> (i32, i32) {
-        (self.width, self.height)
+        self.size.get()
     }
 
     fn request_redraw(&self) {}

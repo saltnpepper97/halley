@@ -2,6 +2,7 @@ use crate::state::HalleyWlState;
 use eventline::info;
 use halley_core::decay::DecayLevel;
 use halley_core::viewport::FocusZone;
+use halley_ipc::NodeMoveDirection;
 use std::time::Instant;
 
 pub(crate) fn promote_node_level(
@@ -56,26 +57,49 @@ pub(crate) fn promote_node_level(
     st.animate_viewport_center_to(target_pos, now)
 }
 
-pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) {
-    let latest = st.last_input_surface_node().or_else(|| {
+pub(crate) fn latest_surface_node(st: &HalleyWlState) -> Option<halley_core::field::NodeId> {
+    st.last_input_surface_node().or_else(|| {
         st.surface_to_node
             .values()
             .copied()
             .max_by_key(|id| id.as_u64())
-    });
-    let Some(id) = latest else {
-        return;
+    })
+}
+
+pub(crate) fn set_docking_mode(st: &mut HalleyWlState, active: bool) -> bool {
+    if active {
+        st.docking_hold_count = st.docking_hold_count.saturating_add(1);
+        return true;
+    }
+
+    let was_active = st.docking_hold_count > 0;
+    st.docking_hold_count = st.docking_hold_count.saturating_sub(1);
+    if was_active && st.docking_hold_count == 0 {
+        st.field.clear_dock_preview();
+    }
+    was_active
+}
+
+pub(crate) fn docking_mode_active(st: &HalleyWlState) -> bool {
+    st.docking_hold_count > 0
+}
+
+pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) -> bool {
+    let Some(id) = latest_surface_node(st) else {
+        return false;
     };
     let Some(n) = st.field.node(id) else {
-        return;
+        return false;
     };
     let to = halley_core::field::Vec2 {
         x: n.pos.x + dx,
         y: n.pos.y + dy,
     };
-    st.begin_carry_state_tracking(id);
-    if st.carry_surface_non_overlap(id, to) {
+    let _ = st.field.set_pinned(id, false);
+    st.begin_carry_state_tracking(id, false);
+    if st.carry_surface_non_overlap(id, to, false) {
         st.update_carry_state_preview(id, Instant::now());
+        st.end_carry_state_tracking(id);
         st.set_interaction_focus(Some(id), 30_000, Instant::now());
         if let Some(nn) = st.field.node(id) {
             info!(
@@ -86,6 +110,23 @@ pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) {
                 nn.state
             );
         }
+        return true;
+    }
+    st.end_carry_state_tracking(id);
+    false
+}
+
+pub(crate) fn move_latest_node_direction(
+    st: &mut HalleyWlState,
+    direction: NodeMoveDirection,
+) -> bool {
+    const STEP_NODE: f32 = 80.0;
+
+    match direction {
+        NodeMoveDirection::Left => move_latest_node(st, -STEP_NODE, 0.0),
+        NodeMoveDirection::Right => move_latest_node(st, STEP_NODE, 0.0),
+        NodeMoveDirection::Up => move_latest_node(st, 0.0, STEP_NODE),
+        NodeMoveDirection::Down => move_latest_node(st, 0.0, -STEP_NODE),
     }
 }
 

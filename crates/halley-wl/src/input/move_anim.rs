@@ -29,19 +29,14 @@ pub(crate) fn advance_node_move_anim(
             x: anim.from.x + (anim.to.x - anim.from.x) * e,
             y: anim.from.y + (anim.to.y - anim.from.y) * e,
         };
-        let _ = st.field.carry(anim.node_id, pos);
+        let _ = st.carry_surface_non_overlap(anim.node_id, pos, false);
         if t >= 1.0 {
             finished.push(anim.node_id);
         }
         last_id = Some(anim.node_id);
     }
-    let any_finished = !finished.is_empty();
     for id in finished {
         ps.move_anim.remove(&id);
-    }
-    if any_finished && ps.move_anim.is_empty() {
-        // Ensure final settled positions still respect configured non-overlap gap.
-        st.resolve_overlap_now();
     }
     last_id
 }

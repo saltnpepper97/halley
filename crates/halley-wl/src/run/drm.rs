@@ -292,6 +292,21 @@ pub(super) fn select_tty_scanout(
     ))
 }
 
+pub(super) fn find_tty_scanout_for_reload(
+    dev: &mut DrmDevice,
+    tuning: &RuntimeTuning,
+) -> Result<
+    (
+        drm_control::crtc::Handle,
+        drm_control::Mode,
+        drm_control::connector::Handle,
+        String,
+    ),
+    Box<dyn Error>,
+> {
+    select_tty_scanout(dev, tuning)
+}
+
 pub(super) fn collect_outputs_for_ipc(
     dev: &DrmDevice,
     active_connector_name: &str,

@@ -224,21 +224,7 @@ impl XdgShellHandler for HalleyWlState {
         let id = self.ensure_node_for_surface(&wl, "toplevel", initial_size.node_size);
         let now = Instant::now();
         let _ = self.field.touch(id, self.now_ms(now));
-
-        if is_transient {
-            // New transient windows should be immediately typeable and stay
-            // focused until the user explicitly focuses another surface.
-            self.set_interaction_focus(Some(id), 30_000, now);
-            // Cancel the delayed activation that would call
-            // push_neighbors_for_activation. The surface is already Active and
-            // Hot from ensure_node_for_surface; we just don’t want it shoving
-            // the parent window aside when the preview pops up.
-            self.pending_spawn_activate_at_ms.remove(&id);
-            // Still play the appear animation so it doesn’t just snap in.
-            self.mark_active_transition(id, now, 620);
-        } else {
-            self.queue_spawn_pan_to_node(id, now);
-        }
+        self.reveal_new_toplevel_node(id, is_transient, now);
 
         self.resolve_surface_overlap();
     }

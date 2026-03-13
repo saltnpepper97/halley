@@ -3,6 +3,19 @@ use halley_core::docking::DockSide;
 use halley_core::viewport::{FocusRing, FocusZone};
 
 impl HalleyWlState {
+    #[inline]
+    pub(crate) fn mark_direct_carry_node(&mut self, id: NodeId) {
+        self.carry_direct_nodes.insert(id);
+        if let Some(pos) = self.field.node(id).map(|n| n.pos) {
+            self.smoothed_render_pos.insert(id, pos);
+        }
+    }
+
+    #[inline]
+    pub(crate) fn clear_direct_carry_nodes(&mut self) {
+        self.carry_direct_nodes.clear();
+    }
+
     pub fn enforce_docked_pairs(&mut self) {
         let pairs = self.field.docked_pairs();
         if pairs.is_empty() {
@@ -192,16 +205,19 @@ impl HalleyWlState {
         if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {}
     }
 
-    pub fn begin_carry_state_tracking(&mut self, id: NodeId) {
+    pub fn begin_carry_state_tracking(&mut self, id: NodeId, _docking_mode: bool) {
+        self.clear_direct_carry_nodes();
+        self.mark_direct_carry_node(id);
         if self.resize_static_node == Some(id) {
             self.resize_static_node = None;
             self.resize_static_lock_pos = None;
             self.resize_static_until_ms = 0;
         }
-        self.suspend_overlap_resolve = true;
-        self.suspend_state_checks = true;
+        self.suspend_overlap_resolve = false;
+        self.suspend_state_checks = false;
         let _ = self.field.undock_node(id);
         self.field.clear_dock_preview();
+        let _ = self.field.set_pinned(id, false);
 
         if let Some(n) = self.field.node(id) {
             let fp = self.collision_size_for_node(n);
@@ -216,6 +232,7 @@ impl HalleyWlState {
     }
 
     pub fn end_carry_state_tracking(&mut self, id: NodeId) {
+        self.mark_direct_carry_node(id);
         self.carry_zone_hint.remove(&id);
         self.carry_zone_last_change_ms.remove(&id);
         self.carry_zone_pending.remove(&id);
@@ -226,6 +243,7 @@ impl HalleyWlState {
         self.suspend_state_checks = false;
         self.enforce_docked_pairs();
         self.resolve_overlap_now();
+        self.clear_direct_carry_nodes();
     }
 
     pub fn update_carry_state_preview(&mut self, id: NodeId, now: Instant) {

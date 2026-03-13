@@ -3,6 +3,7 @@ use super::*;
 use crate::backend_iface::DmabufImportBackend;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
+use smithay::reexports::winit::dpi::PhysicalSize;
 
 fn apply_host_cursor(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
@@ -60,6 +61,64 @@ fn publish_winit_output_snapshot(
             offset_y,
         }),
     }]);
+}
+
+fn apply_winit_reload(
+    backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
+    st: &mut HalleyWlState,
+    next: RuntimeTuning,
+    config_path: &str,
+    wayland_display: &str,
+    reason: &str,
+) {
+    let prev_window_size = backend.borrow().window().inner_size();
+    let requested = PhysicalSize::new(
+        next.viewport_size.x.round().max(1.0) as u32,
+        next.viewport_size.y.round().max(1.0) as u32,
+    );
+    let applied = backend
+        .borrow()
+        .window()
+        .request_inner_size(requested)
+        .unwrap_or(requested);
+
+    if applied != requested {
+        let _ = backend
+            .borrow()
+            .window()
+            .request_inner_size(prev_window_size);
+        warn!(
+            "{}: viewport reload rejected for {} (requested={}x{}, applied={}x{}); keeping last working size {}x{}",
+            reason,
+            config_path,
+            requested.width,
+            requested.height,
+            applied.width,
+            applied.height,
+            prev_window_size.width,
+            prev_window_size.height
+        );
+        return;
+    }
+
+    let mut next = next;
+    next.viewport_size = halley_core::field::Vec2 {
+        x: applied.width as f32,
+        y: applied.height as f32,
+    };
+    st.apply_tuning(next);
+    st.advertise_primary_output(
+        "winit-0",
+        smithay::output::Mode {
+            size: (applied.width as i32, applied.height as i32).into(),
+            refresh: 0,
+        },
+    );
+    run_autostart_commands(&st.tuning.autostart_on_reload, wayland_display, "autostart");
+    info!(
+        "{}: reloaded config from {} with viewport {}x{}",
+        reason, config_path, applied.width, applied.height
+    );
 }
 
 pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
@@ -198,14 +257,21 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     },
                 );
             }
+            run_autostart_commands(
+                &state.tuning.autostart_once,
+                sock_name.as_str(),
+                "autostart",
+            );
             apply_host_cursor(&backend, &state.cursor_image_status);
             let backend_for_winit = backend.clone();
+            let backend_for_timer = backend.clone();
             let backend_for_cursor_timer = backend.clone();
             let backend_for_output_timer = backend.clone();
             let backend_handle_for_winit = backend_handle.clone();
             let backend_handle_for_timer = backend_handle.clone();
             let config_path_for_winit = config_path.clone();
             let wayland_display_for_winit = sock_name.clone();
+            let wayland_display_for_timer = sock_name.clone();
             let mod_state = Rc::new(RefCell::new(ModState::default()));
             let mod_state_for_winit = mod_state.clone();
             let pointer_state = Rc::new(RefCell::new(PointerState::default()));
@@ -458,9 +524,25 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                     RuntimeIpcCommand::Reload => {
                         let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        st.apply_tuning(next);
-                        info!("ipc: reloaded config from {}", config_path_for_timer.as_str());
+                        apply_winit_reload(
+                            &backend_for_timer,
+                            st,
+                            next,
+                            config_path_for_timer.as_str(),
+                            wayland_display_for_timer.as_str(),
+                            "ipc",
+                        );
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                    }
+                    RuntimeIpcCommand::Docking(command) => {
+                        let _ = crate::interaction::actions::set_docking_mode(
+                            st,
+                            matches!(command, halley_ipc::DockingCommand::Begin),
+                        );
+                    }
+                    RuntimeIpcCommand::NodeMove(direction) => {
+                        let _ =
+                            crate::interaction::actions::move_latest_node_direction(st, direction);
                     }
                 });
 
@@ -502,12 +584,18 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 if let Some(rx) = rx_ref.as_mut() {
                     while rx.try_recv().is_ok() {
                         let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        st.apply_tuning(next);
+                        apply_winit_reload(
+                            &backend_for_timer,
+                            st,
+                            next,
+                            config_path_for_timer.as_str(),
+                            wayland_display_for_timer.as_str(),
+                            "watch",
+                        );
                         reloaded = true;
                     }
                 }
                 if reloaded {
-                    info!("reloaded config from {}", config_path_for_timer.as_str());
                     info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                 }
 

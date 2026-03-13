@@ -134,10 +134,12 @@ pub struct HalleyWlState {
     pub(crate) carry_zone_pending: HashMap<NodeId, FocusZone>,
     pub(crate) carry_zone_pending_since_ms: HashMap<NodeId, u64>,
     pub(crate) carry_activation_anim_armed: HashSet<NodeId>,
+    pub(crate) carry_direct_nodes: HashSet<NodeId>,
 
     // Nodes explicitly collapsed by the user via keybind/toggle.
     // Maintenance must not auto-resurrect these.
     pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
+    pub(crate) docking_hold_count: u32,
 
     pub(crate) resize_active: Option<NodeId>,
     pub(crate) resize_static_node: Option<NodeId>,
@@ -244,7 +246,9 @@ impl HalleyWlState {
             carry_zone_pending: HashMap::new(),
             carry_zone_pending_since_ms: HashMap::new(),
             carry_activation_anim_armed: HashSet::new(),
+            carry_direct_nodes: HashSet::new(),
             manual_collapsed_nodes: HashSet::new(),
+            docking_hold_count: 0,
             resize_active: None,
             resize_static_node: None,
             resize_static_lock_pos: None,
