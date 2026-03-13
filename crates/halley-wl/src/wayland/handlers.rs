@@ -297,19 +297,37 @@ mod tests {
 
     #[test]
     fn clamp_initial_window_size_raises_tiny_windows() {
-        let out = clamp_initial_window_size(Vec2 { x: 1600.0, y: 1200.0 }, (220, 180));
+        let out = clamp_initial_window_size(
+            Vec2 {
+                x: 1600.0,
+                y: 1200.0,
+            },
+            (220, 180),
+        );
         assert_eq!(out, (480, 312));
     }
 
     #[test]
     fn clamp_initial_window_size_trims_short_wide_windows() {
-        let out = clamp_initial_window_size(Vec2 { x: 1600.0, y: 1200.0 }, (1600, 240));
+        let out = clamp_initial_window_size(
+            Vec2 {
+                x: 1600.0,
+                y: 1200.0,
+            },
+            (1600, 240),
+        );
         assert_eq!(out, (1312, 312));
     }
 
     #[test]
     fn clamp_initial_window_size_preserves_sensible_windows() {
-        let out = clamp_initial_window_size(Vec2 { x: 1600.0, y: 1200.0 }, (900, 700));
+        let out = clamp_initial_window_size(
+            Vec2 {
+                x: 1600.0,
+                y: 1200.0,
+            },
+            (900, 700),
+        );
         assert_eq!(out, (900, 700));
     }
 }

@@ -119,8 +119,7 @@ impl HalleyWlState {
         self.spawn_last_pan_ms = now_ms;
         self.spawn_pan_start_center
             .get_or_insert(self.viewport.center);
-        if self.tuning.restore_last_active_on_pan_return
-            && self.pan_restore_active_focus.is_none()
+        if self.tuning.restore_last_active_on_pan_return && self.pan_restore_active_focus.is_none()
         {
             self.pan_restore_active_focus = self.last_focused_active_surface_node();
         }

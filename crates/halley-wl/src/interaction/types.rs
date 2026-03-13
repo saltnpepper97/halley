@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use halley_config::PointerBindingAction;
+
 #[derive(Default, Clone)]
 pub(crate) struct ModState {
     pub(crate) super_down: bool,
@@ -111,7 +113,7 @@ pub(crate) struct PointerState {
     /// Pointer buttons whose press was intercepted by the compositor. The
     /// matching release must also be intercepted so clients do not receive a
     /// stray release after a compositor-owned drag/resize gesture.
-    pub(crate) intercepted_buttons: HashSet<u32>,
+    pub(crate) intercepted_buttons: HashMap<u32, PointerBindingAction>,
     pub(crate) drag: Option<DragCtx>,
     pub(crate) resize: Option<ResizeCtx>,
     pub(crate) move_anim: HashMap<halley_core::field::NodeId, NodeMoveAnim>,
@@ -132,7 +134,7 @@ impl Default for PointerState {
             screen: (0.0, 0.0),
             workspace_size: (1, 1),
             hover_node: None,
-            intercepted_buttons: HashSet::new(),
+            intercepted_buttons: HashMap::new(),
             drag: None,
             resize: None,
             move_anim: HashMap::new(),

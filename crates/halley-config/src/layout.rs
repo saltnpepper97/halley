@@ -6,7 +6,7 @@ use halley_core::decay::FocusRingDecayPolicy;
 use halley_core::field::Vec2;
 use halley_core::viewport::{FocusRing, Viewport};
 
-use super::{Keybinds, LaunchBinding};
+use super::{KeyModifiers, Keybinds, LaunchBinding, PointerBinding, PointerBindingAction};
 use crate::keybinds::evdev_to_key_name;
 
 #[derive(Clone, Debug)]
@@ -53,6 +53,7 @@ pub struct RuntimeTuning {
     pub keybinds: Keybinds,
     pub keybind_launch_command: String,
     pub launch_bindings: Vec<LaunchBinding>,
+    pub pointer_bindings: Vec<PointerBinding>,
     pub quit_requires_shift: bool,
 
     pub tty_viewports: Vec<ViewportOutputConfig>,
@@ -116,6 +117,7 @@ impl Default for RuntimeTuning {
             keybinds: Keybinds::default(),
             keybind_launch_command: String::new(),
             launch_bindings: Vec::new(),
+            pointer_bindings: default_pointer_bindings(Keybinds::default().modifier),
             quit_requires_shift: true,
 
             tty_viewports: Vec::new(),
@@ -242,6 +244,21 @@ impl RuntimeTuning {
             evdev_to_key_name(kb.move_down),
         )
     }
+}
+
+pub(crate) fn default_pointer_bindings(modifier: KeyModifiers) -> Vec<PointerBinding> {
+    vec![
+        PointerBinding {
+            modifiers: modifier,
+            button: 272,
+            action: PointerBindingAction::MoveWindow,
+        },
+        PointerBinding {
+            modifiers: modifier,
+            button: 273,
+            action: PointerBindingAction::ResizeWindow,
+        },
+    ]
 }
 
 fn default_config_path() -> PathBuf {

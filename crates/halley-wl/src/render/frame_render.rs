@@ -54,8 +54,9 @@ struct SceneCollections {
 
 struct CursorScene {
     cursor_status: smithay::input::pointer::CursorImageStatus,
-    cursor_surface_elements:
-        Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>,
+    cursor_surface_elements: Vec<
+        smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>,
+    >,
 }
 
 fn draw_clamped_border_rect<F: smithay::backend::renderer::Frame>(
@@ -193,20 +194,8 @@ pub(crate) fn draw_debug_frame_to_target(
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
 
-    draw_debug_frame_scene(
-        &mut frame,
-        st,
-        size,
-        &prepared,
-        &scene,
-        hover_node,
-    )?;
-    draw_cursor_layer(
-        &mut frame,
-        prepared.damage,
-        cursor_screen,
-        &cursor,
-    )?;
+    draw_debug_frame_scene(&mut frame, st, size, &prepared, &scene, hover_node)?;
+    draw_cursor_layer(&mut frame, prepared.damage, cursor_screen, &cursor)?;
 
     let _ = frame.finish()?;
     Ok(())
@@ -336,8 +325,7 @@ fn draw_debug_frame_scene(
     prepared: &PreparedFrameState,
     scene: &SceneCollections,
     hover_node: Option<halley_core::field::NodeId>,
-) -> Result<(), Box<dyn Error>>
-{
+) -> Result<(), Box<dyn Error>> {
     if !scene.layer_under_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.layer_under_elements, &[prepared.damage]);
     }
@@ -514,8 +502,7 @@ fn draw_cursor_layer(
     damage: Rectangle<i32, Physical>,
     cursor_screen: Option<(f32, f32)>,
     cursor: &CursorScene,
-) -> Result<(), Box<dyn Error>>
-{
+) -> Result<(), Box<dyn Error>> {
     if let Some((sx, sy)) = cursor_screen {
         let draw_fallback_arrow = match &cursor.cursor_status {
             smithay::input::pointer::CursorImageStatus::Hidden => false,

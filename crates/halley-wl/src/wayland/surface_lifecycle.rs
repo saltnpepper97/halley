@@ -3,7 +3,7 @@ use std::time::Instant;
 use halley_core::decay::DecayLevel;
 use halley_core::field::{NodeId, Vec2};
 use smithay::reexports::wayland_server::{
-    backend::ObjectId, protocol::wl_surface::WlSurface, Resource,
+    Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
 };
 
 use crate::activity::CommitActivity;
@@ -103,10 +103,22 @@ impl HalleyWlState {
         let nx = size.x * 0.5;
         let ny = size.y * 0.5;
         let candidates = [
-            Vec2 { x: focus_pos.x + fx + gap + nx, y: focus_pos.y }, // right
-            Vec2 { x: focus_pos.x - fx - gap - nx, y: focus_pos.y }, // left
-            Vec2 { x: focus_pos.x, y: focus_pos.y + fy + gap + ny }, // below
-            Vec2 { x: focus_pos.x, y: focus_pos.y - fy - gap - ny }, // above
+            Vec2 {
+                x: focus_pos.x + fx + gap + nx,
+                y: focus_pos.y,
+            }, // right
+            Vec2 {
+                x: focus_pos.x - fx - gap - nx,
+                y: focus_pos.y,
+            }, // left
+            Vec2 {
+                x: focus_pos.x,
+                y: focus_pos.y + fy + gap + ny,
+            }, // below
+            Vec2 {
+                x: focus_pos.x,
+                y: focus_pos.y - fy - gap - ny,
+            }, // above
         ];
         candidates
             .into_iter()
@@ -150,9 +162,18 @@ impl HalleyWlState {
         // Try the current growth direction, then 90° rotations.
         let rotations: [Vec2; 4] = [
             base_dir,
-            Vec2 { x: -base_dir.y, y: base_dir.x },
-            Vec2 { x: -base_dir.x, y: -base_dir.y },
-            Vec2 { x: base_dir.y, y: -base_dir.x },
+            Vec2 {
+                x: -base_dir.y,
+                y: base_dir.x,
+            },
+            Vec2 {
+                x: -base_dir.x,
+                y: -base_dir.y,
+            },
+            Vec2 {
+                x: base_dir.y,
+                y: -base_dir.x,
+            },
         ];
         for dir in rotations {
             let island_center = Vec2 {
@@ -274,10 +295,11 @@ impl HalleyWlState {
         };
         let _ = self.field.set_detached(id, true);
         self.pending_spawn_activate_at_ms.remove(&id);
-        self.pending_spawn_pan_queue.push_back(crate::state::PendingSpawnPan {
-            node_id: id,
-            target_center,
-        });
+        self.pending_spawn_pan_queue
+            .push_back(crate::state::PendingSpawnPan {
+                node_id: id,
+                target_center,
+            });
         self.maybe_start_pending_spawn_pan(now);
     }
 
@@ -335,7 +357,8 @@ impl HalleyWlState {
         let _ = self.field.set_detached(active.node_id, false);
         let _ = self.field.set_decay_level(active.node_id, DecayLevel::Hot);
         if let Some(node) = self.field.node(active.node_id) {
-            self.last_active_size.insert(active.node_id, node.intrinsic_size);
+            self.last_active_size
+                .insert(active.node_id, node.intrinsic_size);
         }
         self.mark_active_transition(active.node_id, now, 620);
         self.set_interaction_focus(Some(active.node_id), 30_000, now);
@@ -419,13 +442,18 @@ mod tests {
             .handle();
         let mut state = HalleyWlState::new(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
-        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
 
         let size = Vec2 { x: 100.0, y: 80.0 };
         let focus = state
             .field
             .spawn_surface("focus", Vec2 { x: 0.0, y: 0.0 }, size);
-        let _ = state.field.set_state(focus, halley_core::field::NodeState::Active);
+        let _ = state
+            .field
+            .set_state(focus, halley_core::field::NodeState::Active);
         state.last_surface_focus_ms.insert(focus, 1);
         state.interaction_focus = Some(focus);
 
@@ -443,25 +471,31 @@ mod tests {
             .handle();
         let mut state = HalleyWlState::new(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
-        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
 
         let size = Vec2 { x: 100.0, y: 80.0 };
         let focus = state
             .field
             .spawn_surface("focus", Vec2 { x: 0.0, y: 0.0 }, size);
-        let _ = state.field.set_state(focus, halley_core::field::NodeState::Active);
+        let _ = state
+            .field
+            .set_state(focus, halley_core::field::NodeState::Active);
         state.last_surface_focus_ms.insert(focus, 1);
         state.interaction_focus = Some(focus);
 
         // Block the right slot.
         let gap = state.non_overlap_gap_world();
         let right_x = size.x + gap + size.x * 0.5;
-        let _ = state.field.spawn_surface("blocker", Vec2 { x: right_x, y: 0.0 }, size);
+        let _ = state
+            .field
+            .spawn_surface("blocker", Vec2 { x: right_x, y: 0.0 }, size);
 
         let pos = state.try_spawn_adjacent(size).expect("should fit left");
         assert!(pos.x < 0.0, "expected left placement, got {:?}", pos);
     }
-
 
     #[test]
     fn try_spawn_fermat_returns_none_when_fully_packed() {
@@ -471,19 +505,27 @@ mod tests {
             .handle();
         let mut state = HalleyWlState::new(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
-        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
 
         let size = Vec2 { x: 100.0, y: 80.0 };
         let gap = state.non_overlap_gap_world();
         let step = ((size.x + gap) * (size.y + gap)).sqrt();
         // Place blockers at every Fermat candidate position.
         for (offset, _) in spawn_fermat_candidates(step, HalleyWlState::SPAWN_FERMAT_COUNT) {
-            let pos = Vec2 { x: offset.x, y: offset.y };
+            let pos = Vec2 {
+                x: offset.x,
+                y: offset.y,
+            };
             state.field.spawn_surface("blocker", pos, size);
         }
 
         assert!(
-            state.try_spawn_fermat(Vec2 { x: 0.0, y: 0.0 }, size).is_none(),
+            state
+                .try_spawn_fermat(Vec2 { x: 0.0, y: 0.0 }, size)
+                .is_none(),
             "should return None when all candidates are blocked"
         );
     }
@@ -495,7 +537,10 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = HalleyWlState::new(&dh, tuning);
-        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
 
         let size = Vec2 { x: 100.0, y: 80.0 };
         let focus = state
@@ -542,7 +587,10 @@ mod tests {
         state.note_pan_viewport_change(now);
 
         assert_eq!(state.spawn_anchor_mode, crate::state::SpawnAnchorMode::View);
-        assert_eq!(state.current_spawn_focus(), (None, Vec2 { x: 700.0, y: 0.0 }));
+        assert_eq!(
+            state.current_spawn_focus(),
+            (None, Vec2 { x: 700.0, y: 0.0 })
+        );
     }
 
     #[test]
@@ -565,7 +613,9 @@ mod tests {
 
         assert_eq!(state.current_spawn_focus(), (None, state.viewport.center));
         assert!(
-            state.try_spawn_adjacent(Vec2 { x: 100.0, y: 80.0 }).is_none(),
+            state
+                .try_spawn_adjacent(Vec2 { x: 100.0, y: 80.0 })
+                .is_none(),
             "adjacent placement should be skipped when focused surface is off-screen"
         );
     }

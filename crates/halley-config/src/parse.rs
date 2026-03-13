@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
-use super::{KeyModifiers, LaunchBinding};
-use crate::keybinds::{key_name_to_evdev, modifiers_empty, parse_chord, parse_modifiers};
-use crate::layout::ViewportOutputConfig;
-use crate::legacy::{parse_legacy_keybinds, strip_legacy_keybind_block};
+use super::{KeyModifiers, LaunchBinding, PointerBinding, PointerBindingAction};
 use crate::RuntimeTuning;
+use crate::keybinds::{
+    is_pointer_button_code, key_name_to_evdev, modifiers_empty, parse_chord, parse_modifiers,
+};
+use crate::layout::{ViewportOutputConfig, default_pointer_bindings};
+use crate::legacy::{parse_legacy_keybinds, strip_legacy_keybind_block};
 
 use rune_cfg::RuneConfig;
 
@@ -388,6 +390,7 @@ fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 fn load_keybind_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.keybinds.modifier = pick_modifiers(cfg, &["keybinds.mod"], out.keybinds.modifier);
     out.launch_bindings.clear();
+    out.pointer_bindings = default_pointer_bindings(out.keybinds.modifier);
     apply_explicit_keybind_overrides(cfg, out);
 }
 
@@ -466,11 +469,7 @@ fn parse_viewport_outputs(cfg: &RuneConfig, root: &str) -> Vec<ViewportOutputCon
                 ],
                 0.0,
             );
-            if v > 0.0 {
-                Some(v as f64)
-            } else {
-                None
-            }
+            if v > 0.0 { Some(v as f64) } else { None }
         };
 
         out.push(ViewportOutputConfig {
@@ -585,6 +584,7 @@ fn apply_explicit_keybind_overrides_map(
 
     if let Some(m) = parse_modifiers(mod_token.as_str()) {
         out.keybinds.modifier = m;
+        out.pointer_bindings = default_pointer_bindings(out.keybinds.modifier);
     }
 
     for (chord, action) in bindings {
@@ -640,6 +640,12 @@ fn apply_explicit_binding(
             out.keybinds.quit = key;
             out.quit_requires_shift = effective_mods.shift;
         }
+        "move_window" | "move-window" if is_pointer_button_code(key) => {
+            upsert_pointer_binding(out, effective_mods, key, PointerBindingAction::MoveWindow);
+        }
+        "resize_window" | "resize-window" if is_pointer_button_code(key) => {
+            upsert_pointer_binding(out, effective_mods, key, PointerBindingAction::ResizeWindow);
+        }
         _ => {
             out.keybind_launch_command = action_trimmed.to_string();
             upsert_launch_binding(out, effective_mods, key, action_trimmed);
@@ -661,5 +667,27 @@ fn upsert_launch_binding(out: &mut RuntimeTuning, mods: KeyModifiers, key: u32, 
         modifiers: mods,
         key,
         command: command.to_string(),
+    });
+}
+
+fn upsert_pointer_binding(
+    out: &mut RuntimeTuning,
+    mods: KeyModifiers,
+    button: u32,
+    action: PointerBindingAction,
+) {
+    if let Some(existing) = out
+        .pointer_bindings
+        .iter_mut()
+        .find(|b| b.button == button && b.modifiers == mods)
+    {
+        existing.action = action;
+        return;
+    }
+
+    out.pointer_bindings.push(PointerBinding {
+        modifiers: mods,
+        button,
+        action,
     });
 }

@@ -4,11 +4,11 @@ use std::time::Instant;
 
 use smithay::{
     backend::renderer::{
-        element::{surface::render_elements_from_surface_tree, utils::CropRenderElement, Kind},
-        gles::GlesRenderer,
         Color32F, Frame,
+        element::{Kind, surface::render_elements_from_surface_tree, utils::CropRenderElement},
+        gles::GlesRenderer,
     },
-    desktop::{utils::bbox_from_surface_tree, PopupManager},
+    desktop::{PopupManager, utils::bbox_from_surface_tree},
     reexports::wayland_server::Resource,
     utils::{Physical, Rectangle, Size},
 };
