@@ -22,7 +22,8 @@ pub enum Request {
     Quit,
     Reload,
     Outputs,
-    Docking(DockingCommand),
+    DockingBegin,
+    DockingEnd,
     NodeMove(NodeMoveDirection),
 }
 
@@ -32,4 +33,12 @@ pub enum Response {
     Reloaded,
     Outputs(OutputsResponse),
     Error(IpcError),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum NodeMoveDirection {
+    Left,
+    Right,
+    Up,
+    Down,
 }

@@ -213,8 +213,12 @@ impl HalleyWlState {
             self.resize_static_lock_pos = None;
             self.resize_static_until_ms = 0;
         }
-        self.suspend_overlap_resolve = false;
-        self.suspend_state_checks = false;
+        self.suspend_overlap_resolve = true;
+        self.suspend_state_checks = true;
+        self.immediate_physics_nodes.clear();
+        self.physics_velocity.remove(&id);
+        self.release_smoothing_until_ms.remove(&id);
+        self.release_axis_lock.remove(&id);
         let _ = self.field.undock_node(id);
         self.field.clear_dock_preview();
         let _ = self.field.set_pinned(id, false);
@@ -241,9 +245,14 @@ impl HalleyWlState {
         self.field.clear_dock_preview();
         self.suspend_overlap_resolve = false;
         self.suspend_state_checks = false;
+        let immediate_nodes: Vec<NodeId> = self.immediate_physics_nodes.drain().collect();
+        for node_id in immediate_nodes {
+            self.release_smoothing_until_ms.remove(&node_id);
+            self.release_axis_lock.remove(&node_id);
+            self.smoothed_render_pos.remove(&node_id);
+            self.smoothed_render_vel.remove(&node_id);
+        }
         self.enforce_docked_pairs();
-        self.resolve_overlap_now();
-        self.clear_direct_carry_nodes();
     }
 
     pub fn update_carry_state_preview(&mut self, id: NodeId, now: Instant) {
@@ -285,5 +294,38 @@ impl HalleyWlState {
                 self.push_neighbors_for_activation(id);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn carry_release_preserves_immediate_physics_velocity() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new(&dh, tuning);
+        let dragged =
+            state
+                .field
+                .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 400.0, y: 300.0 });
+        let affected =
+            state
+                .field
+                .spawn_surface("b", Vec2 { x: 430.0, y: 0.0 }, Vec2 { x: 400.0, y: 300.0 });
+
+        state.begin_carry_state_tracking(dragged);
+        state.immediate_physics_nodes.insert(affected);
+        state
+            .physics_velocity
+            .insert(affected, Vec2 { x: 180.0, y: -24.0 });
+
+        state.end_carry_state_tracking(dragged);
+
+        let velocity = state.physics_velocity.get(&affected).copied();
+        assert_eq!(velocity, Some(Vec2 { x: 180.0, y: -24.0 }));
     }
 }

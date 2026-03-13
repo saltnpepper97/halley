@@ -98,6 +98,10 @@ pub(crate) fn active_node_screen_rect(
     now: Instant,
     resize_preview: Option<ResizeCtx>,
 ) -> Option<(f32, f32, f32, f32)> {
+    if st.is_fullscreen_node(node_id) {
+        return Some((0.0, 0.0, w.max(1) as f32, h.max(1) as f32));
+    }
+
     if let Some(active_resize) = active_resize_geometry_screen(node_id, resize_preview) {
         return Some((
             active_resize.frame_left,
@@ -145,6 +149,24 @@ pub(crate) fn active_node_surface_transform_screen_details(
     let n = st.field.node(node_id)?;
     if n.state != halley_core::field::NodeState::Active {
         return None;
+    }
+
+    if st.is_fullscreen_node(node_id) {
+        let (local_x, local_y, _, _) = active_node_visual_local_rect(st, node_id).or_else(|| {
+            st.field.node(node_id).map(|n| {
+                (
+                    0.0,
+                    0.0,
+                    n.intrinsic_size.x.max(1.0),
+                    n.intrinsic_size.y.max(1.0),
+                )
+            })
+        })?;
+        return Some(ActiveNodeSurfaceTransformScreen {
+            origin_x: -local_x,
+            origin_y: -local_y,
+            scale: 1.0,
+        });
     }
 
     let anim = st.anim_style_for(node_id, n.state.clone(), now);

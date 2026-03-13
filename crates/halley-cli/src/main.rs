@@ -1,6 +1,6 @@
 use halley_ipc::{
-    DockingCommand, LogicalOutputInfo, NodeMoveDirection, OutputInfo, OutputStatus,
-    OutputsResponse, Request, Response, send_request,
+    LogicalOutputInfo, NodeMoveDirection, OutputInfo, OutputStatus, OutputsResponse, Request,
+    Response, send_request,
 };
 
 fn main() {
@@ -11,10 +11,12 @@ fn main() {
         Some("reload") => Request::Reload,
         Some("outputs") => Request::Outputs,
         Some("docking") => match args.next().as_deref() {
-            Some("begin") => Request::Docking(DockingCommand::Begin),
-            Some("end") => Request::Docking(DockingCommand::End),
-            Some(other) => exit_usage(&format!("unknown docking command: {other}")),
-            None => exit_usage("missing docking command"),
+            Some("begin") => Request::DockingBegin,
+            Some("end") => Request::DockingEnd,
+            _ => {
+                eprintln!("usage: halleyctl docking begin|end");
+                std::process::exit(2);
+            }
         },
         Some("node") => match args.next().as_deref() {
             Some("move") => match args.next().as_deref() {
@@ -22,11 +24,15 @@ fn main() {
                 Some("right") => Request::NodeMove(NodeMoveDirection::Right),
                 Some("up") => Request::NodeMove(NodeMoveDirection::Up),
                 Some("down") => Request::NodeMove(NodeMoveDirection::Down),
-                Some(other) => exit_usage(&format!("unknown node move direction: {other}")),
-                None => exit_usage("missing node move direction"),
+                _ => {
+                    eprintln!("usage: halleyctl node move left|right|up|down");
+                    std::process::exit(2);
+                }
             },
-            Some(other) => exit_usage(&format!("unknown node command: {other}")),
-            None => exit_usage("missing node command"),
+            _ => {
+                eprintln!("usage: halleyctl node move left|right|up|down");
+                std::process::exit(2);
+            }
         },
         Some("help") | Some("--help") | Some("-h") | None => {
             print_help();
@@ -62,17 +68,19 @@ fn print_help() {
     println!("  halleyctl quit");
     println!("  halleyctl reload");
     println!("  halleyctl outputs");
-    println!("  halleyctl docking begin|end");
-    println!("  halleyctl node move left|right|up|down");
+    println!("  halleyctl docking begin");
+    println!("  halleyctl docking end");
+    println!("  halleyctl node move left");
+    println!("  halleyctl node move right");
+    println!("  halleyctl node move up");
+    println!("  halleyctl node move down");
     println!();
     println!("Commands:");
-    println!("  quit                Ask the running Halley compositor to exit");
-    println!("  reload              Ask the running Halley compositor to reload config");
-    println!(
-        "  outputs             Print current output information from the running Halley compositor"
-    );
-    println!("  docking begin|end   Start or end compositor docking mode");
-    println!("  node move ...       Move the latest/focused node in the given direction");
+    println!("  quit      Ask the running Halley compositor to exit");
+    println!("  reload    Ask the running Halley compositor to reload config");
+    println!("  outputs   Print current output information from the running Halley compositor");
+    println!("  docking   Control compositor docking state");
+    println!("  node      Run node-scoped commands");
 }
 
 fn print_response(response: Response) -> Result<(), String> {

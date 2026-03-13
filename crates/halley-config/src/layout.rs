@@ -11,6 +11,18 @@ use super::{
 };
 use crate::keybinds::evdev_to_key_name;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AutostartPhase {
+    Once,
+    OnReload,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AutostartCommand {
+    pub phase: AutostartPhase,
+    pub command: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
     pub tick_ms: u64,
@@ -57,6 +69,7 @@ pub struct RuntimeTuning {
     pub compositor_bindings: Vec<CompositorBinding>,
     pub launch_bindings: Vec<LaunchBinding>,
     pub pointer_bindings: Vec<PointerBinding>,
+    pub autostart_commands: Vec<AutostartCommand>,
     pub quit_requires_shift: bool,
 
     pub tty_viewports: Vec<ViewportOutputConfig>,
@@ -124,6 +137,7 @@ impl Default for RuntimeTuning {
             compositor_bindings: Vec::new(),
             launch_bindings: Vec::new(),
             pointer_bindings: default_pointer_bindings(Keybinds::default().modifier),
+            autostart_commands: Vec::new(),
             quit_requires_shift: true,
 
             tty_viewports: Vec::new(),
@@ -230,12 +244,13 @@ impl RuntimeTuning {
     pub fn keybinds_resolved_summary(&self) -> String {
         let kb = &self.keybinds;
         format!(
-            "mod={} reload={} minimize={} overview={} quit={} (requires_shift={}) compositor_actions={} custom_launches={} primary=[{},{},{},{}] secondary=[{},{},{},{}] move=[{},{},{},{}]",
+            "mod={} reload={} minimize={} overview={} quit={} docking={} (requires_shift={}) custom_launches={} primary=[{},{},{},{}] secondary=[{},{},{},{}] move=[{},{},{},{}]",
             kb.modifier_name(),
             evdev_to_key_name(kb.reload),
             evdev_to_key_name(kb.minimize_focused),
             evdev_to_key_name(kb.overview_toggle),
             evdev_to_key_name(kb.quit),
+            evdev_to_key_name(kb.docking),
             self.quit_requires_shift,
             self.compositor_bindings.len(),
             self.launch_bindings.len(),
@@ -252,6 +267,13 @@ impl RuntimeTuning {
             evdev_to_key_name(kb.move_up),
             evdev_to_key_name(kb.move_down),
         )
+    }
+
+    pub fn autostart_commands_for(&self, phase: AutostartPhase) -> impl Iterator<Item = &str> + '_ {
+        self.autostart_commands
+            .iter()
+            .filter(move |entry| entry.phase == phase)
+            .map(|entry| entry.command.as_str())
     }
 }
 

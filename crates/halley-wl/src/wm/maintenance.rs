@@ -418,7 +418,72 @@ impl HalleyWlState {
     }
 
     pub(crate) fn push_neighbors_for_activation(&mut self, activated: NodeId) {
-  
+        if !self.tuning.physics_enabled {
+            return;
+        }
+        let now_ms = self.now_ms(Instant::now());
+        let Some(a) = self.field.node(activated) else {
+            return;
+        };
+        if !self.field.is_visible(activated) {
+            return;
+        }
+        let apos = a.pos;
+        let aext = self.collision_extents_for_node(a);
+        let pair_gap = self.non_overlap_gap_world();
+
+        let mut others: Vec<(NodeId, Vec2, super::overlap::CollisionExtents, f32)> = self
+            .field
+            .nodes()
+            .iter()
+            .filter_map(|(&id, n)| {
+                if id == activated
+                    || !self.field.is_visible(id)
+                    || n.kind != halley_core::field::NodeKind::Surface
+                    || self.resize_static_node == Some(id)
+                    || self.is_recently_resized_node(id, now_ms)
+                {
+                    return None;
+                }
+                let oext = self.collision_extents_for_node(n);
+                let d2 = (n.pos.x - apos.x).powi(2) + (n.pos.y - apos.y).powi(2);
+                Some((id, n.pos, oext, d2))
+            })
+            .collect();
+
+        others.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut moved = 0usize;
+        for (id, opos, oext, _) in others {
+            if moved >= 3 {
+                break;
+            }
+            let dx = opos.x - apos.x;
+            let dy = opos.y - apos.y;
+            let req_x = self.required_sep_x(apos.x, aext, opos.x, oext, pair_gap);
+            let req_y = self.required_sep_y(apos.y, aext, opos.y, oext, pair_gap);
+            let ox = req_x - dx.abs();
+            let oy = req_y - dy.abs();
+            if ox <= 0.0 || oy <= 0.0 {
+                continue;
+            }
+            let target = if ox < oy {
+                let s = if dx >= 0.0 { 1.0 } else { -1.0 };
+                Vec2 {
+                    x: apos.x + s * (req_x + 1.0),
+                    y: opos.y,
+                }
+            } else {
+                let s = if dy >= 0.0 { 1.0 } else { -1.0 };
+                Vec2 {
+                    x: opos.x,
+                    y: apos.y + s * (req_y + 1.0),
+                }
+            };
+            if self.carry_for_physics(id, target) {
+                moved += 1;
+            }
+        }
     }
 
     pub(crate) fn reconcile_surface_bindings(&mut self) {
@@ -473,6 +538,9 @@ impl HalleyWlState {
                 self.carry_zone_pending.remove(&id);
                 self.carry_zone_pending_since_ms.remove(&id);
                 self.carry_activation_anim_armed.remove(&id);
+                self.release_smoothing_until_ms.remove(&id);
+                self.release_axis_lock.remove(&id);
+                self.physics_velocity.remove(&id);
                 if self.resize_active == Some(id) {
                     self.resize_active = None;
                 }

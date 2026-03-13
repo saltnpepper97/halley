@@ -18,9 +18,15 @@ pub struct KeyModifiers {
 pub struct Keybinds {
     pub modifier: KeyModifiers,
     pub reload: u32,
+    pub reload_modifiers: KeyModifiers,
     pub minimize_focused: u32,
+    pub minimize_focused_modifiers: KeyModifiers,
     pub overview_toggle: u32,
+    pub overview_toggle_modifiers: KeyModifiers,
     pub quit: u32,
+    pub quit_modifiers: KeyModifiers,
+    pub docking: u32,
+    pub docking_modifiers: KeyModifiers,
     pub primary_left: u32,
     pub primary_right: u32,
     pub primary_up: u32,
@@ -30,9 +36,13 @@ pub struct Keybinds {
     pub secondary_up: u32,
     pub secondary_down: u32,
     pub move_left: u32,
+    pub move_left_modifiers: KeyModifiers,
     pub move_right: u32,
+    pub move_right_modifiers: KeyModifiers,
     pub move_up: u32,
+    pub move_up_modifiers: KeyModifiers,
     pub move_down: u32,
+    pub move_down_modifiers: KeyModifiers,
 }
 
 #[derive(Clone, Debug)]
@@ -82,27 +92,38 @@ pub struct PointerBinding {
 
 impl Default for Keybinds {
     fn default() -> Self {
+        let modifier = KeyModifiers {
+            left_alt: true,
+            ..KeyModifiers::default()
+        };
         Self {
-            modifier: KeyModifiers {
-                left_alt: true,
-                ..KeyModifiers::default()
-            },
-            reload: 19,           // r
+            modifier,
+            reload: 19, // r
+            reload_modifiers: modifier,
             minimize_focused: 49, // n
-            overview_toggle: 24,  // o
-            quit: 16,             // q
-            primary_left: 105,    // left
-            primary_right: 106,   // right
-            primary_up: 103,      // up
-            primary_down: 108,    // down
-            secondary_left: 36,   // j
-            secondary_right: 38,  // l
-            secondary_up: 23,     // i
-            secondary_down: 37,   // k
+            minimize_focused_modifiers: modifier,
+            overview_toggle: 24, // o
+            overview_toggle_modifiers: modifier,
+            quit: 16, // q
+            quit_modifiers: modifier,
+            docking: 32, // d
+            docking_modifiers: modifier,
+            primary_left: 105,   // left
+            primary_right: 106,  // right
+            primary_up: 103,     // up
+            primary_down: 108,   // down
+            secondary_left: 36,  // j
+            secondary_right: 38, // l
+            secondary_up: 23,    // i
+            secondary_down: 37,  // k
             move_left: 0,
+            move_left_modifiers: modifier,
             move_right: 0,
+            move_right_modifiers: modifier,
             move_up: 0,
+            move_up_modifiers: modifier,
             move_down: 0,
+            move_down_modifiers: modifier,
         }
     }
 }

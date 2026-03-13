@@ -3,8 +3,5 @@ pub mod layout;
 pub mod legacy;
 pub mod parse;
 
-pub use keybinds::{
-    CompositorBinding, CompositorBindingAction, DirectionalAction, KeyModifiers, Keybinds,
-    LaunchBinding, PointerBinding, PointerBindingAction,
-};
-pub use layout::{RuntimeTuning, ViewportOutputConfig};
+pub use keybinds::{KeyModifiers, Keybinds, LaunchBinding, PointerBinding, PointerBindingAction};
+pub use layout::{AutostartCommand, AutostartPhase, RuntimeTuning, ViewportOutputConfig};

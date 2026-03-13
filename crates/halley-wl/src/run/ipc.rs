@@ -10,15 +10,16 @@ use once_cell::sync::OnceCell;
 
 use eventline::{error, info, warn};
 use halley_ipc::{
-    DockingCommand, IpcError, NodeMoveDirection, OutputInfo, OutputsResponse, Request, Response,
-    decode_request, encode_response, read_frame, write_frame,
+    IpcError, NodeMoveDirection, OutputInfo, OutputsResponse, Request, Response, decode_request,
+    encode_response, read_frame, write_frame,
 };
 
 #[derive(Debug, Clone, Copy)]
 pub enum RuntimeIpcCommand {
     Quit,
     Reload,
-    Docking(DockingCommand),
+    DockingBegin,
+    DockingEnd,
     NodeMove(NodeMoveDirection),
 }
 
@@ -160,6 +161,20 @@ fn handle_request(
             }),
             Err(err) => Response::Error(IpcError::Internal(err.to_string())),
         },
+        Request::DockingBegin => match command_tx.send(RuntimeIpcCommand::DockingBegin) {
+            Ok(()) => Response::Ok,
+            Err(err) => Response::Error(IpcError::Internal(err.to_string())),
+        },
+        Request::DockingEnd => match command_tx.send(RuntimeIpcCommand::DockingEnd) {
+            Ok(()) => Response::Ok,
+            Err(err) => Response::Error(IpcError::Internal(err.to_string())),
+        },
+        Request::NodeMove(direction) => {
+            match command_tx.send(RuntimeIpcCommand::NodeMove(direction)) {
+                Ok(()) => Response::Ok,
+                Err(err) => Response::Error(IpcError::Internal(err.to_string())),
+            }
+        }
     }
 }
 fn remove_stale_socket(path: &Path) -> io::Result<()> {
