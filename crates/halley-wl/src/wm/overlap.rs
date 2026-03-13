@@ -1,9 +1,7 @@
 use super::*;
 use std::collections::VecDeque;
-
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CollisionExtents {
     pub left: f32,
@@ -11,7 +9,6 @@ pub(crate) struct CollisionExtents {
     pub top: f32,
     pub bottom: f32,
 }
-
 impl CollisionExtents {
     #[inline]
     pub(crate) fn symmetric(size: Vec2) -> Self {
@@ -22,7 +19,6 @@ impl CollisionExtents {
             bottom: size.y * 0.5,
         }
     }
-
     #[inline]
     fn size(self) -> Vec2 {
         Vec2 {
@@ -31,7 +27,6 @@ impl CollisionExtents {
         }
     }
 }
-
 impl HalleyWlState {
     const PHYSICS_DEPTH_LIMIT: usize = 6;
     const DRAG_AXIS_DOMINANCE: f32 = 1.35;
@@ -42,32 +37,26 @@ impl HalleyWlState {
     const PHYSICS_MAX_IMPULSE_LIMIT: f32 = 2200.0;
     const PHYSICS_MIN_BOUNCE_LIMIT: f32 = 420.0;
     const PHYSICS_MAX_BOUNCE_LIMIT: f32 = 2600.0;
-
     #[inline]
     fn bump_response(&self) -> f32 {
         self.tuning.non_overlap_bump_damping.clamp(0.05, 1.0)
     }
-
     #[inline]
     fn physics_damping_per_sec(&self) -> f32 {
         1.8 + self.bump_response() * 4.2
     }
-
     #[inline]
     fn drag_impulse_gain(&self) -> f32 {
         2.6 + self.bump_response() * 2.4
     }
-
     #[inline]
     fn collision_push_gain(&self) -> f32 {
         5.5 + self.bump_response() * 7.5
     }
-
     #[inline]
     fn collision_bounce(&self) -> f32 {
         0.05 + self.bump_response() * 0.17
     }
-
     #[inline]
     pub(crate) fn carry_for_physics(&mut self, id: NodeId, to: Vec2) -> bool {
         if self.resize_static_node == Some(id) {
@@ -101,19 +90,16 @@ impl HalleyWlState {
         }
         true
     }
-
     #[inline]
     fn world_units_per_px_xy(&self) -> (f32, f32) {
         let wx = self.viewport.size.x / self.zoom_ref_size.x.max(1.0);
         let wy = self.viewport.size.y / self.zoom_ref_size.y.max(1.0);
         (wx.max(0.01), wy.max(0.01))
     }
-
     pub(crate) fn non_overlap_gap_world(&self) -> f32 {
         let (wx, wy) = self.world_units_per_px_xy();
         self.tuning.non_overlap_gap_px.max(0.0) * ((wx + wy) * 0.5)
     }
-
     #[inline]
     pub(crate) fn required_sep_x(
         &self,
@@ -129,7 +115,6 @@ impl HalleyWlState {
             a_ext.left + b_ext.right + gap
         }
     }
-
     #[inline]
     pub(crate) fn required_sep_y(
         &self,
@@ -145,7 +130,6 @@ impl HalleyWlState {
             a_ext.top + b_ext.bottom + gap
         }
     }
-
     #[inline]
     pub(crate) fn update_release_axis_from_motion(&mut self, id: NodeId, motion: Vec2) {
         if motion.x.abs() > motion.y.abs() * Self::DRAG_AXIS_DOMINANCE {
@@ -154,14 +138,12 @@ impl HalleyWlState {
             self.release_axis_lock.insert(id, false);
         }
     }
-
     #[inline]
     pub(crate) fn release_smoothing_active_for(&self, id: NodeId, now_ms: u64) -> bool {
         self.release_smoothing_until_ms
             .get(&id)
             .is_some_and(|&until| until > now_ms)
     }
-
     #[inline]
     fn collision_axis(motion: Vec2, overlap_x: f32, overlap_y: f32) -> bool {
         if motion.x.abs() > motion.y.abs() * Self::DRAG_AXIS_DOMINANCE {
@@ -172,7 +154,6 @@ impl HalleyWlState {
             overlap_x <= overlap_y
         }
     }
-
     #[inline]
     fn push_direction(delta: f32, motion: f32) -> f32 {
         if motion.abs() > 0.01 {
@@ -183,14 +164,12 @@ impl HalleyWlState {
             -1.0
         }
     }
-
     #[inline]
     fn body_locked(&self, id: NodeId) -> bool {
         self.carry_zone_hint.contains_key(&id)
             || self.resize_active == Some(id)
             || self.resize_static_node == Some(id)
     }
-
     #[inline]
     fn add_physics_velocity(&mut self, id: NodeId, delta: Vec2) {
         let inv_mass = self.body_inverse_mass(id);
@@ -209,7 +188,6 @@ impl HalleyWlState {
         vel.x = (vel.x + delta.x * inv_mass).clamp(-limit, limit);
         vel.y = (vel.y + delta.y * inv_mass).clamp(-limit, limit);
     }
-
     #[inline]
     fn body_mass_for_node(&self, node: &halley_core::field::Node) -> f32 {
         match node.state {
@@ -221,7 +199,6 @@ impl HalleyWlState {
             }
         }
     }
-
     #[inline]
     fn body_inverse_mass(&self, id: NodeId) -> f32 {
         self.field
@@ -229,7 +206,6 @@ impl HalleyWlState {
             .map(|node| 1.0 / self.body_mass_for_node(node).max(0.001))
             .unwrap_or(1.0)
     }
-
     #[inline]
     fn collision_velocity_limit(
         &self,
@@ -258,7 +234,6 @@ impl HalleyWlState {
             )
         }
     }
-
     fn carry_surface_docking_clamped(&mut self, id: NodeId, to: Vec2) -> bool {
         let Some(node) = self.field.node(id) else {
             return false;
@@ -271,7 +246,6 @@ impl HalleyWlState {
             y: to.y - from.y,
         };
         let mut mover_pos = to;
-
         for _ in 0..12 {
             let others: Vec<(Vec2, CollisionExtents)> = self
                 .field
@@ -313,13 +287,17 @@ impl HalleyWlState {
                 break;
             }
         }
-
         self.carry_for_physics(id, mover_pos)
     }
-
     fn apply_drag_impulses(&mut self, source_id: NodeId, drag_motion: Vec2) {
-        let mut queue = VecDeque::from([(source_id, drag_motion, 0usize)]);
-        while let Some((mover_id, motion, depth)) = queue.pop_front() {
+        // Use total drag speed for impulse magnitude so a diagonal approach at
+        // speed V gives the same kick as a direct axis-aligned hit at speed V.
+        // Previously motion.x.abs()/motion.y.abs() was used per-branch, which
+        // gave only ~70% of the correct impulse on a 45-degree approach, making
+        // the neighbor escape too slowly and getting hit again next frame.
+        let drag_speed = (drag_motion.x * drag_motion.x + drag_motion.y * drag_motion.y).sqrt();
+        let mut queue = VecDeque::from([(source_id, drag_motion, drag_speed, 0usize)]);
+        while let Some((mover_id, motion, motion_speed, depth)) = queue.pop_front() {
             if depth >= Self::PHYSICS_DEPTH_LIMIT {
                 continue;
             }
@@ -350,7 +328,6 @@ impl HalleyWlState {
                     ))
                 })
                 .collect();
-
             for (other_id, other_pos, other_ext, other_locked) in others {
                 let dx = other_pos.x - mover_pos.x;
                 let dy = other_pos.y - mover_pos.y;
@@ -363,7 +340,6 @@ impl HalleyWlState {
                 if overlap_x <= 0.0 || overlap_y <= 0.0 {
                     continue;
                 }
-
                 if Self::collision_axis(motion, overlap_x, overlap_y) {
                     let dir = Self::push_direction(dx, motion.x);
                     if other_locked {
@@ -383,7 +359,7 @@ impl HalleyWlState {
                     };
                     let impulse_limit = self.collision_velocity_limit(mover_ext, other_ext, false);
                     let impulse = (dir
-                        * (motion.x.abs() * self.drag_impulse_gain()
+                        * (motion_speed * self.drag_impulse_gain()
                             + correction * self.collision_push_gain()))
                     .clamp(-impulse_limit, impulse_limit);
                     let _ = self.carry_for_physics(other_id, target);
@@ -394,6 +370,7 @@ impl HalleyWlState {
                             x: impulse * 0.014,
                             y: 0.0,
                         },
+                        impulse.abs() * 0.014,
                         depth + 1,
                     ));
                 } else {
@@ -415,7 +392,7 @@ impl HalleyWlState {
                     };
                     let impulse_limit = self.collision_velocity_limit(mover_ext, other_ext, false);
                     let impulse = (dir
-                        * (motion.y.abs() * self.drag_impulse_gain()
+                        * (motion_speed * self.drag_impulse_gain()
                             + correction * self.collision_push_gain()))
                     .clamp(-impulse_limit, impulse_limit);
                     let _ = self.carry_for_physics(other_id, target);
@@ -426,13 +403,13 @@ impl HalleyWlState {
                             x: 0.0,
                             y: impulse * 0.014,
                         },
+                        impulse.abs() * 0.014,
                         depth + 1,
                     ));
                 }
             }
         }
     }
-
     fn resolve_static_surface_collisions(&mut self) {
         let mut ids: Vec<NodeId> = self
             .field
@@ -448,7 +425,6 @@ impl HalleyWlState {
             .collect();
         ids.sort_by_key(|id| id.as_u64());
         let gap = self.non_overlap_gap_world();
-
         for _ in 0..24 {
             let mut changed = false;
             for i in 0..ids.len() {
@@ -476,13 +452,11 @@ impl HalleyWlState {
                     if overlap_x <= 0.0 || overlap_y <= 0.0 {
                         continue;
                     }
-
                     let a_locked = self.resize_static_node == Some(a) || na.pinned;
                     let b_locked = self.resize_static_node == Some(b) || nb.pinned;
                     if a_locked && b_locked {
                         continue;
                     }
-
                     if overlap_x <= overlap_y {
                         let dir = if dx >= 0.0 { 1.0 } else { -1.0 };
                         let correction = overlap_x + 0.1;
@@ -573,7 +547,6 @@ impl HalleyWlState {
             }
         }
     }
-
     pub(crate) fn carry_surface_non_overlap(&mut self, id: NodeId, to: Vec2) -> bool {
         if self.docking_active {
             return self.carry_surface_docking_clamped(id, to);
@@ -598,7 +571,6 @@ impl HalleyWlState {
         self.apply_drag_impulses(id, motion);
         true
     }
-
     fn resolve_dynamic_collisions(&mut self, dt: f32) {
         let gap = self.non_overlap_gap_world();
         let ids: Vec<NodeId> = self
@@ -608,8 +580,7 @@ impl HalleyWlState {
             .copied()
             .filter(|&id| self.field.is_visible(id))
             .collect();
-
-        for _ in 0..3 {
+        for _ in 0..10 {
             let mut changed = false;
             for i in 0..ids.len() {
                 for j in (i + 1)..ids.len() {
@@ -636,13 +607,11 @@ impl HalleyWlState {
                     if overlap_x <= 0.0 || overlap_y <= 0.0 {
                         continue;
                     }
-
                     let a_locked = self.body_locked(a) || na.pinned;
                     let b_locked = self.body_locked(b) || nb.pinned;
                     if a_locked && b_locked {
                         continue;
                     }
-
                     let va = self
                         .physics_velocity
                         .get(&a)
@@ -657,9 +626,8 @@ impl HalleyWlState {
                         x: vb.x - va.x,
                         y: vb.y - va.y,
                     };
-
                     if Self::collision_axis(rel, overlap_x, overlap_y) {
-                        let dir = Self::push_direction(dx, rel.x);
+                        let dir = if dx >= 0.0 { 1.0f32 } else { -1.0 };
                         let correction = overlap_x + gap * 0.02;
                         let bounce_limit = self.collision_velocity_limit(aext, bext, true);
                         let speed = (correction / dt.max(1.0 / 240.0)).clamp(0.0, bounce_limit);
@@ -730,7 +698,7 @@ impl HalleyWlState {
                             );
                         }
                     } else {
-                        let dir = Self::push_direction(dy, rel.y);
+                        let dir = if dy >= 0.0 { 1.0_f32 } else { -1.0 };
                         let correction = overlap_y + gap * 0.02;
                         let bounce_limit = self.collision_velocity_limit(aext, bext, true);
                         let speed = (correction / dt.max(1.0 / 240.0)).clamp(0.0, bounce_limit);
@@ -809,12 +777,10 @@ impl HalleyWlState {
             }
         }
     }
-
     pub(crate) fn tick_passive_physics(&mut self) {
         if !self.tuning.physics_enabled {
             return;
         }
-
         let dt = (1.0_f32 / 60.0).clamp(1.0 / 240.0, 1.0 / 20.0);
         let ids: Vec<NodeId> = self.physics_velocity.keys().copied().collect();
         for id in ids {
@@ -844,10 +810,8 @@ impl HalleyWlState {
                 v.y *= damping;
             }
         }
-
         self.resolve_dynamic_collisions(dt);
     }
-
     fn preview_collision_size(real_w: f32, real_h: f32) -> Vec2 {
         let w = real_w.max(1.0);
         let h = real_h.max(1.0);
@@ -866,7 +830,6 @@ impl HalleyWlState {
         out_h = out_h.clamp(100.0, 220.0);
         Vec2 { x: out_w, y: out_h }
     }
-
     #[inline]
     fn active_collision_scale(anim_scale: f32, real_w: f32, real_h: f32) -> f32 {
         let base = Self::preview_collision_size(real_w, real_h);
@@ -881,12 +844,10 @@ impl HalleyWlState {
         }
         out.clamp(0.24, 1.08)
     }
-
     #[inline]
     fn proxy_collision_scale(anim_scale: f32) -> f32 {
         anim_scale.clamp(0.22, 1.4)
     }
-
     fn node_collision_extents(&self, label: &str, anim_scale: f32) -> CollisionExtents {
         let zx = self.viewport.size.x / self.zoom_ref_size.x.max(1.0);
         let zy = self.viewport.size.y / self.zoom_ref_size.y.max(1.0);
@@ -909,7 +870,6 @@ impl HalleyWlState {
             y: marker_h_px * world_per_px_y.max(0.01),
         })
     }
-
     fn surface_window_collision_extents(&self, n: &halley_core::field::Node) -> CollisionExtents {
         let basis = self
             .last_active_size
@@ -936,7 +896,6 @@ impl HalleyWlState {
             bottom: bottom * basis.y.max(1.0) / bbox_h * world_per_px_y,
         }
     }
-
     pub(crate) fn spawn_obstacle_extents_for_node(
         &self,
         n: &halley_core::field::Node,
@@ -947,7 +906,6 @@ impl HalleyWlState {
             self.collision_extents_for_node(n)
         }
     }
-
     pub(crate) fn collision_extents_for_node(
         &self,
         n: &halley_core::field::Node,
@@ -976,18 +934,15 @@ impl HalleyWlState {
             halley_core::field::NodeState::Drifting => CollisionExtents::symmetric(n.footprint),
         }
     }
-
     pub(super) fn collision_size_for_node(&self, n: &halley_core::field::Node) -> Vec2 {
         self.collision_extents_for_node(n).size()
     }
-
     pub(crate) fn resolve_surface_overlap(&mut self) {
         if self.tuning.physics_enabled || self.suspend_overlap_resolve {
             return;
         }
         self.resolve_static_surface_collisions();
     }
-
     pub(super) fn request_toplevel_resize(&mut self, node_id: NodeId, width: i32, height: i32) {
         let width = width.max(96);
         let height = height.max(72);
@@ -1011,11 +966,9 @@ impl HalleyWlState {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn test_state(tuning: halley_config::RuntimeTuning) -> HalleyWlState {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
@@ -1031,7 +984,6 @@ mod tests {
         };
         state
     }
-
     #[test]
     fn collapsed_surface_nodes_use_marker_collision_extents() {
         let mut state = test_state(halley_config::RuntimeTuning::default());
@@ -1051,7 +1003,6 @@ mod tests {
         assert!(ext.left + ext.right < 300.0);
         assert!(ext.top + ext.bottom < 120.0);
     }
-
     #[test]
     fn resolve_surface_overlap_enforces_configured_gap() {
         let mut tuning = halley_config::RuntimeTuning::default();
@@ -1075,7 +1026,6 @@ mod tests {
         let req_x = state.required_sep_x(na.pos.x, ea, nb.pos.x, eb, gap);
         assert!(dx >= req_x - 0.5);
     }
-
     #[test]
     fn static_drag_resolution_keeps_surfaces_non_overlapping_when_physics_is_disabled() {
         let mut tuning = halley_config::RuntimeTuning::default();
@@ -1089,10 +1039,8 @@ mod tests {
             state
                 .field
                 .spawn_surface("b", Vec2 { x: 430.0, y: 0.0 }, Vec2 { x: 400.0, y: 300.0 });
-
         state.begin_carry_state_tracking(a);
         assert!(state.carry_surface_non_overlap(a, Vec2 { x: 280.0, y: 0.0 }));
-
         let na = state.field.node(a).expect("first node");
         let nb = state.field.node(b).expect("second node");
         let ea = state.collision_extents_for_node(na);
@@ -1105,7 +1053,6 @@ mod tests {
             "expected static carry path to keep surfaces separated: dx={dx}, req_x={req_x}"
         );
     }
-
     #[test]
     fn static_drag_resolution_splits_overlap_correction_across_windows() {
         let mut tuning = halley_config::RuntimeTuning::default();
@@ -1119,10 +1066,8 @@ mod tests {
             state
                 .field
                 .spawn_surface("b", Vec2 { x: 430.0, y: 0.0 }, Vec2 { x: 400.0, y: 300.0 });
-
         state.begin_carry_state_tracking(a);
         assert!(state.carry_surface_non_overlap(a, Vec2 { x: 280.0, y: 0.0 }));
-
         let na = state.field.node(a).expect("first node");
         let nb = state.field.node(b).expect("second node");
         let moved_a = 280.0 - na.pos.x;
@@ -1136,7 +1081,6 @@ mod tests {
             "expected static resolution to split correction evenly: a={moved_a}, b={moved_b}"
         );
     }
-
     #[test]
     fn physics_drag_adds_extra_velocity_to_hit_window() {
         let mut state = test_state(halley_config::RuntimeTuning::default());
@@ -1148,10 +1092,8 @@ mod tests {
             state
                 .field
                 .spawn_surface("b", Vec2 { x: 430.0, y: 0.0 }, Vec2 { x: 400.0, y: 300.0 });
-
         state.begin_carry_state_tracking(a);
         assert!(state.carry_surface_non_overlap(a, Vec2 { x: 280.0, y: 0.0 }));
-
         let vb = state
             .physics_velocity
             .get(&b)
@@ -1163,7 +1105,6 @@ mod tests {
             vb
         );
     }
-
     #[test]
     fn collapsed_nodes_receive_less_velocity_than_active_windows() {
         let mut state = test_state(halley_config::RuntimeTuning::default());
@@ -1179,10 +1120,8 @@ mod tests {
         let _ = state
             .field
             .set_state(node, halley_core::field::NodeState::Node);
-
         state.add_physics_velocity(window, Vec2 { x: 100.0, y: 0.0 });
         state.add_physics_velocity(node, Vec2 { x: 100.0, y: 0.0 });
-
         let window_vx = state
             .physics_velocity
             .get(&window)
@@ -1195,13 +1134,11 @@ mod tests {
             .copied()
             .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
             .x;
-
         assert!(
             node_vx > 0.0 && node_vx < window_vx,
             "expected collapsed node to pick up less velocity than a window: node={node_vx}, window={window_vx}"
         );
     }
-
     #[test]
     fn passive_window_keeps_moving_after_drag_impulse() {
         let mut state = test_state(halley_config::RuntimeTuning::default());
@@ -1213,21 +1150,17 @@ mod tests {
             state
                 .field
                 .spawn_surface("b", Vec2 { x: 430.0, y: 0.0 }, Vec2 { x: 400.0, y: 300.0 });
-
         state.begin_carry_state_tracking(a);
         assert!(state.carry_surface_non_overlap(a, Vec2 { x: 280.0, y: 0.0 }));
         let before = state.field.node(b).expect("hit window").pos;
-
         state.tick_passive_physics();
         state.tick_passive_physics();
-
         let after = state.field.node(b).expect("hit window after").pos;
         assert!(
             after.x > before.x + 1.0,
             "expected passive window to keep moving after contact: before={before:?}, after={after:?}"
         );
     }
-
     #[test]
     fn chained_window_node_collision_caps_runaway_velocity() {
         let mut state = test_state(halley_config::RuntimeTuning::default());
@@ -1248,10 +1181,8 @@ mod tests {
         let _ = state
             .field
             .set_state(node, halley_core::field::NodeState::Node);
-
         state.begin_carry_state_tracking(dragged);
         assert!(state.carry_surface_non_overlap(dragged, Vec2 { x: -40.0, y: 0.0 }));
-
         let node_vx = state
             .physics_velocity
             .get(&node)
@@ -1282,7 +1213,6 @@ mod tests {
                 state.collision_velocity_limit(ext, ext, true)
             })
             .expect("other limit");
-
         assert!(
             node_vx <= node_limit + 0.1,
             "expected node velocity to stay bounded after chained overlap: {node_vx}"
@@ -1291,11 +1221,9 @@ mod tests {
             other_vx <= other_limit + 0.1,
             "expected downstream window velocity to stay bounded after chained overlap: {other_vx}"
         );
-
         for _ in 0..8 {
             state.tick_passive_physics();
         }
-
         let node_vx_after = state
             .physics_velocity
             .get(&node)
@@ -1310,7 +1238,6 @@ mod tests {
             .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
             .x
             .abs();
-
         assert!(
             node_vx_after <= node_limit + 0.1,
             "expected passive node bounce to stay bounded: {node_vx_after}"
@@ -1320,7 +1247,6 @@ mod tests {
             "expected passive window bounce to stay bounded: {other_vx_after}"
         );
     }
-
     #[test]
     fn lower_damping_reduces_collision_impulse_strength() {
         let mut soft_tuning = halley_config::RuntimeTuning::default();
@@ -1340,7 +1266,6 @@ mod tests {
             .copied()
             .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
             .x;
-
         let mut firm_tuning = halley_config::RuntimeTuning::default();
         firm_tuning.non_overlap_bump_damping = 0.9;
         let mut firm = test_state(firm_tuning);
@@ -1358,13 +1283,11 @@ mod tests {
             .copied()
             .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
             .x;
-
         assert!(
             soft_vx > 0.0 && firm_vx > soft_vx,
             "expected firmer damping to yield a stronger impulse: soft={soft_vx}, firm={firm_vx}"
         );
     }
-
     #[test]
     fn docking_mode_clamps_the_dragged_window_instead_of_pushing_neighbors() {
         let mut state = test_state(halley_config::RuntimeTuning::default());
@@ -1377,9 +1300,7 @@ mod tests {
             state
                 .field
                 .spawn_surface("b", Vec2 { x: 20.0, y: 0.0 }, Vec2 { x: 400.0, y: 300.0 });
-
         assert!(state.carry_surface_non_overlap(a, Vec2 { x: 20.0, y: 0.0 }));
-
         let na = state.field.node(a).expect("first window");
         let nb = state.field.node(b).expect("second window");
         assert!((nb.pos.x - 20.0).abs() < 0.01);

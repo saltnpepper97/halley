@@ -239,11 +239,54 @@ impl HalleyWlState {
     pub fn note_commit(&mut self, surface: &WlSurface, now: Instant) {
         let key = Self::surface_key(surface);
         self.surface_activity
-            .entry(key)
+            .entry(key.clone())
             .or_insert_with(|| CommitActivity::new(now))
             .on_commit(now);
         if let Some(output) = &self.primary_output {
             output.enter(surface);
+        }
+
+        // Sync the node’s intrinsic size from what the client actually committed.
+        // We only do this for nodes that are still carrying the placeholder size
+        // from new_toplevel (tracked in pending_initial_size_nodes). Once the
+        // first real buffer lands, we read the true geometry and update the node
+        // so that collision, hit-testing, and adjacent placement all use real data.
+        if let Some(&id) = self.surface_to_node.get(&key) {
+            if self.pending_initial_size_nodes.contains(&id) {
+                use smithay::desktop::utils::bbox_from_surface_tree;
+                use smithay::wayland::compositor::with_states;
+                use smithay::wayland::shell::xdg::SurfaceCachedState;
+
+                // Prefer the xdg window geometry if present, fall back to bbox.
+                let committed_size: Option<(i32, i32)> =
+                    with_states(surface, |states| {
+                        states
+                            .cached_state
+                            .get::<SurfaceCachedState>()
+                            .current()
+                            .geometry
+                            .map(|g| (g.size.w, g.size.h))
+                    })
+                    .filter(|&(w, h)| w > 0 && h > 0)
+                    .or_else(|| {
+                        let bbox = bbox_from_surface_tree(surface, (0, 0));
+                        (bbox.size.w > 0 && bbox.size.h > 0)
+                            .then_some((bbox.size.w, bbox.size.h))
+                    });
+
+                if let Some((w, h)) = committed_size {
+                    let new_size = Vec2 {
+                        x: w.max(64) as f32,
+                        y: h.max(64) as f32,
+                    };
+                    if let Some(node) = self.field.node_mut(id) {
+                        node.intrinsic_size = new_size;
+                    }
+                    self.zoom_nominal_size.insert(id, new_size);
+                    self.last_active_size.insert(id, new_size);
+                    self.pending_initial_size_nodes.remove(&id);
+                }
+            }
         }
 
         // Grant keyboard focus to layer surfaces (e.g. fuzzel) on their first
@@ -379,6 +422,7 @@ impl HalleyWlState {
             }
             let _ = self.field.undock_node(id);
             self.field.clear_dock_preview();
+            self.pending_initial_size_nodes.remove(&id);
             self.zoom_nominal_size.remove(&id);
             self.zoom_resize_fallback.remove(&id);
             self.zoom_resize_reject_streak.remove(&id);

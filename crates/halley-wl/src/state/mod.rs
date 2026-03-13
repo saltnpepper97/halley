@@ -165,6 +165,10 @@ pub struct HalleyWlState {
     pub(crate) recent_top_node: Option<NodeId>,
     pub(crate) recent_top_until: Option<Instant>,
 
+    /// Nodes that still carry the placeholder size from new_toplevel and need
+    /// their intrinsic size synced from the first real committed geometry.
+    pub(crate) pending_initial_size_nodes: HashSet<NodeId>,
+
     pub(crate) spawn_cursor: u32,
     pub(crate) spawn_patch: Option<SpawnPatch>,
     pub(crate) spawn_anchor_mode: SpawnAnchorMode,
@@ -276,6 +280,8 @@ impl HalleyWlState {
             window_geometry: HashMap::new(),
             recent_top_node: None,
             recent_top_until: None,
+
+            pending_initial_size_nodes: HashSet::new(),
 
             spawn_cursor: 0,
             spawn_patch: None,
