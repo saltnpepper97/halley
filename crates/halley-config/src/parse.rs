@@ -2,9 +2,7 @@ use std::collections::HashMap;
 
 use super::{KeyModifiers, LaunchBinding, PointerBinding, PointerBindingAction};
 use crate::RuntimeTuning;
-use crate::keybinds::{
-    is_pointer_button_code, key_name_to_evdev, modifiers_empty, parse_chord, parse_modifiers,
-};
+use crate::keybinds::{is_pointer_button_code, key_name_to_evdev, parse_chord, parse_modifiers};
 use crate::layout::{ViewportOutputConfig, default_pointer_bindings};
 use crate::legacy::{parse_legacy_keybinds, strip_legacy_keybind_block};
 
@@ -94,6 +92,7 @@ fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.keybinds.overview_toggle,
     );
     out.keybinds.quit = pick_keycode(cfg, &["dev.keybinds.quit"], out.keybinds.quit);
+    out.keybinds.docking = pick_keycode(cfg, &["dev.keybinds.docking"], out.keybinds.docking);
 
     out.keybind_launch_command = pick_string(
         cfg,
@@ -389,9 +388,23 @@ fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
 fn load_keybind_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.keybinds.modifier = pick_modifiers(cfg, &["keybinds.mod"], out.keybinds.modifier);
+    sync_action_modifiers_with_global(&mut out.keybinds);
     out.launch_bindings.clear();
     out.pointer_bindings = default_pointer_bindings(out.keybinds.modifier);
     apply_explicit_keybind_overrides(cfg, out);
+}
+
+fn sync_action_modifiers_with_global(keybinds: &mut crate::Keybinds) {
+    let modifier = keybinds.modifier;
+    keybinds.reload_modifiers = modifier;
+    keybinds.minimize_focused_modifiers = modifier;
+    keybinds.overview_toggle_modifiers = modifier;
+    keybinds.quit_modifiers = modifier;
+    keybinds.docking_modifiers = modifier;
+    keybinds.move_left_modifiers = modifier;
+    keybinds.move_right_modifiers = modifier;
+    keybinds.move_up_modifiers = modifier;
+    keybinds.move_down_modifiers = modifier;
 }
 
 fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -592,23 +605,11 @@ fn apply_explicit_keybind_overrides_map(
             continue;
         }
 
-        apply_explicit_binding(
-            out,
-            mod_token.as_str(),
-            out.keybinds.modifier,
-            chord.as_str(),
-            action.as_str(),
-        );
+        apply_explicit_binding(out, mod_token.as_str(), chord.as_str(), action.as_str());
     }
 }
 
-fn apply_explicit_binding(
-    out: &mut RuntimeTuning,
-    mod_token: &str,
-    default_mods: KeyModifiers,
-    chord: &str,
-    action: &str,
-) {
+fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str, action: &str) {
     let expanded = chord
         .replace("$var.mod", mod_token)
         .replace("$mod", mod_token);
@@ -617,28 +618,48 @@ fn apply_explicit_binding(
         return;
     };
 
-    let effective_mods = if modifiers_empty(mods) {
-        default_mods
-    } else {
-        mods
-    };
+    let effective_mods = mods;
 
     let action_trimmed = action.trim();
     let action_key = action_trimmed.to_ascii_lowercase();
 
     match action_key.as_str() {
-        "reload" => {
+        "reload" | "reload_config" | "reload-config" => {
             out.keybinds.reload = key;
+            out.keybinds.reload_modifiers = effective_mods;
         }
         "minimize_focused" | "minimize-focused" => {
             out.keybinds.minimize_focused = key;
+            out.keybinds.minimize_focused_modifiers = effective_mods;
         }
         "overview_toggle" | "overview-toggle" => {
             out.keybinds.overview_toggle = key;
+            out.keybinds.overview_toggle_modifiers = effective_mods;
         }
-        "quit" => {
+        "quit" | "quit_halley" | "quit-halley" => {
             out.keybinds.quit = key;
+            out.keybinds.quit_modifiers = effective_mods;
             out.quit_requires_shift = effective_mods.shift;
+        }
+        "docking" => {
+            out.keybinds.docking = key;
+            out.keybinds.docking_modifiers = effective_mods;
+        }
+        "move_left" | "move-left" => {
+            out.keybinds.move_left = key;
+            out.keybinds.move_left_modifiers = effective_mods;
+        }
+        "move_right" | "move-right" => {
+            out.keybinds.move_right = key;
+            out.keybinds.move_right_modifiers = effective_mods;
+        }
+        "move_up" | "move-up" => {
+            out.keybinds.move_up = key;
+            out.keybinds.move_up_modifiers = effective_mods;
+        }
+        "move_down" | "move-down" => {
+            out.keybinds.move_down = key;
+            out.keybinds.move_down_modifiers = effective_mods;
         }
         "move_window" | "move-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, effective_mods, key, PointerBindingAction::MoveWindow);
@@ -690,4 +711,41 @@ fn upsert_pointer_binding(
         button,
         action,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn explicit_move_binding_keeps_shift_modifier() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("mod".to_string(), "super".to_string()),
+            ("$var.mod+shift+left".to_string(), "move_left".to_string()),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert_eq!(tuning.keybinds.move_left, 105);
+        assert!(tuning.keybinds.move_left_modifiers.super_key);
+        assert!(tuning.keybinds.move_left_modifiers.shift);
+    }
+
+    #[test]
+    fn legacy_quit_halley_binding_maps_to_quit_keybind() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("mod".to_string(), "super".to_string()),
+            ("$var.mod+shift+q".to_string(), "quit_halley".to_string()),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert_eq!(tuning.keybinds.quit, 16);
+        assert!(tuning.keybinds.quit_modifiers.super_key);
+        assert!(tuning.keybinds.quit_modifiers.shift);
+        assert!(tuning.quit_requires_shift);
+    }
 }

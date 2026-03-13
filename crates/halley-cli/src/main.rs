@@ -1,5 +1,6 @@
 use halley_ipc::{
-    LogicalOutputInfo, OutputInfo, OutputStatus, OutputsResponse, Request, Response, send_request,
+    LogicalOutputInfo, NodeMoveDirection, OutputInfo, OutputStatus, OutputsResponse, Request,
+    Response, send_request,
 };
 
 fn main() {
@@ -9,6 +10,30 @@ fn main() {
         Some("quit") => Request::Quit,
         Some("reload") => Request::Reload,
         Some("outputs") => Request::Outputs,
+        Some("docking") => match args.next().as_deref() {
+            Some("begin") => Request::DockingBegin,
+            Some("end") => Request::DockingEnd,
+            _ => {
+                eprintln!("usage: halleyctl docking begin|end");
+                std::process::exit(2);
+            }
+        },
+        Some("node") => match args.next().as_deref() {
+            Some("move") => match args.next().as_deref() {
+                Some("left") => Request::NodeMove(NodeMoveDirection::Left),
+                Some("right") => Request::NodeMove(NodeMoveDirection::Right),
+                Some("up") => Request::NodeMove(NodeMoveDirection::Up),
+                Some("down") => Request::NodeMove(NodeMoveDirection::Down),
+                _ => {
+                    eprintln!("usage: halleyctl node move left|right|up|down");
+                    std::process::exit(2);
+                }
+            },
+            _ => {
+                eprintln!("usage: halleyctl node move left|right|up|down");
+                std::process::exit(2);
+            }
+        },
         Some("help") | Some("--help") | Some("-h") | None => {
             print_help();
             return;
@@ -41,11 +66,19 @@ fn print_help() {
     println!("  halleyctl quit");
     println!("  halleyctl reload");
     println!("  halleyctl outputs");
+    println!("  halleyctl docking begin");
+    println!("  halleyctl docking end");
+    println!("  halleyctl node move left");
+    println!("  halleyctl node move right");
+    println!("  halleyctl node move up");
+    println!("  halleyctl node move down");
     println!();
     println!("Commands:");
     println!("  quit      Ask the running Halley compositor to exit");
     println!("  reload    Ask the running Halley compositor to reload config");
     println!("  outputs   Print current output information from the running Halley compositor");
+    println!("  docking   Control compositor docking state");
+    println!("  node      Run node-scoped commands");
 }
 
 fn print_response(response: Response) -> Result<(), String> {

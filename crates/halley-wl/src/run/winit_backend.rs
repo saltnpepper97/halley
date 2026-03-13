@@ -344,6 +344,7 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             ps.move_anim.clear();
                             ps.panning = false;
                         }
+                        crate::interaction::actions::set_docking_active(st, false);
                         st.set_app_focused(false);
                     }
                     WinitEvent::Focus(true) => {
@@ -461,6 +462,15 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         st.apply_tuning(next);
                         info!("ipc: reloaded config from {}", config_path_for_timer.as_str());
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                    }
+                    RuntimeIpcCommand::DockingBegin => {
+                        crate::interaction::actions::set_docking_active(st, true);
+                    }
+                    RuntimeIpcCommand::DockingEnd => {
+                        crate::interaction::actions::set_docking_active(st, false);
+                    }
+                    RuntimeIpcCommand::NodeMove(direction) => {
+                        crate::interaction::actions::move_latest_node_direction(st, direction);
                     }
                 });
 

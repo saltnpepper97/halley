@@ -222,12 +222,13 @@ impl RuntimeTuning {
     pub fn keybinds_resolved_summary(&self) -> String {
         let kb = &self.keybinds;
         format!(
-            "mod={} reload={} minimize={} overview={} quit={} (requires_shift={}) custom_launches={} primary=[{},{},{},{}] secondary=[{},{},{},{}] move=[{},{},{},{}]",
+            "mod={} reload={} minimize={} overview={} quit={} docking={} (requires_shift={}) custom_launches={} primary=[{},{},{},{}] secondary=[{},{},{},{}] move=[{},{},{},{}]",
             kb.modifier_name(),
             evdev_to_key_name(kb.reload),
             evdev_to_key_name(kb.minimize_focused),
             evdev_to_key_name(kb.overview_toggle),
             evdev_to_key_name(kb.quit),
+            evdev_to_key_name(kb.docking),
             self.quit_requires_shift,
             self.launch_bindings.len(),
             evdev_to_key_name(kb.primary_left),
