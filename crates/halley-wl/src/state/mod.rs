@@ -74,6 +74,15 @@ pub(crate) struct ActiveSpawnPan {
     pub reveal_at_ms: u64,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FullscreenRestore {
+    pub pos: Vec2,
+    pub intrinsic_size: Vec2,
+    pub pinned: bool,
+    pub bbox_loc: Option<(f32, f32)>,
+    pub window_geometry: Option<(f32, f32, f32, f32)>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SpawnAnchorMode {
     Focus,
@@ -179,6 +188,8 @@ pub struct HalleyWlState {
     pub(crate) active_spawn_pan: Option<ActiveSpawnPan>,
     pub(crate) started_at: Instant,
     pub(crate) last_debug_dump_at: Instant,
+    pub(crate) fullscreen_node: Option<NodeId>,
+    pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenRestore>,
 }
 
 impl HalleyWlState {
@@ -293,12 +304,35 @@ impl HalleyWlState {
             active_spawn_pan: None,
             started_at: now,
             last_debug_dump_at: now,
+            fullscreen_node: None,
+            fullscreen_restore: HashMap::new(),
         };
         out.animator.set_spec(AnimSpec {
             state_change_ms: out.tuning.dev_anim_state_change_ms,
             bounce: out.tuning.dev_anim_bounce,
         });
         out
+    }
+
+    pub(crate) fn fullscreen_target_size(&self) -> Vec2 {
+        if let Some(output) = &self.primary_output
+            && let Some(mode) = output.current_mode()
+        {
+            return Vec2 {
+                x: mode.size.w.max(1) as f32,
+                y: mode.size.h.max(1) as f32,
+            };
+        }
+
+        Vec2 {
+            x: self.zoom_ref_size.x.max(1.0),
+            y: self.zoom_ref_size.y.max(1.0),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn is_fullscreen_node(&self, id: NodeId) -> bool {
+        self.fullscreen_node == Some(id)
     }
 
     pub(crate) fn configure_dmabuf_importer(

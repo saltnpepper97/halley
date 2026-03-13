@@ -8,6 +8,7 @@ use smithay::reexports::wayland_server::{
 
 use crate::activity::CommitActivity;
 use crate::state::HalleyWlState;
+use crate::surface::request_toplevel_fullscreen_state;
 use crate::wm::overlap::CollisionExtents;
 
 /// Generates candidate spawn positions using a Fermat spiral (golden-angle
@@ -203,6 +204,7 @@ impl HalleyWlState {
             if Some(other.id) == skip_node
                 || other.kind != halley_core::field::NodeKind::Surface
                 || !self.field.is_visible(other.id)
+                || self.is_fullscreen_node(other.id)
             {
                 return false;
             }
@@ -410,6 +412,79 @@ impl HalleyWlState {
         self.maybe_start_pending_spawn_pan(now);
     }
 
+    pub(crate) fn enter_fullscreen(&mut self, surface: smithay::wayland::shell::xdg::ToplevelSurface, now: Instant) {
+        let key = Self::surface_key(surface.wl_surface());
+        let Some(id) = self.surface_to_node.get(&key).copied() else {
+            return;
+        };
+
+        if self.fullscreen_node == Some(id) {
+            request_toplevel_fullscreen_state(self, id, true);
+            self.set_interaction_focus(Some(id), 30_000, now);
+            return;
+        }
+
+        if let Some(other) = self.fullscreen_node
+            && other != id
+        {
+            self.exit_fullscreen(other);
+        }
+
+        let Some(node) = self.field.node(id) else {
+            return;
+        };
+        self.fullscreen_restore.entry(id).or_insert(crate::state::FullscreenRestore {
+            pos: node.pos,
+            intrinsic_size: node.intrinsic_size,
+            pinned: node.pinned,
+            bbox_loc: self.bbox_loc.get(&id).copied(),
+            window_geometry: self.window_geometry.get(&id).copied(),
+        });
+
+        let target_size = self.fullscreen_target_size();
+        let _ = self.field.set_state(id, halley_core::field::NodeState::Active);
+        if let Some(node) = self.field.node_mut(id) {
+            node.intrinsic_size = target_size;
+            node.footprint = target_size;
+        }
+        let _ = self.field.carry(id, self.viewport.center);
+        self.last_active_size.insert(id, target_size);
+        self.manual_collapsed_nodes.remove(&id);
+        self.fullscreen_node = Some(id);
+        self.set_recent_top_node(id, now + std::time::Duration::from_secs(3600));
+        request_toplevel_fullscreen_state(self, id, true);
+        self.set_interaction_focus(Some(id), 30_000, now);
+    }
+
+    pub(crate) fn exit_fullscreen(&mut self, id: NodeId) {
+        if self.fullscreen_node != Some(id) {
+            return;
+        }
+
+        if let Some(restore) = self.fullscreen_restore.remove(&id) {
+            if let Some(node) = self.field.node_mut(id) {
+                node.intrinsic_size = restore.intrinsic_size;
+                node.footprint = restore.intrinsic_size;
+                node.pinned = restore.pinned;
+            }
+            if let Some(bbox_loc) = restore.bbox_loc {
+                self.bbox_loc.insert(id, bbox_loc);
+            } else {
+                self.bbox_loc.remove(&id);
+            }
+            if let Some(window_geometry) = restore.window_geometry {
+                self.window_geometry.insert(id, window_geometry);
+            } else {
+                self.window_geometry.remove(&id);
+            }
+            let _ = self.field.carry(id, restore.pos);
+            self.last_active_size.insert(id, restore.intrinsic_size);
+        }
+
+        self.fullscreen_node = None;
+        request_toplevel_fullscreen_state(self, id, false);
+    }
+
     pub fn drop_surface(&mut self, surface: &WlSurface) {
         if let Some(output) = &self.primary_output {
             output.leave(surface);
@@ -417,6 +492,10 @@ impl HalleyWlState {
         let key = Self::surface_key(surface);
         self.surface_activity.remove(&key);
         if let Some(id) = self.surface_to_node.remove(&key) {
+            if self.fullscreen_node == Some(id) {
+                self.fullscreen_node = None;
+            }
+            self.fullscreen_restore.remove(&id);
             if self.pan_restore_active_focus == Some(id) {
                 self.pan_restore_active_focus = None;
             }

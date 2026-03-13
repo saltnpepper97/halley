@@ -238,6 +238,9 @@ impl HalleyWlState {
         let Some(node) = self.field.node(id) else {
             return false;
         };
+        if self.is_fullscreen_node(id) {
+            return false;
+        }
         let from = node.pos;
         let mover_ext = self.collision_extents_for_node(node);
         let gap = self.non_overlap_gap_world();
@@ -253,6 +256,9 @@ impl HalleyWlState {
                 .iter()
                 .filter_map(|(&oid, other)| {
                     if oid == id || !self.field.is_visible(oid) {
+                        return None;
+                    }
+                    if self.is_fullscreen_node(oid) {
                         return None;
                     }
                     if self.field.dock_partner(id) == Some(oid)
@@ -304,6 +310,9 @@ impl HalleyWlState {
             let Some(mover) = self.field.node(mover_id) else {
                 continue;
             };
+            if self.is_fullscreen_node(mover_id) {
+                continue;
+            }
             let mover_pos = mover.pos;
             let mover_ext = self.collision_extents_for_node(mover);
             let gap = self.non_overlap_gap_world();
@@ -313,6 +322,9 @@ impl HalleyWlState {
                 .iter()
                 .filter_map(|(&oid, other)| {
                     if oid == mover_id || !self.field.is_visible(oid) {
+                        return None;
+                    }
+                    if self.is_fullscreen_node(oid) {
                         return None;
                     }
                     if self.field.dock_partner(mover_id) == Some(oid)
@@ -420,7 +432,9 @@ impl HalleyWlState {
             .filter(|&id| {
                 self.field
                     .node(id)
-                    .is_some_and(|n| n.kind == halley_core::field::NodeKind::Surface)
+                    .is_some_and(|n| {
+                        n.kind == halley_core::field::NodeKind::Surface && !self.is_fullscreen_node(id)
+                    })
             })
             .collect();
         ids.sort_by_key(|id| id.as_u64());
@@ -548,6 +562,9 @@ impl HalleyWlState {
         }
     }
     pub(crate) fn carry_surface_non_overlap(&mut self, id: NodeId, to: Vec2) -> bool {
+        if self.is_fullscreen_node(id) {
+            return false;
+        }
         if self.docking_active {
             return self.carry_surface_docking_clamped(id, to);
         }
@@ -579,6 +596,7 @@ impl HalleyWlState {
             .keys()
             .copied()
             .filter(|&id| self.field.is_visible(id))
+            .filter(|&id| !self.is_fullscreen_node(id))
             .collect();
         for _ in 0..10 {
             let mut changed = false;
@@ -910,6 +928,9 @@ impl HalleyWlState {
         &self,
         n: &halley_core::field::Node,
     ) -> CollisionExtents {
+        if self.is_fullscreen_node(n.id) {
+            return CollisionExtents::symmetric(Vec2 { x: 0.0, y: 0.0 });
+        }
         let now = Instant::now();
         let anim = self.anim_style_for(n.id, n.state.clone(), now);
         match n.state {
@@ -959,6 +980,11 @@ impl HalleyWlState {
                     s.states.set(xdg_toplevel::State::Activated);
                 } else {
                     s.states.unset(xdg_toplevel::State::Activated);
+                }
+                if self.is_fullscreen_node(node_id) {
+                    s.states.set(xdg_toplevel::State::Fullscreen);
+                } else {
+                    s.states.unset(xdg_toplevel::State::Fullscreen);
                 }
             });
             top.send_configure();

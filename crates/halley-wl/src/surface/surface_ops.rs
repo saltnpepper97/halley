@@ -6,6 +6,44 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use crate::state::HalleyWlState;
 
+pub(crate) fn request_toplevel_fullscreen_state(
+    st: &mut HalleyWlState,
+    node_id: halley_core::field::NodeId,
+    fullscreen: bool,
+) {
+    let size = if fullscreen {
+        st.fullscreen_target_size()
+    } else {
+        st.field.node(node_id).map(|node| node.intrinsic_size).unwrap_or_else(|| st.fullscreen_target_size())
+    };
+    let width = size.x.round().max(1.0) as i32;
+    let height = size.y.round().max(1.0) as i32;
+    let focused_node = st.last_input_surface_node();
+
+    for top in st.xdg_shell_state.toplevel_surfaces() {
+        let wl = top.wl_surface();
+        let key = wl.id();
+        if st.surface_to_node.get(&key).copied() != Some(node_id) {
+            continue;
+        }
+        top.with_pending_state(|s| {
+            s.size = Some((width, height).into());
+            if focused_node == Some(node_id) {
+                s.states.set(xdg_toplevel::State::Activated);
+            } else {
+                s.states.unset(xdg_toplevel::State::Activated);
+            }
+            if fullscreen {
+                s.states.set(xdg_toplevel::State::Fullscreen);
+            } else {
+                s.states.unset(xdg_toplevel::State::Fullscreen);
+            }
+        });
+        top.send_configure();
+        break;
+    }
+}
+
 pub(crate) fn request_toplevel_resize_mode(
     st: &mut HalleyWlState,
     node_id: halley_core::field::NodeId,
@@ -26,6 +64,11 @@ pub(crate) fn request_toplevel_resize_mode(
             // Keep toplevel activated during compositor-driven interactive resize.
             // Some CSD clients behave poorly if activation silently drops.
             s.states.set(xdg_toplevel::State::Activated);
+            if st.is_fullscreen_node(node_id) {
+                s.states.set(xdg_toplevel::State::Fullscreen);
+            } else {
+                s.states.unset(xdg_toplevel::State::Fullscreen);
+            }
             if resizing {
                 s.states.set(xdg_toplevel::State::Resizing);
             } else {
