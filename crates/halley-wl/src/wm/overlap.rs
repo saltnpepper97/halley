@@ -36,6 +36,12 @@ impl HalleyWlState {
     const PHYSICS_DEPTH_LIMIT: usize = 6;
     const DRAG_AXIS_DOMINANCE: f32 = 1.35;
     const PHYSICS_MIN_SPEED: f32 = 12.0;
+    const NODE_BODY_MASS: f32 = 1.3;
+    const WINDOW_BODY_MASS: f32 = 1.0;
+    const PHYSICS_MIN_IMPULSE_LIMIT: f32 = 320.0;
+    const PHYSICS_MAX_IMPULSE_LIMIT: f32 = 2200.0;
+    const PHYSICS_MIN_BOUNCE_LIMIT: f32 = 420.0;
+    const PHYSICS_MAX_BOUNCE_LIMIT: f32 = 2600.0;
 
     #[inline]
     fn bump_response(&self) -> f32 {
@@ -187,12 +193,70 @@ impl HalleyWlState {
 
     #[inline]
     fn add_physics_velocity(&mut self, id: NodeId, delta: Vec2) {
+        let inv_mass = self.body_inverse_mass(id);
+        let limit = self
+            .field
+            .node(id)
+            .map(|node| {
+                let ext = self.collision_extents_for_node(node);
+                self.collision_velocity_limit(ext, ext, true)
+            })
+            .unwrap_or(Self::PHYSICS_MAX_BOUNCE_LIMIT);
         let vel = self
             .physics_velocity
             .entry(id)
             .or_insert(Vec2 { x: 0.0, y: 0.0 });
-        vel.x += delta.x;
-        vel.y += delta.y;
+        vel.x = (vel.x + delta.x * inv_mass).clamp(-limit, limit);
+        vel.y = (vel.y + delta.y * inv_mass).clamp(-limit, limit);
+    }
+
+    #[inline]
+    fn body_mass_for_node(&self, node: &halley_core::field::Node) -> f32 {
+        match node.state {
+            halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
+                Self::NODE_BODY_MASS
+            }
+            halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting => {
+                Self::WINDOW_BODY_MASS
+            }
+        }
+    }
+
+    #[inline]
+    fn body_inverse_mass(&self, id: NodeId) -> f32 {
+        self.field
+            .node(id)
+            .map(|node| 1.0 / self.body_mass_for_node(node).max(0.001))
+            .unwrap_or(1.0)
+    }
+
+    #[inline]
+    fn collision_velocity_limit(
+        &self,
+        a_ext: CollisionExtents,
+        b_ext: CollisionExtents,
+        bounce: bool,
+    ) -> f32 {
+        let a_size = a_ext.size();
+        let b_size = b_ext.size();
+        let scale = a_size
+            .x
+            .max(a_size.y)
+            .max(b_size.x.max(b_size.y))
+            .max(self.non_overlap_gap_world() * 10.0);
+        let response_scale = 0.85 + self.bump_response() * 0.9;
+        let raw = if bounce { scale * 5.0 } else { scale * 4.0 } * response_scale;
+        if bounce {
+            raw.clamp(
+                Self::PHYSICS_MIN_BOUNCE_LIMIT,
+                Self::PHYSICS_MAX_BOUNCE_LIMIT,
+            )
+        } else {
+            raw.clamp(
+                Self::PHYSICS_MIN_IMPULSE_LIMIT,
+                Self::PHYSICS_MAX_IMPULSE_LIMIT,
+            )
+        }
     }
 
     fn carry_surface_docking_clamped(&mut self, id: NodeId, to: Vec2) -> bool {
@@ -317,9 +381,11 @@ impl HalleyWlState {
                         x: other_pos.x + dir * correction,
                         y: other_pos.y,
                     };
-                    let impulse = dir
+                    let impulse_limit = self.collision_velocity_limit(mover_ext, other_ext, false);
+                    let impulse = (dir
                         * (motion.x.abs() * self.drag_impulse_gain()
-                            + correction * self.collision_push_gain());
+                            + correction * self.collision_push_gain()))
+                    .clamp(-impulse_limit, impulse_limit);
                     let _ = self.carry_for_physics(other_id, target);
                     self.add_physics_velocity(other_id, Vec2 { x: impulse, y: 0.0 });
                     queue.push_back((
@@ -347,9 +413,11 @@ impl HalleyWlState {
                         x: other_pos.x,
                         y: other_pos.y + dir * correction,
                     };
-                    let impulse = dir
+                    let impulse_limit = self.collision_velocity_limit(mover_ext, other_ext, false);
+                    let impulse = (dir
                         * (motion.y.abs() * self.drag_impulse_gain()
-                            + correction * self.collision_push_gain());
+                            + correction * self.collision_push_gain()))
+                    .clamp(-impulse_limit, impulse_limit);
                     let _ = self.carry_for_physics(other_id, target);
                     self.add_physics_velocity(other_id, Vec2 { x: 0.0, y: impulse });
                     queue.push_back((
@@ -593,7 +661,8 @@ impl HalleyWlState {
                     if Self::collision_axis(rel, overlap_x, overlap_y) {
                         let dir = Self::push_direction(dx, rel.x);
                         let correction = overlap_x + gap * 0.02;
-                        let speed = correction / dt.max(1.0 / 240.0);
+                        let bounce_limit = self.collision_velocity_limit(aext, bext, true);
+                        let speed = (correction / dt.max(1.0 / 240.0)).clamp(0.0, bounce_limit);
                         if a_locked {
                             let _ = self.carry_for_physics(
                                 b,
@@ -625,32 +694,37 @@ impl HalleyWlState {
                                 },
                             );
                         } else {
-                            let half = correction * 0.5;
+                            let total_inv_mass =
+                                self.body_inverse_mass(a) + self.body_inverse_mass(b);
+                            let a_share = (self.body_inverse_mass(a) / total_inv_mass.max(0.001))
+                                .clamp(0.0, 1.0);
+                            let b_share = (self.body_inverse_mass(b) / total_inv_mass.max(0.001))
+                                .clamp(0.0, 1.0);
                             let _ = self.carry_for_physics(
                                 a,
                                 Vec2 {
-                                    x: apos.x - dir * half,
+                                    x: apos.x - dir * correction * a_share,
                                     y: apos.y,
                                 },
                             );
                             let _ = self.carry_for_physics(
                                 b,
                                 Vec2 {
-                                    x: bpos.x + dir * half,
+                                    x: bpos.x + dir * correction * b_share,
                                     y: bpos.y,
                                 },
                             );
                             self.add_physics_velocity(
                                 a,
                                 Vec2 {
-                                    x: -dir * speed * self.collision_bounce() * 0.5,
+                                    x: -dir * speed * self.collision_bounce() * a_share,
                                     y: 0.0,
                                 },
                             );
                             self.add_physics_velocity(
                                 b,
                                 Vec2 {
-                                    x: dir * speed * self.collision_bounce() * 0.5,
+                                    x: dir * speed * self.collision_bounce() * b_share,
                                     y: 0.0,
                                 },
                             );
@@ -658,7 +732,8 @@ impl HalleyWlState {
                     } else {
                         let dir = Self::push_direction(dy, rel.y);
                         let correction = overlap_y + gap * 0.02;
-                        let speed = correction / dt.max(1.0 / 240.0);
+                        let bounce_limit = self.collision_velocity_limit(aext, bext, true);
+                        let speed = (correction / dt.max(1.0 / 240.0)).clamp(0.0, bounce_limit);
                         if a_locked {
                             let _ = self.carry_for_physics(
                                 b,
@@ -690,33 +765,38 @@ impl HalleyWlState {
                                 },
                             );
                         } else {
-                            let half = correction * 0.5;
+                            let total_inv_mass =
+                                self.body_inverse_mass(a) + self.body_inverse_mass(b);
+                            let a_share = (self.body_inverse_mass(a) / total_inv_mass.max(0.001))
+                                .clamp(0.0, 1.0);
+                            let b_share = (self.body_inverse_mass(b) / total_inv_mass.max(0.001))
+                                .clamp(0.0, 1.0);
                             let _ = self.carry_for_physics(
                                 a,
                                 Vec2 {
                                     x: apos.x,
-                                    y: apos.y - dir * half,
+                                    y: apos.y - dir * correction * a_share,
                                 },
                             );
                             let _ = self.carry_for_physics(
                                 b,
                                 Vec2 {
                                     x: bpos.x,
-                                    y: bpos.y + dir * half,
+                                    y: bpos.y + dir * correction * b_share,
                                 },
                             );
                             self.add_physics_velocity(
                                 a,
                                 Vec2 {
                                     x: 0.0,
-                                    y: -dir * speed * self.collision_bounce() * 0.5,
+                                    y: -dir * speed * self.collision_bounce() * a_share,
                                 },
                             );
                             self.add_physics_velocity(
                                 b,
                                 Vec2 {
                                     x: 0.0,
-                                    y: dir * speed * self.collision_bounce() * 0.5,
+                                    y: dir * speed * self.collision_bounce() * b_share,
                                 },
                             );
                         }
@@ -1085,6 +1165,44 @@ mod tests {
     }
 
     #[test]
+    fn collapsed_nodes_receive_less_velocity_than_active_windows() {
+        let mut state = test_state(halley_config::RuntimeTuning::default());
+        let window = state.field.spawn_surface(
+            "window",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        let node =
+            state
+                .field
+                .spawn_surface("node", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 400.0, y: 300.0 });
+        let _ = state
+            .field
+            .set_state(node, halley_core::field::NodeState::Node);
+
+        state.add_physics_velocity(window, Vec2 { x: 100.0, y: 0.0 });
+        state.add_physics_velocity(node, Vec2 { x: 100.0, y: 0.0 });
+
+        let window_vx = state
+            .physics_velocity
+            .get(&window)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
+            .x;
+        let node_vx = state
+            .physics_velocity
+            .get(&node)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
+            .x;
+
+        assert!(
+            node_vx > 0.0 && node_vx < window_vx,
+            "expected collapsed node to pick up less velocity than a window: node={node_vx}, window={window_vx}"
+        );
+    }
+
+    #[test]
     fn passive_window_keeps_moving_after_drag_impulse() {
         let mut state = test_state(halley_config::RuntimeTuning::default());
         let a =
@@ -1107,6 +1225,99 @@ mod tests {
         assert!(
             after.x > before.x + 1.0,
             "expected passive window to keep moving after contact: before={before:?}, after={after:?}"
+        );
+    }
+
+    #[test]
+    fn chained_window_node_collision_caps_runaway_velocity() {
+        let mut state = test_state(halley_config::RuntimeTuning::default());
+        let dragged = state.field.spawn_surface(
+            "dragged",
+            Vec2 { x: -520.0, y: 0.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        let node =
+            state
+                .field
+                .spawn_surface("node", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 400.0, y: 300.0 });
+        let other = state.field.spawn_surface(
+            "other",
+            Vec2 { x: 120.0, y: 0.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        let _ = state
+            .field
+            .set_state(node, halley_core::field::NodeState::Node);
+
+        state.begin_carry_state_tracking(dragged);
+        assert!(state.carry_surface_non_overlap(dragged, Vec2 { x: -40.0, y: 0.0 }));
+
+        let node_vx = state
+            .physics_velocity
+            .get(&node)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
+            .x
+            .abs();
+        let other_vx = state
+            .physics_velocity
+            .get(&other)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
+            .x
+            .abs();
+        let node_limit = state
+            .field
+            .node(node)
+            .map(|n| {
+                let ext = state.collision_extents_for_node(n);
+                state.collision_velocity_limit(ext, ext, true)
+            })
+            .expect("node limit");
+        let other_limit = state
+            .field
+            .node(other)
+            .map(|n| {
+                let ext = state.collision_extents_for_node(n);
+                state.collision_velocity_limit(ext, ext, true)
+            })
+            .expect("other limit");
+
+        assert!(
+            node_vx <= node_limit + 0.1,
+            "expected node velocity to stay bounded after chained overlap: {node_vx}"
+        );
+        assert!(
+            other_vx <= other_limit + 0.1,
+            "expected downstream window velocity to stay bounded after chained overlap: {other_vx}"
+        );
+
+        for _ in 0..8 {
+            state.tick_passive_physics();
+        }
+
+        let node_vx_after = state
+            .physics_velocity
+            .get(&node)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
+            .x
+            .abs();
+        let other_vx_after = state
+            .physics_velocity
+            .get(&other)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
+            .x
+            .abs();
+
+        assert!(
+            node_vx_after <= node_limit + 0.1,
+            "expected passive node bounce to stay bounded: {node_vx_after}"
+        );
+        assert!(
+            other_vx_after <= other_limit + 0.1,
+            "expected passive window bounce to stay bounded: {other_vx_after}"
         );
     }
 

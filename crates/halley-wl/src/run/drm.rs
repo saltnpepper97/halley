@@ -349,6 +349,56 @@ pub(super) fn collect_outputs_for_ipc(
     outputs
 }
 
+pub(super) fn requested_mode_for_current_connector(
+    dev: &DrmDevice,
+    current_connector_name: &str,
+    tuning: &RuntimeTuning,
+) -> Result<Option<drm_control::Mode>, Box<dyn Error>> {
+    let Some(wanted) = tuning
+        .tty_viewports
+        .iter()
+        .find(|viewport| viewport.connector == current_connector_name)
+    else {
+        return Ok(None);
+    };
+
+    let resources = dev
+        .resource_handles()
+        .map_err(|err| io::Error::other(format!("failed to query drm resources: {}", err)))?;
+
+    let Some(connector) = resources.connectors().iter().find_map(|conn| {
+        let info = dev.get_connector(*conn, true).ok()?;
+        (info.state() == drm_control::connector::State::Connected
+            && info.to_string() == current_connector_name)
+            .then_some(info)
+    }) else {
+        return Err(io::Error::other(format!(
+            "configured viewport {} is not currently connected",
+            current_connector_name
+        ))
+        .into());
+    };
+
+    let mode = connector
+        .modes()
+        .iter()
+        .copied()
+        .find(|mode| {
+            mode.size() == (wanted.width as u16, wanted.height as u16)
+                && wanted
+                    .refresh_rate
+                    .is_none_or(|hz| (mode.vrefresh() as f64 - hz).abs() < 1.0)
+        })
+        .ok_or_else(|| {
+            io::Error::other(format!(
+                "configured viewport {} requests {}x{}, but no such mode is available",
+                wanted.connector, wanted.width, wanted.height
+            ))
+        })?;
+
+    Ok(Some(mode))
+}
+
 fn drm_mode_matches(a: drm_control::Mode, b: drm_control::Mode) -> bool {
     let (aw, ah) = a.size();
     let (bw, bh) = b.size();

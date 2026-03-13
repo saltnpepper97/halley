@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::interaction::types::{NodeMoveAnim, PointerState};
 use crate::render::ease_in_out_cubic;
@@ -49,6 +49,7 @@ pub(crate) fn advance_node_move_anim(
 mod tests {
     use super::*;
     use halley_core::field::Vec2;
+    use std::time::Duration;
 
     #[test]
     fn move_anim_uses_constrained_carry_when_physics_is_enabled() {
