@@ -211,10 +211,10 @@ pub(super) fn select_tty_scanout(
                 .find(|(_, info)| info.to_string() == wanted.connector)
             {
                 let Some(mode) = info.modes().iter().copied().find(|m| {
-                        m.size() == (wanted.width as u16, wanted.height as u16)
-                            && wanted
-                                .refresh_rate
-                                .is_none_or(|hz| (m.vrefresh() as f64 - hz).abs() < 1.0)
+                    m.size() == (wanted.width as u16, wanted.height as u16)
+                        && wanted
+                            .refresh_rate
+                            .is_none_or(|hz| (m.vrefresh() as f64 - hz).abs() < 1.0)
                 }) else {
                     return Err(io::Error::other(format!(
                         "configured viewport {} requests {}x{}, but no such mode is available",

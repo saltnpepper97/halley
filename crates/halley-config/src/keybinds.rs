@@ -42,6 +42,19 @@ pub struct LaunchBinding {
     pub command: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerBindingAction {
+    MoveWindow,
+    ResizeWindow,
+}
+
+#[derive(Clone, Debug)]
+pub struct PointerBinding {
+    pub modifiers: KeyModifiers,
+    pub button: u32,
+    pub action: PointerBindingAction,
+}
+
 impl Default for Keybinds {
     fn default() -> Self {
         Self {
@@ -368,15 +381,38 @@ pub fn key_name_to_evdev(name: &str) -> Option<u32> {
         "insert" => Some(110),
         "delete" => Some(111),
 
+        "mouseleft" | "leftmouse" | "leftbutton" | "btnleft" | "btn_left" => Some(272),
+        "mouseright" | "rightmouse" | "rightbutton" | "btnright" | "btn_right" => Some(273),
+        "mousemiddle" | "middlemouse" | "middlebutton" | "btnmiddle" | "btn_middle" => Some(274),
+        "mouse4" | "mouseback" | "sidebutton" | "btnside" | "btn_side" => Some(275),
+        "mouse5" | "mouseforward" | "extrabutton" | "btnextra" | "btn_extra" => Some(276),
+
         "xf86audiomute" | "audiomute" | "mute" => Some(113),
         "xf86audiolowervolume" | "audiolowervolume" | "volumedown" => Some(114),
         "xf86audioraisevolume" | "audioraisevolume" | "volumeup" => Some(115),
+        "xf86audiostop" | "audiostop" | "stopmedia" => Some(166),
         "xf86audioplay" | "audioplay" | "playpause" => Some(164),
         "xf86audioprev" | "audioprev" | "previoussong" => Some(165),
         "xf86audionext" | "audionext" | "nextsong" => Some(163),
+        "xf86audiorecord" | "audiorecord" => Some(167),
+        "xf86audiorewind" | "audiorewind" | "rewind" => Some(168),
+        "xf86homepage" | "homepage" => Some(172),
+        "xf86search" | "search" => Some(217),
+        "xf86monbrightnessdown" | "brightnessdown" => Some(224),
+        "xf86monbrightnessup" | "brightnessup" => Some(225),
+        "xf86mail" | "mail" => Some(155),
+        "xf86calculator" | "calculator" => Some(140),
+        "xf86sleep" | "sleep" => Some(142),
+        "xf86audiopause" | "audiopause" => Some(201),
+        "xf86audiomicmute" | "audiomicmute" | "micmute" => Some(248),
 
         _ => None,
     }
+}
+
+#[inline]
+pub fn is_pointer_button_code(code: u32) -> bool {
+    matches!(code, 272..=276)
 }
 
 pub fn evdev_to_key_name(code: u32) -> &'static str {
@@ -456,12 +492,72 @@ pub fn evdev_to_key_name(code: u32) -> &'static str {
         109 => "PageDown",
         110 => "Insert",
         111 => "Delete",
+        140 => "XF86Calculator",
+        142 => "XF86Sleep",
+        155 => "XF86Mail",
         113 => "XF86AudioMute",
         114 => "XF86AudioLowerVolume",
         115 => "XF86AudioRaiseVolume",
         163 => "XF86AudioNext",
         164 => "XF86AudioPlay",
         165 => "XF86AudioPrev",
+        166 => "XF86AudioStop",
+        167 => "XF86AudioRecord",
+        168 => "XF86AudioRewind",
+        172 => "XF86HomePage",
+        201 => "XF86AudioPause",
+        217 => "XF86Search",
+        224 => "XF86MonBrightnessDown",
+        225 => "XF86MonBrightnessUp",
+        248 => "XF86AudioMicMute",
+        272 => "MouseLeft",
+        273 => "MouseRight",
+        274 => "MouseMiddle",
+        275 => "MouseBack",
+        276 => "MouseForward",
         _ => "?",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{evdev_to_key_name, key_name_to_evdev, parse_chord, parse_modifiers};
+
+    #[test]
+    fn generic_alt_modifier_matches_either_side_in_config() {
+        let mods = parse_modifiers("alt").expect("alt should parse");
+        assert!(mods.alt);
+        assert!(!mods.left_alt);
+        assert!(!mods.right_alt);
+
+        let (chord_mods, key) = parse_chord("alt+r").expect("alt+r should parse");
+        assert!(chord_mods.alt);
+        assert_eq!(key, 19);
+    }
+
+    #[test]
+    fn mouse_button_aliases_resolve_to_pointer_button_codes() {
+        assert_eq!(key_name_to_evdev("mouseleft"), Some(272));
+        assert_eq!(key_name_to_evdev("btn_right"), Some(273));
+        assert_eq!(key_name_to_evdev("middlemouse"), Some(274));
+        assert_eq!(key_name_to_evdev("mouseback"), Some(275));
+        assert_eq!(key_name_to_evdev("mouseforward"), Some(276));
+    }
+
+    #[test]
+    fn xf86_media_aliases_resolve_to_expected_codes() {
+        assert_eq!(key_name_to_evdev("XF86AudioMute"), Some(113));
+        assert_eq!(key_name_to_evdev("XF86AudioStop"), Some(166));
+        assert_eq!(key_name_to_evdev("XF86AudioPause"), Some(201));
+        assert_eq!(key_name_to_evdev("XF86AudioMicMute"), Some(248));
+        assert_eq!(key_name_to_evdev("XF86MonBrightnessUp"), Some(225));
+    }
+
+    #[test]
+    fn reverse_lookup_uses_canonical_names_for_new_codes() {
+        assert_eq!(evdev_to_key_name(272), "MouseLeft");
+        assert_eq!(evdev_to_key_name(275), "MouseBack");
+        assert_eq!(evdev_to_key_name(166), "XF86AudioStop");
+        assert_eq!(evdev_to_key_name(248), "XF86AudioMicMute");
     }
 }

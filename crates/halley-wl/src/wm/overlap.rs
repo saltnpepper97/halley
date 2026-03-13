@@ -677,13 +677,22 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = HalleyWlState::new(&dh, tuning);
-        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
-        state.zoom_ref_size = Vec2 { x: 1600.0, y: 1200.0 };
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        state.zoom_ref_size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
 
         let id = state.field.spawn_surface(
             "collapsed-firefox",
             Vec2 { x: 0.0, y: 0.0 },
-            Vec2 { x: 1200.0, y: 900.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 900.0,
+            },
         );
         let _ = state
             .field

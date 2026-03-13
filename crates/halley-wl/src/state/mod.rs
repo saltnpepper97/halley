@@ -421,7 +421,8 @@ impl HalleyWlState {
             .resize_static_node
             .is_some_and(|_| now_ms < self.resize_static_until_ms);
         if resize_settling
-            && let (Some(id), Some(lock_pos)) = (self.resize_static_node, self.resize_static_lock_pos)
+            && let (Some(id), Some(lock_pos)) =
+                (self.resize_static_node, self.resize_static_lock_pos)
             && let Some(n) = self.field.node(id)
             && ((n.pos.x - lock_pos.x).abs() > 0.05 || (n.pos.y - lock_pos.y).abs() > 0.05)
         {

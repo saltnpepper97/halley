@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use eventline::info;
-use smithay::desktop::{utils::under_from_surface_tree, PopupManager, WindowSurfaceType};
+use smithay::desktop::{PopupManager, WindowSurfaceType, utils::under_from_surface_tree};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};
 
