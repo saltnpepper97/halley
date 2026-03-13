@@ -1,13 +1,13 @@
-use eventline::info;
-use halley_config::AutostartPhase;
-use halley_ipc::NodeMoveDirection;
+use std::process::Command;
+
+use eventline::{info, warn};
 
 use super::input_utils::{key_matches, modifier_exact};
 use crate::interaction::actions::{
-    minimize_focused_active_node, move_latest_node_direction, set_docking_active,
+    docking_mode_active, minimize_focused_active_node, move_latest_node_direction, set_docking_mode,
 };
 use crate::interaction::types::ModState;
-use crate::run::{run_autostart_commands, spawn_shell_command};
+use crate::run::request_xwayland_start;
 use crate::state::HalleyWlState;
 use halley_config::{CompositorBindingAction, DirectionalAction, KeyModifiers, RuntimeTuning};
 use halley_ipc::NodeMoveDirection;
@@ -36,9 +36,9 @@ fn legacy_compositor_action(
 
     if key_matches(key_code, kb.quit) {
         let need = if st.tuning.quit_requires_shift {
-            with_extra_shift(kb.quit_modifiers)
+            with_extra_shift(kb.modifier)
         } else {
-            kb.quit_modifiers
+            kb.modifier
         };
         if modifier_exact(mods, need) {
             return Some(CompositorBindingAction::Quit {
@@ -47,28 +47,12 @@ fn legacy_compositor_action(
         }
     }
 
-    if key_matches(key_code, kb.reload) && modifier_exact(mods, kb.reload_modifiers) {
-        return true;
+    if key_matches(key_code, kb.reload) && modifier_exact(mods, kb.modifier) {
+        return Some(CompositorBindingAction::Reload);
     }
 
-    if key_matches(key_code, kb.minimize_focused)
-        && modifier_exact(mods, kb.minimize_focused_modifiers)
-    {
-        return true;
-    }
-
-    if key_matches(key_code, kb.docking) && modifier_exact(mods, kb.docking_modifiers) {
-        return true;
-    }
-
-    if matches!(
-        key_code,
-        code if key_matches(code, kb.move_left) && modifier_exact(mods, kb.move_left_modifiers)
-            || key_matches(code, kb.move_right) && modifier_exact(mods, kb.move_right_modifiers)
-            || key_matches(code, kb.move_up) && modifier_exact(mods, kb.move_up_modifiers)
-            || key_matches(code, kb.move_down) && modifier_exact(mods, kb.move_down_modifiers)
-    ) {
-        return true;
+    if key_matches(key_code, kb.minimize_focused) && modifier_exact(mods, kb.modifier) {
+        return Some(CompositorBindingAction::MinimizeFocused);
     }
 
     if !st.tuning.dev_enabled {
@@ -148,17 +132,21 @@ pub(crate) fn apply_compositor_action_press(
     }
 }
 
-    matches!(
-        key_code,
-        code if key_matches(code, kb.primary_left) && modifier_exact(mods, kb.modifier)
-            || key_matches(code, kb.primary_right) && modifier_exact(mods, kb.modifier)
-            || key_matches(code, kb.primary_up) && modifier_exact(mods, kb.modifier)
-            || key_matches(code, kb.primary_down) && modifier_exact(mods, kb.modifier)
-            || key_matches(code, kb.secondary_left) && modifier_exact(mods, kb.modifier)
-            || key_matches(code, kb.secondary_right) && modifier_exact(mods, kb.modifier)
-            || key_matches(code, kb.secondary_up) && modifier_exact(mods, kb.modifier)
-            || key_matches(code, kb.secondary_down) && modifier_exact(mods, kb.modifier)
-    )
+pub(crate) fn apply_compositor_action_release(
+    st: &mut HalleyWlState,
+    action: CompositorBindingAction,
+) -> bool {
+    match action {
+        CompositorBindingAction::Docking if docking_mode_active(st) => {
+            set_docking_mode(st, false);
+            true
+        }
+        CompositorBindingAction::Docking => {
+            set_docking_mode(st, false);
+            false
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn apply_bound_key(
@@ -172,13 +160,16 @@ pub(crate) fn apply_bound_key(
     const STEP_RY: f32 = 16.0;
     const STEP_OFFSET: f32 = 24.0;
 
-    let kb = st.tuning.keybinds.clone();
-
-    if key_matches(key_code, kb.quit) {
-        let need = if st.tuning.quit_requires_shift {
-            with_extra_shift(kb.quit_modifiers)
-        } else {
-            kb.quit_modifiers
+    if let Some(action) = compositor_binding_action(st, key_code, mods) {
+        return match action {
+            CompositorBindingAction::MoveNode(_)
+            | CompositorBindingAction::Docking
+            | CompositorBindingAction::Reload
+            | CompositorBindingAction::MinimizeFocused
+            | CompositorBindingAction::Quit { .. }
+            | CompositorBindingAction::OverviewToggle => {
+                apply_compositor_action_press(st, action, config_path, wayland_display)
+            }
         };
     }
 
@@ -188,50 +179,12 @@ pub(crate) fn apply_bound_key(
         }
     }
 
-    if key_matches(key_code, kb.reload) && modifier_exact(mods, kb.reload_modifiers) {
-        let next = RuntimeTuning::load_from_path(config_path);
-        st.apply_tuning(next);
-        run_autostart_commands(&st.tuning, wayland_display, AutostartPhase::OnReload);
-        info!("manual config reload from {}", config_path);
-        info!(
-            "resolved keybinds: {}",
-            st.tuning.keybinds_resolved_summary()
-        );
-        return true;
-    }
-
-    if key_matches(key_code, kb.minimize_focused)
-        && modifier_exact(mods, kb.minimize_focused_modifiers)
-    {
-        return minimize_focused_active_node(st);
-    }
-
-    if key_matches(key_code, kb.docking) && modifier_exact(mods, kb.docking_modifiers) {
-        return set_docking_active(st, true);
+    if !st.tuning.dev_enabled {
+        return false;
     }
 
     let kb = st.tuning.keybinds.clone();
     let changed = match key_code {
-        code if key_matches(code, kb.move_left) && modifier_exact(mods, kb.move_left_modifiers) => {
-            move_latest_node_direction(st, NodeMoveDirection::Left);
-            true
-        }
-        code if key_matches(code, kb.move_right)
-            && modifier_exact(mods, kb.move_right_modifiers) =>
-        {
-            move_latest_node_direction(st, NodeMoveDirection::Right);
-            true
-        }
-        code if key_matches(code, kb.move_up) && modifier_exact(mods, kb.move_up_modifiers) => {
-            move_latest_node_direction(st, NodeMoveDirection::Up);
-            true
-        }
-        code if key_matches(code, kb.move_down) && modifier_exact(mods, kb.move_down_modifiers) => {
-            move_latest_node_direction(st, NodeMoveDirection::Down);
-            true
-        }
-        _ if !st.tuning.dev_enabled => false,
-
         code if key_matches(code, kb.primary_left) && modifier_exact(mods, kb.modifier) => {
             st.tuning.focus_ring_rx -= STEP_RX;
             true
@@ -281,14 +234,31 @@ pub(crate) fn apply_bound_key(
     changed
 }
 
-pub(crate) fn release_bound_key(st: &mut HalleyWlState, key_code: u32, mods: &ModState) -> bool {
-    let kb = &st.tuning.keybinds;
-    if key_matches(key_code, kb.docking) && modifier_exact(mods, kb.docking_modifiers) {
-        return set_docking_active(st, false);
+pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -> bool {
+    request_xwayland_start();
+    match Command::new("sh")
+        .arg("-lc")
+        .arg(command)
+        .env("WAYLAND_DISPLAY", wayland_display)
+        .env("XDG_SESSION_TYPE", "wayland")
+        .env("GDK_BACKEND", "wayland,x11")
+        .env("QT_QPA_PLATFORM", "wayland;xcb")
+        .env("SDL_VIDEODRIVER", "wayland")
+        .env("CLUTTER_BACKEND", "wayland")
+        .env("MOZ_ENABLE_WAYLAND", "1")
+        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
+        .spawn()
+    {
+        Ok(_) => {
+            info!(
+                "spawned {} via `{}` on WAYLAND_DISPLAY={}",
+                label, command, wayland_display
+            );
+            true
+        }
+        Err(err) => {
+            warn!("{} spawn failed via `{}`: {}", label, command, err);
+            false
+        }
     }
-    false
-}
-
-fn spawn_command(command: &str, wayland_display: &str, label: &str) -> bool {
-    spawn_shell_command(command, wayland_display, label)
 }

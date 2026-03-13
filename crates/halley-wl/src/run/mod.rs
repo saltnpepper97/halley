@@ -1,4 +1,5 @@
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
+use std::cell::RefCell;
 use std::env;
 use std::error::Error;
 use std::io;
@@ -65,7 +66,6 @@ use common::{
     RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite,
 };
-pub(crate) use common::{run_autostart_commands, spawn_shell_command};
 use drm::probe_tty_drm_device_via_session;
 use input_backend::build_tty_libinput_backend;
 pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs};
@@ -80,6 +80,28 @@ pub(crate) fn request_xwayland_start() {
     if let Some(tx) = XWAYLAND_REQUEST_TX.get() {
         let _ = tx.send(());
     }
+}
+
+pub(crate) fn run_autostart_commands(commands: &[String], wayland_display: &str, label: &str) {
+    for command in commands {
+        let command = command.trim();
+        if command.is_empty() {
+            continue;
+        }
+        let _ = spawn_command(command, wayland_display, label);
+    }
+}
+
+pub(crate) fn apply_reloaded_tuning(
+    st: &mut HalleyWlState,
+    next: RuntimeTuning,
+    config_path: &str,
+    wayland_display: &str,
+    reason: &str,
+) {
+    st.apply_tuning(next);
+    run_autostart_commands(&st.tuning.autostart_on_reload, wayland_display, "autostart");
+    info!("{reason}: reloaded config from {}", config_path);
 }
 
 #[derive(Clone)]

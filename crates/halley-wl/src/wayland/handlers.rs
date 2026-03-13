@@ -1,7 +1,7 @@
 use super::*;
 use eventline::info;
 use smithay::backend::allocator::dmabuf::Dmabuf;
-use smithay::desktop::{PopupKind, find_popup_root_surface};
+use smithay::desktop::{PopupKind, find_popup_root_surface, utils::bbox_from_surface_tree};
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
@@ -17,12 +17,69 @@ use smithay::wayland::selection::wlr_data_control::DataControlState;
 use smithay::wayland::shell::wlr_layer::{
     Layer, LayerSurface, LayerSurfaceConfigure, WlrLayerShellHandler, WlrLayerShellState,
 };
+use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 fn client_for_surface(surface: Option<&WlSurface>) -> Option<Client> {
     surface.and_then(|wl| wl.client())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InitialToplevelSize {
+    node_size: (i32, i32),
+    configure_size: Option<(i32, i32)>,
+}
 
+fn clamp_initial_window_size(viewport: halley_core::field::Vec2, size: (i32, i32)) -> (i32, i32) {
+    let min_w = ((viewport.x * 0.30).round() as i32).max(96);
+    let min_h = ((viewport.y * 0.26).round() as i32).max(72);
+    let max_w = ((viewport.x * 0.82).round() as i32).max(min_w);
+    let max_h = ((viewport.y * 0.82).round() as i32).max(min_h);
+
+    (size.0.clamp(min_w, max_w), size.1.clamp(min_h, max_h))
+}
+
+fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i32)> {
+    let wl = toplevel.wl_surface();
+
+    let geometry = with_states(wl, |states| {
+        states
+            .cached_state
+            .get::<SurfaceCachedState>()
+            .current()
+            .geometry
+    });
+    if let Some(geometry) = geometry {
+        return Some((geometry.size.w.max(96), geometry.size.h.max(72)));
+    }
+
+    if let Some(size) = toplevel.current_state().size {
+        return Some((size.w.max(96), size.h.max(72)));
+    }
+
+    let bbox = bbox_from_surface_tree(wl, (0, 0));
+    if bbox.size.w > 0 && bbox.size.h > 0 {
+        return Some((bbox.size.w.max(96), bbox.size.h.max(72)));
+    }
+
+    None
+}
+
+fn initial_toplevel_size(st: &HalleyWlState, toplevel: &ToplevelSurface) -> InitialToplevelSize {
+    let detected = detected_initial_toplevel_size(toplevel);
+    let raw_size = detected.unwrap_or_else(|| {
+        (
+            (st.viewport.size.x * 0.46).round() as i32,
+            (st.viewport.size.y * 0.42).round() as i32,
+        )
+    });
+    let node_size = clamp_initial_window_size(st.viewport.size, raw_size);
+    let configure_size = (detected.is_none() || node_size != raw_size).then_some(node_size);
+
+    InitialToplevelSize {
+        node_size,
+        configure_size,
+    }
+}
 
 impl SeatHandler for HalleyWlState {
     type KeyboardFocus = WlSurface;
@@ -145,38 +202,31 @@ impl XdgShellHandler for HalleyWlState {
     }
 
     fn new_toplevel(&mut self, toplevel: ToplevelSurface) {
-        // Send only Activated — no size hint. Clients know their preferred size;
-        // enforcing one here causes a node/buffer mismatch when the client commits
-        // something different. The node’s intrinsic size is corrected on first commit.
+        let initial_size = initial_toplevel_size(self, &toplevel);
+        // You MUST send an initial configure or many clients won’t map.
+        // Only send an explicit size when the client's initial proposal is
+        // absent or obviously outside the viewport-relative startup range.
         toplevel.with_pending_state(|s| {
             s.states.set(xdg_toplevel::State::Activated);
+            if let Some((w, h)) = initial_size.configure_size {
+                s.size = Some((w, h).into());
+            }
         });
         toplevel.send_configure();
 
         // Detect child/transient toplevels (e.g. browser video-preview popups).
+        // These are spawned by the client as logical children of an existing
+        // surface and should not disturb the spatial layout of their parent.
         let is_transient = toplevel.parent().is_some();
 
-        // Placeholder size for spatial placement only — overwritten on first commit.
-        let placeholder_size = (
-            (self.viewport.size.x * 0.46).round() as i32,
-            (self.viewport.size.y * 0.42).round() as i32,
-        );
-
+        // Create a core node for the underlying wl_surface.
         let wl = toplevel.wl_surface().clone();
-        let id = self.ensure_node_for_surface(&wl, "toplevel", placeholder_size);
-        // Flag this node so note_commit syncs its size from the real committed geometry.
-        self.pending_initial_size_nodes.insert(id);
-
+        let id = self.ensure_node_for_surface(&wl, "toplevel", initial_size.node_size);
         let now = Instant::now();
         let _ = self.field.touch(id, self.now_ms(now));
+        self.reveal_new_toplevel_node(id, is_transient, now);
 
-        if is_transient {
-            self.set_interaction_focus(Some(id), 30_000, now);
-            self.pending_spawn_activate_at_ms.remove(&id);
-            self.mark_active_transition(id, now, 620);
-        } else {
-            self.queue_spawn_pan_to_node(id, now);
-        }
+        self.resolve_surface_overlap();
     }
 
     fn new_popup(&mut self, popup: PopupSurface, _positioner: PositionerState) {
@@ -200,17 +250,6 @@ impl XdgShellHandler for HalleyWlState {
     ) {
         // Interactive resize is compositor-driven (configured modifier + right-click),
         // not client-request driven.
-    }
-
-    fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<WlOutput>) {
-        self.enter_fullscreen(surface, Instant::now());
-    }
-
-    fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
-        let key = surface.wl_surface().id();
-        if let Some(id) = self.surface_to_node.get(&key).copied() {
-            self.exit_fullscreen(id);
-        }
     }
 
     fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, serial: Serial) {
@@ -237,6 +276,47 @@ impl XdgShellHandler for HalleyWlState {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::clamp_initial_window_size;
+    use halley_core::field::Vec2;
+
+    #[test]
+    fn clamp_initial_window_size_raises_tiny_windows() {
+        let out = clamp_initial_window_size(
+            Vec2 {
+                x: 1600.0,
+                y: 1200.0,
+            },
+            (220, 180),
+        );
+        assert_eq!(out, (480, 312));
+    }
+
+    #[test]
+    fn clamp_initial_window_size_trims_short_wide_windows() {
+        let out = clamp_initial_window_size(
+            Vec2 {
+                x: 1600.0,
+                y: 1200.0,
+            },
+            (1600, 240),
+        );
+        assert_eq!(out, (1312, 312));
+    }
+
+    #[test]
+    fn clamp_initial_window_size_preserves_sensible_windows() {
+        let out = clamp_initial_window_size(
+            Vec2 {
+                x: 1600.0,
+                y: 1200.0,
+            },
+            (900, 700),
+        );
+        assert_eq!(out, (900, 700));
+    }
+}
 
 delegate_xdg_shell!(HalleyWlState);
 

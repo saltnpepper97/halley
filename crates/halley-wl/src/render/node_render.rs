@@ -111,7 +111,6 @@ pub(crate) fn collect_active_surfaces(
     let mut overlap_overlay_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
 
     let recent_top_node = st.recent_top_node_active(now);
-    let suppress_window_borders = st.fullscreen_node.is_some();
     let output_clip = Rectangle::<i32, Physical>::new((0, 0).into(), size);
 
     let resize_rect_px = resize_preview.map(|rz| {
@@ -137,7 +136,7 @@ pub(crate) fn collect_active_surfaces(
         })
         .collect();
 
-    wl_surfaces.sort_by_key(|(id, _)| (!st.is_fullscreen_node(*id), std::cmp::Reverse(id.as_u64())));
+    wl_surfaces.sort_by_key(|(id, _)| std::cmp::Reverse(id.as_u64()));
 
     for (node_id, wl) in wl_surfaces {
         let bbox = if resize_preview.is_some_and(|rz| rz.node_id == node_id) {
@@ -160,12 +159,11 @@ pub(crate) fn collect_active_surfaces(
         let node_pos = node.pos;
         let node_state = node.state.clone();
         let node_intrinsic = node.intrinsic_size;
-        let fullscreen = st.is_fullscreen_node(node_id);
         let transition_alpha = st.active_transition_alpha(node_id, now);
         let anim = st.anim_style_for(node_id, node_state, now);
         let active_resize = active_resize_geometry_screen(node_id, resize_preview);
         let resizing_this_node = active_resize.is_some();
-        let draw_top_this_node = fullscreen || resizing_this_node || recent_top_node == Some(node_id);
+        let draw_top_this_node = resizing_this_node || recent_top_node == Some(node_id);
 
         let (scale, live_ramp) = if draw_top_this_node {
             (1.0f32, 1.0f32)
@@ -186,26 +184,12 @@ pub(crate) fn collect_active_surfaces(
             (s, live_ramp)
         };
 
-        let local_rect = window_geometry_for_node(st, node_id).unwrap_or((
-            0.0,
-            0.0,
-            node_intrinsic.x,
-            node_intrinsic.y,
-        ));
-
         // Anchor by node centre so zoom doesn't slide full windows.
         let p = st.smoothed_render_pos(node_id, node_pos, now);
         let (cx, cy, sx, sy) = if let Some(active_resize) = active_resize {
             let (cx, cy) = active_resize.center_px();
             let (surface_origin_x, surface_origin_y) = active_resize.surface_origin_px();
             (cx, cy, surface_origin_x, surface_origin_y)
-        } else if fullscreen {
-            (
-                size.w / 2,
-                size.h / 2,
-                -(local_rect.0.round() as i32),
-                -(local_rect.1.round() as i32),
-            )
         } else {
             let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
             let sw = ((bbox.size.w as f32) * scale).round() as i32;
@@ -215,15 +199,17 @@ pub(crate) fn collect_active_surfaces(
             (cx, cy, cx - (sw / 2) - lx, cy - (sh / 2) - ly)
         };
 
-        let geometry_rect = if fullscreen {
-            (0, 0, size.w.max(1), size.h.max(1))
-        } else {
-            active_resize
+        let geometry_rect = active_resize
             .map(|rz| rz.frame_rect_px())
             .unwrap_or_else(|| {
+                let local_rect = window_geometry_for_node(st, node_id).unwrap_or((
+                    0.0,
+                    0.0,
+                    node_intrinsic.x,
+                    node_intrinsic.y,
+                ));
                 rect_from_local_geometry(sx, sy, scale, local_rect)
-            })
-        };
+            });
 
         if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {
             let (nx0, ny0, nw, nh) = geometry_rect;
@@ -233,15 +219,13 @@ pub(crate) fn collect_active_surfaces(
         }
 
         let (rx, ry, rw, rh) = geometry_rect;
-        if !suppress_window_borders && !fullscreen {
-            border_rects.push(ActiveBorderRect {
-                x: rx,
-                y: ry,
-                w: rw.max(1),
-                h: rh.max(1),
-                focused: st.interaction_focus == Some(node_id),
-            });
-        }
+        border_rects.push(ActiveBorderRect {
+            x: rx,
+            y: ry,
+            w: rw.max(1),
+            h: rh.max(1),
+            focused: st.interaction_focus == Some(node_id),
+        });
 
         if let Some((rl, rt, rr, rb, rid)) = resize_rect_px
             && node_id != rid

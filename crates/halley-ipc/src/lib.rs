@@ -7,7 +7,7 @@ pub use codec::{
     decode_request, decode_response, encode_request, encode_response, read_frame, write_frame,
 };
 pub use error::{CodecError, IpcError};
-pub use protocol::{NodeMoveDirection, Request, Response};
+pub use protocol::{DockingCommand, NodeMoveDirection, Request, Response};
 pub use types::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus, OutputsResponse};
 
 use std::env;

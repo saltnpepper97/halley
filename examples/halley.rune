@@ -17,16 +17,9 @@ viewport:
   end
 end
 
-decorations:
-  border-size 3
-  border-colour-focused "#fd5e53"
-  border-colour-unfocused "#333333"
-  border-radius 6
-end
-
 focus-ring:
-  primary-rx 920.0
-  primary-ry 500.0
+  primary-rx 820.0
+  primary-ry 420.0
   offset-x 0
   offset-y 0
 end
@@ -58,26 +51,19 @@ env:
 end
 
 keybinds:
-  mod "super"
+  mod "lsuper"
 
   # Basic compositor controls
-  "$mod+mouseleft" "move_window"
-  "$mod+mouseright" "resize_window"
-  "$var.mod+r" "reload_config"
+  "$var.mod+r" "reload"
   "$var.mod+n" "minimize_focused"
-  "$var.mod+d" "docking"
-  
+
   # Quit Halley
-  "$var.mod+shift+q" "quit_halley"
-  
+  "$var.mod+shift+q" "quit"
+
   # Applications
   "$var.mod+return" "kitty"
   "$var.mod+p" "pavucontrol"
-  "$var.mod+b" "firefox"
-
-  "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
-  "XF86AudioLowerVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
-  "XF86AudioMute" "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+  "$var.mod+d" "fuzzel"
 end
 
 dev:

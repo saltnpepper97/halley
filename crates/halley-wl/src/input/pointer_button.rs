@@ -156,8 +156,8 @@ fn begin_drag(
         }
     }
     ps.drag = Some(drag_ctx);
-    st.begin_carry_state_tracking(hit.node_id);
     let _ = st.field.set_pinned(hit.node_id, false);
+    st.begin_carry_state_tracking(hit.node_id, docking_mode_active(st));
     st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
     let to = halley_core::field::Vec2 {
         x: world_now.x - drag_ctx.current_offset.x,
@@ -310,6 +310,7 @@ fn finalize_resize(st: &mut HalleyWlState, ps: &mut PointerState, backend: &dyn 
         }
         st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
         st.end_resize_interaction(now);
+        st.resolve_overlap_now();
         backend.request_redraw();
         return;
     }
@@ -352,6 +353,7 @@ fn finalize_resize(st: &mut HalleyWlState, ps: &mut PointerState, backend: &dyn 
     );
     st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
     st.end_resize_interaction(now);
+    st.resolve_overlap_now();
     backend.request_redraw();
 }
 
@@ -541,7 +543,7 @@ fn handle_button_release(
                 } else {
                     st.update_carry_state_preview_at(d.node_id, world_now, now);
                 }
-                if st.docking_active {
+                if docking_mode_active(st) {
                     let _ = st.field.finalize_dock_on_drag_release(d.node_id);
                 }
                 st.end_carry_state_tracking(d.node_id);

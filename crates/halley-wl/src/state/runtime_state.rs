@@ -161,11 +161,7 @@ impl HalleyWlState {
 
         if !tuning.physics_enabled {
             self.active_transition_until_ms.clear();
-            self.release_smoothing_until_ms.clear();
-            self.release_axis_lock.clear();
-            self.physics_velocity.clear();
             self.smoothed_render_pos.clear();
-            self.smoothed_render_vel.clear();
         }
 
         self.tuning = tuning;

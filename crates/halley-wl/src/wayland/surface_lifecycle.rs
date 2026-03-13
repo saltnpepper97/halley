@@ -8,7 +8,6 @@ use smithay::reexports::wayland_server::{
 
 use crate::activity::CommitActivity;
 use crate::state::HalleyWlState;
-use crate::surface::request_toplevel_fullscreen_state;
 use crate::wm::overlap::CollisionExtents;
 
 /// Generates candidate spawn positions using a Fermat spiral (golden-angle
@@ -93,7 +92,6 @@ impl HalleyWlState {
             if Some(other.id) == skip_node
                 || other.kind != halley_core::field::NodeKind::Surface
                 || !self.field.is_visible(other.id)
-                || self.is_fullscreen_node(other.id)
             {
                 return false;
             }
@@ -305,54 +303,11 @@ impl HalleyWlState {
     pub fn note_commit(&mut self, surface: &WlSurface, now: Instant) {
         let key = Self::surface_key(surface);
         self.surface_activity
-            .entry(key.clone())
+            .entry(key)
             .or_insert_with(|| CommitActivity::new(now))
             .on_commit(now);
         if let Some(output) = &self.primary_output {
             output.enter(surface);
-        }
-
-        // Sync the node’s intrinsic size from what the client actually committed.
-        // We only do this for nodes that are still carrying the placeholder size
-        // from new_toplevel (tracked in pending_initial_size_nodes). Once the
-        // first real buffer lands, we read the true geometry and update the node
-        // so that collision, hit-testing, and adjacent placement all use real data.
-        if let Some(&id) = self.surface_to_node.get(&key) {
-            if self.pending_initial_size_nodes.contains(&id) {
-                use smithay::desktop::utils::bbox_from_surface_tree;
-                use smithay::wayland::compositor::with_states;
-                use smithay::wayland::shell::xdg::SurfaceCachedState;
-
-                // Prefer the xdg window geometry if present, fall back to bbox.
-                let committed_size: Option<(i32, i32)> =
-                    with_states(surface, |states| {
-                        states
-                            .cached_state
-                            .get::<SurfaceCachedState>()
-                            .current()
-                            .geometry
-                            .map(|g| (g.size.w, g.size.h))
-                    })
-                    .filter(|&(w, h)| w > 0 && h > 0)
-                    .or_else(|| {
-                        let bbox = bbox_from_surface_tree(surface, (0, 0));
-                        (bbox.size.w > 0 && bbox.size.h > 0)
-                            .then_some((bbox.size.w, bbox.size.h))
-                    });
-
-                if let Some((w, h)) = committed_size {
-                    let new_size = Vec2 {
-                        x: w.max(64) as f32,
-                        y: h.max(64) as f32,
-                    };
-                    if let Some(node) = self.field.node_mut(id) {
-                        node.intrinsic_size = new_size;
-                    }
-                    self.zoom_nominal_size.insert(id, new_size);
-                    self.last_active_size.insert(id, new_size);
-                    self.pending_initial_size_nodes.remove(&id);
-                }
-            }
         }
 
         // Grant keyboard focus to layer surfaces (e.g. fuzzel) on their first
@@ -474,77 +429,39 @@ impl HalleyWlState {
         self.maybe_start_pending_spawn_pan(now);
     }
 
-    pub(crate) fn enter_fullscreen(&mut self, surface: smithay::wayland::shell::xdg::ToplevelSurface, now: Instant) {
-        let key = Self::surface_key(surface.wl_surface());
-        let Some(id) = self.surface_to_node.get(&key).copied() else {
-            return;
-        };
-
-        if self.fullscreen_node == Some(id) {
-            request_toplevel_fullscreen_state(self, id, true);
+    pub(crate) fn reveal_new_toplevel_node(
+        &mut self,
+        id: NodeId,
+        is_transient: bool,
+        now: Instant,
+    ) {
+        if is_transient {
             self.set_interaction_focus(Some(id), 30_000, now);
+            self.pending_spawn_activate_at_ms.remove(&id);
+            self.mark_active_transition(id, now, 620);
             return;
         }
 
-        if let Some(other) = self.fullscreen_node
-            && other != id
+        if self.active_spawn_pan.is_some_and(|active| active.node_id == id)
+            || self
+                .pending_spawn_pan_queue
+                .iter()
+                .any(|pending| pending.node_id == id)
         {
-            self.exit_fullscreen(other);
-        }
-
-        let Some(node) = self.field.node(id) else {
-            return;
-        };
-        self.fullscreen_restore.entry(id).or_insert(crate::state::FullscreenRestore {
-            pos: node.pos,
-            intrinsic_size: node.intrinsic_size,
-            pinned: node.pinned,
-            bbox_loc: self.bbox_loc.get(&id).copied(),
-            window_geometry: self.window_geometry.get(&id).copied(),
-        });
-
-        let target_size = self.fullscreen_target_size();
-        let _ = self.field.set_state(id, halley_core::field::NodeState::Active);
-        if let Some(node) = self.field.node_mut(id) {
-            node.intrinsic_size = target_size;
-            node.footprint = target_size;
-        }
-        let _ = self.field.carry(id, self.viewport.center);
-        self.last_active_size.insert(id, target_size);
-        self.manual_collapsed_nodes.remove(&id);
-        self.fullscreen_node = Some(id);
-        self.set_recent_top_node(id, now + std::time::Duration::from_secs(3600));
-        request_toplevel_fullscreen_state(self, id, true);
-        self.set_interaction_focus(Some(id), 30_000, now);
-    }
-
-    pub(crate) fn exit_fullscreen(&mut self, id: NodeId) {
-        if self.fullscreen_node != Some(id) {
             return;
         }
 
-        if let Some(restore) = self.fullscreen_restore.remove(&id) {
-            if let Some(node) = self.field.node_mut(id) {
-                node.intrinsic_size = restore.intrinsic_size;
-                node.footprint = restore.intrinsic_size;
-                node.pinned = restore.pinned;
-            }
-            if let Some(bbox_loc) = restore.bbox_loc {
-                self.bbox_loc.insert(id, bbox_loc);
-            } else {
-                self.bbox_loc.remove(&id);
-            }
-            if let Some(window_geometry) = restore.window_geometry {
-                self.window_geometry.insert(id, window_geometry);
-            } else {
-                self.window_geometry.remove(&id);
-            }
-            let _ = self.field.carry(id, restore.pos);
-            self.last_active_size.insert(id, restore.intrinsic_size);
+        let visible_in_view = self
+            .field
+            .node(id)
+            .is_some_and(|node| self.viewport_contains_point(node.pos));
+        if visible_in_view {
+            self.mark_active_transition(id, now, 620);
+            self.set_interaction_focus(Some(id), 30_000, now);
+            self.push_neighbors_for_activation(id);
+        } else {
+            self.queue_spawn_pan_to_node(id, now);
         }
-
-        self.fullscreen_node = None;
-        request_toplevel_fullscreen_state(self, id, false);
     }
 
     pub fn drop_surface(&mut self, surface: &WlSurface) {
@@ -554,16 +471,11 @@ impl HalleyWlState {
         let key = Self::surface_key(surface);
         self.surface_activity.remove(&key);
         if let Some(id) = self.surface_to_node.remove(&key) {
-            if self.fullscreen_node == Some(id) {
-                self.fullscreen_node = None;
-            }
-            self.fullscreen_restore.remove(&id);
             if self.pan_restore_active_focus == Some(id) {
                 self.pan_restore_active_focus = None;
             }
             let _ = self.field.undock_node(id);
             self.field.clear_dock_preview();
-            self.pending_initial_size_nodes.remove(&id);
             self.zoom_nominal_size.remove(&id);
             self.zoom_resize_fallback.remove(&id);
             self.zoom_resize_reject_streak.remove(&id);
@@ -581,9 +493,6 @@ impl HalleyWlState {
             self.carry_zone_pending.remove(&id);
             self.carry_zone_pending_since_ms.remove(&id);
             self.carry_activation_anim_armed.remove(&id);
-            self.release_smoothing_until_ms.remove(&id);
-            self.release_axis_lock.remove(&id);
-            self.physics_velocity.remove(&id);
             if self.resize_active == Some(id) {
                 self.resize_active = None;
             }

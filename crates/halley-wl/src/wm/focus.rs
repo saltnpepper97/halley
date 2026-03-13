@@ -59,12 +59,6 @@ impl HalleyWlState {
                 } else {
                     s.states.unset(xdg_toplevel::State::Activated);
                 }
-                let fullscreen = self.surface_to_node.get(&key).copied() == self.fullscreen_node;
-                if fullscreen {
-                    s.states.set(xdg_toplevel::State::Fullscreen);
-                } else {
-                    s.states.unset(xdg_toplevel::State::Fullscreen);
-                }
                 was_active != focused
             });
 
@@ -342,7 +336,7 @@ impl HalleyWlState {
         self.suspend_state_checks = false;
         self.suspend_overlap_resolve = false;
         self.enforce_docked_pairs();
-        self.resolve_overlap_now();
+        self.resolve_surface_overlap();
     }
 
     pub fn resolve_overlap_now(&mut self) {

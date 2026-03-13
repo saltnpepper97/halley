@@ -12,7 +12,10 @@ use crate::spatial::screen_to_world;
 use crate::state::HalleyWlState;
 
 use super::input_utils::update_mod_state;
-use super::key_actions::{apply_bound_key, key_is_compositor_binding, release_bound_key};
+use super::key_actions::{
+    apply_bound_key, apply_compositor_action_release, compositor_binding_action,
+    key_is_compositor_binding,
+};
 use super::pointer_focus::pointer_focus_for_screen;
 use super::pointer_map_debug_enabled;
 use smithay::backend::input::{Axis, AxisSource, ButtonState, KeyState};
@@ -81,7 +84,6 @@ pub(crate) fn handle_keyboard_input(
     code: u32,
     pressed: bool,
 ) {
-    let prev_mods = mod_state.borrow().clone();
     update_mod_state(&mut mod_state.borrow_mut(), code, pressed);
 
     let mods = mod_state.borrow().clone();
@@ -173,8 +175,6 @@ pub(crate) fn handle_keyboard_input(
         && first_binding_press
         && apply_bound_key(st, code, &mods, config_path, wayland_display)
     {
-        backend.request_redraw();
-    } else if !pressed && release_bound_key(st, code, &prev_mods) {
         backend.request_redraw();
     }
 }

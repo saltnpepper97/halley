@@ -2,7 +2,6 @@ use super::*;
 
 use crate::backend_iface::DmabufImportBackend;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
-use halley_config::AutostartPhase;
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 use smithay::reexports::winit::dpi::PhysicalSize;
 
@@ -245,7 +244,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             {
                 let fresh = RuntimeTuning::load_from_path(config_path.as_str());
                 state.apply_tuning(fresh);
-                run_autostart_commands(&state.tuning, sock_name.as_str(), AutostartPhase::Once);
                 let ws = backend.borrow().window_size();
                 state.zoom_ref_size = halley_core::field::Vec2 {
                     x: ws.w.max(1) as f32,
@@ -288,7 +286,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let watch_rx = Rc::new(RefCell::new(watch_rx));
             let watch_rx_for_timer = watch_rx.clone();
             let config_path_for_timer = config_path.clone();
-            let wayland_display_for_timer = sock_name.clone();
             let last_maintenance_at = Rc::new(RefCell::new(Instant::now()));
             let last_maintenance_for_timer = last_maintenance_at.clone();
 
@@ -413,7 +410,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             ps.move_anim.clear();
                             ps.panning = false;
                         }
-                        crate::interaction::actions::set_docking_active(st, false);
                         st.set_app_focused(false);
                     }
                     WinitEvent::Focus(true) => {
@@ -528,23 +524,25 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                     RuntimeIpcCommand::Reload => {
                         let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        st.apply_tuning(next);
-                        run_autostart_commands(
-                            &st.tuning,
+                        apply_winit_reload(
+                            &backend_for_timer,
+                            st,
+                            next,
+                            config_path_for_timer.as_str(),
                             wayland_display_for_timer.as_str(),
-                            AutostartPhase::OnReload,
+                            "ipc",
                         );
-                        info!("ipc: reloaded config from {}", config_path_for_timer.as_str());
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                     }
-                    RuntimeIpcCommand::DockingBegin => {
-                        crate::interaction::actions::set_docking_active(st, true);
-                    }
-                    RuntimeIpcCommand::DockingEnd => {
-                        crate::interaction::actions::set_docking_active(st, false);
+                    RuntimeIpcCommand::Docking(command) => {
+                        let _ = crate::interaction::actions::set_docking_mode(
+                            st,
+                            matches!(command, halley_ipc::DockingCommand::Begin),
+                        );
                     }
                     RuntimeIpcCommand::NodeMove(direction) => {
-                        crate::interaction::actions::move_latest_node_direction(st, direction);
+                        let _ =
+                            crate::interaction::actions::move_latest_node_direction(st, direction);
                     }
                 });
 
@@ -598,12 +596,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 if reloaded {
-                    run_autostart_commands(
-                        &st.tuning,
-                        wayland_display_for_timer.as_str(),
-                        AutostartPhase::OnReload,
-                    );
-                    info!("reloaded config from {}", config_path_for_timer.as_str());
                     info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                 }
 

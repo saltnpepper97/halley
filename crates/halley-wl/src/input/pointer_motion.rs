@@ -138,7 +138,7 @@ pub(crate) fn handle_pointer_motion_absolute(
                     );
                 }
                 ps.drag = Some(next_drag);
-                if st.docking_active {
+                if docking_mode_active(st) {
                     let _ = st.field.update_dock_preview(
                         drag.node_id,
                         st.viewport.center,
