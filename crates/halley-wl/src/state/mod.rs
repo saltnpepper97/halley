@@ -134,6 +134,8 @@ pub struct HalleyWlState {
     pub(crate) carry_zone_pending: HashMap<NodeId, FocusZone>,
     pub(crate) carry_zone_pending_since_ms: HashMap<NodeId, u64>,
     pub(crate) carry_activation_anim_armed: HashSet<NodeId>,
+    pub(crate) release_smoothing_until_ms: HashMap<NodeId, u64>,
+    pub(crate) release_axis_lock: HashMap<NodeId, bool>,
 
     // Nodes explicitly collapsed by the user via keybind/toggle.
     // Maintenance must not auto-resurrect these.
@@ -145,7 +147,10 @@ pub struct HalleyWlState {
     pub(crate) resize_static_until_ms: u64,
     pub(crate) suspend_overlap_resolve: bool,
     pub(crate) suspend_state_checks: bool,
+    pub(crate) immediate_physics_nodes: HashSet<NodeId>,
+    pub(crate) physics_velocity: HashMap<NodeId, Vec2>,
     pub(crate) smoothed_render_pos: HashMap<NodeId, Vec2>,
+    pub(crate) smoothed_render_vel: HashMap<NodeId, Vec2>,
     pub(crate) node_hover_mix: HashMap<NodeId, f32>,
     pub(crate) node_preview_hover_node: Option<NodeId>,
     pub(crate) node_preview_hover_mix: f32,
@@ -153,6 +158,7 @@ pub struct HalleyWlState {
     pub(crate) viewport_pan_anim: Option<ViewportPanAnim>,
     pub(crate) pan_dominant_until_ms: u64,
     pub(crate) exit_requested: bool,
+    pub(crate) docking_active: bool,
 
     pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
     pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
@@ -244,6 +250,8 @@ impl HalleyWlState {
             carry_zone_pending: HashMap::new(),
             carry_zone_pending_since_ms: HashMap::new(),
             carry_activation_anim_armed: HashSet::new(),
+            release_smoothing_until_ms: HashMap::new(),
+            release_axis_lock: HashMap::new(),
             manual_collapsed_nodes: HashSet::new(),
             resize_active: None,
             resize_static_node: None,
@@ -251,7 +259,10 @@ impl HalleyWlState {
             resize_static_until_ms: 0,
             suspend_overlap_resolve: false,
             suspend_state_checks: false,
+            immediate_physics_nodes: HashSet::new(),
+            physics_velocity: HashMap::new(),
             smoothed_render_pos: HashMap::new(),
+            smoothed_render_vel: HashMap::new(),
             node_hover_mix: HashMap::new(),
             node_preview_hover_node: None,
             node_preview_hover_mix: 0.0,
@@ -259,6 +270,7 @@ impl HalleyWlState {
             viewport_pan_anim: None,
             pan_dominant_until_ms: 0,
             exit_requested: false,
+            docking_active: false,
 
             bbox_loc: HashMap::new(),
             window_geometry: HashMap::new(),
@@ -411,6 +423,10 @@ impl HalleyWlState {
             .retain(|id, _| alive_ids.contains(id));
         self.carry_activation_anim_armed
             .retain(|id| alive_ids.contains(id));
+        self.release_smoothing_until_ms
+            .retain(|id, until| alive_ids.contains(id) && *until > now_ms);
+        self.release_axis_lock
+            .retain(|id, _| alive_ids.contains(id));
         self.last_surface_focus_ms
             .retain(|id, _| alive_ids.contains(id));
         self.manual_collapsed_nodes

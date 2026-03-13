@@ -2,6 +2,7 @@ use crate::state::HalleyWlState;
 use eventline::info;
 use halley_core::decay::DecayLevel;
 use halley_core::viewport::FocusZone;
+use halley_ipc::NodeMoveDirection;
 use std::time::Instant;
 
 pub(crate) fn promote_node_level(
@@ -66,12 +67,13 @@ pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) {
     let Some(id) = latest else {
         return;
     };
-    let Some(n) = st.field.node(id) else {
+    let Some(pos) = st.field.node(id).map(|n| n.pos) else {
         return;
     };
+    let _ = st.field.set_pinned(id, false);
     let to = halley_core::field::Vec2 {
-        x: n.pos.x + dx,
-        y: n.pos.y + dy,
+        x: pos.x + dx,
+        y: pos.y + dy,
     };
     st.begin_carry_state_tracking(id);
     if st.carry_surface_non_overlap(id, to) {
@@ -87,6 +89,24 @@ pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) {
             );
         }
     }
+}
+
+pub(crate) fn move_latest_node_direction(st: &mut HalleyWlState, direction: NodeMoveDirection) {
+    match direction {
+        NodeMoveDirection::Left => move_latest_node(st, -80.0, 0.0),
+        NodeMoveDirection::Right => move_latest_node(st, 80.0, 0.0),
+        NodeMoveDirection::Up => move_latest_node(st, 0.0, 80.0),
+        NodeMoveDirection::Down => move_latest_node(st, 0.0, -80.0),
+    }
+}
+
+pub(crate) fn set_docking_active(st: &mut HalleyWlState, active: bool) -> bool {
+    let changed = st.docking_active != active;
+    st.docking_active = active;
+    if !active {
+        st.field.clear_dock_preview();
+    }
+    changed
 }
 
 pub(crate) fn minimize_focused_active_node(st: &mut HalleyWlState) -> bool {

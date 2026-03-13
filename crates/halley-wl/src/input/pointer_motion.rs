@@ -133,11 +133,15 @@ pub(crate) fn handle_pointer_motion_absolute(
                     let _ = st.carry_surface_non_overlap(drag.node_id, centered);
                 }
                 ps.drag = Some(next_drag);
-                let _ = st.field.update_dock_preview(
-                    drag.node_id,
-                    st.viewport.center,
-                    st.viewport.size,
-                );
+                if st.docking_active {
+                    let _ = st.field.update_dock_preview(
+                        drag.node_id,
+                        st.viewport.center,
+                        st.viewport.size,
+                    );
+                } else {
+                    st.field.clear_dock_preview();
+                }
                 backend.request_redraw();
             }
         }

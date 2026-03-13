@@ -239,8 +239,6 @@ impl XdgShellHandler for HalleyWlState {
         } else {
             self.queue_spawn_pan_to_node(id, now);
         }
-
-        self.resolve_surface_overlap();
     }
 
     fn new_popup(&mut self, popup: PopupSurface, _positioner: PositionerState) {

@@ -335,7 +335,7 @@ impl HalleyWlState {
         self.suspend_state_checks = false;
         self.suspend_overlap_resolve = false;
         self.enforce_docked_pairs();
-        self.resolve_surface_overlap();
+        self.resolve_overlap_now();
     }
 
     pub fn resolve_overlap_now(&mut self) {

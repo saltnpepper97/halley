@@ -396,6 +396,9 @@ impl HalleyWlState {
             self.carry_zone_pending.remove(&id);
             self.carry_zone_pending_since_ms.remove(&id);
             self.carry_activation_anim_armed.remove(&id);
+            self.release_smoothing_until_ms.remove(&id);
+            self.release_axis_lock.remove(&id);
+            self.physics_velocity.remove(&id);
             if self.resize_active == Some(id) {
                 self.resize_active = None;
             }

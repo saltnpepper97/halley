@@ -440,7 +440,7 @@ impl HalleyWlState {
                 if id == activated
                     || !self.field.is_visible(id)
                     || n.kind != halley_core::field::NodeKind::Surface
-                    || n.pinned
+                    || self.resize_static_node == Some(id)
                     || self.is_recently_resized_node(id, now_ms)
                 {
                     return None;
@@ -480,7 +480,7 @@ impl HalleyWlState {
                     y: apos.y + s * (req_y + 1.0),
                 }
             };
-            if self.field.carry(id, target) {
+            if self.carry_for_physics(id, target) {
                 moved += 1;
             }
         }
@@ -538,6 +538,9 @@ impl HalleyWlState {
                 self.carry_zone_pending.remove(&id);
                 self.carry_zone_pending_since_ms.remove(&id);
                 self.carry_activation_anim_armed.remove(&id);
+                self.release_smoothing_until_ms.remove(&id);
+                self.release_axis_lock.remove(&id);
+                self.physics_velocity.remove(&id);
                 if self.resize_active == Some(id) {
                     self.resize_active = None;
                 }
