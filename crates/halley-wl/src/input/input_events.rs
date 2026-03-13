@@ -88,11 +88,13 @@ pub(crate) fn handle_keyboard_input(
     let is_mod_key = is_modifier_keycode(code);
 
     // Pure detection only. Do not execute the action yet.
-    let matched_binding = if pressed && !is_mod_key {
-        key_is_compositor_binding(st, code, &mods)
+    let matched_action = if pressed && !is_mod_key {
+        compositor_binding_action(st, code, &mods)
     } else {
-        false
+        None
     };
+    let matched_binding = matched_action.is_some()
+        || (pressed && !is_mod_key && key_is_compositor_binding(st, code, &mods));
 
     // Refresh interaction focus only for keys that are going to clients.
     // Compositor bindings like minimize should not first re-focus / re-heat
@@ -120,12 +122,24 @@ pub(crate) fn handle_keyboard_input(
         if matched_binding {
             let mut ms = mod_state.borrow_mut();
             first_binding_press = ms.intercepted_keys.insert(code);
+            if first_binding_press && let Some(action) = matched_action {
+                ms.intercepted_compositor_actions.insert(code, action);
+            }
             true
         } else {
             false
         }
     } else {
-        mod_state.borrow_mut().intercepted_keys.remove(&code)
+        let mut ms = mod_state.borrow_mut();
+        let intercepted = ms.intercepted_keys.remove(&code);
+        if intercepted {
+            if let Some(action) = ms.intercepted_compositor_actions.remove(&code)
+                && apply_compositor_action_release(st, action)
+            {
+                backend.request_redraw();
+            }
+        }
+        intercepted
     };
 
     if let Some(keyboard) = st.seat.get_keyboard() {

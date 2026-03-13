@@ -7,6 +7,7 @@ use smithay::input::pointer::MotionEvent;
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend_iface::BackendView;
+use crate::interaction::actions::docking_mode_active;
 use crate::interaction::types::{ModState, PointerState, ResizeHandle};
 use crate::spatial::{pick_hit_node_at, screen_to_world};
 use crate::state::HalleyWlState;
@@ -121,7 +122,7 @@ pub(crate) fn handle_pointer_motion_absolute(
                 x: p.x - next_drag.current_offset.x,
                 y: p.y - next_drag.current_offset.y,
             };
-            if st.carry_surface_non_overlap(drag.node_id, to) {
+            if st.carry_surface_non_overlap(drag.node_id, to, docking_mode_active(st)) {
                 let should_center = st.tuning.center_window_to_mouse
                     && (!next_drag.center_latched
                         || next_drag.current_offset.x.abs() > f32::EPSILON
@@ -130,7 +131,11 @@ pub(crate) fn handle_pointer_motion_absolute(
                     next_drag.current_offset = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
                     next_drag.center_latched = true;
                     let centered = halley_core::field::Vec2 { x: p.x, y: p.y };
-                    let _ = st.carry_surface_non_overlap(drag.node_id, centered);
+                    let _ = st.carry_surface_non_overlap(
+                        drag.node_id,
+                        centered,
+                        docking_mode_active(st),
+                    );
                 }
                 ps.drag = Some(next_drag);
                 if st.docking_active {

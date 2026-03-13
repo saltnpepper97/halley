@@ -9,7 +9,8 @@ use crate::interaction::actions::{
 use crate::interaction::types::ModState;
 use crate::run::{run_autostart_commands, spawn_shell_command};
 use crate::state::HalleyWlState;
-use halley_config::{KeyModifiers, RuntimeTuning};
+use halley_config::{CompositorBindingAction, DirectionalAction, KeyModifiers, RuntimeTuning};
+use halley_ipc::NodeMoveDirection;
 
 fn with_extra_shift(base: KeyModifiers) -> KeyModifiers {
     let mut out = base;
@@ -17,11 +18,20 @@ fn with_extra_shift(base: KeyModifiers) -> KeyModifiers {
     out
 }
 
-pub(crate) fn key_is_compositor_binding(
+fn from_directional_action(direction: DirectionalAction) -> NodeMoveDirection {
+    match direction {
+        DirectionalAction::Left => NodeMoveDirection::Left,
+        DirectionalAction::Right => NodeMoveDirection::Right,
+        DirectionalAction::Up => NodeMoveDirection::Up,
+        DirectionalAction::Down => NodeMoveDirection::Down,
+    }
+}
+
+fn legacy_compositor_action(
     st: &HalleyWlState,
     key_code: u32,
     mods: &ModState,
-) -> bool {
+) -> Option<CompositorBindingAction> {
     let kb = &st.tuning.keybinds;
 
     if key_matches(key_code, kb.quit) {
@@ -31,13 +41,9 @@ pub(crate) fn key_is_compositor_binding(
             kb.quit_modifiers
         };
         if modifier_exact(mods, need) {
-            return true;
-        }
-    }
-
-    for binding in &st.tuning.launch_bindings {
-        if key_matches(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            return true;
+            return Some(CompositorBindingAction::Quit {
+                requires_shift: st.tuning.quit_requires_shift,
+            });
         }
     }
 
@@ -66,8 +72,81 @@ pub(crate) fn key_is_compositor_binding(
     }
 
     if !st.tuning.dev_enabled {
-        return false;
+        return None;
     }
+
+    match key_code {
+        code if key_matches(code, kb.move_left) && modifier_exact(mods, kb.modifier) => {
+            Some(CompositorBindingAction::MoveNode(DirectionalAction::Left))
+        }
+        code if key_matches(code, kb.move_right) && modifier_exact(mods, kb.modifier) => {
+            Some(CompositorBindingAction::MoveNode(DirectionalAction::Right))
+        }
+        code if key_matches(code, kb.move_up) && modifier_exact(mods, kb.modifier) => {
+            Some(CompositorBindingAction::MoveNode(DirectionalAction::Up))
+        }
+        code if key_matches(code, kb.move_down) && modifier_exact(mods, kb.modifier) => {
+            Some(CompositorBindingAction::MoveNode(DirectionalAction::Down))
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn compositor_binding_action(
+    st: &HalleyWlState,
+    key_code: u32,
+    mods: &ModState,
+) -> Option<CompositorBindingAction> {
+    for binding in &st.tuning.compositor_bindings {
+        if key_matches(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
+            return Some(binding.action);
+        }
+    }
+
+    legacy_compositor_action(st, key_code, mods)
+}
+
+pub(crate) fn key_is_compositor_binding(
+    st: &HalleyWlState,
+    key_code: u32,
+    mods: &ModState,
+) -> bool {
+    compositor_binding_action(st, key_code, mods).is_some()
+        || st.tuning.launch_bindings.iter().any(|binding| {
+            key_matches(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
+        })
+}
+
+pub(crate) fn apply_compositor_action_press(
+    st: &mut HalleyWlState,
+    action: CompositorBindingAction,
+    config_path: &str,
+    wayland_display: &str,
+) -> bool {
+    match action {
+        CompositorBindingAction::Quit { .. } => {
+            st.request_exit();
+            info!("quit requested via keybind");
+            true
+        }
+        CompositorBindingAction::Reload => {
+            let next = RuntimeTuning::load_from_path(config_path);
+            crate::run::apply_reloaded_tuning(st, next, config_path, wayland_display, "manual");
+            info!("manual config reload from {}", config_path);
+            info!(
+                "resolved keybinds: {}",
+                st.tuning.keybinds_resolved_summary()
+            );
+            true
+        }
+        CompositorBindingAction::MinimizeFocused => minimize_focused_active_node(st),
+        CompositorBindingAction::OverviewToggle => false,
+        CompositorBindingAction::Docking => set_docking_mode(st, true),
+        CompositorBindingAction::MoveNode(direction) => {
+            move_latest_node_direction(st, from_directional_action(direction))
+        }
+    }
+}
 
     matches!(
         key_code,
@@ -101,12 +180,6 @@ pub(crate) fn apply_bound_key(
         } else {
             kb.quit_modifiers
         };
-        if modifier_exact(mods, need) {
-            st.request_exit();
-            info!("quit requested via keybind");
-            return true;
-        }
-        return false;
     }
 
     for binding in st.tuning.launch_bindings.clone() {
@@ -137,6 +210,7 @@ pub(crate) fn apply_bound_key(
         return set_docking_active(st, true);
     }
 
+    let kb = st.tuning.keybinds.clone();
     let changed = match key_code {
         code if key_matches(code, kb.move_left) && modifier_exact(mods, kb.move_left_modifiers) => {
             move_latest_node_direction(st, NodeMoveDirection::Left);
@@ -174,7 +248,6 @@ pub(crate) fn apply_bound_key(
             st.tuning.focus_ring_ry -= STEP_RY;
             true
         }
-
         code if key_matches(code, kb.secondary_left) && modifier_exact(mods, kb.modifier) => {
             st.tuning.focus_ring_offset_x -= STEP_OFFSET;
             true

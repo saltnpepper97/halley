@@ -469,7 +469,10 @@ where
         let intrinsic_size = *intrinsic_size;
 
         let anim = st.anim_style_for(id, node_state.clone(), now);
-        let p_smooth = st.smoothed_render_pos(id, node_pos, now);
+
+        // Node/Core markers should NOT use smoothed render positions.
+        // They must stay exactly where the field says they are.
+        let p_smooth = node_pos;
 
         if !matches!(
             node_state,

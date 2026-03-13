@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use halley_config::CompositorBindingAction;
 use halley_config::PointerBindingAction;
 
 #[derive(Default, Clone)]
@@ -21,6 +22,7 @@ pub(crate) struct ModState {
     /// clients). The matching release must also be intercepted so clients never
     /// receive an unpaired release event and end up with stuck keys.
     pub(crate) intercepted_keys: HashSet<u32>,
+    pub(crate) intercepted_compositor_actions: HashMap<u32, CompositorBindingAction>,
 }
 
 #[derive(Clone, Copy)]

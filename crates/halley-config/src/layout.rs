@@ -6,7 +6,9 @@ use halley_core::decay::FocusRingDecayPolicy;
 use halley_core::field::Vec2;
 use halley_core::viewport::{FocusRing, Viewport};
 
-use super::{KeyModifiers, Keybinds, LaunchBinding, PointerBinding, PointerBindingAction};
+use super::{
+    CompositorBinding, KeyModifiers, Keybinds, LaunchBinding, PointerBinding, PointerBindingAction,
+};
 use crate::keybinds::evdev_to_key_name;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -64,12 +66,15 @@ pub struct RuntimeTuning {
 
     pub keybinds: Keybinds,
     pub keybind_launch_command: String,
+    pub compositor_bindings: Vec<CompositorBinding>,
     pub launch_bindings: Vec<LaunchBinding>,
     pub pointer_bindings: Vec<PointerBinding>,
     pub autostart_commands: Vec<AutostartCommand>,
     pub quit_requires_shift: bool,
 
     pub tty_viewports: Vec<ViewportOutputConfig>,
+    pub autostart_once: Vec<String>,
+    pub autostart_on_reload: Vec<String>,
     pub env: HashMap<String, String>,
 }
 
@@ -129,12 +134,15 @@ impl Default for RuntimeTuning {
 
             keybinds: Keybinds::default(),
             keybind_launch_command: String::new(),
+            compositor_bindings: Vec::new(),
             launch_bindings: Vec::new(),
             pointer_bindings: default_pointer_bindings(Keybinds::default().modifier),
             autostart_commands: Vec::new(),
             quit_requires_shift: true,
 
             tty_viewports: Vec::new(),
+            autostart_once: Vec::new(),
+            autostart_on_reload: Vec::new(),
             env: HashMap::from([
                 ("XCURSOR_THEME".to_string(), "Adwaita".to_string()),
                 ("XCURSOR_SIZE".to_string(), "24".to_string()),
@@ -244,6 +252,7 @@ impl RuntimeTuning {
             evdev_to_key_name(kb.quit),
             evdev_to_key_name(kb.docking),
             self.quit_requires_shift,
+            self.compositor_bindings.len(),
             self.launch_bindings.len(),
             evdev_to_key_name(kb.primary_left),
             evdev_to_key_name(kb.primary_right),

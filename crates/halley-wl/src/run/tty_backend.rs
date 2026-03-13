@@ -182,6 +182,11 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let xwayland_request_rx = Rc::new(RefCell::new(xwayland_request_rx));
             let xwayland_for_timer = xwayland.clone();
             let xwayland_request_for_timer = xwayland_request_rx.clone();
+            run_autostart_commands(
+                &state.tuning.autostart_once,
+                sock_name.as_str(),
+                "autostart",
+            );
 
             let libinput_backend = libinput_backend;
             let debug_input = crate::input::pointer_map_debug_enabled();
@@ -276,6 +281,9 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 ps.workspace_size = (mw as i32, mh as i32);
             }
 
+            let dev = Rc::new(RefCell::new(drm_probe.dev));
+            let current_connector_name = Rc::new(RefCell::new(drm_probe.connector_name.clone()));
+            let current_mode = Rc::new(RefCell::new(drm_probe.mode));
             let initial_outputs = collect_outputs_for_ipc(
                 &drm_dev.borrow(),
                 drm_probe.connector_name.as_str(),
@@ -288,6 +296,10 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let gbm_surface_for_vblank = drm_probe.gbm_surface.clone();
             let warned_vblank_mismatch = Rc::new(RefCell::new(false));
             let warned_vblank_mismatch_for_notifier = warned_vblank_mismatch.clone();
+            let dev_for_timer = dev.clone();
+            let current_connector_name_for_timer = current_connector_name.clone();
+            let current_mode_for_timer = current_mode.clone();
+            let backend_handle_for_timer = backend_handle.clone();
             ev.handle().insert_source(
                 drm_probe.notifier,
                 move |event, metadata, _st| match event {

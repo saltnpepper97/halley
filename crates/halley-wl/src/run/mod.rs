@@ -48,7 +48,9 @@ use crate::backend_iface::{BackendView, RenderBackend, WinitBackendHandle};
 use crate::interaction::types::{ModState, PointerState};
 use crate::state::{ClientState, HalleyWlState};
 
-use crate::input::{BackendInputEventData, advance_node_move_anim, handle_backend_input_event};
+use crate::input::{
+    BackendInputEventData, advance_node_move_anim, handle_backend_input_event, spawn_command,
+};
 use crate::render::draw_debug_frame_to_target;
 use crate::surface::current_surface_size_for_node;
 

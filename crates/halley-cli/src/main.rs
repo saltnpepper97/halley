@@ -38,11 +38,7 @@ fn main() {
             print_help();
             return;
         }
-        Some(other) => {
-            eprintln!("unknown command: {other}");
-            print_help();
-            std::process::exit(2);
-        }
+        Some(other) => exit_usage(&format!("unknown command: {other}")),
     };
 
     match send_request(&request) {
@@ -57,6 +53,12 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+fn exit_usage(message: &str) -> ! {
+    eprintln!("{message}");
+    print_help();
+    std::process::exit(2);
 }
 
 fn print_help() {

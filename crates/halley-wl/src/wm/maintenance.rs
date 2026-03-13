@@ -389,7 +389,7 @@ impl HalleyWlState {
             || self.active_transition_until_ms.contains_key(&id)
     }
 
-    fn surface_intersects_viewport(&self, id: NodeId) -> bool {
+    pub fn surface_intersects_viewport(&self, id: NodeId) -> bool {
         let Some(n) = self.field.node(id) else {
             return false;
         };

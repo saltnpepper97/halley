@@ -139,19 +139,17 @@ impl HalleyWlState {
     }
 
     pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
-        let had_nodes = !self.field.nodes().is_empty();
         let prev_viewport = self.viewport;
         let prev_focus = self.last_input_surface_node();
 
         tuning.enforce_guards();
         tuning.apply_process_env();
 
-        if had_nodes {
-            self.viewport = prev_viewport;
-            tuning.viewport_center = prev_viewport.center;
-            tuning.viewport_size = prev_viewport.size;
-        } else {
-            self.viewport = tuning.viewport();
+        let next_viewport = tuning.viewport();
+        self.viewport = next_viewport;
+        if prev_viewport.center != next_viewport.center || prev_viewport.size != next_viewport.size
+        {
+            self.viewport_pan_anim = None;
         }
 
         self.zoom_ref_size = tuning.viewport_size;

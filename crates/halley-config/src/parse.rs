@@ -24,6 +24,7 @@ impl RuntimeTuning {
 
         let mut out = Self::default();
 
+        load_autostart_section(raw.as_str(), &mut out);
         load_dev_section(&cfg, &mut out);
         load_autostart_section(raw.as_str(), &mut out);
         load_env_section(&cfg, &mut out);
@@ -787,16 +788,38 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
             out.keybinds.move_down_modifiers = effective_mods;
         }
         "move_window" | "move-window" if is_pointer_button_code(key) => {
-            upsert_pointer_binding(out, effective_mods, key, PointerBindingAction::MoveWindow);
+            upsert_pointer_binding(out, mods, key, PointerBindingAction::MoveWindow);
         }
         "resize_window" | "resize-window" if is_pointer_button_code(key) => {
-            upsert_pointer_binding(out, effective_mods, key, PointerBindingAction::ResizeWindow);
+            upsert_pointer_binding(out, mods, key, PointerBindingAction::ResizeWindow);
         }
         _ => {
             out.keybind_launch_command = action_trimmed.to_string();
-            upsert_launch_binding(out, effective_mods, key, action_trimmed);
+            upsert_launch_binding(out, mods, key, action_trimmed);
         }
     }
+}
+
+fn upsert_compositor_binding(
+    out: &mut RuntimeTuning,
+    mods: KeyModifiers,
+    key: u32,
+    action: CompositorBindingAction,
+) {
+    if let Some(existing) = out
+        .compositor_bindings
+        .iter_mut()
+        .find(|b| b.key == key && b.modifiers == mods)
+    {
+        existing.action = action;
+        return;
+    }
+
+    out.compositor_bindings.push(CompositorBinding {
+        modifiers: mods,
+        key,
+        action,
+    });
 }
 
 fn upsert_launch_binding(out: &mut RuntimeTuning, mods: KeyModifiers, key: u32, command: &str) {

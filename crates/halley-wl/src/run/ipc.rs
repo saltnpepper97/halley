@@ -145,6 +145,16 @@ fn handle_request(
             Ok(()) => Response::Reloaded,
             Err(err) => Response::Error(IpcError::Internal(err.to_string())),
         },
+        Request::Docking(command) => match command_tx.send(RuntimeIpcCommand::Docking(command)) {
+            Ok(()) => Response::Ok,
+            Err(err) => Response::Error(IpcError::Internal(err.to_string())),
+        },
+        Request::NodeMove(direction) => {
+            match command_tx.send(RuntimeIpcCommand::NodeMove(direction)) {
+                Ok(()) => Response::Ok,
+                Err(err) => Response::Error(IpcError::Internal(err.to_string())),
+            }
+        }
         Request::Outputs => match outputs.lock() {
             Ok(guard) => Response::Outputs(OutputsResponse {
                 outputs: guard.clone(),

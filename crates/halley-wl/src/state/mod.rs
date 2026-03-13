@@ -149,6 +149,7 @@ pub struct HalleyWlState {
     // Nodes explicitly collapsed by the user via keybind/toggle.
     // Maintenance must not auto-resurrect these.
     pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
+    pub(crate) docking_hold_count: u32,
 
     pub(crate) resize_active: Option<NodeId>,
     pub(crate) resize_static_node: Option<NodeId>,
@@ -268,6 +269,7 @@ impl HalleyWlState {
             release_smoothing_until_ms: HashMap::new(),
             release_axis_lock: HashMap::new(),
             manual_collapsed_nodes: HashSet::new(),
+            docking_hold_count: 0,
             resize_active: None,
             resize_static_node: None,
             resize_static_lock_pos: None,

@@ -91,6 +91,25 @@ impl HalleyWlState {
         true
     }
     #[inline]
+    fn node_participates_in_overlap(&self, id: NodeId) -> bool {
+        self.field.node(id).is_some_and(|n| {
+            self.field.is_visible(id)
+                && matches!(
+                    n.state,
+                    halley_core::field::NodeState::Active
+                        | halley_core::field::NodeState::Node
+                        | halley_core::field::NodeState::Core
+                        | halley_core::field::NodeState::Drifting
+                )
+        })
+    }
+
+    #[inline]
+    fn node_is_docked_pair_member(&self, a: NodeId, b: NodeId) -> bool {
+        self.field.dock_partner(a) == Some(b) || self.field.dock_partner(b) == Some(a)
+    }
+
+    #[inline]
     fn world_units_per_px_xy(&self) -> (f32, f32) {
         let wx = self.viewport.size.x / self.zoom_ref_size.x.max(1.0);
         let wy = self.viewport.size.y / self.zoom_ref_size.y.max(1.0);
@@ -255,7 +274,7 @@ impl HalleyWlState {
                 .nodes()
                 .iter()
                 .filter_map(|(&oid, other)| {
-                    if oid == id || !self.field.is_visible(oid) {
+                    if oid == id || !self.node_participates_in_overlap(oid) {
                         return None;
                     }
                     if self.is_fullscreen_node(oid) {
@@ -555,6 +574,12 @@ impl HalleyWlState {
                         }
                     }
                 }
+
+                changed = true;
+            }
+
+            if self.field.node(id).is_some_and(|node| node.pinned) {
+                return false;
             }
             if !changed {
                 break;
