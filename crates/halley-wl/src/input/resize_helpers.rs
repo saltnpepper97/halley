@@ -131,8 +131,7 @@ pub(crate) fn active_node_screen_rect(
 ///
 /// `resize_preview` must be forwarded from the caller so that during
 /// interactive resize the focus origin stays in sync with where the window is
-/// actually rendered (which uses preview coordinates and scale=1.0), rather
-/// than diverging from the smoothed-position + anim-scale path.
+/// actually rendered (which uses preview coordinates and scale=1.0).
 ///
 pub(crate) fn active_node_surface_transform_screen_details(
     st: &HalleyWlState,
@@ -169,7 +168,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
                 1.0f32,
             )
         } else {
-            let p = st.smoothed_render_pos_read(node_id, n.pos, now);
+            let p = n.pos;
             let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
             let sw = (bbox_w * anim_scale).round();
             let sh = (bbox_h * anim_scale).round();

@@ -207,7 +207,6 @@ impl HalleyWlState {
         if now_ms <= anim.start_ms.saturating_add(anim.delay_ms) {
             self.viewport.center = anim.from_center;
             self.tuning.viewport_center = self.viewport.center;
-            self.tuning.viewport_size = self.viewport.size;
             return;
         }
         let dur = anim.duration_ms.max(1);
@@ -223,7 +222,6 @@ impl HalleyWlState {
             y: anim.from_center.y + (anim.to_center.y - anim.from_center.y) * e,
         };
         self.tuning.viewport_center = self.viewport.center;
-        self.tuning.viewport_size = self.viewport.size;
         if t >= 1.0 {
             self.viewport_pan_anim = None;
         }

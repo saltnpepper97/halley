@@ -244,18 +244,18 @@ pub(crate) fn handle_pointer_axis_input(
     if steps.abs() < f32::EPSILON {
         return;
     }
+
     let steps = steps.clamp(-4.0, 4.0);
     pointer_state.borrow_mut().panning = false;
-    let step = (steps.abs() * 80.0).max(22.0);
-    let now = Instant::now();
-    st.note_pan_activity(now);
-    st.viewport.pan(halley_core::field::Vec2 {
-        x: 0.0,
-        y: step * steps.signum(),
+
+    let zoom_per_step = 1.10_f32;
+    let factor = zoom_per_step.powf(steps);
+    let next = st.clamp_camera_view_size(halley_core::field::Vec2 {
+        x: st.camera_view_size().x / factor,
+        y: st.camera_view_size().y / factor,
     });
-    st.tuning.viewport_center = st.viewport.center;
-    st.tuning.viewport_size = st.viewport.size;
-    st.note_pan_viewport_change(now);
+
+    st.zoom_ref_size = next;
     backend.request_redraw();
 }
 

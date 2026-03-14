@@ -184,20 +184,40 @@ pub(crate) fn collect_active_surfaces(
             (s, live_ramp)
         };
 
-        // Anchor by node centre so zoom doesn't slide full windows.
-        let p = st.smoothed_render_pos(node_id, node_pos, now);
+        // Anchor by the node's live field position. Zoom/pan must be a pure
+        // camera transform; the window itself must not pick up an extra render
+        // offset while the camera changes.
+        //
+        // cam_scale = viewport_size / zoom_ref_size.  At 1× zoom it is 1.0;
+        // zoomed-in → > 1.0; zoomed-out → < 1.0.  Multiplying all screen-space
+        // pixel dimensions by cam_scale achieves optical (lens) zoom: positions
+        // already converge/spread correctly through world_to_screen, and now
+        // window sizes and the gaps between them scale by exactly the same factor.
+        //
+        // The resize path already works in screen-pixel space, so cam_scale must
+        // NOT be applied there.
+        let cam_scale = st.camera_render_scale();
+        let render_scale = scale * cam_scale;
+
+        let p = node_pos;
         let (cx, cy, sx, sy) = if let Some(active_resize) = active_resize {
             let (cx, cy) = active_resize.center_px();
             let (surface_origin_x, surface_origin_y) = active_resize.surface_origin_px();
             (cx, cy, surface_origin_x, surface_origin_y)
         } else {
             let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
-            let sw = ((bbox.size.w as f32) * scale).round() as i32;
-            let sh = ((bbox.size.h as f32) * scale).round() as i32;
-            let lx = ((bbox.loc.x as f32) * scale).round() as i32;
-            let ly = ((bbox.loc.y as f32) * scale).round() as i32;
+            let sw = ((bbox.size.w as f32) * render_scale).round() as i32;
+            let sh = ((bbox.size.h as f32) * render_scale).round() as i32;
+            let lx = ((bbox.loc.x as f32) * render_scale).round() as i32;
+            let ly = ((bbox.loc.y as f32) * render_scale).round() as i32;
             (cx, cy, cx - (sw / 2) - lx, cy - (sh / 2) - ly)
         };
+
+        // element_scale: what we pass to Smithay's render_elements_from_surface_tree.
+        // For the resize path (already in screen-px space) keep the raw anim scale.
+        // For normal display, include cam_scale so the surface texture quad is drawn
+        // at the correct zoomed size.
+        let element_scale = if active_resize.is_some() { scale } else { render_scale };
 
         let geometry_rect = active_resize
             .map(|rz| rz.frame_rect_px())
@@ -208,7 +228,7 @@ pub(crate) fn collect_active_surfaces(
                     node_intrinsic.x,
                     node_intrinsic.y,
                 ));
-                rect_from_local_geometry(sx, sy, scale, local_rect)
+                rect_from_local_geometry(sx, sy, render_scale, local_rect)
             });
 
         if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {
@@ -243,7 +263,7 @@ pub(crate) fn collect_active_surfaces(
             renderer,
             &wl,
             (sx, sy),
-            scale as f64,
+            element_scale as f64,
             (anim.alpha * live_ramp).clamp(0.0, 1.0),
             Kind::Unspecified,
         );
@@ -274,16 +294,16 @@ pub(crate) fn collect_active_surfaces(
         for (popup, popup_offset) in popups {
             let popup_geo = popup.geometry();
             let popup_sx = sx
-                + ((parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x) as f32 * scale).round()
+                + ((parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x) as f32 * element_scale).round()
                     as i32;
             let popup_sy = sy
-                + ((parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y) as f32 * scale).round()
+                + ((parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y) as f32 * element_scale).round()
                     as i32;
             let popup_elems = render_elements_from_surface_tree(
                 renderer,
                 popup.wl_surface(),
                 (popup_sx, popup_sy),
-                scale as f64,
+                element_scale as f64,
                 (anim.alpha * live_ramp).clamp(0.0, 1.0),
                 Kind::Unspecified,
             );
@@ -373,11 +393,8 @@ pub(crate) fn collect_hover_preview(
         .clamp(0.0, 1.0);
     let marker_mix = ease_in_out_cubic(marker_mix_lin);
 
-    let p_smooth = st.smoothed_render_pos(preview_id, node_pos, now);
-    let p = halley_core::field::Vec2 {
-        x: p_smooth.x + (node_pos.x - p_smooth.x) * marker_mix,
-        y: p_smooth.y + (node_pos.y - p_smooth.y) * marker_mix,
-    };
+    let p = node_pos;
+    let _ = marker_mix;
     let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
 
     let (dot_half_raw, label_gap, mut label_w, mut label_h) =

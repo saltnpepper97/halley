@@ -6,9 +6,6 @@ impl HalleyWlState {
     #[inline]
     pub(crate) fn mark_direct_carry_node(&mut self, id: NodeId) {
         self.carry_direct_nodes.insert(id);
-        if let Some(pos) = self.field.node(id).map(|n| n.pos) {
-            self.smoothed_render_pos.insert(id, pos);
-        }
     }
 
     #[inline]
@@ -242,7 +239,6 @@ impl HalleyWlState {
         self.suspend_overlap_resolve = false;
         self.suspend_state_checks = false;
         self.enforce_docked_pairs();
-        self.resolve_overlap_now();
         self.clear_direct_carry_nodes();
     }
 

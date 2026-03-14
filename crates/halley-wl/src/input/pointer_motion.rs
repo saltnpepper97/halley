@@ -308,8 +308,9 @@ pub(crate) fn handle_pointer_motion_absolute(
         let (lsx, lsy) = ps.pan_last_screen;
         let dx_px = active_sx - lsx;
         let dy_px = active_sy - lsy;
-        let dx_world = dx_px * st.viewport.size.x.max(1.0) / (ws_w as f32).max(1.0);
-        let dy_world = -dy_px * st.viewport.size.y.max(1.0) / (ws_h as f32).max(1.0);
+        let camera = st.camera_view_size();
+        let dx_world = dx_px * camera.x.max(1.0) / (ws_w as f32).max(1.0);
+        let dy_world = -dy_px * camera.y.max(1.0) / (ws_h as f32).max(1.0);
         let now = Instant::now();
         st.note_pan_activity(now);
         st.viewport.pan(halley_core::field::Vec2 {
@@ -317,7 +318,6 @@ pub(crate) fn handle_pointer_motion_absolute(
             y: -dy_world,
         });
         st.tuning.viewport_center = st.viewport.center;
-        st.tuning.viewport_size = st.viewport.size;
         st.note_pan_viewport_change(now);
         ps.pan_last_screen = (active_sx, active_sy);
         backend.request_redraw();

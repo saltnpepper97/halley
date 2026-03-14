@@ -25,7 +25,7 @@ use super::node_render::{
     ActiveBorderRect, NodeSnapshot, collect_active_surfaces, collect_hover_preview,
     draw_node_markers,
 };
-use super::render_utils::{draw_outline_rect, draw_rect, draw_ring};
+use super::render_utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
@@ -372,15 +372,23 @@ fn draw_debug_frame_scene(
     }
 
     let focus_ring = st.active_focus_ring();
+    // Project the ring's world-space anchor to screen pixels once.  The center
+    // follows the focused node correctly at any zoom level.
+    let ring_world_cx = st.viewport.center.x + focus_ring.offset_x;
+    let ring_world_cy = st.viewport.center.y + focus_ring.offset_y;
+    let (ring_sx, ring_sy) = world_to_screen(st, size.w, size.h, ring_world_cx, ring_world_cy);
+    // Convert world-space radii to screen pixels using the BASE (1×) zoom ratio
+    // so the ring keeps a fixed pixel size independent of camera zoom.
+    let base_px_per_world_x = size.w as f32 / st.viewport.size.x.max(1.0);
+    let base_px_per_world_y = size.h as f32 / st.viewport.size.y.max(1.0);
+    let screen_rx = focus_ring.radius_x * base_px_per_world_x;
+    let screen_ry = focus_ring.radius_y * base_px_per_world_y;
     draw_ring(
         frame,
-        st,
-        size.w,
-        size.h,
-        focus_ring.radius_x,
-        focus_ring.radius_y,
-        focus_ring.offset_x,
-        focus_ring.offset_y,
+        ring_sx as f32,
+        ring_sy as f32,
+        screen_rx,
+        screen_ry,
         Color32F::new(0.15, 0.85, 0.85, 0.9),
         prepared.damage,
     )?;

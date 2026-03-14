@@ -9,9 +9,12 @@ pub(crate) fn screen_to_world(
 ) -> halley_core::field::Vec2 {
     let w = (w as f32).max(1.0);
     let h = (h as f32).max(1.0);
-    let nx = sx / w;
-    let ny = sy / h;
-    let wx = st.viewport.center.x + (nx - 0.5) * st.viewport.size.x;
-    let wy = st.viewport.center.y + (0.5 - ny) * st.viewport.size.y;
-    halley_core::field::Vec2 { x: wx, y: wy }
+    let view = st.camera_view_size();
+    let nx = (sx / w) - 0.5;
+    let ny = 0.5 - (sy / h);
+
+    halley_core::field::Vec2 {
+        x: st.viewport.center.x + nx * view.x.max(1.0),
+        y: st.viewport.center.y + ny * view.y.max(1.0),
+    }
 }
