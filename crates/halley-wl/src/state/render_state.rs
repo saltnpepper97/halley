@@ -13,6 +13,7 @@ impl HalleyWlState {
         let alive: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
         self.smoothed_render_pos.retain(|id, _| alive.contains(id));
         self.node_hover_mix.retain(|id, _| alive.contains(id));
+        self.prune_window_offscreen_cache(now);
     }
 
     pub(crate) fn resize_static_active_for(

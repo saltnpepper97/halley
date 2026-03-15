@@ -16,7 +16,7 @@ use smithay::{
     input::{Seat, SeatState, pointer::CursorImageStatus},
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::wayland_server::{DisplayHandle, backend::ObjectId},
-    utils::Transform,
+    utils::{Size, Transform},
     wayland::{
         compositor::CompositorState,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
@@ -78,6 +78,57 @@ pub(crate) struct ActiveSpawnPan {
 pub(crate) enum SpawnAnchorMode {
     Focus,
     View,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct WindowOffscreenKey {
+    pub width: i32,
+    pub height: i32,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct WindowOffscreenCache {
+    /// Native 1.0x surface-tree bbox size used to build the offscreen image.
+    pub key: WindowOffscreenKey,
+
+    /// Set when the cached offscreen image should be rebuilt before use.
+    pub dirty: bool,
+
+    /// Last frame this cache entry was touched.
+    pub last_used_at: Option<Instant>,
+}
+
+impl WindowOffscreenCache {
+    #[inline]
+    pub fn matches_size(&self, width: i32, height: i32) -> bool {
+        self.key.width == width && self.key.height == height
+    }
+
+    #[inline]
+    pub fn set_size(&mut self, width: i32, height: i32) {
+        self.key = WindowOffscreenKey { width, height };
+    }
+
+    #[inline]
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    #[inline]
+    pub fn mark_clean(&mut self, now: Instant) {
+        self.dirty = false;
+        self.last_used_at = Some(now);
+    }
+
+    #[inline]
+    pub fn touch(&mut self, now: Instant) {
+        self.last_used_at = Some(now);
+    }
+
+    #[inline]
+    pub fn size(&self) -> Size<i32, smithay::utils::Physical> {
+        (self.key.width.max(1), self.key.height.max(1)).into()
+    }
 }
 
 pub struct HalleyWlState {
@@ -160,6 +211,7 @@ pub struct HalleyWlState {
     pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) recent_top_node: Option<NodeId>,
     pub(crate) recent_top_until: Option<Instant>,
+    pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
 
     pub(crate) spawn_cursor: u32,
     pub(crate) spawn_patch: Option<SpawnPatch>,
@@ -268,6 +320,7 @@ impl HalleyWlState {
             window_geometry: HashMap::new(),
             recent_top_node: None,
             recent_top_until: None,
+            window_offscreen_cache: HashMap::new(),
 
             spawn_cursor: 0,
             spawn_patch: None,
@@ -365,6 +418,47 @@ impl HalleyWlState {
         self.recent_top_node
     }
 
+    pub(crate) fn ensure_window_offscreen_cache(
+        &mut self,
+        node_id: NodeId,
+        width: i32,
+        height: i32,
+        now: Instant,
+    ) -> &mut WindowOffscreenCache {
+        let cache = self.window_offscreen_cache.entry(node_id).or_default();
+
+        let width = width.max(1);
+        let height = height.max(1);
+
+        if !cache.matches_size(width, height) {
+            cache.set_size(width, height);
+            cache.mark_dirty();
+        }
+
+        cache.touch(now);
+        cache
+    }
+
+    pub(crate) fn mark_window_offscreen_dirty(&mut self, node_id: NodeId) {
+        if let Some(cache) = self.window_offscreen_cache.get_mut(&node_id) {
+            cache.mark_dirty();
+        }
+    }
+
+    pub(crate) fn clear_window_offscreen_cache_for(&mut self, node_id: NodeId) {
+        self.window_offscreen_cache.remove(&node_id);
+    }
+
+    pub(crate) fn prune_window_offscreen_cache(&mut self, now: Instant) {
+        let alive: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
+        self.window_offscreen_cache.retain(|id, cache| {
+            alive.contains(id)
+                && cache
+                    .last_used_at
+                    .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5)
+        });
+    }
+
     pub fn request_exit(&mut self) {
         self.exit_requested = true;
     }
@@ -441,7 +535,6 @@ impl HalleyWlState {
             self.resize_static_until_ms = 0;
         }
         let focus_ring = self.active_focus_ring();
-        let pan_dominant = now_ms < self.pan_dominant_until_ms;
         if !self.suspend_state_checks {
             self.enforce_pan_dominant_zone_states(focus_ring, now_ms);
             self.enforce_carry_zone_states();
@@ -472,9 +565,6 @@ impl HalleyWlState {
         self.enforce_single_primary_active_unit(focus_ring);
         if !self.suspend_state_checks && self.resize_active.is_none() {
             self.resolve_surface_overlap();
-        }
-        if !self.suspend_state_checks && !pan_dominant {
-            self.decay_tiny_nodes_on_zoom_out();
         }
         self.restore_pan_return_active_focus(now);
         self.animator.observe_field(&self.field, now);

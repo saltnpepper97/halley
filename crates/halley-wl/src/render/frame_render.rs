@@ -3,14 +3,14 @@ use std::time::Instant;
 
 use smithay::{
     backend::renderer::{
-        Color32F, Frame, Renderer,
+        Color32F, Frame, Renderer, Texture,
         element::Kind,
         element::surface::render_elements_from_surface_tree,
         gles::{GlesFrame, GlesRenderer, GlesTarget},
         utils::draw_render_elements,
     },
     backend::winit::WinitGraphicsBackend,
-    utils::{Physical, Rectangle, Transform},
+    utils::{Buffer, Physical, Rectangle, Transform},
 };
 
 use crate::interaction::types::ResizeCtx;
@@ -22,8 +22,8 @@ use super::cursor_theme::themed_cursor_sprite_with_fallback;
 use super::dock_render::{draw_dock_preview, draw_docked_pairs};
 use super::layer_render::collect_layer_surfaces;
 use super::node_render::{
-    ActiveBorderRect, NodeSnapshot, collect_active_surfaces, collect_hover_preview,
-    draw_node_markers,
+    ActiveBorderRect, NodeSnapshot, OffscreenNodeTexture, collect_active_surfaces,
+    collect_hover_preview, draw_node_markers,
 };
 use super::render_utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 
@@ -42,6 +42,7 @@ struct SceneCollections {
     layer_over_elements: Vec<SurfaceElement>,
     active_elements: Vec<CroppedSurfaceElement>,
     resized_active_elements: Vec<CroppedSurfaceElement>,
+    offscreen_textures: Vec<OffscreenNodeTexture>,
     popup_elements: Vec<CroppedSurfaceElement>,
     border_rects: Vec<ActiveBorderRect>,
     overlay_rects: Vec<(i32, i32, i32, i32, Color32F)>,
@@ -156,9 +157,6 @@ pub(crate) fn draw_debug_frame(
             preview_hover_node,
             None,
             None,
-            // Smithay's nested winit path expects a flipped output transform.
-            // The shared world/screen math is already top-left oriented; this
-            // compensates for the final EGL target orientation.
             Transform::Flipped180,
         )?;
     }
@@ -231,6 +229,7 @@ fn collect_debug_frame_scene(
     let (
         active_elements,
         resized_active_elements,
+        offscreen_textures,
         popup_elements,
         node_surface_map,
         border_rects,
@@ -282,6 +281,7 @@ fn collect_debug_frame_scene(
         layer_over_elements,
         active_elements,
         resized_active_elements,
+        offscreen_textures,
         popup_elements,
         border_rects,
         overlay_rects,
@@ -345,6 +345,8 @@ fn draw_debug_frame_scene(
         );
     }
 
+    draw_offscreen_textures(frame, prepared.damage, &scene.offscreen_textures)?;
+
     draw_window_borders(frame, size, prepared.damage, &scene.border_rects)?;
 
     if !scene.popup_elements.is_empty() {
@@ -372,13 +374,9 @@ fn draw_debug_frame_scene(
     }
 
     let focus_ring = st.active_focus_ring();
-    // Project the ring's world-space anchor to screen pixels once.  The center
-    // follows the focused node correctly at any zoom level.
     let ring_world_cx = st.viewport.center.x + focus_ring.offset_x;
     let ring_world_cy = st.viewport.center.y + focus_ring.offset_y;
     let (ring_sx, ring_sy) = world_to_screen(st, size.w, size.h, ring_world_cx, ring_world_cy);
-    // Convert world-space radii to screen pixels using the BASE (1×) zoom ratio
-    // so the ring keeps a fixed pixel size independent of camera zoom.
     let base_px_per_world_x = size.w as f32 / st.viewport.size.x.max(1.0);
     let base_px_per_world_y = size.h as f32 / st.viewport.size.y.max(1.0);
     let screen_rx = focus_ring.radius_x * base_px_per_world_x;
@@ -392,6 +390,44 @@ fn draw_debug_frame_scene(
         Color32F::new(0.15, 0.85, 0.85, 0.9),
         prepared.damage,
     )?;
+
+    Ok(())
+}
+
+fn draw_offscreen_textures(
+    frame: &mut GlesFrame<'_, '_>,
+    damage: Rectangle<i32, Physical>,
+    offscreen_textures: &[OffscreenNodeTexture],
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+    for tex in offscreen_textures {
+        let tex_size = tex.texture.size();
+
+        let src = Rectangle::<f64, Buffer>::new(
+            (tex.src_x as f64, tex.src_y as f64).into(),
+            (
+                tex.src_w.min(tex_size.w).max(1) as f64,
+                tex.src_h.min(tex_size.h).max(1) as f64,
+            )
+                .into(),
+        );
+
+        let dst = Rectangle::<i32, Physical>::new(
+            (tex.dst_x, tex.dst_y).into(),
+            (tex.dst_w.max(1), tex.dst_h.max(1)).into(),
+        );
+
+        frame.render_texture_from_to(
+            &tex.texture,
+            src,
+            dst,
+            &[damage],
+            &[],
+            Transform::Normal,
+            1.0,
+            None,
+            &[],
+        )?;
+    }
 
     Ok(())
 }

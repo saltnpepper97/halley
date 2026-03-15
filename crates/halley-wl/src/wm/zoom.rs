@@ -44,45 +44,4 @@ impl HalleyWlState {
         let view_w = self.camera_view_size().x.max(1.0);
         (vp_w / view_w).max(0.01)
     }
-
-    pub(crate) fn decay_tiny_nodes_on_zoom_out(&mut self) {
-        if !self.tuning.dev_zoom_decay_enabled {
-            return;
-        }
-        let camera = self.camera_view_size();
-        let zoom_x = camera.x.max(1.0) / self.viewport.size.x.max(1.0);
-        let zoom_y = camera.y.max(1.0) / self.viewport.size.y.max(1.0);
-        let zoom = zoom_x.max(zoom_y);
-        let zoom_decay_gate = 1.03_f32;
-        let force_node_zoom = 1.82_f32;
-        let t = self.tuning.dev_zoom_decay_min_frac.max(0.005);
-        let ids: Vec<NodeId> = self.field.nodes().keys().copied().collect();
-        for id in ids {
-            if self.interaction_focus == Some(id) {
-                continue;
-            }
-            let Some(n) = self.field.node(id) else {
-                continue;
-            };
-            if n.kind == halley_core::field::NodeKind::Core {
-                continue;
-            }
-            let in_view = (n.pos.x - self.viewport.center.x).abs() <= camera.x * 0.5
-                && (n.pos.y - self.viewport.center.y).abs() <= camera.y * 0.5;
-            let frac_x = n.intrinsic_size.x / camera.x.max(1.0);
-            let frac_y = n.intrinsic_size.y / camera.y.max(1.0);
-            let area_frac = frac_x * frac_y;
-            let node_zoom = if in_view {
-                force_node_zoom + 0.20
-            } else {
-                force_node_zoom
-            };
-            if zoom >= node_zoom
-                || (zoom >= zoom_decay_gate
-                    && (frac_x < t * 0.48 || frac_y < t * 0.48 || area_frac < (t * t * 0.30)))
-            {
-                let _ = self.field.set_decay_level(id, DecayLevel::Cold);
-            }
-        }
-    }
 }
