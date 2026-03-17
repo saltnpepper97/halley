@@ -330,6 +330,8 @@ fn draw_debug_frame_scene(
         let _ = draw_render_elements(frame, 1.0, &scene.layer_under_elements, &[prepared.damage]);
     }
 
+    draw_window_backgrounds(frame, size, prepared.damage, &scene.border_rects)?;
+
     if !scene.active_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
     }
@@ -347,7 +349,6 @@ fn draw_debug_frame_scene(
 
     draw_offscreen_textures(frame, prepared.damage, &scene.offscreen_textures)?;
 
-    draw_window_borders(frame, size, prepared.damage, &scene.border_rects)?;
 
     if !scene.popup_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.popup_elements, &[prepared.damage]);
@@ -464,7 +465,7 @@ where
     Ok(())
 }
 
-fn draw_window_borders<F>(
+fn draw_window_backgrounds<F>(
     frame: &mut F,
     size: smithay::utils::Size<i32, Physical>,
     damage: Rectangle<i32, Physical>,
@@ -472,25 +473,32 @@ fn draw_window_borders<F>(
 ) -> Result<(), F::Error>
 where
     F: Frame,
+    F::Error: std::error::Error + 'static,
 {
-    let bw = 2i32;
+    let bw = 6i32; // desired border thickness in px
+    let fb = Rectangle::<i32, Physical>::from_size(size);
     for rect in border_rects {
         let color = if rect.focused {
             Color32F::new(0.22, 0.82, 0.92, 1.0)
         } else {
-            Color32F::new(0.38, 0.42, 0.48, 0.90)
+            Color32F::new(0.28, 0.30, 0.35, 1.0)
         };
-
-        draw_clamped_border_rect(
-            frame,
-            (rect.x, rect.y, rect.w, rect.h),
-            bw,
-            color,
-            damage,
-            size,
-        )?;
+        let bg = Rectangle::<i32, Physical>::new(
+            (rect.x - bw, rect.y - bw).into(),
+            ((rect.w + bw * 2).max(1), (rect.h + bw * 2).max(1)).into(),
+        );
+        if let Some(visible) = bg.intersection(fb) {
+            draw_rect(
+                frame,
+                visible.loc.x,
+                visible.loc.y,
+                visible.size.w,
+                visible.size.h,
+                color,
+                damage,
+            )?;
+        }
     }
-
     Ok(())
 }
 

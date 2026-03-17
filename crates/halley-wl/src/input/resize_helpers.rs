@@ -148,13 +148,14 @@ pub(crate) fn active_node_surface_transform_screen_details(
 
     let anim = st.anim_style_for(node_id, n.state.clone(), now);
     let transition_alpha = st.active_transition_alpha(node_id, now);
+    let cam_scale = st.camera_render_scale();
     let anim_scale = active_surface_render_scale(
         anim.scale,
         st.active_zoom_lock_scale(),
         n.intrinsic_size.x,
         n.intrinsic_size.y,
         transition_alpha,
-    );
+    ) * cam_scale;
 
     let bbox_w = n.intrinsic_size.x.max(1.0);
     let bbox_h = n.intrinsic_size.y.max(1.0);
