@@ -114,7 +114,8 @@ fn apply_winit_reload(
             refresh: 0,
         },
     );
-    run_autostart_commands(&st.tuning.autostart_on_reload, wayland_display, "autostart");
+    let reload_commands = st.tuning.autostart_on_reload.clone();
+    run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     info!(
         "{}: reloaded config from {} with viewport {}x{}",
         reason, config_path, applied.width, applied.height
@@ -257,11 +258,8 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     },
                 );
             }
-            run_autostart_commands(
-                &state.tuning.autostart_once,
-                sock_name.as_str(),
-                "autostart",
-            );
+            let autostart_once = state.tuning.autostart_once.clone();
+            run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
             apply_host_cursor(&backend, &state.cursor_image_status);
             let backend_for_winit = backend.clone();
             let backend_for_timer = backend.clone();
@@ -517,6 +515,20 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             ev.handle().insert_source(timer, move |_tick, _, st| {
                 let now = Instant::now();
 
+                st.spawned_children.retain_mut(|child| {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            debug!("reaped child pid={} status={}", child.id(), status);
+                            false
+                        }
+                        Ok(None) => true,
+                        Err(err) => {
+                            warn!("try_wait failed for child pid={}: {}", child.id(), err);
+                            false
+                        }
+                    }
+                });
+
                 drain_ipc_commands(|cmd| match cmd {
                     RuntimeIpcCommand::Quit => {
                         info!("ipc: quit requested");
@@ -657,7 +669,7 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             loop {
                 ev.dispatch(None, &mut state)?;
 
-                if state.exit_requested() {
+                if state.exit_requested() || crate::run::shutdown_requested() {
                     info!("exit requested, shutting down main loop");
                     break Ok(());
                 }

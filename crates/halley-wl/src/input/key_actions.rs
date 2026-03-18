@@ -1,4 +1,6 @@
 use std::process::Command;
+use std::os::unix::process::CommandExt;
+use std::process::Child;
 
 use eventline::{info, warn};
 
@@ -175,7 +177,16 @@ pub(crate) fn apply_bound_key(
 
     for binding in st.tuning.launch_bindings.clone() {
         if key_matches(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            return spawn_command(binding.command.as_str(), wayland_display, "command");
+            // FIX: store the child so it's tracked for cleanup on WM exit,
+            // rather than dropping it immediately (which orphaned the process).
+            let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
+                Some(child) => {
+                    st.spawned_children.push(child);
+                    true
+                }
+                None => false,
+            };
+            return ok;
         }
     }
 
@@ -234,10 +245,10 @@ pub(crate) fn apply_bound_key(
     changed
 }
 
-pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -> bool {
+pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -> Option<Child> {
     request_xwayland_start();
-    match Command::new("sh")
-        .arg("-lc")
+    let mut cmd = Command::new("sh");
+    cmd.arg("-lc")
         .arg(command)
         .env("WAYLAND_DISPLAY", wayland_display)
         .env("XDG_SESSION_TYPE", "wayland")
@@ -246,19 +257,28 @@ pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -
         .env("SDL_VIDEODRIVER", "wayland")
         .env("CLUTTER_BACKEND", "wayland")
         .env("MOZ_ENABLE_WAYLAND", "1")
-        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
-        .spawn()
-    {
-        Ok(_) => {
+        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto");
+
+    // Give each spawned app its own process group so we can kill
+    // the whole group (including any children it forks) on WM exit.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setpgid(0, 0);
+            Ok(())
+        });
+    }
+
+    match cmd.spawn() {
+        Ok(child) => {
             info!(
-                "spawned {} via `{}` on WAYLAND_DISPLAY={}",
-                label, command, wayland_display
+                "spawned {} via `{}` on WAYLAND_DISPLAY={} (pid={})",
+                label, command, wayland_display, child.id()
             );
-            true
+            Some(child)
         }
         Err(err) => {
             warn!("{} spawn failed via `{}`: {}", label, command, err);
-            false
+            None
         }
     }
 }

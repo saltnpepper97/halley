@@ -223,6 +223,8 @@ pub struct HalleyWlState {
     pub(crate) active_spawn_pan: Option<ActiveSpawnPan>,
     pub(crate) started_at: Instant,
     pub(crate) last_debug_dump_at: Instant,
+
+    pub(crate) spawned_children: Vec<std::process::Child>,
 }
 
 impl HalleyWlState {
@@ -332,6 +334,8 @@ impl HalleyWlState {
             active_spawn_pan: None,
             started_at: now,
             last_debug_dump_at: now,
+
+            spawned_children: Vec::new(),
         };
         out.animator.set_spec(AnimSpec {
             state_change_ms: out.tuning.dev_anim_state_change_ms,
@@ -575,6 +579,18 @@ impl HalleyWlState {
         {
             self.debug_dump();
             self.last_debug_dump_at = now;
+        }
+    }
+}
+
+impl Drop for HalleyWlState {
+    fn drop(&mut self) {
+        for child in &mut self.spawned_children {
+            let pgid = child.id() as i32;
+            unsafe {
+                libc::kill(-pgid, libc::SIGTERM);
+            }
+            let _ = child.wait();
         }
     }
 }

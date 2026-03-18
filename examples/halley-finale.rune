@@ -21,6 +21,7 @@
 #
 # Common examples include bars, notification daemons,
 # clipboard managers, and background utilities.
+#
 autostart:
   once "waybar"
 
@@ -57,6 +58,7 @@ end
 # via a keybind configured below.
 #
 # Use `halleyctl outputs` to list available monitors.
+#
 viewport:
   DP-1:
     enabled true
@@ -72,10 +74,12 @@ viewport:
     rate 180.0
 
     # Display rotation
+    #
     # 0   = normal
     # 90  = rotate clockwise
     # 180 = upside down
     # 270 = rotated counter-clockwise
+    #
     transform 0
   end
   
@@ -217,14 +221,8 @@ end
 #
 # Typically behaves similar to tabbed or mobile
 # style window stacks.
-stacking:
-end
-
-# Docking allows two windows to snap together.
 #
-# Docked windows behave like a paired group.
-docking:
-  gap 8
+stacking:
 end
 
 # Clusters are halley's primary grouping mechanism
@@ -233,6 +231,7 @@ end
 # Windows can form clusters automatically or be created manually 
 # by the user using the lens or within your configuration file 
 # for them to persist.
+#
 clusters:
   startup:
     dev:
@@ -291,34 +290,36 @@ keybinds:
   # Examples:
   #
   # `lalt`, `lctl`, `ralt`, `rsuper`, etc.
+  # or simply general to map to either
+  # `alt`, `super` `ctrl` etc.
   #
-  mod "lsuper"
+  mod "super"
 
   #  Applications
   "$var.mod+t" terminal
   "$var.mod+d" launcher
 
   # Core compositor controls
-  "$var.mod+n" "halleyctl toggle-state"
-  "$var.mod+h" "halleyctl home"
+  "$var.mod+n" "toggle-state"
+  "$var.mod+h" "home"
 
   # Lock the screen
   "$var.mod+l" "swaylock"
 
   # Navigate your app trail
-  "$var.mod+shift+," "halleyctl trail prev"
-  "$var.mod+shift+." "halleyctl trail next"
+  "$var.mod+shift+," "trail prev"
+  "$var.mod+shift+." "trail next"
 
   # Exit Halley
-  "$var.mod+shift+e" "halleyctl quit"
+  "$var.mod+shift+e" "quit"
 
   # Bearings visibility
-  "$var.mod+z" "halleyctl bearrings"
-  "$var.mod+shift+z" "halleyctl bearings toggle"
+  "$var.mod+z" "bearrings"
+  "$var.mod+shift+z" "bearings toggle"
 
   # Tile layout controls
-  "$var.mod+up" "halleyctl tile promote"
-  "$var.mod+down" "halleyctl tile demote"
+  "$var.mod+up" "tile promote"
+  "$var.mod+down" "tile demote"
 
   # Audio controls
   "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
@@ -329,14 +330,16 @@ end
 # Rules allow matching specific applications
 # and applying behaviour automatically.
 rules:
-# TODO: Figure out making this work with rune-cfg.
-# might need to update rune-cfg
+  kitty:
+    app-id "kitty"
+    float true
+  end
 end
 
 debug:
   # Post v0.1.0
   overlay-fps false
 
-  # Show focus ring while resizing it, inclusing after resizing in config
+  # Show focus ring while resizing it, including after resizing in config
   show-ring-when-resizing true
 end

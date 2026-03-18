@@ -6,6 +6,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -72,6 +73,18 @@ pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_ou
 
 static XWAYLAND_REQUEST_TX: OnceCell<mpsc::Sender<()>> = OnceCell::new();
 
+// Set to true by the SIGTERM/SIGINT handler so the event loop can exit cleanly,
+// allowing Drop impls (including the spawned-children cleanup) to run.
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn handle_shutdown_signal(_: libc::c_int) {
+    SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+}
+
+pub(crate) fn shutdown_requested() -> bool {
+    SHUTDOWN_REQUESTED.load(Ordering::Relaxed)
+}
+
 pub(crate) fn register_xwayland_request_channel(tx: mpsc::Sender<()>) {
     let _ = XWAYLAND_REQUEST_TX.set(tx);
 }
@@ -82,13 +95,22 @@ pub(crate) fn request_xwayland_start() {
     }
 }
 
-pub(crate) fn run_autostart_commands(commands: &[String], wayland_display: &str, label: &str) {
+/// Spawns autostart commands and pushes the resulting Child handles into
+/// `st.spawned_children` so they are tracked for cleanup on exit.
+pub(crate) fn run_autostart_commands(
+    st: &mut HalleyWlState,
+    commands: &[String],
+    wayland_display: &str,
+    label: &str,
+) {
     for command in commands {
         let command = command.trim();
         if command.is_empty() {
             continue;
         }
-        let _ = spawn_command(command, wayland_display, label);
+        if let Some(child) = spawn_command(command, wayland_display, label) {
+            st.spawned_children.push(child);
+        }
     }
 }
 
@@ -100,7 +122,9 @@ pub(crate) fn apply_reloaded_tuning(
     reason: &str,
 ) {
     st.apply_tuning(next);
-    run_autostart_commands(&st.tuning.autostart_on_reload, wayland_display, "autostart");
+    // Clone to avoid borrow conflict when passing st mutably below.
+    let reload_commands = st.tuning.autostart_on_reload.clone();
+    run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     info!("{reason}: reloaded config from {}", config_path);
 }
 
@@ -130,6 +154,15 @@ impl BackendView for TtyBackendHandle {
 }
 
 pub fn run() -> Result<(), Box<dyn Error>> {
+    // Register signal handlers before anything else so that SIGTERM (the
+    // default signal sent by `pkill`/`kill`) triggers a clean shutdown.
+    // This lets Drop run, which kills all spawned child process groups.
+    // Note: SIGKILL (-9) cannot be caught — use plain `pkill` for clean exit.
+    unsafe {
+        libc::signal(libc::SIGTERM, handle_shutdown_signal as libc::sighandler_t);
+        libc::signal(libc::SIGINT,  handle_shutdown_signal as libc::sighandler_t);
+    }
+
     init_ipc()?;
 
     match RuntimeBackend::from_env()? {
