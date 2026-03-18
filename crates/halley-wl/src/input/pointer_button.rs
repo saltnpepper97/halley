@@ -257,6 +257,12 @@ fn begin_resize(
         press_view_size: st.viewport.size,
         drag_started: true,
         resize_mode_sent: false,
+        live_bbox_w: 0,
+        live_bbox_h: 0,
+        live_geo_lx: 0.0,
+        live_geo_ly: 0.0,
+        live_geo_w: 0.0,
+        live_geo_h: 0.0,
     };
     if st.tuning.debug_tick_dump {
         info!(

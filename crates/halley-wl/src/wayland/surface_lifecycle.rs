@@ -303,7 +303,7 @@ impl HalleyWlState {
     pub fn note_commit(&mut self, surface: &WlSurface, now: Instant) {
         let key = Self::surface_key(surface);
         self.surface_activity
-            .entry(key)
+            .entry(key.clone())
             .or_insert_with(|| CommitActivity::new(now))
             .on_commit(now);
         if let Some(output) = &self.primary_output {
@@ -313,7 +313,38 @@ impl HalleyWlState {
         // Grant keyboard focus to layer surfaces (e.g. fuzzel) on their first
         // real commit, when keyboard_interactivity is now populated.
         self.maybe_grant_layer_surface_focus_on_commit(surface);
+
+        // Keep window_geometry and bbox_loc current during resize so the render
+        // path has a live source of truth. Outside resize this is handled by
+        // sync_node_size_from_surface on every render frame, but that path is
+        // bypassed for the resizing node.
+        if let Some(node_id) = self.surface_to_node.get(&key).copied() {
+            if self.resize_active == Some(node_id) {
+                use smithay::desktop::utils::bbox_from_surface_tree;
+                use smithay::wayland::compositor::with_states;
+                use smithay::wayland::shell::xdg::SurfaceCachedState;
+
+                let bbox = bbox_from_surface_tree(surface, (0, 0));
+                self.bbox_loc.insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
+
+                let geo = with_states(surface, |states| {
+                    states.cached_state.get::<SurfaceCachedState>().current().geometry
+                });
+                if let Some(g) = geo {
+                    self.window_geometry.insert(node_id, (
+                        g.loc.x as f32, g.loc.y as f32,
+                        g.size.w.max(1) as f32, g.size.h.max(1) as f32,
+                    ));
+                } else {
+                    self.window_geometry.insert(node_id, (
+                        bbox.loc.x as f32, bbox.loc.y as f32,
+                        bbox.size.w.max(1) as f32, bbox.size.h.max(1) as f32,
+                    ));
+                }
+            }
+        }
     }
+
 
     pub fn ensure_node_for_surface(
         &mut self,

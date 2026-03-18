@@ -253,11 +253,18 @@ pub(crate) fn handle_pointer_motion_absolute(
         }
 
         // Derive client/bbox sizes from visual delta, not the other way around.
+        // Visual delta is in screen pixels; divide by cam_scale to get logical
+        // pixels for the configure message. At cam_scale=1.0 this is a no-op.
+        let cam_scale = st.camera_render_scale();
         let visual_delta_w = target_visual_w - resize.start_visual_w;
         let visual_delta_h = target_visual_h - resize.start_visual_h;
+        let logical_delta_w = (visual_delta_w as f32 / cam_scale.max(0.001)).round() as i32;
+        let logical_delta_h = (visual_delta_h as f32 / cam_scale.max(0.001)).round() as i32;
+        let min_logical_w = (min_w / cam_scale.max(0.001)).round() as i32;
+        let min_logical_h = (min_h / cam_scale.max(0.001)).round() as i32;
 
-        let target_w = (resize.start_surface_w + visual_delta_w).max(min_w as i32);
-        let target_h = (resize.start_surface_h + visual_delta_h).max(min_h as i32);
+        let target_w = (resize.start_surface_w + logical_delta_w).max(min_logical_w);
+        let target_h = (resize.start_surface_h + logical_delta_h).max(min_logical_h);
 
         let now = Instant::now();
         let size_changed = target_w != resize.last_sent_w || target_h != resize.last_sent_h;
@@ -270,23 +277,19 @@ pub(crate) fn handle_pointer_motion_absolute(
 
         let center_sx = (left + right) * 0.5;
         let center_sy = (top + bottom) * 0.5;
-        let center_world = screen_to_world_with_view(
-            resize.press_view_center,
-            resize.press_view_size,
-            resize.press_ws_w,
-            resize.press_ws_h,
-            center_sx,
-            center_sy,
-        );
+        // Use current viewport/ws, not frozen press-time values, so n.pos stays
+        // correct if the user zooms or the window size changes during resize.
+        let center_world = screen_to_world(st, ws_w, ws_h, center_sx, center_sy);
 
         if let Some(n) = st.field.node_mut(resize.node_id) {
             n.pos = center_world;
         }
+        // Footprint is in world/logical units, not screen pixels.
         let _ = st.field.set_resize_footprint(
             resize.node_id,
             Some(halley_core::field::Vec2 {
-                x: target_visual_w as f32,
-                y: target_visual_h as f32,
+                x: target_w as f32,
+                y: target_h as f32,
             }),
         );
 
