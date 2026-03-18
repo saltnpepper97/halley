@@ -211,11 +211,12 @@ pub(crate) fn handle_pointer_axis_input(
     let resize_preview = pointer_state.borrow().resize;
     if let Some(focus) = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview) {
         if let Some(pointer) = st.seat.get_pointer() {
+            let cam_scale = st.camera_render_scale() as f64;
             pointer.motion(
                 st,
                 Some(focus),
                 &MotionEvent {
-                    location: (sx as f64, sy as f64).into(),
+                    location: (sx as f64 / cam_scale, sy as f64 / cam_scale).into(),
                     serial: SERIAL_COUNTER.next_serial(),
                     time: now_millis_u32(),
                 },

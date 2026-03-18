@@ -481,23 +481,28 @@ where
     F::Error: std::error::Error + 'static,
 {
     let bw = 6i32;
+    let fb = Rectangle::<i32, Physical>::from_size(size);
     for rect in border_rects {
         let color = if rect.focused {
             Color32F::new(0.22, 0.82, 0.92, 1.0)
         } else {
             Color32F::new(0.28, 0.30, 0.35, 1.0)
         };
-        // Draw only the 4 border edges, not a filled rect. This avoids the
-        // filled background color bleeding beyond the committed texture during
-        // resize lag (when the preview frame is larger than the painted content).
-        draw_clamped_border_rect(
-            frame,
-            (rect.x, rect.y, rect.w, rect.h),
-            bw,
-            color,
-            damage,
-            size,
-        )?;
+        let bg = Rectangle::<i32, Physical>::new(
+            (rect.x - bw, rect.y - bw).into(),
+            ((rect.w + bw * 2).max(1), (rect.h + bw * 2).max(1)).into(),
+        );
+        if let Some(visible) = bg.intersection(fb) {
+            draw_rect(
+                frame,
+                visible.loc.x,
+                visible.loc.y,
+                visible.size.w,
+                visible.size.h,
+                color,
+                damage,
+            )?;
+        }
     }
     Ok(())
 }
