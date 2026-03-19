@@ -1,6 +1,8 @@
 use super::*;
 
 impl HalleyWlState {
+    const ZOOM_PER_STEP: f32 = 1.10;
+
     #[inline]
     pub(crate) fn camera_view_size(&self) -> Vec2 {
         self.zoom_ref_size
@@ -20,6 +22,23 @@ impl HalleyWlState {
         self.zoom_resize_reject_streak.clear();
         self.zoom_resize_static_streak.clear();
         self.zoom_last_observed_size.clear();
+    }
+
+    pub(crate) fn zoom_by_steps(&mut self, steps: f32) {
+        let steps = steps.clamp(-4.0, 4.0);
+        if steps.abs() < f32::EPSILON {
+            return;
+        }
+
+        let factor = Self::ZOOM_PER_STEP.powf(steps);
+        self.zoom_ref_size = self.clamp_camera_view_size(Vec2 {
+            x: self.camera_view_size().x / factor,
+            y: self.camera_view_size().y / factor,
+        });
+    }
+
+    pub(crate) fn reset_zoom(&mut self) {
+        self.zoom_ref_size = self.viewport.size;
     }
 
     pub fn active_zoom_fallback_scale(&self, id: NodeId) -> Option<f32> {

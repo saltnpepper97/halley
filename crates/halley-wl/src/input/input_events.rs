@@ -11,7 +11,7 @@ use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::screen_to_world;
 use crate::state::HalleyWlState;
 
-use super::input_utils::update_mod_state;
+use super::input_utils::{modifier_active, update_mod_state};
 use super::key_actions::{
     apply_bound_key, apply_compositor_action_release, compositor_binding_action,
     key_is_compositor_binding,
@@ -99,7 +99,7 @@ pub(crate) fn handle_keyboard_input(
         || (pressed && !is_mod_key && key_is_compositor_binding(st, code, &mods));
 
     // Refresh interaction focus only for keys that are going to clients.
-    // Compositor bindings like minimize should not first re-focus / re-heat
+    // Compositor bindings like toggle-state should not first re-focus / re-heat
     // the surface they are about to collapse.
     if pressed
         && !matched_binding
@@ -114,7 +114,7 @@ pub(crate) fn handle_keyboard_input(
     //
     // Also: execute compositor bindings only on the first physical press.
     // Ignore repeated press events while the key remains held, otherwise a
-    // toggle binding like minimize_focused will collapse and then immediately
+    // toggle binding like toggle-state will collapse and then immediately
     // reopen on key repeat.
     let mut first_binding_press = false;
 
@@ -181,6 +181,7 @@ pub(crate) fn handle_keyboard_input(
 
 pub(crate) fn handle_pointer_axis_input(
     st: &mut HalleyWlState,
+    mod_state: &std::rc::Rc<std::cell::RefCell<ModState>>,
     pointer_state: &std::rc::Rc<std::cell::RefCell<PointerState>>,
     backend: &impl BackendView,
     amount_v120_vertical: Option<f64>,
@@ -247,16 +248,25 @@ pub(crate) fn handle_pointer_axis_input(
     }
 
     let steps = steps.clamp(-4.0, 4.0);
-    pointer_state.borrow_mut().panning = false;
+    let mods = mod_state.borrow().clone();
+    let modifier_held = modifier_active(&mods, st.tuning.keybinds.modifier);
 
-    let zoom_per_step = 1.10_f32;
-    let factor = zoom_per_step.powf(steps);
-    let next = st.clamp_camera_view_size(halley_core::field::Vec2 {
-        x: st.camera_view_size().x / factor,
-        y: st.camera_view_size().y / factor,
-    });
+    if modifier_held {
+        pointer_state.borrow_mut().panning = false;
+        st.zoom_by_steps(steps);
+        backend.request_redraw();
+        return;
+    }
 
-    st.zoom_ref_size = next;
+    let camera = st.camera_view_size();
+    let pan_y = camera.y * (steps / 18.0);
+    {
+        let mut ps = pointer_state.borrow_mut();
+        ps.panning = false;
+    }
+    st.note_pan_activity(now);
+    st.viewport.pan(halley_core::field::Vec2 { x: 0.0, y: pan_y });
+    st.note_pan_viewport_change(now);
     backend.request_redraw();
 }
 
@@ -309,6 +319,7 @@ pub(crate) fn handle_backend_input_event(
         } => {
             handle_pointer_axis_input(
                 st,
+                mod_state,
                 pointer_state,
                 backend,
                 amount_v120_vertical,

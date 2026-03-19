@@ -37,11 +37,13 @@ pub enum DirectionalAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompositorBindingAction {
     Reload,
-    MinimizeFocused,
-    OverviewToggle,
+    ToggleState,
     Quit { requires_shift: bool },
     Docking,
     MoveNode(DirectionalAction),
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
 }
 
 #[derive(Clone, Debug)]

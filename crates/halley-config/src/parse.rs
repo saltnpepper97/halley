@@ -663,11 +663,8 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "reload" => {
             upsert_compositor_binding(out, mods, key, CompositorBindingAction::Reload);
         }
-        "minimize_focused" | "minimize-focused" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::MinimizeFocused);
-        }
-        "overview_toggle" | "overview-toggle" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::OverviewToggle);
+        "toggle_state" | "toggle-state" | "minimize_focused" | "minimize-focused" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ToggleState);
         }
         "quit" => {
             upsert_compositor_binding(
@@ -713,6 +710,15 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
                 key,
                 CompositorBindingAction::MoveNode(DirectionalAction::Down),
             );
+        }
+        "zoom_in" | "zoom-in" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomIn);
+        }
+        "zoom_out" | "zoom-out" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomOut);
+        }
+        "zoom_reset" | "zoom-reset" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomReset);
         }
         "move_window" | "move-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::MoveWindow);
@@ -827,7 +833,7 @@ mod tests {
         let mut tuning = RuntimeTuning::default();
         let bindings = HashMap::from([
             ("$mod+x".to_string(), "docking".to_string()),
-            ("shift+h".to_string(), "move_left".to_string()),
+            ("shift+h".to_string(), "move-left".to_string()),
         ]);
 
         apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
@@ -841,6 +847,44 @@ mod tests {
         assert!(tuning.compositor_bindings.iter().any(|binding| {
             binding.action == CompositorBindingAction::MoveNode(DirectionalAction::Left)
         }));
+    }
+
+    #[test]
+    fn toggle_state_and_zoom_aliases_parse_as_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("$mod+n".to_string(), "toggle-state".to_string()),
+            ("$mod+equal".to_string(), "zoom_in".to_string()),
+            ("$mod+minus".to_string(), "zoom-out".to_string()),
+            ("$mod+0".to_string(), "zoom-reset".to_string()),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ToggleState)
+        );
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomIn)
+        );
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomOut)
+        );
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomReset)
+        );
     }
 
     #[test]

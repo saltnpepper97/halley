@@ -6,7 +6,8 @@ use eventline::{info, warn};
 
 use super::input_utils::{key_matches, modifier_exact};
 use crate::interaction::actions::{
-    docking_mode_active, minimize_focused_active_node, move_latest_node_direction, set_docking_mode,
+    docking_mode_active, move_latest_node_direction, set_docking_mode,
+    toggle_focused_active_node_state,
 };
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
@@ -70,11 +71,22 @@ pub(crate) fn apply_compositor_action_press(
             );
             true
         }
-        CompositorBindingAction::MinimizeFocused => minimize_focused_active_node(st),
-        CompositorBindingAction::OverviewToggle => false,
+        CompositorBindingAction::ToggleState => toggle_focused_active_node_state(st),
         CompositorBindingAction::Docking => set_docking_mode(st, true),
         CompositorBindingAction::MoveNode(direction) => {
             move_latest_node_direction(st, from_directional_action(direction))
+        }
+        CompositorBindingAction::ZoomIn => {
+            st.zoom_by_steps(1.0);
+            true
+        }
+        CompositorBindingAction::ZoomOut => {
+            st.zoom_by_steps(-1.0);
+            true
+        }
+        CompositorBindingAction::ZoomReset => {
+            st.reset_zoom();
+            true
         }
     }
 }
@@ -108,9 +120,11 @@ pub(crate) fn apply_bound_key(
             CompositorBindingAction::MoveNode(_)
             | CompositorBindingAction::Docking
             | CompositorBindingAction::Reload
-            | CompositorBindingAction::MinimizeFocused
+            | CompositorBindingAction::ToggleState
             | CompositorBindingAction::Quit { .. }
-            | CompositorBindingAction::OverviewToggle => {
+            | CompositorBindingAction::ZoomIn
+            | CompositorBindingAction::ZoomOut
+            | CompositorBindingAction::ZoomReset => {
                 apply_compositor_action_press(st, action, config_path, wayland_display)
             }
         };

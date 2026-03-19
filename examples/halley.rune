@@ -47,11 +47,14 @@ env:
 end
 
 keybinds:
-  mod "lsuper"
+  mod "super"
 
   # Basic compositor controls
   "$var.mod+r" "reload"
-  "$var.mod+n" "minimize_focused"
+  "$var.mod+n" "toggle-state"
+  "$var.mod+equal" "zoom-in"
+  "$var.mod+minus" "zoom-out"
+  "$var.mod+0" "zoom-reset"
 
   # Quit Halley
   "$var.mod+shift+q" "quit"
