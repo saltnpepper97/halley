@@ -535,6 +535,7 @@ impl HalleyWlState {
         let key = Self::surface_key(surface);
         self.surface_activity.remove(&key);
         if let Some(id) = self.surface_to_node.remove(&key) {
+            self.drop_fullscreen_surface(id, Instant::now());
             if self.pan_restore_active_focus == Some(id) {
                 self.pan_restore_active_focus = None;
             }

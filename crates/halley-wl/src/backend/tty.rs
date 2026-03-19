@@ -614,6 +614,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                     st.tick_frame_effects(now);
                     st.tick_animator_frame(now);
+                    st.tick_fullscreen_motion(now);
                     {
                         let mut ps = pointer_state_for_timer.borrow_mut();
                         let _ = advance_node_move_anim(st, &mut ps, now);

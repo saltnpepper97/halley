@@ -243,6 +243,24 @@ impl XdgShellHandler for HalleyWlState {
         // not client-request driven.
     }
 
+    fn fullscreen_request(&mut self, surface: ToplevelSurface, output: Option<WlOutput>) {
+        let key = surface.wl_surface().id();
+        let Some(node_id) = self.surface_to_node.get(&key).copied() else {
+            surface.send_configure();
+            return;
+        };
+        self.enter_xdg_fullscreen(node_id, output, Instant::now());
+    }
+
+    fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
+        let key = surface.wl_surface().id();
+        let Some(node_id) = self.surface_to_node.get(&key).copied() else {
+            surface.send_configure();
+            return;
+        };
+        self.exit_xdg_fullscreen(node_id, Instant::now());
+    }
+
     fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, serial: Serial) {
         let popup = PopupKind::from(surface);
         if let Ok(root) = find_popup_root_surface(&popup) {

@@ -137,6 +137,27 @@ impl WindowOffscreenCache {
 
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FullscreenSessionEntry {
+    pub pos: Vec2,
+    pub size: Vec2,
+    pub pinned: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FullscreenMotion {
+    pub from: Vec2,
+    pub to: Vec2,
+    pub start_ms: u64,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FullscreenScaleAnim {
+    pub start_ms: u64,
+    pub duration_ms: u64,
+}
+
 pub struct HalleyWlState {
     pub display_handle: DisplayHandle,
     pub compositor_state: CompositorState,
@@ -218,6 +239,10 @@ pub struct HalleyWlState {
     pub(crate) recent_top_node: Option<NodeId>,
     pub(crate) recent_top_until: Option<Instant>,
     pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
+    pub(crate) fullscreen_active_node: Option<NodeId>,
+    pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
+    pub(crate) fullscreen_motion: HashMap<NodeId, FullscreenMotion>,
+    pub(crate) fullscreen_scale_anim: HashMap<NodeId, FullscreenScaleAnim>,
 
     pub(crate) spawn_cursor: u32,
     pub(crate) spawn_patch: Option<SpawnPatch>,
@@ -331,6 +356,10 @@ impl HalleyWlState {
             recent_top_node: None,
             recent_top_until: None,
             window_offscreen_cache: HashMap::new(),
+            fullscreen_active_node: None,
+            fullscreen_restore: HashMap::new(),
+            fullscreen_motion: HashMap::new(),
+            fullscreen_scale_anim: HashMap::new(),
 
             spawn_cursor: 0,
             spawn_patch: None,

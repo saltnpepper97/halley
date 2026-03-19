@@ -4,6 +4,11 @@ impl HalleyWlState {
     const ZOOM_PER_STEP: f32 = 1.10;
 
     #[inline]
+    fn fullscreen_zoom_locked(&self) -> bool {
+        self.fullscreen_active_node.is_some() || !self.fullscreen_motion.is_empty()
+    }
+
+    #[inline]
     pub(crate) fn camera_view_size(&self) -> Vec2 {
         self.zoom_ref_size
     }
@@ -25,6 +30,9 @@ impl HalleyWlState {
     }
 
     pub(crate) fn zoom_by_steps(&mut self, steps: f32) {
+        if self.fullscreen_zoom_locked() {
+            return;
+        }
         let steps = steps.clamp(-4.0, 4.0);
         if steps.abs() < f32::EPSILON {
             return;
@@ -38,6 +46,9 @@ impl HalleyWlState {
     }
 
     pub(crate) fn reset_zoom(&mut self) {
+        if self.fullscreen_zoom_locked() {
+            return;
+        }
         self.zoom_ref_size = self.viewport.size;
     }
 

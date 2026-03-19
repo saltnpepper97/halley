@@ -167,6 +167,7 @@ pub(crate) fn collect_active_surfaces(
         let node_intrinsic = node.intrinsic_size;
         let transition_alpha = st.active_transition_alpha(node_id, now);
         let anim = st.anim_style_for(node_id, node_state, now);
+        let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
         let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
         let resizing_this_node = active_resize.is_some();
         let draw_top_this_node = resizing_this_node || recent_top_node == Some(node_id);
@@ -187,7 +188,7 @@ pub(crate) fn collect_active_surfaces(
             } else {
                 ease_in_out_cubic(live_t).clamp(0.0, 1.0)
             };
-            (s, live_ramp)
+            (s * fullscreen_entry_scale, live_ramp)
         };
 
         let cam_scale = st.camera_render_scale();
