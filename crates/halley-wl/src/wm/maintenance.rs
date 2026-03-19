@@ -133,7 +133,18 @@ impl HalleyWlState {
                 continue;
             }
 
+            let held_state = self.carry_state_hold.get(&id);
             let target = match zone {
+                _ if matches!(held_state, Some(halley_core::field::NodeState::Active)) => {
+                    DecayLevel::Hot
+                }
+                _ if matches!(
+                    held_state,
+                    Some(halley_core::field::NodeState::Node | halley_core::field::NodeState::Core)
+                ) =>
+                {
+                    DecayLevel::Cold
+                }
                 FocusZone::Inside if n.state == halley_core::field::NodeState::Active => {
                     DecayLevel::Hot
                 }
@@ -313,6 +324,7 @@ impl HalleyWlState {
                 self.carry_zone_pending.remove(&id);
                 self.carry_zone_pending_since_ms.remove(&id);
                 self.carry_activation_anim_armed.remove(&id);
+                self.carry_state_hold.remove(&id);
                 if self.resize_active == Some(id) {
                     self.resize_active = None;
                 }
