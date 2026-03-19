@@ -47,10 +47,9 @@ use crate::input::{BackendInputEventData, handle_backend_input_event};
 use crate::interaction::types::{ModState, PointerState};
 use crate::render::draw_debug_frame_to_target;
 use crate::run::{
-    RuntimeIpcCommand, drain_ipc_commands, ensure_dbus_session_bus_address,
-    ensure_host_display, ensure_xdg_runtime_dir, ensure_xwayland_satellite, init_logging,
-    publish_outputs, register_xwayland_request_channel, run_autostart_commands,
-    shutdown_requested,
+    RuntimeIpcCommand, drain_ipc_commands, ensure_dbus_session_bus_address, ensure_host_display,
+    ensure_xdg_runtime_dir, ensure_xwayland_satellite, init_logging, publish_outputs,
+    register_xwayland_request_channel, run_autostart_commands, shutdown_requested,
 };
 use crate::spatial::node_in_active_area;
 use crate::state::{ClientState, HalleyWlState};
@@ -73,7 +72,10 @@ pub(crate) fn resolve_hover_targets(
     st: &HalleyWlState,
     ps: &PointerState,
     now: Instant,
-) -> (Option<halley_core::field::NodeId>, Option<halley_core::field::NodeId>) {
+) -> (
+    Option<halley_core::field::NodeId>,
+    Option<halley_core::field::NodeId>,
+) {
     let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
     let hovered = if hover_blocked { None } else { ps.hover_node };
     let preview_ready = hovered.is_some_and(|id| {

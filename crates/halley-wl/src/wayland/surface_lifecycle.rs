@@ -94,7 +94,10 @@ impl HalleyWlState {
                     let guard = data.lock().expect("xdg toplevel surface data");
                     (
                         guard.title.clone().filter(|value| !value.trim().is_empty()),
-                        guard.app_id.clone().filter(|value| !value.trim().is_empty()),
+                        guard
+                            .app_id
+                            .clone()
+                            .filter(|value| !value.trim().is_empty()),
                     )
                 })
                 .unwrap_or((None, None))

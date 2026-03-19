@@ -178,7 +178,8 @@ pub(crate) fn active_node_surface_transform_screen_details(
         n.intrinsic_size.x,
         n.intrinsic_size.y,
         transition_alpha,
-    ) * st.fullscreen_entry_scale(node_id, st.now_ms(now)) * cam_scale;
+    ) * st.fullscreen_entry_scale(node_id, st.now_ms(now))
+        * cam_scale;
 
     let (origin_x, origin_y, scale) =
         if let Some(active_resize) = active_resize_geometry_screen(st, node_id, resize_preview) {

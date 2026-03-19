@@ -4,9 +4,9 @@ use super::{
     CompositorBinding, CompositorBindingAction, DirectionalAction, KeyModifiers, LaunchBinding,
     PointerBinding, PointerBindingAction,
 };
-use crate::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, RuntimeTuning};
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
 use crate::layout::{ViewportOutputConfig, default_compositor_bindings, default_pointer_bindings};
+use crate::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, RuntimeTuning};
 
 use rune_cfg::RuneConfig;
 
@@ -403,7 +403,12 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
     out.node_show_labels = pick_node_display_policy(
         cfg,
-        &["node.show-labels", "node.show_labels", "nodes.show-labels", "nodes.show_labels"],
+        &[
+            "node.show-labels",
+            "node.show_labels",
+            "nodes.show-labels",
+            "nodes.show_labels",
+        ],
         out.node_show_labels,
     );
     out.node_show_app_icons = pick_node_display_policy(
@@ -1070,9 +1075,12 @@ mod tests {
 
         apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
 
-        assert!(tuning.compositor_bindings.iter().any(|binding| {
-            binding.action == CompositorBindingAction::CloseFocusedWindow
-        }));
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| { binding.action == CompositorBindingAction::CloseFocusedWindow })
+        );
     }
 
     #[test]
@@ -1085,15 +1093,10 @@ mod tests {
         assert!(tuning.compositor_bindings.iter().any(|binding| {
             binding.action == CompositorBindingAction::ZoomOut && binding.key == WHEEL_DOWN_CODE
         }));
-        assert!(
-            tuning
-                .compositor_bindings
-                .iter()
-                .any(|binding| {
-                    binding.action == CompositorBindingAction::ZoomReset
-                        && binding.key == key_name_to_evdev("mousemiddle").expect("middle mouse")
-                })
-        );
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::ZoomReset
+                && binding.key == key_name_to_evdev("mousemiddle").expect("middle mouse")
+        }));
     }
 
     #[test]
@@ -1290,5 +1293,4 @@ end
 
         assert_eq!(tuning.node_show_labels, NodeDisplayPolicy::Always);
     }
-
 }

@@ -17,16 +17,15 @@ use crate::interaction::types::ResizeCtx;
 use crate::spatial::node_in_active_area;
 use crate::state::HalleyWlState;
 
+use super::ACTIVE_WINDOW_FRAME_PAD_PX;
 use super::app_icon::ensure_node_app_icon_resources;
 use super::cursor_render::{cursor_surface_hotspot, draw_cursor_sprite};
 use super::cursor_theme::themed_cursor_sprite_with_fallback;
 use super::layer_render::collect_layer_surfaces;
 use super::node_render::{
     ActiveBorderRect, NodeSnapshot, OffscreenNodeTexture, collect_active_surfaces,
-    collect_hover_preview, draw_node_hover_labels, draw_node_markers,
-    ensure_node_circle_resources,
+    collect_hover_preview, draw_node_hover_labels, draw_node_markers, ensure_node_circle_resources,
 };
-use super::ACTIVE_WINDOW_FRAME_PAD_PX;
 use super::render_utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 
 type SurfaceElement =

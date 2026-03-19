@@ -11,6 +11,7 @@ use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::viewport::{FocusZone, Viewport};
 
+use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
@@ -32,7 +33,6 @@ use smithay::{
         viewporter::ViewporterState,
     },
 };
-use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
 
 use crate::activity::CommitActivity;
 use crate::animation::{AnimSpec, Animator};
@@ -134,7 +134,6 @@ impl WindowOffscreenCache {
     pub fn touch(&mut self, now: Instant) {
         self.last_used_at = Some(now);
     }
-
 }
 
 #[derive(Clone)]
@@ -255,7 +254,8 @@ pub struct HalleyWlState {
     pub(crate) recent_top_until: Option<Instant>,
     pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
-    pub(crate) node_circle_program: Option<GlesTexProgram>,
+    pub(crate) node_squircle_program: Option<GlesTexProgram>,
+    pub(crate) node_label_program: Option<GlesTexProgram>,
     pub(crate) fullscreen_active_node: Option<NodeId>,
     pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
     pub(crate) fullscreen_motion: HashMap<NodeId, FullscreenMotion>,
@@ -376,7 +376,8 @@ impl HalleyWlState {
             recent_top_until: None,
             window_offscreen_cache: HashMap::new(),
             node_circle_texture: None,
-            node_circle_program: None,
+            node_squircle_program: None,
+            node_label_program: None,
             fullscreen_active_node: None,
             fullscreen_restore: HashMap::new(),
             fullscreen_motion: HashMap::new(),
@@ -572,7 +573,11 @@ impl HalleyWlState {
         {
             consider(at_ms);
         }
-        if let Some(at_ms) = self.primary_promote_cooldown_until_ms.values().copied().min()
+        if let Some(at_ms) = self
+            .primary_promote_cooldown_until_ms
+            .values()
+            .copied()
+            .min()
             && at_ms > now_ms
         {
             consider(at_ms);
@@ -588,8 +593,10 @@ impl HalleyWlState {
         }
 
         next_ms.map(|at_ms| {
-            now.checked_add(std::time::Duration::from_millis(at_ms.saturating_sub(now_ms)))
-                .unwrap_or(now)
+            now.checked_add(std::time::Duration::from_millis(
+                at_ms.saturating_sub(now_ms),
+            ))
+            .unwrap_or(now)
         })
     }
 

@@ -22,7 +22,9 @@ use crate::surface::{
 use smithay::backend::input::ButtonState;
 
 use super::input_utils::modifier_active;
-use super::key_actions::{apply_bound_key, apply_compositor_action_press, compositor_binding_action};
+use super::key_actions::{
+    apply_bound_key, apply_compositor_action_press, compositor_binding_action,
+};
 use super::pointer_focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
 use super::pointer_map_debug_enabled;
 use super::resize_helpers::{active_node_screen_rect, pick_resize_handle_from_screen};

@@ -131,7 +131,12 @@ impl Animator {
         out
     }
 
-    pub fn track_elapsed_for(&self, id: NodeId, state: NodeState, now: Instant) -> Option<Duration> {
+    pub fn track_elapsed_for(
+        &self,
+        id: NodeId,
+        state: NodeState,
+        now: Instant,
+    ) -> Option<Duration> {
         let track = self.tracks.get(&id)?;
         if track.last_state != state {
             return None;

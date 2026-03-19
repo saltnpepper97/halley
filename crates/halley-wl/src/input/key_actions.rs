@@ -13,8 +13,8 @@ use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
 use crate::state::HalleyWlState;
 use crate::surface::request_close_focused_toplevel;
-use halley_config::{CompositorBindingAction, DirectionalAction, RuntimeTuning};
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
+use halley_config::{CompositorBindingAction, DirectionalAction, RuntimeTuning};
 use halley_ipc::NodeMoveDirection;
 
 pub(crate) fn input_matches_binding(actual: u32, binding_key: u32) -> bool {
@@ -80,7 +80,10 @@ pub(crate) fn apply_compositor_action_press(
                     st.tuning.keybinds_resolved_summary()
                 );
             } else {
-                warn!("manual reload skipped for {} because config parse/load failed", config_path);
+                warn!(
+                    "manual reload skipped for {} because config parse/load failed",
+                    config_path
+                );
             }
             true
         }

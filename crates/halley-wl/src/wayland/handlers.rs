@@ -294,8 +294,7 @@ impl XdgShellHandler for HalleyWlState {
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}
 
 delegate_xdg_shell!(HalleyWlState);
 

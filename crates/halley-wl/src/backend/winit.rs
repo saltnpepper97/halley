@@ -307,8 +307,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         let ps = pointer_state_for_winit.borrow();
                         let now = Instant::now();
                         let resize_preview = ps.resize;
-                        let (hover_node, preview_hover_node) =
-                            resolve_hover_targets(st, &ps, now);
+                        let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
                         if let Err(err) = backend_handle_for_winit.draw_frame(
                             st,
                             resize_preview,
@@ -350,8 +349,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         let ps = pointer_state_for_winit.borrow();
                         let now = Instant::now();
                         let resize_preview = ps.resize;
-                        let (hover_node, preview_hover_node) =
-                            resolve_hover_targets(st, &ps, now);
+                        let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
                         if let Err(err) = backend_handle_for_winit.draw_frame(
                             st,
                             resize_preview,

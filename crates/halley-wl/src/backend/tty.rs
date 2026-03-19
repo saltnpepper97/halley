@@ -1,6 +1,8 @@
 use super::*;
 
-use crate::backend::interface::{BackendView, DmabufImportBackend, TtyBackendHandle, TtyDmabufImportBackend};
+use crate::backend::interface::{
+    BackendView, DmabufImportBackend, TtyBackendHandle, TtyDmabufImportBackend,
+};
 use crate::backend::tty_drm::{
     collect_outputs_for_ipc, find_tty_scanout_for_reload, probe_tty_drm_device_via_session,
     queue_tty_drm_frame,

@@ -78,40 +78,7 @@ impl HalleyWlState {
         let _ = (id, now);
     }
 
-    pub(crate) fn debug_dump(&self) {
-        let focus_ring = self.active_focus_ring();
-
-        let mut nodes_total = 0usize;
-        let mut visible_total = 0usize;
-
-        let mut zone_inside = 0usize;
-        let mut zone_outside = 0usize;
-
-        let mut state_active = 0usize;
-        let mut state_node = 0usize;
-        let mut state_core = 0usize;
-        let mut state_other = 0usize;
-
-        for (&id, node) in self.field.nodes() {
-            nodes_total += 1;
-            if !self.field.is_visible(id) {
-                continue;
-            }
-            visible_total += 1;
-
-            match node.state {
-                halley_core::field::NodeState::Active => state_active += 1,
-                halley_core::field::NodeState::Node => state_node += 1,
-                halley_core::field::NodeState::Core => state_core += 1,
-                _ => state_other += 1,
-            }
-
-            match focus_ring.zone(self.viewport.center, node.pos) {
-                halley_core::viewport::FocusZone::Inside => zone_inside += 1,
-                halley_core::viewport::FocusZone::Outside => zone_outside += 1,
-            }
-        }
-    }
+    pub(crate) fn debug_dump(&self) {}
 
     pub fn build_debug_scene_snapshot(&self) -> DebugScene {
         build_debug_scene(&self.field, &self.viewport, self.active_focus_ring())

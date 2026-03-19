@@ -309,7 +309,12 @@ impl HalleyWlState {
         })
     }
 
-    fn node_collision_extents(&self, intrinsic_size: Vec2, label: &str, anim_scale: f32) -> CollisionExtents {
+    fn node_collision_extents(
+        &self,
+        intrinsic_size: Vec2,
+        label: &str,
+        anim_scale: f32,
+    ) -> CollisionExtents {
         let stable = self.node_collision_extents_stable(intrinsic_size, label, anim_scale);
         let cam_scale = self.camera_render_scale().max(0.01);
 
@@ -397,10 +402,7 @@ impl HalleyWlState {
         self.collision_extents_for_node(n).size()
     }
 
-    fn layout_collision_extents_for_node(
-        &self,
-        n: &halley_core::field::Node,
-    ) -> CollisionExtents {
+    fn layout_collision_extents_for_node(&self, n: &halley_core::field::Node) -> CollisionExtents {
         match n.state {
             halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
                 self.collision_extents_for_node(n)

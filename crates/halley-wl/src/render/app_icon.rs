@@ -204,9 +204,9 @@ fn find_best_icon_path(icon_name: &str) -> Option<PathBuf> {
             let Some(score) = icon_candidate_score(path, icon_name) else {
                 return;
             };
-            let replace = best
-                .as_ref()
-                .is_none_or(|(best_score, best_path)| score < *best_score || (score == *best_score && path < best_path.as_path()));
+            let replace = best.as_ref().is_none_or(|(best_score, best_path)| {
+                score < *best_score || (score == *best_score && path < best_path.as_path())
+            });
             if replace {
                 best = Some((score, path.to_path_buf()));
             }

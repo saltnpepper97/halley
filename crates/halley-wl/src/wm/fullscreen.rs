@@ -1,6 +1,6 @@
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
 use smithay::reexports::wayland_server::Resource;
+use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
 
 use super::*;
 
@@ -50,7 +50,14 @@ impl HalleyWlState {
         )
     }
 
-    fn queue_fullscreen_motion(&mut self, id: NodeId, from: Vec2, to: Vec2, now_ms: u64, duration_ms: u64) {
+    fn queue_fullscreen_motion(
+        &mut self,
+        id: NodeId,
+        from: Vec2,
+        to: Vec2,
+        now_ms: u64,
+        duration_ms: u64,
+    ) {
         self.fullscreen_motion.insert(
             id,
             crate::state::FullscreenMotion {
@@ -232,8 +239,11 @@ impl HalleyWlState {
         }
 
         let now_ms = self.now_ms(now);
-        let restore_entries: Vec<(NodeId, crate::state::FullscreenSessionEntry)> =
-            self.fullscreen_restore.iter().map(|(&id, &entry)| (id, entry)).collect();
+        let restore_entries: Vec<(NodeId, crate::state::FullscreenSessionEntry)> = self
+            .fullscreen_restore
+            .iter()
+            .map(|(&id, &entry)| (id, entry))
+            .collect();
 
         for (id, entry) in &restore_entries {
             let _ = self.field.set_pinned(*id, false);
@@ -271,7 +281,11 @@ impl HalleyWlState {
             let now_ms = self.now_ms(now);
             for (other_id, entry) in restore_entries {
                 let _ = self.field.set_pinned(other_id, false);
-                let from = self.field.node(other_id).map(|n| n.pos).unwrap_or(entry.pos);
+                let from = self
+                    .field
+                    .node(other_id)
+                    .map(|n| n.pos)
+                    .unwrap_or(entry.pos);
                 self.queue_fullscreen_motion(
                     other_id,
                     from,
@@ -295,8 +309,11 @@ impl HalleyWlState {
         }
 
         let now_ms = self.now_ms(now);
-        let motions: Vec<(NodeId, crate::state::FullscreenMotion)> =
-            self.fullscreen_motion.iter().map(|(&id, &motion)| (id, motion)).collect();
+        let motions: Vec<(NodeId, crate::state::FullscreenMotion)> = self
+            .fullscreen_motion
+            .iter()
+            .map(|(&id, &motion)| (id, motion))
+            .collect();
         let mut finished = Vec::new();
 
         for (id, motion) in motions {
@@ -329,8 +346,7 @@ impl HalleyWlState {
             }
         }
 
-        self.fullscreen_scale_anim.retain(|_, anim| {
-            now_ms < anim.start_ms.saturating_add(anim.duration_ms)
-        });
+        self.fullscreen_scale_anim
+            .retain(|_, anim| now_ms < anim.start_ms.saturating_add(anim.duration_ms));
     }
 }

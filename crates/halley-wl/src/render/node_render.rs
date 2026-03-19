@@ -6,11 +6,10 @@ use smithay::{
     backend::{
         allocator::Fourcc,
         renderer::{
-        Color32F, Texture,
-        element::{Kind, surface::render_elements_from_surface_tree, utils::CropRenderElement},
-        gles::{GlesFrame, GlesRenderer, GlesTexture, Uniform, UniformName, UniformType},
-        ImportMem,
-    },
+            Color32F, ImportMem, Texture,
+            element::{Kind, surface::render_elements_from_surface_tree, utils::CropRenderElement},
+            gles::{GlesFrame, GlesRenderer, GlesTexture, Uniform, UniformName, UniformType},
+        },
     },
     desktop::{PopupManager, utils::bbox_from_surface_tree},
     reexports::wayland_server::Resource,
@@ -23,14 +22,12 @@ use crate::state::HalleyWlState;
 use crate::surface::window_geometry_for_node;
 use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy};
 
-use crate::animation::{
-    active_surface_render_scale, ease_in_out_cubic, ease_out_back,
-};
 use super::offscreen::render_surface_tree_to_texture;
 use super::render_utils::{
-    bitmap_text_size, draw_bitmap_text, draw_rounded_rect, node_marker_bounds,
-    node_marker_metrics, node_render_diameter_px, sync_node_size_from_surface, world_to_screen,
+    bitmap_text_size, draw_bitmap_text, node_marker_bounds, node_marker_metrics,
+    node_render_diameter_px, sync_node_size_from_surface, world_to_screen,
 };
+use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_back};
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
@@ -56,11 +53,10 @@ void main() {
     float border_w    = node_color.a;
     float border_edge = 1.0 - border_w;
 
-    // Hard binary split — no blending between fill and border zones.
-    // Any mix() here bleeds fill color into the border and vice-versa,
-    // which shows as a lighter inner rim on dark borders especially at
-    // small sizes where border_w is a large fraction of the disc.
-    float in_border = step(border_edge, dist);
+    // Give the inner fill/border split a tiny AA ramp. The inactive border is
+    // dark enough that a hard step reads as jagged inner corners at small sizes.
+    float inner_aa = min(border_w * 0.45, 0.035);
+    float in_border = smoothstep(border_edge - inner_aa, border_edge + inner_aa, dist);
 
     // Shared light direction for both zones.
     vec2 light_dir = normalize(vec2(-0.55, -0.65));
@@ -76,7 +72,7 @@ void main() {
     // Inner shadow: fixed pixel-width ramp so it stays a thin rim at all sizes.
     float shadow_w     = min(border_w * 0.5, 0.06);
     float shadow_t     = smoothstep(border_edge - shadow_w, border_edge, dist);
-    // Mask strictly to fill zone with step — not (1-in_border) which is 0..1.
+    // Keep the shadow inside the fill so it does not darken the border band.
     float fill_mask    = 1.0 - in_border;
     shaded_fill = mix(shaded_fill, vec3(0.0), shadow_t * fill_mask * 0.13);
 
@@ -89,9 +85,68 @@ void main() {
         border_light
     );
 
-    // Select zone with hard step, AA only at the outer disc edge.
+    // Blend only across the tiny inner ramp; the outer silhouette keeps its own AA.
     vec3 color = mix(shaded_fill, shaded_border, in_border);
     float edge_aa = 1.0 - smoothstep(0.96, 1.0, dist);
+    float final_alpha = alpha * edge_aa;
+    gl_FragColor = vec4(color * final_alpha, final_alpha);
+}
+"#;
+
+const NODE_LABEL_SHADER: &str = r#"
+precision mediump float;
+//_DEFINES
+
+varying vec2 v_coords;
+uniform sampler2D tex;
+uniform float alpha;
+uniform vec4 node_color;
+uniform vec4 fill_color;
+uniform vec2 rect_size;
+uniform float corner_radius;
+uniform float border_px;
+
+void main() {
+    vec2 size = max(rect_size, vec2(1.0));
+    float radius = min(corner_radius, min(size.x, size.y) * 0.5);
+    vec2 p = v_coords * size - size * 0.5;
+    vec2 half_extents = size * 0.5 - vec2(radius);
+    vec2 q = abs(p) - half_extents;
+    float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+    if (dist > 0.0) { discard; }
+
+    float inner_radius = max(radius - border_px, 0.0);
+    vec2 inner_half_extents = max(half_extents - vec2(border_px), vec2(0.0));
+    vec2 inner_q = abs(p) - inner_half_extents;
+    float inner_dist =
+        length(max(inner_q, 0.0)) + min(max(inner_q.x, inner_q.y), 0.0) - inner_radius;
+    float in_border = 1.0 - step(0.0, inner_dist);
+    in_border = 1.0 - in_border;
+
+    vec2 norm_p = vec2(
+        size.x > 0.0 ? p.x / (size.x * 0.5) : 0.0,
+        size.y > 0.0 ? p.y / (size.y * 0.5) : 0.0
+    );
+    vec2 light_dir = normalize(vec2(-0.55, -0.65));
+
+    float light = dot(norm_p, light_dir) * 0.5 + 0.5;
+    light = light * 0.55 + 0.225;
+    vec3 shaded_fill = mix(
+        mix(fill_color.rgb, vec3(0.0), 0.10),
+        mix(fill_color.rgb, vec3(1.0), 0.12),
+        light
+    );
+
+    float border_light = dot(norm_p, light_dir) * 0.5 + 0.5;
+    border_light = border_light * 0.55 + 0.225;
+    vec3 shaded_border = mix(
+        mix(node_color.rgb, vec3(0.0), 0.10),
+        mix(node_color.rgb, vec3(1.0), 0.10),
+        border_light
+    );
+
+    vec3 color = mix(shaded_fill, shaded_border, in_border);
+    float edge_aa = 1.0 - smoothstep(-1.0, 0.0, dist);
     float final_alpha = alpha * edge_aa;
     gl_FragColor = vec4(color * final_alpha, final_alpha);
 }
@@ -151,12 +206,25 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.node_circle_program.is_none() {
-        st.node_circle_program = Some(renderer.compile_custom_texture_shader(
+    if st.node_squircle_program.is_none() {
+        st.node_squircle_program = Some(renderer.compile_custom_texture_shader(
             NODE_CIRCLE_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
                 UniformName::new("fill_color", UniformType::_4f),
+            ],
+        )?);
+    }
+
+    if st.node_label_program.is_none() {
+        st.node_label_program = Some(renderer.compile_custom_texture_shader(
+            NODE_LABEL_SHADER,
+            &[
+                UniformName::new("node_color", UniformType::_4f),
+                UniformName::new("fill_color", UniformType::_4f),
+                UniformName::new("rect_size", UniformType::_2f),
+                UniformName::new("corner_radius", UniformType::_1f),
+                UniformName::new("border_px", UniformType::_1f),
             ],
         )?);
     }
@@ -178,22 +246,108 @@ fn draw_shader_circle(
     let Some(texture) = st.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.node_circle_program.as_ref() else {
+    let Some(program) = st.node_squircle_program.as_ref() else {
         return Ok(());
     };
 
     let radius = radius.max(1);
     let diameter = (radius * 2).max(1);
-    let dest =
-        Rectangle::<i32, Physical>::new((cx - radius, cy - radius).into(), (diameter, diameter).into());
+    let dest = Rectangle::<i32, Physical>::new(
+        (cx - radius, cy - radius).into(),
+        (diameter, diameter).into(),
+    );
     let tex_size = texture.size();
     let src = Rectangle::<f64, Buffer>::new(
         (0.0, 0.0).into(),
         (tex_size.w as f64, tex_size.h as f64).into(),
     );
     let uniforms = [
-        Uniform::new("node_color", (border_color.r(), border_color.g(), border_color.b(), border_color.a())),
-        Uniform::new("fill_color",  (fill_color.r(),  fill_color.g(),  fill_color.b(),  fill_color.a())),
+        Uniform::new(
+            "node_color",
+            (
+                border_color.r(),
+                border_color.g(),
+                border_color.b(),
+                border_color.a(),
+            ),
+        ),
+        Uniform::new(
+            "fill_color",
+            (
+                fill_color.r(),
+                fill_color.g(),
+                fill_color.b(),
+                fill_color.a(),
+            ),
+        ),
+    ];
+
+    frame.render_texture_from_to(
+        texture,
+        src,
+        dest,
+        &[damage],
+        &[],
+        Transform::Normal,
+        alpha.clamp(0.0, 1.0),
+        Some(program),
+        &uniforms,
+    )?;
+
+    Ok(())
+}
+
+fn draw_shader_label(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &HalleyWlState,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    corner_radius: f32,
+    border_px: f32,
+    alpha: f32,
+    border_color: Color32F,
+    fill_color: Color32F,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(texture) = st.node_circle_texture.as_ref() else {
+        return Ok(());
+    };
+    let Some(program) = st.node_label_program.as_ref() else {
+        return Ok(());
+    };
+
+    let w = w.max(1);
+    let h = h.max(1);
+    let dest = Rectangle::<i32, Physical>::new((x, y).into(), (w, h).into());
+    let tex_size = texture.size();
+    let src = Rectangle::<f64, Buffer>::new(
+        (0.0, 0.0).into(),
+        (tex_size.w as f64, tex_size.h as f64).into(),
+    );
+    let uniforms = [
+        Uniform::new(
+            "node_color",
+            (
+                border_color.r(),
+                border_color.g(),
+                border_color.b(),
+                border_color.a(),
+            ),
+        ),
+        Uniform::new(
+            "fill_color",
+            (
+                fill_color.r(),
+                fill_color.g(),
+                fill_color.b(),
+                fill_color.a(),
+            ),
+        ),
+        Uniform::new("rect_size", (w as f32, h as f32)),
+        Uniform::new("corner_radius", corner_radius),
+        Uniform::new("border_px", border_px),
     ];
 
     frame.render_texture_from_to(
@@ -263,7 +417,11 @@ fn node_fill_color(st: &HalleyWlState, hovered: bool) -> Color32F {
     }
 }
 
-fn node_icon_glyph(st: &HalleyWlState, id: halley_core::field::NodeId, fallback: &str) -> Option<char> {
+fn node_icon_glyph(
+    st: &HalleyWlState,
+    id: halley_core::field::NodeId,
+    fallback: &str,
+) -> Option<char> {
     st.node_app_ids
         .get(&id)
         .map(String::as_str)
@@ -807,8 +965,7 @@ pub(crate) fn draw_node_markers(
     hover_node: Option<halley_core::field::NodeId>,
     damage: Rectangle<i32, Physical>,
     now: Instant,
-) -> Result<(), Box<dyn Error>>
-{
+) -> Result<(), Box<dyn Error>> {
     const NODE_ICON_FADE_DELAY_MS: u64 = 1000;
     const NODE_ICON_FADE_MS: u64 = 220;
 
@@ -865,15 +1022,19 @@ pub(crate) fn draw_node_markers(
         let render_radius = (dot_half as f32 * 1.5).round() as i32;
 
         if proxy_mix > 0.01 && border_mix < 0.99 {
-            let diameter =
-                node_render_diameter_px(st, intrinsic_size, node_label.len(), anim.scale).round()
-                    as i32;
+            let diameter = node_render_diameter_px(st, intrinsic_size, node_label.len(), anim.scale)
+                .round() as i32;
             let proxy_radius = (diameter / 2).max(dot_half);
             let proxy_col = Color32F::new(0.84, 0.89, 0.95, 0.0);
             draw_shader_circle(
-                frame, st,
-                sx, sy, proxy_radius, 1.0 - border_mix,
-                proxy_col, proxy_col,
+                frame,
+                st,
+                sx,
+                sy,
+                proxy_radius,
+                1.0 - border_mix,
+                proxy_col,
+                proxy_col,
                 damage,
             )?;
         }
@@ -889,8 +1050,8 @@ pub(crate) fn draw_node_markers(
             let nc = node_ring_color(st, hover_mix > 0.02, 1.0);
             // node_color.rgb = border ring colour; .a = border_px / radius
             // fill_color.rgb  = node fill colour (inner fill + outer halo)
-            let node_color  = Color32F::new(nc.r(), nc.g(), nc.b(), border_frac);
-            let fill_color  = node_fill_color(st, hovered);
+            let node_color = Color32F::new(nc.r(), nc.g(), nc.b(), border_frac);
+            let fill_color = node_fill_color(st, hovered);
             draw_shader_circle(
                 frame,
                 st,
@@ -909,8 +1070,7 @@ pub(crate) fn draw_node_markers(
             NodeDisplayPolicy::Hover => hovered,
             NodeDisplayPolicy::Always => true,
         };
-        if show_icon
-        {
+        if show_icon {
             let icon_alpha = (dot_alpha * icon_mix).clamp(0.0, 1.0);
             let mut drew_real_icon = false;
             if icon_alpha > 0.01
@@ -918,8 +1078,7 @@ pub(crate) fn draw_node_markers(
                 && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
                     st.node_app_icon_cache.get(app_id)
             {
-                let side = ((render_radius * 2) as f32 * st.tuning.node_icon_size)
-                    .round() as i32;
+                let side = ((render_radius * 2) as f32 * st.tuning.node_icon_size).round() as i32;
                 let side = side.clamp(16, 42);
                 let dest = Rectangle::<i32, Physical>::new(
                     (sx - side / 2, sy - side / 2).into(),
@@ -975,8 +1134,7 @@ pub(crate) fn draw_node_hover_labels(
     hover_node: Option<halley_core::field::NodeId>,
     damage: Rectangle<i32, Physical>,
     now: Instant,
-) -> Result<(), Box<dyn Error>>
-{
+) -> Result<(), Box<dyn Error>> {
     if st.tuning.node_show_labels == NodeDisplayPolicy::Off {
         return Ok(());
     }
@@ -991,9 +1149,7 @@ pub(crate) fn draw_node_hover_labels(
 
         let anim = st.anim_style_for(node.id, node.state.clone(), now);
         let dot_alpha = (anim.alpha
-            * ease_in_out_cubic(
-                ((0.50 - anim.scale) / (0.50 - 0.20)).clamp(0.0, 1.0),
-            ))
+            * ease_in_out_cubic(((0.50 - anim.scale) / (0.50 - 0.20)).clamp(0.0, 1.0)))
         .clamp(0.0, 1.0);
         if dot_alpha <= 0.01 {
             continue;
@@ -1024,7 +1180,8 @@ pub(crate) fn draw_node_hover_labels(
             ((((base_label_w as f32) * 1.80).round() as i32 + 1) & !1).clamp(72, 240);
         // Round to even so label_h / 2 centering is always exact — odd dims cause
         // a 0.5px vertical drift that steps jaggedly each animation frame.
-        let label_w = ((((base_label_w as f32) * (1.0 + 0.80 * label_grow)).round() as i32 + 1) & !1)
+        let label_w = ((((base_label_w as f32) * (1.0 + 0.80 * label_grow)).round() as i32 + 1)
+            & !1)
             .clamp(72, 240);
         let label_h = (((base_label_h as f32) * (1.0 + 0.55 * label_grow)).round() as i32 + 1) & !1;
 
@@ -1050,14 +1207,19 @@ pub(crate) fn draw_node_hover_labels(
         let final_x = label_x.clamp(margin, (size.w - label_w - margin).max(margin));
         let final_y = label_y.clamp(margin, (size.h - label_h - margin).max(margin));
 
-        draw_rounded_rect(
+        let fill_color = Color32F::new(0.96, 0.98, 1.0, 1.0);
+        draw_shader_label(
             frame,
+            st,
             final_x,
             final_y,
             label_w.max(1),
             label_h.max(1),
-            8,
-            Color32F::new(0.96, 0.98, 1.0, 0.88 * dot_alpha * label_fade),
+            (label_h as f32) * 0.32,
+            0.0,
+            1.0,
+            fill_color,
+            fill_color,
             damage,
         )?;
 
