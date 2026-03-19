@@ -31,7 +31,15 @@ pub(crate) fn draw_ring<F: Frame>(
         let t = (i as f32 / samples as f32) * TAU;
         let x = center_sx + t.cos() * rx;
         let y = center_sy + t.sin() * ry;
-        draw_rect(frame, (x - 1.0) as i32, (y - 1.0) as i32, 3, 3, color, damage)?;
+        draw_rect(
+            frame,
+            (x - 1.0) as i32,
+            (y - 1.0) as i32,
+            3,
+            3,
+            color,
+            damage,
+        )?;
     }
     Ok(())
 }

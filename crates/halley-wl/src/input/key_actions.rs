@@ -1,6 +1,6 @@
-use std::process::Command;
 use std::os::unix::process::CommandExt;
 use std::process::Child;
+use std::process::Command;
 
 use eventline::{info, warn};
 
@@ -174,7 +174,10 @@ pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -
         Ok(child) => {
             info!(
                 "spawned {} via `{}` on WAYLAND_DISPLAY={} (pid={})",
-                label, command, wayland_display, child.id()
+                label,
+                command,
+                wayland_display,
+                child.id()
             );
             Some(child)
         }

@@ -251,7 +251,7 @@ pub(crate) fn handle_pointer_axis_input(
     let mods = mod_state.borrow().clone();
     let modifier_held = modifier_active(&mods, st.tuning.keybinds.modifier);
 
-    if modifier_held {
+    if st.tuning.scroll_zoom_enabled && modifier_held {
         pointer_state.borrow_mut().panning = false;
         st.zoom_by_steps(steps);
         backend.request_redraw();
@@ -265,7 +265,8 @@ pub(crate) fn handle_pointer_axis_input(
         ps.panning = false;
     }
     st.note_pan_activity(now);
-    st.viewport.pan(halley_core::field::Vec2 { x: 0.0, y: pan_y });
+    st.viewport
+        .pan(halley_core::field::Vec2 { x: 0.0, y: pan_y });
     st.note_pan_viewport_change(now);
     backend.request_redraw();
 }

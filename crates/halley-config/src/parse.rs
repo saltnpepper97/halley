@@ -6,7 +6,7 @@ use super::{
 };
 use crate::RuntimeTuning;
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
-use crate::layout::{ViewportOutputConfig, default_pointer_bindings};
+use crate::layout::{ViewportOutputConfig, default_compositor_bindings, default_pointer_bindings};
 
 use rune_cfg::RuneConfig;
 
@@ -441,11 +441,7 @@ fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 }
 
 fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    out.non_overlap_gap_px = pick_f32(
-        cfg,
-        &["field.gap", "field.gap-px"],
-        out.non_overlap_gap_px,
-    );
+    out.non_overlap_gap_px = pick_f32(cfg, &["field.gap", "field.gap-px"], out.non_overlap_gap_px);
 }
 
 fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -464,9 +460,14 @@ fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
 fn load_keybind_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.keybinds.modifier = pick_modifiers(cfg, &["keybinds.mod"], out.keybinds.modifier);
-    out.compositor_bindings.clear();
+    out.compositor_bindings = default_compositor_bindings(out.keybinds.modifier);
     out.launch_bindings.clear();
     out.pointer_bindings = default_pointer_bindings(out.keybinds.modifier);
+    out.scroll_zoom_enabled = pick_bool(
+        cfg,
+        &["keybinds.scroll-zoom", "keybinds.scroll_zoom"],
+        out.scroll_zoom_enabled,
+    );
     apply_explicit_keybind_overrides(cfg, out);
 }
 
@@ -635,6 +636,7 @@ fn apply_explicit_keybind_overrides_map(
 
     if let Some(m) = parse_modifiers(mod_token.as_str()) {
         out.keybinds.modifier = m;
+        out.compositor_bindings = default_compositor_bindings(out.keybinds.modifier);
         out.pointer_bindings = default_pointer_bindings(out.keybinds.modifier);
     }
 
@@ -888,6 +890,46 @@ mod tests {
     }
 
     #[test]
+    fn runtime_tuning_has_default_zoom_bindings() {
+        let tuning = RuntimeTuning::default();
+
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomIn)
+        );
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomOut)
+        );
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomReset)
+        );
+    }
+
+    #[test]
+    fn changing_mod_reseeds_default_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([("mod".to_string(), "super".to_string())]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        let zoom_in = tuning
+            .compositor_bindings
+            .iter()
+            .find(|binding| binding.action == CompositorBindingAction::ZoomIn)
+            .expect("zoom-in binding");
+        assert!(zoom_in.modifiers.super_key);
+        assert!(!zoom_in.modifiers.left_alt);
+    }
+
+    #[test]
     fn autostart_section_loads_once_and_on_reload_commands() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -972,6 +1014,42 @@ end
         assert_eq!(tuning.autostart_once, vec!["waybar"]);
         assert_eq!(tuning.non_overlap_gap_px, 24.0);
         assert_eq!(tuning.launch_bindings.len(), 1);
-        assert_eq!(tuning.compositor_bindings.len(), 1);
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| matches!(binding.action, CompositorBindingAction::Quit { .. }))
+        );
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomIn)
+        );
+    }
+
+    #[test]
+    fn scroll_zoom_can_be_disabled_in_config() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-scroll-zoom-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+keybinds:
+  mod "super"
+  scroll-zoom false
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert!(!tuning.scroll_zoom_enabled);
     }
 }

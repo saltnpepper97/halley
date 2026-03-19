@@ -310,7 +310,6 @@ fn draw_debug_frame_scene(
 
     draw_offscreen_textures(frame, prepared.damage, &scene.offscreen_textures)?;
 
-
     if !scene.popup_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.popup_elements, &[prepared.damage]);
     }

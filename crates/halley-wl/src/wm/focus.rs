@@ -287,7 +287,7 @@ impl HalleyWlState {
 
         self.set_interaction_focus(Some(id), 12_000, now);
         self.pan_restore_active_focus = None;
-    }   
+    }
 
     pub fn begin_resize_interaction(&mut self, id: NodeId, now: Instant) {
         self.resize_active = Some(id);

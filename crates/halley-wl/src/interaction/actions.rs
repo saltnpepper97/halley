@@ -125,7 +125,6 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut HalleyWlState) -> bool {
         return false;
     }
 
-
     match n.state {
         halley_core::field::NodeState::Active => {
             let _ = st.field.set_state(id, halley_core::field::NodeState::Node);

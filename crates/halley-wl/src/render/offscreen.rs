@@ -65,8 +65,7 @@ pub(crate) fn render_surface_tree_to_texture(
     }
 
     let logical_size = bbox.size;
-    let physical_size: Size<i32, Physical> =
-        (logical_size.w.max(1), logical_size.h.max(1)).into();
+    let physical_size: Size<i32, Physical> = (logical_size.w.max(1), logical_size.h.max(1)).into();
 
     let elements: Vec<SurfaceElement> = render_elements_from_surface_tree(
         renderer,

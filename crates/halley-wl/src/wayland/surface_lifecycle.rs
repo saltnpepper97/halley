@@ -167,9 +167,18 @@ impl HalleyWlState {
 
         let dirs = [
             base_dir,
-            Vec2 { x: -base_dir.y, y: base_dir.x },
-            Vec2 { x: base_dir.y, y: -base_dir.x },
-            Vec2 { x: -base_dir.x, y: -base_dir.y },
+            Vec2 {
+                x: -base_dir.y,
+                y: base_dir.x,
+            },
+            Vec2 {
+                x: base_dir.y,
+                y: -base_dir.x,
+            },
+            Vec2 {
+                x: -base_dir.x,
+                y: -base_dir.y,
+            },
         ];
 
         for mul in [1.0_f32, 1.35, 1.75, 2.25, 2.9] {
@@ -217,9 +226,8 @@ impl HalleyWlState {
 
         let star_center = if let Some(patch) = &self.spawn_patch {
             let same_focus = patch.focus_node == focus_id;
-            let same_focus_pos =
-                (patch.focus_pos.x - focus_pos.x).abs() < 0.01 &&
-                (patch.focus_pos.y - focus_pos.y).abs() < 0.01;
+            let same_focus_pos = (patch.focus_pos.x - focus_pos.x).abs() < 0.01
+                && (patch.focus_pos.y - focus_pos.y).abs() < 0.01;
 
             if same_focus || same_focus_pos {
                 patch.anchor
@@ -325,26 +333,40 @@ impl HalleyWlState {
                 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
                 let bbox = bbox_from_surface_tree(surface, (0, 0));
-                self.bbox_loc.insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
+                self.bbox_loc
+                    .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
 
                 let geo = with_states(surface, |states| {
-                    states.cached_state.get::<SurfaceCachedState>().current().geometry
+                    states
+                        .cached_state
+                        .get::<SurfaceCachedState>()
+                        .current()
+                        .geometry
                 });
                 if let Some(g) = geo {
-                    self.window_geometry.insert(node_id, (
-                        g.loc.x as f32, g.loc.y as f32,
-                        g.size.w.max(1) as f32, g.size.h.max(1) as f32,
-                    ));
+                    self.window_geometry.insert(
+                        node_id,
+                        (
+                            g.loc.x as f32,
+                            g.loc.y as f32,
+                            g.size.w.max(1) as f32,
+                            g.size.h.max(1) as f32,
+                        ),
+                    );
                 } else {
-                    self.window_geometry.insert(node_id, (
-                        bbox.loc.x as f32, bbox.loc.y as f32,
-                        bbox.size.w.max(1) as f32, bbox.size.h.max(1) as f32,
-                    ));
+                    self.window_geometry.insert(
+                        node_id,
+                        (
+                            bbox.loc.x as f32,
+                            bbox.loc.y as f32,
+                            bbox.size.w.max(1) as f32,
+                            bbox.size.h.max(1) as f32,
+                        ),
+                    );
                 }
             }
         }
     }
-
 
     pub fn ensure_node_for_surface(
         &mut self,
@@ -472,7 +494,9 @@ impl HalleyWlState {
             return;
         }
 
-        if self.active_spawn_pan.is_some_and(|active| active.node_id == id)
+        if self
+            .active_spawn_pan
+            .is_some_and(|active| active.node_id == id)
             || self
                 .pending_spawn_pan_queue
                 .iter()
@@ -568,7 +592,10 @@ mod tests {
             .handle();
         let mut state = HalleyWlState::new(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
-        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
 
         let (pos, needs_pan) = state.pick_spawn_position(Vec2 { x: 100.0, y: 80.0 });
         assert_eq!(pos, Vec2 { x: 0.0, y: 0.0 });
@@ -583,11 +610,18 @@ mod tests {
             .handle();
         let mut state = HalleyWlState::new(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
-        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
 
         let size = Vec2 { x: 100.0, y: 80.0 };
-        let first = state.field.spawn_surface("first", Vec2 { x: 0.0, y: 0.0 }, size);
-        let _ = state.field.set_state(first, halley_core::field::NodeState::Active);
+        let first = state
+            .field
+            .spawn_surface("first", Vec2 { x: 0.0, y: 0.0 }, size);
+        let _ = state
+            .field
+            .set_state(first, halley_core::field::NodeState::Active);
         state.last_surface_focus_ms.insert(first, 1);
         state.interaction_focus = Some(first);
         state.update_spawn_patch(
@@ -621,7 +655,10 @@ mod tests {
         state.last_surface_focus_ms.insert(focused, 1);
         state.interaction_focus = Some(focused);
 
-        assert_eq!(state.current_spawn_focus(), (Some(focused), Vec2 { x: 0.0, y: 0.0 }));
+        assert_eq!(
+            state.current_spawn_focus(),
+            (Some(focused), Vec2 { x: 0.0, y: 0.0 })
+        );
     }
 
     #[test]
@@ -639,7 +676,9 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 100.0, y: 80.0 },
         );
-        let _ = state.field.set_state(focused, halley_core::field::NodeState::Active);
+        let _ = state
+            .field
+            .set_state(focused, halley_core::field::NodeState::Active);
         state.last_surface_focus_ms.insert(focused, 1);
         state.interaction_focus = Some(focused);
 
@@ -663,7 +702,9 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 500.0, y: 300.0 },
         );
-        let _ = state.field.set_state(focused, halley_core::field::NodeState::Active);
+        let _ = state
+            .field
+            .set_state(focused, halley_core::field::NodeState::Active);
         state.last_surface_focus_ms.insert(focused, 1);
         state.interaction_focus = Some(focused);
 
@@ -683,13 +724,15 @@ mod tests {
             .handle();
         let mut state = HalleyWlState::new(&dh, tuning);
         state.viewport.center = Vec2 { x: 700.0, y: 0.0 };
-        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
 
-        let id = state.field.spawn_surface(
-            "new",
-            Vec2 { x: 920.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 80.0 },
-        );
+        let id =
+            state
+                .field
+                .spawn_surface("new", Vec2 { x: 920.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
 
         state.reveal_new_toplevel_node(id, false, Instant::now());
 

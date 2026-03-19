@@ -289,8 +289,10 @@ pub(crate) fn pointer_focus_for_screen(
             }
 
             let cam_scale_f = st.camera_render_scale() as f64;
-            let focus_origin =
-                Point::<f64, Logical>::from((xform.origin_x as f64 / cam_scale_f, xform.origin_y as f64 / cam_scale_f));
+            let focus_origin = Point::<f64, Logical>::from((
+                xform.origin_x as f64 / cam_scale_f,
+                xform.origin_y as f64 / cam_scale_f,
+            ));
 
             if pointer_map_debug_enabled() {
                 info!(
