@@ -64,7 +64,7 @@ keybinds:
   mod "super"
 
   # Basic compositor controls
-  "$var.mod+r" "reload"
+  "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
   "$var.mod+q" "close-focused"
   "$var.mod+mousewheelup" "zoom-in"

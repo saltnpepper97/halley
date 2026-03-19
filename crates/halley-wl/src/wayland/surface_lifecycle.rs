@@ -9,6 +9,7 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
 use crate::activity::CommitActivity;
+use crate::render::ACTIVE_WINDOW_FRAME_PAD_PX;
 use crate::state::HalleyWlState;
 use crate::wm::overlap::CollisionExtents;
 
@@ -23,8 +24,8 @@ fn spawn_cardinal_dirs() -> [Vec2; 4] {
     [
         Vec2 { x: 1.0, y: 0.0 },  // right
         Vec2 { x: -1.0, y: 0.0 }, // left
-        Vec2 { x: 0.0, y: -1.0 }, // up
-        Vec2 { x: 0.0, y: 1.0 },  // down
+        Vec2 { x: 0.0, y: 1.0 },  // top
+        Vec2 { x: 0.0, y: -1.0 }, // bottom
     ]
 }
 
@@ -152,7 +153,9 @@ impl HalleyWlState {
     }
 
     fn spawn_star_step(&self, size: Vec2) -> f32 {
-        size.x.max(size.y) + self.non_overlap_gap_world()
+        size.x.max(size.y)
+            + (ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32 * 2.0)
+            + self.non_overlap_gap_world()
     }
 
     fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
@@ -665,7 +668,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn star_offsets_are_center_then_right_left_up_down() {
+    fn star_offsets_are_center_then_right_left_top_bottom() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
@@ -678,8 +681,8 @@ mod tests {
         let step = state.spawn_star_step(Vec2 { x: 100.0, y: 80.0 });
         assert_eq!(offsets[1], Vec2 { x: step, y: 0.0 });
         assert_eq!(offsets[2], Vec2 { x: -step, y: 0.0 });
-        assert_eq!(offsets[3], Vec2 { x: 0.0, y: -step });
-        assert_eq!(offsets[4], Vec2 { x: 0.0, y: step });
+        assert_eq!(offsets[3], Vec2 { x: 0.0, y: step });
+        assert_eq!(offsets[4], Vec2 { x: 0.0, y: -step });
     }
 
     #[test]
@@ -731,13 +734,7 @@ mod tests {
 
         let (pos, needs_pan) = state.pick_spawn_position(size);
         let step = state.spawn_star_step(size);
-        assert!(matches!(
-            pos,
-            Vec2 { x, y } if (x == step && y == 0.0)
-                || (x == -step && y == 0.0)
-                || (x == 0.0 && y == step)
-                || (x == 0.0 && y == -step)
-        ));
+        assert_eq!(pos, Vec2 { x: step, y: 0.0 });
         assert!(needs_pan);
     }
 
