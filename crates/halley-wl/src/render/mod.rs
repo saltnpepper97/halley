@@ -3,19 +3,20 @@ use halley_core::field::Field;
 use halley_core::viewport::{FocusRing, FocusZone, Viewport};
 
 mod app_icon;
-mod cursor_render;
+mod cursor;
 mod cursor_theme;
-mod frame_render;
-mod layer_render;
-mod node_render;
+mod frame;
+mod layer_shell;
+mod node;
 mod offscreen;
-mod render_utils;
+mod utils;
+mod window;
 
 pub(crate) const ACTIVE_WINDOW_FRAME_PAD_PX: i32 = 3;
 
-pub(crate) use frame_render::{draw_debug_frame, draw_debug_frame_to_target};
-pub(crate) use render_utils::preview_proxy_size;
-pub(crate) use render_utils::{node_marker_metrics, node_render_diameter_px, world_to_screen};
+pub(crate) use frame::{draw_debug_frame, draw_debug_frame_to_target};
+pub(crate) use utils::preview_proxy_size;
+pub(crate) use utils::{node_marker_metrics, node_render_diameter_px, world_to_screen};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DebugPalette {

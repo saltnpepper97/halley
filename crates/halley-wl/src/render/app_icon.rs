@@ -10,7 +10,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 
 use crate::state::{HalleyWlState, NodeAppIconCacheEntry, NodeAppIconTexture};
 
-use super::node_render::NodeSnapshot;
+use super::node::NodeSnapshot;
 
 const NODE_ICON_RASTER_PX: u32 = 64;
 const ICON_WALK_MAX_DEPTH: usize = 6;
