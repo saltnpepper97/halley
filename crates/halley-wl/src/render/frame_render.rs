@@ -360,12 +360,14 @@ fn draw_offscreen_textures(
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
     for tex in offscreen_textures {
         let tex_size = tex.texture.size();
+        let max_src_w = (tex_size.w - tex.src_x).max(1);
+        let max_src_h = (tex_size.h - tex.src_y).max(1);
 
         let src = Rectangle::<f64, Buffer>::new(
             (tex.src_x as f64, tex.src_y as f64).into(),
             (
-                tex.src_w.min(tex_size.w).max(1) as f64,
-                tex.src_h.min(tex_size.h).max(1) as f64,
+                tex.src_w.min(max_src_w).max(1) as f64,
+                tex.src_h.min(max_src_h).max(1) as f64,
             )
                 .into(),
         );
@@ -375,17 +377,26 @@ fn draw_offscreen_textures(
             (tex.dst_w.max(1), tex.dst_h.max(1)).into(),
         );
 
-        let clip = Rectangle::<i32, Physical>::new(
+        let visible = Rectangle::<i32, Physical>::new(
             (tex.clip_x, tex.clip_y).into(),
             (tex.clip_w.max(1), tex.clip_h.max(1)).into(),
+        )
+        .intersection(damage)
+        .unwrap_or_else(|| Rectangle::<i32, Physical>::new((0, 0).into(), (0, 0).into()));
+        if visible.size.w <= 0 || visible.size.h <= 0 {
+            continue;
+        }
+        let local_damage = Rectangle::<i32, Physical>::new(
+            (visible.loc.x - dst.loc.x, visible.loc.y - dst.loc.y).into(),
+            visible.size,
         );
 
         frame.render_texture_from_to(
             &tex.texture,
             src,
             dst,
-            &[damage],
-            &[clip],
+            &[local_damage],
+            &[],
             Transform::Normal,
             tex.alpha,
             None,
