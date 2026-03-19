@@ -5,7 +5,6 @@ use crate::backend::interface::{
 };
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
-use smithay::reexports::winit::dpi::PhysicalSize;
 
 fn apply_host_cursor(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
@@ -68,51 +67,21 @@ fn publish_winit_output_snapshot(
 fn apply_winit_reload(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
     st: &mut HalleyWlState,
-    next: RuntimeTuning,
+    mut next: RuntimeTuning,
     config_path: &str,
     wayland_display: &str,
     reason: &str,
 ) {
-    let prev_window_size = backend.borrow().window().inner_size();
-    let requested = PhysicalSize::new(
-        next.viewport_size.x.round().max(1.0) as u32,
-        next.viewport_size.y.round().max(1.0) as u32,
-    );
-    let applied = backend
-        .borrow()
-        .window()
-        .request_inner_size(requested)
-        .unwrap_or(requested);
-
-    if applied != requested {
-        let _ = backend
-            .borrow()
-            .window()
-            .request_inner_size(prev_window_size);
-        warn!(
-            "{}: viewport reload rejected for {} (requested={}x{}, applied={}x{}); keeping last working size {}x{}",
-            reason,
-            config_path,
-            requested.width,
-            requested.height,
-            applied.width,
-            applied.height,
-            prev_window_size.width,
-            prev_window_size.height
-        );
-        return;
-    }
-
-    let mut next = next;
+    let ws = backend.borrow().window_size();
     next.viewport_size = halley_core::field::Vec2 {
-        x: applied.width as f32,
-        y: applied.height as f32,
+        x: ws.w.max(1) as f32,
+        y: ws.h.max(1) as f32,
     };
     st.apply_tuning(next);
     st.advertise_primary_output(
         "winit-0",
         smithay::output::Mode {
-            size: (applied.width as i32, applied.height as i32).into(),
+            size: (ws.w.max(1), ws.h.max(1)).into(),
             refresh: 0,
         },
     );
@@ -120,7 +89,10 @@ fn apply_winit_reload(
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     info!(
         "{}: reloaded config from {} with viewport {}x{}",
-        reason, config_path, applied.width, applied.height
+        reason,
+        config_path,
+        ws.w.max(1),
+        ws.h.max(1)
     );
 }
 
@@ -242,9 +214,13 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let xwayland_for_timer = xwayland.clone();
             let xwayland_request_for_timer = xwayland_request_rx.clone();
             {
-                let fresh = RuntimeTuning::load_from_path(config_path.as_str());
-                state.apply_tuning(fresh);
+                let mut fresh = RuntimeTuning::load_from_path(config_path.as_str());
                 let ws = backend.borrow().window_size();
+                fresh.viewport_size = halley_core::field::Vec2 {
+                    x: ws.w.max(1) as f32,
+                    y: ws.h.max(1) as f32,
+                };
+                state.apply_tuning(fresh);
                 state.zoom_ref_size = halley_core::field::Vec2 {
                     x: ws.w.max(1) as f32,
                     y: ws.h.max(1) as f32,

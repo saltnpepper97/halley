@@ -707,7 +707,7 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = HalleyWlState::new(&dh, tuning);
-        state.viewport.center = Vec2 { x: 300.0, y: 0.0 };
+        state.viewport.center = Vec2 { x: 500.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
 
         let focused = state.field.spawn_surface(
