@@ -63,7 +63,7 @@ pub struct RuntimeTuning {
     pub env: HashMap<String, String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ViewportOutputConfig {
     pub connector: String,
     pub offset_x: i32,

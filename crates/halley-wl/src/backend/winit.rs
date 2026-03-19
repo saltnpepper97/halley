@@ -515,14 +515,25 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                     RuntimeIpcCommand::Reload => {
                         let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        apply_winit_reload(
-                            &backend_for_timer,
-                            st,
-                            next,
-                            config_path_for_timer.as_str(),
-                            wayland_display_for_timer.as_str(),
-                            "ipc",
-                        );
+                        if crate::run::viewport_section_changed(&st.tuning, &next) {
+                            apply_winit_reload(
+                                &backend_for_timer,
+                                st,
+                                next,
+                                config_path_for_timer.as_str(),
+                                wayland_display_for_timer.as_str(),
+                                "ipc",
+                            );
+                        } else {
+                            let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                            crate::run::apply_reloaded_tuning(
+                                st,
+                                next,
+                                config_path_for_timer.as_str(),
+                                wayland_display_for_timer.as_str(),
+                                "ipc",
+                            );
+                        }
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                     }
                     RuntimeIpcCommand::Docking(command) => {
@@ -569,14 +580,25 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 if let Some(rx) = rx_ref.as_mut() {
                     while rx.try_recv().is_ok() {
                         let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        apply_winit_reload(
-                            &backend_for_timer,
-                            st,
-                            next,
-                            config_path_for_timer.as_str(),
-                            wayland_display_for_timer.as_str(),
-                            "watch",
-                        );
+                        if crate::run::viewport_section_changed(&st.tuning, &next) {
+                            apply_winit_reload(
+                                &backend_for_timer,
+                                st,
+                                next,
+                                config_path_for_timer.as_str(),
+                                wayland_display_for_timer.as_str(),
+                                "watch",
+                            );
+                        } else {
+                            let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                            crate::run::apply_reloaded_tuning(
+                                st,
+                                next,
+                                config_path_for_timer.as_str(),
+                                wayland_display_for_timer.as_str(),
+                                "watch",
+                            );
+                        }
                         reloaded = true;
                     }
                 }

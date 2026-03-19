@@ -560,20 +560,31 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
                     RuntimeIpcCommand::Reload => {
                         let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        apply_tty_reload(
-                            &dev_for_timer,
-                            &gbm_surface_for_timer,
-                            &backend_handle_for_timer,
-                            &pointer_state_for_timer,
-                            st,
-                            next,
-                            config_path_for_timer.as_str(),
-                            wayland_display_for_timer.as_str(),
-                            "ipc",
-                            &current_connector_name_for_timer,
-                            &current_mode_for_timer,
-                            drm_crtc,
-                        );
+                        if crate::run::viewport_section_changed(&st.tuning, &next) {
+                            apply_tty_reload(
+                                &dev_for_timer,
+                                &gbm_surface_for_timer,
+                                &backend_handle_for_timer,
+                                &pointer_state_for_timer,
+                                st,
+                                next,
+                                config_path_for_timer.as_str(),
+                                wayland_display_for_timer.as_str(),
+                                "ipc",
+                                &current_connector_name_for_timer,
+                                &current_mode_for_timer,
+                                drm_crtc,
+                            );
+                        } else {
+                            let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                            crate::run::apply_reloaded_tuning(
+                                st,
+                                next,
+                                config_path_for_timer.as_str(),
+                                wayland_display_for_timer.as_str(),
+                                "ipc",
+                            );
+                        }
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                     }
                     RuntimeIpcCommand::Docking(command) => {
@@ -618,20 +629,31 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 if let Some(rx) = rx_ref.as_mut() {
                     while rx.try_recv().is_ok() {
                         let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        apply_tty_reload(
-                            &dev_for_timer,
-                            &gbm_surface_for_timer,
-                            &backend_handle_for_timer,
-                            &pointer_state_for_timer,
-                            st,
-                            next,
-                            config_path_for_timer.as_str(),
-                            wayland_display_for_timer.as_str(),
-                            "watch",
-                            &current_connector_name_for_timer,
-                            &current_mode_for_timer,
-                            drm_crtc,
-                        );
+                        if crate::run::viewport_section_changed(&st.tuning, &next) {
+                            apply_tty_reload(
+                                &dev_for_timer,
+                                &gbm_surface_for_timer,
+                                &backend_handle_for_timer,
+                                &pointer_state_for_timer,
+                                st,
+                                next,
+                                config_path_for_timer.as_str(),
+                                wayland_display_for_timer.as_str(),
+                                "watch",
+                                &current_connector_name_for_timer,
+                                &current_mode_for_timer,
+                                drm_crtc,
+                            );
+                        } else {
+                            let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                            crate::run::apply_reloaded_tuning(
+                                st,
+                                next,
+                                config_path_for_timer.as_str(),
+                                wayland_display_for_timer.as_str(),
+                                "watch",
+                            );
+                        }
                         reloaded = true;
                     }
                 }

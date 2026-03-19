@@ -78,6 +78,22 @@ pub(crate) fn apply_reloaded_tuning(
     info!("{reason}: reloaded config from {}", config_path);
 }
 
+pub(crate) fn viewport_section_changed(prev: &RuntimeTuning, next: &RuntimeTuning) -> bool {
+    prev.viewport_center != next.viewport_center
+        || prev.viewport_size != next.viewport_size
+        || prev.tty_viewports != next.tty_viewports
+}
+
+pub(crate) fn preserve_viewport_section(
+    prev: &RuntimeTuning,
+    mut next: RuntimeTuning,
+) -> RuntimeTuning {
+    next.viewport_center = prev.viewport_center;
+    next.viewport_size = prev.viewport_size;
+    next.tty_viewports = prev.tty_viewports.clone();
+    next
+}
+
 pub fn run() -> Result<(), Box<dyn Error>> {
     // Register signal handlers before anything else so that SIGTERM (the
     // default signal sent by `pkill`/`kill`) triggers a clean shutdown.
