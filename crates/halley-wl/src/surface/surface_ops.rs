@@ -6,6 +6,24 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use crate::state::HalleyWlState;
 
+pub(crate) fn request_close_focused_toplevel(st: &mut HalleyWlState) -> bool {
+    let Some(node_id) = st.last_focused_surface_node() else {
+        return false;
+    };
+
+    for top in st.xdg_shell_state.toplevel_surfaces() {
+        let wl = top.wl_surface();
+        let key = wl.id();
+        if st.surface_to_node.get(&key).copied() != Some(node_id) {
+            continue;
+        }
+        top.send_close();
+        return true;
+    }
+
+    false
+}
+
 pub(crate) fn request_toplevel_resize_mode(
     st: &mut HalleyWlState,
     node_id: halley_core::field::NodeId,

@@ -6,7 +6,7 @@ use eventline::info;
 use smithay::input::pointer::MotionEvent;
 use smithay::utils::SERIAL_COUNTER;
 
-use crate::backend_iface::BackendView;
+use crate::backend::interface::BackendView;
 use crate::interaction::actions::docking_mode_active;
 use crate::interaction::types::{ModState, PointerState, ResizeHandle};
 use crate::spatial::{pick_hit_node_at, screen_to_world};
@@ -57,12 +57,20 @@ pub(crate) fn handle_pointer_motion_absolute(
     if let Some(pointer) = st.seat.get_pointer() {
         let resize_preview = pointer_state.borrow().resize;
         let focus = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview);
-        let cam_scale = st.camera_render_scale() as f64;
+        let location = if focus
+            .as_ref()
+            .is_some_and(|(surface, _)| st.is_layer_surface(surface))
+        {
+            (sx as f64, sy as f64).into()
+        } else {
+            let cam_scale = st.camera_render_scale() as f64;
+            (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
+        };
         pointer.motion(
             st,
             focus,
             &MotionEvent {
-                location: (sx as f64 / cam_scale, sy as f64 / cam_scale).into(),
+                location,
                 serial: SERIAL_COUNTER.next_serial(),
                 time: now_millis_u32(),
             },

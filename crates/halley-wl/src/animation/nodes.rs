@@ -3,6 +3,8 @@ use std::time::{Duration, Instant};
 
 use halley_core::field::{Field, NodeId, NodeState};
 
+use super::curves::ease_out_back;
+
 #[derive(Clone, Copy, Debug)]
 pub struct AnimSpec {
     pub state_change_ms: u64,
@@ -146,11 +148,6 @@ fn base_style(state: NodeState) -> AnimStyle {
         },
         _ => AnimStyle::default(),
     }
-}
-
-fn ease_out_back(t: f32, s: f32) -> f32 {
-    let u = t - 1.0;
-    1.0 + u * u * ((s + 1.0) * u + s)
 }
 
 fn ease_out_cubic(t: f32) -> f32 {

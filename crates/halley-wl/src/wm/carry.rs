@@ -132,6 +132,7 @@ impl HalleyWlState {
             self.carry_zone_pending_since_ms.remove(&id);
             self.carry_activation_anim_armed.insert(id);
         }
+        self.request_maintenance();
     }
 
     pub fn end_carry_state_tracking(&mut self, id: NodeId) {
@@ -144,6 +145,7 @@ impl HalleyWlState {
         self.suspend_overlap_resolve = false;
         self.suspend_state_checks = false;
         self.clear_direct_carry_nodes();
+        self.request_maintenance();
     }
 
     pub fn update_carry_state_preview(&mut self, id: NodeId, now: Instant) {
@@ -184,5 +186,6 @@ impl HalleyWlState {
                 self.mark_active_transition(id, now, 360);
             }
         }
+        self.request_maintenance();
     }
 }

@@ -1,74 +1,24 @@
-use std::cell::Cell;
-use std::cell::RefCell;
 use std::env;
 use std::error::Error;
-use std::io;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
 
 use halley_config::RuntimeTuning;
 
-use calloop::EventLoop;
-use calloop::timer::{TimeoutAction, Timer};
-
-use eventline::{FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, info, scope, warn};
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use eventline::{FileSetup, LogLevel, LogPolicy, RunHeader, Setup, info, scope, warn};
 use once_cell::sync::OnceCell;
 
-use smithay::reexports::drm::control::{self as drm_control, Device as DrmControlDevice};
-use smithay::{
-    backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
-    backend::allocator::{Format, Fourcc},
-    backend::drm::DrmEvent,
-    backend::drm::GbmBufferedSurface,
-    backend::drm::{DrmDevice, DrmDeviceFd},
-    backend::egl::{EGLContext, EGLDisplay},
-    backend::input::{
-        AbsolutePositionEvent, Axis, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
-        PointerButtonEvent,
-    },
-    backend::libinput::LibinputInputBackend,
-    backend::libinput::LibinputSessionInterface,
-    backend::renderer::gles::GlesRenderer,
-    backend::renderer::{Bind, ImportDma},
-    backend::session::libseat::LibSeatSession,
-    backend::session::{Event as SessionEvent, Session},
-    backend::udev::{all_gpus, primary_gpu},
-    backend::winit::{self, WinitEvent},
-    reexports::input::Libinput,
-    reexports::wayland_server::Display,
-    utils::{DeviceFd, Transform},
-    wayland::socket::ListeningSocketSource,
-};
-
-use crate::activity::VisualState;
-use crate::backend_iface::{BackendView, RenderBackend, WinitBackendHandle};
-use crate::interaction::types::{ModState, PointerState};
-use crate::state::{ClientState, HalleyWlState};
-
-use crate::input::{
-    BackendInputEventData, advance_node_move_anim, handle_backend_input_event, spawn_command,
-};
-use crate::render::draw_debug_frame_to_target;
-use crate::surface::current_surface_size_for_node;
+use crate::input::spawn_command;
+use crate::state::HalleyWlState;
 
 mod common;
-mod drm;
-mod input_backend;
 mod ipc;
-mod tty_backend;
-mod winit_backend;
 
-use common::{
+pub(crate) use common::{
     RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite,
 };
-use drm::probe_tty_drm_device_via_session;
-use input_backend::build_tty_libinput_backend;
 pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs};
 
 static XWAYLAND_REQUEST_TX: OnceCell<mpsc::Sender<()>> = OnceCell::new();
@@ -128,31 +78,6 @@ pub(crate) fn apply_reloaded_tuning(
     info!("{reason}: reloaded config from {}", config_path);
 }
 
-#[derive(Clone)]
-struct TtyBackendHandle {
-    size: Rc<Cell<(i32, i32)>>,
-}
-
-impl TtyBackendHandle {
-    fn new(width: i32, height: i32) -> Self {
-        Self {
-            size: Rc::new(Cell::new((width, height))),
-        }
-    }
-
-    fn set_size(&self, width: i32, height: i32) {
-        self.size.set((width, height));
-    }
-}
-
-impl BackendView for TtyBackendHandle {
-    fn window_size_i32(&self) -> (i32, i32) {
-        self.size.get()
-    }
-
-    fn request_redraw(&self) {}
-}
-
 pub fn run() -> Result<(), Box<dyn Error>> {
     // Register signal handlers before anything else so that SIGTERM (the
     // default signal sent by `pkill`/`kill`) triggers a clean shutdown.
@@ -177,14 +102,14 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 }
 
 pub fn run_winit() -> Result<(), Box<dyn Error>> {
-    winit_backend::run_winit_backend()
+    crate::backend::winit::run_winit_backend()
 }
 
 pub fn run_tty() -> Result<(), Box<dyn Error>> {
-    tty_backend::run_tty_backend()
+    crate::backend::tty::run_tty_backend()
 }
 
-fn init_logging() -> Result<(), Box<dyn Error>> {
+pub(crate) fn init_logging() -> Result<(), Box<dyn Error>> {
     scope!("logging-init", success = "ready", {
         let level = env::var("HALLEY_WL_LOG")
             .ok()

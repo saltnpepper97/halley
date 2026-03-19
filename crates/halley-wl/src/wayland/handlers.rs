@@ -227,6 +227,7 @@ impl XdgShellHandler for HalleyWlState {
         self.reveal_new_toplevel_node(id, is_transient, now);
 
         self.resolve_surface_overlap();
+        self.request_maintenance();
     }
 
     fn new_popup(&mut self, popup: PopupSurface, _positioner: PositionerState) {

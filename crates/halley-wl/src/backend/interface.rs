@@ -10,6 +10,7 @@ use smithay::backend::{allocator::Format, allocator::dmabuf::Dmabuf};
 use crate::interaction::types::ResizeCtx;
 use crate::render::draw_debug_frame;
 use crate::state::HalleyWlState;
+use std::cell::Cell;
 
 pub(crate) trait BackendView {
     fn window_size_i32(&self) -> (i32, i32);
@@ -29,6 +30,31 @@ pub(crate) trait RenderBackend: BackendView {
 pub(crate) trait DmabufImportBackend {
     fn dmabuf_formats(&self) -> Vec<Format>;
     fn import_dmabuf(&self, dmabuf: &Dmabuf) -> Result<(), Box<dyn Error>>;
+}
+
+#[derive(Clone)]
+pub(crate) struct TtyBackendHandle {
+    size: Rc<Cell<(i32, i32)>>,
+}
+
+impl TtyBackendHandle {
+    pub(crate) fn new(width: i32, height: i32) -> Self {
+        Self {
+            size: Rc::new(Cell::new((width, height))),
+        }
+    }
+
+    pub(crate) fn set_size(&self, width: i32, height: i32) {
+        self.size.set((width, height));
+    }
+}
+
+impl BackendView for TtyBackendHandle {
+    fn window_size_i32(&self) -> (i32, i32) {
+        self.size.get()
+    }
+
+    fn request_redraw(&self) {}
 }
 
 pub(crate) struct TtyDmabufImportBackend {

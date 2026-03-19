@@ -1,6 +1,8 @@
 use super::*;
 
-use crate::backend_iface::DmabufImportBackend;
+use crate::backend::interface::{
+    BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
+};
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 use smithay::reexports::winit::dpi::PhysicalSize;
@@ -122,7 +124,7 @@ fn apply_winit_reload(
     );
 }
 
-pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
+pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
     scope!(
         "halley-wl",
         success = "compositor exited",
@@ -220,7 +222,7 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let sock_name = listening.socket_name().to_string_lossy().to_string();
             info!("WAYLAND_DISPLAY={}", sock_name);
 
-            let (backend, winit_source) = winit::init::<GlesRenderer>().map_err(|err| {
+            let (backend, winit_source) = smithay_winit::init::<GlesRenderer>().map_err(|err| {
                 let wayland_display =
                     env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "<unset>".to_string());
                 let x11_display = env::var("DISPLAY").unwrap_or_else(|_| "<unset>".to_string());
@@ -281,9 +283,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let watch_rx = Rc::new(RefCell::new(watch_rx));
             let watch_rx_for_timer = watch_rx.clone();
             let config_path_for_timer = config_path.clone();
-            let last_maintenance_at = Rc::new(RefCell::new(Instant::now()));
-            let last_maintenance_for_timer = last_maintenance_at.clone();
-
             {
                 let ws = backend.borrow().window_size();
                 publish_winit_output_snapshot(ws.w, ws.h, true, 0, 0);
@@ -508,7 +507,14 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     _ => {}
                 })?;
 
-            let timer = Timer::from_duration(Duration::from_millis(16));
+            let initial_frame_interval = frame_interval_for_refresh_hz(
+                state
+                    .tuning
+                    .tty_viewports
+                    .first()
+                    .and_then(|vp| vp.refresh_rate),
+            );
+            let timer = Timer::from_duration(initial_frame_interval);
             ev.handle().insert_source(timer, move |_tick, _, st| {
                 let now = Instant::now();
 
@@ -578,14 +584,8 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     let _ = advance_node_move_anim(st, &mut ps, now);
                 }
                 st.tick_live_overlap();
-                {
-                    let mut last = last_maintenance_for_timer.borrow_mut();
-                    if !resize_active
-                        && now.duration_since(*last).as_millis() as u64 >= st.tuning.tick_ms
-                    {
-                        st.tick_maintenance(now);
-                        *last = now;
-                    }
+                if !resize_active {
+                    st.run_maintenance_if_needed(now);
                 }
 
                 let mut reloaded = false;
@@ -658,7 +658,12 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
 
                 apply_host_cursor(&backend_for_cursor_timer, &st.cursor_image_status);
                 backend_handle_for_timer.request_redraw();
-                TimeoutAction::ToDuration(Duration::from_millis(16))
+                TimeoutAction::ToDuration(frame_interval_for_refresh_hz(
+                    st.tuning
+                        .tty_viewports
+                        .first()
+                        .and_then(|vp| vp.refresh_rate),
+                ))
             })?;
 
             info!("entering main loop");

@@ -6,18 +6,19 @@ use smithay::input::pointer::AxisFrame;
 use smithay::input::pointer::MotionEvent;
 use smithay::utils::SERIAL_COUNTER;
 
-use crate::backend_iface::BackendView;
+use crate::backend::interface::BackendView;
 use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::screen_to_world;
 use crate::state::HalleyWlState;
 
 use super::input_utils::update_mod_state;
 use super::key_actions::{
-    apply_bound_key, apply_compositor_action_release, compositor_binding_action,
-    key_is_compositor_binding,
+    apply_bound_key, apply_compositor_action_press, apply_compositor_action_release,
+    compositor_binding_action, key_is_compositor_binding,
 };
 use super::pointer_focus::pointer_focus_for_screen;
 use super::pointer_map_debug_enabled;
+use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};
 use smithay::backend::input::{Axis, AxisSource, ButtonState, KeyState};
 
 #[inline]
@@ -99,7 +100,7 @@ pub(crate) fn handle_keyboard_input(
         || (pressed && !is_mod_key && key_is_compositor_binding(st, code, &mods));
 
     // Refresh interaction focus only for keys that are going to clients.
-    // Compositor bindings like minimize should not first re-focus / re-heat
+    // Compositor bindings like toggle-state should not first re-focus / re-heat
     // the surface they are about to collapse.
     if pressed
         && !matched_binding
@@ -114,7 +115,7 @@ pub(crate) fn handle_keyboard_input(
     //
     // Also: execute compositor bindings only on the first physical press.
     // Ignore repeated press events while the key remains held, otherwise a
-    // toggle binding like minimize_focused will collapse and then immediately
+    // toggle binding like toggle-state will collapse and then immediately
     // reopen on key repeat.
     let mut first_binding_press = false;
 
@@ -181,14 +182,51 @@ pub(crate) fn handle_keyboard_input(
 
 pub(crate) fn handle_pointer_axis_input(
     st: &mut HalleyWlState,
+    mod_state: &std::rc::Rc<std::cell::RefCell<ModState>>,
     pointer_state: &std::rc::Rc<std::cell::RefCell<PointerState>>,
     backend: &impl BackendView,
+    config_path: &str,
+    wayland_display: &str,
     amount_v120_vertical: Option<f64>,
     amount_vertical: Option<f64>,
 ) {
     if st.has_active_cluster_workspace() {
         return;
     }
+
+    let mut steps = (amount_v120_vertical.unwrap_or(0.0) as f32) / 120.0;
+    if steps.abs() < f32::EPSILON {
+        let px = amount_vertical.unwrap_or(0.0) as f32;
+        if px.abs() > f32::EPSILON {
+            steps = px / 40.0;
+        }
+    }
+    if steps.abs() < f32::EPSILON {
+        return;
+    }
+
+    let steps = steps.clamp(-4.0, 4.0);
+    let mods = mod_state.borrow().clone();
+    let wheel_code = if steps > 0.0 {
+        WHEEL_UP_CODE
+    } else {
+        WHEEL_DOWN_CODE
+    };
+
+    if let Some(action) = compositor_binding_action(st, wheel_code, &mods) {
+        pointer_state.borrow_mut().panning = false;
+        if apply_compositor_action_press(st, action, config_path, wayland_display) {
+            backend.request_redraw();
+        }
+        return;
+    }
+
+    if apply_bound_key(st, wheel_code, &mods, config_path, wayland_display) {
+        pointer_state.borrow_mut().panning = false;
+        backend.request_redraw();
+        return;
+    }
+
     let (sx, sy, ws_w, ws_h) = {
         let ps = pointer_state.borrow();
         let (ws_w, ws_h) = backend.window_size_i32();
@@ -211,12 +249,17 @@ pub(crate) fn handle_pointer_axis_input(
     let resize_preview = pointer_state.borrow().resize;
     if let Some(focus) = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview) {
         if let Some(pointer) = st.seat.get_pointer() {
-            let cam_scale = st.camera_render_scale() as f64;
+            let location = if st.is_layer_surface(&focus.0) {
+                (sx as f64, sy as f64).into()
+            } else {
+                let cam_scale = st.camera_render_scale() as f64;
+                (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
+            };
             pointer.motion(
                 st,
                 Some(focus),
                 &MotionEvent {
-                    location: (sx as f64 / cam_scale, sy as f64 / cam_scale).into(),
+                    location,
                     serial: SERIAL_COUNTER.next_serial(),
                     time: now_millis_u32(),
                 },
@@ -235,28 +278,16 @@ pub(crate) fn handle_pointer_axis_input(
         return;
     }
 
-    let mut steps = (amount_v120_vertical.unwrap_or(0.0) as f32) / 120.0;
-    if steps.abs() < f32::EPSILON {
-        let px = amount_vertical.unwrap_or(0.0) as f32;
-        if px.abs() > f32::EPSILON {
-            steps = px / 40.0;
-        }
+    let camera = st.camera_view_size();
+    let pan_y = camera.y * (steps / 18.0);
+    {
+        let mut ps = pointer_state.borrow_mut();
+        ps.panning = false;
     }
-    if steps.abs() < f32::EPSILON {
-        return;
-    }
-
-    let steps = steps.clamp(-4.0, 4.0);
-    pointer_state.borrow_mut().panning = false;
-
-    let zoom_per_step = 1.10_f32;
-    let factor = zoom_per_step.powf(steps);
-    let next = st.clamp_camera_view_size(halley_core::field::Vec2 {
-        x: st.camera_view_size().x / factor,
-        y: st.camera_view_size().y / factor,
-    });
-
-    st.zoom_ref_size = next;
+    st.note_pan_activity(now);
+    st.viewport
+        .pan(halley_core::field::Vec2 { x: 0.0, y: pan_y });
+    st.note_pan_viewport_change(now);
     backend.request_redraw();
 }
 
@@ -299,6 +330,8 @@ pub(crate) fn handle_backend_input_event(
                 backend,
                 mod_state,
                 pointer_state,
+                config_path,
+                wayland_display,
                 button_code,
                 state,
             );
@@ -309,11 +342,15 @@ pub(crate) fn handle_backend_input_event(
         } => {
             handle_pointer_axis_input(
                 st,
+                mod_state,
                 pointer_state,
                 backend,
+                config_path,
+                wayland_display,
                 amount_v120_vertical,
                 amount_vertical,
             );
         }
     }
+    st.run_maintenance_if_needed(Instant::now());
 }

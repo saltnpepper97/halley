@@ -1,8 +1,9 @@
 use std::time::Instant;
 
 use crate::interaction::types::{NodeMoveAnim, PointerState};
-use crate::render::ease_in_out_cubic;
 use crate::state::HalleyWlState;
+
+use super::curves::ease_in_out_cubic;
 
 pub(crate) fn advance_node_move_anim(
     st: &mut HalleyWlState,

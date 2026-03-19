@@ -47,11 +47,15 @@ env:
 end
 
 keybinds:
-  mod "lsuper"
+  mod "super"
 
   # Basic compositor controls
   "$var.mod+r" "reload"
-  "$var.mod+n" "minimize_focused"
+  "$var.mod+n" "toggle-state"
+  "$var.mod+q" "close-focused"
+  "$var.mod+mousewheelup" "zoom-in"
+  "$var.mod+mousewheeldown" "zoom-out"
+  "$var.mod+middlemouse" "zoom-reset"
 
   # Quit Halley
   "$var.mod+shift+q" "quit"
@@ -75,10 +79,6 @@ dev:
   debug_dump_every_ms 1000
   zoom_decay_enabled true
   zoom_decay_min_frac 0.07
-
-  runtime:
-    tick-ms 200
-  end
 
   anim:
     enabled true

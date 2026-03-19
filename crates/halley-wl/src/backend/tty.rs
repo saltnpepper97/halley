@@ -1,8 +1,11 @@
 use super::*;
 
-use crate::backend_iface::{DmabufImportBackend, TtyDmabufImportBackend};
-use crate::run::drm::{collect_outputs_for_ipc, find_tty_scanout_for_reload, queue_tty_drm_frame};
-use crate::run::{build_tty_libinput_backend, probe_tty_drm_device_via_session};
+use crate::backend::interface::{BackendView, DmabufImportBackend, TtyBackendHandle, TtyDmabufImportBackend};
+use crate::backend::tty_drm::{
+    collect_outputs_for_ipc, find_tty_scanout_for_reload, probe_tty_drm_device_via_session,
+    queue_tty_drm_frame,
+};
+use crate::backend::tty_input::build_tty_libinput_backend;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 
 use smithay::backend::input::{
@@ -107,7 +110,7 @@ fn apply_tty_reload(
     );
 }
 
-pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
+pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
     eprintln!("halley-wl tty: starting");
     scope!(
         "halley-wl-tty",
@@ -322,8 +325,6 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let watch_rx_for_timer = watch_rx.clone();
             let config_path_for_timer = config_path.clone();
             let wayland_display_for_timer = sock_name.clone();
-            let last_maintenance_at = Rc::new(RefCell::new(Instant::now()));
-            let last_maintenance_for_timer = last_maintenance_at.clone();
             let (mw, mh) = drm_probe.mode.size();
             let backend_handle = TtyBackendHandle::new(mw as i32, mh as i32);
             state.zoom_ref_size = halley_core::field::Vec2 {
@@ -529,7 +530,9 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 })?;
             info!("libinput event source enabled for tty backend");
 
-            let timer = Timer::from_duration(Duration::from_millis(16));
+            let initial_frame_interval =
+                frame_interval_for_refresh_hz(Some(current_mode.borrow().vrefresh() as f64));
+            let timer = Timer::from_duration(initial_frame_interval);
             let gbm_surface_for_timer = drm_probe.gbm_surface.clone();
             let renderer_for_timer = drm_probe.renderer.clone();
 
@@ -605,14 +608,8 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let _ = advance_node_move_anim(st, &mut ps, now);
                     }
                     st.tick_live_overlap();
-                    {
-                        let mut last = last_maintenance_for_timer.borrow_mut();
-                        if !resize_active
-                            && now.duration_since(*last).as_millis() as u64 >= st.tuning.tick_ms
-                        {
-                            st.tick_maintenance(now);
-                            *last = now;
-                        }
+                    if !resize_active {
+                        st.run_maintenance_if_needed(now);
                     }
                 }
 
@@ -683,13 +680,15 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     *warned_pointer_missing_for_timer.borrow_mut() = true;
                 }
 
-                TimeoutAction::ToDuration(Duration::from_millis(16))
+                let frame_interval =
+                    frame_interval_for_refresh_hz(Some(current_mode_for_timer.borrow().vrefresh() as f64));
+                TimeoutAction::ToDuration(frame_interval)
             })?;
 
             info!("entering tty main loop");
             loop {
                 ev.dispatch(None, &mut state)?;
-                if state.exit_requested() || crate::run::shutdown_requested() {
+                if state.exit_requested() || shutdown_requested() {
                     info!("exit requested, shutting down tty main loop");
                     break Ok(());
                 }

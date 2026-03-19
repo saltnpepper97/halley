@@ -18,7 +18,7 @@ use crate::interaction::types::ResizeCtx;
 use crate::state::HalleyWlState;
 use crate::surface::window_geometry_for_node;
 
-use super::anim_utils::{
+use crate::animation::{
     active_surface_render_scale, ease_in_out_cubic, ease_out_back, proxy_anim_scale,
 };
 use super::offscreen::render_surface_tree_to_texture;
@@ -55,6 +55,7 @@ pub(crate) struct ActiveBorderRect {
 
 pub(crate) struct OffscreenNodeTexture {
     pub texture: GlesTexture,
+    pub alpha: f32,
     pub src_x: i32,
     pub src_y: i32,
     pub src_w: i32,
@@ -67,7 +68,6 @@ pub(crate) struct OffscreenNodeTexture {
     pub clip_y: i32,
     pub clip_w: i32,
     pub clip_h: i32,
-    pub focused: bool,
 }
 
 fn rect_from_local_geometry(
@@ -277,92 +277,164 @@ pub(crate) fn collect_active_surfaces(
         let use_offscreen_zoom = (cam_scale - 1.0).abs() > 0.001;
 
         if use_offscreen_zoom {
-            match render_surface_tree_to_texture(renderer, &wl, alpha) {
-                Ok(offscreen) => {
-                    let ob = offscreen.bbox;
+            let cache_miss = {
+                let cache =
+                    st.ensure_window_offscreen_cache(node_id, bbox.size.w, bbox.size.h, now);
+                cache.dirty || cache.texture.is_none() || cache.bbox.is_none()
+            };
+
+            if cache_miss {
+                match render_surface_tree_to_texture(renderer, &wl, 1.0) {
+                    Ok(offscreen) => {
+                        let cache = st
+                            .window_offscreen_cache
+                            .get_mut(&node_id)
+                            .expect("offscreen cache should exist after ensure");
+                        cache.texture = Some(offscreen.texture);
+                        cache.bbox = Some(offscreen.bbox);
+                        cache.mark_clean(now);
+                    }
+                    Err(_) => {
+                        let elems = render_elements_from_surface_tree(
+                            renderer,
+                            &wl,
+                            (sx, sy),
+                            element_scale as f64,
+                            alpha,
+                            Kind::Unspecified,
+                        );
+
+                        let (tx, ty, tw, th) = texture_rect;
+                        let display_clip = Rectangle::<i32, Physical>::new(
+                            (tx, ty).into(),
+                            (tw.max(1), th.max(1)).into(),
+                        );
+
+                        let cropped: Vec<_> = elems
+                            .into_iter()
+                            .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
+                            .collect();
+
+                        if draw_top_this_node {
+                            resized_active_elements.extend(cropped);
+                        } else {
+                            active_elements.extend(cropped);
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            if let Some(cache) = st.window_offscreen_cache.get_mut(&node_id) {
+                cache.touch(now);
+            }
+
+            match st.window_offscreen_cache.get(&node_id) {
+                Some(cache) => {
+                    let Some(texture) = cache.texture.as_ref() else {
+                        continue;
+                    };
+                    let Some(ob) = cache.bbox else {
+                        continue;
+                    };
 
                     // src = full bbox, dst = bbox scaled to screen positioned so geo
                     // lands on frame, clip = frame rect to discard CSD shadow bleed.
-                    let (src_x, src_y, src_w, src_h, dst_x, dst_y, dst_w, dst_h, clip_x, clip_y, clip_w, clip_h) =
-                        if let Some(active_resize) = active_resize {
-                            let (fx, fy, fw, fh) = active_resize.frame_rect_px();
-                            // Use live committed geo (updated on every client commit)
-                            // as the single source of truth. Falls back to frozen
-                            // local_geo before the first commit after resize starts.
-                            let (live_lx, live_ly, live_gw, live_gh): (f32, f32, f32, f32) =
-                                if active_resize.live_geo_w > 0.0 {
-                                    (
-                                        active_resize.live_geo_lx,
-                                        active_resize.live_geo_ly,
-                                        active_resize.live_geo_w,
-                                        active_resize.live_geo_h,
-                                    )
-                                } else {
-                                    // Before first commit: use frozen start geo from ResizeCtx.
-                                    // local_geo may have stale data; start_geo_lx/ly is reliable.
-                                    let rz = resize_preview.unwrap();
-                                    (rz.start_geo_lx, rz.start_geo_ly,
-                                     local_geo.2, local_geo.3)
-                                };
-                            // Crop src to just the geo region — excludes the CSD
-                            // shadow pixels (transparent black) at bbox edges which
-                            // would otherwise blit over the border strips.
-                            // src coords are in logical texture pixels (1:1 with surface).
-                            let src_x = (live_lx.round() as i32) - ob.loc.x;
-                            let src_y = (live_ly.round() as i32) - ob.loc.y;
-                            let src_w = live_gw.round() as i32;
-                            let src_h = live_gh.round() as i32;
-                            let clip_w = (live_gw * cam_scale).round() as i32;
-                            let clip_h = (live_gh * cam_scale).round() as i32;
-                            (
-                                src_x.max(0), src_y.max(0), src_w.max(1), src_h.max(1),
-                                fx, fy, clip_w.max(1).min(fw), clip_h.max(1).min(fh),
-                                fx, fy, clip_w.max(1).min(fw), clip_h.max(1).min(fh),
-                            )
-                        } else {
-                            let src_x = (local_geo.0.round() as i32) - ob.loc.x;
-                            let src_y = (local_geo.1.round() as i32) - ob.loc.y;
-                            let src_w = local_geo.2.round().max(1.0) as i32;
-                            let src_h = local_geo.3.round().max(1.0) as i32;
-                            (src_x, src_y, src_w, src_h, gx, gy, gw.max(1), gh.max(1),
-                             gx, gy, gw.max(1), gh.max(1))
-                        };
+                    let (
+                        src_x,
+                        src_y,
+                        src_w,
+                        src_h,
+                        dst_x,
+                        dst_y,
+                        dst_w,
+                        dst_h,
+                        clip_x,
+                        clip_y,
+                        clip_w,
+                        clip_h,
+                    ) = if let Some(active_resize) = active_resize {
+                        let (fx, fy, fw, fh) = active_resize.frame_rect_px();
+                        // Use live committed geo (updated on every client commit)
+                        // as the single source of truth. Falls back to frozen
+                        // local_geo before the first commit after resize starts.
+                        let (live_lx, live_ly, live_gw, live_gh): (f32, f32, f32, f32) =
+                            if active_resize.live_geo_w > 0.0 {
+                                (
+                                    active_resize.live_geo_lx,
+                                    active_resize.live_geo_ly,
+                                    active_resize.live_geo_w,
+                                    active_resize.live_geo_h,
+                                )
+                            } else {
+                                // Before first commit: use frozen start geo from ResizeCtx.
+                                // local_geo may have stale data; start_geo_lx/ly is reliable.
+                                let rz = resize_preview.unwrap();
+                                (rz.start_geo_lx, rz.start_geo_ly, local_geo.2, local_geo.3)
+                            };
+                        // Crop src to just the geo region — excludes the CSD
+                        // shadow pixels (transparent black) at bbox edges which
+                        // would otherwise blit over the border strips.
+                        // src coords are in logical texture pixels (1:1 with surface).
+                        let src_x = (live_lx.round() as i32) - ob.loc.x;
+                        let src_y = (live_ly.round() as i32) - ob.loc.y;
+                        let src_w = live_gw.round() as i32;
+                        let src_h = live_gh.round() as i32;
+                        let clip_w = (live_gw * cam_scale).round() as i32;
+                        let clip_h = (live_gh * cam_scale).round() as i32;
+                        (
+                            src_x.max(0),
+                            src_y.max(0),
+                            src_w.max(1),
+                            src_h.max(1),
+                            fx,
+                            fy,
+                            clip_w.max(1).min(fw),
+                            clip_h.max(1).min(fh),
+                            fx,
+                            fy,
+                            clip_w.max(1).min(fw),
+                            clip_h.max(1).min(fh),
+                        )
+                    } else {
+                        let src_x = (local_geo.0.round() as i32) - ob.loc.x;
+                        let src_y = (local_geo.1.round() as i32) - ob.loc.y;
+                        let src_w = local_geo.2.round().max(1.0) as i32;
+                        let src_h = local_geo.3.round().max(1.0) as i32;
+                        (
+                            src_x,
+                            src_y,
+                            src_w,
+                            src_h,
+                            gx,
+                            gy,
+                            gw.max(1),
+                            gh.max(1),
+                            gx,
+                            gy,
+                            gw.max(1),
+                            gh.max(1),
+                        )
+                    };
 
                     offscreen_textures.push(OffscreenNodeTexture {
-                        texture: offscreen.texture,
-                        src_x, src_y, src_w, src_h,
-                        dst_x, dst_y, dst_w, dst_h,
-                        clip_x, clip_y, clip_w, clip_h,
-                        focused: st.interaction_focus == Some(node_id),
+                        texture: texture.clone(),
+                        alpha,
+                        src_x,
+                        src_y,
+                        src_w,
+                        src_h,
+                        dst_x,
+                        dst_y,
+                        dst_w,
+                        dst_h,
+                        clip_x,
+                        clip_y,
+                        clip_w,
+                        clip_h,
                     });
                 }
-                Err(_) => {
-                    let elems = render_elements_from_surface_tree(
-                        renderer,
-                        &wl,
-                        (sx, sy),
-                        element_scale as f64,
-                        alpha,
-                        Kind::Unspecified,
-                    );
-
-                    let (tx, ty, tw, th) = texture_rect;
-                    let display_clip = Rectangle::<i32, Physical>::new(
-                        (tx, ty).into(),
-                        (tw.max(1), th.max(1)).into(),
-                    );
-
-                    let cropped: Vec<_> = elems
-                        .into_iter()
-                        .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
-                        .collect();
-
-                    if draw_top_this_node {
-                        resized_active_elements.extend(cropped);
-                    } else {
-                        active_elements.extend(cropped);
-                    }
-                }
+                None => continue,
             }
         } else {
             let elems = render_elements_from_surface_tree(

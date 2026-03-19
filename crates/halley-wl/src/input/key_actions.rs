@@ -1,18 +1,29 @@
-use std::process::Command;
 use std::os::unix::process::CommandExt;
 use std::process::Child;
+use std::process::Command;
 
 use eventline::{info, warn};
 
 use super::input_utils::{key_matches, modifier_exact};
 use crate::interaction::actions::{
-    docking_mode_active, minimize_focused_active_node, move_latest_node_direction, set_docking_mode,
+    docking_mode_active, move_latest_node_direction, set_docking_mode,
+    toggle_focused_active_node_state,
 };
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
 use crate::state::HalleyWlState;
+use crate::surface::request_close_focused_toplevel;
 use halley_config::{CompositorBindingAction, DirectionalAction, RuntimeTuning};
+use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_ipc::NodeMoveDirection;
+
+pub(crate) fn input_matches_binding(actual: u32, binding_key: u32) -> bool {
+    if is_pointer_button_code(binding_key) || is_wheel_code(binding_key) {
+        actual == binding_key
+    } else {
+        key_matches(actual, binding_key)
+    }
+}
 
 fn from_directional_action(direction: DirectionalAction) -> NodeMoveDirection {
     match direction {
@@ -29,7 +40,7 @@ pub(crate) fn compositor_binding_action(
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
     for binding in &st.tuning.compositor_bindings {
-        if key_matches(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
+        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             return Some(binding.action);
         }
     }
@@ -44,7 +55,7 @@ pub(crate) fn key_is_compositor_binding(
 ) -> bool {
     compositor_binding_action(st, key_code, mods).is_some()
         || st.tuning.launch_bindings.iter().any(|binding| {
-            key_matches(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
+            input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
         })
 }
 
@@ -70,11 +81,23 @@ pub(crate) fn apply_compositor_action_press(
             );
             true
         }
-        CompositorBindingAction::MinimizeFocused => minimize_focused_active_node(st),
-        CompositorBindingAction::OverviewToggle => false,
+        CompositorBindingAction::ToggleState => toggle_focused_active_node_state(st),
+        CompositorBindingAction::CloseFocusedWindow => request_close_focused_toplevel(st),
         CompositorBindingAction::Docking => set_docking_mode(st, true),
         CompositorBindingAction::MoveNode(direction) => {
             move_latest_node_direction(st, from_directional_action(direction))
+        }
+        CompositorBindingAction::ZoomIn => {
+            st.zoom_by_steps(1.0);
+            true
+        }
+        CompositorBindingAction::ZoomOut => {
+            st.zoom_by_steps(-1.0);
+            true
+        }
+        CompositorBindingAction::ZoomReset => {
+            st.reset_zoom();
+            true
         }
     }
 }
@@ -108,16 +131,19 @@ pub(crate) fn apply_bound_key(
             CompositorBindingAction::MoveNode(_)
             | CompositorBindingAction::Docking
             | CompositorBindingAction::Reload
-            | CompositorBindingAction::MinimizeFocused
+            | CompositorBindingAction::ToggleState
+            | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::Quit { .. }
-            | CompositorBindingAction::OverviewToggle => {
+            | CompositorBindingAction::ZoomIn
+            | CompositorBindingAction::ZoomOut
+            | CompositorBindingAction::ZoomReset => {
                 apply_compositor_action_press(st, action, config_path, wayland_display)
             }
         };
     }
 
     for binding in st.tuning.launch_bindings.clone() {
-        if key_matches(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
+        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             // FIX: store the child so it's tracked for cleanup on WM exit,
             // rather than dropping it immediately (which orphaned the process).
             let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
@@ -160,7 +186,10 @@ pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -
         Ok(child) => {
             info!(
                 "spawned {} via `{}` on WAYLAND_DISPLAY={} (pid={})",
-                label, command, wayland_display, child.id()
+                label,
+                command,
+                wayland_display,
+                child.id()
             );
             Some(child)
         }
@@ -168,5 +197,29 @@ pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -
             warn!("{} spawn failed via `{}`: {}", label, command, err);
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::input_matches_binding;
+    use halley_config::WHEEL_UP_CODE;
+    use halley_config::keybinds::key_name_to_evdev;
+
+    #[test]
+    fn matcher_accepts_direct_wheel_codes() {
+        assert!(input_matches_binding(WHEEL_UP_CODE, WHEEL_UP_CODE));
+    }
+
+    #[test]
+    fn matcher_keeps_keyboard_xkb_translation() {
+        assert!(input_matches_binding(13 + 8, 13));
+    }
+
+    #[test]
+    fn matcher_does_not_confuse_return_with_j() {
+        let return_xkb = key_name_to_evdev("return").expect("return") + 8;
+        let j_evdev = key_name_to_evdev("j").expect("j");
+        assert!(!input_matches_binding(return_xkb, j_evdev));
     }
 }

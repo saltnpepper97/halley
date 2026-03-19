@@ -6,7 +6,7 @@ use super::{
 };
 use crate::RuntimeTuning;
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
-use crate::layout::{ViewportOutputConfig, default_pointer_bindings};
+use crate::layout::{ViewportOutputConfig, default_compositor_bindings, default_pointer_bindings};
 
 use rune_cfg::RuneConfig;
 
@@ -231,12 +231,6 @@ fn strip_inline_keybind_block(content: &str) -> String {
 }
 
 fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    out.tick_ms = pick_u64(
-        cfg,
-        &["dev.runtime.tick-ms", "dev.runtime.tick_ms"],
-        out.tick_ms,
-    );
-
     out.debug_tick_dump = pick_bool(cfg, &["dev.debug_tick_dump"], out.debug_tick_dump);
     out.debug_dump_every_ms = pick_u64(cfg, &["dev.debug_dump_every_ms"], out.debug_dump_every_ms);
 
@@ -441,11 +435,7 @@ fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 }
 
 fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    out.non_overlap_gap_px = pick_f32(
-        cfg,
-        &["field.gap", "field.gap-px"],
-        out.non_overlap_gap_px,
-    );
+    out.non_overlap_gap_px = pick_f32(cfg, &["field.gap", "field.gap-px"], out.non_overlap_gap_px);
 }
 
 fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -464,7 +454,7 @@ fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
 fn load_keybind_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.keybinds.modifier = pick_modifiers(cfg, &["keybinds.mod"], out.keybinds.modifier);
-    out.compositor_bindings.clear();
+    out.compositor_bindings = default_compositor_bindings(out.keybinds.modifier);
     out.launch_bindings.clear();
     out.pointer_bindings = default_pointer_bindings(out.keybinds.modifier);
     apply_explicit_keybind_overrides(cfg, out);
@@ -635,6 +625,7 @@ fn apply_explicit_keybind_overrides_map(
 
     if let Some(m) = parse_modifiers(mod_token.as_str()) {
         out.keybinds.modifier = m;
+        out.compositor_bindings = default_compositor_bindings(out.keybinds.modifier);
         out.pointer_bindings = default_pointer_bindings(out.keybinds.modifier);
     }
 
@@ -663,11 +654,11 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "reload" => {
             upsert_compositor_binding(out, mods, key, CompositorBindingAction::Reload);
         }
-        "minimize_focused" | "minimize-focused" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::MinimizeFocused);
+        "toggle_state" | "toggle-state" | "minimize_focused" | "minimize-focused" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ToggleState);
         }
-        "overview_toggle" | "overview-toggle" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::OverviewToggle);
+        "close_focused" | "close-focused" | "close_window" | "close-window" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::CloseFocusedWindow);
         }
         "quit" => {
             upsert_compositor_binding(
@@ -713,6 +704,15 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
                 key,
                 CompositorBindingAction::MoveNode(DirectionalAction::Down),
             );
+        }
+        "zoom_in" | "zoom-in" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomIn);
+        }
+        "zoom_out" | "zoom-out" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomOut);
+        }
+        "zoom_reset" | "zoom-reset" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomReset);
         }
         "move_window" | "move-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::MoveWindow);
@@ -793,7 +793,8 @@ mod tests {
 
     use super::apply_explicit_keybind_overrides_map;
     use crate::{
-        CompositorBindingAction, DirectionalAction, RuntimeTuning, keybinds::key_name_to_evdev,
+        CompositorBindingAction, DirectionalAction, RuntimeTuning, WHEEL_DOWN_CODE,
+        WHEEL_UP_CODE, keybinds::key_name_to_evdev,
     };
 
     #[test]
@@ -827,7 +828,7 @@ mod tests {
         let mut tuning = RuntimeTuning::default();
         let bindings = HashMap::from([
             ("$mod+x".to_string(), "docking".to_string()),
-            ("shift+h".to_string(), "move_left".to_string()),
+            ("shift+h".to_string(), "move-left".to_string()),
         ]);
 
         apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
@@ -840,6 +841,115 @@ mod tests {
         );
         assert!(tuning.compositor_bindings.iter().any(|binding| {
             binding.action == CompositorBindingAction::MoveNode(DirectionalAction::Left)
+        }));
+    }
+
+    #[test]
+    fn toggle_state_and_zoom_aliases_parse_as_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("$mod+n".to_string(), "toggle-state".to_string()),
+            ("$mod+equal".to_string(), "zoom_in".to_string()),
+            ("$mod+minus".to_string(), "zoom-out".to_string()),
+            ("$mod+0".to_string(), "zoom-reset".to_string()),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ToggleState)
+        );
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomIn)
+        );
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomOut)
+        );
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomReset)
+        );
+    }
+
+    #[test]
+    fn close_focused_aliases_parse_as_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("$mod+q".to_string(), "close-focused".to_string()),
+            ("$mod+w".to_string(), "close_window".to_string()),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::CloseFocusedWindow
+        }));
+    }
+
+    #[test]
+    fn runtime_tuning_has_default_zoom_bindings() {
+        let tuning = RuntimeTuning::default();
+
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::ZoomIn && binding.key == WHEEL_UP_CODE
+        }));
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::ZoomOut && binding.key == WHEEL_DOWN_CODE
+        }));
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| {
+                    binding.action == CompositorBindingAction::ZoomReset
+                        && binding.key == key_name_to_evdev("mousemiddle").expect("middle mouse")
+                })
+        );
+    }
+
+    #[test]
+    fn changing_mod_reseeds_default_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([("mod".to_string(), "super".to_string())]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        let zoom_in = tuning
+            .compositor_bindings
+            .iter()
+            .find(|binding| binding.action == CompositorBindingAction::ZoomIn)
+            .expect("zoom-in binding");
+        assert!(zoom_in.modifiers.super_key);
+        assert!(!zoom_in.modifiers.left_alt);
+        assert_eq!(zoom_in.key, WHEEL_UP_CODE);
+    }
+
+    #[test]
+    fn wheel_zoom_aliases_parse_as_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("$mod+mousewheelup".to_string(), "zoom_in".to_string()),
+            ("$mod+mousewheeldown".to_string(), "zoom-out".to_string()),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.key == WHEEL_UP_CODE && binding.action == CompositorBindingAction::ZoomIn
+        }));
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.key == WHEEL_DOWN_CODE && binding.action == CompositorBindingAction::ZoomOut
         }));
     }
 
@@ -928,6 +1038,18 @@ end
         assert_eq!(tuning.autostart_once, vec!["waybar"]);
         assert_eq!(tuning.non_overlap_gap_px, 24.0);
         assert_eq!(tuning.launch_bindings.len(), 1);
-        assert_eq!(tuning.compositor_bindings.len(), 1);
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| matches!(binding.action, CompositorBindingAction::Quit { .. }))
+        );
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::ZoomIn)
+        );
     }
+
 }

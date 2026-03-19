@@ -110,7 +110,7 @@ pub(crate) fn move_latest_node_direction(
     }
 }
 
-pub(crate) fn minimize_focused_active_node(st: &mut HalleyWlState) -> bool {
+pub(crate) fn toggle_focused_active_node_state(st: &mut HalleyWlState) -> bool {
     let now = Instant::now();
 
     let Some(id) = st.last_focused_surface_node() else {
@@ -124,7 +124,6 @@ pub(crate) fn minimize_focused_active_node(st: &mut HalleyWlState) -> bool {
     if n.kind != halley_core::field::NodeKind::Surface {
         return false;
     }
-
 
     match n.state {
         halley_core::field::NodeState::Active => {

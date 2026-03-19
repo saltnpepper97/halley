@@ -5,8 +5,9 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
+use crate::animation::active_surface_render_scale;
 use crate::interaction::types::{ResizeCtx, ResizeHandle};
-use crate::render::{active_surface_render_scale, world_to_screen};
+use crate::render::world_to_screen;
 use crate::state::HalleyWlState;
 
 #[derive(Clone, Copy)]
@@ -240,8 +241,11 @@ pub(crate) fn active_resize_geometry_screen(
     // Read live committed geo from window_geometry — updated on every client
     // commit during resize via note_commit. Zero = not yet committed, callers
     // fall back to frozen local_geo in that case.
-    let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) =
-        st.window_geometry.get(&node_id).copied().unwrap_or((0.0, 0.0, 0.0, 0.0));
+    let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) = st
+        .window_geometry
+        .get(&node_id)
+        .copied()
+        .unwrap_or((0.0, 0.0, 0.0, 0.0));
     Some(ActiveResizeGeometryScreen {
         frame_left,
         frame_top,

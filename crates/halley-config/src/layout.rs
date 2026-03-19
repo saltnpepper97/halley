@@ -2,17 +2,18 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
+use crate::keybinds::{WHEEL_DOWN_CODE, WHEEL_UP_CODE, key_name_to_evdev};
 use halley_core::decay::FocusRingDecayPolicy;
 use halley_core::field::Vec2;
 use halley_core::viewport::{FocusRing, Viewport};
 
 use super::{
-    CompositorBinding, KeyModifiers, Keybinds, LaunchBinding, PointerBinding, PointerBindingAction,
+    CompositorBinding, CompositorBindingAction, DirectionalAction, KeyModifiers, Keybinds,
+    LaunchBinding, PointerBinding, PointerBindingAction,
 };
 
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
-    pub tick_ms: u64,
     pub debug_tick_dump: bool,
     pub debug_dump_every_ms: u64,
 
@@ -75,7 +76,6 @@ pub struct ViewportOutputConfig {
 impl Default for RuntimeTuning {
     fn default() -> Self {
         Self {
-            tick_ms: 200,
             debug_tick_dump: false,
             debug_dump_every_ms: 1000,
             viewport_center: Vec2 { x: 0.0, y: 0.0 },
@@ -117,7 +117,7 @@ impl Default for RuntimeTuning {
             physics_enabled: true,
 
             keybinds: Keybinds::default(),
-            compositor_bindings: Vec::new(),
+            compositor_bindings: default_compositor_bindings(Keybinds::default().modifier),
             launch_bindings: Vec::new(),
             pointer_bindings: default_pointer_bindings(Keybinds::default().modifier),
 
@@ -165,7 +165,6 @@ impl RuntimeTuning {
     }
 
     fn clamp_values(&mut self) {
-        self.tick_ms = self.tick_ms.clamp(16, 5000);
         self.debug_dump_every_ms = self.debug_dump_every_ms.clamp(100, 60_000);
 
         self.viewport_center.x = self.viewport_center.x.clamp(-100_000.0, 100_000.0);
@@ -244,6 +243,68 @@ pub(crate) fn default_pointer_bindings(modifier: KeyModifiers) -> Vec<PointerBin
             modifiers: modifier,
             button: 273,
             action: PointerBindingAction::ResizeWindow,
+        },
+    ]
+}
+
+pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBinding> {
+    let key = |name: &str| key_name_to_evdev(name).expect("default compositor key should exist");
+
+    vec![
+        CompositorBinding {
+            modifiers: modifier,
+            key: key("r"),
+            action: CompositorBindingAction::Reload,
+        },
+        CompositorBinding {
+            modifiers: modifier,
+            key: key("n"),
+            action: CompositorBindingAction::ToggleState,
+        },
+        CompositorBinding {
+            modifiers: modifier,
+            key: WHEEL_UP_CODE,
+            action: CompositorBindingAction::ZoomIn,
+        },
+        CompositorBinding {
+            modifiers: modifier,
+            key: WHEEL_DOWN_CODE,
+            action: CompositorBindingAction::ZoomOut,
+        },
+        CompositorBinding {
+            modifiers: modifier,
+            key: key("mousemiddle"),
+            action: CompositorBindingAction::ZoomReset,
+        },
+        CompositorBinding {
+            modifiers: KeyModifiers {
+                shift: true,
+                ..modifier
+            },
+            key: key("q"),
+            action: CompositorBindingAction::Quit {
+                requires_shift: true,
+            },
+        },
+        CompositorBinding {
+            modifiers: modifier,
+            key: key("h"),
+            action: CompositorBindingAction::MoveNode(DirectionalAction::Left),
+        },
+        CompositorBinding {
+            modifiers: modifier,
+            key: key("k"),
+            action: CompositorBindingAction::MoveNode(DirectionalAction::Up),
+        },
+        CompositorBinding {
+            modifiers: modifier,
+            key: key("l"),
+            action: CompositorBindingAction::MoveNode(DirectionalAction::Right),
+        },
+        CompositorBinding {
+            modifiers: modifier,
+            key: key("j"),
+            action: CompositorBindingAction::MoveNode(DirectionalAction::Down),
         },
     ]
 }

@@ -1,4 +1,5 @@
-use super::render_utils::preview_proxy_size;
+use super::curves::{ease_in_out_cubic, ease_out_back};
+use crate::render::preview_proxy_size;
 
 #[inline]
 pub(crate) fn active_surface_scale(anim_scale: f32, zoom_lock_scale: f32) -> f32 {
@@ -63,17 +64,4 @@ pub(crate) fn active_surface_render_scale(
 pub(crate) fn proxy_anim_scale(anim_scale: f32) -> f32 {
     // Allow much more of the Active/Preview/Node transition range to be visible.
     anim_scale.clamp(0.22, 1.4)
-}
-
-pub(crate) fn ease_in_out_cubic(t: f32) -> f32 {
-    if t < 0.5 {
-        4.0 * t * t * t
-    } else {
-        1.0 - (-2.0 * t + 2.0).powf(3.0) * 0.5
-    }
-}
-
-pub(crate) fn ease_out_back(t: f32, s: f32) -> f32 {
-    let u = t - 1.0;
-    1.0 + u * u * ((s + 1.0) * u + s)
 }
