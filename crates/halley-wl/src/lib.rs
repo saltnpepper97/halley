@@ -1,5 +1,5 @@
 pub mod activity;
-pub mod anim;
+pub mod animation;
 pub(crate) mod backend;
 pub(crate) mod input;
 pub(crate) mod interaction;

@@ -9,7 +9,7 @@ use smithay::{
     utils::{Logical, Physical, Rectangle},
 };
 
-use super::anim_utils::proxy_anim_scale;
+use crate::animation::proxy_anim_scale;
 use crate::state::HalleyWlState;
 
 /// Draw an elliptical ring at a fixed screen-space position and radius.

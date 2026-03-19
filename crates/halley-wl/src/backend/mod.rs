@@ -42,7 +42,8 @@ use smithay::{
 };
 
 use crate::activity::VisualState;
-use crate::input::{BackendInputEventData, advance_node_move_anim, handle_backend_input_event};
+use crate::animation::advance_node_move_anim;
+use crate::input::{BackendInputEventData, handle_backend_input_event};
 use crate::interaction::types::{ModState, PointerState};
 use crate::render::draw_debug_frame_to_target;
 use crate::run::{

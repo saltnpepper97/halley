@@ -35,7 +35,7 @@ use smithay::{
 use smithay::backend::renderer::gles::GlesTexture;
 
 use crate::activity::CommitActivity;
-use crate::anim::{AnimSpec, Animator};
+use crate::animation::{AnimSpec, Animator};
 use crate::backend::interface::DmabufImportBackend;
 use crate::wm::ViewportPanAnim;
 

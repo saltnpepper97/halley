@@ -18,7 +18,7 @@ use crate::interaction::types::ResizeCtx;
 use crate::state::HalleyWlState;
 use crate::surface::window_geometry_for_node;
 
-use super::anim_utils::{
+use crate::animation::{
     active_surface_render_scale, ease_in_out_cubic, ease_out_back, proxy_anim_scale,
 };
 use super::offscreen::render_surface_tree_to_texture;

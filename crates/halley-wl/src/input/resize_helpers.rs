@@ -5,8 +5,9 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
+use crate::animation::active_surface_render_scale;
 use crate::interaction::types::{ResizeCtx, ResizeHandle};
-use crate::render::{active_surface_render_scale, world_to_screen};
+use crate::render::world_to_screen;
 use crate::state::HalleyWlState;
 
 #[derive(Clone, Copy)]
