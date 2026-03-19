@@ -657,6 +657,9 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "toggle_state" | "toggle-state" | "minimize_focused" | "minimize-focused" => {
             upsert_compositor_binding(out, mods, key, CompositorBindingAction::ToggleState);
         }
+        "close_focused" | "close-focused" | "close_window" | "close-window" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::CloseFocusedWindow);
+        }
         "quit" => {
             upsert_compositor_binding(
                 out,
@@ -877,6 +880,21 @@ mod tests {
                 .iter()
                 .any(|binding| binding.action == CompositorBindingAction::ZoomReset)
         );
+    }
+
+    #[test]
+    fn close_focused_aliases_parse_as_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("$mod+q".to_string(), "close-focused".to_string()),
+            ("$mod+w".to_string(), "close_window".to_string()),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::CloseFocusedWindow
+        }));
     }
 
     #[test]

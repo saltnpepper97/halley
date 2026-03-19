@@ -301,6 +301,7 @@ keybinds:
 
   # Core compositor controls
   "$var.mod+n" "toggle-state"
+  "$var.mod+q" "close-focused"
   "$var.mod+equal" "zoom-in"
   "$var.mod+minus" "zoom-out"
   "$var.mod+0" "zoom-reset"

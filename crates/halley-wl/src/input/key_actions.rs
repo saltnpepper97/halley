@@ -12,6 +12,7 @@ use crate::interaction::actions::{
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
 use crate::state::HalleyWlState;
+use crate::surface::request_close_focused_toplevel;
 use halley_config::{CompositorBindingAction, DirectionalAction, RuntimeTuning};
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_ipc::NodeMoveDirection;
@@ -81,6 +82,7 @@ pub(crate) fn apply_compositor_action_press(
             true
         }
         CompositorBindingAction::ToggleState => toggle_focused_active_node_state(st),
+        CompositorBindingAction::CloseFocusedWindow => request_close_focused_toplevel(st),
         CompositorBindingAction::Docking => set_docking_mode(st, true),
         CompositorBindingAction::MoveNode(direction) => {
             move_latest_node_direction(st, from_directional_action(direction))
@@ -130,6 +132,7 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::Docking
             | CompositorBindingAction::Reload
             | CompositorBindingAction::ToggleState
+            | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::Quit { .. }
             | CompositorBindingAction::ZoomIn
             | CompositorBindingAction::ZoomOut

@@ -52,6 +52,7 @@ keybinds:
   # Basic compositor controls
   "$var.mod+r" "reload"
   "$var.mod+n" "toggle-state"
+  "$var.mod+q" "close-focused"
   "$var.mod+mousewheelup" "zoom-in"
   "$var.mod+mousewheeldown" "zoom-out"
   "$var.mod+middlemouse" "zoom-reset"

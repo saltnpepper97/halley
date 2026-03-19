@@ -41,6 +41,7 @@ pub enum DirectionalAction {
 pub enum CompositorBindingAction {
     Reload,
     ToggleState,
+    CloseFocusedWindow,
     Quit { requires_shift: bool },
     Docking,
     MoveNode(DirectionalAction),
