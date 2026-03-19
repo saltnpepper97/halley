@@ -159,8 +159,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     // This lets Drop run, which kills all spawned child process groups.
     // Note: SIGKILL (-9) cannot be caught — use plain `pkill` for clean exit.
     unsafe {
-        libc::signal(libc::SIGTERM, handle_shutdown_signal as libc::sighandler_t);
-        libc::signal(libc::SIGINT,  handle_shutdown_signal as libc::sighandler_t);
+        let handler = handle_shutdown_signal as *const () as libc::sighandler_t;
+        libc::signal(libc::SIGTERM, handler);
+        libc::signal(libc::SIGINT, handler);
     }
 
     init_ipc()?;

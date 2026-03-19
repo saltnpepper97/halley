@@ -21,11 +21,6 @@ pub(crate) fn promote_node_level(
     }
     let target_pos = n.pos;
 
-    let partner = st
-        .field
-        .dock_partner(node_id)
-        .filter(|&pid| st.field.dock_partner(pid) == Some(node_id));
-
     let in_focus_ring =
         st.active_focus_ring().zone(st.viewport.center, target_pos) == FocusZone::Inside;
 
@@ -35,18 +30,6 @@ pub(crate) fn promote_node_level(
 
         let _ = st.field.set_decay_level(node_id, DecayLevel::Hot);
         st.mark_active_transition(node_id, now, 360);
-
-        if let Some(pid) = partner
-            && st.field.is_visible(pid)
-            && st.field.node(pid).is_some_and(|pn| {
-                pn.kind == halley_core::field::NodeKind::Surface
-                    && pn.state == halley_core::field::NodeState::Node
-            })
-        {
-            st.manual_collapsed_nodes.remove(&pid);
-            let _ = st.field.set_decay_level(pid, DecayLevel::Hot);
-            st.mark_active_transition(pid, now, 360);
-        }
 
         st.set_interaction_focus(Some(node_id), 30_000, now);
         return true;
@@ -74,9 +57,6 @@ pub(crate) fn set_docking_mode(st: &mut HalleyWlState, active: bool) -> bool {
 
     let was_active = st.docking_hold_count > 0;
     st.docking_hold_count = st.docking_hold_count.saturating_sub(1);
-    if was_active && st.docking_hold_count == 0 {
-        st.field.clear_dock_preview();
-    }
     was_active
 }
 
@@ -145,10 +125,6 @@ pub(crate) fn minimize_focused_active_node(st: &mut HalleyWlState) -> bool {
         return false;
     }
 
-    let partner = st
-        .field
-        .dock_partner(id)
-        .filter(|&pid| st.field.dock_partner(pid) == Some(id));
 
     match n.state {
         halley_core::field::NodeState::Active => {
@@ -158,20 +134,6 @@ pub(crate) fn minimize_focused_active_node(st: &mut HalleyWlState) -> bool {
                 .set_decay_level(id, halley_core::decay::DecayLevel::Cold);
             st.pending_spawn_activate_at_ms.remove(&id);
             st.manual_collapsed_nodes.insert(id);
-
-            if let Some(pid) = partner
-                && st.field.node(pid).is_some_and(|pn| {
-                    pn.kind == halley_core::field::NodeKind::Surface
-                        && pn.state == halley_core::field::NodeState::Active
-                })
-            {
-                let _ = st.field.set_state(pid, halley_core::field::NodeState::Node);
-                let _ = st
-                    .field
-                    .set_decay_level(pid, halley_core::decay::DecayLevel::Cold);
-                st.pending_spawn_activate_at_ms.remove(&pid);
-                st.manual_collapsed_nodes.insert(pid);
-            }
 
             st.set_interaction_focus(None, 0, now);
             st.pan_restore_active_focus = None;
@@ -185,20 +147,6 @@ pub(crate) fn minimize_focused_active_node(st: &mut HalleyWlState) -> bool {
                 .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
             st.pending_spawn_activate_at_ms.remove(&id);
             st.mark_active_transition(id, now, 360);
-
-            if let Some(pid) = partner {
-                st.manual_collapsed_nodes.remove(&pid);
-                if st.field.node(pid).is_some_and(|pn| {
-                    pn.kind == halley_core::field::NodeKind::Surface
-                        && pn.state == halley_core::field::NodeState::Node
-                }) {
-                    let _ = st
-                        .field
-                        .set_decay_level(pid, halley_core::decay::DecayLevel::Hot);
-                    st.pending_spawn_activate_at_ms.remove(&pid);
-                    st.mark_active_transition(pid, now, 360);
-                }
-            }
 
             st.set_interaction_focus(Some(id), 30_000, now);
             true

@@ -32,12 +32,8 @@ end
 tile:
 end
 
-docking:
+field:
   gap 20.0
-  active-gap-scale 0.22
-  bump-newer false
-  drag-smoothing-boost 6.0
-  center-window-to-mouse false
 end
 
 physics:
@@ -59,6 +55,12 @@ keybinds:
 
   # Quit Halley
   "$var.mod+shift+q" "quit"
+
+  # Move the newest node in a direction
+  "$var.mod+h" "move_left"
+  "$var.mod+l" "move_right"
+  "$var.mod+k" "move_up"
+  "$var.mod+j" "move_down"
 
   # Applications
   "$var.mod+return" "kitty"

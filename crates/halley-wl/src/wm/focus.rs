@@ -282,29 +282,12 @@ impl HalleyWlState {
             return;
         }
 
-        let partner = self
-            .field
-            .dock_partner(id)
-            .filter(|&pid| self.field.dock_partner(pid) == Some(id));
-
         let _ = self.field.set_decay_level(id, DecayLevel::Hot);
         self.mark_active_transition(id, now, 280);
 
-        if let Some(pid) = partner
-            && self.field.is_visible(pid)
-            && self.field.node(pid).is_some_and(|pn| {
-                pn.kind == halley_core::field::NodeKind::Surface
-                    && pn.state != halley_core::field::NodeState::Active
-                    && !self.preserve_collapsed_surface(pid)
-            })
-        {
-            let _ = self.field.set_decay_level(pid, DecayLevel::Hot);
-            self.mark_active_transition(pid, now, 280);
-        }
-
         self.set_interaction_focus(Some(id), 12_000, now);
         self.pan_restore_active_focus = None;
-    }
+    }   
 
     pub fn begin_resize_interaction(&mut self, id: NodeId, now: Instant) {
         self.resize_active = Some(id);
@@ -333,7 +316,6 @@ impl HalleyWlState {
         }
         self.suspend_state_checks = false;
         self.suspend_overlap_resolve = false;
-        self.enforce_docked_pairs();
         self.resolve_surface_overlap();
     }
 
@@ -444,10 +426,6 @@ impl HalleyWlState {
 
     pub fn toggle_last_focused_surface_node(&mut self, now: Instant) -> Option<NodeId> {
         let id = self.last_focused_surface_node()?;
-        let partner = self
-            .field
-            .dock_partner(id)
-            .filter(|&pid| self.field.dock_partner(pid) == Some(id));
 
         let state = self.field.node(id)?.state.clone();
         match state {
@@ -459,20 +437,6 @@ impl HalleyWlState {
                 self.pending_spawn_activate_at_ms.remove(&id);
                 self.manual_collapsed_nodes.insert(id);
 
-                if let Some(pid) = partner
-                    && self.field.node(pid).is_some_and(|pn| {
-                        pn.kind == halley_core::field::NodeKind::Surface
-                            && pn.state == halley_core::field::NodeState::Active
-                    })
-                {
-                    let _ = self
-                        .field
-                        .set_state(pid, halley_core::field::NodeState::Node);
-                    let _ = self.field.set_decay_level(pid, DecayLevel::Cold);
-                    self.pending_spawn_activate_at_ms.remove(&pid);
-                    self.manual_collapsed_nodes.insert(pid);
-                }
-
                 self.set_interaction_focus(None, 0, now);
                 self.pan_restore_active_focus = None;
                 Some(id)
@@ -482,16 +446,6 @@ impl HalleyWlState {
                 let _ = self.field.set_decay_level(id, DecayLevel::Hot);
                 self.pending_spawn_activate_at_ms.remove(&id);
 
-                if let Some(pid) = partner {
-                    self.manual_collapsed_nodes.remove(&pid);
-                    let _ = self.field.set_decay_level(pid, DecayLevel::Hot);
-                    self.pending_spawn_activate_at_ms.remove(&pid);
-                }
-
-                self.mark_active_transition(id, now, 360);
-                if let Some(pid) = partner {
-                    self.mark_active_transition(pid, now, 360);
-                }
                 self.set_interaction_focus(Some(id), 30_000, now);
                 Some(id)
             }

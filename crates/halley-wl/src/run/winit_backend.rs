@@ -151,9 +151,6 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             info!("keybind modifier: {}", tuning.keybinds.modifier_name());
             info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
             info!("physics enabled: {}", tuning.physics_enabled);
-            if tuning.dev_enabled {
-                info!("dev actions enabled: ring tuning + node move (via configured keybinds)");
-            }
 
             let mut state = HalleyWlState::new(&dh, tuning.clone());
             state.seat.add_pointer();

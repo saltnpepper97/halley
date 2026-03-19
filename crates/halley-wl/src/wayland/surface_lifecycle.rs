@@ -503,8 +503,6 @@ impl HalleyWlState {
             if self.pan_restore_active_focus == Some(id) {
                 self.pan_restore_active_focus = None;
             }
-            let _ = self.field.undock_node(id);
-            self.field.clear_dock_preview();
             self.zoom_nominal_size.remove(&id);
             self.zoom_resize_fallback.remove(&id);
             self.zoom_resize_reject_streak.remove(&id);

@@ -19,7 +19,6 @@ use crate::state::HalleyWlState;
 
 use super::cursor_render::{cursor_surface_hotspot, draw_cursor_sprite};
 use super::cursor_theme::themed_cursor_sprite_with_fallback;
-use super::dock_render::{draw_dock_preview, draw_docked_pairs};
 use super::layer_render::collect_layer_surfaces;
 use super::node_render::{
     ActiveBorderRect, NodeSnapshot, OffscreenNodeTexture, collect_active_surfaces,
@@ -58,44 +57,6 @@ struct CursorScene {
     cursor_surface_elements: Vec<
         smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>,
     >,
-}
-
-fn draw_clamped_border_rect<F: smithay::backend::renderer::Frame>(
-    frame: &mut F,
-    rect: (i32, i32, i32, i32),
-    border_width: i32,
-    color: Color32F,
-    damage: Rectangle<i32, Physical>,
-    framebuffer_size: smithay::utils::Size<i32, Physical>,
-) -> Result<(), F::Error> {
-    let bw = border_width.max(1);
-    let inner_w = rect.2.max(1);
-    let inner_h = rect.3.max(1);
-    let fb = Rectangle::<i32, Physical>::from_size(framebuffer_size);
-
-    let mut draw_intersection = |x: i32, y: i32, w: i32, h: i32| -> Result<(), F::Error> {
-        if w <= 0 || h <= 0 {
-            return Ok(());
-        }
-        let edge = Rectangle::<i32, Physical>::new((x, y).into(), (w, h).into());
-        if let Some(visible) = edge.intersection(fb) {
-            draw_rect(
-                frame,
-                visible.loc.x,
-                visible.loc.y,
-                visible.size.w,
-                visible.size.h,
-                color,
-                damage,
-            )?;
-        }
-        Ok(())
-    };
-
-    draw_intersection(rect.0 - bw, rect.1 - bw, inner_w + (bw * 2), bw)?;
-    draw_intersection(rect.0 - bw, rect.1 + inner_h, inner_w + (bw * 2), bw)?;
-    draw_intersection(rect.0 - bw, rect.1 - bw, bw, inner_h + (bw * 2))?;
-    draw_intersection(rect.0 + inner_w, rect.1 - bw, bw, inner_h + (bw * 2))
 }
 
 fn draw_clamped_outline_rect<F: smithay::backend::renderer::Frame>(
@@ -367,8 +328,6 @@ fn draw_debug_frame_scene(
     )?;
 
     draw_hover_preview(frame, prepared.damage, scene)?;
-    draw_docked_pairs(frame, st, size, prepared.damage, prepared.now)?;
-    draw_dock_preview(frame, st, size, prepared.damage, prepared.now)?;
 
     if !scene.layer_over_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.layer_over_elements, &[prepared.damage]);

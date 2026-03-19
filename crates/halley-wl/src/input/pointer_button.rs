@@ -123,9 +123,8 @@ fn set_title_click(ps: &mut PointerState, node_id: halley_core::field::NodeId, n
     ps.last_title_click = Some(TitleClickCtx { node_id, at: now });
 }
 
-fn clear_pointer_activity(st: &mut HalleyWlState, ps: &mut PointerState) {
+fn clear_pointer_activity(_st: &mut HalleyWlState, ps: &mut PointerState) {
     ps.drag = None;
-    st.field.clear_dock_preview();
     ps.resize = None;
     ps.panning = false;
 }
@@ -203,7 +202,6 @@ fn begin_resize(
         (frame.sx, frame.sy),
     );
     ps.drag = None;
-    st.field.clear_dock_preview();
     ps.panning = false;
     ps.move_anim.clear();
     st.begin_resize_interaction(hit.node_id, Instant::now());
@@ -252,14 +250,8 @@ fn begin_resize(
         press_off_right_px: frame.sx - start_right,
         press_off_top_px: frame.sy - start_top,
         press_off_bottom_px: frame.sy - start_bottom,
-        press_ws_w: frame.ws_w,
-        press_ws_h: frame.ws_h,
-        press_view_center: st.viewport.center,
-        press_view_size: st.viewport.size,
         drag_started: true,
         resize_mode_sent: false,
-        live_bbox_w: 0,
-        live_bbox_h: 0,
         live_geo_lx: 0.0,
         live_geo_ly: 0.0,
         live_geo_w: 0.0,
@@ -550,14 +542,10 @@ fn handle_button_release(
                 } else {
                     st.update_carry_state_preview_at(d.node_id, world_now, now);
                 }
-                if docking_mode_active(st) {
-                    let _ = st.field.finalize_dock_on_drag_release(d.node_id);
-                }
                 st.end_carry_state_tracking(d.node_id);
                 ps.preview_block_until = Some(now + Duration::from_millis(360));
             }
             ps.drag = None;
-            st.field.clear_dock_preview();
             ps.panning = false;
             if ps.resize.is_some() {
                 finalize_resize(st, ps, backend);

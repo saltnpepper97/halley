@@ -17,22 +17,6 @@ pub struct KeyModifiers {
 #[derive(Clone, Debug)]
 pub struct Keybinds {
     pub modifier: KeyModifiers,
-    pub reload: u32,
-    pub minimize_focused: u32,
-    pub overview_toggle: u32,
-    pub quit: u32,
-    pub primary_left: u32,
-    pub primary_right: u32,
-    pub primary_up: u32,
-    pub primary_down: u32,
-    pub secondary_left: u32,
-    pub secondary_right: u32,
-    pub secondary_up: u32,
-    pub secondary_down: u32,
-    pub move_left: u32,
-    pub move_right: u32,
-    pub move_up: u32,
-    pub move_down: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -87,22 +71,6 @@ impl Default for Keybinds {
                 left_alt: true,
                 ..KeyModifiers::default()
             },
-            reload: 19,           // r
-            minimize_focused: 49, // n
-            overview_toggle: 24,  // o
-            quit: 16,             // q
-            primary_left: 105,    // left
-            primary_right: 106,   // right
-            primary_up: 103,      // up
-            primary_down: 108,    // down
-            secondary_left: 36,   // j
-            secondary_right: 38,  // l
-            secondary_up: 23,     // i
-            secondary_down: 37,   // k
-            move_left: 0,
-            move_right: 0,
-            move_up: 0,
-            move_down: 0,
         }
     }
 }

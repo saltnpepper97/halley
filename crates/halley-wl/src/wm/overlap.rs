@@ -45,11 +45,6 @@ impl HalleyWlState {
         })
     }
 
-    #[inline]
-    fn node_is_docked_pair_member(&self, a: NodeId, b: NodeId) -> bool {
-        self.field.dock_partner(a) == Some(b) || self.field.dock_partner(b) == Some(a)
-    }
-
     pub(crate) fn non_overlap_gap_world(&self) -> f32 {
         // Overlap resolution must live purely in stable world-space. Camera
         // zoom must never change the required separation between nodes.
@@ -111,9 +106,6 @@ impl HalleyWlState {
                 .iter()
                 .filter_map(|(&oid, other)| {
                     if oid == id || !self.node_participates_in_overlap(oid) {
-                        return None;
-                    }
-                    if self.node_is_docked_pair_member(id, oid) {
                         return None;
                     }
                     Some((
@@ -213,9 +205,6 @@ impl HalleyWlState {
                 .iter()
                 .filter_map(|(&oid, other)| {
                     if oid == id || !self.node_participates_in_overlap(oid) {
-                        return None;
-                    }
-                    if self.node_is_docked_pair_member(id, oid) {
                         return None;
                     }
                     Some((oid, other.pos, self.collision_extents_for_node(other)))
@@ -439,10 +428,6 @@ impl HalleyWlState {
                 for j in (i + 1)..ids.len() {
                     let a = ids[i];
                     let b = ids[j];
-
-                    if self.node_is_docked_pair_member(a, b) {
-                        continue;
-                    }
 
                     let Some(na) = self.field.node(a) else {
                         continue;

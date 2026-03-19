@@ -1,6 +1,5 @@
 use crate::cluster::{Cluster, ClusterId};
 use crate::decay::DecayLevel;
-use crate::docking::{DockPreview, DockSide, DockingState};
 use crate::viewport::Viewport;
 use crate::visual::{NodeVisual, VisualParams, build_visuals, build_visuals_in_view};
 
@@ -153,8 +152,6 @@ pub struct Field {
 
     next_cluster: u64,
     clusters: HashMap<ClusterId, Cluster>,
-
-    docking: DockingState,
 }
 
 impl Field {
@@ -164,7 +161,6 @@ impl Field {
             nodes: HashMap::new(),
             next_cluster: 1,
             clusters: HashMap::new(),
-            docking: DockingState::default(),
         }
     }
 
@@ -178,57 +174,6 @@ impl Field {
 
     pub fn node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
         self.nodes.get_mut(&id)
-    }
-
-    #[inline]
-    pub fn dock_preview(&self) -> Option<DockPreview> {
-        self.docking.preview()
-    }
-
-    #[inline]
-    pub fn dock_partner(&self, node_id: NodeId) -> Option<NodeId> {
-        self.docking.partner(node_id)
-    }
-
-    #[inline]
-    pub fn dock_sides_for_pair(&self, a: NodeId, b: NodeId) -> Option<(DockSide, DockSide)> {
-        self.docking.sides_for_pair(a, b)
-    }
-
-    #[inline]
-    pub fn docked_pairs(&self) -> Vec<(NodeId, NodeId)> {
-        self.docking.pairs()
-    }
-
-    #[inline]
-    pub fn clear_dock_preview(&mut self) {
-        self.docking.clear_preview();
-    }
-
-    #[inline]
-    pub fn undock_node(&mut self, node_id: NodeId) -> bool {
-        self.docking.undock(node_id)
-    }
-
-    #[inline]
-    pub fn update_dock_preview(
-        &mut self,
-        mover_id: NodeId,
-        viewport_center: Vec2,
-        viewport_size: Vec2,
-    ) -> Option<DockPreview> {
-        let mut docking = std::mem::take(&mut self.docking);
-        let out = docking.update_preview(self, mover_id, viewport_center, viewport_size);
-        self.docking = docking;
-        out
-    }
-
-    #[inline]
-    pub fn finalize_dock_on_drag_release(&mut self, mover_id: NodeId) -> bool {
-        let mut docking = std::mem::take(&mut self.docking);
-        let out = docking.commit_preview(self, mover_id);
-        self.docking = docking;
-        out
     }
 
     /// Spawn a basic Surface node.

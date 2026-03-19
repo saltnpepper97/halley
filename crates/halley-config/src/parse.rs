@@ -5,19 +5,18 @@ use super::{
     PointerBinding, PointerBindingAction,
 };
 use crate::RuntimeTuning;
-use crate::keybinds::{is_pointer_button_code, key_name_to_evdev, parse_chord, parse_modifiers};
+use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
 use crate::layout::{ViewportOutputConfig, default_pointer_bindings};
-use crate::legacy::{parse_legacy_keybinds, strip_legacy_keybind_block};
 
 use rune_cfg::RuneConfig;
 
 impl RuntimeTuning {
     pub fn from_rune_file(path: &str) -> Option<Self> {
         let raw = std::fs::read_to_string(path).ok()?;
-        let legacy_keybinds = parse_legacy_keybinds(raw.as_str());
+        let inline_keybinds = parse_inline_keybinds(raw.as_str());
 
         let cfg = RuneConfig::from_file(path).or_else(|_| {
-            let sanitized = strip_legacy_keybind_block(raw.as_str());
+            let sanitized = strip_inline_keybind_block(raw.as_str());
             RuneConfig::from_str(sanitized.as_str())
         });
         let cfg = cfg.ok()?;
@@ -32,12 +31,12 @@ impl RuntimeTuning {
         load_nodes_section(&cfg, &mut out);
         load_clusters_section(&cfg, &mut out);
         load_decay_section(&cfg, &mut out);
-        load_docking_section(&cfg, &mut out);
+        load_field_section(&cfg, &mut out);
         load_physics_section(&cfg, &mut out);
         load_keybind_sections(&cfg, &mut out);
 
-        if !legacy_keybinds.is_empty() {
-            apply_explicit_keybind_overrides_map(&legacy_keybinds, &mut out);
+        if !inline_keybinds.is_empty() {
+            apply_explicit_keybind_overrides_map(&inline_keybinds, &mut out);
         }
 
         Some(out)
@@ -100,6 +99,137 @@ fn parse_autostart_command(line: &str, directive: &str) -> Option<String> {
     None
 }
 
+fn parse_inline_keybinds(content: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let mut in_block = false;
+    let mut depth = 0usize;
+
+    for raw in content.lines() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !in_block {
+            if trimmed.eq_ignore_ascii_case("keybinds:") {
+                in_block = true;
+                depth = 1;
+            }
+            continue;
+        }
+
+        if trimmed.eq_ignore_ascii_case("end") {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                in_block = false;
+            }
+            continue;
+        }
+
+        if trimmed.ends_with(':') {
+            depth = depth.saturating_add(1);
+            continue;
+        }
+
+        if depth != 1 {
+            continue;
+        }
+
+        if let Some((k, v)) = parse_inline_keybind_line(trimmed) {
+            out.insert(k, v);
+        }
+    }
+
+    out
+}
+
+fn parse_inline_keybind_line(line: &str) -> Option<(String, String)> {
+    let mut clean = String::with_capacity(line.len());
+    let mut in_quotes = false;
+    for ch in line.chars() {
+        if ch == '"' {
+            in_quotes = !in_quotes;
+            clean.push(ch);
+            continue;
+        }
+        if ch == '#' && !in_quotes {
+            break;
+        }
+        clean.push(ch);
+    }
+    let tokens = parse_quoted_tokens(clean.trim());
+    if tokens.len() != 2 {
+        return None;
+    }
+    Some((tokens[0].clone(), tokens[1].clone()))
+}
+
+fn parse_quoted_tokens(input: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for ch in input.chars() {
+        if escaped {
+            cur.push(ch);
+            escaped = false;
+            continue;
+        }
+        if in_quotes && ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            in_quotes = !in_quotes;
+            continue;
+        }
+        if !in_quotes && ch.is_ascii_whitespace() {
+            if !cur.is_empty() {
+                out.push(std::mem::take(&mut cur));
+            }
+            continue;
+        }
+        cur.push(ch);
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+fn strip_inline_keybind_block(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut in_block = false;
+    let mut depth = 0usize;
+
+    for raw in content.lines() {
+        let trimmed = raw.trim();
+        if !in_block {
+            if trimmed.eq_ignore_ascii_case("keybinds:") {
+                in_block = true;
+                depth = 1;
+                continue;
+            }
+            out.push_str(raw);
+            out.push('\n');
+            continue;
+        }
+
+        if trimmed.eq_ignore_ascii_case("end") {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                in_block = false;
+            }
+            continue;
+        }
+        if trimmed.ends_with(':') {
+            depth = depth.saturating_add(1);
+        }
+    }
+
+    out
+}
+
 fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.tick_ms = pick_u64(
         cfg,
@@ -131,108 +261,6 @@ fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.dev_anim_state_change_ms,
     );
     out.dev_anim_bounce = pick_f32(cfg, &["dev.anim.bounce"], out.dev_anim_bounce);
-
-    out.keybinds.modifier = pick_modifiers(cfg, &["dev.keybinds.modifier"], out.keybinds.modifier);
-
-    out.keybinds.reload = pick_keycode(cfg, &["dev.keybinds.reload"], out.keybinds.reload);
-    out.keybinds.minimize_focused = pick_keycode(
-        cfg,
-        &[
-            "dev.keybinds.minimize_focused",
-            "dev.keybinds.minimize-focused",
-        ],
-        out.keybinds.minimize_focused,
-    );
-    out.keybinds.overview_toggle = pick_keycode(
-        cfg,
-        &[
-            "dev.keybinds.overview_toggle",
-            "dev.keybinds.overview-toggle",
-        ],
-        out.keybinds.overview_toggle,
-    );
-    out.keybinds.quit = pick_keycode(cfg, &["dev.keybinds.quit"], out.keybinds.quit);
-
-    out.keybind_launch_command = pick_string(
-        cfg,
-        &["dev.keybinds.launch_command", "dev.keybinds.launch-command"],
-        out.keybind_launch_command.as_str(),
-    );
-
-    out.quit_requires_shift = pick_bool(
-        cfg,
-        &[
-            "dev.keybinds.quit_requires_shift",
-            "dev.keybinds.quit-requires-shift",
-        ],
-        out.quit_requires_shift,
-    );
-
-    out.keybinds.primary_left = pick_keycode(
-        cfg,
-        &["dev.keybinds.primary_left", "dev.keybinds.primary-left"],
-        out.keybinds.primary_left,
-    );
-    out.keybinds.primary_right = pick_keycode(
-        cfg,
-        &["dev.keybinds.primary_right", "dev.keybinds.primary-right"],
-        out.keybinds.primary_right,
-    );
-    out.keybinds.primary_up = pick_keycode(
-        cfg,
-        &["dev.keybinds.primary_up", "dev.keybinds.primary-up"],
-        out.keybinds.primary_up,
-    );
-    out.keybinds.primary_down = pick_keycode(
-        cfg,
-        &["dev.keybinds.primary_down", "dev.keybinds.primary-down"],
-        out.keybinds.primary_down,
-    );
-
-    out.keybinds.secondary_left = pick_keycode(
-        cfg,
-        &["dev.keybinds.secondary_left", "dev.keybinds.secondary-left"],
-        out.keybinds.secondary_left,
-    );
-    out.keybinds.secondary_right = pick_keycode(
-        cfg,
-        &[
-            "dev.keybinds.secondary_right",
-            "dev.keybinds.secondary-right",
-        ],
-        out.keybinds.secondary_right,
-    );
-    out.keybinds.secondary_up = pick_keycode(
-        cfg,
-        &["dev.keybinds.secondary_up", "dev.keybinds.secondary-up"],
-        out.keybinds.secondary_up,
-    );
-    out.keybinds.secondary_down = pick_keycode(
-        cfg,
-        &["dev.keybinds.secondary_down", "dev.keybinds.secondary-down"],
-        out.keybinds.secondary_down,
-    );
-
-    out.keybinds.move_left = pick_keycode(
-        cfg,
-        &["dev.keybinds.move_left", "dev.keybinds.move-left"],
-        out.keybinds.move_left,
-    );
-    out.keybinds.move_right = pick_keycode(
-        cfg,
-        &["dev.keybinds.move_right", "dev.keybinds.move-right"],
-        out.keybinds.move_right,
-    );
-    out.keybinds.move_up = pick_keycode(
-        cfg,
-        &["dev.keybinds.move_up", "dev.keybinds.move-up"],
-        out.keybinds.move_up,
-    );
-    out.keybinds.move_down = pick_keycode(
-        cfg,
-        &["dev.keybinds.move_down", "dev.keybinds.move-down"],
-        out.keybinds.move_down,
-    );
 }
 
 fn load_env_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -412,22 +440,11 @@ fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.docked_offscreen_delay_ms = docked_s.saturating_mul(1000);
 }
 
-fn load_docking_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.non_overlap_gap_px = pick_f32(
         cfg,
-        &["docking.gap", "docking.gap-px"],
+        &["field.gap", "field.gap-px"],
         out.non_overlap_gap_px,
-    );
-
-    out.restore_last_active_on_pan_return = pick_bool(
-        cfg,
-        &[
-            "docking.restore-last-active-on-pan-return",
-            "docking.restore_last_active_on_pan_return",
-            "layout.restore-last-active-on-pan-return",
-            "layout.restore_last_active_on_pan_return",
-        ],
-        out.restore_last_active_on_pan_return,
     );
 }
 
@@ -589,37 +606,12 @@ fn pick_bool(cfg: &RuneConfig, paths: &[&str], default: bool) -> bool {
     default
 }
 
-fn pick_string(cfg: &RuneConfig, paths: &[&str], default: &str) -> String {
-    for path in paths {
-        if let Ok(Some(v)) = cfg.get_optional::<String>(path)
-            && !v.trim().is_empty()
-        {
-            return v;
-        }
-    }
-    default.to_string()
-}
-
 fn pick_modifiers(cfg: &RuneConfig, paths: &[&str], default: KeyModifiers) -> KeyModifiers {
     for path in paths {
         if let Ok(Some(v)) = cfg.get_optional::<String>(path)
             && let Some(m) = parse_modifiers(v.as_str())
         {
             return m;
-        }
-    }
-    default
-}
-
-fn pick_keycode(cfg: &RuneConfig, paths: &[&str], default: u32) -> u32 {
-    for path in paths {
-        if let Ok(Some(v)) = cfg.get_optional::<u32>(path) {
-            return v;
-        }
-        if let Ok(Some(name)) = cfg.get_optional::<String>(path)
-            && let Some(code) = key_name_to_evdev(name.as_str())
-        {
-            return code;
         }
     }
     default
@@ -728,10 +720,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "resize_window" | "resize-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::ResizeWindow);
         }
-        _ => {
-            out.keybind_launch_command = action_trimmed.to_string();
-            upsert_launch_binding(out, mods, key, action_trimmed);
-        }
+        _ => upsert_launch_binding(out, mods, key, action_trimmed),
     }
 }
 
@@ -879,5 +868,66 @@ end
 
         assert_eq!(tuning.autostart_once, vec!["waybar", "mako"]);
         assert_eq!(tuning.autostart_on_reload, vec!["thunderbird"]);
+    }
+
+    #[test]
+    fn field_gap_loads_from_field_section() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-field-gap-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+field:
+  gap 24.0
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.non_overlap_gap_px, 24.0);
+    }
+
+    #[test]
+    fn inline_keybind_block_does_not_break_full_config_loading() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-inline-keybinds-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+autostart:
+  once "waybar"
+end
+
+field:
+  gap 24.0
+end
+
+keybinds:
+  mod "super"
+  "$var.mod+return" "kitty"
+  "$var.mod+shift+q" "quit"
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.autostart_once, vec!["waybar"]);
+        assert_eq!(tuning.non_overlap_gap_px, 24.0);
+        assert_eq!(tuning.launch_bindings.len(), 1);
+        assert_eq!(tuning.compositor_bindings.len(), 1);
     }
 }

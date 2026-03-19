@@ -11,14 +11,8 @@ use crate::interaction::actions::{
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
 use crate::state::HalleyWlState;
-use halley_config::{CompositorBindingAction, DirectionalAction, KeyModifiers, RuntimeTuning};
+use halley_config::{CompositorBindingAction, DirectionalAction, RuntimeTuning};
 use halley_ipc::NodeMoveDirection;
-
-fn with_extra_shift(base: KeyModifiers) -> KeyModifiers {
-    let mut out = base;
-    out.shift = true;
-    out
-}
 
 fn from_directional_action(direction: DirectionalAction) -> NodeMoveDirection {
     match direction {
@@ -26,55 +20,6 @@ fn from_directional_action(direction: DirectionalAction) -> NodeMoveDirection {
         DirectionalAction::Right => NodeMoveDirection::Right,
         DirectionalAction::Up => NodeMoveDirection::Up,
         DirectionalAction::Down => NodeMoveDirection::Down,
-    }
-}
-
-fn legacy_compositor_action(
-    st: &HalleyWlState,
-    key_code: u32,
-    mods: &ModState,
-) -> Option<CompositorBindingAction> {
-    let kb = &st.tuning.keybinds;
-
-    if key_matches(key_code, kb.quit) {
-        let need = if st.tuning.quit_requires_shift {
-            with_extra_shift(kb.modifier)
-        } else {
-            kb.modifier
-        };
-        if modifier_exact(mods, need) {
-            return Some(CompositorBindingAction::Quit {
-                requires_shift: st.tuning.quit_requires_shift,
-            });
-        }
-    }
-
-    if key_matches(key_code, kb.reload) && modifier_exact(mods, kb.modifier) {
-        return Some(CompositorBindingAction::Reload);
-    }
-
-    if key_matches(key_code, kb.minimize_focused) && modifier_exact(mods, kb.modifier) {
-        return Some(CompositorBindingAction::MinimizeFocused);
-    }
-
-    if !st.tuning.dev_enabled {
-        return None;
-    }
-
-    match key_code {
-        code if key_matches(code, kb.move_left) && modifier_exact(mods, kb.modifier) => {
-            Some(CompositorBindingAction::MoveNode(DirectionalAction::Left))
-        }
-        code if key_matches(code, kb.move_right) && modifier_exact(mods, kb.modifier) => {
-            Some(CompositorBindingAction::MoveNode(DirectionalAction::Right))
-        }
-        code if key_matches(code, kb.move_up) && modifier_exact(mods, kb.modifier) => {
-            Some(CompositorBindingAction::MoveNode(DirectionalAction::Up))
-        }
-        code if key_matches(code, kb.move_down) && modifier_exact(mods, kb.modifier) => {
-            Some(CompositorBindingAction::MoveNode(DirectionalAction::Down))
-        }
-        _ => None,
     }
 }
 
@@ -89,7 +34,7 @@ pub(crate) fn compositor_binding_action(
         }
     }
 
-    legacy_compositor_action(st, key_code, mods)
+    None
 }
 
 pub(crate) fn key_is_compositor_binding(
@@ -158,10 +103,6 @@ pub(crate) fn apply_bound_key(
     config_path: &str,
     wayland_display: &str,
 ) -> bool {
-    const STEP_RX: f32 = 24.0;
-    const STEP_RY: f32 = 16.0;
-    const STEP_OFFSET: f32 = 24.0;
-
     if let Some(action) = compositor_binding_action(st, key_code, mods) {
         return match action {
             CompositorBindingAction::MoveNode(_)
@@ -189,60 +130,7 @@ pub(crate) fn apply_bound_key(
             return ok;
         }
     }
-
-    if !st.tuning.dev_enabled {
-        return false;
-    }
-
-    let kb = st.tuning.keybinds.clone();
-    let changed = match key_code {
-        code if key_matches(code, kb.primary_left) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_rx -= STEP_RX;
-            true
-        }
-        code if key_matches(code, kb.primary_right) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_rx += STEP_RX;
-            true
-        }
-        code if key_matches(code, kb.primary_up) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_ry += STEP_RY;
-            true
-        }
-        code if key_matches(code, kb.primary_down) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_ry -= STEP_RY;
-            true
-        }
-        code if key_matches(code, kb.secondary_left) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_offset_x -= STEP_OFFSET;
-            true
-        }
-        code if key_matches(code, kb.secondary_right) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_offset_x += STEP_OFFSET;
-            true
-        }
-        code if key_matches(code, kb.secondary_up) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_offset_y += STEP_OFFSET;
-            true
-        }
-        code if key_matches(code, kb.secondary_down) && modifier_exact(mods, kb.modifier) => {
-            st.tuning.focus_ring_offset_y -= STEP_OFFSET;
-            true
-        }
-        _ => false,
-    };
-
-    if changed {
-        st.tuning.enforce_guards();
-        info!(
-            "focus-ring {:.0}x{:.0} offset=({:.0},{:.0})",
-            st.tuning.focus_ring_rx,
-            st.tuning.focus_ring_ry,
-            st.tuning.focus_ring_offset_x,
-            st.tuning.focus_ring_offset_y
-        );
-    }
-
-    changed
+    false
 }
 
 pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -> Option<Child> {

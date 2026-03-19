@@ -25,100 +25,24 @@ impl HalleyWlState {
             return;
         }
 
-        let non_docked_active: Vec<NodeId> = active_ids
-            .iter()
-            .copied()
-            .filter(|&id| {
-                self.field
-                    .dock_partner(id)
-                    .filter(|&pid| self.field.dock_partner(pid) == Some(id))
-                    .is_none()
-            })
-            .collect();
-
-        let focused_breakout: Option<NodeId> = if non_docked_active.is_empty() {
-            None
-        } else {
-            non_docked_active
-                .iter()
-                .copied()
-                .find(|&id| self.interaction_focus == Some(id))
-                .or_else(|| {
-                    non_docked_active
-                        .iter()
-                        .copied()
-                        .max_by_key(|id| self.last_surface_focus_ms.get(id).copied().unwrap_or(0))
-                })
-        };
-
-        let mut docked_pairs: Vec<(NodeId, NodeId, u64)> = Vec::new();
-        let mut seen_pair_roots: HashSet<NodeId> = HashSet::new();
-
-        for &id in &active_ids {
-            let Some(pid) = self
-                .field
-                .dock_partner(id)
-                .filter(|&pid| self.field.dock_partner(pid) == Some(id))
-            else {
-                continue;
-            };
-
-            let a = if id.as_u64() <= pid.as_u64() { id } else { pid };
-            let b = if a == id { pid } else { id };
-            if !seen_pair_roots.insert(a) {
-                continue;
-            }
-
-            let pair_active = [a, b].iter().all(|nid| {
-                self.field.node(*nid).is_some_and(|n| {
-                    self.field.is_visible(*nid)
-                        && n.kind == halley_core::field::NodeKind::Surface
-                        && n.state == halley_core::field::NodeState::Active
-                })
-            });
-
-            if !pair_active {
-                continue;
-            }
-
-            let latest_focus = [a, b]
-                .iter()
-                .filter_map(|nid| self.last_surface_focus_ms.get(nid).copied())
-                .max()
-                .unwrap_or(0);
-
-            docked_pairs.push((a, b, latest_focus));
-        }
-
         let mut keep_set: HashSet<NodeId> = HashSet::new();
 
-        if let Some(fid) = focused_breakout {
-            docked_pairs.sort_by_key(|(a, b, latest_focus)| {
-                let contains_companion = companion.is_some_and(|cid| cid == *a || cid == *b);
-                let contains_preferred =
-                    preferred_surface.is_some_and(|pid| pid == *a || pid == *b);
-                let any_inside = [*a, *b].iter().any(|nid| {
-                    self.field.node(*nid).is_some_and(|n| {
-                        focus_ring.zone(self.viewport.center, n.pos) == FocusZone::Inside
-                    })
-                });
-                (
-                    u8::from(contains_companion),
-                    u8::from(contains_preferred),
-                    u8::from(any_inside),
-                    *latest_focus,
-                    b.as_u64(),
-                )
+        let focused_breakout: Option<NodeId> = active_ids
+            .iter()
+            .copied()
+            .find(|&id| self.interaction_focus == Some(id))
+            .or_else(|| {
+                active_ids
+                    .iter()
+                    .copied()
+                    .max_by_key(|id| self.last_surface_focus_ms.get(id).copied().unwrap_or(0))
             });
 
-            if let Some((a, b, _)) = docked_pairs.last().copied() {
-                keep_set.insert(fid);
-                keep_set.insert(a);
-                keep_set.insert(b);
-            }
+        if let Some(fid) = focused_breakout {
+            keep_set.insert(fid);
         }
 
-        if keep_set.is_empty() {
+        if keep_set.len() < 2 {
             let mut ranked = active_ids.clone();
             ranked.sort_by_key(|id| {
                 let pos = self
@@ -142,7 +66,12 @@ impl HalleyWlState {
                 )
             });
 
-            keep_set.extend(ranked.iter().rev().take(2).copied());
+            for id in ranked.iter().rev().copied() {
+                keep_set.insert(id);
+                if keep_set.len() >= 2 {
+                    break;
+                }
+            }
         }
 
         for id in active_ids {
@@ -218,40 +147,10 @@ impl HalleyWlState {
     pub(crate) fn enforce_pan_dominant_zone_states(&mut self, focus_ring: FocusRing, now_ms: u64) {
         let primary_outside_ring_delay_ms = self.tuning.primary_outside_ring_delay_ms;
         let secondary_outside_ring_delay_ms = self.tuning.secondary_outside_ring_delay_ms;
-        let docked_offscreen_delay_ms = self.tuning.docked_offscreen_delay_ms;
 
         let ids: Vec<NodeId> = self.field.nodes().keys().copied().collect();
 
         for id in ids {
-            if !self.field.is_visible(id) {
-                self.dock_decay_offscreen_since_ms.remove(&id);
-                continue;
-            }
-            let Some(n) = self.field.node(id) else {
-                self.dock_decay_offscreen_since_ms.remove(&id);
-                continue;
-            };
-            if n.kind != halley_core::field::NodeKind::Surface {
-                self.dock_decay_offscreen_since_ms.remove(&id);
-                continue;
-            }
-
-            if let Some(partner) = self
-                .field
-                .dock_partner(id)
-                .filter(|&pid| self.field.dock_partner(pid) == Some(id))
-            {
-                if id.as_u64() < partner.as_u64() {
-                    self.apply_docked_pair_decay_policy(
-                        id,
-                        partner,
-                        now_ms,
-                        docked_offscreen_delay_ms,
-                    );
-                }
-                continue;
-            }
-
             self.apply_single_surface_decay_policy(
                 id,
                 focus_ring,
@@ -327,59 +226,6 @@ impl HalleyWlState {
         }
     }
 
-    fn apply_docked_pair_decay_policy(&mut self, a: NodeId, b: NodeId, now_ms: u64, delay_ms: u64) {
-        let a_visible = self.surface_intersects_viewport(a);
-        let b_visible = self.surface_intersects_viewport(b);
-
-        if self.preserve_collapsed_surface(a) || self.preserve_collapsed_surface(b) {
-            self.dock_decay_offscreen_since_ms.remove(&a);
-            self.dock_decay_offscreen_since_ms.remove(&b);
-            return;
-        }
-
-        if self.is_hard_decay_protected(a, now_ms) || self.is_hard_decay_protected(b, now_ms) {
-            self.dock_decay_offscreen_since_ms.remove(&a);
-            self.dock_decay_offscreen_since_ms.remove(&b);
-            let _ = self.field.set_decay_level(a, DecayLevel::Hot);
-            let _ = self.field.set_decay_level(b, DecayLevel::Hot);
-            return;
-        }
-
-        if a_visible || b_visible {
-            self.dock_decay_offscreen_since_ms.remove(&a);
-            self.dock_decay_offscreen_since_ms.remove(&b);
-
-            let a_active = self
-                .field
-                .node(a)
-                .is_some_and(|n| n.state == halley_core::field::NodeState::Active);
-            let b_active = self
-                .field
-                .node(b)
-                .is_some_and(|n| n.state == halley_core::field::NodeState::Active);
-            if a_active && b_active {
-                let _ = self.field.set_decay_level(a, DecayLevel::Hot);
-                let _ = self.field.set_decay_level(b, DecayLevel::Hot);
-            }
-            return;
-        }
-
-        let since_a = self.dock_decay_offscreen_since_ms.get(&a).copied();
-        let since_b = self.dock_decay_offscreen_since_ms.get(&b).copied();
-        let since = since_a.or(since_b).unwrap_or(now_ms);
-
-        self.dock_decay_offscreen_since_ms.insert(a, since);
-        self.dock_decay_offscreen_since_ms.insert(b, since);
-
-        if now_ms.saturating_sub(since) >= delay_ms {
-            let _ = self.field.set_decay_level(a, DecayLevel::Cold);
-            let _ = self.field.set_decay_level(b, DecayLevel::Cold);
-        } else {
-            let _ = self.field.set_decay_level(a, DecayLevel::Hot);
-            let _ = self.field.set_decay_level(b, DecayLevel::Hot);
-        }
-    }
-
     fn is_hard_decay_protected(&self, id: NodeId, now_ms: u64) -> bool {
         self.interaction_focus == Some(id)
             || self.resize_active == Some(id)
@@ -448,8 +294,6 @@ impl HalleyWlState {
                     self.pan_restore_active_focus = None;
                 }
                 self.manual_collapsed_nodes.remove(&id);
-                let _ = self.field.undock_node(id);
-                self.field.clear_dock_preview();
                 self.zoom_nominal_size.remove(&id);
                 self.zoom_resize_fallback.remove(&id);
                 self.zoom_resize_reject_streak.remove(&id);

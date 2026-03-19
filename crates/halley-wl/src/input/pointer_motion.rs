@@ -18,25 +18,6 @@ use super::pointer_focus::pointer_focus_for_screen;
 use super::pointer_map_debug_enabled;
 
 #[inline]
-fn screen_to_world_with_view(
-    view_center: halley_core::field::Vec2,
-    view_size: halley_core::field::Vec2,
-    ws_w: i32,
-    ws_h: i32,
-    sx: f32,
-    sy: f32,
-) -> halley_core::field::Vec2 {
-    let vw = view_size.x.max(1.0);
-    let vh = view_size.y.max(1.0);
-    let nx = (sx / (ws_w as f32).max(1.0)) - 0.5;
-    let ny = 0.5 - (sy / (ws_h as f32).max(1.0));
-    halley_core::field::Vec2 {
-        x: view_center.x + nx * vw,
-        y: view_center.y + ny * vh,
-    }
-}
-
-#[inline]
 fn now_millis_u32() -> u32 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -103,9 +84,6 @@ pub(crate) fn handle_pointer_motion_absolute(
 
     if st.has_active_cluster_workspace() {
         ps.hover_node = None;
-        if ps.drag.is_some() {
-            st.field.clear_dock_preview();
-        }
         ps.drag = None;
         ps.resize = None;
         ps.panning = false;
@@ -115,7 +93,6 @@ pub(crate) fn handle_pointer_motion_absolute(
     if let Some(drag) = ps.drag {
         if ps.resize.is_some() || !drag_mod_ok {
             st.end_carry_state_tracking(drag.node_id);
-            st.field.clear_dock_preview();
             ps.drag = None;
         } else {
             let mut next_drag = drag;
@@ -139,15 +116,6 @@ pub(crate) fn handle_pointer_motion_absolute(
                     );
                 }
                 ps.drag = Some(next_drag);
-                if docking_mode_active(st) {
-                    let _ = st.field.update_dock_preview(
-                        drag.node_id,
-                        st.viewport.center,
-                        st.viewport.size,
-                    );
-                } else {
-                    st.field.clear_dock_preview();
-                }
                 backend.request_redraw();
             }
         }

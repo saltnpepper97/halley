@@ -9,7 +9,6 @@ use halley_core::viewport::{FocusRing, Viewport};
 use super::{
     CompositorBinding, KeyModifiers, Keybinds, LaunchBinding, PointerBinding, PointerBindingAction,
 };
-use crate::keybinds::evdev_to_key_name;
 
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
@@ -53,11 +52,9 @@ pub struct RuntimeTuning {
     pub physics_enabled: bool,
 
     pub keybinds: Keybinds,
-    pub keybind_launch_command: String,
     pub compositor_bindings: Vec<CompositorBinding>,
     pub launch_bindings: Vec<LaunchBinding>,
     pub pointer_bindings: Vec<PointerBinding>,
-    pub quit_requires_shift: bool,
 
     pub tty_viewports: Vec<ViewportOutputConfig>,
     pub autostart_once: Vec<String>,
@@ -120,11 +117,9 @@ impl Default for RuntimeTuning {
             physics_enabled: true,
 
             keybinds: Keybinds::default(),
-            keybind_launch_command: String::new(),
             compositor_bindings: Vec::new(),
             launch_bindings: Vec::new(),
             pointer_bindings: default_pointer_bindings(Keybinds::default().modifier),
-            quit_requires_shift: true,
 
             tty_viewports: Vec::new(),
             autostart_once: Vec::new(),
@@ -228,29 +223,12 @@ impl RuntimeTuning {
     }
 
     pub fn keybinds_resolved_summary(&self) -> String {
-        let kb = &self.keybinds;
         format!(
-            "mod={} reload={} minimize={} overview={} quit={} (requires_shift={}) compositor_actions={} custom_launches={} primary=[{},{},{},{}] secondary=[{},{},{},{}] move=[{},{},{},{}]",
-            kb.modifier_name(),
-            evdev_to_key_name(kb.reload),
-            evdev_to_key_name(kb.minimize_focused),
-            evdev_to_key_name(kb.overview_toggle),
-            evdev_to_key_name(kb.quit),
-            self.quit_requires_shift,
+            "mod={} compositor_actions={} custom_launches={} pointer_actions={}",
+            self.keybinds.modifier_name(),
             self.compositor_bindings.len(),
             self.launch_bindings.len(),
-            evdev_to_key_name(kb.primary_left),
-            evdev_to_key_name(kb.primary_right),
-            evdev_to_key_name(kb.primary_up),
-            evdev_to_key_name(kb.primary_down),
-            evdev_to_key_name(kb.secondary_left),
-            evdev_to_key_name(kb.secondary_right),
-            evdev_to_key_name(kb.secondary_up),
-            evdev_to_key_name(kb.secondary_down),
-            evdev_to_key_name(kb.move_left),
-            evdev_to_key_name(kb.move_right),
-            evdev_to_key_name(kb.move_up),
-            evdev_to_key_name(kb.move_down),
+            self.pointer_bindings.len(),
         )
     }
 }
