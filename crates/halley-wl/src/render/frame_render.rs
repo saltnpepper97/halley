@@ -44,6 +44,7 @@ struct SceneCollections {
     active_elements: Vec<CroppedSurfaceElement>,
     resized_active_elements: Vec<CroppedSurfaceElement>,
     offscreen_textures: Vec<OffscreenNodeTexture>,
+    popup_offscreen_textures: Vec<OffscreenNodeTexture>,
     popup_elements: Vec<CroppedSurfaceElement>,
     border_rects: Vec<ActiveBorderRect>,
     overlay_rects: Vec<(i32, i32, i32, i32, Color32F)>,
@@ -196,6 +197,7 @@ fn collect_debug_frame_scene(
         active_elements,
         resized_active_elements,
         offscreen_textures,
+        popup_offscreen_textures,
         popup_elements,
         node_surface_map,
         border_rects,
@@ -248,6 +250,7 @@ fn collect_debug_frame_scene(
         active_elements,
         resized_active_elements,
         offscreen_textures,
+        popup_offscreen_textures,
         popup_elements,
         border_rects,
         overlay_rects,
@@ -325,6 +328,7 @@ fn draw_debug_frame_scene(
     }
 
     draw_offscreen_textures(frame, prepared.damage, &scene.offscreen_textures)?;
+    draw_offscreen_textures(frame, prepared.damage, &scene.popup_offscreen_textures)?;
 
     if !scene.popup_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.popup_elements, &[prepared.damage]);

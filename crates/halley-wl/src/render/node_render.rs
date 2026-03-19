@@ -446,6 +446,7 @@ pub(crate) fn collect_active_surfaces(
     Vec<CroppedSurfaceElement>,
     Vec<CroppedSurfaceElement>,
     Vec<OffscreenNodeTexture>,
+    Vec<OffscreenNodeTexture>,
     Vec<CroppedSurfaceElement>,
     HashMap<
         halley_core::field::NodeId,
@@ -459,6 +460,7 @@ pub(crate) fn collect_active_surfaces(
     let mut active_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut resized_active_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let mut popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
@@ -827,19 +829,71 @@ pub(crate) fn collect_active_surfaces(
             let popup_sy = sy
                 + ((parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y) as f32 * element_scale)
                     .round() as i32;
-            let popup_elems = render_elements_from_surface_tree(
-                renderer,
-                popup.wl_surface(),
-                (popup_sx, popup_sy),
-                element_scale as f64,
-                alpha,
-                Kind::Unspecified,
-            );
-            popup_cropped.extend(
-                popup_elems
-                    .into_iter()
-                    .filter_map(|e| CropRenderElement::from_element(e, 1.0, output_clip)),
-            );
+            if use_offscreen_zoom {
+                match render_surface_tree_to_texture(renderer, popup.wl_surface(), alpha) {
+                    Ok(offscreen) => {
+                        let src_x = 0;
+                        let src_y = 0;
+                        let src_w = offscreen.bbox.size.w.max(1);
+                        let src_h = offscreen.bbox.size.h.max(1);
+                        let dst_x =
+                            popup_sx + (offscreen.bbox.loc.x as f32 * element_scale).round() as i32;
+                        let dst_y =
+                            popup_sy + (offscreen.bbox.loc.y as f32 * element_scale).round() as i32;
+                        let dst_w = (offscreen.bbox.size.w as f32 * element_scale)
+                            .round()
+                            .max(1.0) as i32;
+                        let dst_h = (offscreen.bbox.size.h as f32 * element_scale)
+                            .round()
+                            .max(1.0) as i32;
+                        popup_offscreen_textures.push(OffscreenNodeTexture {
+                            texture: offscreen.texture,
+                            alpha,
+                            src_x,
+                            src_y,
+                            src_w,
+                            src_h,
+                            dst_x,
+                            dst_y,
+                            dst_w,
+                            dst_h,
+                            clip_x: output_clip.loc.x,
+                            clip_y: output_clip.loc.y,
+                            clip_w: output_clip.size.w,
+                            clip_h: output_clip.size.h,
+                        });
+                    }
+                    Err(_) => {
+                        let popup_elems = render_elements_from_surface_tree(
+                            renderer,
+                            popup.wl_surface(),
+                            (popup_sx, popup_sy),
+                            element_scale as f64,
+                            alpha,
+                            Kind::Unspecified,
+                        );
+                        popup_cropped.extend(
+                            popup_elems.into_iter().filter_map(|e| {
+                                CropRenderElement::from_element(e, 1.0, output_clip)
+                            }),
+                        );
+                    }
+                }
+            } else {
+                let popup_elems = render_elements_from_surface_tree(
+                    renderer,
+                    popup.wl_surface(),
+                    (popup_sx, popup_sy),
+                    element_scale as f64,
+                    alpha,
+                    Kind::Unspecified,
+                );
+                popup_cropped.extend(
+                    popup_elems
+                        .into_iter()
+                        .filter_map(|e| CropRenderElement::from_element(e, 1.0, output_clip)),
+                );
+            }
         }
 
         popup_elements.extend(popup_cropped);
@@ -849,6 +903,7 @@ pub(crate) fn collect_active_surfaces(
         active_elements,
         resized_active_elements,
         offscreen_textures,
+        popup_offscreen_textures,
         popup_elements,
         node_surface_map,
         border_rects,
