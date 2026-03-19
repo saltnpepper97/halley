@@ -387,7 +387,7 @@ fn draw_offscreen_textures(
             &[damage],
             &[clip],
             Transform::Normal,
-            1.0,
+            tex.alpha,
             None,
             &[],
         )?;

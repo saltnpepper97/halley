@@ -55,6 +55,7 @@ pub(crate) struct ActiveBorderRect {
 
 pub(crate) struct OffscreenNodeTexture {
     pub texture: GlesTexture,
+    pub alpha: f32,
     pub src_x: i32,
     pub src_y: i32,
     pub src_w: i32,
@@ -67,7 +68,6 @@ pub(crate) struct OffscreenNodeTexture {
     pub clip_y: i32,
     pub clip_w: i32,
     pub clip_h: i32,
-    pub focused: bool,
 }
 
 fn rect_from_local_geometry(
@@ -277,9 +277,66 @@ pub(crate) fn collect_active_surfaces(
         let use_offscreen_zoom = (cam_scale - 1.0).abs() > 0.001;
 
         if use_offscreen_zoom {
-            match render_surface_tree_to_texture(renderer, &wl, alpha) {
-                Ok(offscreen) => {
-                    let ob = offscreen.bbox;
+            let cache_miss = {
+                let cache =
+                    st.ensure_window_offscreen_cache(node_id, bbox.size.w, bbox.size.h, now);
+                cache.dirty || cache.texture.is_none() || cache.bbox.is_none()
+            };
+
+            if cache_miss {
+                match render_surface_tree_to_texture(renderer, &wl, 1.0) {
+                    Ok(offscreen) => {
+                        let cache = st
+                            .window_offscreen_cache
+                            .get_mut(&node_id)
+                            .expect("offscreen cache should exist after ensure");
+                        cache.texture = Some(offscreen.texture);
+                        cache.bbox = Some(offscreen.bbox);
+                        cache.mark_clean(now);
+                    }
+                    Err(_) => {
+                        let elems = render_elements_from_surface_tree(
+                            renderer,
+                            &wl,
+                            (sx, sy),
+                            element_scale as f64,
+                            alpha,
+                            Kind::Unspecified,
+                        );
+
+                        let (tx, ty, tw, th) = texture_rect;
+                        let display_clip = Rectangle::<i32, Physical>::new(
+                            (tx, ty).into(),
+                            (tw.max(1), th.max(1)).into(),
+                        );
+
+                        let cropped: Vec<_> = elems
+                            .into_iter()
+                            .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
+                            .collect();
+
+                        if draw_top_this_node {
+                            resized_active_elements.extend(cropped);
+                        } else {
+                            active_elements.extend(cropped);
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            if let Some(cache) = st.window_offscreen_cache.get_mut(&node_id) {
+                cache.touch(now);
+            }
+
+            match st.window_offscreen_cache.get(&node_id) {
+                Some(cache) => {
+                    let Some(texture) = cache.texture.as_ref() else {
+                        continue;
+                    };
+                    let Some(ob) = cache.bbox else {
+                        continue;
+                    };
 
                     // src = full bbox, dst = bbox scaled to screen positioned so geo
                     // lands on frame, clip = frame rect to discard CSD shadow bleed.
@@ -361,7 +418,8 @@ pub(crate) fn collect_active_surfaces(
                     };
 
                     offscreen_textures.push(OffscreenNodeTexture {
-                        texture: offscreen.texture,
+                        texture: texture.clone(),
+                        alpha,
                         src_x,
                         src_y,
                         src_w,
@@ -374,36 +432,9 @@ pub(crate) fn collect_active_surfaces(
                         clip_y,
                         clip_w,
                         clip_h,
-                        focused: st.interaction_focus == Some(node_id),
                     });
                 }
-                Err(_) => {
-                    let elems = render_elements_from_surface_tree(
-                        renderer,
-                        &wl,
-                        (sx, sy),
-                        element_scale as f64,
-                        alpha,
-                        Kind::Unspecified,
-                    );
-
-                    let (tx, ty, tw, th) = texture_rect;
-                    let display_clip = Rectangle::<i32, Physical>::new(
-                        (tx, ty).into(),
-                        (tw.max(1), th.max(1)).into(),
-                    );
-
-                    let cropped: Vec<_> = elems
-                        .into_iter()
-                        .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
-                        .collect();
-
-                    if draw_top_this_node {
-                        resized_active_elements.extend(cropped);
-                    } else {
-                        active_elements.extend(cropped);
-                    }
-                }
+                None => continue,
             }
         } else {
             let elems = render_elements_from_surface_tree(

@@ -17,7 +17,7 @@ use smithay::{
     input::{Seat, SeatState, pointer::CursorImageStatus},
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::wayland_server::{DisplayHandle, backend::ObjectId},
-    utils::{Size, Transform},
+    utils::{Logical, Rectangle, Transform},
     wayland::{
         compositor::CompositorState,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
@@ -32,6 +32,7 @@ use smithay::{
         viewporter::ViewporterState,
     },
 };
+use smithay::backend::renderer::gles::GlesTexture;
 
 use crate::activity::CommitActivity;
 use crate::anim::{AnimSpec, Animator};
@@ -87,7 +88,7 @@ pub(crate) struct WindowOffscreenKey {
     pub height: i32,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Default)]
 pub(crate) struct WindowOffscreenCache {
     /// Native 1.0x surface-tree bbox size used to build the offscreen image.
     pub key: WindowOffscreenKey,
@@ -97,6 +98,12 @@ pub(crate) struct WindowOffscreenCache {
 
     /// Last frame this cache entry was touched.
     pub last_used_at: Option<Instant>,
+
+    /// Cached 1.0x surface-tree render target for zoomed compositing.
+    pub texture: Option<GlesTexture>,
+
+    /// Logical bbox paired with the cached texture.
+    pub bbox: Option<Rectangle<i32, Logical>>,
 }
 
 impl WindowOffscreenCache {
@@ -108,6 +115,8 @@ impl WindowOffscreenCache {
     #[inline]
     pub fn set_size(&mut self, width: i32, height: i32) {
         self.key = WindowOffscreenKey { width, height };
+        self.texture = None;
+        self.bbox = None;
     }
 
     #[inline]
@@ -126,10 +135,6 @@ impl WindowOffscreenCache {
         self.last_used_at = Some(now);
     }
 
-    #[inline]
-    pub fn size(&self) -> Size<i32, smithay::utils::Physical> {
-        (self.key.width.max(1), self.key.height.max(1)).into()
-    }
 }
 
 pub struct HalleyWlState {

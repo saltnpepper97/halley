@@ -253,10 +253,6 @@ fn begin_resize(
         press_off_bottom_px: frame.sy - start_bottom,
         drag_started: true,
         resize_mode_sent: false,
-        live_geo_lx: 0.0,
-        live_geo_ly: 0.0,
-        live_geo_w: 0.0,
-        live_geo_h: 0.0,
     };
     if st.tuning.debug_tick_dump {
         info!(

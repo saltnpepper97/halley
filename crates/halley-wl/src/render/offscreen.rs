@@ -47,13 +47,6 @@ pub(crate) struct OffscreenSurfaceTexture {
     pub bbox: Rectangle<i32, Logical>,
 }
 
-impl OffscreenSurfaceTexture {
-    #[inline]
-    pub fn physical_size(&self) -> Size<i32, Physical> {
-        (self.bbox.size.w.max(1), self.bbox.size.h.max(1)).into()
-    }
-}
-
 pub(crate) fn render_surface_tree_to_texture(
     renderer: &mut GlesRenderer,
     wl: &WlSurface,

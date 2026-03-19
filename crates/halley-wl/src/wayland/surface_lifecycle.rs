@@ -35,6 +35,14 @@ impl HalleyWlState {
         surface.id()
     }
 
+    fn surface_tree_root(surface: &WlSurface) -> WlSurface {
+        let mut root = surface.clone();
+        while let Some(parent) = smithay::wayland::compositor::get_parent(&root) {
+            root = parent;
+        }
+        root
+    }
+
     fn viewport_contains_point(&self, pos: Vec2) -> bool {
         let half_w = self.viewport.size.x * 0.5;
         let half_h = self.viewport.size.y * 0.5;
@@ -310,6 +318,8 @@ impl HalleyWlState {
 
     pub fn note_commit(&mut self, surface: &WlSurface, now: Instant) {
         let key = Self::surface_key(surface);
+        let root_surface = Self::surface_tree_root(surface);
+        let root_key = Self::surface_key(&root_surface);
         self.surface_activity
             .entry(key.clone())
             .or_insert_with(|| CommitActivity::new(now))
@@ -326,17 +336,18 @@ impl HalleyWlState {
         // path has a live source of truth. Outside resize this is handled by
         // sync_node_size_from_surface on every render frame, but that path is
         // bypassed for the resizing node.
-        if let Some(node_id) = self.surface_to_node.get(&key).copied() {
+        if let Some(node_id) = self.surface_to_node.get(&root_key).copied() {
+            self.mark_window_offscreen_dirty(node_id);
             if self.resize_active == Some(node_id) {
                 use smithay::desktop::utils::bbox_from_surface_tree;
                 use smithay::wayland::compositor::with_states;
                 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
-                let bbox = bbox_from_surface_tree(surface, (0, 0));
+                let bbox = bbox_from_surface_tree(&root_surface, (0, 0));
                 self.bbox_loc
                     .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
 
-                let geo = with_states(surface, |states| {
+                let geo = with_states(&root_surface, |states| {
                     states
                         .cached_state
                         .get::<SurfaceCachedState>()
@@ -557,6 +568,7 @@ impl HalleyWlState {
                 self.interaction_focus_until_ms = 0;
             }
             self.smoothed_render_pos.remove(&id);
+            self.clear_window_offscreen_cache_for(id);
             let _ = self.field.remove(id);
         }
         self.request_maintenance();
