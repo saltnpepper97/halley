@@ -52,6 +52,7 @@ impl HalleyWlState {
         }
         self.active_transition_until_ms
             .insert(id, self.now_ms(now).saturating_add(duration_ms.max(1)));
+        self.request_maintenance();
     }
 
     pub fn active_transition_alpha(&self, id: NodeId, now: Instant) -> f32 {
@@ -165,6 +166,7 @@ impl HalleyWlState {
         }
 
         self.tuning = tuning;
+        self.request_maintenance();
 
         if let Some(id) = prev_focus {
             self.set_interaction_focus(Some(id), 30_000, Instant::now());

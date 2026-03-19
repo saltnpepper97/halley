@@ -325,8 +325,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let watch_rx_for_timer = watch_rx.clone();
             let config_path_for_timer = config_path.clone();
             let wayland_display_for_timer = sock_name.clone();
-            let last_maintenance_at = Rc::new(RefCell::new(Instant::now()));
-            let last_maintenance_for_timer = last_maintenance_at.clone();
             let (mw, mh) = drm_probe.mode.size();
             let backend_handle = TtyBackendHandle::new(mw as i32, mh as i32);
             state.zoom_ref_size = halley_core::field::Vec2 {
@@ -532,7 +530,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 })?;
             info!("libinput event source enabled for tty backend");
 
-            let timer = Timer::from_duration(Duration::from_millis(16));
+            let initial_frame_interval =
+                frame_interval_for_refresh_hz(Some(current_mode.borrow().vrefresh() as f64));
+            let timer = Timer::from_duration(initial_frame_interval);
             let gbm_surface_for_timer = drm_probe.gbm_surface.clone();
             let renderer_for_timer = drm_probe.renderer.clone();
 
@@ -608,14 +608,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let _ = advance_node_move_anim(st, &mut ps, now);
                     }
                     st.tick_live_overlap();
-                    {
-                        let mut last = last_maintenance_for_timer.borrow_mut();
-                        if !resize_active
-                            && now.duration_since(*last).as_millis() as u64 >= st.tuning.tick_ms
-                        {
-                            st.tick_maintenance(now);
-                            *last = now;
-                        }
+                    if !resize_active {
+                        st.run_maintenance_if_needed(now);
                     }
                 }
 
@@ -686,7 +680,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     *warned_pointer_missing_for_timer.borrow_mut() = true;
                 }
 
-                TimeoutAction::ToDuration(Duration::from_millis(16))
+                let frame_interval =
+                    frame_interval_for_refresh_hz(Some(current_mode_for_timer.borrow().vrefresh() as f64));
+                TimeoutAction::ToDuration(frame_interval)
             })?;
 
             info!("entering tty main loop");

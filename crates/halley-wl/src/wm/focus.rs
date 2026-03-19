@@ -125,6 +125,7 @@ impl HalleyWlState {
         }
         self.suspend_overlap_resolve = false;
         self.suspend_state_checks = false;
+        self.request_maintenance();
     }
 
     fn spawn_view_handoff_pan_distance(&self) -> f32 {
@@ -139,6 +140,7 @@ impl HalleyWlState {
         if self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
             self.spawn_view_anchor = self.viewport.center;
         }
+        self.request_maintenance();
         let Some(start_center) = self.spawn_pan_start_center else {
             return;
         };
@@ -301,6 +303,7 @@ impl HalleyWlState {
         let _ = self.field.touch(id, now_ms);
         let _ = self.field.set_decay_level(id, DecayLevel::Hot);
         self.manual_collapsed_nodes.remove(&id);
+        self.request_maintenance();
     }
 
     pub fn end_resize_interaction(&mut self, now: Instant) {
@@ -317,6 +320,7 @@ impl HalleyWlState {
         self.suspend_state_checks = false;
         self.suspend_overlap_resolve = false;
         self.resolve_surface_overlap();
+        self.request_maintenance();
     }
 
     pub fn resolve_overlap_now(&mut self) {
@@ -347,6 +351,7 @@ impl HalleyWlState {
                 self.interaction_focus_until_ms = 0;
                 self.reassert_wayland_keyboard_focus_if_drifted(None);
             }
+            self.request_maintenance();
             return;
         }
 
@@ -369,6 +374,7 @@ impl HalleyWlState {
             );
         }
         self.apply_wayland_focus_state(id);
+        self.request_maintenance();
     }
 
     pub fn last_focused_surface_node(&self) -> Option<NodeId> {
@@ -439,6 +445,7 @@ impl HalleyWlState {
 
                 self.set_interaction_focus(None, 0, now);
                 self.pan_restore_active_focus = None;
+                self.request_maintenance();
                 Some(id)
             }
             halley_core::field::NodeState::Node => {
@@ -447,6 +454,7 @@ impl HalleyWlState {
                 self.pending_spawn_activate_at_ms.remove(&id);
 
                 self.set_interaction_focus(Some(id), 30_000, now);
+                self.request_maintenance();
                 Some(id)
             }
             _ => None,

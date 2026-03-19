@@ -79,10 +79,6 @@ dev:
   zoom_decay_enabled true
   zoom_decay_min_frac 0.07
 
-  runtime:
-    tick-ms 200
-  end
-
   anim:
     enabled true
     state_change_ms 360

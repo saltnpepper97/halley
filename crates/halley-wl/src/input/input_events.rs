@@ -347,4 +347,5 @@ pub(crate) fn handle_backend_input_event(
             );
         }
     }
+    st.run_maintenance_if_needed(Instant::now());
 }

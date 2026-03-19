@@ -231,12 +231,6 @@ fn strip_inline_keybind_block(content: &str) -> String {
 }
 
 fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    out.tick_ms = pick_u64(
-        cfg,
-        &["dev.runtime.tick-ms", "dev.runtime.tick_ms"],
-        out.tick_ms,
-    );
-
     out.debug_tick_dump = pick_bool(cfg, &["dev.debug_tick_dump"], out.debug_tick_dump);
     out.debug_dump_every_ms = pick_u64(cfg, &["dev.debug_dump_every_ms"], out.debug_dump_every_ms);
 

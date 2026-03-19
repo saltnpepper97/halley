@@ -3,6 +3,7 @@ use std::os::unix::io::AsFd;
 use std::rc::Rc;
 use std::time::Instant;
 
+use calloop::ping::Ping;
 use halley_config::RuntimeTuning;
 use halley_core::cluster::ClusterId;
 use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_cluster_formation};
@@ -223,6 +224,8 @@ pub struct HalleyWlState {
     pub(crate) active_spawn_pan: Option<ActiveSpawnPan>,
     pub(crate) started_at: Instant,
     pub(crate) last_debug_dump_at: Instant,
+    pub(crate) maintenance_dirty: bool,
+    pub(crate) maintenance_ping: Option<Ping>,
 
     pub(crate) spawned_children: Vec<std::process::Child>,
 }
@@ -334,6 +337,8 @@ impl HalleyWlState {
             active_spawn_pan: None,
             started_at: now,
             last_debug_dump_at: now,
+            maintenance_dirty: true,
+            maintenance_ping: None,
 
             spawned_children: Vec::new(),
         };
@@ -472,7 +477,80 @@ impl HalleyWlState {
     }
 
     #[inline]
-    pub fn tick_maintenance(&mut self, now: Instant) {
+    pub fn set_maintenance_ping(&mut self, ping: Ping) {
+        self.maintenance_ping = Some(ping);
+        self.request_maintenance();
+    }
+
+    #[inline]
+    pub fn request_maintenance(&mut self) {
+        self.maintenance_dirty = true;
+        if let Some(ping) = &self.maintenance_ping {
+            ping.ping();
+        }
+    }
+
+    pub fn next_maintenance_deadline(&self, now: Instant) -> Option<Instant> {
+        if !self.app_focused {
+            return None;
+        }
+
+        let now_ms = self.now_ms(now);
+        let mut next_ms: Option<u64> = None;
+        let mut consider = |at_ms: u64| {
+            next_ms = Some(next_ms.map_or(at_ms, |cur| cur.min(at_ms)));
+        };
+
+        if self.interaction_focus.is_some() && self.interaction_focus_until_ms > now_ms {
+            consider(self.interaction_focus_until_ms);
+        }
+        if self.resize_static_node.is_some() && self.resize_static_until_ms > now_ms {
+            consider(self.resize_static_until_ms);
+        }
+        if let Some(at_ms) = self.pending_spawn_activate_at_ms.values().copied().min()
+            && at_ms > now_ms
+        {
+            consider(at_ms);
+        }
+        if let Some(at_ms) = self.active_transition_until_ms.values().copied().min()
+            && at_ms > now_ms
+        {
+            consider(at_ms);
+        }
+        if let Some(at_ms) = self.primary_promote_cooldown_until_ms.values().copied().min()
+            && at_ms > now_ms
+        {
+            consider(at_ms);
+        }
+        if self.tuning.debug_tick_dump {
+            consider(
+                now_ms.saturating_add(
+                    self.tuning.debug_dump_every_ms.saturating_sub(
+                        now.duration_since(self.last_debug_dump_at).as_millis() as u64,
+                    ),
+                ),
+            );
+        }
+
+        next_ms.map(|at_ms| {
+            now.checked_add(std::time::Duration::from_millis(at_ms.saturating_sub(now_ms)))
+                .unwrap_or(now)
+        })
+    }
+
+    #[inline]
+    pub fn run_maintenance_if_needed(&mut self, now: Instant) {
+        let due = self
+            .next_maintenance_deadline(now)
+            .is_some_and(|deadline| deadline <= now);
+        if self.maintenance_dirty || due {
+            self.run_maintenance(now);
+        }
+    }
+
+    #[inline]
+    pub fn run_maintenance(&mut self, now: Instant) {
+        self.maintenance_dirty = false;
         if !self.app_focused {
             return;
         }

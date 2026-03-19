@@ -59,3 +59,8 @@ pub(crate) mod tty;
 pub(crate) mod tty_drm;
 pub(crate) mod tty_input;
 pub(crate) mod winit;
+
+pub(crate) fn frame_interval_for_refresh_hz(refresh_hz: Option<f64>) -> Duration {
+    let hz = refresh_hz.unwrap_or(60.0).clamp(30.0, 360.0);
+    Duration::from_secs_f64(1.0 / hz)
+}

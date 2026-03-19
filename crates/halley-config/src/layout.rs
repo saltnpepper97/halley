@@ -14,7 +14,6 @@ use super::{
 
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
-    pub tick_ms: u64,
     pub debug_tick_dump: bool,
     pub debug_dump_every_ms: u64,
 
@@ -77,7 +76,6 @@ pub struct ViewportOutputConfig {
 impl Default for RuntimeTuning {
     fn default() -> Self {
         Self {
-            tick_ms: 200,
             debug_tick_dump: false,
             debug_dump_every_ms: 1000,
             viewport_center: Vec2 { x: 0.0, y: 0.0 },
@@ -167,7 +165,6 @@ impl RuntimeTuning {
     }
 
     fn clamp_values(&mut self) {
-        self.tick_ms = self.tick_ms.clamp(16, 5000);
         self.debug_dump_every_ms = self.debug_dump_every_ms.clamp(100, 60_000);
 
         self.viewport_center.x = self.viewport_center.x.clamp(-100_000.0, 100_000.0);

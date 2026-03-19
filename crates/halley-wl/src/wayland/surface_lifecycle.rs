@@ -559,6 +559,7 @@ impl HalleyWlState {
             self.smoothed_render_pos.remove(&id);
             let _ = self.field.remove(id);
         }
+        self.request_maintenance();
     }
 }
 
