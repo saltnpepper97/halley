@@ -12,6 +12,26 @@ use super::{
     LaunchBinding, PointerBinding, PointerBindingAction,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NodeBorderColorMode {
+    UseWindowActive,
+    UseWindowInactive,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NodeDisplayPolicy {
+    Off,
+    Hover,
+    Always,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NodeBackgroundColorMode {
+    Auto,
+    Theme,
+    Fixed { r: f32, g: f32, b: f32 },
+}
+
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
     pub debug_tick_dump: bool,
@@ -27,6 +47,12 @@ pub struct RuntimeTuning {
 
     pub primary_hot_inner_frac: f32,
     pub primary_to_node_ms: u64,
+    pub node_show_labels: NodeDisplayPolicy,
+    pub node_show_app_icons: NodeDisplayPolicy,
+    pub node_icon_size: f32,
+    pub node_background_color: NodeBackgroundColorMode,
+    pub node_border_color_hover: NodeBorderColorMode,
+    pub node_border_color_inactive: NodeBorderColorMode,
 
     pub dev_enabled: bool,
     pub dev_show_geometry_overlay: bool,
@@ -91,6 +117,12 @@ impl Default for RuntimeTuning {
 
             primary_hot_inner_frac: 0.88,
             primary_to_node_ms: 1_260_000,
+            node_show_labels: NodeDisplayPolicy::Hover,
+            node_show_app_icons: NodeDisplayPolicy::Always,
+            node_icon_size: 0.72,
+            node_background_color: NodeBackgroundColorMode::Auto,
+            node_border_color_hover: NodeBorderColorMode::UseWindowActive,
+            node_border_color_inactive: NodeBorderColorMode::UseWindowInactive,
 
             dev_enabled: false,
             dev_show_geometry_overlay: false,
@@ -145,9 +177,15 @@ impl RuntimeTuning {
     }
 
     pub fn load_from_path(path: &str) -> Self {
-        let mut out = Self::from_rune_file(path).unwrap_or_default();
+        let mut out = Self::try_load_from_path(path).unwrap_or_default();
         out.clamp_values();
         out
+    }
+
+    pub fn try_load_from_path(path: &str) -> Option<Self> {
+        let mut out = Self::from_rune_file(path)?;
+        out.clamp_values();
+        Some(out)
     }
 
     pub fn apply_process_env(&self) {
@@ -179,6 +217,7 @@ impl RuntimeTuning {
 
         self.primary_hot_inner_frac = self.primary_hot_inner_frac.clamp(0.1, 1.0);
         self.primary_to_node_ms = self.primary_to_node_ms.clamp(250, 7_200_000);
+        self.node_icon_size = self.node_icon_size.clamp(0.35, 0.95);
 
         self.dev_zoom_decay_min_frac = self.dev_zoom_decay_min_frac.clamp(0.005, 0.5);
         self.dev_anim_state_change_ms = self.dev_anim_state_change_ms.clamp(30, 3_000);

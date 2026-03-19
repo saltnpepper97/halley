@@ -5,6 +5,8 @@ use halley_core::field::{NodeId, Vec2};
 use smithay::reexports::wayland_server::{
     Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
 };
+use smithay::wayland::compositor::with_states;
+use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
 use crate::activity::CommitActivity;
 use crate::state::HalleyWlState;
@@ -50,6 +52,83 @@ impl HalleyWlState {
             && pos.x <= self.viewport.center.x + half_w
             && pos.y >= self.viewport.center.y - half_h
             && pos.y <= self.viewport.center.y + half_h
+    }
+
+    fn compact_app_id_label(app_id: &str) -> Option<String> {
+        let tail = app_id
+            .rsplit(['.', '/'])
+            .next()
+            .unwrap_or(app_id)
+            .trim_matches(|ch: char| matches!(ch, '"' | '\'' | ' '));
+        if tail.is_empty() {
+            return None;
+        }
+
+        let mut out = String::with_capacity(tail.len());
+        let mut upper_next = true;
+        for ch in tail.chars() {
+            if matches!(ch, '-' | '_' | '.') {
+                if !out.ends_with(' ') {
+                    out.push(' ');
+                }
+                upper_next = true;
+                continue;
+            }
+            if upper_next {
+                out.extend(ch.to_uppercase());
+                upper_next = false;
+            } else {
+                out.push(ch);
+            }
+        }
+
+        Some(out.trim().to_string()).filter(|value| !value.is_empty())
+    }
+
+    fn surface_identity(surface: &WlSurface) -> (Option<String>, Option<String>) {
+        with_states(surface, |states| {
+            states
+                .data_map
+                .get::<XdgToplevelSurfaceData>()
+                .map(|data| {
+                    let guard = data.lock().expect("xdg toplevel surface data");
+                    (
+                        guard.title.clone().filter(|value| !value.trim().is_empty()),
+                        guard.app_id.clone().filter(|value| !value.trim().is_empty()),
+                    )
+                })
+                .unwrap_or((None, None))
+        })
+    }
+
+    pub(crate) fn refresh_node_identity_for_surface(
+        &mut self,
+        surface: &WlSurface,
+        fallback_label: &str,
+    ) {
+        let root_surface = Self::surface_tree_root(surface);
+        let root_key = Self::surface_key(&root_surface);
+        let Some(node_id) = self.surface_to_node.get(&root_key).copied() else {
+            return;
+        };
+
+        let (title, app_id) = Self::surface_identity(&root_surface);
+        let label = title
+            .or_else(|| app_id.as_deref().and_then(Self::compact_app_id_label))
+            .unwrap_or_else(|| fallback_label.to_string());
+
+        if let Some(node) = self.field.node_mut(node_id) {
+            node.label = label;
+        }
+
+        match app_id {
+            Some(app_id) => {
+                self.node_app_ids.insert(node_id, app_id);
+            }
+            None => {
+                self.node_app_ids.remove(&node_id);
+            }
+        }
     }
 
     fn current_spawn_focus(&self) -> (Option<NodeId>, Vec2) {
@@ -338,9 +417,9 @@ impl HalleyWlState {
         // bypassed for the resizing node.
         if let Some(node_id) = self.surface_to_node.get(&root_key).copied() {
             self.mark_window_offscreen_dirty(node_id);
+            self.refresh_node_identity_for_surface(&root_surface, "Window");
             if self.resize_active == Some(node_id) {
                 use smithay::desktop::utils::bbox_from_surface_tree;
-                use smithay::wayland::compositor::with_states;
                 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
                 let bbox = bbox_from_surface_tree(&root_surface, (0, 0));
@@ -412,6 +491,7 @@ impl HalleyWlState {
         if needs_pan {
             self.queue_spawn_pan_to_node(id, Instant::now());
         }
+        self.refresh_node_identity_for_surface(surface, label);
         id
     }
 
@@ -544,6 +624,7 @@ impl HalleyWlState {
             self.zoom_resize_reject_streak.remove(&id);
             self.zoom_last_observed_size.remove(&id);
             self.zoom_resize_static_streak.remove(&id);
+            self.node_app_ids.remove(&id);
             self.last_active_size.remove(&id);
             self.bbox_loc.remove(&id);
             self.window_geometry.remove(&id);

@@ -220,6 +220,14 @@ impl XdgShellHandler for HalleyWlState {
         self.request_maintenance();
     }
 
+    fn app_id_changed(&mut self, surface: ToplevelSurface) {
+        self.refresh_node_identity_for_surface(surface.wl_surface(), "Window");
+    }
+
+    fn title_changed(&mut self, surface: ToplevelSurface) {
+        self.refresh_node_identity_for_surface(surface.wl_surface(), "Window");
+    }
+
     fn new_popup(&mut self, popup: PopupSurface, _positioner: PositionerState) {
         let _ = self
             .popup_manager

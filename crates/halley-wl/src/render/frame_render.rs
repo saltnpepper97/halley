@@ -17,12 +17,14 @@ use crate::interaction::types::ResizeCtx;
 use crate::spatial::node_in_active_area;
 use crate::state::HalleyWlState;
 
+use super::app_icon::ensure_node_app_icon_resources;
 use super::cursor_render::{cursor_surface_hotspot, draw_cursor_sprite};
 use super::cursor_theme::themed_cursor_sprite_with_fallback;
 use super::layer_render::collect_layer_surfaces;
 use super::node_render::{
     ActiveBorderRect, NodeSnapshot, OffscreenNodeTexture, collect_active_surfaces,
-    collect_hover_preview, draw_node_markers,
+    collect_hover_preview, draw_node_hover_labels, draw_node_markers,
+    ensure_node_circle_resources,
 };
 use super::ACTIVE_WINDOW_FRAME_PAD_PX;
 use super::render_utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
@@ -139,6 +141,8 @@ pub(crate) fn draw_debug_frame_to_target(
     cursor_image: Option<&smithay::input::pointer::CursorImageStatus>,
     frame_transform: Transform,
 ) -> Result<(), Box<dyn Error>> {
+    ensure_node_circle_resources(renderer, st)?;
+
     let prepared = prepare_debug_frame_state(st, size);
     let scene = collect_debug_frame_scene(
         renderer,
@@ -149,6 +153,7 @@ pub(crate) fn draw_debug_frame_to_target(
         preview_hover_node,
         prepared.now,
     );
+    ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
 
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
@@ -292,6 +297,17 @@ fn draw_debug_frame_scene(
         let _ = draw_render_elements(frame, 1.0, &scene.layer_under_elements, &[prepared.damage]);
     }
 
+    // Node markers drawn first — they should sit behind active windows, not on top.
+    draw_node_markers(
+        frame,
+        st,
+        size,
+        &scene.render_nodes,
+        hover_node,
+        prepared.damage,
+        prepared.now,
+    )?;
+
     draw_window_backgrounds(frame, size, prepared.damage, &scene.border_rects)?;
 
     if !scene.active_elements.is_empty() {
@@ -317,7 +333,13 @@ fn draw_debug_frame_scene(
 
     draw_geometry_overlays(frame, st, size, prepared.damage, scene)?;
 
-    draw_node_markers(
+    draw_hover_preview(frame, prepared.damage, scene)?;
+
+    if !scene.layer_over_elements.is_empty() {
+        let _ = draw_render_elements(frame, 1.0, &scene.layer_over_elements, &[prepared.damage]);
+    }
+
+    draw_node_hover_labels(
         frame,
         st,
         size,
@@ -326,12 +348,6 @@ fn draw_debug_frame_scene(
         prepared.damage,
         prepared.now,
     )?;
-
-    draw_hover_preview(frame, prepared.damage, scene)?;
-
-    if !scene.layer_over_elements.is_empty() {
-        let _ = draw_render_elements(frame, 1.0, &scene.layer_over_elements, &[prepared.damage]);
-    }
 
     let focus_ring = st.active_focus_ring();
     let ring_world_cx = st.viewport.center.x + focus_ring.offset_x;

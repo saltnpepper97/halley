@@ -2,6 +2,7 @@ use glam::{Vec2, Vec4};
 use halley_core::field::Field;
 use halley_core::viewport::{FocusRing, FocusZone, Viewport};
 
+mod app_icon;
 mod cursor_render;
 mod cursor_theme;
 mod frame_render;
@@ -13,7 +14,7 @@ mod render_utils;
 pub(crate) const ACTIVE_WINDOW_FRAME_PAD_PX: i32 = 3;
 
 pub(crate) use frame_render::{draw_debug_frame, draw_debug_frame_to_target};
-pub(crate) use render_utils::{node_marker_bounds, node_marker_metrics, world_to_screen};
+pub(crate) use render_utils::{node_marker_metrics, node_render_diameter_px, world_to_screen};
 pub(crate) use render_utils::preview_proxy_size;
 
 #[derive(Clone, Copy, Debug)]

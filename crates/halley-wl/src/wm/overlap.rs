@@ -1,5 +1,6 @@
 use super::*;
 use crate::render::ACTIVE_WINDOW_FRAME_PAD_PX;
+use crate::render::node_render_diameter_px;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 
@@ -293,31 +294,28 @@ impl HalleyWlState {
         out.clamp(0.24, 1.08)
     }
 
-    #[inline]
-    fn proxy_collision_scale(anim_scale: f32) -> f32 {
-        anim_scale.clamp(0.22, 1.4)
-    }
-
-    fn node_collision_extents(&self, label: &str, anim_scale: f32) -> CollisionExtents {
-        let g = Self::proxy_collision_scale(anim_scale);
-
-        let dot_half_px = (4.0 * g).round().clamp(4.0, 18.0);
-        let label_h_px = (4.0 * g).round().clamp(4.0, 14.0);
-        let label_gap_px = (8.0 + (g - 1.0) * 8.0).round().clamp(8.0, 28.0);
-        let label_w_px = ((label.len() as f32 * 6.0) * (0.9 + 0.6 * g))
-            .round()
-            .clamp(24.0, 320.0);
-        let pad_px = 6.0;
-
-        let dot_d_px = (dot_half_px * 2.0).max(1.0);
-        let marker_w_px = (dot_d_px + label_gap_px + label_w_px + pad_px * 2.0).max(8.0);
-        let marker_h_px = (dot_d_px.max(label_h_px) + pad_px * 2.0).max(8.0);
+    fn node_collision_extents_stable(
+        &self,
+        intrinsic_size: Vec2,
+        label: &str,
+        anim_scale: f32,
+    ) -> CollisionExtents {
+        let diameter_px = node_render_diameter_px(self, intrinsic_size, label.len(), anim_scale);
+        let radius_px = (diameter_px * 0.5).round().max(1.0);
 
         CollisionExtents::symmetric(Vec2 {
-            // Keep collision bounds aligned with the rendered pill instead of the
-            // larger hover proxy so node-to-window spacing matches window spacing.
-            x: marker_w_px.max(1.0),
-            y: marker_h_px.max(1.0),
+            x: radius_px * 2.0,
+            y: radius_px * 2.0,
+        })
+    }
+
+    fn node_collision_extents(&self, intrinsic_size: Vec2, label: &str, anim_scale: f32) -> CollisionExtents {
+        let stable = self.node_collision_extents_stable(intrinsic_size, label, anim_scale);
+        let cam_scale = self.camera_render_scale().max(0.01);
+
+        CollisionExtents::symmetric(Vec2 {
+            x: stable.size().x / cam_scale,
+            y: stable.size().y / cam_scale,
         })
     }
 
@@ -386,10 +384,10 @@ impl HalleyWlState {
                 }
             }
             halley_core::field::NodeState::Node => {
-                self.node_collision_extents(&n.label, anim.scale)
+                self.node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
             }
             halley_core::field::NodeState::Core => {
-                self.node_collision_extents(&n.label, anim.scale)
+                self.node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
             }
             halley_core::field::NodeState::Drifting => CollisionExtents::symmetric(n.footprint),
         }
@@ -397,6 +395,18 @@ impl HalleyWlState {
 
     pub(super) fn collision_size_for_node(&self, n: &halley_core::field::Node) -> Vec2 {
         self.collision_extents_for_node(n).size()
+    }
+
+    fn layout_collision_extents_for_node(
+        &self,
+        n: &halley_core::field::Node,
+    ) -> CollisionExtents {
+        match n.state {
+            halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
+                self.collision_extents_for_node(n)
+            }
+            _ => self.collision_extents_for_node(n),
+        }
     }
 
     pub(crate) fn resolve_surface_overlap(&mut self) {
@@ -447,8 +457,8 @@ impl HalleyWlState {
                         continue;
                     }
 
-                    let ea = self.collision_extents_for_node(na);
-                    let eb = self.collision_extents_for_node(nb);
+                    let ea = self.layout_collision_extents_for_node(na);
+                    let eb = self.layout_collision_extents_for_node(nb);
 
                     let dx = b_pos.x - a_pos.x;
                     let dy = b_pos.y - a_pos.y;
@@ -651,6 +661,98 @@ mod tests {
             ext.top + ext.bottom < 120.0,
             "collapsed node collision height should stay marker-sized, got {:?}",
             ext
+        );
+    }
+
+    #[test]
+    fn collapsed_surface_nodes_match_rendered_node_diameter() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new(&dh, tuning);
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        state.zoom_ref_size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+
+        let id = state.field.spawn_surface(
+            "collapsed-firefox",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 900.0,
+            },
+        );
+        let _ = state
+            .field
+            .set_state(id, halley_core::field::NodeState::Node);
+
+        let node = state.field.node(id).expect("node");
+        let ext = state.collision_extents_for_node(node);
+        let anim = state.anim_style_for(id, node.state.clone(), Instant::now());
+        let expected =
+            node_render_diameter_px(&state, node.intrinsic_size, node.label.len(), anim.scale);
+
+        assert_eq!(ext.left + ext.right, expected.round());
+        assert_eq!(ext.top + ext.bottom, expected.round());
+    }
+
+    #[test]
+    fn resolve_overlap_now_separates_collapsed_nodes_when_zoomed_out() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new(&dh, tuning);
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        state.zoom_ref_size = Vec2 {
+            x: 3200.0,
+            y: 2400.0,
+        };
+
+        let a = state.field.spawn_surface(
+            "alpha",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        let b =
+            state
+                .field
+                .spawn_surface("beta", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 320.0, y: 220.0 });
+        let _ = state
+            .field
+            .set_state(a, halley_core::field::NodeState::Node);
+        let _ = state
+            .field
+            .set_state(b, halley_core::field::NodeState::Node);
+
+        state.resolve_overlap_now();
+
+        let na = state.field.node(a).expect("node a");
+        let nb = state.field.node(b).expect("node b");
+        let ea = state.collision_extents_for_node(na);
+        let eb = state.collision_extents_for_node(nb);
+        let gap = state.non_overlap_gap_world();
+        let dx = (nb.pos.x - na.pos.x).abs();
+        let dy = (nb.pos.y - na.pos.y).abs();
+        let req_x = state.required_sep_x(na.pos.x, ea, nb.pos.x, eb, gap);
+        let req_y = state.required_sep_y(na.pos.y, ea, nb.pos.y, eb, gap);
+
+        assert!(
+            dx >= req_x || dy >= req_y,
+            "collapsed nodes still overlap after zoomed-out resolve: a={:?} b={:?} req=({}, {})",
+            na.pos,
+            nb.pos,
+            req_x,
+            req_y
         );
     }
 

@@ -299,6 +299,7 @@ impl HalleyWlState {
                 self.zoom_resize_reject_streak.remove(&id);
                 self.zoom_last_observed_size.remove(&id);
                 self.zoom_resize_static_streak.remove(&id);
+                self.node_app_ids.remove(&id);
                 self.last_active_size.remove(&id);
                 self.bbox_loc.remove(&id);
                 self.window_geometry.remove(&id);

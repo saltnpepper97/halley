@@ -32,7 +32,7 @@ use smithay::{
         viewporter::ViewporterState,
     },
 };
-use smithay::backend::renderer::gles::GlesTexture;
+use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
 
 use crate::activity::CommitActivity;
 use crate::animation::{AnimSpec, Animator};
@@ -137,6 +137,19 @@ impl WindowOffscreenCache {
 
 }
 
+#[derive(Clone)]
+pub(crate) struct NodeAppIconTexture {
+    pub texture: GlesTexture,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[derive(Clone)]
+pub(crate) enum NodeAppIconCacheEntry {
+    Ready(NodeAppIconTexture),
+    Missing,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FullscreenSessionEntry {
     pub pos: Vec2,
@@ -186,6 +199,8 @@ pub struct HalleyWlState {
 
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
     pub surface_to_node: HashMap<ObjectId, NodeId>,
+    pub(crate) node_app_ids: HashMap<NodeId, String>,
+    pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
     pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_fallback: HashSet<NodeId>,
     pub(crate) zoom_resize_reject_streak: HashMap<NodeId, u8>,
@@ -239,6 +254,8 @@ pub struct HalleyWlState {
     pub(crate) recent_top_node: Option<NodeId>,
     pub(crate) recent_top_until: Option<Instant>,
     pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
+    pub(crate) node_circle_texture: Option<GlesTexture>,
+    pub(crate) node_circle_program: Option<GlesTexProgram>,
     pub(crate) fullscreen_active_node: Option<NodeId>,
     pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
     pub(crate) fullscreen_motion: HashMap<NodeId, FullscreenMotion>,
@@ -308,6 +325,8 @@ impl HalleyWlState {
 
             surface_activity: HashMap::new(),
             surface_to_node: HashMap::new(),
+            node_app_ids: HashMap::new(),
+            node_app_icon_cache: HashMap::new(),
             zoom_nominal_size: HashMap::new(),
             zoom_resize_fallback: HashSet::new(),
             zoom_resize_reject_streak: HashMap::new(),
@@ -356,6 +375,8 @@ impl HalleyWlState {
             recent_top_node: None,
             recent_top_until: None,
             window_offscreen_cache: HashMap::new(),
+            node_circle_texture: None,
+            node_circle_program: None,
             fullscreen_active_node: None,
             fullscreen_restore: HashMap::new(),
             fullscreen_motion: HashMap::new(),

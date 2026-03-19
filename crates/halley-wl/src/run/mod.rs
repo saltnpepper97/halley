@@ -27,6 +27,12 @@ static XWAYLAND_REQUEST_TX: OnceCell<mpsc::Sender<()>> = OnceCell::new();
 // allowing Drop impls (including the spawned-children cleanup) to run.
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
+pub(crate) struct LiveCameraState {
+    viewport: halley_core::viewport::Viewport,
+    zoom_ref_size: halley_core::field::Vec2,
+    viewport_pan_anim: Option<crate::wm::ViewportPanAnim>,
+}
+
 extern "C" fn handle_shutdown_signal(_: libc::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
 }
@@ -64,6 +70,22 @@ pub(crate) fn run_autostart_commands(
     }
 }
 
+pub(crate) fn capture_live_camera_state(st: &mut HalleyWlState) -> LiveCameraState {
+    LiveCameraState {
+        viewport: st.viewport,
+        zoom_ref_size: st.zoom_ref_size,
+        viewport_pan_anim: st.viewport_pan_anim.take(),
+    }
+}
+
+pub(crate) fn restore_live_camera_state(st: &mut HalleyWlState, state: LiveCameraState) {
+    st.viewport = state.viewport;
+    st.zoom_ref_size = state.zoom_ref_size;
+    st.viewport_pan_anim = state.viewport_pan_anim;
+    st.tuning.viewport_center = st.viewport.center;
+    st.tuning.viewport_size = st.viewport.size;
+}
+
 pub(crate) fn apply_reloaded_tuning(
     st: &mut HalleyWlState,
     next: RuntimeTuning,
@@ -71,17 +93,41 @@ pub(crate) fn apply_reloaded_tuning(
     wayland_display: &str,
     reason: &str,
 ) {
+    let live_camera = capture_live_camera_state(st);
     st.apply_tuning(next);
+    restore_live_camera_state(st, live_camera);
     // Clone to avoid borrow conflict when passing st mutably below.
     let reload_commands = st.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     info!("{reason}: reloaded config from {}", config_path);
 }
 
+fn normalized_tty_viewports(
+    tuning: &RuntimeTuning,
+) -> Vec<(String, i32, i32, u32, u32, Option<i64>)> {
+    let mut out: Vec<_> = tuning
+        .tty_viewports
+        .iter()
+        .map(|viewport| {
+            let refresh_millihz = viewport
+                .refresh_rate
+                .map(|hz| (hz * 1000.0).round() as i64);
+            (
+                viewport.connector.clone(),
+                viewport.offset_x,
+                viewport.offset_y,
+                viewport.width,
+                viewport.height,
+                refresh_millihz,
+            )
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
 pub(crate) fn viewport_section_changed(prev: &RuntimeTuning, next: &RuntimeTuning) -> bool {
-    prev.viewport_center != next.viewport_center
-        || prev.viewport_size != next.viewport_size
-        || prev.tty_viewports != next.tty_viewports
+    normalized_tty_viewports(prev) != normalized_tty_viewports(next)
 }
 
 pub(crate) fn preserve_viewport_section(

@@ -3,7 +3,7 @@ use std::time::Instant;
 use crate::input::active_node_screen_rect;
 use crate::interaction::types::HitNode;
 use crate::interaction::types::ResizeCtx;
-use crate::render::{node_marker_bounds, node_marker_metrics, world_to_screen};
+use crate::render::{node_marker_metrics, world_to_screen};
 use crate::state::HalleyWlState;
 use halley_core::viewport::FocusZone;
 
@@ -61,15 +61,11 @@ pub(crate) fn pick_hit_node_at(
             }
             halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
                 let (cx, cy) = world_to_screen(st, w, h, n.pos.x, n.pos.y);
-                let (dot_half, label_gap, label_w, label_h) =
-                    node_marker_metrics(st, n.label.len(), anim.scale);
-                let (bx, by, bw, bh) =
-                    node_marker_bounds(cx, cy, dot_half, label_gap, label_w, label_h, 6);
-                let hit_all = sx >= bx as f32
-                    && sx <= (bx + bw) as f32
-                    && sy >= by as f32
-                    && sy <= (by + bh) as f32;
-                if hit_all {
+                let (dot_half, _, _, _) = node_marker_metrics(st, n.label.len(), anim.scale);
+                let radius = (dot_half + 10).max(1) as f32;
+                let dx = sx - cx as f32;
+                let dy = sy - cy as f32;
+                if dx * dx + dy * dy <= radius * radius {
                     Some(HitNode {
                         node_id: id,
                         on_titlebar: false,

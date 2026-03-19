@@ -143,8 +143,12 @@ nodes:
   collapse-delay 3000
   collapse-scale 0.6
 
-  # Display labels when nodes are visible
-  show-labels true
+  # Keep identity visible without filling the field with text.
+  show-labels "hover"
+  show-app-icons "always"
+  # Fraction of the node diameter used for app icons.
+  icon-size 0.72
+  background-colour "auto"
 
   border-colour-active "use-window-active"
   border-colour-inactive "use-window-inactive"

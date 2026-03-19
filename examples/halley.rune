@@ -24,6 +24,20 @@ focus-ring:
   offset-y 0
 end
 
+node:
+  # Keep nodes recognizable without making the field too noisy.
+  show-labels "hover"
+  show-app-icons "always"
+  # Size is a fraction of the node diameter.
+  icon-size 0.72
+
+  # Auto tints the node fill from its border colour.
+  background-colour "auto"
+
+  border-colour-hover "use-window-active"
+  border-colour-inactive "use-window-inactive"
+end
+
 clusters:
   distance-px 280.0
   dwell-ms 900

@@ -13,6 +13,8 @@ use smithay::backend::input::{
     PointerButtonEvent, PointerMotionEvent,
 };
 
+const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
+
 fn apply_tty_reload(
     dev: &Rc<RefCell<DrmDevice>>,
     gbm_surface: &Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
@@ -87,7 +89,9 @@ fn apply_tty_reload(
         x: mw as f32,
         y: mh as f32,
     };
+    let live_camera = crate::run::capture_live_camera_state(st);
     st.apply_tuning(next);
+    crate::run::restore_live_camera_state(st, live_camera);
     st.advertise_primary_output(current_connector_name.borrow().as_str(), target_mode.into());
     let outputs = {
         let dev_ref = dev.borrow();
@@ -323,6 +327,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let warned_pointer_missing_for_timer = warned_pointer_missing.clone();
             let watch_rx = Rc::new(RefCell::new(watch_rx));
             let watch_rx_for_timer = watch_rx.clone();
+            let pending_watch_reload_at = Rc::new(RefCell::new(None::<Instant>));
+            let pending_watch_reload_at_for_timer = pending_watch_reload_at.clone();
             let config_path_for_timer = config_path.clone();
             let wayland_display_for_timer = sock_name.clone();
             let (mw, mh) = drm_probe.mode.size();
@@ -360,7 +366,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let backend_handle_for_timer = backend_handle.clone();
             ev.handle().insert_source(
                 drm_probe.notifier,
-                move |event, metadata, _st| match event {
+                move |event, _metadata, _st| match event {
                     DrmEvent::VBlank(crtc) => {
                         let expected_crtc = { gbm_surface_for_vblank.borrow().crtc() };
                         if crtc != expected_crtc {
@@ -378,9 +384,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         if let Err(err) = gbm_surface_for_vblank.borrow_mut().frame_submitted() {
                             warn!("failed to mark drm frame submitted: {}", err);
                         }
-                        if let Some(m) = metadata {
-                            debug!("drm vblank seq={} crtc={:?}", m.sequence, crtc);
-                        }
                     }
                     DrmEvent::Error(err) => warn!("drm event error: {}", err),
                 },
@@ -394,6 +397,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 &drm_probe.renderer,
                 &mut state,
                 initial_resize_preview,
+                None,
+                None,
                 initial_cursor,
                 Some(&initial_cursor_image),
             ) {
@@ -559,30 +564,38 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         st.request_exit();
                     }
                     RuntimeIpcCommand::Reload => {
-                        let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        if crate::run::viewport_section_changed(&st.tuning, &next) {
-                            apply_tty_reload(
-                                &dev_for_timer,
-                                &gbm_surface_for_timer,
-                                &backend_handle_for_timer,
-                                &pointer_state_for_timer,
-                                st,
-                                next,
-                                config_path_for_timer.as_str(),
-                                wayland_display_for_timer.as_str(),
-                                "ipc",
-                                &current_connector_name_for_timer,
-                                &current_mode_for_timer,
-                                drm_crtc,
-                            );
+                        if let Some(next) =
+                            RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
+                        {
+                            if crate::run::viewport_section_changed(&st.tuning, &next) {
+                                apply_tty_reload(
+                                    &dev_for_timer,
+                                    &gbm_surface_for_timer,
+                                    &backend_handle_for_timer,
+                                    &pointer_state_for_timer,
+                                    st,
+                                    next,
+                                    config_path_for_timer.as_str(),
+                                    wayland_display_for_timer.as_str(),
+                                    "ipc",
+                                    &current_connector_name_for_timer,
+                                    &current_mode_for_timer,
+                                    drm_crtc,
+                                );
+                            } else {
+                                let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                                crate::run::apply_reloaded_tuning(
+                                    st,
+                                    next,
+                                    config_path_for_timer.as_str(),
+                                    wayland_display_for_timer.as_str(),
+                                    "ipc",
+                                );
+                            }
                         } else {
-                            let next = crate::run::preserve_viewport_section(&st.tuning, next);
-                            crate::run::apply_reloaded_tuning(
-                                st,
-                                next,
-                                config_path_for_timer.as_str(),
-                                wayland_display_for_timer.as_str(),
-                                "ipc",
+                            warn!(
+                                "ipc: reload skipped for {} because config parse/load failed",
+                                config_path_for_timer.as_str()
                             );
                         }
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
@@ -629,7 +642,18 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 let mut rx_ref = watch_rx_for_timer.borrow_mut();
                 if let Some(rx) = rx_ref.as_mut() {
                     while rx.try_recv().is_ok() {
-                        let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
+                        *pending_watch_reload_at_for_timer.borrow_mut() =
+                            Some(now + Duration::from_millis(CONFIG_RELOAD_SETTLE_MS));
+                    }
+                }
+                if pending_watch_reload_at_for_timer
+                    .borrow()
+                    .is_some_and(|deadline| now >= deadline)
+                {
+                    *pending_watch_reload_at_for_timer.borrow_mut() = None;
+                    if let Some(next) =
+                        RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
+                    {
                         if crate::run::viewport_section_changed(&st.tuning, &next) {
                             apply_tty_reload(
                                 &dev_for_timer,
@@ -656,6 +680,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             );
                         }
                         reloaded = true;
+                    } else {
+                        warn!(
+                            "watch: reload skipped for {} because config parse/load failed",
+                            config_path_for_timer.as_str()
+                        );
                     }
                 }
                 if reloaded {
@@ -664,6 +693,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                 let ps = pointer_state_for_timer.borrow();
                 let resize_preview = ps.resize;
+                let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
                 let cursor_screen = Some(ps.screen);
                 drop(ps);
 
@@ -673,6 +703,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     &renderer_for_timer,
                     st,
                     resize_preview,
+                    hover_node,
+                    preview_hover_node,
                     cursor_screen,
                     Some(&cursor_image),
                 ) {

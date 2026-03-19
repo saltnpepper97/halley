@@ -1,6 +1,7 @@
 use std::f32::consts::TAU;
 use std::time::Instant;
 
+use crate::animation::{ease_in_out_cubic, proxy_anim_scale};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 use smithay::{
@@ -9,7 +10,6 @@ use smithay::{
     utils::{Logical, Physical, Rectangle},
 };
 
-use crate::animation::proxy_anim_scale;
 use crate::state::HalleyWlState;
 
 /// Draw an elliptical ring at a fixed screen-space position and radius.
@@ -71,6 +71,155 @@ pub(crate) fn draw_rect<F: Frame>(
     }
     let dst = Rectangle::new((x, y).into(), (w, h).into());
     frame.draw_solid(dst, &[damage], color)
+}
+
+fn glyph_rows_5x7(ch: char) -> [u8; 7] {
+    match ch.to_ascii_uppercase() {
+        'A' => [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+        'B' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
+        'C' => [0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110],
+        'D' => [0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110],
+        'E' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
+        'F' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000],
+        'G' => [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110],
+        'H' => [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+        'I' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
+        'J' => [0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100],
+        'K' => [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
+        'L' => [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
+        'M' => [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
+        'N' => [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001],
+        'O' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        'P' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000],
+        'Q' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101],
+        'R' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
+        'S' => [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110],
+        'T' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
+        'U' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        'V' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
+        'W' => [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010],
+        'X' => [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
+        'Y' => [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100],
+        'Z' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111],
+        '0' => [0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110],
+        '1' => [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
+        '2' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111],
+        '3' => [0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110],
+        '4' => [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
+        '5' => [0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110],
+        '6' => [0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
+        '7' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
+        '8' => [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
+        '9' => [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110],
+        '-' => [0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000],
+        '_' => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111],
+        '.' => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100],
+        ':' => [0b00000, 0b01100, 0b01100, 0b00000, 0b01100, 0b01100, 0b00000],
+        '/' => [0b00001, 0b00010, 0b00010, 0b00100, 0b01000, 0b01000, 0b10000],
+        '&' => [0b01100, 0b10010, 0b10100, 0b01000, 0b10101, 0b10010, 0b01101],
+        '\'' => [0b00100, 0b00100, 0b00010, 0b00000, 0b00000, 0b00000, 0b00000],
+        '(' => [0b00010, 0b00100, 0b01000, 0b01000, 0b01000, 0b00100, 0b00010],
+        ')' => [0b01000, 0b00100, 0b00010, 0b00010, 0b00010, 0b00100, 0b01000],
+        '+' => [0b00000, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0b00000],
+        '?' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b00000, 0b00100],
+        ' ' => [0, 0, 0, 0, 0, 0, 0],
+        _ => [0b11111, 0b00001, 0b00110, 0b01000, 0b00110, 0b00001, 0b11111],
+    }
+}
+
+pub(crate) fn bitmap_text_size(text: &str, scale: i32) -> (i32, i32) {
+    let chars = text.chars().count() as i32;
+    let scale = scale.max(1);
+    let width = if chars <= 0 { 0 } else { chars * (5 * scale + scale) - scale };
+    let height = 7 * scale;
+    (width, height)
+}
+
+pub(crate) fn draw_bitmap_text<F: Frame>(
+    frame: &mut F,
+    x: i32,
+    y: i32,
+    text: &str,
+    scale: i32,
+    color: Color32F,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), F::Error> {
+    let scale = scale.max(1);
+    let mut cursor_x = x;
+    for ch in text.chars() {
+        let rows = glyph_rows_5x7(ch);
+        for (row, bits) in rows.into_iter().enumerate() {
+            for col in 0..5 {
+                if (bits >> (4 - col)) & 1 == 1 {
+                    draw_rect(
+                        frame,
+                        cursor_x + col * scale,
+                        y + row as i32 * scale,
+                        scale,
+                        scale,
+                        color,
+                        damage,
+                    )?;
+                }
+            }
+        }
+        cursor_x += 5 * scale + scale;
+    }
+    Ok(())
+}
+
+pub(crate) fn draw_disc<F: Frame>(
+    frame: &mut F,
+    cx: i32,
+    cy: i32,
+    radius: i32,
+    color: Color32F,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), F::Error> {
+    let radius = radius.max(1);
+    for dy in -radius..=radius {
+        let yy = dy as f32;
+        let rr = radius as f32;
+        let half_w = ((rr * rr - yy * yy).max(0.0)).sqrt() as i32;
+        draw_rect(
+            frame,
+            cx - half_w,
+            cy + dy,
+            (half_w * 2).max(1),
+            1,
+            color,
+            damage,
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn draw_rounded_rect<F: Frame>(
+    frame: &mut F,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    radius: i32,
+    color: Color32F,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), F::Error> {
+    if w <= 0 || h <= 0 {
+        return Ok(());
+    }
+
+    let radius = radius.max(1).min(w / 2).min(h / 2);
+    if radius <= 0 {
+        return draw_rect(frame, x, y, w, h, color, damage);
+    }
+
+    draw_rect(frame, x + radius, y, w - radius * 2, h, color, damage)?;
+    draw_rect(frame, x, y + radius, radius, h - radius * 2, color, damage)?;
+    draw_rect(frame, x + w - radius, y + radius, radius, h - radius * 2, color, damage)?;
+    draw_disc(frame, x + radius, y + radius, radius, color, damage)?;
+    draw_disc(frame, x + w - radius, y + radius, radius, color, damage)?;
+    draw_disc(frame, x + radius, y + h - radius, radius, color, damage)?;
+    draw_disc(frame, x + w - radius, y + h - radius, radius, color, damage)
 }
 
 pub(crate) fn draw_outline_rect<F: Frame>(
@@ -171,19 +320,39 @@ pub(crate) fn preview_proxy_size(_real_w: f32, _real_h: f32) -> (f32, f32) {
     (220.0, 220.0)
 }
 
+pub(crate) fn node_render_diameter_px(
+    st: &HalleyWlState,
+    intrinsic_size: halley_core::field::Vec2,
+    label_len: usize,
+    anim_scale: f32,
+) -> f32 {
+    const PROXY_TO_MARKER_START: f32 = 0.50;
+    const PROXY_TO_MARKER_END: f32 = 0.20;
+
+    let marker_mix_lin = ((PROXY_TO_MARKER_START - anim_scale)
+        / (PROXY_TO_MARKER_START - PROXY_TO_MARKER_END))
+        .clamp(0.0, 1.0);
+    let marker_mix = ease_in_out_cubic(marker_mix_lin);
+
+    let (dot_half, _, _, _) = node_marker_metrics(st, label_len, anim_scale);
+    let marker_diameter = ((dot_half as f32 * 1.5).round().max(1.0)) * 2.0;
+
+    let (pw, ph) = preview_proxy_size(intrinsic_size.x, intrinsic_size.y);
+    let proxy_diameter = pw.min(ph) * proxy_anim_scale(anim_scale);
+
+    (proxy_diameter + (marker_diameter - proxy_diameter) * marker_mix)
+        .max(marker_diameter)
+}
+
 pub(crate) fn node_marker_metrics(
     _st: &HalleyWlState,
     label_len: usize,
-    anim_scale: f32,
+    _anim_scale: f32,
 ) -> (i32, i32, i32, i32) {
-    let g = proxy_anim_scale(anim_scale);
-
-    let dot_half = (4.0 * g).round().clamp(4.0, 18.0) as i32;
-    let label_h = (4.0 * g).round().clamp(4.0, 14.0) as i32;
-    let label_gap = (8.0 + (g - 1.0) * 8.0).round().clamp(8.0, 28.0) as i32;
-    let label_w = ((label_len as f32 * 6.0) * (0.9 + 0.6 * g))
-        .round()
-        .clamp(24.0, 320.0) as i32;
+    let dot_half = 17i32;
+    let label_h = 26i32;
+    let label_gap = 14i32;
+    let label_w = ((label_len as f32) * 9.5).round().clamp(72.0, 420.0) as i32;
     (dot_half, label_gap, label_w, label_h)
 }
 
@@ -202,7 +371,7 @@ pub(crate) fn node_marker_bounds(
     let content_w = (dot_d + label_gap.max(0) + label_w.max(0)).max(dot_d);
     let content_h = dot_d.max(label_h).max(1);
 
-    let x0 = cx - (content_w / 2) - pad;
+    let x0 = cx - dot_half - pad;
     let y0 = cy - (content_h / 2) - pad;
     let w = (content_w + pad * 2).max(8);
     let h = (content_h + pad * 2).max(8);

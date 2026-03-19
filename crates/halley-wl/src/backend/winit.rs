@@ -6,6 +6,8 @@ use crate::backend::interface::{
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
+const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
+
 fn apply_host_cursor(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
     image: &smithay::input::pointer::CursorImageStatus,
@@ -77,7 +79,9 @@ fn apply_winit_reload(
         x: ws.w.max(1) as f32,
         y: ws.h.max(1) as f32,
     };
+    let live_camera = crate::run::capture_live_camera_state(st);
     st.apply_tuning(next);
+    crate::run::restore_live_camera_state(st, live_camera);
     st.advertise_primary_output(
         "winit-0",
         smithay::output::Mode {
@@ -258,6 +262,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let pointer_state_for_timer = pointer_state.clone();
             let watch_rx = Rc::new(RefCell::new(watch_rx));
             let watch_rx_for_timer = watch_rx.clone();
+            let pending_watch_reload_at = Rc::new(RefCell::new(None::<Instant>));
+            let pending_watch_reload_at_for_timer = pending_watch_reload_at.clone();
             let config_path_for_timer = config_path.clone();
             {
                 let ws = backend.borrow().window_size();
@@ -300,16 +306,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     WinitEvent::Redraw => {
                         let ps = pointer_state_for_winit.borrow();
                         let now = Instant::now();
-                        const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
                         let resize_preview = ps.resize;
-                        let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
-                        let hovered = if hover_blocked { None } else { ps.hover_node };
-                        let preview_ready = hovered.is_some()
-                            && ps.hover_started_at.is_some_and(|at| {
-                                now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
-                            });
-                        let hover_node = if preview_ready { None } else { hovered };
-                        let preview_hover_node = if preview_ready { hovered } else { None };
+                        let (hover_node, preview_hover_node) =
+                            resolve_hover_targets(st, &ps, now);
                         if let Err(err) = backend_handle_for_winit.draw_frame(
                             st,
                             resize_preview,
@@ -350,16 +349,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         }
                         let ps = pointer_state_for_winit.borrow();
                         let now = Instant::now();
-                        const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
                         let resize_preview = ps.resize;
-                        let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
-                        let hovered = if hover_blocked { None } else { ps.hover_node };
-                        let preview_ready = hovered.is_some()
-                            && ps.hover_started_at.is_some_and(|at| {
-                                now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
-                            });
-                        let hover_node = if preview_ready { None } else { hovered };
-                        let preview_hover_node = if preview_ready { hovered } else { None };
+                        let (hover_node, preview_hover_node) =
+                            resolve_hover_targets(st, &ps, now);
                         if let Err(err) = backend_handle_for_winit.draw_frame(
                             st,
                             resize_preview,
@@ -514,24 +506,32 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         st.request_exit();
                     }
                     RuntimeIpcCommand::Reload => {
-                        let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        if crate::run::viewport_section_changed(&st.tuning, &next) {
-                            apply_winit_reload(
-                                &backend_for_timer,
-                                st,
-                                next,
-                                config_path_for_timer.as_str(),
-                                wayland_display_for_timer.as_str(),
-                                "ipc",
-                            );
+                        if let Some(next) =
+                            RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
+                        {
+                            if crate::run::viewport_section_changed(&st.tuning, &next) {
+                                apply_winit_reload(
+                                    &backend_for_timer,
+                                    st,
+                                    next,
+                                    config_path_for_timer.as_str(),
+                                    wayland_display_for_timer.as_str(),
+                                    "ipc",
+                                );
+                            } else {
+                                let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                                crate::run::apply_reloaded_tuning(
+                                    st,
+                                    next,
+                                    config_path_for_timer.as_str(),
+                                    wayland_display_for_timer.as_str(),
+                                    "ipc",
+                                );
+                            }
                         } else {
-                            let next = crate::run::preserve_viewport_section(&st.tuning, next);
-                            crate::run::apply_reloaded_tuning(
-                                st,
-                                next,
-                                config_path_for_timer.as_str(),
-                                wayland_display_for_timer.as_str(),
-                                "ipc",
+                            warn!(
+                                "ipc: reload skipped for {} because config parse/load failed",
+                                config_path_for_timer.as_str()
                             );
                         }
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
@@ -580,7 +580,18 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 let mut rx_ref = watch_rx_for_timer.borrow_mut();
                 if let Some(rx) = rx_ref.as_mut() {
                     while rx.try_recv().is_ok() {
-                        let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
+                        *pending_watch_reload_at_for_timer.borrow_mut() =
+                            Some(now + Duration::from_millis(CONFIG_RELOAD_SETTLE_MS));
+                    }
+                }
+                if pending_watch_reload_at_for_timer
+                    .borrow()
+                    .is_some_and(|deadline| now >= deadline)
+                {
+                    *pending_watch_reload_at_for_timer.borrow_mut() = None;
+                    if let Some(next) =
+                        RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
+                    {
                         if crate::run::viewport_section_changed(&st.tuning, &next) {
                             apply_winit_reload(
                                 &backend_for_timer,
@@ -601,6 +612,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             );
                         }
                         reloaded = true;
+                    } else {
+                        warn!(
+                            "watch: reload skipped for {} because config parse/load failed",
+                            config_path_for_timer.as_str()
+                        );
                     }
                 }
                 if reloaded {

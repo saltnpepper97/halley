@@ -72,13 +72,16 @@ pub(crate) fn apply_compositor_action_press(
             true
         }
         CompositorBindingAction::Reload => {
-            let next = RuntimeTuning::load_from_path(config_path);
-            crate::run::apply_reloaded_tuning(st, next, config_path, wayland_display, "manual");
-            info!("manual config reload from {}", config_path);
-            info!(
-                "resolved keybinds: {}",
-                st.tuning.keybinds_resolved_summary()
-            );
+            if let Some(next) = RuntimeTuning::try_load_from_path(config_path) {
+                crate::run::apply_reloaded_tuning(st, next, config_path, wayland_display, "manual");
+                info!("manual config reload from {}", config_path);
+                info!(
+                    "resolved keybinds: {}",
+                    st.tuning.keybinds_resolved_summary()
+                );
+            } else {
+                warn!("manual reload skipped for {} because config parse/load failed", config_path);
+            }
             true
         }
         CompositorBindingAction::ToggleState => toggle_focused_active_node_state(st),
