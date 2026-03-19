@@ -303,7 +303,7 @@ impl HalleyWlState {
     pub fn note_commit(&mut self, surface: &WlSurface, now: Instant) {
         let key = Self::surface_key(surface);
         self.surface_activity
-            .entry(key)
+            .entry(key.clone())
             .or_insert_with(|| CommitActivity::new(now))
             .on_commit(now);
         if let Some(output) = &self.primary_output {
@@ -313,7 +313,38 @@ impl HalleyWlState {
         // Grant keyboard focus to layer surfaces (e.g. fuzzel) on their first
         // real commit, when keyboard_interactivity is now populated.
         self.maybe_grant_layer_surface_focus_on_commit(surface);
+
+        // Keep window_geometry and bbox_loc current during resize so the render
+        // path has a live source of truth. Outside resize this is handled by
+        // sync_node_size_from_surface on every render frame, but that path is
+        // bypassed for the resizing node.
+        if let Some(node_id) = self.surface_to_node.get(&key).copied() {
+            if self.resize_active == Some(node_id) {
+                use smithay::desktop::utils::bbox_from_surface_tree;
+                use smithay::wayland::compositor::with_states;
+                use smithay::wayland::shell::xdg::SurfaceCachedState;
+
+                let bbox = bbox_from_surface_tree(surface, (0, 0));
+                self.bbox_loc.insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
+
+                let geo = with_states(surface, |states| {
+                    states.cached_state.get::<SurfaceCachedState>().current().geometry
+                });
+                if let Some(g) = geo {
+                    self.window_geometry.insert(node_id, (
+                        g.loc.x as f32, g.loc.y as f32,
+                        g.size.w.max(1) as f32, g.size.h.max(1) as f32,
+                    ));
+                } else {
+                    self.window_geometry.insert(node_id, (
+                        bbox.loc.x as f32, bbox.loc.y as f32,
+                        bbox.size.w.max(1) as f32, bbox.size.h.max(1) as f32,
+                    ));
+                }
+            }
+        }
     }
+
 
     pub fn ensure_node_for_surface(
         &mut self,
@@ -424,7 +455,6 @@ impl HalleyWlState {
         }
         self.mark_active_transition(active.node_id, now, 620);
         self.set_interaction_focus(Some(active.node_id), 30_000, now);
-        self.push_neighbors_for_activation(active.node_id);
         self.active_spawn_pan = None;
         self.maybe_start_pending_spawn_pan(now);
     }
@@ -458,7 +488,6 @@ impl HalleyWlState {
         if visible_in_view {
             self.mark_active_transition(id, now, 620);
             self.set_interaction_focus(Some(id), 30_000, now);
-            self.push_neighbors_for_activation(id);
         } else {
             self.queue_spawn_pan_to_node(id, now);
         }
@@ -474,8 +503,6 @@ impl HalleyWlState {
             if self.pan_restore_active_focus == Some(id) {
                 self.pan_restore_active_focus = None;
             }
-            let _ = self.field.undock_node(id);
-            self.field.clear_dock_preview();
             self.zoom_nominal_size.remove(&id);
             self.zoom_resize_fallback.remove(&id);
             self.zoom_resize_reject_streak.remove(&id);

@@ -12,36 +12,34 @@ use smithay::{
 use super::anim_utils::proxy_anim_scale;
 use crate::state::HalleyWlState;
 
-#[allow(clippy::too_many_arguments)]
+/// Draw an elliptical ring at a fixed screen-space position and radius.
+///
+/// All coordinates are in physical screen pixels.  This function is
+/// intentionally decoupled from world-space and camera zoom so that HUD
+/// elements like the focus ring do not scale when the camera zooms.
 pub(crate) fn draw_ring<F: Frame>(
     frame: &mut F,
-    st: &HalleyWlState,
-    w: i32,
-    h: i32,
+    center_sx: f32,
+    center_sy: f32,
     rx: f32,
     ry: f32,
-    offset_x: f32,
-    offset_y: f32,
     color: Color32F,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), F::Error> {
     let samples = 96;
-    let center_x = st.viewport.center.x + offset_x;
-    let center_y = st.viewport.center.y + offset_y;
-
     for i in 0..samples {
         let t = (i as f32 / samples as f32) * TAU;
-        let x = center_x + t.cos() * rx;
-        let y = center_y + t.sin() * ry;
-        let (sx, sy) = world_to_screen(st, w, h, x, y);
-        draw_rect(frame, sx - 1, sy - 1, 3, 3, color, damage)?;
+        let x = center_sx + t.cos() * rx;
+        let y = center_sy + t.sin() * ry;
+        draw_rect(frame, (x - 1.0) as i32, (y - 1.0) as i32, 3, 3, color, damage)?;
     }
     Ok(())
 }
 
 pub(crate) fn world_to_screen(st: &HalleyWlState, w: i32, h: i32, x: f32, y: f32) -> (i32, i32) {
-    let vw = st.viewport.size.x.max(1.0);
-    let vh = st.viewport.size.y.max(1.0);
+    let view = st.camera_view_size();
+    let vw = view.x.max(1.0);
+    let vh = view.y.max(1.0);
 
     let nx = ((x - st.viewport.center.x) / vw) + 0.5;
     let ny = 0.5 - ((y - st.viewport.center.y) / vh);
@@ -166,14 +164,11 @@ pub(crate) fn preview_proxy_size(_real_w: f32, _real_h: f32) -> (f32, f32) {
 }
 
 pub(crate) fn node_marker_metrics(
-    st: &HalleyWlState,
+    _st: &HalleyWlState,
     label_len: usize,
     anim_scale: f32,
 ) -> (i32, i32, i32, i32) {
-    let zx = st.viewport.size.x / st.zoom_ref_size.x.max(1.0);
-    let zy = st.viewport.size.y / st.zoom_ref_size.y.max(1.0);
-    let z = ((zx + zy) * 0.5).clamp(1.0, 8.0);
-    let g = z.sqrt() * proxy_anim_scale(anim_scale);
+    let g = proxy_anim_scale(anim_scale);
 
     let dot_half = (4.0 * g).round().clamp(4.0, 18.0) as i32;
     let label_h = (4.0 * g).round().clamp(4.0, 14.0) as i32;
@@ -196,8 +191,6 @@ pub(crate) fn node_marker_bounds(
     let pad = pad.max(0);
     let dot_d = (dot_half * 2).max(1);
 
-    // Center the full visual marker around (cx, cy) instead of treating the
-    // dot as the centre and letting the label hang only to the right.
     let content_w = (dot_d + label_gap.max(0) + label_w.max(0)).max(dot_d);
     let content_h = dot_d.max(label_h).max(1);
 

@@ -192,14 +192,6 @@ impl HalleyWlState {
     }
 
     pub fn active_focus_ring(&self) -> halley_core::viewport::FocusRing {
-        let mut ring = self.tuning.focus_ring();
-        let sx = (self.viewport.size.x / self.zoom_ref_size.x.max(1.0)).clamp(0.1, 100.0);
-        let sy = (self.viewport.size.y / self.zoom_ref_size.y.max(1.0)).clamp(0.1, 100.0);
-
-        ring.radius_x *= sx;
-        ring.radius_y *= sy;
-        ring.offset_x *= sx;
-        ring.offset_y *= sy;
-        ring
+        self.tuning.focus_ring()
     }
 }

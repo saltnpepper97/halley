@@ -1,110 +1,15 @@
 use super::*;
-use halley_core::docking::DockSide;
 use halley_core::viewport::{FocusRing, FocusZone};
 
 impl HalleyWlState {
     #[inline]
     pub(crate) fn mark_direct_carry_node(&mut self, id: NodeId) {
         self.carry_direct_nodes.insert(id);
-        if let Some(pos) = self.field.node(id).map(|n| n.pos) {
-            self.smoothed_render_pos.insert(id, pos);
-        }
     }
 
     #[inline]
     pub(crate) fn clear_direct_carry_nodes(&mut self) {
         self.carry_direct_nodes.clear();
-    }
-
-    pub fn enforce_docked_pairs(&mut self) {
-        let pairs = self.field.docked_pairs();
-        if pairs.is_empty() {
-            return;
-        }
-
-        let now_ms = self.now_ms(Instant::now());
-
-        for (a, b) in pairs {
-            if !self.field.is_visible(a) || !self.field.is_visible(b) {
-                continue;
-            }
-            if self.is_recently_resized_node(a, now_ms) || self.is_recently_resized_node(b, now_ms)
-            {
-                continue;
-            }
-
-            let Some((_, link_b_side)) = self.field.dock_sides_for_pair(a, b) else {
-                continue;
-            };
-
-            let (mid, sa, sb) = {
-                let (Some(na), Some(nb)) = (self.field.node(a), self.field.node(b)) else {
-                    continue;
-                };
-                (
-                    Vec2 {
-                        x: (na.pos.x + nb.pos.x) * 0.5,
-                        y: (na.pos.y + nb.pos.y) * 0.5,
-                    },
-                    self.collision_extents_for_node(na),
-                    self.collision_extents_for_node(nb),
-                )
-            };
-
-            // Keep docked-pair geometry enforced without auto-resurrecting
-            // already-collapsed members.
-            if !self.preserve_collapsed_surface(a) {
-                let _ = self.field.set_decay_level(a, DecayLevel::Hot);
-            }
-            if !self.preserve_collapsed_surface(b) {
-                let _ = self.field.set_decay_level(b, DecayLevel::Hot);
-            }
-
-            if let Some(n) = self.field.node(a)
-                && n.state == halley_core::field::NodeState::Active
-            {
-                self.last_active_size.insert(a, n.intrinsic_size);
-            }
-            if let Some(n) = self.field.node(b)
-                && n.state == halley_core::field::NodeState::Active
-            {
-                self.last_active_size.insert(b, n.intrinsic_size);
-            }
-
-            let gap = self.non_overlap_gap_world();
-            match link_b_side {
-                DockSide::Left | DockSide::Right => {
-                    let sep = if link_b_side == DockSide::Right {
-                        (sa.right + sb.left + gap).max(0.0)
-                    } else {
-                        (sa.left + sb.right + gap).max(0.0)
-                    };
-                    let half_sep = sep * 0.5;
-                    let (ax, bx) = if link_b_side == DockSide::Right {
-                        (mid.x - half_sep, mid.x + half_sep)
-                    } else {
-                        (mid.x + half_sep, mid.x - half_sep)
-                    };
-                    let _ = self.field.carry(a, Vec2 { x: ax, y: mid.y });
-                    let _ = self.field.carry(b, Vec2 { x: bx, y: mid.y });
-                }
-                DockSide::Top | DockSide::Bottom => {
-                    let sep = if link_b_side == DockSide::Top {
-                        (sa.top + sb.bottom + gap).max(0.0)
-                    } else {
-                        (sa.bottom + sb.top + gap).max(0.0)
-                    };
-                    let half_sep = sep * 0.5;
-                    let (ay, by) = if link_b_side == DockSide::Top {
-                        (mid.y - half_sep, mid.y + half_sep)
-                    } else {
-                        (mid.y + half_sep, mid.y - half_sep)
-                    };
-                    let _ = self.field.carry(a, Vec2 { x: mid.x, y: ay });
-                    let _ = self.field.carry(b, Vec2 { x: mid.x, y: by });
-                }
-            }
-        }
     }
 
     #[inline]
@@ -215,8 +120,6 @@ impl HalleyWlState {
         }
         self.suspend_overlap_resolve = false;
         self.suspend_state_checks = false;
-        let _ = self.field.undock_node(id);
-        self.field.clear_dock_preview();
         let _ = self.field.set_pinned(id, false);
 
         if let Some(n) = self.field.node(id) {
@@ -238,11 +141,8 @@ impl HalleyWlState {
         self.carry_zone_pending.remove(&id);
         self.carry_zone_pending_since_ms.remove(&id);
         self.carry_activation_anim_armed.remove(&id);
-        self.field.clear_dock_preview();
         self.suspend_overlap_resolve = false;
         self.suspend_state_checks = false;
-        self.enforce_docked_pairs();
-        self.resolve_overlap_now();
         self.clear_direct_carry_nodes();
     }
 
@@ -282,7 +182,6 @@ impl HalleyWlState {
                 && self.carry_activation_anim_armed.remove(&id)
             {
                 self.mark_active_transition(id, now, 360);
-                self.push_neighbors_for_activation(id);
             }
         }
     }

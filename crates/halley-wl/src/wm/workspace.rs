@@ -47,7 +47,7 @@ impl HalleyWlState {
         }
 
         self.workspace_prev_viewport = Some(self.viewport);
-        self.viewport.size = self.zoom_ref_size;
+        self.zoom_ref_size = self.viewport.size;
         if let Some(core) = self.field.node(core_id) {
             self.viewport.center = core.pos;
         }
@@ -115,8 +115,8 @@ impl HalleyWlState {
         let Some(cid) = self.active_cluster_workspace else {
             return;
         };
-        // Workspace mode stays fixed to fullscreen reference while active.
-        self.viewport.size = self.zoom_ref_size;
+        // Workspace mode stays fixed to the logical fullscreen view while active.
+        self.zoom_ref_size = self.viewport.size;
         self.tuning.viewport_size = self.viewport.size;
         let Some(cluster) = self.field.cluster(cid) else {
             self.active_cluster_workspace = None;

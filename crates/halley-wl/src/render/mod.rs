@@ -5,10 +5,10 @@ use halley_core::viewport::{FocusRing, FocusZone, Viewport};
 mod anim_utils;
 mod cursor_render;
 mod cursor_theme;
-mod dock_render;
 mod frame_render;
 mod layer_render;
 mod node_render;
+mod offscreen;
 mod render_utils;
 
 pub(crate) use anim_utils::{active_surface_render_scale, ease_in_out_cubic};

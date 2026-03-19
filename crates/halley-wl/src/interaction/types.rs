@@ -74,12 +74,14 @@ pub(crate) struct ResizeCtx {
     pub(crate) press_off_right_px: f32,
     pub(crate) press_off_top_px: f32,
     pub(crate) press_off_bottom_px: f32,
-    pub(crate) press_ws_w: i32,
-    pub(crate) press_ws_h: i32,
-    pub(crate) press_view_center: halley_core::field::Vec2,
-    pub(crate) press_view_size: halley_core::field::Vec2,
     pub(crate) drag_started: bool,
     pub(crate) resize_mode_sent: bool,
+    // Updated on every client commit so the render path always has a
+    // single source of truth for what's actually been painted.
+    pub(crate) live_geo_lx: f32,
+    pub(crate) live_geo_ly: f32,
+    pub(crate) live_geo_w: f32,
+    pub(crate) live_geo_h: f32,
 }
 
 #[derive(Clone, Copy)]

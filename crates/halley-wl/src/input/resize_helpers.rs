@@ -24,6 +24,12 @@ pub(crate) struct ActiveResizeGeometryScreen {
     pub(crate) frame_bottom: f32,
     pub(crate) surface_origin_x: f32,
     pub(crate) surface_origin_y: f32,
+    /// Live committed window geometry from st.window_geometry, updated on
+    /// every client commit during resize. Zero means not yet committed.
+    pub(crate) live_geo_lx: f32,
+    pub(crate) live_geo_ly: f32,
+    pub(crate) live_geo_w: f32,
+    pub(crate) live_geo_h: f32,
 }
 
 impl ActiveResizeGeometryScreen {
@@ -98,7 +104,7 @@ pub(crate) fn active_node_screen_rect(
     now: Instant,
     resize_preview: Option<ResizeCtx>,
 ) -> Option<(f32, f32, f32, f32)> {
-    if let Some(active_resize) = active_resize_geometry_screen(node_id, resize_preview) {
+    if let Some(active_resize) = active_resize_geometry_screen(st, node_id, resize_preview) {
         return Some((
             active_resize.frame_left,
             active_resize.frame_top,
@@ -107,32 +113,47 @@ pub(crate) fn active_node_screen_rect(
         ));
     }
 
+    // Mirror the render path exactly: center on local_geo, derive geometry_rect.
+    // This gives us (rx, ry, rw, rh) which is the screen rect of the visible
+    // window content — identical to what the render path puts in geometry_rect.
     let xform = active_node_surface_transform_screen_details(st, w, h, node_id, now, None)?;
-    let (local_x, local_y, local_w, local_h) =
-        active_node_visual_local_rect(st, node_id).or_else(|| {
-            st.field.node(node_id).map(|n| {
-                (
-                    0.0,
-                    0.0,
-                    n.intrinsic_size.x.max(1.0),
-                    n.intrinsic_size.y.max(1.0),
-                )
-            })
-        })?;
-    let sw = (local_w * xform.scale).round();
-    let sh = (local_h * xform.scale).round();
-    let left = xform.origin_x + (local_x * xform.scale).round();
-    let top = xform.origin_y + (local_y * xform.scale).round();
-    Some((left, top, left + sw, top + sh))
+    let local_geo = active_node_visual_local_rect(st, node_id).or_else(|| {
+        st.field.node(node_id).map(|n| {
+            (
+                0.0,
+                0.0,
+                n.intrinsic_size.x.max(1.0),
+                n.intrinsic_size.y.max(1.0),
+            )
+        })
+    })?;
+
+    let (gx, gy, gw, gh) = local_geo;
+    let rw = (gw * xform.scale).round().max(1.0);
+    let rh = (gh * xform.scale).round().max(1.0);
+    // Replicate the integer-division centering from the render path:
+    //   rx = cx - (rw / 2)  where rw is already i32 there.
+    // xform.origin_x = sx = rx - (gx * scale).round(), so rx = origin_x + (gx * scale).round()
+    let rx = xform.origin_x + (gx * xform.scale).round();
+    let ry = xform.origin_y + (gy * xform.scale).round();
+    Some((rx, ry, rx + rw, ry + rh))
 }
 
 /// Compute the screen-space surface-tree origin and scale for an active node,
 /// matching exactly the placement used by the render path.
 ///
+/// The render path centers on `local_geo` (window geometry, excluding CSD
+/// shadows) using integer division for the half-width, then derives the
+/// surface-tree origin as:
+///
+///   sx = rx - (gx * render_scale).round()
+///
+/// We replicate that here so hit-testing and focus-ring placement are pixel-
+/// perfect at any zoom level.
+///
 /// `resize_preview` must be forwarded from the caller so that during
 /// interactive resize the focus origin stays in sync with where the window is
-/// actually rendered (which uses preview coordinates and scale=1.0), rather
-/// than diverging from the smoothed-position + anim-scale path.
+/// actually rendered (which uses preview coordinates and scale=1.0).
 ///
 pub(crate) fn active_node_surface_transform_screen_details(
     st: &HalleyWlState,
@@ -149,37 +170,54 @@ pub(crate) fn active_node_surface_transform_screen_details(
 
     let anim = st.anim_style_for(node_id, n.state.clone(), now);
     let transition_alpha = st.active_transition_alpha(node_id, now);
+    let cam_scale = st.camera_render_scale();
     let anim_scale = active_surface_render_scale(
         anim.scale,
         st.active_zoom_lock_scale(),
         n.intrinsic_size.x,
         n.intrinsic_size.y,
         transition_alpha,
-    );
-
-    let bbox_w = n.intrinsic_size.x.max(1.0);
-    let bbox_h = n.intrinsic_size.y.max(1.0);
-    let (bbox_lx, bbox_ly) = st.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0));
+    ) * cam_scale;
 
     let (origin_x, origin_y, scale) =
-        if let Some(active_resize) = active_resize_geometry_screen(node_id, resize_preview) {
+        if let Some(active_resize) = active_resize_geometry_screen(st, node_id, resize_preview) {
             (
                 active_resize.surface_origin_x,
                 active_resize.surface_origin_y,
                 1.0f32,
             )
         } else {
-            let p = st.smoothed_render_pos_read(node_id, n.pos, now);
+            let p = n.pos;
             let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
-            let sw = (bbox_w * anim_scale).round();
-            let sh = (bbox_h * anim_scale).round();
-            let lx = (bbox_lx * anim_scale).round();
-            let ly = (bbox_ly * anim_scale).round();
-            (
-                (cx as f32) - sw * 0.5 - lx,
-                (cy as f32) - sh * 0.5 - ly,
-                anim_scale,
-            )
+
+            // Use the same local_geo the render path uses: window_geometry if
+            // present, otherwise the full bbox. Fall back to intrinsic_size so
+            // we always have something sensible.
+            let bbox_lx = st.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0)).0;
+            let bbox_ly = st.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0)).1;
+            let bbox_w = n.intrinsic_size.x.max(1.0);
+            let bbox_h = n.intrinsic_size.y.max(1.0);
+            let local_bbox = (bbox_lx, bbox_ly, bbox_w, bbox_h);
+            let (gx, gy, gw, gh) = st
+                .window_geometry
+                .get(&node_id)
+                .copied()
+                .map(|(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
+                .unwrap_or(local_bbox);
+
+            // Mirror the render path exactly:
+            //   rw = (gw * render_scale).round()  (already .max(1) but doesn't
+            //        affect the center calculation meaningfully)
+            //   rx = cx - (rw / 2)                <- integer division
+            //   sx = rx - (gx * render_scale).round()
+            let rw = (gw * anim_scale).round() as i32;
+            let rh = (gh * anim_scale).round() as i32;
+            let rx = cx - (rw / 2);
+            let ry = cy - (rh / 2);
+            let origin_x = (rx as f32) - (gx * anim_scale).round();
+            let origin_y = (ry as f32) - (gy * anim_scale).round();
+
+            (origin_x, origin_y, anim_scale)
         };
 
     Some(ActiveNodeSurfaceTransformScreen {
@@ -190,6 +228,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
 }
 
 pub(crate) fn active_resize_geometry_screen(
+    st: &HalleyWlState,
     node_id: halley_core::field::NodeId,
     resize_preview: Option<ResizeCtx>,
 ) -> Option<ActiveResizeGeometryScreen> {
@@ -198,8 +237,11 @@ pub(crate) fn active_resize_geometry_screen(
     let frame_top = rz.preview_top_px;
     let frame_right = rz.preview_right_px;
     let frame_bottom = rz.preview_bottom_px;
-    // During active resize the preview frame stays live, while the mapping
-    // between that frame and the client's surface-tree origin stays frozen.
+    // Read live committed geo from window_geometry — updated on every client
+    // commit during resize via note_commit. Zero = not yet committed, callers
+    // fall back to frozen local_geo in that case.
+    let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) =
+        st.window_geometry.get(&node_id).copied().unwrap_or((0.0, 0.0, 0.0, 0.0));
     Some(ActiveResizeGeometryScreen {
         frame_left,
         frame_top,
@@ -207,6 +249,10 @@ pub(crate) fn active_resize_geometry_screen(
         frame_bottom,
         surface_origin_x: frame_left - rz.start_geo_lx.round(),
         surface_origin_y: frame_top - rz.start_geo_ly.round(),
+        live_geo_lx,
+        live_geo_ly,
+        live_geo_w,
+        live_geo_h,
     })
 }
 

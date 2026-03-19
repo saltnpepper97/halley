@@ -45,21 +45,10 @@ impl HalleyWlState {
         })
     }
 
-    #[inline]
-    fn node_is_docked_pair_member(&self, a: NodeId, b: NodeId) -> bool {
-        self.field.dock_partner(a) == Some(b) || self.field.dock_partner(b) == Some(a)
-    }
-
-    #[inline]
-    fn world_units_per_px_xy(&self) -> (f32, f32) {
-        let wx = self.viewport.size.x / self.zoom_ref_size.x.max(1.0);
-        let wy = self.viewport.size.y / self.zoom_ref_size.y.max(1.0);
-        (wx.max(0.01), wy.max(0.01))
-    }
-
     pub(crate) fn non_overlap_gap_world(&self) -> f32 {
-        let (wx, wy) = self.world_units_per_px_xy();
-        self.tuning.non_overlap_gap_px.max(0.0) * ((wx + wy) * 0.5)
+        // Overlap resolution must live purely in stable world-space. Camera
+        // zoom must never change the required separation between nodes.
+        self.tuning.non_overlap_gap_px.max(0.0)
     }
 
     #[inline]
@@ -117,9 +106,6 @@ impl HalleyWlState {
                 .iter()
                 .filter_map(|(&oid, other)| {
                     if oid == id || !self.node_participates_in_overlap(oid) {
-                        return None;
-                    }
-                    if self.node_is_docked_pair_member(id, oid) {
                         return None;
                     }
                     Some((
@@ -221,9 +207,6 @@ impl HalleyWlState {
                     if oid == id || !self.node_participates_in_overlap(oid) {
                         return None;
                     }
-                    if self.node_is_docked_pair_member(id, oid) {
-                        return None;
-                    }
                     Some((oid, other.pos, self.collision_extents_for_node(other)))
                 })
                 .collect();
@@ -315,10 +298,7 @@ impl HalleyWlState {
     }
 
     fn node_collision_extents(&self, label: &str, anim_scale: f32) -> CollisionExtents {
-        let zx = self.viewport.size.x / self.zoom_ref_size.x.max(1.0);
-        let zy = self.viewport.size.y / self.zoom_ref_size.y.max(1.0);
-        let z = ((zx + zy) * 0.5).clamp(1.0, 8.0);
-        let g = z.sqrt() * Self::proxy_collision_scale(anim_scale);
+        let g = Self::proxy_collision_scale(anim_scale);
 
         let dot_half_px = (4.0 * g).round().clamp(4.0, 18.0);
         let label_h_px = (4.0 * g).round().clamp(4.0, 14.0);
@@ -332,13 +312,11 @@ impl HalleyWlState {
         let marker_w_px = (dot_d_px + label_gap_px + label_w_px + pad_px * 2.0).max(8.0);
         let marker_h_px = (dot_d_px.max(label_h_px) + pad_px * 2.0).max(8.0);
 
-        let world_per_px_x = self.viewport.size.x / self.zoom_ref_size.x.max(1.0);
-        let world_per_px_y = self.viewport.size.y / self.zoom_ref_size.y.max(1.0);
         CollisionExtents::symmetric(Vec2 {
             // Keep collision bounds aligned with the rendered pill instead of the
             // larger hover proxy so node-to-window spacing matches window spacing.
-            x: marker_w_px * world_per_px_x.max(0.01),
-            y: marker_h_px * world_per_px_y.max(0.01),
+            x: marker_w_px.max(1.0),
+            y: marker_h_px.max(1.0),
         })
     }
 
@@ -348,7 +326,6 @@ impl HalleyWlState {
             .get(&n.id)
             .copied()
             .unwrap_or(n.intrinsic_size);
-        let (world_per_px_x, world_per_px_y) = self.world_units_per_px_xy();
         let bbox_w = n.intrinsic_size.x.max(1.0);
         let bbox_h = n.intrinsic_size.y.max(1.0);
         let (bbox_lx, bbox_ly) = self.bbox_loc.get(&n.id).copied().unwrap_or((0.0, 0.0));
@@ -364,10 +341,10 @@ impl HalleyWlState {
         let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
 
         CollisionExtents {
-            left: left * basis.x.max(1.0) / bbox_w * world_per_px_x,
-            right: right * basis.x.max(1.0) / bbox_w * world_per_px_x,
-            top: top * basis.y.max(1.0) / bbox_h * world_per_px_y,
-            bottom: bottom * basis.y.max(1.0) / bbox_h * world_per_px_y,
+            left: left * basis.x.max(1.0) / bbox_w,
+            right: right * basis.x.max(1.0) / bbox_w,
+            top: top * basis.y.max(1.0) / bbox_h,
+            bottom: bottom * basis.y.max(1.0) / bbox_h,
         }
     }
 
@@ -420,30 +397,6 @@ impl HalleyWlState {
         self.collision_extents_for_node(n).size()
     }
 
-    fn node_intersects_viewport_for_overlap(&self, id: NodeId) -> bool {
-        let Some(node) = self.field.node(id) else {
-            return false;
-        };
-        if !self.field.is_visible(id) {
-            return false;
-        }
-        let ext = self.spawn_obstacle_extents_for_node(node);
-        let left = node.pos.x - ext.left;
-        let right = node.pos.x + ext.right;
-        let top = node.pos.y - ext.top;
-        let bottom = node.pos.y + ext.bottom;
-
-        let half_w = self.viewport.size.x * 0.5;
-        let half_h = self.viewport.size.y * 0.5;
-        let vx0 = self.viewport.center.x - half_w;
-        let vx1 = self.viewport.center.x + half_w;
-        let vy0 = self.viewport.center.y - half_h;
-        let vy1 = self.viewport.center.y + half_h;
-
-        left < vx1 && right > vx0 && top < vy1 && bottom > vy0
-    }
-
-
     pub(crate) fn resolve_surface_overlap(&mut self) {
         if !self.tuning.physics_enabled {
             return;
@@ -475,10 +428,6 @@ impl HalleyWlState {
                 for j in (i + 1)..ids.len() {
                     let a = ids[i];
                     let b = ids[j];
-
-                    if self.node_is_docked_pair_member(a, b) {
-                        continue;
-                    }
 
                     let Some(na) = self.field.node(a) else {
                         continue;

@@ -18,25 +18,6 @@ use super::pointer_focus::pointer_focus_for_screen;
 use super::pointer_map_debug_enabled;
 
 #[inline]
-fn screen_to_world_with_view(
-    view_center: halley_core::field::Vec2,
-    view_size: halley_core::field::Vec2,
-    ws_w: i32,
-    ws_h: i32,
-    sx: f32,
-    sy: f32,
-) -> halley_core::field::Vec2 {
-    let vw = view_size.x.max(1.0);
-    let vh = view_size.y.max(1.0);
-    let nx = (sx / (ws_w as f32).max(1.0)) - 0.5;
-    let ny = 0.5 - (sy / (ws_h as f32).max(1.0));
-    halley_core::field::Vec2 {
-        x: view_center.x + nx * vw,
-        y: view_center.y + ny * vh,
-    }
-}
-
-#[inline]
 fn now_millis_u32() -> u32 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -76,11 +57,12 @@ pub(crate) fn handle_pointer_motion_absolute(
     if let Some(pointer) = st.seat.get_pointer() {
         let resize_preview = pointer_state.borrow().resize;
         let focus = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview);
+        let cam_scale = st.camera_render_scale() as f64;
         pointer.motion(
             st,
             focus,
             &MotionEvent {
-                location: (sx as f64, sy as f64).into(),
+                location: (sx as f64 / cam_scale, sy as f64 / cam_scale).into(),
                 serial: SERIAL_COUNTER.next_serial(),
                 time: now_millis_u32(),
             },
@@ -102,9 +84,6 @@ pub(crate) fn handle_pointer_motion_absolute(
 
     if st.has_active_cluster_workspace() {
         ps.hover_node = None;
-        if ps.drag.is_some() {
-            st.field.clear_dock_preview();
-        }
         ps.drag = None;
         ps.resize = None;
         ps.panning = false;
@@ -114,7 +93,6 @@ pub(crate) fn handle_pointer_motion_absolute(
     if let Some(drag) = ps.drag {
         if ps.resize.is_some() || !drag_mod_ok {
             st.end_carry_state_tracking(drag.node_id);
-            st.field.clear_dock_preview();
             ps.drag = None;
         } else {
             let mut next_drag = drag;
@@ -138,15 +116,6 @@ pub(crate) fn handle_pointer_motion_absolute(
                     );
                 }
                 ps.drag = Some(next_drag);
-                if docking_mode_active(st) {
-                    let _ = st.field.update_dock_preview(
-                        drag.node_id,
-                        st.viewport.center,
-                        st.viewport.size,
-                    );
-                } else {
-                    st.field.clear_dock_preview();
-                }
                 backend.request_redraw();
             }
         }
@@ -253,11 +222,18 @@ pub(crate) fn handle_pointer_motion_absolute(
         }
 
         // Derive client/bbox sizes from visual delta, not the other way around.
+        // Visual delta is in screen pixels; divide by cam_scale to get logical
+        // pixels for the configure message. At cam_scale=1.0 this is a no-op.
+        let cam_scale = st.camera_render_scale();
         let visual_delta_w = target_visual_w - resize.start_visual_w;
         let visual_delta_h = target_visual_h - resize.start_visual_h;
+        let logical_delta_w = (visual_delta_w as f32 / cam_scale.max(0.001)).round() as i32;
+        let logical_delta_h = (visual_delta_h as f32 / cam_scale.max(0.001)).round() as i32;
+        let min_logical_w = (min_w / cam_scale.max(0.001)).round() as i32;
+        let min_logical_h = (min_h / cam_scale.max(0.001)).round() as i32;
 
-        let target_w = (resize.start_surface_w + visual_delta_w).max(min_w as i32);
-        let target_h = (resize.start_surface_h + visual_delta_h).max(min_h as i32);
+        let target_w = (resize.start_surface_w + logical_delta_w).max(min_logical_w);
+        let target_h = (resize.start_surface_h + logical_delta_h).max(min_logical_h);
 
         let now = Instant::now();
         let size_changed = target_w != resize.last_sent_w || target_h != resize.last_sent_h;
@@ -270,23 +246,19 @@ pub(crate) fn handle_pointer_motion_absolute(
 
         let center_sx = (left + right) * 0.5;
         let center_sy = (top + bottom) * 0.5;
-        let center_world = screen_to_world_with_view(
-            resize.press_view_center,
-            resize.press_view_size,
-            resize.press_ws_w,
-            resize.press_ws_h,
-            center_sx,
-            center_sy,
-        );
+        // Use current viewport/ws, not frozen press-time values, so n.pos stays
+        // correct if the user zooms or the window size changes during resize.
+        let center_world = screen_to_world(st, ws_w, ws_h, center_sx, center_sy);
 
         if let Some(n) = st.field.node_mut(resize.node_id) {
             n.pos = center_world;
         }
+        // Footprint is in world/logical units, not screen pixels.
         let _ = st.field.set_resize_footprint(
             resize.node_id,
             Some(halley_core::field::Vec2 {
-                x: target_visual_w as f32,
-                y: target_visual_h as f32,
+                x: target_w as f32,
+                y: target_h as f32,
             }),
         );
 
@@ -308,8 +280,9 @@ pub(crate) fn handle_pointer_motion_absolute(
         let (lsx, lsy) = ps.pan_last_screen;
         let dx_px = active_sx - lsx;
         let dy_px = active_sy - lsy;
-        let dx_world = dx_px * st.viewport.size.x.max(1.0) / (ws_w as f32).max(1.0);
-        let dy_world = -dy_px * st.viewport.size.y.max(1.0) / (ws_h as f32).max(1.0);
+        let camera = st.camera_view_size();
+        let dx_world = dx_px * camera.x.max(1.0) / (ws_w as f32).max(1.0);
+        let dy_world = -dy_px * camera.y.max(1.0) / (ws_h as f32).max(1.0);
         let now = Instant::now();
         st.note_pan_activity(now);
         st.viewport.pan(halley_core::field::Vec2 {
@@ -317,7 +290,6 @@ pub(crate) fn handle_pointer_motion_absolute(
             y: -dy_world,
         });
         st.tuning.viewport_center = st.viewport.center;
-        st.tuning.viewport_size = st.viewport.size;
         st.note_pan_viewport_change(now);
         ps.pan_last_screen = (active_sx, active_sy);
         backend.request_redraw();

@@ -94,9 +94,10 @@ fn popup_focus_for_screen(
             else {
                 continue;
             };
+            let cam_scale_f = st.camera_render_scale() as f64;
             let focus_origin = Point::<f64, Logical>::from((
-                (xform.origin_x + surface_loc.x as f32 * scale) as f64,
-                (xform.origin_y + surface_loc.y as f32 * scale) as f64,
+                xform.origin_x as f64 / cam_scale_f + surface_loc.x as f64,
+                xform.origin_y as f64 / cam_scale_f + surface_loc.y as f64,
             ));
 
             if pointer_map_debug_enabled() {
@@ -256,9 +257,12 @@ pub(crate) fn pointer_focus_for_screen(
         // At scale = 1.0 this is exactly `(sx − origin_x − surface_loc.x,
         // sy − origin_y − surface_loc.y)` — the correct surface-local
         // cursor position.
+        // location is sx/cam_scale (logical). focus_origin must match.
+        // origin_x is screen px → divide by cam_scale. surface_loc is already logical.
+        let cam_scale_f = st.camera_render_scale() as f64;
         let focus_origin = Point::<f64, Logical>::from((
-            (xform.origin_x + surface_loc.x as f32 * scale) as f64,
-            (xform.origin_y + surface_loc.y as f32 * scale) as f64,
+            xform.origin_x as f64 / cam_scale_f + surface_loc.x as f64,
+            xform.origin_y as f64 / cam_scale_f + surface_loc.y as f64,
         ));
 
         if pointer_map_debug_enabled() {
@@ -284,8 +288,9 @@ pub(crate) fn pointer_focus_for_screen(
                 continue;
             }
 
+            let cam_scale_f = st.camera_render_scale() as f64;
             let focus_origin =
-                Point::<f64, Logical>::from((xform.origin_x as f64, xform.origin_y as f64));
+                Point::<f64, Logical>::from((xform.origin_x as f64 / cam_scale_f, xform.origin_y as f64 / cam_scale_f));
 
             if pointer_map_debug_enabled() {
                 info!(

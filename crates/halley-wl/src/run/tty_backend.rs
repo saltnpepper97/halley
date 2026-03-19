@@ -95,7 +95,8 @@ fn apply_tty_reload(
         )
     };
     publish_outputs(outputs);
-    run_autostart_commands(&st.tuning.autostart_on_reload, wayland_display, "autostart");
+    let reload_commands = st.tuning.autostart_on_reload.clone();
+    run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     info!(
         "{}: reloaded config from {} with tty mode {}x{} on {}",
         reason,
@@ -169,9 +170,6 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             info!("keybind modifier: {}", tuning.keybinds.modifier_name());
             info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
             info!("physics enabled: {}", tuning.physics_enabled);
-            if tuning.dev_enabled {
-                info!("dev actions enabled: ring tuning + node move (via configured keybinds)");
-            }
 
             let mut state = HalleyWlState::new(&dh, tuning.clone());
             let dmabuf_importer: Rc<dyn DmabufImportBackend> =
@@ -250,11 +248,8 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let xwayland_request_rx = Rc::new(RefCell::new(xwayland_request_rx));
             let xwayland_for_timer = xwayland.clone();
             let xwayland_request_for_timer = xwayland_request_rx.clone();
-            run_autostart_commands(
-                &state.tuning.autostart_once,
-                sock_name.as_str(),
-                "autostart",
-            );
+            let autostart_once = state.tuning.autostart_once.clone();
+            run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
 
             let libinput_backend = libinput_backend;
             let debug_input = crate::input::pointer_map_debug_enabled();
@@ -541,6 +536,20 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             ev.handle().insert_source(timer, move |_tick, _, st| {
                 let now = Instant::now();
 
+                st.spawned_children.retain_mut(|child| {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            debug!("reaped child pid={} status={}", child.id(), status);
+                            false
+                        }
+                        Ok(None) => true,
+                        Err(err) => {
+                            warn!("try_wait failed for child pid={}: {}", child.id(), err);
+                            false
+                        }
+                    }
+                });
+
                 drain_ipc_commands(|cmd| match cmd {
                     RuntimeIpcCommand::Quit => {
                         info!("ipc: quit requested");
@@ -680,7 +689,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             info!("entering tty main loop");
             loop {
                 ev.dispatch(None, &mut state)?;
-                if state.exit_requested() {
+                if state.exit_requested() || crate::run::shutdown_requested() {
                     info!("exit requested, shutting down tty main loop");
                     break Ok(());
                 }

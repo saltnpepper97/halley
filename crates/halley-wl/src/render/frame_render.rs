@@ -3,14 +3,14 @@ use std::time::Instant;
 
 use smithay::{
     backend::renderer::{
-        Color32F, Frame, Renderer,
+        Color32F, Frame, Renderer, Texture,
         element::Kind,
         element::surface::render_elements_from_surface_tree,
         gles::{GlesFrame, GlesRenderer, GlesTarget},
         utils::draw_render_elements,
     },
     backend::winit::WinitGraphicsBackend,
-    utils::{Physical, Rectangle, Transform},
+    utils::{Buffer, Physical, Rectangle, Transform},
 };
 
 use crate::interaction::types::ResizeCtx;
@@ -19,13 +19,12 @@ use crate::state::HalleyWlState;
 
 use super::cursor_render::{cursor_surface_hotspot, draw_cursor_sprite};
 use super::cursor_theme::themed_cursor_sprite_with_fallback;
-use super::dock_render::{draw_dock_preview, draw_docked_pairs};
 use super::layer_render::collect_layer_surfaces;
 use super::node_render::{
-    ActiveBorderRect, NodeSnapshot, collect_active_surfaces, collect_hover_preview,
-    draw_node_markers,
+    ActiveBorderRect, NodeSnapshot, OffscreenNodeTexture, collect_active_surfaces,
+    collect_hover_preview, draw_node_markers,
 };
-use super::render_utils::{draw_outline_rect, draw_rect, draw_ring};
+use super::render_utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
@@ -42,6 +41,7 @@ struct SceneCollections {
     layer_over_elements: Vec<SurfaceElement>,
     active_elements: Vec<CroppedSurfaceElement>,
     resized_active_elements: Vec<CroppedSurfaceElement>,
+    offscreen_textures: Vec<OffscreenNodeTexture>,
     popup_elements: Vec<CroppedSurfaceElement>,
     border_rects: Vec<ActiveBorderRect>,
     overlay_rects: Vec<(i32, i32, i32, i32, Color32F)>,
@@ -57,44 +57,6 @@ struct CursorScene {
     cursor_surface_elements: Vec<
         smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>,
     >,
-}
-
-fn draw_clamped_border_rect<F: smithay::backend::renderer::Frame>(
-    frame: &mut F,
-    rect: (i32, i32, i32, i32),
-    border_width: i32,
-    color: Color32F,
-    damage: Rectangle<i32, Physical>,
-    framebuffer_size: smithay::utils::Size<i32, Physical>,
-) -> Result<(), F::Error> {
-    let bw = border_width.max(1);
-    let inner_w = rect.2.max(1);
-    let inner_h = rect.3.max(1);
-    let fb = Rectangle::<i32, Physical>::from_size(framebuffer_size);
-
-    let mut draw_intersection = |x: i32, y: i32, w: i32, h: i32| -> Result<(), F::Error> {
-        if w <= 0 || h <= 0 {
-            return Ok(());
-        }
-        let edge = Rectangle::<i32, Physical>::new((x, y).into(), (w, h).into());
-        if let Some(visible) = edge.intersection(fb) {
-            draw_rect(
-                frame,
-                visible.loc.x,
-                visible.loc.y,
-                visible.size.w,
-                visible.size.h,
-                color,
-                damage,
-            )?;
-        }
-        Ok(())
-    };
-
-    draw_intersection(rect.0 - bw, rect.1 - bw, inner_w + (bw * 2), bw)?;
-    draw_intersection(rect.0 - bw, rect.1 + inner_h, inner_w + (bw * 2), bw)?;
-    draw_intersection(rect.0 - bw, rect.1 - bw, bw, inner_h + (bw * 2))?;
-    draw_intersection(rect.0 + inner_w, rect.1 - bw, bw, inner_h + (bw * 2))
 }
 
 fn draw_clamped_outline_rect<F: smithay::backend::renderer::Frame>(
@@ -156,9 +118,6 @@ pub(crate) fn draw_debug_frame(
             preview_hover_node,
             None,
             None,
-            // Smithay's nested winit path expects a flipped output transform.
-            // The shared world/screen math is already top-left oriented; this
-            // compensates for the final EGL target orientation.
             Transform::Flipped180,
         )?;
     }
@@ -231,6 +190,7 @@ fn collect_debug_frame_scene(
     let (
         active_elements,
         resized_active_elements,
+        offscreen_textures,
         popup_elements,
         node_surface_map,
         border_rects,
@@ -282,6 +242,7 @@ fn collect_debug_frame_scene(
         layer_over_elements,
         active_elements,
         resized_active_elements,
+        offscreen_textures,
         popup_elements,
         border_rects,
         overlay_rects,
@@ -330,6 +291,8 @@ fn draw_debug_frame_scene(
         let _ = draw_render_elements(frame, 1.0, &scene.layer_under_elements, &[prepared.damage]);
     }
 
+    draw_window_backgrounds(frame, size, prepared.damage, &scene.border_rects)?;
+
     if !scene.active_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
     }
@@ -345,7 +308,8 @@ fn draw_debug_frame_scene(
         );
     }
 
-    draw_window_borders(frame, size, prepared.damage, &scene.border_rects)?;
+    draw_offscreen_textures(frame, prepared.damage, &scene.offscreen_textures)?;
+
 
     if !scene.popup_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.popup_elements, &[prepared.damage]);
@@ -364,26 +328,71 @@ fn draw_debug_frame_scene(
     )?;
 
     draw_hover_preview(frame, prepared.damage, scene)?;
-    draw_docked_pairs(frame, st, size, prepared.damage, prepared.now)?;
-    draw_dock_preview(frame, st, size, prepared.damage, prepared.now)?;
 
     if !scene.layer_over_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.layer_over_elements, &[prepared.damage]);
     }
 
     let focus_ring = st.active_focus_ring();
+    let ring_world_cx = st.viewport.center.x + focus_ring.offset_x;
+    let ring_world_cy = st.viewport.center.y + focus_ring.offset_y;
+    let (ring_sx, ring_sy) = world_to_screen(st, size.w, size.h, ring_world_cx, ring_world_cy);
+    let base_px_per_world_x = size.w as f32 / st.viewport.size.x.max(1.0);
+    let base_px_per_world_y = size.h as f32 / st.viewport.size.y.max(1.0);
+    let screen_rx = focus_ring.radius_x * base_px_per_world_x;
+    let screen_ry = focus_ring.radius_y * base_px_per_world_y;
     draw_ring(
         frame,
-        st,
-        size.w,
-        size.h,
-        focus_ring.radius_x,
-        focus_ring.radius_y,
-        focus_ring.offset_x,
-        focus_ring.offset_y,
+        ring_sx as f32,
+        ring_sy as f32,
+        screen_rx,
+        screen_ry,
         Color32F::new(0.15, 0.85, 0.85, 0.9),
         prepared.damage,
     )?;
+
+    Ok(())
+}
+
+fn draw_offscreen_textures(
+    frame: &mut GlesFrame<'_, '_>,
+    damage: Rectangle<i32, Physical>,
+    offscreen_textures: &[OffscreenNodeTexture],
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+    for tex in offscreen_textures {
+        let tex_size = tex.texture.size();
+
+        let src = Rectangle::<f64, Buffer>::new(
+            (tex.src_x as f64, tex.src_y as f64).into(),
+            (
+                tex.src_w.min(tex_size.w).max(1) as f64,
+                tex.src_h.min(tex_size.h).max(1) as f64,
+            )
+                .into(),
+        );
+
+        let dst = Rectangle::<i32, Physical>::new(
+            (tex.dst_x, tex.dst_y).into(),
+            (tex.dst_w.max(1), tex.dst_h.max(1)).into(),
+        );
+
+        let clip = Rectangle::<i32, Physical>::new(
+            (tex.clip_x, tex.clip_y).into(),
+            (tex.clip_w.max(1), tex.clip_h.max(1)).into(),
+        );
+
+        frame.render_texture_from_to(
+            &tex.texture,
+            src,
+            dst,
+            &[damage],
+            &[clip],
+            Transform::Normal,
+            1.0,
+            None,
+            &[],
+        )?;
+    }
 
     Ok(())
 }
@@ -420,7 +429,7 @@ where
     Ok(())
 }
 
-fn draw_window_borders<F>(
+fn draw_window_backgrounds<F>(
     frame: &mut F,
     size: smithay::utils::Size<i32, Physical>,
     damage: Rectangle<i32, Physical>,
@@ -428,25 +437,32 @@ fn draw_window_borders<F>(
 ) -> Result<(), F::Error>
 where
     F: Frame,
+    F::Error: std::error::Error + 'static,
 {
-    let bw = 2i32;
+    let bw = 6i32;
+    let fb = Rectangle::<i32, Physical>::from_size(size);
     for rect in border_rects {
         let color = if rect.focused {
             Color32F::new(0.22, 0.82, 0.92, 1.0)
         } else {
-            Color32F::new(0.38, 0.42, 0.48, 0.90)
+            Color32F::new(0.28, 0.30, 0.35, 1.0)
         };
-
-        draw_clamped_border_rect(
-            frame,
-            (rect.x, rect.y, rect.w, rect.h),
-            bw,
-            color,
-            damage,
-            size,
-        )?;
+        let bg = Rectangle::<i32, Physical>::new(
+            (rect.x - bw, rect.y - bw).into(),
+            ((rect.w + bw * 2).max(1), (rect.h + bw * 2).max(1)).into(),
+        );
+        if let Some(visible) = bg.intersection(fb) {
+            draw_rect(
+                frame,
+                visible.loc.x,
+                visible.loc.y,
+                visible.size.w,
+                visible.size.h,
+                color,
+                damage,
+            )?;
+        }
     }
-
     Ok(())
 }
 
