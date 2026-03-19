@@ -74,12 +74,20 @@ fn dispatch_pointer_button(
     );
     let motion_serial = SERIAL_COUNTER.next_serial();
     let button_serial = SERIAL_COUNTER.next_serial();
-    let cam_scale = st.camera_render_scale() as f64;
+    let location = if focus
+        .as_ref()
+        .is_some_and(|(surface, _)| st.is_layer_surface(surface))
+    {
+        (frame.sx as f64, frame.sy as f64).into()
+    } else {
+        let cam_scale = st.camera_render_scale() as f64;
+        (frame.sx as f64 / cam_scale, frame.sy as f64 / cam_scale).into()
+    };
     pointer.motion(
         st,
         focus,
         &MotionEvent {
-            location: (frame.sx as f64 / cam_scale, frame.sy as f64 / cam_scale).into(),
+            location,
             serial: motion_serial,
             time: now_millis_u32(),
         },
