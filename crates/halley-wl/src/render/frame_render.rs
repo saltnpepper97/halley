@@ -24,6 +24,7 @@ use super::node_render::{
     ActiveBorderRect, NodeSnapshot, OffscreenNodeTexture, collect_active_surfaces,
     collect_hover_preview, draw_node_markers,
 };
+use super::ACTIVE_WINDOW_FRAME_PAD_PX;
 use super::render_utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 
 type SurfaceElement =
@@ -449,7 +450,7 @@ where
     F: Frame,
     F::Error: std::error::Error + 'static,
 {
-    let bw = 6i32;
+    let bw = ACTIVE_WINDOW_FRAME_PAD_PX;
     let fb = Rectangle::<i32, Physical>::from_size(size);
     for rect in border_rects {
         let color = if rect.focused {

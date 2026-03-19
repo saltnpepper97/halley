@@ -1,4 +1,5 @@
 use super::*;
+use crate::render::ACTIVE_WINDOW_FRAME_PAD_PX;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 
@@ -339,12 +340,13 @@ impl HalleyWlState {
         let right = (geo_lx + geo_w - bbox_lx - bbox_w * 0.5).max(16.0);
         let top = (bbox_h * 0.5 + bbox_ly - geo_ly).max(16.0);
         let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
+        let frame_pad = ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32;
 
         CollisionExtents {
-            left: left * basis.x.max(1.0) / bbox_w,
-            right: right * basis.x.max(1.0) / bbox_w,
-            top: top * basis.y.max(1.0) / bbox_h,
-            bottom: bottom * basis.y.max(1.0) / bbox_h,
+            left: left * basis.x.max(1.0) / bbox_w + frame_pad,
+            right: right * basis.x.max(1.0) / bbox_w + frame_pad,
+            top: top * basis.y.max(1.0) / bbox_h + frame_pad,
+            bottom: bottom * basis.y.max(1.0) / bbox_h + frame_pad,
         }
     }
 
@@ -714,6 +716,30 @@ mod tests {
             req_x,
             req_y
         );
+    }
+
+    #[test]
+    fn active_surface_collision_extents_include_frame_pad() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new(&dh, tuning);
+
+        let id = state.field.spawn_surface(
+            "active",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 400.0, y: 260.0 },
+        );
+        let node = state.field.node(id).expect("active node");
+        let ext = state.surface_window_collision_extents(node);
+        let expected_half_w = node.intrinsic_size.x * 0.5 + ACTIVE_WINDOW_FRAME_PAD_PX as f32;
+        let expected_half_h = node.intrinsic_size.y * 0.5 + ACTIVE_WINDOW_FRAME_PAD_PX as f32;
+
+        assert_eq!(ext.left, expected_half_w);
+        assert_eq!(ext.right, expected_half_w);
+        assert_eq!(ext.top, expected_half_h);
+        assert_eq!(ext.bottom, expected_half_h);
     }
 
     #[test]

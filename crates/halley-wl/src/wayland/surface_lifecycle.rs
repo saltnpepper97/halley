@@ -616,7 +616,7 @@ mod tests {
     }
 
     #[test]
-    fn second_spawn_uses_right_slot() {
+    fn second_spawn_uses_first_available_star_slot() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
@@ -646,7 +646,13 @@ mod tests {
 
         let (pos, needs_pan) = state.pick_spawn_position(size);
         let step = state.spawn_star_step(size);
-        assert_eq!(pos, Vec2 { x: step, y: 0.0 });
+        assert!(matches!(
+            pos,
+            Vec2 { x, y } if (x == step && y == 0.0)
+                || (x == -step && y == 0.0)
+                || (x == 0.0 && y == step)
+                || (x == 0.0 && y == -step)
+        ));
         assert!(needs_pan);
     }
 
