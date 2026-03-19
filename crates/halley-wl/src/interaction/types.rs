@@ -118,6 +118,10 @@ pub(crate) struct PointerState {
     /// matching release must also be intercepted so clients do not receive a
     /// stray release after a compositor-owned drag/resize gesture.
     pub(crate) intercepted_buttons: HashMap<u32, PointerBindingAction>,
+    /// Non-pointer-binding buttons intercepted by compositor/launch bindings.
+    /// Their releases must also be intercepted so clients never see an
+    /// unpaired button release.
+    pub(crate) intercepted_binding_buttons: HashSet<u32>,
     pub(crate) drag: Option<DragCtx>,
     pub(crate) resize: Option<ResizeCtx>,
     pub(crate) move_anim: HashMap<halley_core::field::NodeId, NodeMoveAnim>,
@@ -139,6 +143,7 @@ impl Default for PointerState {
             workspace_size: (1, 1),
             hover_node: None,
             intercepted_buttons: HashMap::new(),
+            intercepted_binding_buttons: HashSet::new(),
             drag: None,
             resize: None,
             move_anim: HashMap::new(),

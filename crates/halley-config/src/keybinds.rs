@@ -26,6 +26,9 @@ pub struct LaunchBinding {
     pub command: String,
 }
 
+pub const WHEEL_UP_CODE: u32 = 0x2000;
+pub const WHEEL_DOWN_CODE: u32 = 0x2001;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DirectionalAction {
     Left,
@@ -381,6 +384,8 @@ pub fn key_name_to_evdev(name: &str) -> Option<u32> {
         "mousemiddle" | "middlemouse" | "middlebutton" | "btnmiddle" | "btn_middle" => Some(274),
         "mouse4" | "mouseback" | "sidebutton" | "btnside" | "btn_side" => Some(275),
         "mouse5" | "mouseforward" | "extrabutton" | "btnextra" | "btn_extra" => Some(276),
+        "mousewheelup" | "wheelup" | "scrollup" => Some(WHEEL_UP_CODE),
+        "mousewheeldown" | "wheeldown" | "scrolldown" => Some(WHEEL_DOWN_CODE),
 
         "xf86audiomute" | "audiomute" | "mute" => Some(113),
         "xf86audiolowervolume" | "audiolowervolume" | "volumedown" => Some(114),
@@ -408,6 +413,11 @@ pub fn key_name_to_evdev(name: &str) -> Option<u32> {
 #[inline]
 pub fn is_pointer_button_code(code: u32) -> bool {
     matches!(code, 272..=276)
+}
+
+#[inline]
+pub fn is_wheel_code(code: u32) -> bool {
+    matches!(code, WHEEL_UP_CODE | WHEEL_DOWN_CODE)
 }
 
 pub fn evdev_to_key_name(code: u32) -> &'static str {
@@ -510,13 +520,18 @@ pub fn evdev_to_key_name(code: u32) -> &'static str {
         274 => "MouseMiddle",
         275 => "MouseBack",
         276 => "MouseForward",
+        WHEEL_UP_CODE => "MouseWheelUp",
+        WHEEL_DOWN_CODE => "MouseWheelDown",
         _ => "?",
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{evdev_to_key_name, key_name_to_evdev, parse_chord, parse_modifiers};
+    use super::{
+        WHEEL_DOWN_CODE, WHEEL_UP_CODE, evdev_to_key_name, key_name_to_evdev, parse_chord,
+        parse_modifiers,
+    };
 
     #[test]
     fn generic_alt_modifier_matches_either_side_in_config() {
@@ -537,6 +552,8 @@ mod tests {
         assert_eq!(key_name_to_evdev("middlemouse"), Some(274));
         assert_eq!(key_name_to_evdev("mouseback"), Some(275));
         assert_eq!(key_name_to_evdev("mouseforward"), Some(276));
+        assert_eq!(key_name_to_evdev("mousewheelup"), Some(WHEEL_UP_CODE));
+        assert_eq!(key_name_to_evdev("mousewheeldown"), Some(WHEEL_DOWN_CODE));
     }
 
     #[test]
@@ -552,6 +569,8 @@ mod tests {
     fn reverse_lookup_uses_canonical_names_for_new_codes() {
         assert_eq!(evdev_to_key_name(272), "MouseLeft");
         assert_eq!(evdev_to_key_name(275), "MouseBack");
+        assert_eq!(evdev_to_key_name(WHEEL_UP_CODE), "MouseWheelUp");
+        assert_eq!(evdev_to_key_name(WHEEL_DOWN_CODE), "MouseWheelDown");
         assert_eq!(evdev_to_key_name(166), "XF86AudioStop");
         assert_eq!(evdev_to_key_name(248), "XF86AudioMicMute");
     }

@@ -52,9 +52,9 @@ keybinds:
   # Basic compositor controls
   "$var.mod+r" "reload"
   "$var.mod+n" "toggle-state"
-  "$var.mod+equal" "zoom-in"
-  "$var.mod+minus" "zoom-out"
-  "$var.mod+0" "zoom-reset"
+  "$var.mod+mousewheelup" "zoom-in"
+  "$var.mod+mousewheeldown" "zoom-out"
+  "$var.mod+middlemouse" "zoom-reset"
 
   # Quit Halley
   "$var.mod+shift+q" "quit"

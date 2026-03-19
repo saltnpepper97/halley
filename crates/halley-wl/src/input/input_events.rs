@@ -11,13 +11,14 @@ use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::screen_to_world;
 use crate::state::HalleyWlState;
 
-use super::input_utils::{modifier_active, update_mod_state};
+use super::input_utils::update_mod_state;
 use super::key_actions::{
-    apply_bound_key, apply_compositor_action_release, compositor_binding_action,
-    key_is_compositor_binding,
+    apply_bound_key, apply_compositor_action_press, apply_compositor_action_release,
+    compositor_binding_action, key_is_compositor_binding,
 };
 use super::pointer_focus::pointer_focus_for_screen;
 use super::pointer_map_debug_enabled;
+use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};
 use smithay::backend::input::{Axis, AxisSource, ButtonState, KeyState};
 
 #[inline]
@@ -184,12 +185,48 @@ pub(crate) fn handle_pointer_axis_input(
     mod_state: &std::rc::Rc<std::cell::RefCell<ModState>>,
     pointer_state: &std::rc::Rc<std::cell::RefCell<PointerState>>,
     backend: &impl BackendView,
+    config_path: &str,
+    wayland_display: &str,
     amount_v120_vertical: Option<f64>,
     amount_vertical: Option<f64>,
 ) {
     if st.has_active_cluster_workspace() {
         return;
     }
+
+    let mut steps = (amount_v120_vertical.unwrap_or(0.0) as f32) / 120.0;
+    if steps.abs() < f32::EPSILON {
+        let px = amount_vertical.unwrap_or(0.0) as f32;
+        if px.abs() > f32::EPSILON {
+            steps = px / 40.0;
+        }
+    }
+    if steps.abs() < f32::EPSILON {
+        return;
+    }
+
+    let steps = steps.clamp(-4.0, 4.0);
+    let mods = mod_state.borrow().clone();
+    let wheel_code = if steps > 0.0 {
+        WHEEL_UP_CODE
+    } else {
+        WHEEL_DOWN_CODE
+    };
+
+    if let Some(action) = compositor_binding_action(st, wheel_code, &mods) {
+        pointer_state.borrow_mut().panning = false;
+        if apply_compositor_action_press(st, action, config_path, wayland_display) {
+            backend.request_redraw();
+        }
+        return;
+    }
+
+    if apply_bound_key(st, wheel_code, &mods, config_path, wayland_display) {
+        pointer_state.borrow_mut().panning = false;
+        backend.request_redraw();
+        return;
+    }
+
     let (sx, sy, ws_w, ws_h) = {
         let ps = pointer_state.borrow();
         let (ws_w, ws_h) = backend.window_size_i32();
@@ -233,28 +270,6 @@ pub(crate) fn handle_pointer_axis_input(
                 pointer.frame(st);
             }
         }
-        return;
-    }
-
-    let mut steps = (amount_v120_vertical.unwrap_or(0.0) as f32) / 120.0;
-    if steps.abs() < f32::EPSILON {
-        let px = amount_vertical.unwrap_or(0.0) as f32;
-        if px.abs() > f32::EPSILON {
-            steps = px / 40.0;
-        }
-    }
-    if steps.abs() < f32::EPSILON {
-        return;
-    }
-
-    let steps = steps.clamp(-4.0, 4.0);
-    let mods = mod_state.borrow().clone();
-    let modifier_held = modifier_active(&mods, st.tuning.keybinds.modifier);
-
-    if st.tuning.scroll_zoom_enabled && modifier_held {
-        pointer_state.borrow_mut().panning = false;
-        st.zoom_by_steps(steps);
-        backend.request_redraw();
         return;
     }
 
@@ -310,6 +325,8 @@ pub(crate) fn handle_backend_input_event(
                 backend,
                 mod_state,
                 pointer_state,
+                config_path,
+                wayland_display,
                 button_code,
                 state,
             );
@@ -323,6 +340,8 @@ pub(crate) fn handle_backend_input_event(
                 mod_state,
                 pointer_state,
                 backend,
+                config_path,
+                wayland_display,
                 amount_v120_vertical,
                 amount_vertical,
             );

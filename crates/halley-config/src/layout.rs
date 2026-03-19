@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use crate::keybinds::key_name_to_evdev;
+use crate::keybinds::{WHEEL_DOWN_CODE, WHEEL_UP_CODE, key_name_to_evdev};
 use halley_core::decay::FocusRingDecayPolicy;
 use halley_core::field::Vec2;
 use halley_core::viewport::{FocusRing, Viewport};
@@ -57,7 +57,6 @@ pub struct RuntimeTuning {
     pub compositor_bindings: Vec<CompositorBinding>,
     pub launch_bindings: Vec<LaunchBinding>,
     pub pointer_bindings: Vec<PointerBinding>,
-    pub scroll_zoom_enabled: bool,
 
     pub tty_viewports: Vec<ViewportOutputConfig>,
     pub autostart_once: Vec<String>,
@@ -123,7 +122,6 @@ impl Default for RuntimeTuning {
             compositor_bindings: default_compositor_bindings(Keybinds::default().modifier),
             launch_bindings: Vec::new(),
             pointer_bindings: default_pointer_bindings(Keybinds::default().modifier),
-            scroll_zoom_enabled: true,
 
             tty_viewports: Vec::new(),
             autostart_once: Vec::new(),
@@ -268,17 +266,17 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
         },
         CompositorBinding {
             modifiers: modifier,
-            key: key("equal"),
+            key: WHEEL_UP_CODE,
             action: CompositorBindingAction::ZoomIn,
         },
         CompositorBinding {
             modifiers: modifier,
-            key: key("minus"),
+            key: WHEEL_DOWN_CODE,
             action: CompositorBindingAction::ZoomOut,
         },
         CompositorBinding {
             modifiers: modifier,
-            key: key("0"),
+            key: key("mousemiddle"),
             action: CompositorBindingAction::ZoomReset,
         },
         CompositorBinding {

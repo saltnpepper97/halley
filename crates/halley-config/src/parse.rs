@@ -463,11 +463,6 @@ fn load_keybind_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.compositor_bindings = default_compositor_bindings(out.keybinds.modifier);
     out.launch_bindings.clear();
     out.pointer_bindings = default_pointer_bindings(out.keybinds.modifier);
-    out.scroll_zoom_enabled = pick_bool(
-        cfg,
-        &["keybinds.scroll-zoom", "keybinds.scroll_zoom"],
-        out.scroll_zoom_enabled,
-    );
     apply_explicit_keybind_overrides(cfg, out);
 }
 
@@ -801,7 +796,8 @@ mod tests {
 
     use super::apply_explicit_keybind_overrides_map;
     use crate::{
-        CompositorBindingAction, DirectionalAction, RuntimeTuning, keybinds::key_name_to_evdev,
+        CompositorBindingAction, DirectionalAction, RuntimeTuning, WHEEL_DOWN_CODE,
+        WHEEL_UP_CODE, keybinds::key_name_to_evdev,
     };
 
     #[test]
@@ -893,23 +889,20 @@ mod tests {
     fn runtime_tuning_has_default_zoom_bindings() {
         let tuning = RuntimeTuning::default();
 
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::ZoomIn && binding.key == WHEEL_UP_CODE
+        }));
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::ZoomOut && binding.key == WHEEL_DOWN_CODE
+        }));
         assert!(
             tuning
                 .compositor_bindings
                 .iter()
-                .any(|binding| binding.action == CompositorBindingAction::ZoomIn)
-        );
-        assert!(
-            tuning
-                .compositor_bindings
-                .iter()
-                .any(|binding| binding.action == CompositorBindingAction::ZoomOut)
-        );
-        assert!(
-            tuning
-                .compositor_bindings
-                .iter()
-                .any(|binding| binding.action == CompositorBindingAction::ZoomReset)
+                .any(|binding| {
+                    binding.action == CompositorBindingAction::ZoomReset
+                        && binding.key == key_name_to_evdev("mousemiddle").expect("middle mouse")
+                })
         );
     }
 
@@ -927,6 +920,25 @@ mod tests {
             .expect("zoom-in binding");
         assert!(zoom_in.modifiers.super_key);
         assert!(!zoom_in.modifiers.left_alt);
+        assert_eq!(zoom_in.key, WHEEL_UP_CODE);
+    }
+
+    #[test]
+    fn wheel_zoom_aliases_parse_as_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("$mod+mousewheelup".to_string(), "zoom_in".to_string()),
+            ("$mod+mousewheeldown".to_string(), "zoom-out".to_string()),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.key == WHEEL_UP_CODE && binding.action == CompositorBindingAction::ZoomIn
+        }));
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.key == WHEEL_DOWN_CODE && binding.action == CompositorBindingAction::ZoomOut
+        }));
     }
 
     #[test]
@@ -1028,28 +1040,4 @@ end
         );
     }
 
-    #[test]
-    fn scroll_zoom_can_be_disabled_in_config() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("halley-scroll-zoom-{unique}.rune"));
-        fs::write(
-            &path,
-            r#"
-keybinds:
-  mod "super"
-  scroll-zoom false
-end
-"#,
-        )
-        .expect("write temp config");
-
-        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
-            .expect("config should parse");
-        let _ = fs::remove_file(&path);
-
-        assert!(!tuning.scroll_zoom_enabled);
-    }
 }

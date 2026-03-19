@@ -22,6 +22,7 @@ use crate::surface::{
 use smithay::backend::input::ButtonState;
 
 use super::input_utils::modifier_active;
+use super::key_actions::{apply_bound_key, apply_compositor_action_press, compositor_binding_action};
 use super::pointer_focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
 use super::pointer_map_debug_enabled;
 use super::resize_helpers::{active_node_screen_rect, pick_resize_handle_from_screen};
@@ -567,6 +568,8 @@ pub(crate) fn handle_pointer_button_input(
     backend: &impl BackendView,
     mod_state: &Rc<RefCell<ModState>>,
     pointer_state: &Rc<RefCell<PointerState>>,
+    config_path: &str,
+    wayland_display: &str,
     button_code: u32,
     button_state: ButtonState,
 ) {
@@ -588,11 +591,30 @@ pub(crate) fn handle_pointer_button_input(
         workspace_active: st.has_active_cluster_workspace(),
     };
     let mods = mod_state.borrow().clone();
+    let intercepted_binding = match button_state {
+        ButtonState::Pressed => {
+            if let Some(action) = compositor_binding_action(st, button_code, &mods) {
+                ps.intercepted_binding_buttons.insert(button_code);
+                ps.panning = false;
+                let _ = apply_compositor_action_press(st, action, config_path, wayland_display);
+                backend.request_redraw();
+                true
+            } else if apply_bound_key(st, button_code, &mods, config_path, wayland_display) {
+                ps.intercepted_binding_buttons.insert(button_code);
+                ps.panning = false;
+                backend.request_redraw();
+                true
+            } else {
+                false
+            }
+        }
+        ButtonState::Released => ps.intercepted_binding_buttons.remove(&button_code),
+    };
     let matched_action = match button_state {
         ButtonState::Pressed => matching_pointer_binding(st, &mods, button_code),
         ButtonState::Released => ps.intercepted_buttons.remove(&button_code),
     };
-    let intercepted = matched_action.is_some();
+    let intercepted = intercepted_binding || matched_action.is_some();
     if matches!(button_state, ButtonState::Pressed)
         && let Some(action) = matched_action
     {
@@ -612,6 +634,9 @@ pub(crate) fn handle_pointer_button_input(
     }
     match button_state {
         ButtonState::Pressed => {
+            if intercepted_binding {
+                return;
+            }
             let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, Instant::now(), ps.resize);
             if pointer_map_debug_enabled() {
                 info!(
@@ -657,6 +682,9 @@ pub(crate) fn handle_pointer_button_input(
             }
         }
         ButtonState::Released => {
+            if intercepted_binding {
+                return;
+            }
             if pointer_map_debug_enabled() {
                 info!(
                     "ptr-map button-release code=0x{:x} ws={}x{} screen=({:.2},{:.2}) world=({:.2},{:.2}) drag={} resize={} panning={}",
