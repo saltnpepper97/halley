@@ -1,6 +1,8 @@
 use super::*;
 
-use crate::backend_iface::DmabufImportBackend;
+use crate::backend::interface::{
+    BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
+};
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 use smithay::reexports::winit::dpi::PhysicalSize;
@@ -122,7 +124,7 @@ fn apply_winit_reload(
     );
 }
 
-pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
+pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
     scope!(
         "halley-wl",
         success = "compositor exited",
@@ -220,7 +222,7 @@ pub(super) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let sock_name = listening.socket_name().to_string_lossy().to_string();
             info!("WAYLAND_DISPLAY={}", sock_name);
 
-            let (backend, winit_source) = winit::init::<GlesRenderer>().map_err(|err| {
+            let (backend, winit_source) = smithay_winit::init::<GlesRenderer>().map_err(|err| {
                 let wayland_display =
                     env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "<unset>".to_string());
                 let x11_display = env::var("DISPLAY").unwrap_or_else(|_| "<unset>".to_string());

@@ -23,14 +23,14 @@ use rustix::net::{
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum RuntimeBackend {
+pub(crate) enum RuntimeBackend {
     Auto,
     Winit,
     Tty,
 }
 
 impl RuntimeBackend {
-    pub(super) fn from_env() -> Result<Self, Box<dyn Error>> {
+    pub(crate) fn from_env() -> Result<Self, Box<dyn Error>> {
         let raw = env::var("HALLEY_WL_BACKEND").unwrap_or_else(|_| "auto".to_string());
         match raw.trim().to_ascii_lowercase().as_str() {
             "auto" => Ok(Self::Auto),
@@ -44,7 +44,7 @@ impl RuntimeBackend {
     }
 }
 
-pub(super) fn auto_backend() -> RuntimeBackend {
+pub(crate) fn auto_backend() -> RuntimeBackend {
     if !std::io::stdin().is_terminal() {
         return RuntimeBackend::Winit;
     }
@@ -74,7 +74,7 @@ pub(super) fn auto_backend() -> RuntimeBackend {
     RuntimeBackend::Tty
 }
 
-pub(super) fn ensure_xdg_runtime_dir() -> Result<(), Box<dyn Error>> {
+pub(crate) fn ensure_xdg_runtime_dir() -> Result<(), Box<dyn Error>> {
     if let Some(dir) = env::var_os("XDG_RUNTIME_DIR") {
         let path = Path::new(&dir);
         if runtime_dir_is_usable(path) {
@@ -114,7 +114,7 @@ pub(super) fn ensure_xdg_runtime_dir() -> Result<(), Box<dyn Error>> {
     Err("unable to find a usable XDG_RUNTIME_DIR".into())
 }
 
-pub(super) fn ensure_dbus_session_bus_address() {
+pub(crate) fn ensure_dbus_session_bus_address() {
     if env::var("DBUS_SESSION_BUS_ADDRESS").is_ok() {
         return;
     }
@@ -133,7 +133,7 @@ pub(super) fn ensure_dbus_session_bus_address() {
     unsafe { env::set_var("DBUS_SESSION_BUS_ADDRESS", addr) };
 }
 
-pub(super) struct HostBackendGuard {
+pub(crate) struct HostBackendGuard {
     child: Option<Child>,
 }
 
@@ -146,7 +146,7 @@ impl Drop for HostBackendGuard {
     }
 }
 
-pub(super) fn ensure_host_display() -> Result<HostBackendGuard, Box<dyn Error>> {
+pub(crate) fn ensure_host_display() -> Result<HostBackendGuard, Box<dyn Error>> {
     if env::var("WAYLAND_DISPLAY").is_ok() || env::var("DISPLAY").is_ok() {
         return Ok(HostBackendGuard { child: None });
     }
@@ -202,7 +202,7 @@ impl XwaylandMode {
     }
 }
 
-pub(super) struct XwaylandSatellite {
+pub(crate) struct XwaylandSatellite {
     mode: XwaylandMode,
     satellite_bin: String,
     wayland_display: String,
@@ -303,11 +303,11 @@ impl Drop for X11SocketReservation {
 }
 
 impl XwaylandSatellite {
-    pub(super) fn request_start(&mut self) {
+    pub(crate) fn request_start(&mut self) {
         self.request_pending = true;
     }
 
-    pub(super) fn tick(&mut self) {
+    pub(crate) fn tick(&mut self) {
         let now = Instant::now();
 
         if let Some(child) = self.child.as_mut() {
@@ -418,14 +418,14 @@ impl XwaylandSatellite {
         }
     }
 
-    pub(super) fn filesystem_listener_source(&self) -> io::Result<Option<UnixListener>> {
+    pub(crate) fn filesystem_listener_source(&self) -> io::Result<Option<UnixListener>> {
         self.x11_sockets
             .as_ref()
             .map(X11SocketReservation::filesystem_listener_for_event_loop)
             .transpose()
     }
 
-    pub(super) fn abstract_listener_source(&self) -> io::Result<Option<OwnedFd>> {
+    pub(crate) fn abstract_listener_source(&self) -> io::Result<Option<OwnedFd>> {
         self.x11_sockets
             .as_ref()
             .map(X11SocketReservation::abstract_listener_for_event_loop)
@@ -442,7 +442,7 @@ impl Drop for XwaylandSatellite {
     }
 }
 
-pub(super) fn ensure_xwayland_satellite(
+pub(crate) fn ensure_xwayland_satellite(
     wayland_display: &str,
 ) -> Result<XwaylandSatellite, Box<dyn Error>> {
     let mode = XwaylandMode::from_env()?;

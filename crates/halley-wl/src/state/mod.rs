@@ -34,7 +34,7 @@ use smithay::{
 
 use crate::activity::CommitActivity;
 use crate::anim::{AnimSpec, Animator};
-use crate::backend_iface::DmabufImportBackend;
+use crate::backend::interface::DmabufImportBackend;
 use crate::wm::ViewportPanAnim;
 
 mod client;

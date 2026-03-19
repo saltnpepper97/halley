@@ -3,18 +3,18 @@ use super::*;
 use crate::interaction::types::ResizeCtx;
 use halley_ipc::{ModeInfo, OutputInfo, OutputStatus};
 
-pub(super) struct TtyDrmProbe {
-    pub(super) _card_path: std::path::PathBuf,
-    pub(super) dev: DrmDevice,
-    pub(super) notifier: smithay::backend::drm::DrmDeviceNotifier,
-    pub(super) crtc: drm_control::crtc::Handle,
-    pub(super) connector_name: String,
-    pub(super) mode: drm_control::Mode,
-    pub(super) gbm_surface: Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
-    pub(super) renderer: Rc<RefCell<GlesRenderer>>,
+pub(crate) struct TtyDrmProbe {
+    pub(crate) _card_path: std::path::PathBuf,
+    pub(crate) dev: DrmDevice,
+    pub(crate) notifier: smithay::backend::drm::DrmDeviceNotifier,
+    pub(crate) crtc: drm_control::crtc::Handle,
+    pub(crate) connector_name: String,
+    pub(crate) mode: drm_control::Mode,
+    pub(crate) gbm_surface: Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
+    pub(crate) renderer: Rc<RefCell<GlesRenderer>>,
 }
 
-pub(super) fn probe_tty_drm_device_via_session(
+pub(crate) fn probe_tty_drm_device_via_session(
     seat: &str,
     session: Rc<RefCell<LibSeatSession>>,
     tuning: &RuntimeTuning,
@@ -59,7 +59,7 @@ pub(super) fn probe_tty_drm_device_via_session(
     .into())
 }
 
-pub(super) fn probe_tty_drm_device_path_via_session(
+pub(crate) fn probe_tty_drm_device_path_via_session(
     card_path: &Path,
     mut session: Rc<RefCell<LibSeatSession>>,
     tuning: &RuntimeTuning,
@@ -156,7 +156,7 @@ pub(super) fn probe_tty_drm_device_path_via_session(
     })
 }
 
-pub(super) fn select_tty_scanout(
+pub(crate) fn select_tty_scanout(
     dev: &mut DrmDevice,
     tuning: &RuntimeTuning,
 ) -> Result<
@@ -292,7 +292,7 @@ pub(super) fn select_tty_scanout(
     ))
 }
 
-pub(super) fn find_tty_scanout_for_reload(
+pub(crate) fn find_tty_scanout_for_reload(
     dev: &mut DrmDevice,
     tuning: &RuntimeTuning,
 ) -> Result<
@@ -307,7 +307,7 @@ pub(super) fn find_tty_scanout_for_reload(
     select_tty_scanout(dev, tuning)
 }
 
-pub(super) fn collect_outputs_for_ipc(
+pub(crate) fn collect_outputs_for_ipc(
     dev: &DrmDevice,
     active_connector_name: &str,
     active_mode: drm_control::Mode,
@@ -381,7 +381,7 @@ fn mode_info_from_drm_mode(mode: drm_control::Mode, current: bool, preferred: bo
     }
 }
 
-pub(super) fn queue_tty_drm_frame(
+pub(crate) fn queue_tty_drm_frame(
     gbm_surface: &Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
     renderer: &Rc<RefCell<GlesRenderer>>,
     st: &mut HalleyWlState,

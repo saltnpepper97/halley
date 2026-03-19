@@ -7,7 +7,7 @@ use halley_config::PointerBindingAction;
 use smithay::input::pointer::{ButtonEvent, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
-use crate::backend_iface::BackendView;
+use crate::backend::interface::BackendView;
 use crate::interaction::actions::docking_mode_active;
 use crate::interaction::actions::promote_node_level;
 use crate::interaction::types::{

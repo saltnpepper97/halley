@@ -1,8 +1,11 @@
 use super::*;
 
-use crate::backend_iface::{DmabufImportBackend, TtyDmabufImportBackend};
-use crate::run::drm::{collect_outputs_for_ipc, find_tty_scanout_for_reload, queue_tty_drm_frame};
-use crate::run::{build_tty_libinput_backend, probe_tty_drm_device_via_session};
+use crate::backend::interface::{BackendView, DmabufImportBackend, TtyBackendHandle, TtyDmabufImportBackend};
+use crate::backend::tty_drm::{
+    collect_outputs_for_ipc, find_tty_scanout_for_reload, probe_tty_drm_device_via_session,
+    queue_tty_drm_frame,
+};
+use crate::backend::tty_input::build_tty_libinput_backend;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 
 use smithay::backend::input::{
@@ -107,7 +110,7 @@ fn apply_tty_reload(
     );
 }
 
-pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
+pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
     eprintln!("halley-wl tty: starting");
     scope!(
         "halley-wl-tty",
@@ -689,7 +692,7 @@ pub(super) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             info!("entering tty main loop");
             loop {
                 ev.dispatch(None, &mut state)?;
-                if state.exit_requested() || crate::run::shutdown_requested() {
+                if state.exit_requested() || shutdown_requested() {
                     info!("exit requested, shutting down tty main loop");
                     break Ok(());
                 }

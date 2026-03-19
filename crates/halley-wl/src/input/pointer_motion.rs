@@ -6,7 +6,7 @@ use eventline::info;
 use smithay::input::pointer::MotionEvent;
 use smithay::utils::SERIAL_COUNTER;
 
-use crate::backend_iface::BackendView;
+use crate::backend::interface::BackendView;
 use crate::interaction::actions::docking_mode_active;
 use crate::interaction::types::{ModState, PointerState, ResizeHandle};
 use crate::spatial::{pick_hit_node_at, screen_to_world};

@@ -6,7 +6,7 @@ use smithay::input::pointer::AxisFrame;
 use smithay::input::pointer::MotionEvent;
 use smithay::utils::SERIAL_COUNTER;
 
-use crate::backend_iface::BackendView;
+use crate::backend::interface::BackendView;
 use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::screen_to_world;
 use crate::state::HalleyWlState;
