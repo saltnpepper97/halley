@@ -214,8 +214,8 @@ impl HalleyWlState {
     }
 
     pub(crate) fn enforce_pan_dominant_zone_states(&mut self, focus_ring: FocusRing, now_ms: u64) {
-        let primary_outside_ring_delay_ms = self.tuning.primary_outside_ring_delay_ms;
-        let secondary_outside_ring_delay_ms = self.tuning.secondary_outside_ring_delay_ms;
+        let active_outside_ring_delay_ms = self.tuning.active_outside_ring_delay_ms;
+        let inactive_outside_ring_delay_ms = self.tuning.inactive_outside_ring_delay_ms;
 
         let ids: Vec<NodeId> = self.field.nodes().keys().copied().collect();
 
@@ -224,8 +224,8 @@ impl HalleyWlState {
                 id,
                 focus_ring,
                 now_ms,
-                primary_outside_ring_delay_ms,
-                secondary_outside_ring_delay_ms,
+                active_outside_ring_delay_ms,
+                inactive_outside_ring_delay_ms,
             );
         }
 
@@ -241,8 +241,8 @@ impl HalleyWlState {
         id: NodeId,
         focus_ring: FocusRing,
         now_ms: u64,
-        primary_delay_ms: u64,
-        secondary_delay_ms: u64,
+        active_delay_ms: u64,
+        inactive_delay_ms: u64,
     ) {
         let Some(n) = self.field.node(id) else {
             self.dock_decay_offscreen_since_ms.remove(&id);
@@ -272,12 +272,10 @@ impl HalleyWlState {
         }
 
         let is_primary = self.interaction_focus == Some(id);
-        let is_secondary = self.companion_surface_node(now_ms) == Some(id);
         let delay_ms = if is_primary {
-            primary_delay_ms
+            active_delay_ms
         } else {
-            let _ = is_secondary;
-            secondary_delay_ms
+            inactive_delay_ms
         };
 
         let since = self

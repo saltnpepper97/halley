@@ -46,6 +46,11 @@ end
 tile:
 end
 
+decay:
+  active-delay 120
+  inactive-delay 30
+end
+
 field:
   gap 20.0
   active-windows-allowed 3

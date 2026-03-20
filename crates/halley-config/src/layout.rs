@@ -66,8 +66,8 @@ pub struct RuntimeTuning {
     pub cluster_dwell_ms: u64,
     pub active_windows_allowed: usize,
 
-    pub primary_outside_ring_delay_ms: u64,
-    pub secondary_outside_ring_delay_ms: u64,
+    pub active_outside_ring_delay_ms: u64,
+    pub inactive_outside_ring_delay_ms: u64,
     pub docked_offscreen_delay_ms: u64,
 
     pub non_overlap_gap_px: f32,
@@ -137,8 +137,8 @@ impl Default for RuntimeTuning {
             cluster_dwell_ms: 900,
             active_windows_allowed: 3,
 
-            primary_outside_ring_delay_ms: 120_000,
-            secondary_outside_ring_delay_ms: 30_000,
+            active_outside_ring_delay_ms: 120_000,
+            inactive_outside_ring_delay_ms: 30_000,
             docked_offscreen_delay_ms: 300_000,
 
             non_overlap_gap_px: 20.0,
@@ -229,9 +229,9 @@ impl RuntimeTuning {
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);
         self.active_windows_allowed = self.active_windows_allowed.clamp(1, 64);
 
-        self.primary_outside_ring_delay_ms = self.primary_outside_ring_delay_ms.clamp(0, 7_200_000);
-        self.secondary_outside_ring_delay_ms =
-            self.secondary_outside_ring_delay_ms.clamp(0, 7_200_000);
+        self.active_outside_ring_delay_ms = self.active_outside_ring_delay_ms.clamp(0, 7_200_000);
+        self.inactive_outside_ring_delay_ms =
+            self.inactive_outside_ring_delay_ms.clamp(0, 7_200_000);
         self.docked_offscreen_delay_ms = self.docked_offscreen_delay_ms.clamp(0, 7_200_000);
 
         self.non_overlap_gap_px = self.non_overlap_gap_px.clamp(0.0, 256.0);

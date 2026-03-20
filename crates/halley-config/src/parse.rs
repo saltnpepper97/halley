@@ -494,21 +494,15 @@ fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 }
 
 fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    let primary_s = pick_u64(
+    let active_s = pick_u64(
         cfg,
-        &[
-            "decay.primary-outside-ring-delay",
-            "decay.primary_outside_ring_delay",
-        ],
-        out.primary_outside_ring_delay_ms / 1000,
+        &["decay.active-delay", "decay.active_delay"],
+        out.active_outside_ring_delay_ms / 1000,
     );
-    let secondary_s = pick_u64(
+    let inactive_s = pick_u64(
         cfg,
-        &[
-            "decay.secondary-outside-ring-delay",
-            "decay.secondary_outside_ring_delay",
-        ],
-        out.secondary_outside_ring_delay_ms / 1000,
+        &["decay.inactive-delay", "decay.inactive_delay"],
+        out.inactive_outside_ring_delay_ms / 1000,
     );
     let docked_s = pick_u64(
         cfg,
@@ -519,8 +513,8 @@ fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.docked_offscreen_delay_ms / 1000,
     );
 
-    out.primary_outside_ring_delay_ms = primary_s.saturating_mul(1000);
-    out.secondary_outside_ring_delay_ms = secondary_s.saturating_mul(1000);
+    out.active_outside_ring_delay_ms = active_s.saturating_mul(1000);
+    out.inactive_outside_ring_delay_ms = inactive_s.saturating_mul(1000);
     out.docked_offscreen_delay_ms = docked_s.saturating_mul(1000);
 }
 
