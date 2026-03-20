@@ -123,9 +123,16 @@ delegate_seat!(HalleyWlState);
 delegate_pointer_constraints!(HalleyWlState);
 delegate_relative_pointer!(HalleyWlState);
 delegate_drm_syncobj!(HalleyWlState);
+delegate_idle_notify!(HalleyWlState);
 
 impl SelectionHandler for HalleyWlState {
     type SelectionUserData = ();
+}
+
+impl IdleNotifierHandler for HalleyWlState {
+    fn idle_notifier_state(&mut self) -> &mut IdleNotifierState<Self> {
+        &mut self.idle_notifier_state
+    }
 }
 
 impl DataDeviceHandler for HalleyWlState {

@@ -130,16 +130,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
             info!("physics enabled: {}", tuning.physics_enabled);
 
-            let mut state = HalleyWlState::new(&dh, tuning.clone());
-            state.seat.add_pointer();
-            if state
-                .seat
-                .add_keyboard(Default::default(), 200, 30)
-                .is_err()
-            {
-                warn!("failed to initialize wl_seat keyboard");
-            }
-
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
                 let config_watch_target = PathBuf::from(config_path.as_str());
@@ -209,6 +199,17 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             })?;
             let backend = Rc::new(RefCell::new(backend));
             let backend_handle = WinitBackendHandle::new(backend.clone());
+            let mut ev: EventLoop<HalleyWlState> = EventLoop::try_new()?;
+            let _signal = ev.get_signal();
+            let mut state = HalleyWlState::new(&dh, ev.handle(), tuning.clone());
+            state.seat.add_pointer();
+            if state
+                .seat
+                .add_keyboard(Default::default(), 200, 30)
+                .is_err()
+            {
+                warn!("failed to initialize wl_seat keyboard");
+            }
             let dmabuf_importer: Rc<dyn DmabufImportBackend> = Rc::new(backend_handle.clone());
             state.configure_dmabuf_importer(dmabuf_importer, None);
             let xwayland = Rc::new(RefCell::new(ensure_xwayland_satellite(sock_name.as_str())?));
@@ -271,9 +272,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 let ws = backend.borrow().window_size();
                 publish_winit_output_snapshot(ws.w, ws.h, true, 0, 0);
             }
-
-            let mut ev: EventLoop<HalleyWlState> = EventLoop::try_new()?;
-            let _signal = ev.get_signal();
 
             let mut dh_for_clients = dh.clone();
             ev.handle()

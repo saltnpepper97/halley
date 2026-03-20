@@ -342,6 +342,8 @@ pub(crate) fn handle_backend_input_event(
     wayland_display: &str,
     event: BackendInputEventData,
 ) {
+    st.note_input_activity();
+
     match event {
         BackendInputEventData::Keyboard { code, pressed } => {
             handle_keyboard_input(

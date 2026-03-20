@@ -268,26 +268,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
             info!("physics enabled: {}", tuning.physics_enabled);
 
-            let mut state = HalleyWlState::new(&dh, tuning.clone());
-            let dmabuf_importer: Rc<dyn DmabufImportBackend> =
-                Rc::new(TtyDmabufImportBackend::new(drm_probe.renderer.clone()));
-            state.configure_dmabuf_importer_for_fd(dmabuf_importer, drm_probe.dev.device_fd());
-            if smithay::wayland::drm_syncobj::supports_syncobj_eventfd(drm_probe.dev.device_fd()) {
-                state.drm_syncobj_state =
-                    Some(smithay::wayland::drm_syncobj::DrmSyncobjState::new::<
-                        HalleyWlState,
-                    >(&dh, drm_probe.dev.device_fd().clone()));
-            }
-            state.set_app_focused(true);
-            state.seat.add_pointer();
-            if state
-                .seat
-                .add_keyboard(Default::default(), 200, 30)
-                .is_err()
-            {
-                warn!("failed to initialize wl_seat keyboard");
-            }
-
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
                 let config_watch_target = PathBuf::from(config_path.as_str());
@@ -351,13 +331,31 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let xwayland_request_rx = Rc::new(RefCell::new(xwayland_request_rx));
             let xwayland_for_timer = xwayland.clone();
             let xwayland_request_for_timer = xwayland_request_rx.clone();
-            let autostart_once = state.tuning.autostart_once.clone();
-            run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
-
             let libinput_backend = libinput_backend;
 
             let mut ev: EventLoop<HalleyWlState> = EventLoop::try_new()?;
             let _signal = ev.get_signal();
+            let mut state = HalleyWlState::new(&dh, ev.handle(), tuning.clone());
+            let dmabuf_importer: Rc<dyn DmabufImportBackend> =
+                Rc::new(TtyDmabufImportBackend::new(drm_probe.renderer.clone()));
+            state.configure_dmabuf_importer_for_fd(dmabuf_importer, drm_probe.dev.device_fd());
+            if smithay::wayland::drm_syncobj::supports_syncobj_eventfd(drm_probe.dev.device_fd()) {
+                state.drm_syncobj_state =
+                    Some(smithay::wayland::drm_syncobj::DrmSyncobjState::new::<
+                        HalleyWlState,
+                    >(&dh, drm_probe.dev.device_fd().clone()));
+            }
+            state.set_app_focused(true);
+            state.seat.add_pointer();
+            if state
+                .seat
+                .add_keyboard(Default::default(), 200, 30)
+                .is_err()
+            {
+                warn!("failed to initialize wl_seat keyboard");
+            }
+            let autostart_once = state.tuning.autostart_once.clone();
+            run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
 
             let mut dh_for_clients = dh.clone();
             ev.handle()

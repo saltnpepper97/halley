@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use calloop::ping::Ping;
+use calloop::{LoopHandle, ping::Ping};
 use halley_config::RuntimeTuning;
 use halley_core::cluster::ClusterId;
 use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_cluster_formation};
@@ -25,6 +25,7 @@ use smithay::{
         compositor::CompositorState,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         drm_syncobj::DrmSyncobjState,
+        idle_notify::IdleNotifierState,
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsState,
         relative_pointer::RelativePointerManagerState,
@@ -188,6 +189,7 @@ pub struct HalleyWlState {
     pub wlr_layer_shell_state: WlrLayerShellState,
     pub pointer_constraints_state: PointerConstraintsState,
     pub relative_pointer_manager_state: RelativePointerManagerState,
+    pub idle_notifier_state: IdleNotifierState<Self>,
     pub drm_syncobj_state: Option<DrmSyncobjState>,
     pub output_manager_state: OutputManagerState,
     pub shm_state: ShmState,
@@ -308,6 +310,7 @@ impl HalleyWlState {
 
     pub fn new(
         dh: &smithay::reexports::wayland_server::DisplayHandle,
+        loop_handle: LoopHandle<'static, Self>,
         tuning: RuntimeTuning,
     ) -> Self {
         let now = Instant::now();
@@ -326,6 +329,7 @@ impl HalleyWlState {
             wlr_layer_shell_state: WlrLayerShellState::new::<HalleyWlState>(dh),
             pointer_constraints_state: PointerConstraintsState::new::<HalleyWlState>(dh),
             relative_pointer_manager_state: RelativePointerManagerState::new::<HalleyWlState>(dh),
+            idle_notifier_state: IdleNotifierState::new(dh, loop_handle),
             drm_syncobj_state: None,
             output_manager_state: OutputManagerState::new_with_xdg_output::<HalleyWlState>(dh),
             shm_state: ShmState::new::<HalleyWlState>(dh, vec![]),
@@ -557,6 +561,11 @@ impl HalleyWlState {
 
     pub fn request_exit(&mut self) {
         self.exit_requested = true;
+    }
+
+    #[inline]
+    pub fn note_input_activity(&mut self) {
+        self.idle_notifier_state.notify_activity(&self.seat);
     }
 
     pub fn exit_requested(&self) -> bool {
