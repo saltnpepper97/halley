@@ -293,11 +293,10 @@ pub(crate) fn handle_pointer_motion_absolute(
         let dy_world = -dy_px * camera.y.max(1.0) / (ws_h as f32).max(1.0);
         let now = Instant::now();
         st.note_pan_activity(now);
-        st.viewport.pan(halley_core::field::Vec2 {
+        st.pan_camera_target(halley_core::field::Vec2 {
             x: -dx_world,
             y: -dy_world,
         });
-        st.tuning.viewport_center = st.viewport.center;
         st.note_pan_viewport_change(now);
         ps.pan_last_screen = (active_sx, active_sy);
         backend.request_redraw();

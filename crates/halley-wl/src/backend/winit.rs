@@ -5,7 +5,8 @@ use crate::backend::interface::{
 };
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
-use smithay::reexports::winit::dpi::PhysicalSize;
+
+const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 
 fn apply_host_cursor(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
@@ -68,51 +69,23 @@ fn publish_winit_output_snapshot(
 fn apply_winit_reload(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
     st: &mut HalleyWlState,
-    next: RuntimeTuning,
+    mut next: RuntimeTuning,
     config_path: &str,
     wayland_display: &str,
     reason: &str,
 ) {
-    let prev_window_size = backend.borrow().window().inner_size();
-    let requested = PhysicalSize::new(
-        next.viewport_size.x.round().max(1.0) as u32,
-        next.viewport_size.y.round().max(1.0) as u32,
-    );
-    let applied = backend
-        .borrow()
-        .window()
-        .request_inner_size(requested)
-        .unwrap_or(requested);
-
-    if applied != requested {
-        let _ = backend
-            .borrow()
-            .window()
-            .request_inner_size(prev_window_size);
-        warn!(
-            "{}: viewport reload rejected for {} (requested={}x{}, applied={}x{}); keeping last working size {}x{}",
-            reason,
-            config_path,
-            requested.width,
-            requested.height,
-            applied.width,
-            applied.height,
-            prev_window_size.width,
-            prev_window_size.height
-        );
-        return;
-    }
-
-    let mut next = next;
+    let ws = backend.borrow().window_size();
     next.viewport_size = halley_core::field::Vec2 {
-        x: applied.width as f32,
-        y: applied.height as f32,
+        x: ws.w.max(1) as f32,
+        y: ws.h.max(1) as f32,
     };
+    let live_camera = crate::run::capture_live_camera_state(st);
     st.apply_tuning(next);
+    crate::run::restore_live_camera_state(st, live_camera);
     st.advertise_primary_output(
         "winit-0",
         smithay::output::Mode {
-            size: (applied.width as i32, applied.height as i32).into(),
+            size: (ws.w.max(1), ws.h.max(1)).into(),
             refresh: 0,
         },
     );
@@ -120,7 +93,10 @@ fn apply_winit_reload(
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     info!(
         "{}: reloaded config from {} with viewport {}x{}",
-        reason, config_path, applied.width, applied.height
+        reason,
+        config_path,
+        ws.w.max(1),
+        ws.h.max(1)
     );
 }
 
@@ -242,13 +218,18 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let xwayland_for_timer = xwayland.clone();
             let xwayland_request_for_timer = xwayland_request_rx.clone();
             {
-                let fresh = RuntimeTuning::load_from_path(config_path.as_str());
-                state.apply_tuning(fresh);
+                let mut fresh = RuntimeTuning::load_from_path(config_path.as_str());
                 let ws = backend.borrow().window_size();
+                fresh.viewport_size = halley_core::field::Vec2 {
+                    x: ws.w.max(1) as f32,
+                    y: ws.h.max(1) as f32,
+                };
+                state.apply_tuning(fresh);
                 state.zoom_ref_size = halley_core::field::Vec2 {
                     x: ws.w.max(1) as f32,
                     y: ws.h.max(1) as f32,
                 };
+                state.snap_camera_targets_to_live();
                 state.advertise_primary_output(
                     "winit-0",
                     smithay::output::Mode {
@@ -282,6 +263,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let pointer_state_for_timer = pointer_state.clone();
             let watch_rx = Rc::new(RefCell::new(watch_rx));
             let watch_rx_for_timer = watch_rx.clone();
+            let pending_watch_reload_at = Rc::new(RefCell::new(None::<Instant>));
+            let pending_watch_reload_at_for_timer = pending_watch_reload_at.clone();
             let config_path_for_timer = config_path.clone();
             {
                 let ws = backend.borrow().window_size();
@@ -324,16 +307,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     WinitEvent::Redraw => {
                         let ps = pointer_state_for_winit.borrow();
                         let now = Instant::now();
-                        const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
                         let resize_preview = ps.resize;
-                        let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
-                        let hovered = if hover_blocked { None } else { ps.hover_node };
-                        let preview_ready = hovered.is_some()
-                            && ps.hover_started_at.is_some_and(|at| {
-                                now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
-                            });
-                        let hover_node = if preview_ready { None } else { hovered };
-                        let preview_hover_node = if preview_ready { hovered } else { None };
+                        let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
                         if let Err(err) = backend_handle_for_winit.draw_frame(
                             st,
                             resize_preview,
@@ -351,6 +326,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             x: size.w.max(1) as f32,
                             y: size.h.max(1) as f32,
                         };
+                        st.snap_camera_targets_to_live();
                         st.advertise_primary_output(
                             "winit-0",
                             smithay::output::Mode {
@@ -374,16 +350,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         }
                         let ps = pointer_state_for_winit.borrow();
                         let now = Instant::now();
-                        const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
                         let resize_preview = ps.resize;
-                        let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
-                        let hovered = if hover_blocked { None } else { ps.hover_node };
-                        let preview_ready = hovered.is_some()
-                            && ps.hover_started_at.is_some_and(|at| {
-                                now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
-                            });
-                        let hover_node = if preview_ready { None } else { hovered };
-                        let preview_hover_node = if preview_ready { hovered } else { None };
+                        let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
                         if let Err(err) = backend_handle_for_winit.draw_frame(
                             st,
                             resize_preview,
@@ -538,15 +506,34 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         st.request_exit();
                     }
                     RuntimeIpcCommand::Reload => {
-                        let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        apply_winit_reload(
-                            &backend_for_timer,
-                            st,
-                            next,
-                            config_path_for_timer.as_str(),
-                            wayland_display_for_timer.as_str(),
-                            "ipc",
-                        );
+                        if let Some(next) =
+                            RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
+                        {
+                            if crate::run::viewport_section_changed(&st.tuning, &next) {
+                                apply_winit_reload(
+                                    &backend_for_timer,
+                                    st,
+                                    next,
+                                    config_path_for_timer.as_str(),
+                                    wayland_display_for_timer.as_str(),
+                                    "ipc",
+                                );
+                            } else {
+                                let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                                crate::run::apply_reloaded_tuning(
+                                    st,
+                                    next,
+                                    config_path_for_timer.as_str(),
+                                    wayland_display_for_timer.as_str(),
+                                    "ipc",
+                                );
+                            }
+                        } else {
+                            warn!(
+                                "ipc: reload skipped for {} because config parse/load failed",
+                                config_path_for_timer.as_str()
+                            );
+                        }
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                     }
                     RuntimeIpcCommand::Docking(command) => {
@@ -579,6 +566,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 };
                 st.tick_frame_effects(now);
                 st.tick_animator_frame(now);
+                st.tick_fullscreen_motion(now);
                 {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     let _ = advance_node_move_anim(st, &mut ps, now);
@@ -592,16 +580,43 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 let mut rx_ref = watch_rx_for_timer.borrow_mut();
                 if let Some(rx) = rx_ref.as_mut() {
                     while rx.try_recv().is_ok() {
-                        let next = RuntimeTuning::load_from_path(config_path_for_timer.as_str());
-                        apply_winit_reload(
-                            &backend_for_timer,
-                            st,
-                            next,
-                            config_path_for_timer.as_str(),
-                            wayland_display_for_timer.as_str(),
-                            "watch",
-                        );
+                        *pending_watch_reload_at_for_timer.borrow_mut() =
+                            Some(now + Duration::from_millis(CONFIG_RELOAD_SETTLE_MS));
+                    }
+                }
+                if pending_watch_reload_at_for_timer
+                    .borrow()
+                    .is_some_and(|deadline| now >= deadline)
+                {
+                    *pending_watch_reload_at_for_timer.borrow_mut() = None;
+                    if let Some(next) =
+                        RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
+                    {
+                        if crate::run::viewport_section_changed(&st.tuning, &next) {
+                            apply_winit_reload(
+                                &backend_for_timer,
+                                st,
+                                next,
+                                config_path_for_timer.as_str(),
+                                wayland_display_for_timer.as_str(),
+                                "watch",
+                            );
+                        } else {
+                            let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                            crate::run::apply_reloaded_tuning(
+                                st,
+                                next,
+                                config_path_for_timer.as_str(),
+                                wayland_display_for_timer.as_str(),
+                                "watch",
+                            );
+                        }
                         reloaded = true;
+                    } else {
+                        warn!(
+                            "watch: reload skipped for {} because config parse/load failed",
+                            config_path_for_timer.as_str()
+                        );
                     }
                 }
                 if reloaded {

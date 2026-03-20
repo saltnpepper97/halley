@@ -59,10 +59,6 @@ fn popup_focus_for_screen(
             continue;
         };
         let scale = xform.scale.max(0.001);
-        let local = Point::<f64, Logical>::from((
-            ((sx - xform.origin_x) / scale) as f64,
-            ((sy - xform.origin_y) / scale) as f64,
-        ));
 
         let parent_geo = st
             .window_geometry
@@ -85,25 +81,34 @@ fn popup_focus_for_screen(
         popups.reverse();
         for (popup, popup_offset) in popups {
             let popup_geo = popup.geometry();
-            let offset = (
-                parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x,
-                parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y,
-            );
-            let Some((surface, surface_loc)) =
-                under_from_surface_tree(popup.wl_surface(), local, offset, WindowSurfaceType::ALL)
-            else {
+            let popup_sx = xform.origin_x
+                + ((parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x) as f32 * scale).round();
+            let popup_sy = xform.origin_y
+                + ((parent_geo_loc.1 + popup_offset.y - popup_geo.loc.y) as f32 * scale).round();
+            let popup_local = Point::<f64, Logical>::from((
+                ((sx - popup_sx) / scale) as f64,
+                ((sy - popup_sy) / scale) as f64,
+            ));
+            let Some((surface, surface_loc)) = under_from_surface_tree(
+                popup.wl_surface(),
+                popup_local,
+                (0, 0),
+                WindowSurfaceType::ALL,
+            ) else {
                 continue;
             };
             let cam_scale_f = st.camera_render_scale() as f64;
             let focus_origin = Point::<f64, Logical>::from((
-                xform.origin_x as f64 / cam_scale_f + surface_loc.x as f64,
-                xform.origin_y as f64 / cam_scale_f + surface_loc.y as f64,
+                popup_sx as f64 / cam_scale_f + surface_loc.x as f64,
+                popup_sy as f64 / cam_scale_f + surface_loc.y as f64,
             ));
 
             if pointer_map_debug_enabled() {
                 info!(
-                    "ptr-map focus-popup node={} popup_loc=({:.2},{:.2}) focus_origin=({:.2},{:.2})",
+                    "ptr-map focus-popup node={} popup_local=({:.2},{:.2}) surface_loc=({:.2},{:.2}) focus_origin=({:.2},{:.2})",
                     node_id.as_u64(),
+                    popup_local.x,
+                    popup_local.y,
                     surface_loc.x as f64,
                     surface_loc.y as f64,
                     focus_origin.x,

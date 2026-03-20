@@ -43,6 +43,7 @@ use crate::state::HalleyWlState;
 
 mod handlers;
 mod layer_shell;
+mod spawn;
 mod surface_lifecycle;
 
 pub use crate::state::ClientState;

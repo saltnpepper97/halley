@@ -11,6 +11,7 @@ use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::viewport::{FocusZone, Viewport};
 
+use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
@@ -32,7 +33,6 @@ use smithay::{
         viewporter::ViewporterState,
     },
 };
-use smithay::backend::renderer::gles::GlesTexture;
 
 use crate::activity::CommitActivity;
 use crate::animation::{AnimSpec, Animator};
@@ -134,7 +134,40 @@ impl WindowOffscreenCache {
     pub fn touch(&mut self, now: Instant) {
         self.last_used_at = Some(now);
     }
+}
 
+#[derive(Clone)]
+pub(crate) struct NodeAppIconTexture {
+    pub texture: GlesTexture,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[derive(Clone)]
+pub(crate) enum NodeAppIconCacheEntry {
+    Ready(NodeAppIconTexture),
+    Missing,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FullscreenSessionEntry {
+    pub pos: Vec2,
+    pub size: Vec2,
+    pub pinned: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FullscreenMotion {
+    pub from: Vec2,
+    pub to: Vec2,
+    pub start_ms: u64,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FullscreenScaleAnim {
+    pub start_ms: u64,
+    pub duration_ms: u64,
 }
 
 pub struct HalleyWlState {
@@ -160,11 +193,15 @@ pub struct HalleyWlState {
     pub viewport: Viewport,
     pub tuning: RuntimeTuning,
     pub zoom_ref_size: Vec2,
+    pub(crate) camera_target_center: Vec2,
+    pub(crate) camera_target_view_size: Vec2,
     pub cursor_image_status: CursorImageStatus,
     pub(crate) dmabuf_importer: Option<Rc<dyn DmabufImportBackend>>,
 
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
     pub surface_to_node: HashMap<ObjectId, NodeId>,
+    pub(crate) node_app_ids: HashMap<NodeId, String>,
+    pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
     pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_fallback: HashSet<NodeId>,
     pub(crate) zoom_resize_reject_streak: HashMap<NodeId, u8>,
@@ -192,6 +229,7 @@ pub struct HalleyWlState {
     pub(crate) carry_zone_pending_since_ms: HashMap<NodeId, u64>,
     pub(crate) carry_activation_anim_armed: HashSet<NodeId>,
     pub(crate) carry_direct_nodes: HashSet<NodeId>,
+    pub(crate) carry_state_hold: HashMap<NodeId, halley_core::field::NodeState>,
 
     // Nodes explicitly collapsed by the user via keybind/toggle.
     // Maintenance must not auto-resurrect these.
@@ -218,6 +256,13 @@ pub struct HalleyWlState {
     pub(crate) recent_top_node: Option<NodeId>,
     pub(crate) recent_top_until: Option<Instant>,
     pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
+    pub(crate) node_circle_texture: Option<GlesTexture>,
+    pub(crate) node_squircle_program: Option<GlesTexProgram>,
+    pub(crate) node_label_program: Option<GlesTexProgram>,
+    pub(crate) fullscreen_active_node: Option<NodeId>,
+    pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
+    pub(crate) fullscreen_motion: HashMap<NodeId, FullscreenMotion>,
+    pub(crate) fullscreen_scale_anim: HashMap<NodeId, FullscreenScaleAnim>,
 
     pub(crate) spawn_cursor: u32,
     pub(crate) spawn_patch: Option<SpawnPatch>,
@@ -277,12 +322,16 @@ impl HalleyWlState {
             field: Field::new(),
             viewport: tuning.viewport(),
             zoom_ref_size: tuning.viewport_size,
+            camera_target_center: tuning.viewport_center,
+            camera_target_view_size: tuning.viewport_size,
             cursor_image_status: CursorImageStatus::default_named(),
             dmabuf_importer: None,
             tuning,
 
             surface_activity: HashMap::new(),
             surface_to_node: HashMap::new(),
+            node_app_ids: HashMap::new(),
+            node_app_icon_cache: HashMap::new(),
             zoom_nominal_size: HashMap::new(),
             zoom_resize_fallback: HashSet::new(),
             zoom_resize_reject_streak: HashMap::new(),
@@ -309,6 +358,7 @@ impl HalleyWlState {
             carry_zone_pending_since_ms: HashMap::new(),
             carry_activation_anim_armed: HashSet::new(),
             carry_direct_nodes: HashSet::new(),
+            carry_state_hold: HashMap::new(),
             manual_collapsed_nodes: HashSet::new(),
             docking_hold_count: 0,
             resize_active: None,
@@ -331,6 +381,13 @@ impl HalleyWlState {
             recent_top_node: None,
             recent_top_until: None,
             window_offscreen_cache: HashMap::new(),
+            node_circle_texture: None,
+            node_squircle_program: None,
+            node_label_program: None,
+            fullscreen_active_node: None,
+            fullscreen_restore: HashMap::new(),
+            fullscreen_motion: HashMap::new(),
+            fullscreen_scale_anim: HashMap::new(),
 
             spawn_cursor: 0,
             spawn_patch: None,
@@ -522,7 +579,11 @@ impl HalleyWlState {
         {
             consider(at_ms);
         }
-        if let Some(at_ms) = self.primary_promote_cooldown_until_ms.values().copied().min()
+        if let Some(at_ms) = self
+            .primary_promote_cooldown_until_ms
+            .values()
+            .copied()
+            .min()
             && at_ms > now_ms
         {
             consider(at_ms);
@@ -538,8 +599,10 @@ impl HalleyWlState {
         }
 
         next_ms.map(|at_ms| {
-            now.checked_add(std::time::Duration::from_millis(at_ms.saturating_sub(now_ms)))
-                .unwrap_or(now)
+            now.checked_add(std::time::Duration::from_millis(
+                at_ms.saturating_sub(now_ms),
+            ))
+            .unwrap_or(now)
         })
     }
 
@@ -596,6 +659,7 @@ impl HalleyWlState {
             .retain(|id, _| alive_ids.contains(id));
         self.carry_activation_anim_armed
             .retain(|id| alive_ids.contains(id));
+        self.carry_state_hold.retain(|id, _| alive_ids.contains(id));
         self.last_surface_focus_ms
             .retain(|id, _| alive_ids.contains(id));
         self.manual_collapsed_nodes

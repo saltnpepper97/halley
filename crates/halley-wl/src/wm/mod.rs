@@ -19,6 +19,7 @@ use crate::state::HalleyWlState;
 
 mod carry;
 mod focus;
+mod fullscreen;
 mod maintenance;
 pub(crate) mod overlap;
 mod workspace;

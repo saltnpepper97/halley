@@ -2,8 +2,6 @@ use super::*;
 
 use halley_config::RuntimeTuning;
 
-use eventline::debug;
-
 use crate::animation::{AnimSpec, AnimStyle};
 use crate::render::{DebugScene, build_debug_scene};
 
@@ -80,89 +78,48 @@ impl HalleyWlState {
         let _ = (id, now);
     }
 
-    pub(crate) fn debug_dump(&self) {
-        let focus_ring = self.active_focus_ring();
-
-        let mut nodes_total = 0usize;
-        let mut visible_total = 0usize;
-
-        let mut zone_inside = 0usize;
-        let mut zone_outside = 0usize;
-
-        let mut state_active = 0usize;
-        let mut state_node = 0usize;
-        let mut state_core = 0usize;
-        let mut state_other = 0usize;
-
-        for (&id, node) in self.field.nodes() {
-            nodes_total += 1;
-            if !self.field.is_visible(id) {
-                continue;
-            }
-            visible_total += 1;
-
-            match node.state {
-                halley_core::field::NodeState::Active => state_active += 1,
-                halley_core::field::NodeState::Node => state_node += 1,
-                halley_core::field::NodeState::Core => state_core += 1,
-                _ => state_other += 1,
-            }
-
-            match focus_ring.zone(self.viewport.center, node.pos) {
-                halley_core::viewport::FocusZone::Inside => zone_inside += 1,
-                halley_core::viewport::FocusZone::Outside => zone_outside += 1,
-            }
-        }
-
-        debug!(
-            "tick-dump nodes={} visible={} state(a/n/c/o)={}/{}/{}/{} zone(i/o)={}/{} vp=({:.0},{:.0}) {:.0}x{:.0} focus-ring({:.0}x{:.0} offset=({:.0},{:.0}))",
-            nodes_total,
-            visible_total,
-            state_active,
-            state_node,
-            state_core,
-            state_other,
-            zone_inside,
-            zone_outside,
-            self.viewport.center.x,
-            self.viewport.center.y,
-            self.viewport.size.x,
-            self.viewport.size.y,
-            self.tuning.focus_ring_rx,
-            self.tuning.focus_ring_ry,
-            self.tuning.focus_ring_offset_x,
-            self.tuning.focus_ring_offset_y,
-        );
-    }
+    pub(crate) fn debug_dump(&self) {}
 
     pub fn build_debug_scene_snapshot(&self) -> DebugScene {
         build_debug_scene(&self.field, &self.viewport, self.active_focus_ring())
     }
 
     pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
-        let prev_viewport = self.viewport;
+        let prev_runtime_viewport = self.viewport;
+        let prev_config_viewport = self.tuning.viewport();
+        let prev_physics_enabled = self.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
 
         tuning.enforce_guards();
         tuning.apply_process_env();
 
         let next_viewport = tuning.viewport();
-        self.viewport = next_viewport;
-        if prev_viewport.center != next_viewport.center || prev_viewport.size != next_viewport.size
-        {
-            self.viewport_pan_anim = None;
+        // Logical viewport geometry is separate from tty/output reconfiguration.
+        // Reloading unrelated settings must not rewrite the live camera state.
+        let logical_viewport_changed = prev_config_viewport.center != next_viewport.center
+            || prev_config_viewport.size != next_viewport.size;
+        if logical_viewport_changed {
+            self.viewport = next_viewport;
+            self.zoom_ref_size = tuning.viewport_size;
+            self.camera_target_center = self.viewport.center;
+            self.camera_target_view_size = self.zoom_ref_size;
+            if prev_runtime_viewport.center != next_viewport.center
+                || prev_runtime_viewport.size != next_viewport.size
+            {
+                self.viewport_pan_anim = None;
+            }
         }
-
-        self.zoom_ref_size = tuning.viewport_size;
 
         self.animator.set_spec(AnimSpec {
             state_change_ms: tuning.dev_anim_state_change_ms,
             bounce: tuning.dev_anim_bounce,
         });
 
-        if !tuning.physics_enabled {
+        if prev_physics_enabled && !tuning.physics_enabled {
             self.active_transition_until_ms.clear();
             self.smoothed_render_pos.clear();
+            self.camera_target_center = self.viewport.center;
+            self.camera_target_view_size = self.zoom_ref_size;
         }
 
         self.tuning = tuning;
@@ -191,6 +148,15 @@ impl HalleyWlState {
         }
 
         self.animator.style_for(id, state, now)
+    }
+
+    pub fn anim_track_elapsed_for(
+        &self,
+        id: NodeId,
+        state: halley_core::field::NodeState,
+        now: Instant,
+    ) -> Option<std::time::Duration> {
+        self.animator.track_elapsed_for(id, state, now)
     }
 
     pub fn active_focus_ring(&self) -> halley_core::viewport::FocusRing {

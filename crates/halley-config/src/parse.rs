@@ -4,9 +4,9 @@ use super::{
     CompositorBinding, CompositorBindingAction, DirectionalAction, KeyModifiers, LaunchBinding,
     PointerBinding, PointerBindingAction,
 };
-use crate::RuntimeTuning;
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
 use crate::layout::{ViewportOutputConfig, default_compositor_bindings, default_pointer_bindings};
+use crate::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, RuntimeTuning};
 
 use rune_cfg::RuneConfig;
 
@@ -342,6 +342,8 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.primary_to_node_ms = pick_u64(
         cfg,
         &[
+            "node.primary-to-node-ms",
+            "node.primary_to_node_ms",
             "nodes.primary-to-node-ms",
             "nodes.primary_to_node_ms",
             "nodes.node-delay",
@@ -353,6 +355,8 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     let legacy_preview = pick_u64(
         cfg,
         &[
+            "node.primary-to-preview-ms",
+            "node.primary_to_preview_ms",
             "nodes.primary-to-preview-ms",
             "nodes.primary_to_preview_ms",
             "nodes.preview-delay",
@@ -363,6 +367,10 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     let legacy_preview_to_node = pick_u64(
         cfg,
         &[
+            "node.primary-preview-to-node-ms",
+            "node.primary_preview_to_node_ms",
+            "node.preview-to-node-ms",
+            "node.preview_to_node_ms",
             "nodes.primary-preview-to-node-ms",
             "nodes.primary_preview_to_node_ms",
             "nodes.preview-to-node-ms",
@@ -381,12 +389,94 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.primary_hot_inner_frac = pick_f32(
         cfg,
         &[
+            "node.primary-hot-inner-frac",
+            "node.primary_hot_inner_frac",
+            "node.hot-inner-frac",
+            "node.hot_inner_frac",
             "nodes.primary-hot-inner-frac",
             "nodes.primary_hot_inner_frac",
             "nodes.hot-inner-frac",
             "nodes.hot_inner_frac",
         ],
         out.primary_hot_inner_frac,
+    );
+
+    out.node_show_labels = pick_node_display_policy(
+        cfg,
+        &[
+            "node.show-labels",
+            "node.show_labels",
+            "nodes.show-labels",
+            "nodes.show_labels",
+        ],
+        out.node_show_labels,
+    );
+    out.node_show_app_icons = pick_node_display_policy(
+        cfg,
+        &[
+            "node.show-app-icons",
+            "node.show_app_icons",
+            "node.show-icons",
+            "node.show_icons",
+            "nodes.show-app-icons",
+            "nodes.show_app_icons",
+            "nodes.show-icons",
+            "nodes.show_icons",
+        ],
+        out.node_show_app_icons,
+    );
+    out.node_icon_size = pick_f32(
+        cfg,
+        &[
+            "node.icon-size",
+            "node.icon_size",
+            "nodes.icon-size",
+            "nodes.icon_size",
+        ],
+        out.node_icon_size,
+    );
+    out.node_background_color = pick_node_background_color_mode(
+        cfg,
+        &[
+            "node.background-colour",
+            "node.background_colour",
+            "node.background-color",
+            "node.background_color",
+            "nodes.background-colour",
+            "nodes.background_colour",
+            "nodes.background-color",
+            "nodes.background_color",
+        ],
+        out.node_background_color,
+    );
+
+    out.node_border_color_hover = pick_node_border_color_mode(
+        cfg,
+        &[
+            "node.border-colour-hover",
+            "node.border_colour_hover",
+            "node.border-color-hover",
+            "node.border_color_hover",
+            "nodes.border-colour-hover",
+            "nodes.border_colour_hover",
+            "nodes.border-color-hover",
+            "nodes.border_color_hover",
+        ],
+        out.node_border_color_hover,
+    );
+    out.node_border_color_inactive = pick_node_border_color_mode(
+        cfg,
+        &[
+            "node.border-colour-inactive",
+            "node.border_colour_inactive",
+            "node.border-color-inactive",
+            "node.border_color_inactive",
+            "nodes.border-colour-inactive",
+            "nodes.border_colour_inactive",
+            "nodes.border-color-inactive",
+            "nodes.border_color_inactive",
+        ],
+        out.node_border_color_inactive,
     );
 }
 
@@ -404,21 +494,15 @@ fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 }
 
 fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
-    let primary_s = pick_u64(
+    let active_s = pick_u64(
         cfg,
-        &[
-            "decay.primary-outside-ring-delay",
-            "decay.primary_outside_ring_delay",
-        ],
-        out.primary_outside_ring_delay_ms / 1000,
+        &["decay.active-delay", "decay.active_delay"],
+        out.active_outside_ring_delay_ms / 1000,
     );
-    let secondary_s = pick_u64(
+    let inactive_s = pick_u64(
         cfg,
-        &[
-            "decay.secondary-outside-ring-delay",
-            "decay.secondary_outside_ring_delay",
-        ],
-        out.secondary_outside_ring_delay_ms / 1000,
+        &["decay.inactive-delay", "decay.inactive_delay"],
+        out.inactive_outside_ring_delay_ms / 1000,
     );
     let docked_s = pick_u64(
         cfg,
@@ -429,13 +513,21 @@ fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.docked_offscreen_delay_ms / 1000,
     );
 
-    out.primary_outside_ring_delay_ms = primary_s.saturating_mul(1000);
-    out.secondary_outside_ring_delay_ms = secondary_s.saturating_mul(1000);
+    out.active_outside_ring_delay_ms = active_s.saturating_mul(1000);
+    out.inactive_outside_ring_delay_ms = inactive_s.saturating_mul(1000);
     out.docked_offscreen_delay_ms = docked_s.saturating_mul(1000);
 }
 
 fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.non_overlap_gap_px = pick_f32(cfg, &["field.gap", "field.gap-px"], out.non_overlap_gap_px);
+    out.active_windows_allowed = pick_u64(
+        cfg,
+        &[
+            "field.active-windows-allowed",
+            "field.active_windows_allowed",
+        ],
+        out.active_windows_allowed as u64,
+    ) as usize;
 }
 
 fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -594,6 +686,99 @@ fn pick_bool(cfg: &RuneConfig, paths: &[&str], default: bool) -> bool {
         }
     }
     default
+}
+
+fn pick_string(cfg: &RuneConfig, paths: &[&str]) -> Option<String> {
+    for path in paths {
+        if let Ok(Some(v)) = cfg.get_optional::<String>(path) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+fn pick_node_border_color_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: NodeBorderColorMode,
+) -> NodeBorderColorMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"') {
+        "use-window-active" => NodeBorderColorMode::UseWindowActive,
+        "use-window-inactive" => NodeBorderColorMode::UseWindowInactive,
+        _ => default,
+    }
+}
+
+fn pick_node_display_policy(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: NodeDisplayPolicy,
+) -> NodeDisplayPolicy {
+    for path in paths {
+        if let Ok(Some(v)) = cfg.get_optional::<bool>(path) {
+            return if v {
+                NodeDisplayPolicy::Always
+            } else {
+                NodeDisplayPolicy::Off
+            };
+        }
+    }
+
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "off" | "false" => NodeDisplayPolicy::Off,
+        "hover" => NodeDisplayPolicy::Hover,
+        "always" | "on" | "true" => NodeDisplayPolicy::Always,
+        _ => default,
+    }
+}
+
+fn pick_node_background_color_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: NodeBackgroundColorMode,
+) -> NodeBackgroundColorMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    let value = raw.trim().trim_matches('"');
+    if value.is_empty() {
+        return default;
+    }
+
+    match value.to_ascii_lowercase().as_str() {
+        "auto" => NodeBackgroundColorMode::Auto,
+        "theme" => NodeBackgroundColorMode::Theme,
+        _ => parse_hex_rgb(value)
+            .map(|(r, g, b)| NodeBackgroundColorMode::Fixed { r, g, b })
+            .unwrap_or(default),
+    }
+}
+
+fn parse_hex_rgb(value: &str) -> Option<(f32, f32, f32)> {
+    let hex = value.strip_prefix('#').unwrap_or(value);
+    let expanded = match hex.len() {
+        3 => {
+            let mut out = String::with_capacity(6);
+            for ch in hex.chars() {
+                out.push(ch);
+                out.push(ch);
+            }
+            out
+        }
+        6 => hex.to_string(),
+        _ => return None,
+    };
+
+    let r = u8::from_str_radix(&expanded[0..2], 16).ok()? as f32 / 255.0;
+    let g = u8::from_str_radix(&expanded[2..4], 16).ok()? as f32 / 255.0;
+    let b = u8::from_str_radix(&expanded[4..6], 16).ok()? as f32 / 255.0;
+    Some((r, g, b))
 }
 
 fn pick_modifiers(cfg: &RuneConfig, paths: &[&str], default: KeyModifiers) -> KeyModifiers {
@@ -793,8 +978,8 @@ mod tests {
 
     use super::apply_explicit_keybind_overrides_map;
     use crate::{
-        CompositorBindingAction, DirectionalAction, RuntimeTuning, WHEEL_DOWN_CODE,
-        WHEEL_UP_CODE, keybinds::key_name_to_evdev,
+        CompositorBindingAction, DirectionalAction, NodeBackgroundColorMode, NodeDisplayPolicy,
+        RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE, keybinds::key_name_to_evdev,
     };
 
     #[test]
@@ -892,9 +1077,12 @@ mod tests {
 
         apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
 
-        assert!(tuning.compositor_bindings.iter().any(|binding| {
-            binding.action == CompositorBindingAction::CloseFocusedWindow
-        }));
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| { binding.action == CompositorBindingAction::CloseFocusedWindow })
+        );
     }
 
     #[test]
@@ -907,15 +1095,10 @@ mod tests {
         assert!(tuning.compositor_bindings.iter().any(|binding| {
             binding.action == CompositorBindingAction::ZoomOut && binding.key == WHEEL_DOWN_CODE
         }));
-        assert!(
-            tuning
-                .compositor_bindings
-                .iter()
-                .any(|binding| {
-                    binding.action == CompositorBindingAction::ZoomReset
-                        && binding.key == key_name_to_evdev("mousemiddle").expect("middle mouse")
-                })
-        );
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::ZoomReset
+                && binding.key == key_name_to_evdev("mousemiddle").expect("middle mouse")
+        }));
     }
 
     #[test]
@@ -1052,4 +1235,90 @@ end
         );
     }
 
+    #[test]
+    fn field_active_windows_allowed_parses_from_config() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-field-active-windows-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+field:
+  gap 24.0
+  active-windows-allowed 5
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.non_overlap_gap_px, 24.0);
+        assert_eq!(tuning.active_windows_allowed, 5);
+    }
+
+    #[test]
+    fn node_display_policies_parse_from_strings() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-node-display-{unique}.rune"));
+        fs::write(
+            &path,
+            r##"
+node:
+  show-labels "hover"
+  show-app-icons "always"
+  icon-size 0.72
+  background-colour "#8fa4c7"
+end
+"##,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.node_show_labels, NodeDisplayPolicy::Hover);
+        assert_eq!(tuning.node_show_app_icons, NodeDisplayPolicy::Always);
+        assert_eq!(tuning.node_icon_size, 0.72);
+        assert_eq!(
+            tuning.node_background_color,
+            NodeBackgroundColorMode::Fixed {
+                r: 0x8f as f32 / 255.0,
+                g: 0xa4 as f32 / 255.0,
+                b: 0xc7 as f32 / 255.0,
+            }
+        );
+    }
+
+    #[test]
+    fn legacy_boolean_node_label_setting_maps_to_always() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-node-label-bool-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+node:
+  show-labels true
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.node_show_labels, NodeDisplayPolicy::Always);
+    }
 }

@@ -169,6 +169,9 @@ impl HalleyWlState {
         for surface in self.layer_shell_surfaces_sorted() {
             let data = Self::layer_cached_state(&surface);
             let (_, size) = compute_layer_placement(output_rect, &mut zone, data);
+            if data.size == size {
+                continue;
+            }
             surface.with_pending_state(|state| {
                 state.size = Some(size);
             });

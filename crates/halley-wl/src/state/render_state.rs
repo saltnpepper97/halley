@@ -94,7 +94,7 @@ impl HalleyWlState {
     pub fn node_label_hover_mix(&mut self, id: NodeId, hovered: bool) -> f32 {
         let target = if hovered { 1.0 } else { 0.0 };
         let mix = self.node_hover_mix.entry(id).or_insert(target);
-        let k = if hovered { 0.30 } else { 0.24 };
+        let k = if hovered { 0.06 } else { 0.10 };
         *mix += (target - *mix) * k;
         if (*mix - target).abs() < 0.01 {
             *mix = target;
@@ -136,6 +136,7 @@ impl HalleyWlState {
         let now_ms = self.now_ms(now);
         self.tick_viewport_pan_animation(now_ms);
         self.tick_pending_spawn_pan(now, now_ms);
+        self.tick_camera_smoothing(now);
     }
 
     pub fn tick_live_overlap(&mut self) {

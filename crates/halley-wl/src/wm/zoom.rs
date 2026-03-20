@@ -2,10 +2,38 @@ use super::*;
 
 impl HalleyWlState {
     const ZOOM_PER_STEP: f32 = 1.10;
+    const CAMERA_SMOOTH_CENTER_RATE: f32 = 11.0;
+    const CAMERA_SMOOTH_ZOOM_RATE: f32 = 12.5;
+
+    #[inline]
+    fn fullscreen_zoom_locked(&self) -> bool {
+        self.fullscreen_active_node.is_some() || !self.fullscreen_motion.is_empty()
+    }
 
     #[inline]
     pub(crate) fn camera_view_size(&self) -> Vec2 {
         self.zoom_ref_size
+    }
+
+    #[inline]
+    pub(crate) fn pan_camera_target(&mut self, delta: Vec2) {
+        self.camera_target_center = Vec2 {
+            x: self.camera_target_center.x + delta.x,
+            y: self.camera_target_center.y + delta.y,
+        };
+        self.request_maintenance();
+    }
+
+    #[inline]
+    pub(crate) fn set_camera_target_view_size(&mut self, size: Vec2) {
+        self.camera_target_view_size = self.clamp_camera_view_size(size);
+        self.request_maintenance();
+    }
+
+    #[inline]
+    pub(crate) fn snap_camera_targets_to_live(&mut self) {
+        self.camera_target_center = self.viewport.center;
+        self.camera_target_view_size = self.zoom_ref_size;
     }
 
     #[inline]
@@ -25,20 +53,97 @@ impl HalleyWlState {
     }
 
     pub(crate) fn zoom_by_steps(&mut self, steps: f32) {
+        if self.fullscreen_zoom_locked() {
+            return;
+        }
         let steps = steps.clamp(-4.0, 4.0);
         if steps.abs() < f32::EPSILON {
             return;
         }
 
         let factor = Self::ZOOM_PER_STEP.powf(steps);
-        self.zoom_ref_size = self.clamp_camera_view_size(Vec2 {
-            x: self.camera_view_size().x / factor,
-            y: self.camera_view_size().y / factor,
+        self.set_camera_target_view_size(Vec2 {
+            x: self.camera_target_view_size.x / factor,
+            y: self.camera_target_view_size.y / factor,
         });
     }
 
     pub(crate) fn reset_zoom(&mut self) {
-        self.zoom_ref_size = self.viewport.size;
+        if self.fullscreen_zoom_locked() {
+            return;
+        }
+        self.set_camera_target_view_size(self.viewport.size);
+    }
+
+    pub(crate) fn tick_camera_smoothing(&mut self, now: Instant) {
+        if self.viewport_pan_anim.is_some()
+            || self.fullscreen_active_node.is_some()
+            || !self.fullscreen_motion.is_empty()
+        {
+            self.snap_camera_targets_to_live();
+            return;
+        }
+
+        if !self.tuning.physics_enabled {
+            self.viewport.center = self.camera_target_center;
+            self.zoom_ref_size = self.camera_target_view_size;
+            self.tuning.viewport_center = self.viewport.center;
+            self.tuning.viewport_size = self.zoom_ref_size;
+            return;
+        }
+
+        let dt = now
+            .saturating_duration_since(self.render_last_tick)
+            .as_secs_f32()
+            .clamp(1.0 / 240.0, 1.0 / 20.0);
+        let center_alpha = (dt * Self::CAMERA_SMOOTH_CENTER_RATE).clamp(0.08, 0.55);
+        let zoom_alpha = (dt * Self::CAMERA_SMOOTH_ZOOM_RATE).clamp(0.08, 0.60);
+
+        let mut changed = false;
+
+        let next_center = Vec2 {
+            x: self.viewport.center.x
+                + (self.camera_target_center.x - self.viewport.center.x) * center_alpha,
+            y: self.viewport.center.y
+                + (self.camera_target_center.y - self.viewport.center.y) * center_alpha,
+        };
+        if (self.camera_target_center.x - next_center.x).abs() < 0.15 {
+            self.viewport.center.x = self.camera_target_center.x;
+        } else {
+            self.viewport.center.x = next_center.x;
+            changed = true;
+        }
+        if (self.camera_target_center.y - next_center.y).abs() < 0.15 {
+            self.viewport.center.y = self.camera_target_center.y;
+        } else {
+            self.viewport.center.y = next_center.y;
+            changed = true;
+        }
+
+        let next_size = Vec2 {
+            x: self.zoom_ref_size.x
+                + (self.camera_target_view_size.x - self.zoom_ref_size.x) * zoom_alpha,
+            y: self.zoom_ref_size.y
+                + (self.camera_target_view_size.y - self.zoom_ref_size.y) * zoom_alpha,
+        };
+        if (self.camera_target_view_size.x - next_size.x).abs() < 0.2 {
+            self.zoom_ref_size.x = self.camera_target_view_size.x;
+        } else {
+            self.zoom_ref_size.x = next_size.x;
+            changed = true;
+        }
+        if (self.camera_target_view_size.y - next_size.y).abs() < 0.2 {
+            self.zoom_ref_size.y = self.camera_target_view_size.y;
+        } else {
+            self.zoom_ref_size.y = next_size.y;
+            changed = true;
+        }
+
+        self.tuning.viewport_center = self.viewport.center;
+        self.tuning.viewport_size = self.zoom_ref_size;
+        if changed {
+            self.request_maintenance();
+        }
     }
 
     pub fn active_zoom_fallback_scale(&self, id: NodeId) -> Option<f32> {

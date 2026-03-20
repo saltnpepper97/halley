@@ -123,6 +123,7 @@ impl HalleyWlState {
         let _ = self.field.set_pinned(id, false);
 
         if let Some(n) = self.field.node(id) {
+            self.carry_state_hold.insert(id, n.state.clone());
             let fp = self.collision_size_for_node(n);
             let z = self.zone_for_pos_with_hysteresis(id, n.pos, fp);
             self.carry_zone_hint.insert(id, z);
@@ -142,6 +143,8 @@ impl HalleyWlState {
         self.carry_zone_pending.remove(&id);
         self.carry_zone_pending_since_ms.remove(&id);
         self.carry_activation_anim_armed.remove(&id);
+        self.carry_state_hold.remove(&id);
+        self.dock_decay_offscreen_since_ms.remove(&id);
         self.suspend_overlap_resolve = false;
         self.suspend_state_checks = false;
         self.clear_direct_carry_nodes();
@@ -166,9 +169,16 @@ impl HalleyWlState {
             return;
         }
         let zone = self.zone_for_pos_with_hysteresis(id, source_pos, footprint);
-        let target = match zone {
-            FocusZone::Inside if was_active => DecayLevel::Hot,
-            _ => DecayLevel::Cold,
+        let held_state = self.carry_state_hold.get(&id);
+        let target = match held_state {
+            Some(halley_core::field::NodeState::Active) => DecayLevel::Hot,
+            Some(halley_core::field::NodeState::Node | halley_core::field::NodeState::Core) => {
+                DecayLevel::Cold
+            }
+            _ => match zone {
+                FocusZone::Inside if was_active => DecayLevel::Hot,
+                _ => DecayLevel::Cold,
+            },
         };
         let _ = self.field.set_decay_level(id, target);
         let is_active = self

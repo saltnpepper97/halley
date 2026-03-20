@@ -12,6 +12,26 @@ use super::{
     LaunchBinding, PointerBinding, PointerBindingAction,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NodeBorderColorMode {
+    UseWindowActive,
+    UseWindowInactive,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NodeDisplayPolicy {
+    Off,
+    Hover,
+    Always,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NodeBackgroundColorMode {
+    Auto,
+    Theme,
+    Fixed { r: f32, g: f32, b: f32 },
+}
+
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
     pub debug_tick_dump: bool,
@@ -27,6 +47,12 @@ pub struct RuntimeTuning {
 
     pub primary_hot_inner_frac: f32,
     pub primary_to_node_ms: u64,
+    pub node_show_labels: NodeDisplayPolicy,
+    pub node_show_app_icons: NodeDisplayPolicy,
+    pub node_icon_size: f32,
+    pub node_background_color: NodeBackgroundColorMode,
+    pub node_border_color_hover: NodeBorderColorMode,
+    pub node_border_color_inactive: NodeBorderColorMode,
 
     pub dev_enabled: bool,
     pub dev_show_geometry_overlay: bool,
@@ -38,9 +64,10 @@ pub struct RuntimeTuning {
 
     pub cluster_distance_px: f32,
     pub cluster_dwell_ms: u64,
+    pub active_windows_allowed: usize,
 
-    pub primary_outside_ring_delay_ms: u64,
-    pub secondary_outside_ring_delay_ms: u64,
+    pub active_outside_ring_delay_ms: u64,
+    pub inactive_outside_ring_delay_ms: u64,
     pub docked_offscreen_delay_ms: u64,
 
     pub non_overlap_gap_px: f32,
@@ -63,7 +90,7 @@ pub struct RuntimeTuning {
     pub env: HashMap<String, String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ViewportOutputConfig {
     pub connector: String,
     pub offset_x: i32,
@@ -91,6 +118,12 @@ impl Default for RuntimeTuning {
 
             primary_hot_inner_frac: 0.88,
             primary_to_node_ms: 1_260_000,
+            node_show_labels: NodeDisplayPolicy::Hover,
+            node_show_app_icons: NodeDisplayPolicy::Always,
+            node_icon_size: 0.72,
+            node_background_color: NodeBackgroundColorMode::Auto,
+            node_border_color_hover: NodeBorderColorMode::UseWindowActive,
+            node_border_color_inactive: NodeBorderColorMode::UseWindowInactive,
 
             dev_enabled: false,
             dev_show_geometry_overlay: false,
@@ -102,9 +135,10 @@ impl Default for RuntimeTuning {
 
             cluster_distance_px: 280.0,
             cluster_dwell_ms: 900,
+            active_windows_allowed: 3,
 
-            primary_outside_ring_delay_ms: 120_000,
-            secondary_outside_ring_delay_ms: 30_000,
+            active_outside_ring_delay_ms: 120_000,
+            inactive_outside_ring_delay_ms: 30_000,
             docked_offscreen_delay_ms: 300_000,
 
             non_overlap_gap_px: 20.0,
@@ -145,9 +179,15 @@ impl RuntimeTuning {
     }
 
     pub fn load_from_path(path: &str) -> Self {
-        let mut out = Self::from_rune_file(path).unwrap_or_default();
+        let mut out = Self::try_load_from_path(path).unwrap_or_default();
         out.clamp_values();
         out
+    }
+
+    pub fn try_load_from_path(path: &str) -> Option<Self> {
+        let mut out = Self::from_rune_file(path)?;
+        out.clamp_values();
+        Some(out)
     }
 
     pub fn apply_process_env(&self) {
@@ -179,6 +219,7 @@ impl RuntimeTuning {
 
         self.primary_hot_inner_frac = self.primary_hot_inner_frac.clamp(0.1, 1.0);
         self.primary_to_node_ms = self.primary_to_node_ms.clamp(250, 7_200_000);
+        self.node_icon_size = self.node_icon_size.clamp(0.35, 0.95);
 
         self.dev_zoom_decay_min_frac = self.dev_zoom_decay_min_frac.clamp(0.005, 0.5);
         self.dev_anim_state_change_ms = self.dev_anim_state_change_ms.clamp(30, 3_000);
@@ -186,10 +227,11 @@ impl RuntimeTuning {
 
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);
+        self.active_windows_allowed = self.active_windows_allowed.clamp(1, 64);
 
-        self.primary_outside_ring_delay_ms = self.primary_outside_ring_delay_ms.clamp(0, 7_200_000);
-        self.secondary_outside_ring_delay_ms =
-            self.secondary_outside_ring_delay_ms.clamp(0, 7_200_000);
+        self.active_outside_ring_delay_ms = self.active_outside_ring_delay_ms.clamp(0, 7_200_000);
+        self.inactive_outside_ring_delay_ms =
+            self.inactive_outside_ring_delay_ms.clamp(0, 7_200_000);
         self.docked_offscreen_delay_ms = self.docked_offscreen_delay_ms.clamp(0, 7_200_000);
 
         self.non_overlap_gap_px = self.non_overlap_gap_px.clamp(0.0, 256.0);

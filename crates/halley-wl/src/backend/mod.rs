@@ -47,11 +47,11 @@ use crate::input::{BackendInputEventData, handle_backend_input_event};
 use crate::interaction::types::{ModState, PointerState};
 use crate::render::draw_debug_frame_to_target;
 use crate::run::{
-    RuntimeIpcCommand, drain_ipc_commands, ensure_dbus_session_bus_address,
-    ensure_host_display, ensure_xdg_runtime_dir, ensure_xwayland_satellite, init_logging,
-    publish_outputs, register_xwayland_request_channel, run_autostart_commands,
-    shutdown_requested,
+    RuntimeIpcCommand, drain_ipc_commands, ensure_dbus_session_bus_address, ensure_host_display,
+    ensure_xdg_runtime_dir, ensure_xwayland_satellite, init_logging, publish_outputs,
+    register_xwayland_request_channel, run_autostart_commands, shutdown_requested,
 };
+use crate::spatial::node_in_active_area;
 use crate::state::{ClientState, HalleyWlState};
 use crate::surface::current_surface_size_for_node;
 
@@ -61,7 +61,32 @@ pub(crate) mod tty_drm;
 pub(crate) mod tty_input;
 pub(crate) mod winit;
 
+pub(crate) const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
+
 pub(crate) fn frame_interval_for_refresh_hz(refresh_hz: Option<f64>) -> Duration {
     let hz = refresh_hz.unwrap_or(60.0).clamp(30.0, 360.0);
     Duration::from_secs_f64(1.0 / hz)
+}
+
+pub(crate) fn resolve_hover_targets(
+    st: &HalleyWlState,
+    ps: &PointerState,
+    now: Instant,
+) -> (
+    Option<halley_core::field::NodeId>,
+    Option<halley_core::field::NodeId>,
+) {
+    let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
+    let hovered = if hover_blocked { None } else { ps.hover_node };
+    let preview_ready = hovered.is_some_and(|id| {
+        node_in_active_area(st, id)
+            && ps.hover_started_at.is_some_and(|at| {
+                now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
+            })
+    });
+    if preview_ready {
+        (None, hovered)
+    } else {
+        (hovered, None)
+    }
 }

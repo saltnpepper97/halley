@@ -17,14 +17,17 @@ use crate::interaction::types::ResizeCtx;
 use crate::spatial::node_in_active_area;
 use crate::state::HalleyWlState;
 
-use super::cursor_render::{cursor_surface_hotspot, draw_cursor_sprite};
+use super::ACTIVE_WINDOW_FRAME_PAD_PX;
+use super::app_icon::ensure_node_app_icon_resources;
+use super::cursor::{cursor_surface_hotspot, draw_cursor_sprite};
 use super::cursor_theme::themed_cursor_sprite_with_fallback;
-use super::layer_render::collect_layer_surfaces;
-use super::node_render::{
-    ActiveBorderRect, NodeSnapshot, OffscreenNodeTexture, collect_active_surfaces,
-    collect_hover_preview, draw_node_markers,
+use super::layer_shell::collect_layer_surfaces;
+use super::node::{
+    NodeSnapshot, collect_hover_preview, draw_node_hover_labels, draw_node_markers,
+    ensure_node_circle_resources,
 };
-use super::render_utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
+use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
+use super::window::{ActiveBorderRect, OffscreenNodeTexture, collect_active_surfaces};
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
@@ -42,8 +45,11 @@ struct SceneCollections {
     active_elements: Vec<CroppedSurfaceElement>,
     resized_active_elements: Vec<CroppedSurfaceElement>,
     offscreen_textures: Vec<OffscreenNodeTexture>,
+    resized_offscreen_textures: Vec<OffscreenNodeTexture>,
+    popup_offscreen_textures: Vec<OffscreenNodeTexture>,
     popup_elements: Vec<CroppedSurfaceElement>,
     border_rects: Vec<ActiveBorderRect>,
+    resized_border_rects: Vec<ActiveBorderRect>,
     overlay_rects: Vec<(i32, i32, i32, i32, Color32F)>,
     overlay_points: Vec<(i32, i32, Color32F)>,
     overlap_overlay_rects: Vec<(i32, i32, i32, i32)>,
@@ -138,6 +144,8 @@ pub(crate) fn draw_debug_frame_to_target(
     cursor_image: Option<&smithay::input::pointer::CursorImageStatus>,
     frame_transform: Transform,
 ) -> Result<(), Box<dyn Error>> {
+    ensure_node_circle_resources(renderer, st)?;
+
     let prepared = prepare_debug_frame_state(st, size);
     let scene = collect_debug_frame_scene(
         renderer,
@@ -148,6 +156,7 @@ pub(crate) fn draw_debug_frame_to_target(
         preview_hover_node,
         prepared.now,
     );
+    ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
 
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
@@ -191,9 +200,12 @@ fn collect_debug_frame_scene(
         active_elements,
         resized_active_elements,
         offscreen_textures,
+        resized_offscreen_textures,
+        popup_offscreen_textures,
         popup_elements,
         node_surface_map,
         border_rects,
+        resized_border_rects,
         overlay_rects,
         overlay_points,
         overlap_overlay_rects,
@@ -243,8 +255,11 @@ fn collect_debug_frame_scene(
         active_elements,
         resized_active_elements,
         offscreen_textures,
+        resized_offscreen_textures,
+        popup_offscreen_textures,
         popup_elements,
         border_rects,
+        resized_border_rects,
         overlay_rects,
         overlay_points,
         overlap_overlay_rects,
@@ -291,31 +306,7 @@ fn draw_debug_frame_scene(
         let _ = draw_render_elements(frame, 1.0, &scene.layer_under_elements, &[prepared.damage]);
     }
 
-    draw_window_backgrounds(frame, size, prepared.damage, &scene.border_rects)?;
-
-    if !scene.active_elements.is_empty() {
-        let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
-    }
-
-    draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
-
-    if !scene.resized_active_elements.is_empty() {
-        let _ = draw_render_elements(
-            frame,
-            1.0,
-            &scene.resized_active_elements,
-            &[prepared.damage],
-        );
-    }
-
-    draw_offscreen_textures(frame, prepared.damage, &scene.offscreen_textures)?;
-
-    if !scene.popup_elements.is_empty() {
-        let _ = draw_render_elements(frame, 1.0, &scene.popup_elements, &[prepared.damage]);
-    }
-
-    draw_geometry_overlays(frame, st, size, prepared.damage, scene)?;
-
+    // Node markers drawn first — they should sit behind active windows, not on top.
     draw_node_markers(
         frame,
         st,
@@ -326,11 +317,49 @@ fn draw_debug_frame_scene(
         prepared.now,
     )?;
 
+    draw_window_backgrounds(frame, size, prepared.damage, &scene.border_rects)?;
+
+    if !scene.active_elements.is_empty() {
+        let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
+    }
+
+    draw_offscreen_textures(frame, prepared.damage, &scene.offscreen_textures)?;
+    draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
+    draw_window_backgrounds(frame, size, prepared.damage, &scene.resized_border_rects)?;
+
+    if !scene.resized_active_elements.is_empty() {
+        let _ = draw_render_elements(
+            frame,
+            1.0,
+            &scene.resized_active_elements,
+            &[prepared.damage],
+        );
+    }
+
+    draw_offscreen_textures(frame, prepared.damage, &scene.resized_offscreen_textures)?;
+    draw_offscreen_textures(frame, prepared.damage, &scene.popup_offscreen_textures)?;
+
+    if !scene.popup_elements.is_empty() {
+        let _ = draw_render_elements(frame, 1.0, &scene.popup_elements, &[prepared.damage]);
+    }
+
+    draw_geometry_overlays(frame, st, size, prepared.damage, scene)?;
+
     draw_hover_preview(frame, prepared.damage, scene)?;
 
     if !scene.layer_over_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.layer_over_elements, &[prepared.damage]);
     }
+
+    draw_node_hover_labels(
+        frame,
+        st,
+        size,
+        &scene.render_nodes,
+        hover_node,
+        prepared.damage,
+        prepared.now,
+    )?;
 
     let focus_ring = st.active_focus_ring();
     let ring_world_cx = st.viewport.center.x + focus_ring.offset_x;
@@ -449,7 +478,7 @@ where
     F: Frame,
     F::Error: std::error::Error + 'static,
 {
-    let bw = 6i32;
+    let bw = ACTIVE_WINDOW_FRAME_PAD_PX;
     let fb = Rectangle::<i32, Physical>::from_size(size);
     for rect in border_rects {
         let color = if rect.focused {

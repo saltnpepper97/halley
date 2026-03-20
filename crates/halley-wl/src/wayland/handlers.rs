@@ -29,15 +29,6 @@ struct InitialToplevelSize {
     configure_size: Option<(i32, i32)>,
 }
 
-fn clamp_initial_window_size(viewport: halley_core::field::Vec2, size: (i32, i32)) -> (i32, i32) {
-    let min_w = ((viewport.x * 0.30).round() as i32).max(96);
-    let min_h = ((viewport.y * 0.26).round() as i32).max(72);
-    let max_w = ((viewport.x * 0.82).round() as i32).max(min_w);
-    let max_h = ((viewport.y * 0.82).round() as i32).max(min_h);
-
-    (size.0.clamp(min_w, max_w), size.1.clamp(min_h, max_h))
-}
-
 fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i32)> {
     let wl = toplevel.wl_surface();
 
@@ -66,14 +57,13 @@ fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i3
 
 fn initial_toplevel_size(st: &HalleyWlState, toplevel: &ToplevelSurface) -> InitialToplevelSize {
     let detected = detected_initial_toplevel_size(toplevel);
-    let raw_size = detected.unwrap_or_else(|| {
+    let node_size = detected.unwrap_or_else(|| {
         (
             (st.viewport.size.x * 0.46).round() as i32,
             (st.viewport.size.y * 0.42).round() as i32,
         )
     });
-    let node_size = clamp_initial_window_size(st.viewport.size, raw_size);
-    let configure_size = (detected.is_none() || node_size != raw_size).then_some(node_size);
+    let configure_size = detected.is_none().then_some(node_size);
 
     InitialToplevelSize {
         node_size,
@@ -230,6 +220,14 @@ impl XdgShellHandler for HalleyWlState {
         self.request_maintenance();
     }
 
+    fn app_id_changed(&mut self, surface: ToplevelSurface) {
+        self.refresh_node_identity_for_surface(surface.wl_surface(), "Window");
+    }
+
+    fn title_changed(&mut self, surface: ToplevelSurface) {
+        self.refresh_node_identity_for_surface(surface.wl_surface(), "Window");
+    }
+
     fn new_popup(&mut self, popup: PopupSurface, _positioner: PositionerState) {
         let _ = self
             .popup_manager
@@ -251,6 +249,24 @@ impl XdgShellHandler for HalleyWlState {
     ) {
         // Interactive resize is compositor-driven (configured modifier + right-click),
         // not client-request driven.
+    }
+
+    fn fullscreen_request(&mut self, surface: ToplevelSurface, output: Option<WlOutput>) {
+        let key = surface.wl_surface().id();
+        let Some(node_id) = self.surface_to_node.get(&key).copied() else {
+            surface.send_configure();
+            return;
+        };
+        self.enter_xdg_fullscreen(node_id, output, Instant::now());
+    }
+
+    fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
+        let key = surface.wl_surface().id();
+        let Some(node_id) = self.surface_to_node.get(&key).copied() else {
+            surface.send_configure();
+            return;
+        };
+        self.exit_xdg_fullscreen(node_id, Instant::now());
     }
 
     fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, serial: Serial) {
@@ -278,46 +294,7 @@ impl XdgShellHandler for HalleyWlState {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::clamp_initial_window_size;
-    use halley_core::field::Vec2;
-
-    #[test]
-    fn clamp_initial_window_size_raises_tiny_windows() {
-        let out = clamp_initial_window_size(
-            Vec2 {
-                x: 1600.0,
-                y: 1200.0,
-            },
-            (220, 180),
-        );
-        assert_eq!(out, (480, 312));
-    }
-
-    #[test]
-    fn clamp_initial_window_size_trims_short_wide_windows() {
-        let out = clamp_initial_window_size(
-            Vec2 {
-                x: 1600.0,
-                y: 1200.0,
-            },
-            (1600, 240),
-        );
-        assert_eq!(out, (1312, 312));
-    }
-
-    #[test]
-    fn clamp_initial_window_size_preserves_sensible_windows() {
-        let out = clamp_initial_window_size(
-            Vec2 {
-                x: 1600.0,
-                y: 1200.0,
-            },
-            (900, 700),
-        );
-        assert_eq!(out, (900, 700));
-    }
-}
+mod tests {}
 
 delegate_xdg_shell!(HalleyWlState);
 

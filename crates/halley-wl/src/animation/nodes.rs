@@ -130,6 +130,19 @@ impl Animator {
         }
         out
     }
+
+    pub fn track_elapsed_for(
+        &self,
+        id: NodeId,
+        state: NodeState,
+        now: Instant,
+    ) -> Option<Duration> {
+        let track = self.tracks.get(&id)?;
+        if track.last_state != state {
+            return None;
+        }
+        Some(now.saturating_duration_since(track.started_at))
+    }
 }
 
 fn base_style(state: NodeState) -> AnimStyle {

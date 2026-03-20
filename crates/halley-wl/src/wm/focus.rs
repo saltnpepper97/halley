@@ -208,6 +208,7 @@ impl HalleyWlState {
         };
         if now_ms <= anim.start_ms.saturating_add(anim.delay_ms) {
             self.viewport.center = anim.from_center;
+            self.camera_target_center = self.viewport.center;
             self.tuning.viewport_center = self.viewport.center;
             return;
         }
@@ -223,6 +224,7 @@ impl HalleyWlState {
             x: anim.from_center.x + (anim.to_center.x - anim.from_center.x) * e,
             y: anim.from_center.y + (anim.to_center.y - anim.from_center.y) * e,
         };
+        self.camera_target_center = self.viewport.center;
         self.tuning.viewport_center = self.viewport.center;
         if t >= 1.0 {
             self.viewport_pan_anim = None;
