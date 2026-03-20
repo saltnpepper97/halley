@@ -1,6 +1,6 @@
 use halley_ipc::{
     DockingCommand, LogicalOutputInfo, NodeMoveDirection, OutputInfo, OutputStatus,
-    OutputsResponse, Request, Response, send_request,
+    OutputsResponse, Request, Response, TrailDirection, send_request,
 };
 
 fn main() {
@@ -27,6 +27,12 @@ fn main() {
             },
             Some(other) => exit_usage(&format!("unknown node command: {other}")),
             None => exit_usage("missing node command"),
+        },
+        Some("trail") => match args.next().as_deref() {
+            Some("prev") => Request::Trail(TrailDirection::Prev),
+            Some("next") => Request::Trail(TrailDirection::Next),
+            Some(other) => exit_usage(&format!("unknown trail command: {other}")),
+            None => exit_usage("missing trail command"),
         },
         Some("help") | Some("--help") | Some("-h") | None => {
             print_help();
@@ -64,6 +70,7 @@ fn print_help() {
     println!("  halleyctl outputs");
     println!("  halleyctl docking begin|end");
     println!("  halleyctl node move left|right|up|down");
+    println!("  halleyctl trail prev|next");
     println!();
     println!("Commands:");
     println!("  quit                Ask the running Halley compositor to exit");
@@ -73,6 +80,7 @@ fn print_help() {
     );
     println!("  docking begin|end   Start or end compositor docking mode");
     println!("  node move ...       Move the latest/focused node in the given direction");
+    println!("  trail prev|next     Move backward or forward through the focused window trail");
 }
 
 fn print_response(response: Response) -> Result<(), String> {

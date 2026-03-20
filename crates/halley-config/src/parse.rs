@@ -28,6 +28,7 @@ impl RuntimeTuning {
         load_env_section(&cfg, &mut out);
         load_viewport_section(&cfg, &mut out);
         load_focus_ring_section(&cfg, &mut out);
+        load_trail_section(&cfg, &mut out);
         load_nodes_section(&cfg, &mut out);
         load_clusters_section(&cfg, &mut out);
         load_decay_section(&cfg, &mut out);
@@ -480,6 +481,15 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     );
 }
 
+fn load_trail_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.trail_history_length = pick_u64(
+        cfg,
+        &["trail.history-length", "trail.history_length"],
+        out.trail_history_length as u64,
+    ) as usize;
+    out.trail_wrap = pick_bool(cfg, &["trail.wrap", "trail.wrap-history"], out.trail_wrap);
+}
+
 fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.cluster_distance_px = pick_f32(
         cfg,
@@ -889,6 +899,12 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
                 key,
                 CompositorBindingAction::MoveNode(DirectionalAction::Down),
             );
+        }
+        "trail_prev" | "trail-prev" | "trail prev" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::TrailPrev);
+        }
+        "trail_next" | "trail-next" | "trail next" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::TrailNext);
         }
         "zoom_in" | "zoom-in" => {
             upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomIn);

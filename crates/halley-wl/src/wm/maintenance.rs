@@ -166,6 +166,8 @@ impl HalleyWlState {
                 self.last_active_size.insert(id, nn.intrinsic_size);
             }
             self.mark_active_transition(id, now, 620);
+            self.record_focus_trail_visit(id);
+            self.suppress_trail_record_once = true;
             self.set_interaction_focus(Some(id), 30_000, now);
         }
     }

@@ -613,6 +613,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let _ =
                             crate::interaction::actions::move_latest_node_direction(st, direction);
                     }
+                    RuntimeIpcCommand::Trail(direction) => {
+                        let _ = crate::interaction::actions::step_window_trail(st, direction);
+                    }
                 });
 
                 {

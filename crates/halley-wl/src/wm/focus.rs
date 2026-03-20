@@ -94,16 +94,25 @@ impl HalleyWlState {
     }
 
     fn update_focus_tracking_for_surface(&mut self, fid: NodeId, now_ms: u64) {
-        let Some(n) = self.field.node(fid) else {
+        let Some(node_state) = self
+            .field
+            .node(fid)
+            .map(|n| (n.kind.clone(), n.state.clone()))
+        else {
             return;
         };
-        if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(fid) {
+        if node_state.0 != halley_core::field::NodeKind::Surface || !self.field.is_visible(fid) {
             return;
         }
 
         self.last_surface_focus_ms.insert(fid, now_ms);
+        if self.suppress_trail_record_once {
+            self.suppress_trail_record_once = false;
+        } else {
+            self.record_focus_trail_visit(fid);
+        }
 
-        if n.state == halley_core::field::NodeState::Active {
+        if node_state.1 == halley_core::field::NodeState::Active {
             let _ = self.field.touch(fid, now_ms);
             let _ = self.field.set_decay_level(fid, DecayLevel::Hot);
             if self.tuning.restore_last_active_on_pan_return {

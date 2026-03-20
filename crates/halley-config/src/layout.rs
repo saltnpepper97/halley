@@ -65,6 +65,8 @@ pub struct RuntimeTuning {
     pub cluster_distance_px: f32,
     pub cluster_dwell_ms: u64,
     pub active_windows_allowed: usize,
+    pub trail_history_length: usize,
+    pub trail_wrap: bool,
 
     pub active_outside_ring_delay_ms: u64,
     pub inactive_outside_ring_delay_ms: u64,
@@ -136,6 +138,8 @@ impl Default for RuntimeTuning {
             cluster_distance_px: 280.0,
             cluster_dwell_ms: 900,
             active_windows_allowed: 3,
+            trail_history_length: 25,
+            trail_wrap: true,
 
             active_outside_ring_delay_ms: 120_000,
             inactive_outside_ring_delay_ms: 30_000,
@@ -228,6 +232,7 @@ impl RuntimeTuning {
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);
         self.active_windows_allowed = self.active_windows_allowed.clamp(1, 64);
+        self.trail_history_length = self.trail_history_length.clamp(1, 512);
 
         self.active_outside_ring_delay_ms = self.active_outside_ring_delay_ms.clamp(0, 7_200_000);
         self.inactive_outside_ring_delay_ms =
@@ -347,6 +352,22 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
             modifiers: modifier,
             key: key("j"),
             action: CompositorBindingAction::MoveNode(DirectionalAction::Down),
+        },
+        CompositorBinding {
+            modifiers: KeyModifiers {
+                shift: true,
+                ..modifier
+            },
+            key: key("comma"),
+            action: CompositorBindingAction::TrailPrev,
+        },
+        CompositorBinding {
+            modifiers: KeyModifiers {
+                shift: true,
+                ..modifier
+            },
+            key: key("dot"),
+            action: CompositorBindingAction::TrailNext,
         },
     ]
 }

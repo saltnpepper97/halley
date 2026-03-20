@@ -22,6 +22,7 @@ mod focus;
 mod fullscreen;
 mod maintenance;
 pub(crate) mod overlap;
+mod trail;
 mod workspace;
 mod zoom;
 

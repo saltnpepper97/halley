@@ -2,7 +2,7 @@ use crate::state::HalleyWlState;
 use eventline::info;
 use halley_core::decay::DecayLevel;
 use halley_core::viewport::FocusZone;
-use halley_ipc::NodeMoveDirection;
+use halley_ipc::{NodeMoveDirection, TrailDirection};
 use std::time::Instant;
 
 pub(crate) fn promote_node_level(
@@ -108,6 +108,10 @@ pub(crate) fn move_latest_node_direction(
         NodeMoveDirection::Up => move_latest_node(st, 0.0, STEP_NODE),
         NodeMoveDirection::Down => move_latest_node(st, 0.0, -STEP_NODE),
     }
+}
+
+pub(crate) fn step_window_trail(st: &mut HalleyWlState, direction: TrailDirection) -> bool {
+    st.navigate_window_trail(direction, Instant::now())
 }
 
 pub(crate) fn toggle_focused_active_node_state(st: &mut HalleyWlState) -> bool {

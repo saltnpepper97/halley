@@ -52,6 +52,10 @@ impl Trail {
         self.head.is_none()
     }
 
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
     /// Record a focus visit.
     pub fn record(&mut self, node: NodeId) {
         // If we are not at the tail, drop everything after cursor (browser semantics).
@@ -96,6 +100,42 @@ impl Trail {
         let next = self.entries.get(&cur)?.next?;
         self.cursor = Some(next);
         self.cursor()
+    }
+
+    pub fn back_wrapping(&mut self) -> Option<NodeId> {
+        if let Some(node) = self.back() {
+            return Some(node);
+        }
+        let tail = self.tail?;
+        self.cursor = Some(tail);
+        self.cursor()
+    }
+
+    pub fn forward_wrapping(&mut self) -> Option<NodeId> {
+        if let Some(node) = self.forward() {
+            return Some(node);
+        }
+        let head = self.head?;
+        self.cursor = Some(head);
+        self.cursor()
+    }
+
+    pub fn truncate_to(&mut self, max_len: usize) {
+        if max_len == 0 {
+            self.head = None;
+            self.tail = None;
+            self.cursor = None;
+            self.entries.clear();
+            self.by_node.clear();
+            return;
+        }
+
+        while self.entries.len() > max_len {
+            let Some(head) = self.head else {
+                break;
+            };
+            self.remove_entry(head);
+        }
     }
 
     /// Remove all history entries for a given node id.

@@ -93,6 +93,12 @@ pub(crate) fn apply_compositor_action_press(
         CompositorBindingAction::MoveNode(direction) => {
             move_latest_node_direction(st, from_directional_action(direction))
         }
+        CompositorBindingAction::TrailPrev => {
+            crate::interaction::actions::step_window_trail(st, halley_ipc::TrailDirection::Prev)
+        }
+        CompositorBindingAction::TrailNext => {
+            crate::interaction::actions::step_window_trail(st, halley_ipc::TrailDirection::Next)
+        }
         CompositorBindingAction::ZoomIn => {
             st.zoom_by_steps(1.0);
             true
@@ -139,6 +145,8 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::Reload
             | CompositorBindingAction::ToggleState
             | CompositorBindingAction::CloseFocusedWindow
+            | CompositorBindingAction::TrailPrev
+            | CompositorBindingAction::TrailNext
             | CompositorBindingAction::Quit { .. }
             | CompositorBindingAction::ZoomIn
             | CompositorBindingAction::ZoomOut

@@ -17,6 +17,11 @@ viewport:
   end
 end
 
+trail:
+  history-length 25
+  wrap true
+end
+
 focus-ring:
   primary-rx 820.0
   primary-ry 420.0
@@ -85,6 +90,8 @@ keybinds:
   "$var.mod+l" "move_right"
   "$var.mod+k" "move_up"
   "$var.mod+j" "move_down"
+  "$var.mod+shift+," "trail-prev"
+  "$var.mod+shift+." "trail-next"
 
   # Applications
   "$var.mod+return" "kitty"

@@ -339,6 +339,8 @@ impl HalleyWlState {
                 .insert(active.node_id, node.intrinsic_size);
         }
         self.mark_active_transition(active.node_id, now, 620);
+        self.record_focus_trail_visit(active.node_id);
+        self.suppress_trail_record_once = true;
         self.set_interaction_focus(Some(active.node_id), 30_000, now);
         self.active_spawn_pan = None;
         self.maybe_start_pending_spawn_pan(now);
@@ -351,6 +353,8 @@ impl HalleyWlState {
         now: Instant,
     ) {
         if is_transient {
+            self.record_focus_trail_visit(id);
+            self.suppress_trail_record_once = true;
             self.set_interaction_focus(Some(id), 30_000, now);
             self.pending_spawn_activate_at_ms.remove(&id);
             self.mark_active_transition(id, now, 620);
@@ -374,6 +378,8 @@ impl HalleyWlState {
             .is_some_and(|node| self.viewport_contains_point(node.pos));
         if visible_in_view {
             self.mark_active_transition(id, now, 620);
+            self.record_focus_trail_visit(id);
+            self.suppress_trail_record_once = true;
             self.set_interaction_focus(Some(id), 30_000, now);
         } else {
             self.queue_spawn_pan_to_node(id, now);

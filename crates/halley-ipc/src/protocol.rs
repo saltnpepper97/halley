@@ -17,6 +17,12 @@ pub enum NodeMoveDirection {
     Down,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum TrailDirection {
+    Prev,
+    Next,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
     Quit,
@@ -24,6 +30,7 @@ pub enum Request {
     Outputs,
     Docking(DockingCommand),
     NodeMove(NodeMoveDirection),
+    Trail(TrailDirection),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

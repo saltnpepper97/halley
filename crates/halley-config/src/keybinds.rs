@@ -45,6 +45,8 @@ pub enum CompositorBindingAction {
     Quit { requires_shift: bool },
     Docking,
     MoveNode(DirectionalAction),
+    TrailPrev,
+    TrailNext,
     ZoomIn,
     ZoomOut,
     ZoomReset,

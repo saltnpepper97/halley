@@ -252,6 +252,7 @@ impl HalleyWlState {
             self.zoom_last_observed_size.remove(&id);
             self.zoom_resize_static_streak.remove(&id);
             self.node_app_ids.remove(&id);
+            self.focus_trail.forget_node(id);
             self.last_active_size.remove(&id);
             self.bbox_loc.remove(&id);
             self.window_geometry.remove(&id);
@@ -276,6 +277,7 @@ impl HalleyWlState {
                 self.interaction_focus = None;
                 self.interaction_focus_until_ms = 0;
             }
+            self.suppress_trail_record_once = false;
             self.smoothed_render_pos.remove(&id);
             self.clear_window_offscreen_cache_for(id);
             let _ = self.field.remove(id);

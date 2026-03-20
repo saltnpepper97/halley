@@ -9,6 +9,7 @@ use halley_core::cluster::ClusterId;
 use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_cluster_formation};
 use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2};
+use halley_core::trail::Trail;
 use halley_core::viewport::{FocusZone, Viewport};
 
 use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
@@ -211,6 +212,8 @@ pub struct HalleyWlState {
     pub interaction_focus: Option<NodeId>,
     pub(crate) interaction_focus_until_ms: u64,
     pub(crate) last_surface_focus_ms: HashMap<NodeId, u64>,
+    pub(crate) focus_trail: Trail,
+    pub(crate) suppress_trail_record_once: bool,
     pub pan_restore_active_focus: Option<NodeId>,
     pub(crate) app_focused: bool,
     pub(crate) cluster_form_state: ClusterFormationState,
@@ -341,6 +344,8 @@ impl HalleyWlState {
             interaction_focus: None,
             interaction_focus_until_ms: 0,
             last_surface_focus_ms: HashMap::new(),
+            focus_trail: Trail::new(),
+            suppress_trail_record_once: false,
             pan_restore_active_focus: None,
             app_focused: true,
             cluster_form_state: ClusterFormationState::default(),
