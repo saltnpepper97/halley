@@ -324,7 +324,10 @@ impl HalleyWlState {
         })
     }
 
-    fn surface_window_collision_extents(&self, n: &halley_core::field::Node) -> CollisionExtents {
+    pub(crate) fn surface_window_collision_extents(
+        &self,
+        n: &halley_core::field::Node,
+    ) -> CollisionExtents {
         let basis = self
             .last_active_size
             .get(&n.id)

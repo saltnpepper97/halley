@@ -64,6 +64,7 @@ pub struct RuntimeTuning {
 
     pub cluster_distance_px: f32,
     pub cluster_dwell_ms: u64,
+    pub active_windows_allowed: usize,
 
     pub primary_outside_ring_delay_ms: u64,
     pub secondary_outside_ring_delay_ms: u64,
@@ -134,6 +135,7 @@ impl Default for RuntimeTuning {
 
             cluster_distance_px: 280.0,
             cluster_dwell_ms: 900,
+            active_windows_allowed: 3,
 
             primary_outside_ring_delay_ms: 120_000,
             secondary_outside_ring_delay_ms: 30_000,
@@ -225,6 +227,7 @@ impl RuntimeTuning {
 
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);
+        self.active_windows_allowed = self.active_windows_allowed.clamp(1, 64);
 
         self.primary_outside_ring_delay_ms = self.primary_outside_ring_delay_ms.clamp(0, 7_200_000);
         self.secondary_outside_ring_delay_ms =

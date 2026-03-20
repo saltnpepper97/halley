@@ -526,6 +526,14 @@ fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
 fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.non_overlap_gap_px = pick_f32(cfg, &["field.gap", "field.gap-px"], out.non_overlap_gap_px);
+    out.active_windows_allowed = pick_u64(
+        cfg,
+        &[
+            "field.active-windows-allowed",
+            "field.active_windows_allowed",
+        ],
+        out.active_windows_allowed as u64,
+    ) as usize;
 }
 
 fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -1231,6 +1239,32 @@ end
                 .iter()
                 .any(|binding| binding.action == CompositorBindingAction::ZoomIn)
         );
+    }
+
+    #[test]
+    fn field_active_windows_allowed_parses_from_config() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-field-active-windows-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+field:
+  gap 24.0
+  active-windows-allowed 5
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.non_overlap_gap_px, 24.0);
+        assert_eq!(tuning.active_windows_allowed, 5);
     }
 
     #[test]

@@ -1,11 +1,74 @@
 use std::collections::HashSet;
 
 use super::*;
+use crate::wm::overlap::CollisionExtents;
 use halley_core::viewport::{FocusRing, FocusZone};
 
 impl HalleyWlState {
+    const ACTIVE_RING_OUTSIDE_DECAY_FRAC: f32 = 0.98;
+
+    fn focus_ring_coverage_for_extents(
+        &self,
+        pos: Vec2,
+        ext: CollisionExtents,
+        focus_ring: FocusRing,
+    ) -> (f32, f32) {
+        let samples = 9usize;
+        let width = (ext.left + ext.right).max(1.0);
+        let height = (ext.top + ext.bottom).max(1.0);
+        let left = pos.x - ext.left;
+        let top = pos.y - ext.top;
+        let mut inside = 0usize;
+        let mut total = 0usize;
+
+        for ix in 0..samples {
+            for iy in 0..samples {
+                let fx = ix as f32 / (samples - 1) as f32;
+                let fy = iy as f32 / (samples - 1) as f32;
+                let sample = Vec2 {
+                    x: left + fx * width,
+                    y: top + fy * height,
+                };
+                if focus_ring.zone(self.viewport.center, sample) == FocusZone::Inside {
+                    inside += 1;
+                }
+                total += 1;
+            }
+        }
+
+        if total == 0 {
+            return (0.0, 1.0);
+        }
+
+        let inside_frac = inside as f32 / total as f32;
+        (inside_frac, (1.0 - inside_frac).max(0.0))
+    }
+
+    fn surface_ring_coverage(&self, id: NodeId, focus_ring: FocusRing) -> (f32, f32) {
+        let Some(node) = self.field.node(id) else {
+            return (0.0, 1.0);
+        };
+
+        let ext = match node.state {
+            halley_core::field::NodeState::Active => self.surface_window_collision_extents(node),
+            _ => self.collision_extents_for_node(node),
+        };
+
+        self.focus_ring_coverage_for_extents(node.pos, ext, focus_ring)
+    }
+
+    fn surface_is_definitively_outside_focus_ring(
+        &self,
+        id: NodeId,
+        focus_ring: FocusRing,
+    ) -> bool {
+        let (_, outside_frac) = self.surface_ring_coverage(id, focus_ring);
+        outside_frac >= Self::ACTIVE_RING_OUTSIDE_DECAY_FRAC
+    }
+
     pub(crate) fn enforce_single_primary_active_unit(&mut self, focus_ring: FocusRing) {
         let now_ms = self.now_ms(Instant::now());
+        let active_windows_allowed = self.tuning.active_windows_allowed.max(1);
         let companion = self.companion_surface_node(now_ms);
         let preferred_surface = self.last_input_surface_node();
 
@@ -21,7 +84,7 @@ impl HalleyWlState {
             })
             .collect();
 
-        if active_ids.len() <= 2 {
+        if active_ids.len() <= active_windows_allowed {
             return;
         }
 
@@ -42,19 +105,14 @@ impl HalleyWlState {
             keep_set.insert(fid);
         }
 
-        if keep_set.len() < 2 {
+        if keep_set.len() < active_windows_allowed {
             let mut ranked = active_ids.clone();
             ranked.sort_by_key(|id| {
-                let pos = self
-                    .field
-                    .node(*id)
-                    .map(|n| n.pos)
-                    .unwrap_or(self.viewport.center);
                 let preferred_rank = u8::from(preferred_surface == Some(*id));
                 let focus_rank = u8::from(self.interaction_focus == Some(*id));
                 let companion_rank = u8::from(companion == Some(*id));
                 let inside_rank =
-                    u8::from(focus_ring.zone(self.viewport.center, pos) == FocusZone::Inside);
+                    u8::from(!self.surface_is_definitively_outside_focus_ring(*id, focus_ring));
                 let latest_focus = self.last_surface_focus_ms.get(id).copied().unwrap_or(0);
                 (
                     preferred_rank,
@@ -68,7 +126,7 @@ impl HalleyWlState {
 
             for id in ranked.iter().rev().copied() {
                 keep_set.insert(id);
-                if keep_set.len() >= 2 {
+                if keep_set.len() >= active_windows_allowed {
                     break;
                 }
             }
@@ -206,7 +264,7 @@ impl HalleyWlState {
             return;
         }
 
-        let outside_ring = focus_ring.zone(self.viewport.center, n.pos) == FocusZone::Outside;
+        let outside_ring = self.surface_is_definitively_outside_focus_ring(id, focus_ring);
         if !outside_ring {
             self.dock_decay_offscreen_since_ms.remove(&id);
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
@@ -343,5 +401,62 @@ impl HalleyWlState {
         }
 
         self.surface_activity.retain(|k, _| alive.contains(k));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn active_surface_with_small_ring_overlap_is_not_treated_as_outside() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.focus_ring_rx = 100.0;
+        tuning.focus_ring_ry = 100.0;
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new(&dh, tuning);
+
+        let id = state.field.spawn_surface(
+            "edge-overlap",
+            Vec2 { x: 145.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 100.0 },
+        );
+        state
+            .last_active_size
+            .insert(id, Vec2 { x: 100.0, y: 100.0 });
+        state
+            .window_geometry
+            .insert(id, (-50.0, -50.0, 100.0, 100.0));
+        state.bbox_loc.insert(id, (0.0, 0.0));
+
+        assert!(!state.surface_is_definitively_outside_focus_ring(id, state.active_focus_ring()));
+    }
+
+    #[test]
+    fn active_surface_fully_clear_of_ring_is_treated_as_outside() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.focus_ring_rx = 100.0;
+        tuning.focus_ring_ry = 100.0;
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new(&dh, tuning);
+
+        let id = state.field.spawn_surface(
+            "outside",
+            Vec2 { x: 260.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 100.0 },
+        );
+        state
+            .last_active_size
+            .insert(id, Vec2 { x: 100.0, y: 100.0 });
+        state
+            .window_geometry
+            .insert(id, (-50.0, -50.0, 100.0, 100.0));
+        state.bbox_loc.insert(id, (0.0, 0.0));
+
+        assert!(state.surface_is_definitively_outside_focus_ring(id, state.active_focus_ring()));
     }
 }
