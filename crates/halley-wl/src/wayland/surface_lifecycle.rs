@@ -137,41 +137,62 @@ impl HalleyWlState {
         if let Some(node_id) = self.surface_to_node.get(&root_key).copied() {
             self.mark_window_offscreen_dirty(node_id);
             self.refresh_node_identity_for_surface(&root_surface, "Window");
-            if self.resize_active == Some(node_id) {
-                use smithay::desktop::utils::bbox_from_surface_tree;
-                use smithay::wayland::shell::xdg::SurfaceCachedState;
+            use smithay::desktop::utils::bbox_from_surface_tree;
+            use smithay::wayland::shell::xdg::SurfaceCachedState;
 
-                let bbox = bbox_from_surface_tree(&root_surface, (0, 0));
-                self.bbox_loc
-                    .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
+            let bbox = bbox_from_surface_tree(&root_surface, (0, 0));
+            self.bbox_loc
+                .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
 
-                let geo = with_states(&root_surface, |states| {
-                    states
-                        .cached_state
-                        .get::<SurfaceCachedState>()
-                        .current()
-                        .geometry
-                });
-                if let Some(g) = geo {
-                    self.window_geometry.insert(
-                        node_id,
-                        (
-                            g.loc.x as f32,
-                            g.loc.y as f32,
-                            g.size.w.max(1) as f32,
-                            g.size.h.max(1) as f32,
-                        ),
-                    );
-                } else {
-                    self.window_geometry.insert(
-                        node_id,
-                        (
-                            bbox.loc.x as f32,
-                            bbox.loc.y as f32,
-                            bbox.size.w.max(1) as f32,
-                            bbox.size.h.max(1) as f32,
-                        ),
-                    );
+            let geo = with_states(&root_surface, |states| {
+                states
+                    .cached_state
+                    .get::<SurfaceCachedState>()
+                    .current()
+                    .geometry
+            });
+            if let Some(g) = geo {
+                self.window_geometry.insert(
+                    node_id,
+                    (
+                        g.loc.x as f32,
+                        g.loc.y as f32,
+                        g.size.w.max(1) as f32,
+                        g.size.h.max(1) as f32,
+                    ),
+                );
+            } else {
+                self.window_geometry.insert(
+                    node_id,
+                    (
+                        bbox.loc.x as f32,
+                        bbox.loc.y as f32,
+                        bbox.size.w.max(1) as f32,
+                        bbox.size.h.max(1) as f32,
+                    ),
+                );
+            }
+
+            let new_size = Vec2 {
+                x: bbox.size.w.max(1) as f32,
+                y: bbox.size.h.max(1) as f32,
+            };
+            let size_changed = self.field.node(node_id).is_some_and(|node| {
+                (node.intrinsic_size.x - new_size.x).abs() > 0.5
+                    || (node.intrinsic_size.y - new_size.y).abs() > 0.5
+            });
+
+            if size_changed && self.resize_active != Some(node_id) {
+                if let Some(node) = self.field.node_mut(node_id) {
+                    node.intrinsic_size = new_size;
+                    if node.state == halley_core::field::NodeState::Active {
+                        node.footprint = new_size;
+                    }
+                }
+                self.last_active_size.insert(node_id, new_size);
+                self.request_maintenance();
+                if self.resize_static_node != Some(node_id) {
+                    self.resolve_overlap_now();
                 }
             }
         }
