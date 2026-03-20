@@ -45,9 +45,11 @@ struct SceneCollections {
     active_elements: Vec<CroppedSurfaceElement>,
     resized_active_elements: Vec<CroppedSurfaceElement>,
     offscreen_textures: Vec<OffscreenNodeTexture>,
+    resized_offscreen_textures: Vec<OffscreenNodeTexture>,
     popup_offscreen_textures: Vec<OffscreenNodeTexture>,
     popup_elements: Vec<CroppedSurfaceElement>,
     border_rects: Vec<ActiveBorderRect>,
+    resized_border_rects: Vec<ActiveBorderRect>,
     overlay_rects: Vec<(i32, i32, i32, i32, Color32F)>,
     overlay_points: Vec<(i32, i32, Color32F)>,
     overlap_overlay_rects: Vec<(i32, i32, i32, i32)>,
@@ -198,10 +200,12 @@ fn collect_debug_frame_scene(
         active_elements,
         resized_active_elements,
         offscreen_textures,
+        resized_offscreen_textures,
         popup_offscreen_textures,
         popup_elements,
         node_surface_map,
         border_rects,
+        resized_border_rects,
         overlay_rects,
         overlay_points,
         overlap_overlay_rects,
@@ -251,9 +255,11 @@ fn collect_debug_frame_scene(
         active_elements,
         resized_active_elements,
         offscreen_textures,
+        resized_offscreen_textures,
         popup_offscreen_textures,
         popup_elements,
         border_rects,
+        resized_border_rects,
         overlay_rects,
         overlay_points,
         overlap_overlay_rects,
@@ -317,7 +323,9 @@ fn draw_debug_frame_scene(
         let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
     }
 
+    draw_offscreen_textures(frame, prepared.damage, &scene.offscreen_textures)?;
     draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
+    draw_window_backgrounds(frame, size, prepared.damage, &scene.resized_border_rects)?;
 
     if !scene.resized_active_elements.is_empty() {
         let _ = draw_render_elements(
@@ -328,7 +336,7 @@ fn draw_debug_frame_scene(
         );
     }
 
-    draw_offscreen_textures(frame, prepared.damage, &scene.offscreen_textures)?;
+    draw_offscreen_textures(frame, prepared.damage, &scene.resized_offscreen_textures)?;
     draw_offscreen_textures(frame, prepared.damage, &scene.popup_offscreen_textures)?;
 
     if !scene.popup_elements.is_empty() {

@@ -76,11 +76,13 @@ pub(crate) fn collect_active_surfaces(
     Vec<CroppedSurfaceElement>,
     Vec<OffscreenNodeTexture>,
     Vec<OffscreenNodeTexture>,
+    Vec<OffscreenNodeTexture>,
     Vec<CroppedSurfaceElement>,
     HashMap<
         halley_core::field::NodeId,
         smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     >,
+    Vec<ActiveBorderRect>,
     Vec<ActiveBorderRect>,
     Vec<(i32, i32, i32, i32, Color32F)>,
     Vec<(i32, i32, Color32F)>,
@@ -89,10 +91,12 @@ pub(crate) fn collect_active_surfaces(
     let mut active_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut resized_active_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let mut resized_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
+    let mut resized_border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut overlay_rects: Vec<(i32, i32, i32, i32, Color32F)> = Vec::new();
     let mut overlay_points: Vec<(i32, i32, Color32F)> = Vec::new();
     let mut overlap_overlay_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
@@ -231,13 +235,18 @@ pub(crate) fn collect_active_surfaces(
         } else {
             (gx, gy, gw.max(1), gh.max(1))
         };
-        border_rects.push(ActiveBorderRect {
+        let border_rect = ActiveBorderRect {
             x: border_x,
             y: border_y,
             w: border_w,
             h: border_h,
             focused: st.interaction_focus == Some(node_id),
-        });
+        };
+        if draw_top_this_node {
+            resized_border_rects.push(border_rect);
+        } else {
+            border_rects.push(border_rect);
+        }
 
         if let Some((rl, rt, rr, rb, rid)) = resize_rect_px
             && node_id != rid
@@ -395,7 +404,7 @@ pub(crate) fn collect_active_surfaces(
                         )
                     };
 
-                    offscreen_textures.push(OffscreenNodeTexture {
+                    let offscreen = OffscreenNodeTexture {
                         texture: texture.clone(),
                         alpha,
                         src_x,
@@ -410,7 +419,12 @@ pub(crate) fn collect_active_surfaces(
                         clip_y,
                         clip_w,
                         clip_h,
-                    });
+                    };
+                    if draw_top_this_node {
+                        resized_offscreen_textures.push(offscreen);
+                    } else {
+                        offscreen_textures.push(offscreen);
+                    }
                 }
                 None => continue,
             }
@@ -532,10 +546,12 @@ pub(crate) fn collect_active_surfaces(
         active_elements,
         resized_active_elements,
         offscreen_textures,
+        resized_offscreen_textures,
         popup_offscreen_textures,
         popup_elements,
         node_surface_map,
         border_rects,
+        resized_border_rects,
         overlay_rects,
         overlay_points,
         overlap_overlay_rects,
