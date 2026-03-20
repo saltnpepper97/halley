@@ -415,6 +415,13 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 ws_h: ws.h,
                                 sx,
                                 sy,
+                                delta_x: 0.0,
+                                delta_y: 0.0,
+                                delta_x_unaccel: 0.0,
+                                delta_y_unaccel: 0.0,
+                                time_usec: smithay::backend::input::Event::<
+                                    smithay::backend::winit::WinitInput,
+                                >::time(&event),
                             },
                         );
                     }
@@ -441,6 +448,21 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 ws_h: ws.h,
                                 sx,
                                 sy,
+                                delta_x: smithay::backend::input::PointerMotionEvent::<
+                                    smithay::backend::winit::WinitInput,
+                                >::delta_x(&event),
+                                delta_y: smithay::backend::input::PointerMotionEvent::<
+                                    smithay::backend::winit::WinitInput,
+                                >::delta_y(&event),
+                                delta_x_unaccel: smithay::backend::input::PointerMotionEvent::<
+                                    smithay::backend::winit::WinitInput,
+                                >::delta_x_unaccel(&event),
+                                delta_y_unaccel: smithay::backend::input::PointerMotionEvent::<
+                                    smithay::backend::winit::WinitInput,
+                                >::delta_y_unaccel(&event),
+                                time_usec: smithay::backend::input::Event::<
+                                    smithay::backend::winit::WinitInput,
+                                >::time(&event),
                             },
                         );
                     }

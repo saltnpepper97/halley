@@ -2,8 +2,7 @@ use std::time::Instant;
 
 use eventline::info;
 use smithay::input::keyboard::FilterResult;
-use smithay::input::pointer::AxisFrame;
-use smithay::input::pointer::MotionEvent;
+use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
@@ -65,6 +64,11 @@ pub(crate) enum BackendInputEventData {
         ws_h: i32,
         sx: f32,
         sy: f32,
+        delta_x: f64,
+        delta_y: f64,
+        delta_x_unaccel: f64,
+        delta_y_unaccel: f64,
+        time_usec: u64,
     },
     PointerButton {
         button_code: u32,
@@ -311,7 +315,17 @@ pub(crate) fn handle_backend_input_event(
                 pressed,
             );
         }
-        BackendInputEventData::PointerMotionAbsolute { ws_w, ws_h, sx, sy } => {
+        BackendInputEventData::PointerMotionAbsolute {
+            ws_w,
+            ws_h,
+            sx,
+            sy,
+            delta_x,
+            delta_y,
+            delta_x_unaccel,
+            delta_y_unaccel,
+            time_usec,
+        } => {
             super::pointer_motion::handle_pointer_motion_absolute(
                 st,
                 backend,
@@ -321,6 +335,9 @@ pub(crate) fn handle_backend_input_event(
                 ws_h,
                 sx,
                 sy,
+                (delta_x, delta_y),
+                (delta_x_unaccel, delta_y_unaccel),
+                time_usec,
             );
         }
         BackendInputEventData::PointerButton { button_code, state } => {

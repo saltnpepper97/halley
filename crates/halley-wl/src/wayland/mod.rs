@@ -6,7 +6,8 @@ use smithay::{
     backend::allocator::dmabuf::Dmabuf,
     backend::renderer::utils::on_commit_buffer_handler,
     delegate_compositor, delegate_data_control, delegate_data_device, delegate_dmabuf,
-    delegate_layer_shell, delegate_output, delegate_primary_selection, delegate_seat, delegate_shm,
+    delegate_layer_shell, delegate_output, delegate_pointer_constraints,
+    delegate_primary_selection, delegate_relative_pointer, delegate_seat, delegate_shm,
     delegate_viewporter, delegate_xdg_shell,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
     output::Output,
@@ -17,6 +18,8 @@ use smithay::{
         compositor::{CompositorClientState, CompositorHandler, CompositorState},
         dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, ImportNotifier},
         output::{OutputHandler, OutputManagerState},
+        pointer_constraints::{PointerConstraintsHandler, PointerConstraintsState},
+        relative_pointer::RelativePointerManagerState,
         selection::{
             SelectionHandler,
             data_device::{

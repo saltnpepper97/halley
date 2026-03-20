@@ -6,9 +6,11 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
 };
+use smithay::input::pointer::PointerHandle;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, ImportNotifier};
 use smithay::wayland::output::OutputHandler;
+use smithay::wayland::pointer_constraints::{PointerConstraint, with_pointer_constraint};
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::{
     PrimarySelectionHandler, PrimarySelectionState, set_primary_focus,
@@ -97,6 +99,8 @@ impl SeatHandler for HalleyWlState {
 }
 
 delegate_seat!(HalleyWlState);
+delegate_pointer_constraints!(HalleyWlState);
+delegate_relative_pointer!(HalleyWlState);
 
 impl SelectionHandler for HalleyWlState {
     type SelectionUserData = ();
@@ -183,6 +187,50 @@ impl DmabufHandler for HalleyWlState {
         _global: &DmabufGlobal,
     ) -> Option<DmabufFeedback> {
         None
+    }
+}
+
+impl PointerConstraintsHandler for HalleyWlState {
+    fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
+        if pointer.current_focus().as_ref() != Some(surface) {
+            return;
+        }
+        with_pointer_constraint(surface, pointer, |constraint| {
+            if let Some(constraint) = constraint && !constraint.is_active() {
+                constraint.activate();
+            }
+        });
+    }
+
+    fn cursor_position_hint(
+        &mut self,
+        _surface: &WlSurface,
+        _pointer: &PointerHandle<Self>,
+        _location: smithay::utils::Point<f64, smithay::utils::Logical>,
+    ) {
+    }
+}
+
+impl HalleyWlState {
+    pub(crate) fn activate_pointer_constraint_for_surface(&mut self, surface: &WlSurface) {
+        let Some(pointer) = self.seat.get_pointer() else {
+            return;
+        };
+        with_pointer_constraint(surface, &pointer, |constraint| {
+            if let Some(constraint) = constraint && !constraint.is_active() {
+                constraint.activate();
+            }
+        });
+    }
+
+    pub(crate) fn active_locked_pointer_surface(&self) -> Option<WlSurface> {
+        let pointer = self.seat.get_pointer()?;
+        let surface = pointer.current_focus()?;
+        let locked = with_pointer_constraint(&surface, &pointer, |constraint| {
+            matches!(constraint.as_deref(), Some(PointerConstraint::Locked(_)))
+                && constraint.as_deref().is_some_and(PointerConstraint::is_active)
+        });
+        locked.then_some(surface)
     }
 }
 

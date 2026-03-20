@@ -11,7 +11,7 @@ use crate::backend::tty_input::build_tty_libinput_backend;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 
 use smithay::backend::input::{
-    AbsolutePositionEvent, Axis, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
+    AbsolutePositionEvent, Axis, Event, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
     PointerButtonEvent, PointerMotionEvent,
 };
 
@@ -565,7 +565,17 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             &backend_handle,
                             config_path.as_str(),
                             sock_name.as_str(),
-                            BackendInputEventData::PointerMotionAbsolute { ws_w, ws_h, sx, sy },
+                            BackendInputEventData::PointerMotionAbsolute {
+                                ws_w,
+                                ws_h,
+                                sx,
+                                sy,
+                                delta_x: 0.0,
+                                delta_y: 0.0,
+                                delta_x_unaccel: 0.0,
+                                delta_y_unaccel: 0.0,
+                                time_usec: event.time(),
+                            },
                         );
                     }
                     InputEvent::PointerMotion { event } => {
@@ -604,7 +614,17 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             &backend_handle,
                             config_path.as_str(),
                             sock_name.as_str(),
-                            BackendInputEventData::PointerMotionAbsolute { ws_w, ws_h, sx, sy },
+                            BackendInputEventData::PointerMotionAbsolute {
+                                ws_w,
+                                ws_h,
+                                sx,
+                                sy,
+                                delta_x: event.delta_x(),
+                                delta_y: event.delta_y(),
+                                delta_x_unaccel: event.delta_x_unaccel(),
+                                delta_y_unaccel: event.delta_y_unaccel(),
+                                time_usec: event.time(),
+                            },
                         );
                     }
                     InputEvent::PointerButton { event } => {

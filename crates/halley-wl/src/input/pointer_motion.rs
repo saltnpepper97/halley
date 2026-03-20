@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use eventline::info;
-use smithay::input::pointer::MotionEvent;
+use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
@@ -42,6 +42,9 @@ pub(crate) fn handle_pointer_motion_absolute(
     ws_h: i32,
     sx: f32,
     sy: f32,
+    delta: (f64, f64),
+    delta_unaccel: (f64, f64),
+    time_usec: u64,
 ) {
     let allow_unbounded_screen = {
         let ps = pointer_state.borrow();
@@ -52,41 +55,69 @@ pub(crate) fn handle_pointer_motion_absolute(
     let raw_sy = sy;
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
     let now = Instant::now();
+    let locked_surface = st.active_locked_pointer_surface();
+    let (effective_sx, effective_sy) = if locked_surface.is_some() {
+        pointer_state.borrow().screen
+    } else if allow_unbounded_screen {
+        (raw_sx, raw_sy)
+    } else {
+        (sx, sy)
+    };
 
     if let Some(pointer) = st.seat.get_pointer() {
         let resize_preview = pointer_state.borrow().resize;
-        let focus = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview);
-        let location = if focus
-            .as_ref()
-            .is_some_and(|(surface, _)| st.is_layer_surface(surface))
-        {
-            (sx as f64, sy as f64).into()
+        let focus = if let Some(surface) = locked_surface.clone() {
+            Some((surface, pointer.current_location()))
         } else {
-            let cam_scale = st.camera_render_scale() as f64;
-            (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
+            pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)
         };
-        pointer.motion(
-            st,
-            focus,
-            &MotionEvent {
-                location,
-                serial: SERIAL_COUNTER.next_serial(),
-                time: now_millis_u32(),
-            },
-        );
+
+        if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
+            pointer.relative_motion(
+                st,
+                focus.clone(),
+                &RelativeMotionEvent {
+                    delta: delta.into(),
+                    delta_unaccel: delta_unaccel.into(),
+                    utime: time_usec,
+                },
+            );
+        }
+
+        if locked_surface.is_none() {
+            let location = if focus
+                .as_ref()
+                .is_some_and(|(surface, _)| st.is_layer_surface(surface))
+            {
+                (sx as f64, sy as f64).into()
+            } else {
+                let cam_scale = st.camera_render_scale() as f64;
+                (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
+            };
+            pointer.motion(
+                st,
+                focus.clone(),
+                &MotionEvent {
+                    location,
+                    serial: SERIAL_COUNTER.next_serial(),
+                    time: now_millis_u32(),
+                },
+            );
+            if let Some((surface, _)) = focus.as_ref() {
+                st.activate_pointer_constraint_for_surface(surface);
+            }
+        }
         pointer.frame(st);
     }
 
-    let active_sx = if allow_unbounded_screen { raw_sx } else { sx };
-    let active_sy = if allow_unbounded_screen { raw_sy } else { sy };
-    let p = screen_to_world(st, ws_w, ws_h, active_sx, active_sy);
+    let p = screen_to_world(st, ws_w, ws_h, effective_sx, effective_sy);
 
     let mods = mod_state.borrow().clone();
     let drag_mod_ok = modifier_active(&mods, st.tuning.keybinds.modifier);
 
     let mut ps = pointer_state.borrow_mut();
     ps.world = p;
-    ps.screen = (active_sx, active_sy);
+    ps.screen = (effective_sx, effective_sy);
     ps.workspace_size = (ws_w, ws_h);
 
     if st.has_active_cluster_workspace() {
@@ -132,8 +163,8 @@ pub(crate) fn handle_pointer_motion_absolute(
         let mut next = resize;
         const RESIZE_DRAG_START_PX: f32 = 3.0;
 
-        let drag_dx = (active_sx - resize.press_sx).abs();
-        let drag_dy = (active_sy - resize.press_sy).abs();
+        let drag_dx = (effective_sx - resize.press_sx).abs();
+        let drag_dy = (effective_sy - resize.press_sy).abs();
         if !next.drag_started && drag_dx.max(drag_dy) < RESIZE_DRAG_START_PX {
             ps.resize = Some(next);
             return;
@@ -167,12 +198,12 @@ pub(crate) fn handle_pointer_motion_absolute(
         // Horizontal movement
         match resize.handle {
             ResizeHandle::Left | ResizeHandle::TopLeft | ResizeHandle::BottomLeft => {
-                let desired_left = active_sx - resize.press_off_left_px;
+                let desired_left = effective_sx - resize.press_off_left_px;
                 let max_left = resize.start_right_px - min_w;
                 left = desired_left.min(max_left);
             }
             ResizeHandle::Right | ResizeHandle::TopRight | ResizeHandle::BottomRight => {
-                let desired_right = active_sx - resize.press_off_right_px;
+                let desired_right = effective_sx - resize.press_off_right_px;
                 let min_right = resize.start_left_px + min_w;
                 right = desired_right.max(min_right);
             }
@@ -182,12 +213,12 @@ pub(crate) fn handle_pointer_motion_absolute(
         // Vertical movement
         match resize.handle {
             ResizeHandle::Top | ResizeHandle::TopLeft | ResizeHandle::TopRight => {
-                let desired_top = active_sy - resize.press_off_top_px;
+                let desired_top = effective_sy - resize.press_off_top_px;
                 let max_top = resize.start_bottom_px - min_h;
                 top = desired_top.min(max_top);
             }
             ResizeHandle::Bottom | ResizeHandle::BottomLeft | ResizeHandle::BottomRight => {
-                let desired_bottom = active_sy - resize.press_off_bottom_px;
+                let desired_bottom = effective_sy - resize.press_off_bottom_px;
                 let min_bottom = resize.start_top_px + min_h;
                 bottom = desired_bottom.max(min_bottom);
             }
@@ -285,8 +316,8 @@ pub(crate) fn handle_pointer_motion_absolute(
 
     if ps.panning {
         let (lsx, lsy) = ps.pan_last_screen;
-        let dx_px = active_sx - lsx;
-        let dy_px = active_sy - lsy;
+        let dx_px = effective_sx - lsx;
+        let dy_px = effective_sy - lsy;
         let camera = st.camera_view_size();
         let dx_world = dx_px * camera.x.max(1.0) / (ws_w as f32).max(1.0);
         let dy_world = -dy_px * camera.y.max(1.0) / (ws_h as f32).max(1.0);
@@ -297,7 +328,7 @@ pub(crate) fn handle_pointer_motion_absolute(
             y: -dy_world,
         });
         st.note_pan_viewport_change(now);
-        ps.pan_last_screen = (active_sx, active_sy);
+        ps.pan_last_screen = (effective_sx, effective_sy);
         backend.request_redraw();
     }
 
