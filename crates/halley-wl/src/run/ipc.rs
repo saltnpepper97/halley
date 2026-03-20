@@ -10,7 +10,7 @@ use once_cell::sync::OnceCell;
 
 use eventline::{error, info, warn};
 use halley_ipc::{
-    DockingCommand, IpcError, NodeMoveDirection, OutputInfo, OutputsResponse, Request, Response,
+    DpmsCommand, IpcError, NodeMoveDirection, OutputInfo, OutputsResponse, Request, Response,
     TrailDirection, decode_request, encode_response, read_frame, write_frame,
 };
 
@@ -18,9 +18,9 @@ use halley_ipc::{
 pub enum RuntimeIpcCommand {
     Quit,
     Reload,
-    Docking(DockingCommand),
     NodeMove(NodeMoveDirection),
     Trail(TrailDirection),
+    Dpms(DpmsCommand),
 }
 
 static IPC_COMMAND_RX: OnceCell<Mutex<mpsc::Receiver<RuntimeIpcCommand>>> = OnceCell::new();
@@ -145,10 +145,6 @@ fn handle_request(
             Ok(()) => Response::Reloaded,
             Err(err) => Response::Error(IpcError::Internal(err.to_string())),
         },
-        Request::Docking(command) => match command_tx.send(RuntimeIpcCommand::Docking(command)) {
-            Ok(()) => Response::Ok,
-            Err(err) => Response::Error(IpcError::Internal(err.to_string())),
-        },
         Request::NodeMove(direction) => {
             match command_tx.send(RuntimeIpcCommand::NodeMove(direction)) {
                 Ok(()) => Response::Ok,
@@ -156,6 +152,10 @@ fn handle_request(
             }
         }
         Request::Trail(direction) => match command_tx.send(RuntimeIpcCommand::Trail(direction)) {
+            Ok(()) => Response::Ok,
+            Err(err) => Response::Error(IpcError::Internal(err.to_string())),
+        },
+        Request::Dpms(command) => match command_tx.send(RuntimeIpcCommand::Dpms(command)) {
             Ok(()) => Response::Ok,
             Err(err) => Response::Error(IpcError::Internal(err.to_string())),
         },

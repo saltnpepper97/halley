@@ -536,18 +536,15 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         }
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                     }
-                    RuntimeIpcCommand::Docking(command) => {
-                        let _ = crate::interaction::actions::set_docking_mode(
-                            st,
-                            matches!(command, halley_ipc::DockingCommand::Begin),
-                        );
-                    }
                     RuntimeIpcCommand::NodeMove(direction) => {
                         let _ =
                             crate::interaction::actions::move_latest_node_direction(st, direction);
                     }
                     RuntimeIpcCommand::Trail(direction) => {
                         let _ = crate::interaction::actions::step_window_trail(st, direction);
+                    }
+                    RuntimeIpcCommand::Dpms(command) => {
+                        warn!("ipc: ignoring tty-only dpms command on winit backend: {:?}", command);
                     }
                 });
 

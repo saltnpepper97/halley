@@ -8,7 +8,6 @@ use smithay::input::pointer::{ButtonEvent, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::interaction::actions::docking_mode_active;
 use crate::interaction::actions::promote_node_level;
 use crate::interaction::types::{
     DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState, ResizeCtx, TitleClickCtx,
@@ -168,13 +167,13 @@ fn begin_drag(
     }
     ps.drag = Some(drag_ctx);
     let _ = st.field.set_pinned(hit.node_id, false);
-    st.begin_carry_state_tracking(hit.node_id, docking_mode_active(st));
+    st.begin_carry_state_tracking(hit.node_id);
     st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
     let to = halley_core::field::Vec2 {
         x: world_now.x - drag_ctx.current_offset.x,
         y: world_now.y - drag_ctx.current_offset.y,
     };
-    let _ = st.carry_surface_non_overlap(hit.node_id, to, docking_mode_active(st));
+    let _ = st.carry_surface_non_overlap(hit.node_id, to, false);
     backend.request_redraw();
 }
 

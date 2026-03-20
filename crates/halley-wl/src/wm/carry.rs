@@ -110,7 +110,7 @@ impl HalleyWlState {
         if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {}
     }
 
-    pub fn begin_carry_state_tracking(&mut self, id: NodeId, _docking_mode: bool) {
+    pub fn begin_carry_state_tracking(&mut self, id: NodeId) {
         self.clear_direct_carry_nodes();
         self.mark_direct_carry_node(id);
         if self.resize_static_node == Some(id) {

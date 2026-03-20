@@ -17,6 +17,96 @@ use smithay::backend::input::{
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 
+fn publish_tty_outputs_snapshot(
+    dev: &DrmDevice,
+    active_connector_name: &str,
+    active_mode: drm_control::Mode,
+    dpms_enabled: bool,
+) {
+    let mut outputs = collect_outputs_for_ipc(dev, active_connector_name, active_mode);
+    if !dpms_enabled {
+        for output in &mut outputs {
+            if output.name == active_connector_name {
+                output.enabled = false;
+                output.current_mode = None;
+                for mode in &mut output.modes {
+                    mode.current = false;
+                }
+            }
+        }
+    }
+    publish_outputs(outputs);
+}
+
+fn apply_tty_dpms_command(
+    gbm_surface: &Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
+    dev: &Rc<RefCell<DrmDevice>>,
+    current_connector_name: &Rc<RefCell<String>>,
+    current_mode: &Rc<RefCell<drm_control::Mode>>,
+    dpms_enabled: &Rc<RefCell<bool>>,
+    command: halley_ipc::DpmsCommand,
+) {
+    let target_enabled = match command {
+        halley_ipc::DpmsCommand::On => true,
+        halley_ipc::DpmsCommand::Off => false,
+        halley_ipc::DpmsCommand::Toggle => !*dpms_enabled.borrow(),
+    };
+
+    if target_enabled == *dpms_enabled.borrow() {
+        return;
+    }
+
+    if !target_enabled {
+        let result = gbm_surface.borrow().surface().clear();
+        match result {
+            Ok(()) => {
+                *dpms_enabled.borrow_mut() = false;
+                info!(
+                    "tty dpms: powered off connector {}",
+                    current_connector_name.borrow().as_str()
+                );
+            }
+            Err(err) => {
+                warn!("tty dpms off failed: {}", err);
+                return;
+            }
+        }
+    } else {
+        *dpms_enabled.borrow_mut() = true;
+        info!(
+            "tty dpms: powering on connector {}",
+            current_connector_name.borrow().as_str()
+        );
+    }
+
+    publish_tty_outputs_snapshot(
+        &dev.borrow(),
+        current_connector_name.borrow().as_str(),
+        *current_mode.borrow(),
+        *dpms_enabled.borrow(),
+    );
+}
+
+fn wake_tty_dpms_on_input(
+    gbm_surface: &Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
+    dev: &Rc<RefCell<DrmDevice>>,
+    current_connector_name: &Rc<RefCell<String>>,
+    current_mode: &Rc<RefCell<drm_control::Mode>>,
+    dpms_enabled: &Rc<RefCell<bool>>,
+) {
+    if *dpms_enabled.borrow() {
+        return;
+    }
+    apply_tty_dpms_command(
+        gbm_surface,
+        dev,
+        current_connector_name,
+        current_mode,
+        dpms_enabled,
+        halley_ipc::DpmsCommand::On,
+    );
+}
+
 fn apply_tty_reload(
     dev: &Rc<RefCell<DrmDevice>>,
     gbm_surface: &Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
@@ -30,6 +120,7 @@ fn apply_tty_reload(
     current_connector_name: &Rc<RefCell<String>>,
     current_mode: &Rc<RefCell<drm_control::Mode>>,
     current_crtc: drm_control::crtc::Handle,
+    dpms_enabled: bool,
 ) {
     let (target_crtc, target_mode, _target_connector, target_connector_name) = {
         let mut dev_ref = dev.borrow_mut();
@@ -95,15 +186,12 @@ fn apply_tty_reload(
     st.apply_tuning(next);
     crate::run::restore_live_camera_state(st, live_camera);
     st.advertise_primary_output(current_connector_name.borrow().as_str(), target_mode.into());
-    let outputs = {
-        let dev_ref = dev.borrow();
-        collect_outputs_for_ipc(
-            &dev_ref,
-            current_connector_name.borrow().as_str(),
-            target_mode,
-        )
-    };
-    publish_outputs(outputs);
+    publish_tty_outputs_snapshot(
+        &dev.borrow(),
+        current_connector_name.borrow().as_str(),
+        target_mode,
+        dpms_enabled,
+    );
     let reload_commands = st.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     info!(
@@ -352,21 +440,28 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let dev = Rc::new(RefCell::new(drm_probe.dev));
             let current_connector_name = Rc::new(RefCell::new(drm_probe.connector_name.clone()));
             let current_mode = Rc::new(RefCell::new(drm_probe.mode));
-            let initial_outputs = collect_outputs_for_ipc(
+            let dpms_enabled = Rc::new(RefCell::new(true));
+            publish_tty_outputs_snapshot(
                 &dev.borrow(),
                 current_connector_name.borrow().as_str(),
                 *current_mode.borrow(),
+                true,
             );
-            publish_outputs(initial_outputs);
 
             let drm_crtc = drm_probe.crtc;
             let gbm_surface_for_vblank = drm_probe.gbm_surface.clone();
             let warned_vblank_mismatch = Rc::new(RefCell::new(false));
             let warned_vblank_mismatch_for_notifier = warned_vblank_mismatch.clone();
             let dev_for_timer = dev.clone();
+            let dev_for_input = dev.clone();
             let current_connector_name_for_timer = current_connector_name.clone();
+            let current_connector_name_for_input = current_connector_name.clone();
             let current_mode_for_timer = current_mode.clone();
+            let current_mode_for_input = current_mode.clone();
+            let dpms_enabled_for_timer = dpms_enabled.clone();
+            let dpms_enabled_for_input = dpms_enabled.clone();
             let backend_handle_for_timer = backend_handle.clone();
+            let gbm_surface_for_input = drm_probe.gbm_surface.clone();
             ev.handle().insert_source(
                 drm_probe.notifier,
                 move |event, _metadata, _st| match event {
@@ -411,6 +506,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             ev.handle()
                 .insert_source(libinput_backend, move |event, _, st| match event {
                     InputEvent::Keyboard { event } => {
+                        wake_tty_dpms_on_input(
+                            &gbm_surface_for_input,
+                            &dev_for_input,
+                            &current_connector_name_for_input,
+                            &current_mode_for_input,
+                            &dpms_enabled_for_input,
+                        );
                         if !*keyboard_seen_for_input.borrow() {
                             info!("tty input: first keyboard event received");
                             *keyboard_seen_for_input.borrow_mut() = true;
@@ -431,6 +533,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerMotionAbsolute { event } => {
+                        wake_tty_dpms_on_input(
+                            &gbm_surface_for_input,
+                            &dev_for_input,
+                            &current_connector_name_for_input,
+                            &current_mode_for_input,
+                            &dpms_enabled_for_input,
+                        );
                         if !*pointer_seen_for_input.borrow() {
                             info!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
@@ -460,6 +569,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerMotion { event } => {
+                        wake_tty_dpms_on_input(
+                            &gbm_surface_for_input,
+                            &dev_for_input,
+                            &current_connector_name_for_input,
+                            &current_mode_for_input,
+                            &dpms_enabled_for_input,
+                        );
                         if !*pointer_seen_for_input.borrow() {
                             info!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
@@ -492,6 +608,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerButton { event } => {
+                        wake_tty_dpms_on_input(
+                            &gbm_surface_for_input,
+                            &dev_for_input,
+                            &current_connector_name_for_input,
+                            &current_mode_for_input,
+                            &dpms_enabled_for_input,
+                        );
                         if !*pointer_seen_for_input.borrow() {
                             info!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
@@ -517,6 +640,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerAxis { event } => {
+                        wake_tty_dpms_on_input(
+                            &gbm_surface_for_input,
+                            &dev_for_input,
+                            &current_connector_name_for_input,
+                            &current_mode_for_input,
+                            &dpms_enabled_for_input,
+                        );
                         if !*pointer_seen_for_input.borrow() {
                             info!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
@@ -584,6 +714,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     &current_connector_name_for_timer,
                                     &current_mode_for_timer,
                                     drm_crtc,
+                                    *dpms_enabled_for_timer.borrow(),
                                 );
                             } else {
                                 let next = crate::run::preserve_viewport_section(&st.tuning, next);
@@ -603,18 +734,22 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         }
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                     }
-                    RuntimeIpcCommand::Docking(command) => {
-                        let _ = crate::interaction::actions::set_docking_mode(
-                            st,
-                            matches!(command, halley_ipc::DockingCommand::Begin),
-                        );
-                    }
                     RuntimeIpcCommand::NodeMove(direction) => {
                         let _ =
                             crate::interaction::actions::move_latest_node_direction(st, direction);
                     }
                     RuntimeIpcCommand::Trail(direction) => {
                         let _ = crate::interaction::actions::step_window_trail(st, direction);
+                    }
+                    RuntimeIpcCommand::Dpms(command) => {
+                        apply_tty_dpms_command(
+                            &gbm_surface_for_timer,
+                            &dev_for_timer,
+                            &current_connector_name_for_timer,
+                            &current_mode_for_timer,
+                            &dpms_enabled_for_timer,
+                            command,
+                        );
                     }
                 });
 
@@ -670,15 +805,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 next,
                                 config_path_for_timer.as_str(),
                                 wayland_display_for_timer.as_str(),
-                                "watch",
-                                &current_connector_name_for_timer,
-                                &current_mode_for_timer,
-                                drm_crtc,
-                            );
-                        } else {
-                            let next = crate::run::preserve_viewport_section(&st.tuning, next);
-                            crate::run::apply_reloaded_tuning(
-                                st,
+                                    "watch",
+                                    &current_connector_name_for_timer,
+                                    &current_mode_for_timer,
+                                    drm_crtc,
+                                    *dpms_enabled_for_timer.borrow(),
+                                );
+                            } else {
+                                let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                                crate::run::apply_reloaded_tuning(
+                                    st,
                                 next,
                                 config_path_for_timer.as_str(),
                                 wayland_display_for_timer.as_str(),
@@ -703,20 +839,22 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 let cursor_screen = Some(ps.screen);
                 drop(ps);
 
-                let cursor_image = st.cursor_image_status.clone();
-                if let Err(err) = queue_tty_drm_frame(
-                    &gbm_surface_for_timer,
-                    &renderer_for_timer,
-                    st,
-                    resize_preview,
-                    hover_node,
-                    preview_hover_node,
-                    cursor_screen,
-                    Some(&cursor_image),
-                ) {
-                    warn!("tty drm frame queue skipped: {}", err);
-                } else {
-                    st.send_frame_callbacks(now);
+                if *dpms_enabled_for_timer.borrow() {
+                    let cursor_image = st.cursor_image_status.clone();
+                    if let Err(err) = queue_tty_drm_frame(
+                        &gbm_surface_for_timer,
+                        &renderer_for_timer,
+                        st,
+                        resize_preview,
+                        hover_node,
+                        preview_hover_node,
+                        cursor_screen,
+                        Some(&cursor_image),
+                    ) {
+                        warn!("tty drm frame queue skipped: {}", err);
+                    } else {
+                        st.send_frame_callbacks(now);
+                    }
                 }
 
                 let secs = now.duration_since(input_started_at).as_secs();

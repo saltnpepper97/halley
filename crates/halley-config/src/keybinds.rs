@@ -43,7 +43,6 @@ pub enum CompositorBindingAction {
     ToggleState,
     CloseFocusedWindow,
     Quit { requires_shift: bool },
-    Docking,
     MoveNode(DirectionalAction),
     TrailPrev,
     TrailNext,

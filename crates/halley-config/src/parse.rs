@@ -865,9 +865,6 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
                 },
             );
         }
-        "docking" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::Docking);
-        }
         "move_left" | "move-left" => {
             upsert_compositor_binding(
                 out,
@@ -1025,21 +1022,12 @@ mod tests {
     }
 
     #[test]
-    fn explicit_docking_and_move_actions_become_compositor_bindings() {
+    fn explicit_move_actions_become_compositor_bindings() {
         let mut tuning = RuntimeTuning::default();
-        let bindings = HashMap::from([
-            ("$mod+x".to_string(), "docking".to_string()),
-            ("shift+h".to_string(), "move-left".to_string()),
-        ]);
+        let bindings = HashMap::from([("shift+h".to_string(), "move-left".to_string())]);
 
         apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
 
-        assert!(
-            tuning
-                .compositor_bindings
-                .iter()
-                .any(|binding| binding.action == CompositorBindingAction::Docking)
-        );
         assert!(tuning.compositor_bindings.iter().any(|binding| {
             binding.action == CompositorBindingAction::MoveNode(DirectionalAction::Left)
         }));

@@ -49,21 +49,6 @@ pub(crate) fn latest_surface_node(st: &HalleyWlState) -> Option<halley_core::fie
     })
 }
 
-pub(crate) fn set_docking_mode(st: &mut HalleyWlState, active: bool) -> bool {
-    if active {
-        st.docking_hold_count = st.docking_hold_count.saturating_add(1);
-        return true;
-    }
-
-    let was_active = st.docking_hold_count > 0;
-    st.docking_hold_count = st.docking_hold_count.saturating_sub(1);
-    was_active
-}
-
-pub(crate) fn docking_mode_active(st: &HalleyWlState) -> bool {
-    st.docking_hold_count > 0
-}
-
 pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) -> bool {
     let Some(id) = latest_surface_node(st) else {
         return false;
@@ -76,7 +61,7 @@ pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) -> bool
         y: n.pos.y + dy,
     };
     let _ = st.field.set_pinned(id, false);
-    st.begin_carry_state_tracking(id, false);
+    st.begin_carry_state_tracking(id);
     if st.carry_surface_non_overlap(id, to, false) {
         st.update_carry_state_preview(id, Instant::now());
         st.end_carry_state_tracking(id);

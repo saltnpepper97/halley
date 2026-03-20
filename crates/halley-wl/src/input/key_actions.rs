@@ -6,8 +6,7 @@ use eventline::{info, warn};
 
 use super::input_utils::{key_matches, modifier_exact};
 use crate::interaction::actions::{
-    docking_mode_active, move_latest_node_direction, set_docking_mode,
-    toggle_focused_active_node_state,
+    move_latest_node_direction, toggle_focused_active_node_state,
 };
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
@@ -89,7 +88,6 @@ pub(crate) fn apply_compositor_action_press(
         }
         CompositorBindingAction::ToggleState => toggle_focused_active_node_state(st),
         CompositorBindingAction::CloseFocusedWindow => request_close_focused_toplevel(st),
-        CompositorBindingAction::Docking => set_docking_mode(st, true),
         CompositorBindingAction::MoveNode(direction) => {
             move_latest_node_direction(st, from_directional_action(direction))
         }
@@ -115,20 +113,10 @@ pub(crate) fn apply_compositor_action_press(
 }
 
 pub(crate) fn apply_compositor_action_release(
-    st: &mut HalleyWlState,
-    action: CompositorBindingAction,
+    _st: &mut HalleyWlState,
+    _action: CompositorBindingAction,
 ) -> bool {
-    match action {
-        CompositorBindingAction::Docking if docking_mode_active(st) => {
-            set_docking_mode(st, false);
-            true
-        }
-        CompositorBindingAction::Docking => {
-            set_docking_mode(st, false);
-            false
-        }
-        _ => false,
-    }
+    false
 }
 
 pub(crate) fn apply_bound_key(
@@ -141,7 +129,6 @@ pub(crate) fn apply_bound_key(
     if let Some(action) = compositor_binding_action(st, key_code, mods) {
         return match action {
             CompositorBindingAction::MoveNode(_)
-            | CompositorBindingAction::Docking
             | CompositorBindingAction::Reload
             | CompositorBindingAction::ToggleState
             | CompositorBindingAction::CloseFocusedWindow
