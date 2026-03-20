@@ -36,6 +36,12 @@ impl HalleyWlState {
         self.interaction_focus = None;
         self.interaction_focus_until_ms = 0;
         self.layer_keyboard_focus = Some(surface.id());
+        if self
+            .active_locked_pointer_surface()
+            .is_some_and(|locked_surface| locked_surface.id() != surface.id())
+        {
+            self.release_active_pointer_constraint();
+        }
 
         if let Some(keyboard) = self.seat.get_keyboard() {
             keyboard.set_focus(self, Some(surface.clone()), SERIAL_COUNTER.next_serial());

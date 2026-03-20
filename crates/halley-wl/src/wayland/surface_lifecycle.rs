@@ -239,6 +239,16 @@ impl HalleyWlState {
         if let Some(output) = &self.primary_output {
             output.leave(surface);
         }
+        let pointer_focused_surface = self
+            .seat
+            .get_pointer()
+            .and_then(|pointer| pointer.current_focus());
+        if pointer_focused_surface
+            .as_ref()
+            .is_some_and(|focused| focused.id() == surface.id())
+        {
+            self.clear_pointer_focus();
+        }
         let key = Self::surface_key(surface);
         self.surface_activity.remove(&key);
         if let Some(id) = self.surface_to_node.remove(&key) {

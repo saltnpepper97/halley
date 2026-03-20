@@ -22,10 +22,10 @@ use smithay::backend::input::ButtonState;
 
 use super::input_utils::modifier_active;
 use super::key_actions::{
-    apply_bound_key, apply_compositor_action_press, compositor_binding_action,
+    apply_bound_pointer_input, apply_compositor_action_press,
+    compositor_binding_action_active,
 };
 use super::pointer_focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
-use super::pointer_map_debug_enabled;
 use super::resize_helpers::{active_node_screen_rect, pick_resize_handle_from_screen};
 
 #[inline]
@@ -598,13 +598,13 @@ pub(crate) fn handle_pointer_button_input(
     let mods = mod_state.borrow().clone();
     let intercepted_binding = match button_state {
         ButtonState::Pressed => {
-            if let Some(action) = compositor_binding_action(st, button_code, &mods) {
+            if let Some(action) = compositor_binding_action_active(st, button_code, &mods) {
                 ps.intercepted_binding_buttons.insert(button_code);
                 ps.panning = false;
                 let _ = apply_compositor_action_press(st, action, config_path, wayland_display);
                 backend.request_redraw();
                 true
-            } else if apply_bound_key(st, button_code, &mods, config_path, wayland_display) {
+            } else if apply_bound_pointer_input(st, button_code, &mods, config_path, wayland_display) {
                 ps.intercepted_binding_buttons.insert(button_code);
                 ps.panning = false;
                 backend.request_redraw();
@@ -643,19 +643,6 @@ pub(crate) fn handle_pointer_button_input(
                 return;
             }
             let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, Instant::now(), ps.resize);
-            if pointer_map_debug_enabled() {
-                info!(
-                    "ptr-map button-press code=0x{:x} ws={}x{} screen=({:.2},{:.2}) world=({:.2},{:.2}) hit={:?}",
-                    button_code,
-                    ws_w,
-                    ws_h,
-                    sx,
-                    sy,
-                    world_now.x,
-                    world_now.y,
-                    hit.map(|h| (h.node_id.as_u64(), h.on_titlebar, h.is_core))
-                );
-            }
             if left {
                 handle_left_press(
                     st,
@@ -689,21 +676,6 @@ pub(crate) fn handle_pointer_button_input(
         ButtonState::Released => {
             if intercepted_binding {
                 return;
-            }
-            if pointer_map_debug_enabled() {
-                info!(
-                    "ptr-map button-release code=0x{:x} ws={}x{} screen=({:.2},{:.2}) world=({:.2},{:.2}) drag={} resize={} panning={}",
-                    button_code,
-                    ws_w,
-                    ws_h,
-                    sx,
-                    sy,
-                    world_now.x,
-                    world_now.y,
-                    ps.drag.is_some(),
-                    ps.resize.is_some(),
-                    ps.panning
-                );
             }
             handle_button_release(st, &mut ps, backend, button_code, matched_action, world_now);
         }

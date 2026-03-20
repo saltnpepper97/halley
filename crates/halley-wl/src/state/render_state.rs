@@ -7,6 +7,14 @@ use smithay::wayland::compositor::{
 use super::*;
 
 impl HalleyWlState {
+    pub(crate) fn take_input_state_reset_request(&mut self) -> bool {
+        std::mem::take(&mut self.reset_input_state_requested)
+    }
+
+    pub(crate) fn take_pointer_screen_hint_request(&mut self) -> Option<(f32, f32)> {
+        self.pending_pointer_screen_hint.take()
+    }
+
     pub fn begin_render_frame(&mut self, now: Instant) {
         self.render_last_tick = now;
         self.popup_manager.cleanup();

@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use eventline::info;
 use smithay::input::keyboard::FilterResult;
 use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
@@ -12,13 +11,13 @@ use crate::state::HalleyWlState;
 
 use super::input_utils::update_mod_state;
 use super::key_actions::{
-    apply_bound_key, apply_compositor_action_press, apply_compositor_action_release,
-    compositor_binding_action, key_is_compositor_binding,
+    apply_bound_key, apply_bound_pointer_input, apply_compositor_action_press,
+    apply_compositor_action_release, compositor_binding_action,
+    compositor_binding_action_active, key_is_compositor_binding,
 };
 use super::pointer_focus::pointer_focus_for_screen;
-use super::pointer_map_debug_enabled;
 use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};
-use smithay::backend::input::{Axis, AxisSource, ButtonState, KeyState};
+use smithay::backend::input::{Axis, AxisRelativeDirection, AxisSource, ButtonState, KeyState};
 
 #[inline]
 fn now_millis_u32() -> u32 {
@@ -75,8 +74,13 @@ pub(crate) enum BackendInputEventData {
         state: ButtonState,
     },
     PointerAxis {
+        source: AxisSource,
+        amount_v120_horizontal: Option<f64>,
         amount_v120_vertical: Option<f64>,
+        amount_horizontal: Option<f64>,
         amount_vertical: Option<f64>,
+        relative_direction_horizontal: AxisRelativeDirection,
+        relative_direction_vertical: AxisRelativeDirection,
     },
 }
 
@@ -191,8 +195,13 @@ pub(crate) fn handle_pointer_axis_input(
     backend: &impl BackendView,
     config_path: &str,
     wayland_display: &str,
+    source: AxisSource,
+    amount_v120_horizontal: Option<f64>,
     amount_v120_vertical: Option<f64>,
+    amount_horizontal: Option<f64>,
     amount_vertical: Option<f64>,
+    relative_direction_horizontal: AxisRelativeDirection,
+    relative_direction_vertical: AxisRelativeDirection,
 ) {
     if st.has_active_cluster_workspace() {
         return;
@@ -205,30 +214,26 @@ pub(crate) fn handle_pointer_axis_input(
             steps = px / 40.0;
         }
     }
-    if steps.abs() < f32::EPSILON {
-        return;
-    }
-
-    let steps = steps.clamp(-4.0, 4.0);
-    let mods = mod_state.borrow().clone();
-    let wheel_code = if steps > 0.0 {
-        WHEEL_UP_CODE
-    } else {
-        WHEEL_DOWN_CODE
-    };
-
-    if let Some(action) = compositor_binding_action(st, wheel_code, &mods) {
-        pointer_state.borrow_mut().panning = false;
-        if apply_compositor_action_press(st, action, config_path, wayland_display) {
-            backend.request_redraw();
+    if steps.abs() >= f32::EPSILON {
+        let steps = steps.clamp(-4.0, 4.0);
+        let mods = mod_state.borrow().clone();
+        let wheel_code = if steps > 0.0 {
+            WHEEL_UP_CODE
+        } else {
+            WHEEL_DOWN_CODE
+        };
+        if let Some(action) = compositor_binding_action_active(st, wheel_code, &mods) {
+            pointer_state.borrow_mut().panning = false;
+            if apply_compositor_action_press(st, action, config_path, wayland_display) {
+                backend.request_redraw();
+            }
+            return;
         }
-        return;
-    }
-
-    if apply_bound_key(st, wheel_code, &mods, config_path, wayland_display) {
-        pointer_state.borrow_mut().panning = false;
-        backend.request_redraw();
-        return;
+        if apply_bound_pointer_input(st, wheel_code, &mods, config_path, wayland_display) {
+            pointer_state.borrow_mut().panning = false;
+            backend.request_redraw();
+            return;
+        }
     }
 
     let (sx, sy, ws_w, ws_h) = {
@@ -242,17 +247,13 @@ pub(crate) fn handle_pointer_axis_input(
     }
     let world_now = screen_to_world(st, ws_w, ws_h, sx, sy);
     pointer_state.borrow_mut().world = world_now;
-    if pointer_map_debug_enabled() {
-        info!(
-            "ptr-map axis ws={}x{} screen=({:.2},{:.2}) world=({:.2},{:.2}) v120={:?} px={:?}",
-            ws_w, ws_h, sx, sy, world_now.x, world_now.y, amount_v120_vertical, amount_vertical
-        );
-    }
-
     let now = Instant::now();
     let resize_preview = pointer_state.borrow().resize;
-    if let Some(focus) = pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview) {
-        if let Some(pointer) = st.seat.get_pointer() {
+    if let Some(pointer) = st.seat.get_pointer() {
+        if pointer.current_focus().is_none()
+            && let Some(focus) =
+                pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)
+        {
             let location = if st.is_layer_surface(&focus.0) {
                 (sx as f64, sy as f64).into()
             } else {
@@ -268,13 +269,46 @@ pub(crate) fn handle_pointer_axis_input(
                     time: now_millis_u32(),
                 },
             );
-            let mut frame = AxisFrame::new(now_millis_u32()).source(AxisSource::Wheel);
+        }
+        if pointer.current_focus().is_some() {
+            let mut frame = AxisFrame::new(now_millis_u32())
+                .source(source)
+                .relative_direction(Axis::Horizontal, relative_direction_horizontal)
+                .relative_direction(Axis::Vertical, relative_direction_vertical);
+            if let Some(v120) = amount_v120_horizontal {
+                frame = frame.v120(Axis::Horizontal, v120.round() as i32);
+            }
             if let Some(v120) = amount_v120_vertical {
                 frame = frame.v120(Axis::Vertical, v120.round() as i32);
             }
-            let value = amount_vertical.or_else(|| amount_v120_vertical.map(|v| v / 8.0));
-            if let Some(v) = value {
+            let horizontal_value =
+                amount_horizontal.or_else(|| amount_v120_horizontal.map(|v| v / 8.0));
+            let vertical_value = amount_vertical.or_else(|| amount_v120_vertical.map(|v| v / 8.0));
+            if let Some(v) = horizontal_value {
+                frame = frame.value(Axis::Horizontal, v);
+            }
+            if let Some(v) = vertical_value {
                 frame = frame.value(Axis::Vertical, v);
+            }
+            if source == AxisSource::Finger {
+                let horizontal_stopped = amount_horizontal.unwrap_or(0.0).abs() < f64::EPSILON
+                    && amount_v120_horizontal.unwrap_or(0.0).abs() < f64::EPSILON;
+                let vertical_stopped = amount_vertical.unwrap_or(0.0).abs() < f64::EPSILON
+                    && amount_v120_vertical.unwrap_or(0.0).abs() < f64::EPSILON;
+                if horizontal_stopped {
+                    frame = frame.stop(Axis::Horizontal);
+                }
+                if vertical_stopped {
+                    frame = frame.stop(Axis::Vertical);
+                }
+            }
+            if horizontal_value.is_some()
+                || vertical_value.is_some()
+                || amount_v120_horizontal.is_some()
+                || amount_v120_vertical.is_some()
+                || frame.stop.0
+                || frame.stop.1
+            {
                 pointer.axis(st, frame);
                 pointer.frame(st);
             }
@@ -282,6 +316,11 @@ pub(crate) fn handle_pointer_axis_input(
         return;
     }
 
+    if steps.abs() < f32::EPSILON {
+        return;
+    }
+
+    let steps = steps.clamp(-4.0, 4.0);
     let camera = st.camera_view_size();
     let pan_y = camera.y * (steps / 18.0);
     {
@@ -353,8 +392,13 @@ pub(crate) fn handle_backend_input_event(
             );
         }
         BackendInputEventData::PointerAxis {
+            source,
+            amount_v120_horizontal,
             amount_v120_vertical,
+            amount_horizontal,
             amount_vertical,
+            relative_direction_horizontal,
+            relative_direction_vertical,
         } => {
             handle_pointer_axis_input(
                 st,
@@ -363,8 +407,13 @@ pub(crate) fn handle_backend_input_event(
                 backend,
                 config_path,
                 wayland_display,
+                source,
+                amount_v120_horizontal,
                 amount_v120_vertical,
+                amount_horizontal,
                 amount_vertical,
+                relative_direction_horizontal,
+                relative_direction_vertical,
             );
         }
     }

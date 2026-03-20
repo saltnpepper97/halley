@@ -38,8 +38,30 @@ impl HalleyWlState {
     }
 
     fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
+        if let Some(fullscreen_id) = self.fullscreen_active_node
+            && Some(fullscreen_id) != id
+        {
+            self.suspend_xdg_fullscreen(fullscreen_id, Instant::now());
+        }
+        if let Some(fid) = id
+            && self.fullscreen_suspended_node == Some(fid)
+        {
+            if let Some(entry) = self.fullscreen_restore.get(&fid).copied() {
+                self.viewport.center = entry.viewport_center;
+                self.camera_target_center = self.viewport.center;
+                self.tuning.viewport_center = self.viewport.center;
+                self.viewport_pan_anim = None;
+            }
+            self.enter_xdg_fullscreen(fid, None, Instant::now());
+        }
         self.layer_keyboard_focus = None;
         let focus_surface = id.and_then(|fid| self.wl_surface_for_node(fid));
+        if self
+            .active_locked_pointer_surface()
+            .is_some_and(|surface| Some(surface.id()) != focus_surface.as_ref().map(|wl| wl.id()))
+        {
+            self.release_active_pointer_constraint();
+        }
         if let Some(keyboard) = self.seat.get_keyboard() {
             keyboard.set_focus(self, focus_surface.clone(), SERIAL_COUNTER.next_serial());
         }

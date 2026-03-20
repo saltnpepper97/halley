@@ -33,8 +33,13 @@ impl HalleyWlState {
         self.suppress_trail_record_once = true;
         let moved = match node.state {
             halley_core::field::NodeState::Active => {
+                let restoring_suspended_fullscreen = self.fullscreen_suspended_node == Some(id);
                 self.set_interaction_focus(Some(id), 30_000, now);
-                self.animate_viewport_center_to(node.pos, now)
+                if restoring_suspended_fullscreen {
+                    true
+                } else {
+                    self.animate_viewport_center_to(node.pos, now)
+                }
             }
             halley_core::field::NodeState::Node => {
                 crate::interaction::actions::promote_node_level(self, id, now)

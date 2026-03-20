@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use eventline::info;
 use smithay::desktop::{PopupManager, WindowSurfaceType, utils::under_from_surface_tree};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};
@@ -9,7 +8,6 @@ use crate::interaction::types::ResizeCtx;
 use crate::spatial::pick_hit_node_at;
 use crate::state::HalleyWlState;
 
-use super::pointer_map_debug_enabled;
 use super::resize_helpers::active_node_surface_transform_screen_details;
 
 fn popup_focus_for_screen(
@@ -102,19 +100,6 @@ fn popup_focus_for_screen(
                 popup_sx as f64 / cam_scale_f + surface_loc.x as f64,
                 popup_sy as f64 / cam_scale_f + surface_loc.y as f64,
             ));
-
-            if pointer_map_debug_enabled() {
-                info!(
-                    "ptr-map focus-popup node={} popup_local=({:.2},{:.2}) surface_loc=({:.2},{:.2}) focus_origin=({:.2},{:.2})",
-                    node_id.as_u64(),
-                    popup_local.x,
-                    popup_local.y,
-                    surface_loc.x as f64,
-                    surface_loc.y as f64,
-                    focus_origin.x,
-                    focus_origin.y,
-                );
-            }
 
             return Some((surface, focus_origin));
         }
@@ -220,23 +205,6 @@ pub(crate) fn pointer_focus_for_screen(
         ((sy - xform.origin_y) / scale) as f64,
     ));
 
-    if pointer_map_debug_enabled() {
-        info!(
-            "ptr-map focus-hit node={} ws={}x{} screen=({:.2},{:.2}) \
-             xform origin=({:.2},{:.2}) scale={:.4} local=({:.2},{:.2})",
-            hit.node_id.as_u64(),
-            ws_w,
-            ws_h,
-            sx,
-            sy,
-            xform.origin_x,
-            xform.origin_y,
-            scale,
-            local.x,
-            local.y,
-        );
-    }
-
     for top in st.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface().clone();
         let key = wl.id();
@@ -270,18 +238,6 @@ pub(crate) fn pointer_focus_for_screen(
             xform.origin_y as f64 / cam_scale_f + surface_loc.y as f64,
         ));
 
-        if pointer_map_debug_enabled() {
-            info!(
-                "ptr-map focus-resolved node={} surface_loc=({:.2},{:.2}) \
-                 focus_origin=({:.2},{:.2})",
-                hit.node_id.as_u64(),
-                surface_loc.x as f64,
-                surface_loc.y as f64,
-                focus_origin.x,
-                focus_origin.y,
-            );
-        }
-
         return Some((surface, focus_origin));
     }
 
@@ -299,28 +255,8 @@ pub(crate) fn pointer_focus_for_screen(
                 xform.origin_y as f64 / cam_scale_f,
             ));
 
-            if pointer_map_debug_enabled() {
-                info!(
-                    "ptr-map focus-resize-fallback node={} focus_origin=({:.2},{:.2})",
-                    hit.node_id.as_u64(),
-                    focus_origin.x,
-                    focus_origin.y,
-                );
-            }
-
             return Some((wl, focus_origin));
         }
-    }
-
-    if pointer_map_debug_enabled() {
-        info!(
-            "ptr-map focus-miss node={} ws={}x{} screen=({:.2},{:.2})",
-            hit.node_id.as_u64(),
-            ws_w,
-            ws_h,
-            sx,
-            sy,
-        );
     }
     None
 }

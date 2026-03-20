@@ -4,10 +4,8 @@ use std::process::Command;
 
 use eventline::{info, warn};
 
-use super::input_utils::{key_matches, modifier_exact};
-use crate::interaction::actions::{
-    move_latest_node_direction, toggle_focused_active_node_state,
-};
+use super::input_utils::{key_matches, modifier_active, modifier_exact};
+use crate::interaction::actions::{move_latest_node_direction, toggle_focused_active_node_state};
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
 use crate::state::HalleyWlState;
@@ -40,6 +38,20 @@ pub(crate) fn compositor_binding_action(
 ) -> Option<CompositorBindingAction> {
     for binding in &st.tuning.compositor_bindings {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
+            return Some(binding.action);
+        }
+    }
+
+    None
+}
+
+pub(crate) fn compositor_binding_action_active(
+    st: &HalleyWlState,
+    key_code: u32,
+    mods: &ModState,
+) -> Option<CompositorBindingAction> {
+    for binding in &st.tuning.compositor_bindings {
+        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers) {
             return Some(binding.action);
         }
     }
@@ -147,6 +159,32 @@ pub(crate) fn apply_bound_key(
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             // FIX: store the child so it's tracked for cleanup on WM exit,
             // rather than dropping it immediately (which orphaned the process).
+            let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
+                Some(child) => {
+                    st.spawned_children.push(child);
+                    true
+                }
+                None => false,
+            };
+            return ok;
+        }
+    }
+    false
+}
+
+pub(crate) fn apply_bound_pointer_input(
+    st: &mut HalleyWlState,
+    key_code: u32,
+    mods: &ModState,
+    config_path: &str,
+    wayland_display: &str,
+) -> bool {
+    if let Some(action) = compositor_binding_action_active(st, key_code, mods) {
+        return apply_compositor_action_press(st, action, config_path, wayland_display);
+    }
+
+    for binding in st.tuning.launch_bindings.clone() {
+        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers) {
             let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
                 Some(child) => {
                     st.spawned_children.push(child);

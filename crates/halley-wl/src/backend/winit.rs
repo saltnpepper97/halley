@@ -253,6 +253,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mod_state = Rc::new(RefCell::new(ModState::default()));
             let mod_state_for_winit = mod_state.clone();
             let pointer_state = Rc::new(RefCell::new(PointerState::default()));
+            let mod_state_for_timer = mod_state.clone();
             {
                 let ws = backend.borrow().window_size();
                 let mut ps = pointer_state.borrow_mut();
@@ -456,10 +457,14 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 >::delta_y(&event),
                                 delta_x_unaccel: smithay::backend::input::PointerMotionEvent::<
                                     smithay::backend::winit::WinitInput,
-                                >::delta_x_unaccel(&event),
+                                >::delta_x_unaccel(
+                                    &event
+                                ),
                                 delta_y_unaccel: smithay::backend::input::PointerMotionEvent::<
                                     smithay::backend::winit::WinitInput,
-                                >::delta_y_unaccel(&event),
+                                >::delta_y_unaccel(
+                                    &event
+                                ),
                                 time_usec: smithay::backend::input::Event::<
                                     smithay::backend::winit::WinitInput,
                                 >::time(&event),
@@ -489,8 +494,15 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             config_path_for_winit.as_str(),
                             wayland_display_for_winit.as_str(),
                             BackendInputEventData::PointerAxis {
+                                source: event.source(),
+                                amount_v120_horizontal: event.amount_v120(Axis::Horizontal),
                                 amount_v120_vertical: event.amount_v120(Axis::Vertical),
+                                amount_horizontal: event.amount(Axis::Horizontal),
                                 amount_vertical: event.amount(Axis::Vertical),
+                                relative_direction_horizontal: event
+                                    .relative_direction(Axis::Horizontal),
+                                relative_direction_vertical: event
+                                    .relative_direction(Axis::Vertical),
                             },
                         );
                     }
@@ -506,7 +518,24 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             );
             let timer = Timer::from_duration(initial_frame_interval);
             ev.handle().insert_source(timer, move |_tick, _, st| {
+                if st.take_input_state_reset_request() {
+                    *mod_state_for_timer.borrow_mut() = ModState::default();
+                    let mut ps = pointer_state_for_timer.borrow_mut();
+                    ps.intercepted_buttons.clear();
+                    ps.intercepted_binding_buttons.clear();
+                    ps.intercepted_buttons.clear();
+                    ps.drag = None;
+                    ps.move_anim.clear();
+                    ps.panning = false;
+                }
+                if let Some((sx, sy)) = st.take_pointer_screen_hint_request() {
+                    let mut ps = pointer_state_for_timer.borrow_mut();
+                    let (ws_w, ws_h) = ps.workspace_size;
+                    ps.screen = (sx, sy);
+                    ps.world = crate::spatial::screen_to_world(st, ws_w.max(1), ws_h.max(1), sx, sy);
+                }
                 let now = Instant::now();
+                st.drain_drm_syncobj_blockers();
 
                 st.spawned_children.retain_mut(|child| {
                     match child.try_wait() {

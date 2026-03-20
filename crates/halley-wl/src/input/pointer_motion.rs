@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use eventline::info;
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
@@ -14,7 +13,6 @@ use crate::surface::request_toplevel_resize_mode;
 
 use super::input_utils::modifier_active;
 use super::pointer_focus::pointer_focus_for_screen;
-use super::pointer_map_debug_enabled;
 
 #[inline]
 fn now_millis_u32() -> u32 {
@@ -56,9 +54,7 @@ pub(crate) fn handle_pointer_motion_absolute(
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
     let now = Instant::now();
     let locked_surface = st.active_locked_pointer_surface();
-    let (effective_sx, effective_sy) = if locked_surface.is_some() {
-        pointer_state.borrow().screen
-    } else if allow_unbounded_screen {
+    let (effective_sx, effective_sy) = if allow_unbounded_screen {
         (raw_sx, raw_sy)
     } else {
         (sx, sy)
@@ -147,11 +143,7 @@ pub(crate) fn handle_pointer_motion_absolute(
                     next_drag.current_offset = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
                     next_drag.center_latched = true;
                     let centered = halley_core::field::Vec2 { x: p.x, y: p.y };
-                    let _ = st.carry_surface_non_overlap(
-                        drag.node_id,
-                        centered,
-                        false,
-                    );
+                    let _ = st.carry_surface_non_overlap(drag.node_id, centered, false);
                 }
                 ps.drag = Some(next_drag);
                 backend.request_redraw();
@@ -353,20 +345,4 @@ pub(crate) fn handle_pointer_motion_absolute(
     }
     ps.hover_node = next_hover;
 
-    if pointer_map_debug_enabled() {
-        info!(
-            "ptr-map motion ws={}x{} screen=({:.2},{:.2}) world=({:.2},{:.2}) hover={:?} drag={} resize={} panning={}",
-            ws_w,
-            ws_h,
-            sx,
-            sy,
-            p.x,
-            p.y,
-            ps.hover_node
-                .map(|id: halley_core::field::NodeId| id.as_u64()),
-            ps.drag.is_some(),
-            ps.resize.is_some(),
-            ps.panning
-        );
-    }
 }

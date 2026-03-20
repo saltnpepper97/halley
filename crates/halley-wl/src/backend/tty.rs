@@ -272,6 +272,12 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let dmabuf_importer: Rc<dyn DmabufImportBackend> =
                 Rc::new(TtyDmabufImportBackend::new(drm_probe.renderer.clone()));
             state.configure_dmabuf_importer_for_fd(dmabuf_importer, drm_probe.dev.device_fd());
+            if smithay::wayland::drm_syncobj::supports_syncobj_eventfd(drm_probe.dev.device_fd()) {
+                state.drm_syncobj_state =
+                    Some(smithay::wayland::drm_syncobj::DrmSyncobjState::new::<
+                        HalleyWlState,
+                    >(&dh, drm_probe.dev.device_fd().clone()));
+            }
             state.set_app_focused(true);
             state.seat.add_pointer();
             if state
@@ -349,7 +355,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
 
             let libinput_backend = libinput_backend;
-            let debug_input = crate::input::pointer_map_debug_enabled();
 
             let mut ev: EventLoop<HalleyWlState> = EventLoop::try_new()?;
             let _signal = ev.get_signal();
@@ -402,6 +407,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let mod_state = Rc::new(RefCell::new(ModState::default()));
             let mod_state_for_input = mod_state.clone();
             let pointer_state = Rc::new(RefCell::new(PointerState::default()));
+            let mod_state_for_timer = mod_state.clone();
             let pointer_state_for_input = pointer_state.clone();
             let pointer_state_for_timer = pointer_state.clone();
             let keyboard_seen = Rc::new(RefCell::new(false));
@@ -519,9 +525,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         }
                         let code: u32 = event.key_code().into();
                         let pressed = event.state() == KeyState::Pressed;
-                        if debug_input {
-                            info!("tty input keyboard code={} pressed={}", code, pressed);
-                        }
                         handle_backend_input_event(
                             st,
                             &mod_state_for_input,
@@ -547,17 +550,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let (ws_w, ws_h) = backend_handle.window_size_i32();
                         let sx = event.x_transformed(ws_w) as f32;
                         let sy = event.y_transformed(ws_h) as f32;
-                        if debug_input {
-                            info!(
-                                "ptr-map abs raw=({:.4},{:.4}) ws={}x{} -> screen=({:.2},{:.2})",
-                                event.x(),
-                                event.y(),
-                                ws_w,
-                                ws_h,
-                                sx,
-                                sy
-                            );
-                        }
                         handle_backend_input_event(
                             st,
                             &mod_state_for_input,
@@ -594,19 +586,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let (last_sx, last_sy) = pointer_state_for_input.borrow().screen;
                         let sx = last_sx + event.delta_x() as f32;
                         let sy = last_sy + event.delta_y() as f32;
-                        if debug_input {
-                            info!(
-                                "ptr-map rel delta=({:.3},{:.3}) last=({:.2},{:.2}) ws={}x{} -> screen=({:.2},{:.2})",
-                                event.delta_x(),
-                                event.delta_y(),
-                                last_sx,
-                                last_sy,
-                                ws_w,
-                                ws_h,
-                                sx,
-                                sy
-                            );
-                        }
                         handle_backend_input_event(
                             st,
                             &mod_state_for_input,
@@ -638,13 +617,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         if !*pointer_seen_for_input.borrow() {
                             info!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
-                        }
-                        if debug_input {
-                            info!(
-                                "tty input pointer-button code={} state={:?}",
-                                event.button_code(),
-                                event.state(),
-                            );
                         }
                         handle_backend_input_event(
                             st,
@@ -679,8 +651,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             config_path.as_str(),
                             sock_name.as_str(),
                             BackendInputEventData::PointerAxis {
+                                source: event.source(),
+                                amount_v120_horizontal: event.amount_v120(Axis::Horizontal),
                                 amount_v120_vertical: event.amount_v120(Axis::Vertical),
+                                amount_horizontal: event.amount(Axis::Horizontal),
                                 amount_vertical: event.amount(Axis::Vertical),
+                                relative_direction_horizontal: event
+                                    .relative_direction(Axis::Horizontal),
+                                relative_direction_vertical: event
+                                    .relative_direction(Axis::Vertical),
                             },
                         );
                     }
@@ -695,7 +674,24 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let renderer_for_timer = drm_probe.renderer.clone();
 
             ev.handle().insert_source(timer, move |_tick, _, st| {
+                if st.take_input_state_reset_request() {
+                    *mod_state_for_timer.borrow_mut() = ModState::default();
+                    let mut ps = pointer_state_for_timer.borrow_mut();
+                    ps.intercepted_buttons.clear();
+                    ps.intercepted_binding_buttons.clear();
+                    ps.intercepted_buttons.clear();
+                    ps.drag = None;
+                    ps.move_anim.clear();
+                    ps.panning = false;
+                }
+                if let Some((sx, sy)) = st.take_pointer_screen_hint_request() {
+                    let mut ps = pointer_state_for_timer.borrow_mut();
+                    let (ws_w, ws_h) = ps.workspace_size;
+                    ps.screen = (sx, sy);
+                    ps.world = crate::spatial::screen_to_world(st, ws_w.max(1), ws_h.max(1), sx, sy);
+                }
                 let now = Instant::now();
+                st.drain_drm_syncobj_blockers();
 
                 st.spawned_children.retain_mut(|child| {
                     match child.try_wait() {

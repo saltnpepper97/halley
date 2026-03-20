@@ -143,6 +143,67 @@ impl HalleyWlState {
         }
     }
 
+    fn exit_xdg_fullscreen_inner(&mut self, node_id: NodeId, now: Instant, suspend: bool) {
+        if self.fullscreen_active_node != Some(node_id) {
+            return;
+        }
+
+        self.reset_input_state_requested = true;
+        self.fullscreen_suspended_node = suspend.then_some(node_id);
+        let now_ms = self.now_ms(now);
+        let restore_entries: Vec<(NodeId, crate::state::FullscreenSessionEntry)> = self
+            .fullscreen_restore
+            .iter()
+            .map(|(&id, &entry)| (id, entry))
+            .collect();
+
+        for (id, entry) in &restore_entries {
+            let _ = self.field.set_pinned(*id, false);
+            let from = self.field.node(*id).map(|n| n.pos).unwrap_or(entry.pos);
+            self.restore_fullscreen_snapshot(*id, *entry);
+            self.queue_fullscreen_motion(*id, from, entry.pos, now_ms, Self::FULLSCREEN_EXIT_MS);
+        }
+
+        if let Some(entry) = self.fullscreen_restore.get(&node_id).copied() {
+            self.request_toplevel_fullscreen_state(
+                node_id,
+                false,
+                None,
+                Some((
+                    entry.size.x.round().max(96.0) as i32,
+                    entry.size.y.round().max(72.0) as i32,
+                )),
+            );
+        } else {
+            self.request_toplevel_fullscreen_state(node_id, false, None, None);
+        }
+
+        self.fullscreen_active_node = None;
+        self.fullscreen_scale_anim.remove(&node_id);
+        self.request_maintenance();
+    }
+
+    pub(crate) fn suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
+        self.exit_xdg_fullscreen_inner(node_id, now, true);
+    }
+
+    fn restore_fullscreen_snapshot(&mut self, id: NodeId, entry: crate::state::FullscreenSessionEntry) {
+        if let Some(node) = self.field.node_mut(id) {
+            node.intrinsic_size = entry.intrinsic_size;
+        }
+        if let Some(loc) = entry.bbox_loc {
+            self.bbox_loc.insert(id, loc);
+        } else {
+            self.bbox_loc.remove(&id);
+        }
+        if let Some(geo) = entry.window_geometry {
+            self.window_geometry.insert(id, geo);
+        } else {
+            self.window_geometry.remove(&id);
+        }
+        self.set_last_active_size_now(id, entry.intrinsic_size);
+    }
+
     pub(crate) fn enter_xdg_fullscreen(
         &mut self,
         node_id: NodeId,
@@ -152,6 +213,7 @@ impl HalleyWlState {
         if self.fullscreen_active_node == Some(node_id) {
             return;
         }
+        self.fullscreen_suspended_node = None;
         if let Some(active) = self.fullscreen_active_node {
             self.exit_xdg_fullscreen(active, now);
         }
@@ -173,6 +235,10 @@ impl HalleyWlState {
             crate::state::FullscreenSessionEntry {
                 pos: node.pos,
                 size: saved_size,
+                viewport_center,
+                intrinsic_size: node.intrinsic_size,
+                bbox_loc: self.bbox_loc.get(&node_id).copied(),
+                window_geometry: self.window_geometry.get(&node_id).copied(),
                 pinned: node.pinned,
             },
         );
@@ -215,6 +281,10 @@ impl HalleyWlState {
                     pos: other.pos,
                     size: crate::surface::current_surface_size_for_node(self, other_id)
                         .unwrap_or(other.intrinsic_size),
+                    viewport_center,
+                    intrinsic_size: other.intrinsic_size,
+                    bbox_loc: self.bbox_loc.get(&other_id).copied(),
+                    window_geometry: self.window_geometry.get(&other_id).copied(),
                     pinned: other.pinned,
                 },
             );
@@ -235,44 +305,16 @@ impl HalleyWlState {
     }
 
     pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        if self.fullscreen_active_node != Some(node_id) {
-            return;
-        }
-
-        let now_ms = self.now_ms(now);
-        let restore_entries: Vec<(NodeId, crate::state::FullscreenSessionEntry)> = self
-            .fullscreen_restore
-            .iter()
-            .map(|(&id, &entry)| (id, entry))
-            .collect();
-
-        for (id, entry) in &restore_entries {
-            let _ = self.field.set_pinned(*id, false);
-            let from = self.field.node(*id).map(|n| n.pos).unwrap_or(entry.pos);
-            self.queue_fullscreen_motion(*id, from, entry.pos, now_ms, Self::FULLSCREEN_EXIT_MS);
-        }
-
-        if let Some(entry) = self.fullscreen_restore.get(&node_id).copied() {
-            self.request_toplevel_fullscreen_state(
-                node_id,
-                false,
-                None,
-                Some((
-                    entry.size.x.round().max(96.0) as i32,
-                    entry.size.y.round().max(72.0) as i32,
-                )),
-            );
-        } else {
-            self.request_toplevel_fullscreen_state(node_id, false, None, None);
-        }
-
-        self.fullscreen_active_node = None;
-        self.fullscreen_scale_anim.remove(&node_id);
-        self.request_maintenance();
+        self.fullscreen_suspended_node = None;
+        self.exit_xdg_fullscreen_inner(node_id, now, false);
     }
 
     pub(crate) fn drop_fullscreen_surface(&mut self, id: NodeId, now: Instant) {
+        if self.fullscreen_suspended_node == Some(id) {
+            self.fullscreen_suspended_node = None;
+        }
         if self.fullscreen_active_node == Some(id) {
+            self.reset_input_state_requested = true;
             self.fullscreen_active_node = None;
             let restore_entries: Vec<(NodeId, crate::state::FullscreenSessionEntry)> = self
                 .fullscreen_restore
@@ -287,6 +329,7 @@ impl HalleyWlState {
                     .node(other_id)
                     .map(|n| n.pos)
                     .unwrap_or(entry.pos);
+                self.restore_fullscreen_snapshot(other_id, entry);
                 self.queue_fullscreen_motion(
                     other_id,
                     from,

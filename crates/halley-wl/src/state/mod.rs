@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::os::unix::io::AsFd;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use calloop::ping::Ping;
@@ -23,6 +24,7 @@ use smithay::{
     wayland::{
         compositor::CompositorState,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
+        drm_syncobj::DrmSyncobjState,
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsState,
         relative_pointer::RelativePointerManagerState,
@@ -156,6 +158,10 @@ pub(crate) enum NodeAppIconCacheEntry {
 pub(crate) struct FullscreenSessionEntry {
     pub pos: Vec2,
     pub size: Vec2,
+    pub viewport_center: Vec2,
+    pub intrinsic_size: Vec2,
+    pub bbox_loc: Option<(f32, f32)>,
+    pub window_geometry: Option<(f32, f32, f32, f32)>,
     pub pinned: bool,
 }
 
@@ -182,6 +188,7 @@ pub struct HalleyWlState {
     pub wlr_layer_shell_state: WlrLayerShellState,
     pub pointer_constraints_state: PointerConstraintsState,
     pub relative_pointer_manager_state: RelativePointerManagerState,
+    pub drm_syncobj_state: Option<DrmSyncobjState>,
     pub output_manager_state: OutputManagerState,
     pub shm_state: ShmState,
     pub dmabuf_state: DmabufState,
@@ -202,6 +209,8 @@ pub struct HalleyWlState {
     pub(crate) camera_target_view_size: Vec2,
     pub cursor_image_status: CursorImageStatus,
     pub(crate) dmabuf_importer: Option<Rc<dyn DmabufImportBackend>>,
+    pub(crate) reset_input_state_requested: bool,
+    pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
 
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
     pub surface_to_node: HashMap<ObjectId, NodeId>,
@@ -266,6 +275,7 @@ pub struct HalleyWlState {
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
     pub(crate) node_label_program: Option<GlesTexProgram>,
     pub(crate) fullscreen_active_node: Option<NodeId>,
+    pub(crate) fullscreen_suspended_node: Option<NodeId>,
     pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
     pub(crate) fullscreen_motion: HashMap<NodeId, FullscreenMotion>,
     pub(crate) fullscreen_scale_anim: HashMap<NodeId, FullscreenScaleAnim>,
@@ -282,6 +292,7 @@ pub struct HalleyWlState {
     pub(crate) last_debug_dump_at: Instant,
     pub(crate) maintenance_dirty: bool,
     pub(crate) maintenance_ping: Option<Ping>,
+    pub(crate) pending_drm_syncobj_surfaces: Arc<Mutex<Vec<ObjectId>>>,
 
     pub(crate) spawned_children: Vec<std::process::Child>,
 }
@@ -315,6 +326,7 @@ impl HalleyWlState {
             wlr_layer_shell_state: WlrLayerShellState::new::<HalleyWlState>(dh),
             pointer_constraints_state: PointerConstraintsState::new::<HalleyWlState>(dh),
             relative_pointer_manager_state: RelativePointerManagerState::new::<HalleyWlState>(dh),
+            drm_syncobj_state: None,
             output_manager_state: OutputManagerState::new_with_xdg_output::<HalleyWlState>(dh),
             shm_state: ShmState::new::<HalleyWlState>(dh, vec![]),
             dmabuf_state: DmabufState::new(),
@@ -334,6 +346,8 @@ impl HalleyWlState {
             camera_target_view_size: tuning.viewport_size,
             cursor_image_status: CursorImageStatus::default_named(),
             dmabuf_importer: None,
+            reset_input_state_requested: false,
+            pending_pointer_screen_hint: None,
             tuning,
 
             surface_activity: HashMap::new(),
@@ -394,6 +408,7 @@ impl HalleyWlState {
             node_squircle_program: None,
             node_label_program: None,
             fullscreen_active_node: None,
+            fullscreen_suspended_node: None,
             fullscreen_restore: HashMap::new(),
             fullscreen_motion: HashMap::new(),
             fullscreen_scale_anim: HashMap::new(),
@@ -410,6 +425,7 @@ impl HalleyWlState {
             last_debug_dump_at: now,
             maintenance_dirty: true,
             maintenance_ping: None,
+            pending_drm_syncobj_surfaces: Arc::new(Mutex::new(Vec::new())),
 
             spawned_children: Vec::new(),
         };
