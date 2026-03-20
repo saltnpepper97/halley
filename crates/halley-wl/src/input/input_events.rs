@@ -285,8 +285,7 @@ pub(crate) fn handle_pointer_axis_input(
         ps.panning = false;
     }
     st.note_pan_activity(now);
-    st.viewport
-        .pan(halley_core::field::Vec2 { x: 0.0, y: pan_y });
+    st.pan_camera_target(halley_core::field::Vec2 { x: 0.0, y: pan_y });
     st.note_pan_viewport_change(now);
     backend.request_redraw();
 }

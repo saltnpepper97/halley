@@ -101,6 +101,8 @@ impl HalleyWlState {
         if logical_viewport_changed {
             self.viewport = next_viewport;
             self.zoom_ref_size = tuning.viewport_size;
+            self.camera_target_center = self.viewport.center;
+            self.camera_target_view_size = self.zoom_ref_size;
             if prev_runtime_viewport.center != next_viewport.center
                 || prev_runtime_viewport.size != next_viewport.size
             {
@@ -116,6 +118,8 @@ impl HalleyWlState {
         if prev_physics_enabled && !tuning.physics_enabled {
             self.active_transition_until_ms.clear();
             self.smoothed_render_pos.clear();
+            self.camera_target_center = self.viewport.center;
+            self.camera_target_view_size = self.zoom_ref_size;
         }
 
         self.tuning = tuning;

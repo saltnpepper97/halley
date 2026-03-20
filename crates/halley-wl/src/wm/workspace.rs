@@ -51,6 +51,7 @@ impl HalleyWlState {
         if let Some(core) = self.field.node(core_id) {
             self.viewport.center = core.pos;
         }
+        self.snap_camera_targets_to_live();
         self.tuning.viewport_center = self.viewport.center;
         self.tuning.viewport_size = self.viewport.size;
 
@@ -104,6 +105,8 @@ impl HalleyWlState {
 
         if let Some(vp) = self.workspace_prev_viewport.take() {
             self.viewport = vp;
+            self.zoom_ref_size = self.viewport.size;
+            self.snap_camera_targets_to_live();
             self.tuning.viewport_center = self.viewport.center;
             self.tuning.viewport_size = self.viewport.size;
         }
@@ -117,6 +120,7 @@ impl HalleyWlState {
         };
         // Workspace mode stays fixed to the logical fullscreen view while active.
         self.zoom_ref_size = self.viewport.size;
+        self.camera_target_view_size = self.zoom_ref_size;
         self.tuning.viewport_size = self.viewport.size;
         let Some(cluster) = self.field.cluster(cid) else {
             self.active_cluster_workspace = None;

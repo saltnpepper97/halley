@@ -30,6 +30,8 @@ static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 pub(crate) struct LiveCameraState {
     viewport: halley_core::viewport::Viewport,
     zoom_ref_size: halley_core::field::Vec2,
+    camera_target_center: halley_core::field::Vec2,
+    camera_target_view_size: halley_core::field::Vec2,
     viewport_pan_anim: Option<crate::wm::ViewportPanAnim>,
 }
 
@@ -74,6 +76,8 @@ pub(crate) fn capture_live_camera_state(st: &mut HalleyWlState) -> LiveCameraSta
     LiveCameraState {
         viewport: st.viewport,
         zoom_ref_size: st.zoom_ref_size,
+        camera_target_center: st.camera_target_center,
+        camera_target_view_size: st.camera_target_view_size,
         viewport_pan_anim: st.viewport_pan_anim.take(),
     }
 }
@@ -81,6 +85,8 @@ pub(crate) fn capture_live_camera_state(st: &mut HalleyWlState) -> LiveCameraSta
 pub(crate) fn restore_live_camera_state(st: &mut HalleyWlState, state: LiveCameraState) {
     st.viewport = state.viewport;
     st.zoom_ref_size = state.zoom_ref_size;
+    st.camera_target_center = state.camera_target_center;
+    st.camera_target_view_size = state.camera_target_view_size;
     st.viewport_pan_anim = state.viewport_pan_anim;
     st.tuning.viewport_center = st.viewport.center;
     st.tuning.viewport_size = st.viewport.size;

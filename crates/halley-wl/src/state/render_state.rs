@@ -136,6 +136,7 @@ impl HalleyWlState {
         let now_ms = self.now_ms(now);
         self.tick_viewport_pan_animation(now_ms);
         self.tick_pending_spawn_pan(now, now_ms);
+        self.tick_camera_smoothing(now);
     }
 
     pub fn tick_live_overlap(&mut self) {

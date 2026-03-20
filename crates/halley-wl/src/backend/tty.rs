@@ -339,6 +339,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 x: mw.max(1) as f32,
                 y: mh.max(1) as f32,
             };
+            state.snap_camera_targets_to_live();
             state
                 .advertise_primary_output(drm_probe.connector_name.as_str(), drm_probe.mode.into());
             info!("tty logical backend size={}x{}", mw, mh);

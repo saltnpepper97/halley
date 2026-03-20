@@ -193,6 +193,8 @@ pub struct HalleyWlState {
     pub viewport: Viewport,
     pub tuning: RuntimeTuning,
     pub zoom_ref_size: Vec2,
+    pub(crate) camera_target_center: Vec2,
+    pub(crate) camera_target_view_size: Vec2,
     pub cursor_image_status: CursorImageStatus,
     pub(crate) dmabuf_importer: Option<Rc<dyn DmabufImportBackend>>,
 
@@ -320,6 +322,8 @@ impl HalleyWlState {
             field: Field::new(),
             viewport: tuning.viewport(),
             zoom_ref_size: tuning.viewport_size,
+            camera_target_center: tuning.viewport_center,
+            camera_target_view_size: tuning.viewport_size,
             cursor_image_status: CursorImageStatus::default_named(),
             dmabuf_importer: None,
             tuning,

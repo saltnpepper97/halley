@@ -229,6 +229,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     x: ws.w.max(1) as f32,
                     y: ws.h.max(1) as f32,
                 };
+                state.snap_camera_targets_to_live();
                 state.advertise_primary_output(
                     "winit-0",
                     smithay::output::Mode {
@@ -325,6 +326,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             x: size.w.max(1) as f32,
                             y: size.h.max(1) as f32,
                         };
+                        st.snap_camera_targets_to_live();
                         st.advertise_primary_output(
                             "winit-0",
                             smithay::output::Mode {

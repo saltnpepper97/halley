@@ -160,6 +160,7 @@ impl HalleyWlState {
         let target_size = self.fullscreen_target_size();
         let viewport_center = self.viewport.center;
         self.zoom_ref_size = self.viewport.size;
+        self.camera_target_view_size = self.zoom_ref_size;
 
         let Some(node) = self.field.node(node_id).cloned() else {
             return;
@@ -303,6 +304,7 @@ impl HalleyWlState {
     pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {
         if self.fullscreen_active_node.is_some() || !self.fullscreen_motion.is_empty() {
             self.zoom_ref_size = self.viewport.size;
+            self.camera_target_view_size = self.zoom_ref_size;
         }
         if self.fullscreen_motion.is_empty() {
             return;
