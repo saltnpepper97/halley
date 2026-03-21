@@ -5,8 +5,9 @@ use crate::interaction::types::ResizeCtx;
 use halley_ipc::{ModeInfo, OutputInfo, OutputStatus};
 
 pub(crate) struct TtyDrmProbe {
-    pub(crate) _card_path: std::path::PathBuf,
+    pub(crate) card_path: std::path::PathBuf,
     pub(crate) dev: DrmDevice,
+    pub(crate) gbm: GbmDevice<DeviceFd>,
     pub(crate) notifier: smithay::backend::drm::DrmDeviceNotifier,
     pub(crate) renderer: Rc<RefCell<GlesRenderer>>,
     pub(crate) outputs: Vec<TtyDrmOutput>,
@@ -89,7 +90,6 @@ pub(crate) fn probe_tty_drm_device_path_via_session(
             err
         ))
     })?;
-    let selected = select_tty_scanouts(&mut dev, tuning)?;
     let gbm = GbmDevice::new(dev_fd.device_fd()).map_err(|err| {
         io::Error::other(format!(
             "failed to create gbm device for {}: {}",
@@ -118,53 +118,7 @@ pub(crate) fn probe_tty_drm_device_path_via_session(
             err
         ))
     })?;
-    let renderer_formats: Vec<Format> = renderer.dmabuf_formats().iter().copied().collect();
-    let mut outputs = Vec::new();
-    for (crtc, mode, connector, connector_name) in selected {
-        let surface = dev
-            .create_surface(crtc, mode, &[connector])
-            .map_err(|err| {
-                io::Error::other(format!(
-                    "failed to create drm surface on {}:{}: {}",
-                    card_path.display(),
-                    connector_name,
-                    err
-                ))
-            })?;
-        let allocator = GbmAllocator::new(
-            gbm.clone(),
-            GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
-        );
-        let gbm_surface = GbmBufferedSurface::new(
-            surface,
-            allocator,
-            &[Fourcc::Xrgb8888, Fourcc::Argb8888],
-            renderer_formats.clone(),
-        )
-        .map_err(|err| {
-            io::Error::other(format!(
-                "failed to create gbm buffered surface for {}:{}: {}",
-                card_path.display(),
-                connector_name,
-                err
-            ))
-        })?;
-        if let Err(err) = gbm_surface.surface().reset_state() {
-            warn!(
-                "failed to reset drm surface state for {}:{}: {}",
-                card_path.display(),
-                connector_name,
-                err
-            );
-        }
-        outputs.push(TtyDrmOutput {
-            connector,
-            crtc,
-            connector_name,
-            mode,
-            gbm_surface: Rc::new(RefCell::new(gbm_surface)),
-        });
-    }
+    let outputs = build_tty_outputs(&mut dev, &gbm, &renderer, tuning, card_path.display())?;
     info!(
         "tty drm device ready: card={} atomic={} crtcs={} outputs={}",
         card_path.display(),
@@ -180,12 +134,110 @@ pub(crate) fn probe_tty_drm_device_path_via_session(
             .join(", ")
     );
     Ok(TtyDrmProbe {
-        _card_path: card_path.to_path_buf(),
+        card_path: card_path.to_path_buf(),
         dev,
+        gbm,
         notifier,
         renderer: Rc::new(RefCell::new(renderer)),
         outputs,
     })
+}
+
+pub(crate) fn current_tty_output_signature(outputs: &[TtyDrmOutput]) -> Vec<String> {
+    let mut signature = outputs
+        .iter()
+        .map(|output| {
+            let (w, h) = output.mode.size();
+            format!(
+                "{}:{:?}:{}x{}@{}",
+                output.connector_name,
+                output.crtc,
+                w,
+                h,
+                output.mode.vrefresh()
+            )
+        })
+        .collect::<Vec<_>>();
+    signature.sort();
+    signature
+}
+
+pub(crate) fn selected_tty_scanout_signature(
+    dev: &mut DrmDevice,
+    tuning: &RuntimeTuning,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut signature = select_tty_scanouts(dev, tuning)?
+        .into_iter()
+        .map(|(crtc, mode, _connector, connector_name)| {
+            let (w, h) = mode.size();
+            format!("{}:{:?}:{}x{}@{}", connector_name, crtc, w, h, mode.vrefresh())
+        })
+        .collect::<Vec<_>>();
+    signature.sort();
+    Ok(signature)
+}
+
+pub(crate) fn rebuild_tty_outputs(
+    dev: &mut DrmDevice,
+    gbm: &GbmDevice<DeviceFd>,
+    renderer: &Rc<RefCell<GlesRenderer>>,
+    tuning: &RuntimeTuning,
+    card_path: &Path,
+) -> Result<Vec<TtyDrmOutput>, Box<dyn Error>> {
+    let renderer = renderer.borrow();
+    build_tty_outputs(dev, gbm, &renderer, tuning, card_path.display())
+}
+
+fn build_tty_outputs(
+    dev: &mut DrmDevice,
+    gbm: &GbmDevice<DeviceFd>,
+    renderer: &GlesRenderer,
+    tuning: &RuntimeTuning,
+    card_label: impl std::fmt::Display,
+) -> Result<Vec<TtyDrmOutput>, Box<dyn Error>> {
+    let selected = select_tty_scanouts(dev, tuning)?;
+    let renderer_formats: Vec<Format> = renderer.dmabuf_formats().iter().copied().collect();
+    let mut outputs = Vec::new();
+
+    for (crtc, mode, connector, connector_name) in selected {
+        let surface = dev.create_surface(crtc, mode, &[connector]).map_err(|err| {
+            io::Error::other(format!(
+                "failed to create drm surface on {}:{}: {}",
+                card_label, connector_name, err
+            ))
+        })?;
+        let allocator = GbmAllocator::new(
+            gbm.clone(),
+            GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
+        );
+        let gbm_surface = GbmBufferedSurface::new(
+            surface,
+            allocator,
+            &[Fourcc::Xrgb8888, Fourcc::Argb8888],
+            renderer_formats.clone(),
+        )
+        .map_err(|err| {
+            io::Error::other(format!(
+                "failed to create gbm buffered surface for {}:{}: {}",
+                card_label, connector_name, err
+            ))
+        })?;
+        if let Err(err) = gbm_surface.surface().reset_state() {
+            warn!(
+                "failed to reset drm surface state for {}:{}: {}",
+                card_label, connector_name, err
+            );
+        }
+        outputs.push(TtyDrmOutput {
+            connector,
+            crtc,
+            connector_name,
+            mode,
+            gbm_surface: Rc::new(RefCell::new(gbm_surface)),
+        });
+    }
+
+    Ok(outputs)
 }
 
 pub(crate) fn select_tty_scanouts(
@@ -429,21 +481,6 @@ pub(crate) fn select_tty_scanouts(
     Ok(selected)
 }
 
-pub(crate) fn find_tty_scanout_for_reload(
-    dev: &mut DrmDevice,
-    tuning: &RuntimeTuning,
-) -> Result<
-    Vec<(
-        drm_control::crtc::Handle,
-        drm_control::Mode,
-        drm_control::connector::Handle,
-        String,
-    )>,
-    Box<dyn Error>,
-> {
-    select_tty_scanouts(dev, tuning)
-}
-
 pub(crate) fn collect_outputs_for_ipc(
     dev: &DrmDevice,
     active_modes: &HashMap<String, drm_control::Mode>,
@@ -596,3 +633,4 @@ pub(crate) fn queue_tty_drm_frame(
         .map_err(|err| io::Error::other(format!("failed to queue drm frame: {}", err)))?;
     Ok(())
 }
+

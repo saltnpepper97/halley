@@ -361,6 +361,85 @@ impl HalleyWlState {
         self.load_monitor_state(name)
     }
 
+    pub(crate) fn reconfigure_active_tty_monitors(&mut self, active_outputs: &[String]) {
+        self.sync_current_monitor_state();
+
+        let previous = self.monitors.clone();
+        let mut monitors = HashMap::new();
+
+        for viewport in self
+            .tuning
+            .tty_viewports
+            .iter()
+            .filter(|viewport| viewport.enabled)
+            .filter(|viewport| active_outputs.iter().any(|name| name == &viewport.connector))
+        {
+            let width = viewport.width.max(1) as i32;
+            let height = viewport.height.max(1) as i32;
+            let center = Vec2 {
+                x: viewport.offset_x as f32 + width as f32 * 0.5,
+                y: viewport.offset_y as f32 + height as f32 * 0.5,
+            };
+            let default_view = Viewport::new(
+                center,
+                Vec2 {
+                    x: width as f32,
+                    y: height as f32,
+                },
+            );
+
+            let restored = previous.get(&viewport.connector);
+            monitors.insert(
+                viewport.connector.clone(),
+                MonitorSpace {
+                    offset_x: viewport.offset_x,
+                    offset_y: viewport.offset_y,
+                    width,
+                    height,
+                    viewport: restored.map(|m| m.viewport).unwrap_or(default_view),
+                    zoom_ref_size: restored.map(|m| m.zoom_ref_size).unwrap_or(default_view.size),
+                    camera_target_center: restored
+                        .map(|m| m.camera_target_center)
+                        .unwrap_or(default_view.center),
+                    camera_target_view_size: restored
+                        .map(|m| m.camera_target_view_size)
+                        .unwrap_or(default_view.size),
+                },
+            );
+        }
+
+        if monitors.is_empty() {
+            let view = self.tuning.viewport();
+            monitors.insert(
+                "default".to_string(),
+                MonitorSpace {
+                    offset_x: 0,
+                    offset_y: 0,
+                    width: self.tuning.viewport_size.x.max(1.0).round() as i32,
+                    height: self.tuning.viewport_size.y.max(1.0).round() as i32,
+                    viewport: view,
+                    zoom_ref_size: self.tuning.viewport_size,
+                    camera_target_center: self.tuning.viewport_center,
+                    camera_target_view_size: self.tuning.viewport_size,
+                },
+            );
+        }
+
+        self.monitors = monitors;
+
+        if !self.monitors.contains_key(&self.current_monitor) {
+            self.current_monitor = self
+                .monitors
+                .keys()
+                .min()
+                .cloned()
+                .unwrap_or_else(|| "default".to_string());
+        }
+
+        let current = self.current_monitor.clone();
+        let _ = self.load_monitor_state(current.as_str());
+    }
+
     pub(crate) fn monitor_for_screen(&self, sx: f32, sy: f32) -> Option<String> {
         let mut best: Option<(&String, i64)> = None;
         for (name, monitor) in &self.monitors {
