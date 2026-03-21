@@ -8,24 +8,42 @@ impl HalleyWlState {
     const FULLSCREEN_ENTER_MS: u64 = 220;
     const FULLSCREEN_EXIT_MS: u64 = 320;
 
-    fn viewport_rect(&self) -> halley_core::field::Rect {
+    fn viewport_rect_for(&self, center: Vec2, size: Vec2) -> halley_core::field::Rect {
         let half = Vec2 {
-            x: self.viewport.size.x * 0.5,
-            y: self.viewport.size.y * 0.5,
+            x: size.x * 0.5,
+            y: size.y * 0.5,
         };
         halley_core::field::Rect {
             min: Vec2 {
-                x: self.viewport.center.x - half.x,
-                y: self.viewport.center.y - half.y,
+                x: center.x - half.x,
+                y: center.y - half.y,
             },
             max: Vec2 {
-                x: self.viewport.center.x + half.x,
-                y: self.viewport.center.y + half.y,
+                x: center.x + half.x,
+                y: center.y + half.y,
             },
         }
     }
 
-    fn node_intersects_viewport(&self, id: NodeId) -> bool {
+    fn fullscreen_monitor_name(&self, node_id: NodeId, output: Option<&WlOutput>) -> String {
+        output
+            .and_then(|requested_output| {
+                self.outputs.iter().find_map(|(name, output)| {
+                    output.owns(requested_output).then_some(name.clone())
+                })
+            })
+            .or_else(|| self.node_monitor.get(&node_id).cloned())
+            .unwrap_or_else(|| self.current_monitor.clone())
+    }
+
+    fn fullscreen_monitor_view(&self, monitor_name: &str) -> (Vec2, Vec2) {
+        self.monitors
+            .get(monitor_name)
+            .map(|monitor| (monitor.viewport.center, monitor.viewport.size))
+            .unwrap_or((self.viewport.center, self.viewport.size))
+    }
+
+    fn node_intersects_monitor_viewport(&self, id: NodeId, monitor_name: &str) -> bool {
         let Some(node) = self.field.node(id) else {
             return false;
         };
@@ -40,13 +58,15 @@ impl HalleyWlState {
                 y: node.pos.y + ext.bottom,
             },
         };
-        rect.intersects(self.viewport_rect())
+        let (center, size) = self.fullscreen_monitor_view(monitor_name);
+        rect.intersects(self.viewport_rect_for(center, size))
     }
 
-    fn fullscreen_target_size(&self) -> (i32, i32) {
+    fn fullscreen_target_size_for(&self, monitor_name: &str) -> (i32, i32) {
+        let (_, size) = self.fullscreen_monitor_view(monitor_name);
         (
-            self.viewport.size.x.round().max(96.0) as i32,
-            self.viewport.size.y.round().max(72.0) as i32,
+            size.x.round().max(96.0) as i32,
+            size.y.round().max(72.0) as i32,
         )
     }
 
@@ -83,10 +103,16 @@ impl HalleyWlState {
         0.94 + (1.0 - 0.94) * e
     }
 
-    fn fullscreen_displaced_target(&self, pos: Vec2, ordinal: usize) -> Vec2 {
+    fn fullscreen_displaced_target(
+        &self,
+        pos: Vec2,
+        ordinal: usize,
+        viewport_center: Vec2,
+        viewport_size: Vec2,
+    ) -> Vec2 {
         let mut dir = Vec2 {
-            x: pos.x - self.viewport.center.x,
-            y: pos.y - self.viewport.center.y,
+            x: pos.x - viewport_center.x,
+            y: pos.y - viewport_center.y,
         };
         let len = dir.x.hypot(dir.y);
         if len < 1.0 {
@@ -102,10 +128,10 @@ impl HalleyWlState {
             dir.y /= len;
         }
 
-        let radius = self.viewport.size.x.hypot(self.viewport.size.y) * 0.85 + 320.0;
+        let radius = viewport_size.x.hypot(viewport_size.y) * 0.85 + 320.0;
         Vec2 {
-            x: self.viewport.center.x + dir.x * radius,
-            y: self.viewport.center.y + dir.y * radius,
+            x: viewport_center.x + dir.x * radius,
+            y: viewport_center.y + dir.y * radius,
         }
     }
 
@@ -143,6 +169,71 @@ impl HalleyWlState {
         }
     }
 
+    fn exit_xdg_fullscreen_inner(&mut self, node_id: NodeId, now: Instant, suspend: bool) {
+        if self.fullscreen_active_node != Some(node_id) {
+            return;
+        }
+
+        self.reset_input_state_requested = true;
+        self.fullscreen_suspended_node = suspend.then_some(node_id);
+        let now_ms = self.now_ms(now);
+        let restore_entries: Vec<(NodeId, crate::state::FullscreenSessionEntry)> = self
+            .fullscreen_restore
+            .iter()
+            .map(|(&id, &entry)| (id, entry))
+            .collect();
+
+        for (id, entry) in &restore_entries {
+            let _ = self.field.set_pinned(*id, false);
+            let from = self.field.node(*id).map(|n| n.pos).unwrap_or(entry.pos);
+            self.restore_fullscreen_snapshot(*id, *entry);
+            self.queue_fullscreen_motion(*id, from, entry.pos, now_ms, Self::FULLSCREEN_EXIT_MS);
+        }
+
+        if let Some(entry) = self.fullscreen_restore.get(&node_id).copied() {
+            self.request_toplevel_fullscreen_state(
+                node_id,
+                false,
+                None,
+                Some((
+                    entry.size.x.round().max(96.0) as i32,
+                    entry.size.y.round().max(72.0) as i32,
+                )),
+            );
+        } else {
+            self.request_toplevel_fullscreen_state(node_id, false, None, None);
+        }
+
+        self.fullscreen_active_node = None;
+        self.fullscreen_scale_anim.remove(&node_id);
+        self.request_maintenance();
+    }
+
+    pub(crate) fn suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
+        self.exit_xdg_fullscreen_inner(node_id, now, true);
+    }
+
+    fn restore_fullscreen_snapshot(
+        &mut self,
+        id: NodeId,
+        entry: crate::state::FullscreenSessionEntry,
+    ) {
+        if let Some(node) = self.field.node_mut(id) {
+            node.intrinsic_size = entry.intrinsic_size;
+        }
+        if let Some(loc) = entry.bbox_loc {
+            self.bbox_loc.insert(id, loc);
+        } else {
+            self.bbox_loc.remove(&id);
+        }
+        if let Some(geo) = entry.window_geometry {
+            self.window_geometry.insert(id, geo);
+        } else {
+            self.window_geometry.remove(&id);
+        }
+        self.set_last_active_size_now(id, entry.intrinsic_size);
+    }
+
     pub(crate) fn enter_xdg_fullscreen(
         &mut self,
         node_id: NodeId,
@@ -152,13 +243,15 @@ impl HalleyWlState {
         if self.fullscreen_active_node == Some(node_id) {
             return;
         }
+        self.fullscreen_suspended_node = None;
         if let Some(active) = self.fullscreen_active_node {
             self.exit_xdg_fullscreen(active, now);
         }
 
         let now_ms = self.now_ms(now);
-        let target_size = self.fullscreen_target_size();
-        let viewport_center = self.viewport.center;
+        let monitor_name = self.fullscreen_monitor_name(node_id, output.as_ref());
+        let target_size = self.fullscreen_target_size_for(monitor_name.as_str());
+        let (viewport_center, viewport_size) = self.fullscreen_monitor_view(monitor_name.as_str());
         self.zoom_ref_size = self.viewport.size;
         self.camera_target_view_size = self.zoom_ref_size;
 
@@ -173,6 +266,10 @@ impl HalleyWlState {
             crate::state::FullscreenSessionEntry {
                 pos: node.pos,
                 size: saved_size,
+                viewport_center,
+                intrinsic_size: node.intrinsic_size,
+                bbox_loc: self.bbox_loc.get(&node_id).copied(),
+                window_geometry: self.window_geometry.get(&node_id).copied(),
                 pinned: node.pinned,
             },
         );
@@ -200,7 +297,8 @@ impl HalleyWlState {
                 (id != node_id
                     && n.kind == halley_core::field::NodeKind::Surface
                     && self.field.is_visible(id)
-                    && self.node_intersects_viewport(id))
+                    && self.node_monitor.get(&id).is_none_or(|monitor| monitor == &monitor_name)
+                    && self.node_intersects_monitor_viewport(id, monitor_name.as_str()))
                 .then_some(id)
             })
             .collect();
@@ -215,6 +313,10 @@ impl HalleyWlState {
                     pos: other.pos,
                     size: crate::surface::current_surface_size_for_node(self, other_id)
                         .unwrap_or(other.intrinsic_size),
+                    viewport_center,
+                    intrinsic_size: other.intrinsic_size,
+                    bbox_loc: self.bbox_loc.get(&other_id).copied(),
+                    window_geometry: self.window_geometry.get(&other_id).copied(),
                     pinned: other.pinned,
                 },
             );
@@ -222,7 +324,7 @@ impl HalleyWlState {
             self.queue_fullscreen_motion(
                 other_id,
                 other.pos,
-                self.fullscreen_displaced_target(other.pos, idx),
+                self.fullscreen_displaced_target(other.pos, idx, viewport_center, viewport_size),
                 now_ms,
                 Self::FULLSCREEN_ENTER_MS,
             );
@@ -235,44 +337,16 @@ impl HalleyWlState {
     }
 
     pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        if self.fullscreen_active_node != Some(node_id) {
-            return;
-        }
-
-        let now_ms = self.now_ms(now);
-        let restore_entries: Vec<(NodeId, crate::state::FullscreenSessionEntry)> = self
-            .fullscreen_restore
-            .iter()
-            .map(|(&id, &entry)| (id, entry))
-            .collect();
-
-        for (id, entry) in &restore_entries {
-            let _ = self.field.set_pinned(*id, false);
-            let from = self.field.node(*id).map(|n| n.pos).unwrap_or(entry.pos);
-            self.queue_fullscreen_motion(*id, from, entry.pos, now_ms, Self::FULLSCREEN_EXIT_MS);
-        }
-
-        if let Some(entry) = self.fullscreen_restore.get(&node_id).copied() {
-            self.request_toplevel_fullscreen_state(
-                node_id,
-                false,
-                None,
-                Some((
-                    entry.size.x.round().max(96.0) as i32,
-                    entry.size.y.round().max(72.0) as i32,
-                )),
-            );
-        } else {
-            self.request_toplevel_fullscreen_state(node_id, false, None, None);
-        }
-
-        self.fullscreen_active_node = None;
-        self.fullscreen_scale_anim.remove(&node_id);
-        self.request_maintenance();
+        self.fullscreen_suspended_node = None;
+        self.exit_xdg_fullscreen_inner(node_id, now, false);
     }
 
     pub(crate) fn drop_fullscreen_surface(&mut self, id: NodeId, now: Instant) {
+        if self.fullscreen_suspended_node == Some(id) {
+            self.fullscreen_suspended_node = None;
+        }
         if self.fullscreen_active_node == Some(id) {
+            self.reset_input_state_requested = true;
             self.fullscreen_active_node = None;
             let restore_entries: Vec<(NodeId, crate::state::FullscreenSessionEntry)> = self
                 .fullscreen_restore
@@ -287,6 +361,7 @@ impl HalleyWlState {
                     .node(other_id)
                     .map(|n| n.pos)
                     .unwrap_or(entry.pos);
+                self.restore_fullscreen_snapshot(other_id, entry);
                 self.queue_fullscreen_motion(
                     other_id,
                     from,

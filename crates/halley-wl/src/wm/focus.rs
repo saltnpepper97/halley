@@ -38,8 +38,30 @@ impl HalleyWlState {
     }
 
     fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
+        if let Some(fullscreen_id) = self.fullscreen_active_node
+            && Some(fullscreen_id) != id
+        {
+            self.suspend_xdg_fullscreen(fullscreen_id, Instant::now());
+        }
+        if let Some(fid) = id
+            && self.fullscreen_suspended_node == Some(fid)
+        {
+            if let Some(entry) = self.fullscreen_restore.get(&fid).copied() {
+                self.viewport.center = entry.viewport_center;
+                self.camera_target_center = self.viewport.center;
+                self.tuning.viewport_center = self.viewport.center;
+                self.viewport_pan_anim = None;
+            }
+            self.enter_xdg_fullscreen(fid, None, Instant::now());
+        }
         self.layer_keyboard_focus = None;
         let focus_surface = id.and_then(|fid| self.wl_surface_for_node(fid));
+        if self
+            .active_locked_pointer_surface()
+            .is_some_and(|surface| Some(surface.id()) != focus_surface.as_ref().map(|wl| wl.id()))
+        {
+            self.release_active_pointer_constraint();
+        }
         if let Some(keyboard) = self.seat.get_keyboard() {
             keyboard.set_focus(self, focus_surface.clone(), SERIAL_COUNTER.next_serial());
         }
@@ -94,16 +116,25 @@ impl HalleyWlState {
     }
 
     fn update_focus_tracking_for_surface(&mut self, fid: NodeId, now_ms: u64) {
-        let Some(n) = self.field.node(fid) else {
+        let Some(node_state) = self
+            .field
+            .node(fid)
+            .map(|n| (n.kind.clone(), n.state.clone()))
+        else {
             return;
         };
-        if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(fid) {
+        if node_state.0 != halley_core::field::NodeKind::Surface || !self.field.is_visible(fid) {
             return;
         }
 
         self.last_surface_focus_ms.insert(fid, now_ms);
+        if self.suppress_trail_record_once {
+            self.suppress_trail_record_once = false;
+        } else {
+            self.record_focus_trail_visit(fid);
+        }
 
-        if n.state == halley_core::field::NodeState::Active {
+        if node_state.1 == halley_core::field::NodeState::Active {
             let _ = self.field.touch(fid, now_ms);
             let _ = self.field.set_decay_level(fid, DecayLevel::Hot);
             if self.tuning.restore_last_active_on_pan_return {

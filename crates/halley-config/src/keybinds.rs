@@ -43,8 +43,9 @@ pub enum CompositorBindingAction {
     ToggleState,
     CloseFocusedWindow,
     Quit { requires_shift: bool },
-    Docking,
     MoveNode(DirectionalAction),
+    TrailPrev,
+    TrailNext,
     ZoomIn,
     ZoomOut,
     ZoomReset,
@@ -60,6 +61,7 @@ pub struct CompositorBinding {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerBindingAction {
     MoveWindow,
+    FieldJump,
     ResizeWindow,
 }
 

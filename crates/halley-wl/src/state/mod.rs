@@ -1,14 +1,16 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::os::unix::io::AsFd;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use calloop::ping::Ping;
+use calloop::{LoopHandle, ping::Ping};
 use halley_config::RuntimeTuning;
 use halley_core::cluster::ClusterId;
 use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_cluster_formation};
 use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2};
+use halley_core::trail::Trail;
 use halley_core::viewport::{FocusZone, Viewport};
 
 use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
@@ -17,12 +19,18 @@ use smithay::{
     desktop::PopupManager,
     input::{Seat, SeatState, pointer::CursorImageStatus},
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
-    reexports::wayland_server::{DisplayHandle, backend::ObjectId},
+    reexports::wayland_server::{
+        DisplayHandle, Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
+    },
     utils::{Logical, Rectangle, Transform},
     wayland::{
         compositor::CompositorState,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
+        drm_syncobj::DrmSyncobjState,
+        idle_notify::IdleNotifierState,
         output::OutputManagerState,
+        pointer_constraints::PointerConstraintsState,
+        relative_pointer::RelativePointerManagerState,
         selection::{
             data_device::DataDeviceState, primary_selection::PrimarySelectionState,
             wlr_data_control::DataControlState,
@@ -153,6 +161,10 @@ pub(crate) enum NodeAppIconCacheEntry {
 pub(crate) struct FullscreenSessionEntry {
     pub pos: Vec2,
     pub size: Vec2,
+    pub viewport_center: Vec2,
+    pub intrinsic_size: Vec2,
+    pub bbox_loc: Option<(f32, f32)>,
+    pub window_geometry: Option<(f32, f32, f32, f32)>,
     pub pinned: bool,
 }
 
@@ -170,6 +182,18 @@ pub(crate) struct FullscreenScaleAnim {
     pub duration_ms: u64,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct MonitorSpace {
+    pub offset_x: i32,
+    pub offset_y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub viewport: Viewport,
+    pub zoom_ref_size: Vec2,
+    pub camera_target_center: Vec2,
+    pub camera_target_view_size: Vec2,
+}
+
 pub struct HalleyWlState {
     pub display_handle: DisplayHandle,
     pub compositor_state: CompositorState,
@@ -177,6 +201,10 @@ pub struct HalleyWlState {
     pub xdg_shell_state: XdgShellState,
     pub popup_manager: PopupManager,
     pub wlr_layer_shell_state: WlrLayerShellState,
+    pub pointer_constraints_state: PointerConstraintsState,
+    pub relative_pointer_manager_state: RelativePointerManagerState,
+    pub idle_notifier_state: IdleNotifierState<Self>,
+    pub drm_syncobj_state: Option<DrmSyncobjState>,
     pub output_manager_state: OutputManagerState,
     pub shm_state: ShmState,
     pub dmabuf_state: DmabufState,
@@ -187,6 +215,11 @@ pub struct HalleyWlState {
     pub data_control_state: DataControlState,
     pub seat: Seat<Self>,
     pub primary_output: Option<Output>,
+    pub(crate) outputs: HashMap<String, Output>,
+    pub(crate) current_monitor: String,
+    pub(crate) monitors: HashMap<String, MonitorSpace>,
+    pub(crate) node_monitor: HashMap<NodeId, String>,
+    pub(crate) layer_surface_monitor: HashMap<ObjectId, String>,
     pub layer_keyboard_focus: Option<ObjectId>,
 
     pub field: Field,
@@ -197,6 +230,9 @@ pub struct HalleyWlState {
     pub(crate) camera_target_view_size: Vec2,
     pub cursor_image_status: CursorImageStatus,
     pub(crate) dmabuf_importer: Option<Rc<dyn DmabufImportBackend>>,
+    pub(crate) reset_input_state_requested: bool,
+    pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
+    pub(crate) suppress_layer_shell_configure: bool,
 
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
     pub surface_to_node: HashMap<ObjectId, NodeId>,
@@ -211,6 +247,8 @@ pub struct HalleyWlState {
     pub interaction_focus: Option<NodeId>,
     pub(crate) interaction_focus_until_ms: u64,
     pub(crate) last_surface_focus_ms: HashMap<NodeId, u64>,
+    pub(crate) focus_trail: Trail,
+    pub(crate) suppress_trail_record_once: bool,
     pub pan_restore_active_focus: Option<NodeId>,
     pub(crate) app_focused: bool,
     pub(crate) cluster_form_state: ClusterFormationState,
@@ -234,14 +272,16 @@ pub struct HalleyWlState {
     // Nodes explicitly collapsed by the user via keybind/toggle.
     // Maintenance must not auto-resurrect these.
     pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
-    pub(crate) docking_hold_count: u32,
 
     pub(crate) resize_active: Option<NodeId>,
     pub(crate) resize_static_node: Option<NodeId>,
     pub(crate) resize_static_lock_pos: Option<Vec2>,
     pub(crate) resize_static_until_ms: u64,
+    pub(crate) drag_authority_node: Option<NodeId>,
     pub(crate) suspend_overlap_resolve: bool,
     pub(crate) suspend_state_checks: bool,
+    pub(crate) physics_velocity: HashMap<NodeId, Vec2>,
+    pub(crate) physics_last_tick: Instant,
     pub(crate) smoothed_render_pos: HashMap<NodeId, Vec2>,
     pub(crate) node_hover_mix: HashMap<NodeId, f32>,
     pub(crate) node_preview_hover_node: Option<NodeId>,
@@ -250,6 +290,7 @@ pub struct HalleyWlState {
     pub(crate) viewport_pan_anim: Option<ViewportPanAnim>,
     pub(crate) pan_dominant_until_ms: u64,
     pub(crate) exit_requested: bool,
+    pub(crate) focus_ring_preview_until_ms: HashMap<String, u64>,
 
     pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
     pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
@@ -260,6 +301,7 @@ pub struct HalleyWlState {
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
     pub(crate) node_label_program: Option<GlesTexProgram>,
     pub(crate) fullscreen_active_node: Option<NodeId>,
+    pub(crate) fullscreen_suspended_node: Option<NodeId>,
     pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
     pub(crate) fullscreen_motion: HashMap<NodeId, FullscreenMotion>,
     pub(crate) fullscreen_scale_anim: HashMap<NodeId, FullscreenScaleAnim>,
@@ -276,11 +318,24 @@ pub struct HalleyWlState {
     pub(crate) last_debug_dump_at: Instant,
     pub(crate) maintenance_dirty: bool,
     pub(crate) maintenance_ping: Option<Ping>,
+    pub(crate) pending_drm_syncobj_surfaces: Arc<Mutex<Vec<ObjectId>>>,
 
     pub(crate) spawned_children: Vec<std::process::Child>,
 }
 
 impl HalleyWlState {
+    fn load_monitor_state(&mut self, name: &str) -> bool {
+        let Some(space) = self.monitors.get(name).cloned() else {
+            return false;
+        };
+        self.current_monitor = name.to_string();
+        self.viewport = space.viewport;
+        self.zoom_ref_size = space.zoom_ref_size;
+        self.camera_target_center = space.camera_target_center;
+        self.camera_target_view_size = space.camera_target_view_size;
+        true
+    }
+
     pub(crate) fn preserve_collapsed_surface(&self, id: NodeId) -> bool {
         self.manual_collapsed_nodes.contains(&id)
             || self.field.node(id).is_some_and(|n| {
@@ -289,12 +344,250 @@ impl HalleyWlState {
             })
     }
 
+    pub(crate) fn sync_current_monitor_state(&mut self) {
+        if let Some(space) = self.monitors.get_mut(&self.current_monitor) {
+            space.viewport = self.viewport;
+            space.zoom_ref_size = self.zoom_ref_size;
+            space.camera_target_center = self.camera_target_center;
+            space.camera_target_view_size = self.camera_target_view_size;
+        }
+    }
+
+    pub(crate) fn activate_monitor(&mut self, name: &str) -> bool {
+        if self.current_monitor == name {
+            return self.monitors.contains_key(name);
+        }
+        self.sync_current_monitor_state();
+        self.load_monitor_state(name)
+    }
+
+    pub(crate) fn reconfigure_active_tty_monitors(&mut self, active_outputs: &[String]) {
+        self.sync_current_monitor_state();
+
+        let previous = self.monitors.clone();
+        let mut monitors = HashMap::new();
+
+        for viewport in self
+            .tuning
+            .tty_viewports
+            .iter()
+            .filter(|viewport| viewport.enabled)
+            .filter(|viewport| active_outputs.iter().any(|name| name == &viewport.connector))
+        {
+            let width = viewport.width.max(1) as i32;
+            let height = viewport.height.max(1) as i32;
+            let center = Vec2 {
+                x: viewport.offset_x as f32 + width as f32 * 0.5,
+                y: viewport.offset_y as f32 + height as f32 * 0.5,
+            };
+            let default_view = Viewport::new(
+                center,
+                Vec2 {
+                    x: width as f32,
+                    y: height as f32,
+                },
+            );
+
+            let restored = previous.get(&viewport.connector);
+            monitors.insert(
+                viewport.connector.clone(),
+                MonitorSpace {
+                    offset_x: viewport.offset_x,
+                    offset_y: viewport.offset_y,
+                    width,
+                    height,
+                    viewport: restored.map(|m| m.viewport).unwrap_or(default_view),
+                    zoom_ref_size: restored.map(|m| m.zoom_ref_size).unwrap_or(default_view.size),
+                    camera_target_center: restored
+                        .map(|m| m.camera_target_center)
+                        .unwrap_or(default_view.center),
+                    camera_target_view_size: restored
+                        .map(|m| m.camera_target_view_size)
+                        .unwrap_or(default_view.size),
+                },
+            );
+        }
+
+        if monitors.is_empty() {
+            let view = self.tuning.viewport();
+            monitors.insert(
+                "default".to_string(),
+                MonitorSpace {
+                    offset_x: 0,
+                    offset_y: 0,
+                    width: self.tuning.viewport_size.x.max(1.0).round() as i32,
+                    height: self.tuning.viewport_size.y.max(1.0).round() as i32,
+                    viewport: view,
+                    zoom_ref_size: self.tuning.viewport_size,
+                    camera_target_center: self.tuning.viewport_center,
+                    camera_target_view_size: self.tuning.viewport_size,
+                },
+            );
+        }
+
+        self.monitors = monitors;
+
+        if !self.monitors.contains_key(&self.current_monitor) {
+            self.current_monitor = self
+                .monitors
+                .keys()
+                .min()
+                .cloned()
+                .unwrap_or_else(|| "default".to_string());
+        }
+
+        let current = self.current_monitor.clone();
+        let _ = self.load_monitor_state(current.as_str());
+    }
+
+    pub(crate) fn monitor_for_screen(&self, sx: f32, sy: f32) -> Option<String> {
+        let mut best: Option<(&String, i64)> = None;
+        for (name, monitor) in &self.monitors {
+            let inside = sx >= monitor.offset_x as f32
+                && sx < (monitor.offset_x + monitor.width) as f32
+                && sy >= monitor.offset_y as f32
+                && sy < (monitor.offset_y + monitor.height) as f32;
+            let dx = if sx < monitor.offset_x as f32 {
+                (monitor.offset_x as f32 - sx).round() as i64
+            } else if sx >= (monitor.offset_x + monitor.width) as f32 {
+                (sx - (monitor.offset_x + monitor.width) as f32).round() as i64
+            } else {
+                0
+            };
+            let dy = if sy < monitor.offset_y as f32 {
+                (monitor.offset_y as f32 - sy).round() as i64
+            } else if sy >= (monitor.offset_y + monitor.height) as f32 {
+                (sy - (monitor.offset_y + monitor.height) as f32).round() as i64
+            } else {
+                0
+            };
+            let distance = dx * dx + dy * dy;
+            if inside {
+                return Some(name.clone());
+            }
+            if best.is_none_or(|(_, best_distance)| distance < best_distance) {
+                best = Some((name, distance));
+            }
+        }
+        best.map(|(name, _)| name.clone())
+    }
+
+    pub(crate) fn local_screen_in_monitor(&self, name: &str, sx: f32, sy: f32) -> (i32, i32, f32, f32) {
+        if let Some(monitor) = self.monitors.get(name) {
+            (
+                monitor.width,
+                monitor.height,
+                sx - monitor.offset_x as f32,
+                sy - monitor.offset_y as f32,
+            )
+        } else {
+            let w = self.tuning.viewport_size.x.max(1.0).round() as i32;
+            let h = self.tuning.viewport_size.y.max(1.0).round() as i32;
+            (w, h, sx, sy)
+        }
+    }
+
+    pub(crate) fn node_visible_on_current_monitor(&self, id: NodeId) -> bool {
+        self.node_monitor
+            .get(&id)
+            .is_none_or(|monitor| monitor == &self.current_monitor)
+    }
+
+    pub(crate) fn assign_node_to_current_monitor(&mut self, id: NodeId) {
+        self.node_monitor.insert(id, self.current_monitor.clone());
+    }
+
+    pub(crate) fn assign_layer_surface_to_monitor(&mut self, surface: &WlSurface, monitor: String) {
+        self.layer_surface_monitor.insert(surface.id(), monitor);
+    }
+
+    pub(crate) fn layer_surface_on_current_monitor(&self, surface: &WlSurface) -> bool {
+        self.layer_surface_monitor
+            .get(&surface.id())
+            .is_none_or(|monitor| monitor == &self.current_monitor)
+    }
+
     pub fn new(
         dh: &smithay::reexports::wayland_server::DisplayHandle,
+        loop_handle: LoopHandle<'static, Self>,
         tuning: RuntimeTuning,
     ) -> Self {
         let now = Instant::now();
         let initial_view_anchor = tuning.viewport_center;
+        let mut monitors = HashMap::new();
+        for viewport in tuning.tty_viewports.iter().filter(|viewport| viewport.enabled) {
+            let width = viewport.width.max(1) as i32;
+            let height = viewport.height.max(1) as i32;
+            // MonitorSpace viewport uses GLOBAL world coordinates. The center
+            // is at (offset_x + width/2, offset_y + height/2) so that every
+            // monitor occupies a unique region of world space. Using local
+            // (0,0)-origin coordinates caused monitors to share the same world
+            // positions, breaking spawn placement, overlap resolution, focus
+            // ring checks, and drag clamping across monitors.
+            let global_center = Vec2 {
+                x: viewport.offset_x as f32 + width as f32 * 0.5,
+                y: viewport.offset_y as f32 + height as f32 * 0.5,
+            };
+            let view = Viewport::new(
+                global_center,
+                Vec2 {
+                    x: width as f32,
+                    y: height as f32,
+                },
+            );
+            monitors.insert(
+                viewport.connector.clone(),
+                MonitorSpace {
+                    offset_x: viewport.offset_x,
+                    offset_y: viewport.offset_y,
+                    width,
+                    height,
+                    viewport: view,
+                    zoom_ref_size: view.size,
+                    camera_target_center: view.center,
+                    camera_target_view_size: view.size,
+                },
+            );
+        }
+        if monitors.is_empty() {
+            let view = tuning.viewport();
+            monitors.insert(
+                "default".to_string(),
+                MonitorSpace {
+                    offset_x: 0,
+                    offset_y: 0,
+                    width: tuning.viewport_size.x.max(1.0).round() as i32,
+                    height: tuning.viewport_size.y.max(1.0).round() as i32,
+                    viewport: view,
+                    zoom_ref_size: tuning.viewport_size,
+                    camera_target_center: tuning.viewport_center,
+                    camera_target_view_size: tuning.viewport_size,
+                },
+            );
+        }
+        // Use config order, not HashMap key order (which is non-deterministic).
+        // The first enabled viewport in the config file is the user's primary.
+        let current_monitor = tuning
+            .tty_viewports
+            .iter()
+            .filter(|v| v.enabled && monitors.contains_key(&v.connector))
+            .map(|v| v.connector.clone())
+            .next()
+            .or_else(|| monitors.keys().min().cloned())
+            .unwrap_or_else(|| "default".to_string());
+        // Bootstrap the viewport/camera from the primary monitor's LOCAL space.
+        // tuning.viewport_center is in global layout coords (for Wayland output
+        // advertising) — using it as a camera center would point the camera at
+        // a world position far outside the local viewport on any monitor with
+        // a non-zero offset.
+        let primary_viewport = monitors
+            .get(&current_monitor)
+            .map(|m| m.viewport)
+            .unwrap_or_else(|| tuning.viewport());
+        let primary_zoom_ref = monitors
+            .get(&current_monitor)
+            .map(|m| m.zoom_ref_size)
+            .unwrap_or(tuning.viewport_size);
         let mut seat_state = SeatState::new();
         let seat = seat_state.new_wl_seat(dh, "halley");
         let primary_selection_state = PrimarySelectionState::new::<HalleyWlState>(dh);
@@ -307,6 +600,10 @@ impl HalleyWlState {
             xdg_shell_state: XdgShellState::new::<HalleyWlState>(dh),
             popup_manager: PopupManager::default(),
             wlr_layer_shell_state: WlrLayerShellState::new::<HalleyWlState>(dh),
+            pointer_constraints_state: PointerConstraintsState::new::<HalleyWlState>(dh),
+            relative_pointer_manager_state: RelativePointerManagerState::new::<HalleyWlState>(dh),
+            idle_notifier_state: IdleNotifierState::new(dh, loop_handle),
+            drm_syncobj_state: None,
             output_manager_state: OutputManagerState::new_with_xdg_output::<HalleyWlState>(dh),
             shm_state: ShmState::new::<HalleyWlState>(dh, vec![]),
             dmabuf_state: DmabufState::new(),
@@ -317,15 +614,23 @@ impl HalleyWlState {
             data_control_state,
             seat,
             primary_output: None,
+            outputs: HashMap::new(),
+            current_monitor,
+            monitors,
+            node_monitor: HashMap::new(),
+            layer_surface_monitor: HashMap::new(),
             layer_keyboard_focus: None,
 
             field: Field::new(),
-            viewport: tuning.viewport(),
-            zoom_ref_size: tuning.viewport_size,
-            camera_target_center: tuning.viewport_center,
-            camera_target_view_size: tuning.viewport_size,
+            viewport: primary_viewport,
+            zoom_ref_size: primary_zoom_ref,
+            camera_target_center: primary_viewport.center,
+            camera_target_view_size: primary_zoom_ref,
             cursor_image_status: CursorImageStatus::default_named(),
             dmabuf_importer: None,
+            reset_input_state_requested: false,
+            pending_pointer_screen_hint: None,
+            suppress_layer_shell_configure: false,
             tuning,
 
             surface_activity: HashMap::new(),
@@ -341,6 +646,8 @@ impl HalleyWlState {
             interaction_focus: None,
             interaction_focus_until_ms: 0,
             last_surface_focus_ms: HashMap::new(),
+            focus_trail: Trail::new(),
+            suppress_trail_record_once: false,
             pan_restore_active_focus: None,
             app_focused: true,
             cluster_form_state: ClusterFormationState::default(),
@@ -360,13 +667,15 @@ impl HalleyWlState {
             carry_direct_nodes: HashSet::new(),
             carry_state_hold: HashMap::new(),
             manual_collapsed_nodes: HashSet::new(),
-            docking_hold_count: 0,
             resize_active: None,
             resize_static_node: None,
             resize_static_lock_pos: None,
             resize_static_until_ms: 0,
+            drag_authority_node: None,
             suspend_overlap_resolve: false,
             suspend_state_checks: false,
+            physics_velocity: HashMap::new(),
+            physics_last_tick: now,
             smoothed_render_pos: HashMap::new(),
             node_hover_mix: HashMap::new(),
             node_preview_hover_node: None,
@@ -375,6 +684,7 @@ impl HalleyWlState {
             viewport_pan_anim: None,
             pan_dominant_until_ms: 0,
             exit_requested: false,
+            focus_ring_preview_until_ms: HashMap::new(),
 
             bbox_loc: HashMap::new(),
             window_geometry: HashMap::new(),
@@ -385,6 +695,7 @@ impl HalleyWlState {
             node_squircle_program: None,
             node_label_program: None,
             fullscreen_active_node: None,
+            fullscreen_suspended_node: None,
             fullscreen_restore: HashMap::new(),
             fullscreen_motion: HashMap::new(),
             fullscreen_scale_anim: HashMap::new(),
@@ -401,6 +712,7 @@ impl HalleyWlState {
             last_debug_dump_at: now,
             maintenance_dirty: true,
             maintenance_ping: None,
+            pending_drm_syncobj_surfaces: Arc::new(Mutex::new(Vec::new())),
 
             spawned_children: Vec::new(),
         };
@@ -408,7 +720,20 @@ impl HalleyWlState {
             state_change_ms: out.tuning.dev_anim_state_change_ms,
             bounce: out.tuning.dev_anim_bounce,
         });
+        let current_monitor = out.current_monitor.clone();
+        let _ = out.load_monitor_state(current_monitor.as_str());
         out
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        dh: &smithay::reexports::wayland_server::DisplayHandle,
+        tuning: RuntimeTuning,
+    ) -> Self {
+        let event_loop = Box::leak(Box::new(
+            calloop::EventLoop::<Self>::try_new().expect("test event loop"),
+        ));
+        Self::new(dh, event_loop.handle(), tuning)
     }
 
     pub(crate) fn configure_dmabuf_importer(
@@ -450,8 +775,30 @@ impl HalleyWlState {
         self.configure_dmabuf_importer(importer, main_device);
     }
 
-    pub(crate) fn advertise_primary_output(&mut self, name: &str, mode: OutputMode) {
-        let output = self.primary_output.get_or_insert_with(|| {
+    pub(crate) fn output_transform_for(&self, name: &str) -> Transform {
+        let degrees = self
+            .tuning
+            .tty_viewports
+            .iter()
+            .find(|viewport| viewport.connector == name)
+            .map(|viewport| viewport.transform_degrees)
+            .unwrap_or(0);
+        match degrees {
+            90 => Transform::_90,
+            180 => Transform::_180,
+            270 => Transform::_270,
+            _ => Transform::Normal,
+        }
+    }
+
+    pub(crate) fn advertise_output(&mut self, name: &str, mode: OutputMode) {
+        let transform = self.output_transform_for(name);
+        let location = self
+            .monitors
+            .get(name)
+            .map(|monitor| (monitor.offset_x, monitor.offset_y).into())
+            .unwrap_or_else(|| (0, 0).into());
+        let output = self.outputs.entry(name.to_string()).or_insert_with(|| {
             let output = Output::new(
                 name.to_string(),
                 PhysicalProperties {
@@ -464,15 +811,22 @@ impl HalleyWlState {
             let _ = output.create_global::<HalleyWlState>(&self.display_handle);
             output
         });
+        if self.primary_output.is_none() {
+            self.primary_output = Some(output.clone());
+        }
 
         output.add_mode(mode);
         output.set_preferred(mode);
         output.change_current_state(
             Some(mode),
-            Some(Transform::Normal),
+            Some(transform),
             Some(Scale::Integer(1)),
-            Some((0, 0).into()),
+            Some(location),
         );
+    }
+
+    pub(crate) fn advertise_primary_output(&mut self, name: &str, mode: OutputMode) {
+        self.advertise_output(name, mode);
     }
 
     pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
@@ -532,6 +886,11 @@ impl HalleyWlState {
 
     pub fn request_exit(&mut self) {
         self.exit_requested = true;
+    }
+
+    #[inline]
+    pub fn note_input_activity(&mut self) {
+        self.idle_notifier_state.notify_activity(&self.seat);
     }
 
     pub fn exit_requested(&self) -> bool {
@@ -685,9 +1044,8 @@ impl HalleyWlState {
             self.resize_static_lock_pos = None;
             self.resize_static_until_ms = 0;
         }
-        let focus_ring = self.active_focus_ring();
         if !self.suspend_state_checks {
-            self.enforce_pan_dominant_zone_states(focus_ring, now_ms);
+            self.enforce_pan_dominant_zone_states(now_ms);
             self.enforce_carry_zone_states();
         }
         if let Some(id) = self.resize_active {
@@ -710,7 +1068,7 @@ impl HalleyWlState {
             },
             &mut self.cluster_form_state,
         );
-        self.enforce_single_primary_active_unit(focus_ring);
+        self.enforce_single_primary_active_unit();
         if !self.suspend_state_checks && self.resize_active.is_none() {
             self.resolve_surface_overlap();
         }

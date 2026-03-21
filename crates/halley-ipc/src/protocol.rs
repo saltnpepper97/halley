@@ -4,12 +4,6 @@ use crate::error::IpcError;
 use crate::types::OutputsResponse;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum DockingCommand {
-    Begin,
-    End,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum NodeMoveDirection {
     Left,
     Right,
@@ -17,13 +11,27 @@ pub enum NodeMoveDirection {
     Down,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum TrailDirection {
+    Prev,
+    Next,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum DpmsCommand {
+    Off,
+    On,
+    Toggle,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
     Quit,
     Reload,
     Outputs,
-    Docking(DockingCommand),
     NodeMove(NodeMoveDirection),
+    Trail(TrailDirection),
+    Dpms(DpmsCommand),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

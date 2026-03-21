@@ -174,9 +174,9 @@ fn prepare_debug_frame_state(
     size: smithay::utils::Size<i32, Physical>,
 ) -> PreparedFrameState {
     let now = Instant::now();
-    st.tick_animator_frame(now);
-    st.begin_render_frame(now);
-    st.configure_layer_shell_surfaces((size.w, size.h).into());
+    if !st.suppress_layer_shell_configure {
+        st.configure_layer_shell_surfaces((size.w, size.h).into());
+    }
 
     PreparedFrameState {
         damage: Rectangle::<i32, Physical>::from_size(size),
@@ -236,7 +236,7 @@ fn collect_debug_frame_scene(
         .nodes()
         .iter()
         .filter_map(|(&id, node)| {
-            if !st.field.is_visible(id) {
+            if !st.field.is_visible(id) || !st.node_visible_on_current_monitor(id) {
                 return None;
             }
             Some(NodeSnapshot {
@@ -361,23 +361,25 @@ fn draw_debug_frame_scene(
         prepared.now,
     )?;
 
-    let focus_ring = st.active_focus_ring();
-    let ring_world_cx = st.viewport.center.x + focus_ring.offset_x;
-    let ring_world_cy = st.viewport.center.y + focus_ring.offset_y;
-    let (ring_sx, ring_sy) = world_to_screen(st, size.w, size.h, ring_world_cx, ring_world_cy);
-    let base_px_per_world_x = size.w as f32 / st.viewport.size.x.max(1.0);
-    let base_px_per_world_y = size.h as f32 / st.viewport.size.y.max(1.0);
-    let screen_rx = focus_ring.radius_x * base_px_per_world_x;
-    let screen_ry = focus_ring.radius_y * base_px_per_world_y;
-    draw_ring(
-        frame,
-        ring_sx as f32,
-        ring_sy as f32,
-        screen_rx,
-        screen_ry,
-        Color32F::new(0.15, 0.85, 0.85, 0.9),
-        prepared.damage,
-    )?;
+    if st.should_draw_focus_ring_preview(prepared.now) {
+        let focus_ring = st.active_focus_ring();
+        let ring_world_cx = st.viewport.center.x + focus_ring.offset_x;
+        let ring_world_cy = st.viewport.center.y + focus_ring.offset_y;
+        let (ring_sx, ring_sy) = world_to_screen(st, size.w, size.h, ring_world_cx, ring_world_cy);
+        let base_px_per_world_x = size.w as f32 / st.viewport.size.x.max(1.0);
+        let base_px_per_world_y = size.h as f32 / st.viewport.size.y.max(1.0);
+        let screen_rx = focus_ring.radius_x * base_px_per_world_x;
+        let screen_ry = focus_ring.radius_y * base_px_per_world_y;
+        draw_ring(
+            frame,
+            ring_sx as f32,
+            ring_sy as f32,
+            screen_rx,
+            screen_ry,
+            Color32F::new(0.15, 0.85, 0.85, 0.9),
+            prepared.damage,
+        )?;
+    }
 
     Ok(())
 }

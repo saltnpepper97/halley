@@ -1,6 +1,6 @@
 use halley_ipc::{
-    DockingCommand, LogicalOutputInfo, NodeMoveDirection, OutputInfo, OutputStatus,
-    OutputsResponse, Request, Response, send_request,
+    DpmsCommand, LogicalOutputInfo, NodeMoveDirection, OutputInfo, OutputStatus, OutputsResponse,
+    Request, Response, TrailDirection, send_request,
 };
 
 fn main() {
@@ -10,12 +10,6 @@ fn main() {
         Some("quit") => Request::Quit,
         Some("reload") => Request::Reload,
         Some("outputs") => Request::Outputs,
-        Some("docking") => match args.next().as_deref() {
-            Some("begin") => Request::Docking(DockingCommand::Begin),
-            Some("end") => Request::Docking(DockingCommand::End),
-            Some(other) => exit_usage(&format!("unknown docking command: {other}")),
-            None => exit_usage("missing docking command"),
-        },
         Some("node") => match args.next().as_deref() {
             Some("move") => match args.next().as_deref() {
                 Some("left") => Request::NodeMove(NodeMoveDirection::Left),
@@ -27,6 +21,19 @@ fn main() {
             },
             Some(other) => exit_usage(&format!("unknown node command: {other}")),
             None => exit_usage("missing node command"),
+        },
+        Some("trail") => match args.next().as_deref() {
+            Some("prev") => Request::Trail(TrailDirection::Prev),
+            Some("next") => Request::Trail(TrailDirection::Next),
+            Some(other) => exit_usage(&format!("unknown trail command: {other}")),
+            None => exit_usage("missing trail command"),
+        },
+        Some("dpms") => match args.next().as_deref() {
+            Some("off") => Request::Dpms(DpmsCommand::Off),
+            Some("on") => Request::Dpms(DpmsCommand::On),
+            Some("toggle") => Request::Dpms(DpmsCommand::Toggle),
+            Some(other) => exit_usage(&format!("unknown dpms command: {other}")),
+            None => exit_usage("missing dpms command"),
         },
         Some("help") | Some("--help") | Some("-h") | None => {
             print_help();
@@ -62,8 +69,9 @@ fn print_help() {
     println!("  halleyctl quit");
     println!("  halleyctl reload");
     println!("  halleyctl outputs");
-    println!("  halleyctl docking begin|end");
     println!("  halleyctl node move left|right|up|down");
+    println!("  halleyctl trail prev|next");
+    println!("  halleyctl dpms off|on|toggle");
     println!();
     println!("Commands:");
     println!("  quit                Ask the running Halley compositor to exit");
@@ -71,8 +79,9 @@ fn print_help() {
     println!(
         "  outputs             Print current output information from the running Halley compositor"
     );
-    println!("  docking begin|end   Start or end compositor docking mode");
     println!("  node move ...       Move the latest/focused node in the given direction");
+    println!("  trail prev|next     Move backward or forward through the focused window trail");
+    println!("  dpms off|on|toggle  Control tty output power state");
 }
 
 fn print_response(response: Response) -> Result<(), String> {
@@ -118,6 +127,12 @@ fn print_output(output: &OutputInfo) {
 
     if let Some(current_mode) = &output.current_mode {
         println!("  current_mode: {}", current_mode.display_string());
+    }
+    if let Some(vrr_mode) = &output.vrr_mode {
+        println!("  vrr: {}", vrr_mode);
+    }
+    if let Some(vrr_support) = &output.vrr_support {
+        println!("  vrr_support: {}", vrr_support);
     }
 
     if output.modes.is_empty() {

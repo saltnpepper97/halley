@@ -8,6 +8,7 @@ use crate::render::{DebugScene, build_debug_scene};
 impl HalleyWlState {
     const RECENT_INTERACTION_PROTECT_MS: u64 = 7_500;
     const COMPANION_PROTECT_MS: u64 = 12_000;
+    const FOCUS_RING_PREVIEW_MS: u64 = 1_500;
 
     pub fn now_ms(&self, now: Instant) -> u64 {
         now.duration_since(self.started_at).as_millis() as u64
@@ -89,6 +90,12 @@ impl HalleyWlState {
         let prev_config_viewport = self.tuning.viewport();
         let prev_physics_enabled = self.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
+        let previous_output_names: std::collections::HashSet<String> = self
+            .monitors
+            .keys()
+            .cloned()
+            .chain(self.tuning.tty_viewports.iter().map(|v| v.connector.clone()))
+            .collect();
 
         tuning.enforce_guards();
         tuning.apply_process_env();
@@ -117,16 +124,36 @@ impl HalleyWlState {
 
         if prev_physics_enabled && !tuning.physics_enabled {
             self.active_transition_until_ms.clear();
+            self.drag_authority_node = None;
+            self.physics_velocity.clear();
             self.smoothed_render_pos.clear();
             self.camera_target_center = self.viewport.center;
             self.camera_target_view_size = self.zoom_ref_size;
+        }
+
+        let next_output_names: std::collections::HashSet<String> = previous_output_names
+            .iter()
+            .cloned()
+            .chain(tuning.tty_viewports.iter().map(|v| v.connector.clone()))
+            .collect();
+        let now = Instant::now();
+        let now_ms = self.now_ms(now);
+        for output_name in next_output_names {
+            if self.tuning.focus_ring_for_output(output_name.as_str())
+                != tuning.focus_ring_for_output(output_name.as_str())
+            {
+                self.focus_ring_preview_until_ms.insert(
+                    output_name,
+                    now_ms.saturating_add(Self::FOCUS_RING_PREVIEW_MS),
+                );
+            }
         }
 
         self.tuning = tuning;
         self.request_maintenance();
 
         if let Some(id) = prev_focus {
-            self.set_interaction_focus(Some(id), 30_000, Instant::now());
+            self.set_interaction_focus(Some(id), 30_000, now);
         }
     }
 
@@ -160,6 +187,12 @@ impl HalleyWlState {
     }
 
     pub fn active_focus_ring(&self) -> halley_core::viewport::FocusRing {
-        self.tuning.focus_ring()
+        self.tuning.focus_ring_for_output(self.current_monitor.as_str())
+    }
+
+    pub fn should_draw_focus_ring_preview(&self, now: Instant) -> bool {
+        self.focus_ring_preview_until_ms
+            .get(self.current_monitor.as_str())
+            .is_some_and(|&until_ms| self.now_ms(now) < until_ms)
     }
 }

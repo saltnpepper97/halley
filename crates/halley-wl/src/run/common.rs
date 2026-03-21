@@ -4,6 +4,7 @@ use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
+use std::io::ErrorKind;
 use std::io::IsTerminal;
 use std::io::Write;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -241,6 +242,8 @@ impl X11SocketReservation {
         let lock_path = PathBuf::from(format!("/tmp/.X{}-lock", display_num));
         let socket_path = PathBuf::from(format!("/tmp/.X11-unix/X{}", display_num));
 
+        reclaim_stale_x11_display(display, &lock_path, &socket_path)?;
+
         let mut lock_file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -248,7 +251,14 @@ impl X11SocketReservation {
         let _ = writeln!(lock_file, "{}", std::process::id());
 
         let reservation = (|| {
-            let filesystem_listener = UnixListener::bind(&socket_path)?;
+            let filesystem_listener = match UnixListener::bind(&socket_path) {
+                Ok(listener) => listener,
+                Err(err) if err.kind() == ErrorKind::AddrInUse => {
+                    let _ = fs::remove_file(&socket_path);
+                    UnixListener::bind(&socket_path)?
+                }
+                Err(err) => return Err(err),
+            };
             filesystem_listener.set_nonblocking(true)?;
 
             let abstract_listener = socket_with(
@@ -377,6 +387,7 @@ impl XwaylandSatellite {
             let raw_fds: Vec<i32> = listen_fds.iter().map(AsRawFd::as_raw_fd).collect();
             unsafe {
                 command.pre_exec(move || {
+                    libc::setpgid(0, 0);
                     for (idx, raw_fd) in raw_fds.iter().enumerate() {
                         let target_fd = 3 + idx as i32;
                         if libc::dup2(*raw_fd, target_fd) == -1 {
@@ -389,13 +400,20 @@ impl XwaylandSatellite {
 
             command.spawn()
         } else {
-            Command::new(self.satellite_bin.as_str())
+            let mut command = Command::new(self.satellite_bin.as_str());
+            command
                 .arg(self.display.as_str())
                 .env("WAYLAND_DISPLAY", self.wayland_display.as_str())
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::inherit())
-                .spawn()
+                .stderr(Stdio::inherit());
+            unsafe {
+                command.pre_exec(move || {
+                    libc::setpgid(0, 0);
+                    Ok(())
+                });
+            }
+            command.spawn()
         };
 
         match spawn_result {
@@ -436,7 +454,10 @@ impl XwaylandSatellite {
 impl Drop for XwaylandSatellite {
     fn drop(&mut self) {
         if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
+            let pgid = child.id() as i32;
+            unsafe {
+                libc::kill(-pgid, libc::SIGTERM);
+            }
             let _ = child.wait();
         }
     }
@@ -622,6 +643,37 @@ fn next_free_x11_display() -> String {
         .find(|idx| !used.contains(idx))
         .unwrap_or(4096);
     format!(":{}", next)
+}
+
+fn reclaim_stale_x11_display(
+    display: &str,
+    lock_path: &Path,
+    socket_path: &Path,
+) -> io::Result<()> {
+    let lock_pid = fs::read_to_string(lock_path)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<i32>().ok());
+
+    if let Some(pid) = lock_pid {
+        let alive = unsafe {
+            libc::kill(pid, 0) == 0
+                || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+        };
+        if alive {
+            return Err(io::Error::new(
+                ErrorKind::AddrInUse,
+                format!("X11 display {display} is already in use by pid {pid}"),
+            ));
+        }
+    }
+
+    if lock_path.exists() {
+        let _ = fs::remove_file(lock_path);
+    }
+    if socket_path.exists() {
+        let _ = fs::remove_file(socket_path);
+    }
+    Ok(())
 }
 
 fn runtime_dir_is_usable(path: &Path) -> bool {

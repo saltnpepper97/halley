@@ -26,20 +26,33 @@ pub(crate) fn draw_ring<F: Frame>(
     color: Color32F,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), F::Error> {
-    let samples = 96;
-    for i in 0..samples {
+    let samples = 224;
+    let thickness = 2.0f32;
+    let mut prev: Option<(f32, f32)> = None;
+    for i in 0..=samples {
         let t = (i as f32 / samples as f32) * TAU;
         let x = center_sx + t.cos() * rx;
         let y = center_sy + t.sin() * ry;
-        draw_rect(
-            frame,
-            (x - 1.0) as i32,
-            (y - 1.0) as i32,
-            3,
-            3,
-            color,
-            damage,
-        )?;
+        if let Some((px, py)) = prev {
+            let dx = x - px;
+            let dy = y - py;
+            let steps = dx.abs().max(dy.abs()).ceil().max(1.0) as i32;
+            for step in 0..=steps {
+                let frac = step as f32 / steps as f32;
+                let sx = px + dx * frac;
+                let sy = py + dy * frac;
+                draw_rect(
+                    frame,
+                    (sx - thickness * 0.5).round() as i32,
+                    (sy - thickness * 0.5).round() as i32,
+                    thickness.round().max(1.0) as i32,
+                    thickness.round().max(1.0) as i32,
+                    color,
+                    damage,
+                )?;
+            }
+        }
+        prev = Some((x, y));
     }
     Ok(())
 }

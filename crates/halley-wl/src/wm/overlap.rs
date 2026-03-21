@@ -4,6 +4,21 @@ use crate::render::node_render_diameter_px;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 
+const CONTACT_SLOP: f32 = 0.5;
+const CONTACT_SKIN: f32 = 1.5;
+const MAX_PHYSICS_SPEED: f32 = 1600.0;
+const LINEAR_DAMPING_FALLBACK_PER_SEC: f32 = 4.5;
+const USER_DAMPING_MIN: f32 = 0.0;
+const USER_DAMPING_MAX: f32 = 1.0;
+const INTERNAL_DAMPING_MIN_PER_SEC: f32 = 3.0;
+const INTERNAL_DAMPING_MAX_PER_SEC: f32 = 8.0;
+const CONTACT_RESTITUTION: f32 = 0.02;
+const CONTACT_FRICTION: f32 = 0.22;
+const MAX_CONTACT_IMPULSE: f32 = 380.0;
+const MAX_POSITION_CORRECTION: f32 = 48.0;
+const POSITION_SOLVER_ITERS: usize = 6;
+const PHYSICS_REST_EPSILON: f32 = 4.0;
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CollisionExtents {
     pub left: f32,
@@ -34,9 +49,45 @@ impl CollisionExtents {
 
 impl HalleyWlState {
     #[inline]
+    fn clamp_speed(v: Vec2, max_speed: f32) -> Vec2 {
+        let speed_sq = v.x * v.x + v.y * v.y;
+        if speed_sq <= max_speed * max_speed {
+            return v;
+        }
+        let speed = speed_sq.sqrt().max(f32::EPSILON);
+        let scale = max_speed / speed;
+        Vec2 {
+            x: v.x * scale,
+            y: v.y * scale,
+        }
+    }
+
+    #[inline]
+    fn physics_damping_per_sec(&self) -> f32 {
+        let user = self.tuning.non_overlap_bump_damping;
+        if !user.is_finite() {
+            return LINEAR_DAMPING_FALLBACK_PER_SEC;
+        }
+        let x = user.clamp(USER_DAMPING_MIN, USER_DAMPING_MAX);
+        let t = 1.0 - (1.0 - x) * (1.0 - x);
+        INTERNAL_DAMPING_MIN_PER_SEC
+            + t * (INTERNAL_DAMPING_MAX_PER_SEC - INTERNAL_DAMPING_MIN_PER_SEC)
+    }
+
+    #[inline]
+    fn physics_inv_mass(&self, id: NodeId, pinned: bool) -> f32 {
+        if pinned || self.drag_authority_node == Some(id) || self.resize_active == Some(id) {
+            0.0
+        } else {
+            1.0
+        }
+    }
+
+    #[inline]
     fn node_participates_in_overlap(&self, id: NodeId) -> bool {
         self.field.node(id).is_some_and(|n| {
             self.field.is_visible(id)
+                && self.node_visible_on_current_monitor(id)
                 && matches!(
                     n.state,
                     halley_core::field::NodeState::Active
@@ -91,104 +142,21 @@ impl HalleyWlState {
         to: Vec2,
         clamp_only: bool,
     ) -> bool {
-        if clamp_only || self.suspend_overlap_resolve || self.suspend_state_checks {
-            return self.carry_surface_no_overlap_static(id, to);
-        }
-
-        let Some(n) = self.field.node(id) else {
-            return false;
+        let moved = if !self.tuning.physics_enabled {
+            self.carry_surface_no_overlap_static(id, to)
+        } else if clamp_only || self.suspend_overlap_resolve || self.suspend_state_checks {
+            self.carry_surface_no_overlap_static(id, to)
+        } else {
+            self.field.carry(id, to)
         };
-        let mover_ext = self.collision_extents_for_node(n);
-        let gap = self.non_overlap_gap_world();
-        let mut mover_pos = to;
-        for _ in 0..24 {
-            let others: Vec<(NodeId, Vec2, CollisionExtents, bool)> = self
-                .field
-                .nodes()
-                .iter()
-                .filter_map(|(&oid, other)| {
-                    if oid == id || !self.node_participates_in_overlap(oid) {
-                        return None;
-                    }
-                    Some((
-                        oid,
-                        other.pos,
-                        self.collision_extents_for_node(other),
-                        other.pinned,
-                    ))
-                })
-                .collect();
-
-            let mut changed = false;
-
-            for (oid, opos, oext, opinned) in others {
-                let dx = mover_pos.x - opos.x;
-                let dy = mover_pos.y - opos.y;
-                let req_x = self.required_sep_x(mover_pos.x, mover_ext, opos.x, oext, gap);
-                let req_y = self.required_sep_y(mover_pos.y, mover_ext, opos.y, oext, gap);
-                let ox = req_x - dx.abs();
-                let oy = req_y - dy.abs();
-                if ox <= 0.0 || oy <= 0.0 {
-                    continue;
-                }
-
-                if ox < oy {
-                    let sign = if dx.abs() > f32::EPSILON {
-                        dx.signum()
-                    } else if oid.as_u64() < id.as_u64() {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    let step = ox + 0.3;
-                    if opinned {
-                        mover_pos.x += sign * step;
-                    } else {
-                        let half = sign * (step * 0.5);
-                        mover_pos.x += half;
-                        let _ = self.field.carry(
-                            oid,
-                            Vec2 {
-                                x: opos.x - half,
-                                y: opos.y,
-                            },
-                        );
-                    }
-                } else {
-                    let sign = if dy.abs() > f32::EPSILON {
-                        dy.signum()
-                    } else {
-                        1.0
-                    };
-                    let step = oy + 0.3;
-                    if opinned {
-                        mover_pos.y += sign * step;
-                    } else {
-                        let half = sign * (step * 0.5);
-                        mover_pos.y += half;
-                        let _ = self.field.carry(
-                            oid,
-                            Vec2 {
-                                x: opos.x,
-                                y: opos.y - half,
-                            },
-                        );
-                    }
-                }
-
-                changed = true;
-            }
-
-            if self.field.node(id).is_some_and(|node| node.pinned) {
-                return false;
-            }
-
-            if !changed {
-                break;
-            }
-        }
-
-        self.field.carry(id, mover_pos)
+        // Do NOT call monitor_for_screen(node.pos) here. node.pos is world
+        // space; monitor_for_screen expects screen pixels. Calling it here
+        // overwrites node_monitor with a garbage monitor name on every drag
+        // tick, defeating the monitor-locked drag clamp in pointer_motion.rs.
+        // node_monitor is set authoritatively at drag-begin via
+        // assign_node_to_current_monitor, and updated explicitly on a monitor
+        // transfer. It must not be silently mutated by the physics tick.
+        moved
     }
 
     fn carry_surface_no_overlap_static(&mut self, id: NodeId, to: Vec2) -> bool {
@@ -430,17 +398,61 @@ impl HalleyWlState {
             .filter(|&id| self.node_participates_in_overlap(id))
             .collect();
 
-        if ids.len() < 2 {
+        if ids.is_empty() {
             return;
         }
 
         ids.sort_by_key(|id| id.as_u64());
 
-        let gap = self.non_overlap_gap_world();
-        let focus_id = self.interaction_focus;
-        for _ in 0..24 {
-            let mut changed = false;
+        let now = Instant::now();
+        let dt = now
+            .saturating_duration_since(self.physics_last_tick)
+            .as_secs_f32()
+            .clamp(1.0 / 240.0, 1.0 / 30.0);
+        self.physics_last_tick = now;
 
+        let gap = self.non_overlap_gap_world();
+        let damping_per_sec = self.physics_damping_per_sec();
+        let damping = (-damping_per_sec * dt).exp();
+        let mut positions: std::collections::HashMap<NodeId, Vec2> =
+            std::collections::HashMap::new();
+        let mut velocities: std::collections::HashMap<NodeId, Vec2> =
+            std::collections::HashMap::new();
+
+        for &id in &ids {
+            let Some(node) = self.field.node(id) else {
+                continue;
+            };
+            positions.insert(id, node.pos);
+            velocities.insert(
+                id,
+                Self::clamp_speed(
+                    self.physics_velocity
+                        .get(&id)
+                        .copied()
+                        .unwrap_or(Vec2 { x: 0.0, y: 0.0 }),
+                    MAX_PHYSICS_SPEED,
+                ),
+            );
+        }
+
+        for &id in &ids {
+            let Some(node) = self.field.node(id) else {
+                continue;
+            };
+            let pinned = node.pinned || self.resize_static_node == Some(id);
+            if self.physics_inv_mass(id, pinned) <= 0.0 {
+                continue;
+            }
+            if let (Some(pos), Some(vel)) = (positions.get_mut(&id), velocities.get_mut(&id)) {
+                pos.x += vel.x * dt;
+                pos.y += vel.y * dt;
+                vel.x *= damping;
+                vel.y *= damping;
+            }
+        }
+
+        for _ in 0..POSITION_SOLVER_ITERS {
             for i in 0..ids.len() {
                 for j in (i + 1)..ids.len() {
                     let a = ids[i];
@@ -453,144 +465,161 @@ impl HalleyWlState {
                         continue;
                     };
 
-                    let a_pos = na.pos;
-                    let b_pos = nb.pos;
                     let a_pinned = na.pinned || self.resize_static_node == Some(a);
                     let b_pinned = nb.pinned || self.resize_static_node == Some(b);
-
-                    if a_pinned && b_pinned {
+                    let inv_mass_a = self.physics_inv_mass(a, a_pinned);
+                    let inv_mass_b = self.physics_inv_mass(b, b_pinned);
+                    if inv_mass_a <= 0.0 && inv_mass_b <= 0.0 {
                         continue;
                     }
+
+                    let Some(a_pos) = positions.get(&a).copied() else {
+                        continue;
+                    };
+                    let Some(b_pos) = positions.get(&b).copied() else {
+                        continue;
+                    };
 
                     let ea = self.layout_collision_extents_for_node(na);
                     let eb = self.layout_collision_extents_for_node(nb);
-
                     let dx = b_pos.x - a_pos.x;
                     let dy = b_pos.y - a_pos.y;
-
                     let req_x = self.required_sep_x(a_pos.x, ea, b_pos.x, eb, gap);
                     let req_y = self.required_sep_y(a_pos.y, ea, b_pos.y, eb, gap);
-                    let ox = req_x - dx.abs();
-                    let oy = req_y - dy.abs();
-
-                    if self.resize_active == Some(a) || self.resize_active == Some(b) {
+                    let gap_x = dx.abs() - req_x;
+                    let gap_y = dy.abs() - req_y;
+                    if gap_x > CONTACT_SKIN || gap_y > CONTACT_SKIN {
                         continue;
                     }
 
-                    if ox <= 0.0 || oy <= 0.0 {
+                    let solve_x = gap_x >= gap_y;
+                    let normal = if solve_x {
+                        Vec2 {
+                            x: if dx.abs() > f32::EPSILON {
+                                dx.signum()
+                            } else if a.as_u64() < b.as_u64() {
+                                -1.0
+                            } else {
+                                1.0
+                            },
+                            y: 0.0,
+                        }
+                    } else {
+                        Vec2 {
+                            x: 0.0,
+                            y: if dy.abs() > f32::EPSILON {
+                                dy.signum()
+                            } else {
+                                1.0
+                            },
+                        }
+                    };
+
+                    let penetration = if solve_x {
+                        (-gap_x).max(0.0)
+                    } else {
+                        (-gap_y).max(0.0)
+                    };
+                    if penetration > 0.0 {
+                        let correction = (penetration + CONTACT_SLOP).min(MAX_POSITION_CORRECTION);
+                        let total_inv = inv_mass_a + inv_mass_b;
+                        if total_inv > 0.0 {
+                            let move_a = correction * (inv_mass_a / total_inv);
+                            let move_b = correction * (inv_mass_b / total_inv);
+                            if let Some(pos) = positions.get_mut(&a) {
+                                pos.x -= normal.x * move_a;
+                                pos.y -= normal.y * move_a;
+                            }
+                            if let Some(pos) = positions.get_mut(&b) {
+                                pos.x += normal.x * move_b;
+                                pos.y += normal.y * move_b;
+                            }
+                        }
+                    }
+
+                    let Some(va) = velocities.get(&a).copied() else {
+                        continue;
+                    };
+                    let Some(vb) = velocities.get(&b).copied() else {
+                        continue;
+                    };
+                    let rel_x = vb.x - va.x;
+                    let rel_y = vb.y - va.y;
+                    let rel_normal = rel_x * normal.x + rel_y * normal.y;
+                    if rel_normal >= 0.0 {
                         continue;
                     }
 
-                    let sep_on_x = ox < oy;
-                    let sep = if sep_on_x { ox + 0.3 } else { oy + 0.3 };
-                    let dir_x = if dx.abs() > f32::EPSILON {
-                        dx.signum()
-                    } else if a.as_u64() < b.as_u64() {
-                        -1.0
-                    } else {
-                        1.0
-                    };
-                    let dir_y = if dy.abs() > f32::EPSILON {
-                        dy.signum()
-                    } else {
-                        1.0
-                    };
+                    let total_inv = inv_mass_a + inv_mass_b;
+                    if total_inv <= 0.0 {
+                        continue;
+                    }
 
-                    if focus_id == Some(a) && !b_pinned {
-                        let target = if sep_on_x {
-                            Vec2 {
-                                x: b_pos.x + dir_x * sep,
-                                y: b_pos.y,
-                            }
-                        } else {
-                            Vec2 {
-                                x: b_pos.x,
-                                y: b_pos.y + dir_y * sep,
-                            }
-                        };
-                        if self.field.carry(b, target) {
-                            changed = true;
-                        }
-                    } else if focus_id == Some(b) && !a_pinned {
-                        let target = if sep_on_x {
-                            Vec2 {
-                                x: a_pos.x - dir_x * sep,
-                                y: a_pos.y,
-                            }
-                        } else {
-                            Vec2 {
-                                x: a_pos.x,
-                                y: a_pos.y - dir_y * sep,
-                            }
-                        };
-                        if self.field.carry(a, target) {
-                            changed = true;
-                        }
-                    } else if !a_pinned && !b_pinned {
-                        let half = sep * 0.5;
-                        let a_target = if sep_on_x {
-                            Vec2 {
-                                x: a_pos.x - dir_x * half,
-                                y: a_pos.y,
-                            }
-                        } else {
-                            Vec2 {
-                                x: a_pos.x,
-                                y: a_pos.y - dir_y * half,
-                            }
-                        };
-                        let b_target = if sep_on_x {
-                            Vec2 {
-                                x: b_pos.x + dir_x * half,
-                                y: b_pos.y,
-                            }
-                        } else {
-                            Vec2 {
-                                x: b_pos.x,
-                                y: b_pos.y + dir_y * half,
-                            }
-                        };
-                        let moved_a = self.field.carry(a, a_target);
-                        let moved_b = self.field.carry(b, b_target);
-                        if moved_a || moved_b {
-                            changed = true;
-                        }
-                    } else if !a_pinned {
-                        let target = if sep_on_x {
-                            Vec2 {
-                                x: a_pos.x - dir_x * sep,
-                                y: a_pos.y,
-                            }
-                        } else {
-                            Vec2 {
-                                x: a_pos.x,
-                                y: a_pos.y - dir_y * sep,
-                            }
-                        };
-                        if self.field.carry(a, target) {
-                            changed = true;
-                        }
-                    } else if !b_pinned {
-                        let target = if sep_on_x {
-                            Vec2 {
-                                x: b_pos.x + dir_x * sep,
-                                y: b_pos.y,
-                            }
-                        } else {
-                            Vec2 {
-                                x: b_pos.x,
-                                y: b_pos.y + dir_y * sep,
-                            }
-                        };
-                        if self.field.carry(b, target) {
-                            changed = true;
-                        }
+                    let normal_impulse = (-(1.0 + CONTACT_RESTITUTION) * rel_normal / total_inv)
+                        .min(MAX_CONTACT_IMPULSE)
+                        .max(0.0);
+                    let impulse_x = normal.x * normal_impulse;
+                    let impulse_y = normal.y * normal_impulse;
+
+                    if let Some(vel) = velocities.get_mut(&a) {
+                        vel.x -= impulse_x * inv_mass_a;
+                        vel.y -= impulse_y * inv_mass_a;
+                    }
+                    if let Some(vel) = velocities.get_mut(&b) {
+                        vel.x += impulse_x * inv_mass_b;
+                        vel.y += impulse_y * inv_mass_b;
+                    }
+
+                    let tangent_x = rel_x - normal.x * rel_normal;
+                    let tangent_y = rel_y - normal.y * rel_normal;
+                    let tangent_len = (tangent_x * tangent_x + tangent_y * tangent_y).sqrt();
+                    if tangent_len <= f32::EPSILON {
+                        continue;
+                    }
+                    let tx = tangent_x / tangent_len;
+                    let ty = tangent_y / tangent_len;
+                    let rel_tangent = rel_x * tx + rel_y * ty;
+                    let friction_impulse = (-rel_tangent / total_inv).clamp(
+                        -CONTACT_FRICTION * normal_impulse,
+                        CONTACT_FRICTION * normal_impulse,
+                    );
+                    let friction_x = tx * friction_impulse;
+                    let friction_y = ty * friction_impulse;
+
+                    if let Some(vel) = velocities.get_mut(&a) {
+                        vel.x -= friction_x * inv_mass_a;
+                        vel.y -= friction_y * inv_mass_a;
+                    }
+                    if let Some(vel) = velocities.get_mut(&b) {
+                        vel.x += friction_x * inv_mass_b;
+                        vel.y += friction_y * inv_mass_b;
                     }
                 }
             }
+        }
 
-            if !changed {
-                break;
+        for id in ids {
+            let Some(node) = self.field.node(id) else {
+                continue;
+            };
+            let pinned = node.pinned || self.resize_static_node == Some(id);
+            if let Some(pos) = positions.get(&id).copied() {
+                let _ = self.field.carry(id, pos);
+            }
+            if self.physics_inv_mass(id, pinned) <= 0.0 {
+                continue;
+            }
+            let vel = Self::clamp_speed(
+                velocities
+                    .get(&id)
+                    .copied()
+                    .unwrap_or(Vec2 { x: 0.0, y: 0.0 }),
+                MAX_PHYSICS_SPEED,
+            );
+            if vel.x.abs() < PHYSICS_REST_EPSILON && vel.y.abs() < PHYSICS_REST_EPSILON {
+                self.physics_velocity.remove(&id);
+            } else {
+                self.physics_velocity.insert(id, vel);
             }
         }
     }
@@ -626,13 +655,37 @@ impl HalleyWlState {
 mod tests {
     use super::*;
 
+    fn overlap_metrics(state: &HalleyWlState, a: NodeId, b: NodeId) -> (f32, f32, f32, f32) {
+        let na = state.field.node(a).expect("node a");
+        let nb = state.field.node(b).expect("node b");
+        let ea = state.collision_extents_for_node(na);
+        let eb = state.collision_extents_for_node(nb);
+        let gap = state.non_overlap_gap_world();
+        let dx = (nb.pos.x - na.pos.x).abs();
+        let dy = (nb.pos.y - na.pos.y).abs();
+        let req_x = state.required_sep_x(na.pos.x, ea, nb.pos.x, eb, gap);
+        let req_y = state.required_sep_y(na.pos.y, ea, nb.pos.y, eb, gap);
+        (dx, dy, req_x, req_y)
+    }
+
+    fn nodes_overlap(state: &HalleyWlState, a: NodeId, b: NodeId) -> bool {
+        let (dx, dy, req_x, req_y) = overlap_metrics(state, a, b);
+        dx < req_x && dy < req_y
+    }
+
+    fn tick_overlap_frames(state: &mut HalleyWlState, frames: usize) {
+        for _ in 0..frames {
+            state.resolve_surface_overlap();
+        }
+    }
+
     #[test]
     fn collapsed_surface_nodes_use_marker_collision_extents() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -675,7 +728,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -708,12 +761,12 @@ mod tests {
     }
 
     #[test]
-    fn resolve_overlap_now_separates_collapsed_nodes_when_zoomed_out() {
+    fn resolve_overlap_settles_collapsed_nodes_when_zoomed_out() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -739,35 +792,27 @@ mod tests {
             .field
             .set_state(b, halley_core::field::NodeState::Node);
 
-        state.resolve_overlap_now();
+        tick_overlap_frames(&mut state, 64);
 
-        let na = state.field.node(a).expect("node a");
-        let nb = state.field.node(b).expect("node b");
-        let ea = state.collision_extents_for_node(na);
-        let eb = state.collision_extents_for_node(nb);
-        let gap = state.non_overlap_gap_world();
-        let dx = (nb.pos.x - na.pos.x).abs();
-        let dy = (nb.pos.y - na.pos.y).abs();
-        let req_x = state.required_sep_x(na.pos.x, ea, nb.pos.x, eb, gap);
-        let req_y = state.required_sep_y(na.pos.y, ea, nb.pos.y, eb, gap);
+        let (dx, dy, req_x, req_y) = overlap_metrics(&state, a, b);
 
         assert!(
             dx >= req_x || dy >= req_y,
-            "collapsed nodes still overlap after zoomed-out resolve: a={:?} b={:?} req=({}, {})",
-            na.pos,
-            nb.pos,
+            "collapsed nodes still overlap after zoomed-out settle: a={:?} b={:?} req=({}, {})",
+            state.field.node(a).expect("node a").pos,
+            state.field.node(b).expect("node b").pos,
             req_x,
             req_y
         );
     }
 
     #[test]
-    fn dragging_collapsed_node_cannot_overlap_active_surface() {
+    fn dragged_window_is_authoritative_while_neighbor_yields() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -791,37 +836,21 @@ mod tests {
             .field
             .set_state(node, halley_core::field::NodeState::Node);
 
+        state.set_drag_authority_node(Some(node));
         assert!(state.carry_surface_non_overlap(node, Vec2 { x: 0.0, y: 0.0 }, false));
+        state.resolve_surface_overlap();
 
         let active_node = state.field.node(active).expect("active surface");
         let collapsed_node = state.field.node(node).expect("collapsed node");
-        let active_ext = state.collision_extents_for_node(active_node);
-        let node_ext = state.collision_extents_for_node(collapsed_node);
-        let gap = state.non_overlap_gap_world();
-        let dx = (collapsed_node.pos.x - active_node.pos.x).abs();
-        let dy = (collapsed_node.pos.y - active_node.pos.y).abs();
-        let req_x = state.required_sep_x(
-            active_node.pos.x,
-            active_ext,
-            collapsed_node.pos.x,
-            node_ext,
-            gap,
-        );
-        let req_y = state.required_sep_y(
-            active_node.pos.y,
-            active_ext,
-            collapsed_node.pos.y,
-            node_ext,
-            gap,
-        );
 
         assert!(
-            dx >= req_x || dy >= req_y,
-            "collapsed node overlapped active surface after drag: active={:?} node={:?} req=({}, {})",
-            active_node.pos,
-            collapsed_node.pos,
-            req_x,
-            req_y
+            collapsed_node.pos == Vec2 { x: 0.0, y: 0.0 },
+            "dragged window moved away from the cursor-driven position: {:?}",
+            collapsed_node.pos
+        );
+        assert!(
+            active_node.pos != Vec2 { x: 0.0, y: 0.0 },
+            "passive neighbor did not yield while dragged window remained authoritative"
         );
     }
 
@@ -831,7 +860,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
 
         let id = state.field.spawn_surface(
             "active",
@@ -850,12 +879,12 @@ mod tests {
     }
 
     #[test]
-    fn resolve_overlap_now_separates_collapsed_nodes() {
+    fn resolve_overlap_settles_collapsed_nodes() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -881,35 +910,27 @@ mod tests {
             .field
             .set_state(b, halley_core::field::NodeState::Node);
 
-        state.resolve_overlap_now();
+        tick_overlap_frames(&mut state, 64);
 
-        let na = state.field.node(a).expect("node a");
-        let nb = state.field.node(b).expect("node b");
-        let ea = state.collision_extents_for_node(na);
-        let eb = state.collision_extents_for_node(nb);
-        let gap = state.non_overlap_gap_world();
-        let dx = (nb.pos.x - na.pos.x).abs();
-        let dy = (nb.pos.y - na.pos.y).abs();
-        let req_x = state.required_sep_x(na.pos.x, ea, nb.pos.x, eb, gap);
-        let req_y = state.required_sep_y(na.pos.y, ea, nb.pos.y, eb, gap);
+        let (dx, dy, req_x, req_y) = overlap_metrics(&state, a, b);
 
         assert!(
             dx >= req_x || dy >= req_y,
-            "collapsed nodes still overlap after resolve: a={:?} b={:?} req=({}, {})",
-            na.pos,
-            nb.pos,
+            "collapsed nodes still overlap after settle: a={:?} b={:?} req=({}, {})",
+            state.field.node(a).expect("node a").pos,
+            state.field.node(b).expect("node b").pos,
             req_x,
             req_y
         );
     }
 
     #[test]
-    fn resolve_overlap_now_separates_active_surface_and_node_immediately() {
+    fn resolve_overlap_settles_active_surface_and_node() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -932,47 +953,27 @@ mod tests {
             .field
             .set_state(node, halley_core::field::NodeState::Node);
 
-        state.resolve_overlap_now();
+        tick_overlap_frames(&mut state, 96);
 
-        let active_node = state.field.node(active).expect("active");
-        let collapsed_node = state.field.node(node).expect("node");
-        let active_ext = state.collision_extents_for_node(active_node);
-        let node_ext = state.collision_extents_for_node(collapsed_node);
-        let gap = state.non_overlap_gap_world();
-        let dx = (collapsed_node.pos.x - active_node.pos.x).abs();
-        let dy = (collapsed_node.pos.y - active_node.pos.y).abs();
-        let req_x = state.required_sep_x(
-            active_node.pos.x,
-            active_ext,
-            collapsed_node.pos.x,
-            node_ext,
-            gap,
-        );
-        let req_y = state.required_sep_y(
-            active_node.pos.y,
-            active_ext,
-            collapsed_node.pos.y,
-            node_ext,
-            gap,
-        );
+        let (dx, dy, req_x, req_y) = overlap_metrics(&state, active, node);
 
         assert!(
             dx >= req_x || dy >= req_y,
-            "active surface and node still overlap after resolve: active={:?} node={:?} req=({}, {})",
-            active_node.pos,
-            collapsed_node.pos,
+            "active surface and node still overlap after settle: active={:?} node={:?} req=({}, {})",
+            state.field.node(active).expect("active").pos,
+            state.field.node(node).expect("node").pos,
             req_x,
             req_y
         );
     }
 
     #[test]
-    fn resolve_overlap_now_separates_two_active_surfaces_immediately() {
+    fn resolve_overlap_settles_two_active_surfaces() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -991,25 +992,206 @@ mod tests {
                 .field
                 .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
 
-        state.resolve_overlap_now();
+        tick_overlap_frames(&mut state, 128);
 
-        let na = state.field.node(a).expect("a");
-        let nb = state.field.node(b).expect("b");
-        let ea = state.collision_extents_for_node(na);
-        let eb = state.collision_extents_for_node(nb);
-        let gap = state.non_overlap_gap_world();
-        let dx = (nb.pos.x - na.pos.x).abs();
-        let dy = (nb.pos.y - na.pos.y).abs();
-        let req_x = state.required_sep_x(na.pos.x, ea, nb.pos.x, eb, gap);
-        let req_y = state.required_sep_y(na.pos.y, ea, nb.pos.y, eb, gap);
+        let (dx, dy, req_x, req_y) = overlap_metrics(&state, a, b);
 
         assert!(
             dx >= req_x || dy >= req_y,
-            "active surfaces still overlap after resolve: a={:?} b={:?} req=({}, {})",
-            na.pos,
-            nb.pos,
+            "active surfaces still overlap after settle: a={:?} b={:?} req=({}, {})",
+            state.field.node(a).expect("a").pos,
+            state.field.node(b).expect("b").pos,
             req_x,
             req_y
+        );
+    }
+
+    #[test]
+    fn body_velocity_is_bounded_under_contact() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+
+        let a =
+            state
+                .field
+                .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let b =
+            state
+                .field
+                .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+
+        for _ in 0..12 {
+            state.resolve_surface_overlap();
+            let vel_a = state
+                .physics_velocity
+                .get(&a)
+                .copied()
+                .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
+            let vel_b = state
+                .physics_velocity
+                .get(&b)
+                .copied()
+                .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
+            assert!(
+                vel_a.x.abs() <= MAX_PHYSICS_SPEED
+                    && vel_a.y.abs() <= MAX_PHYSICS_SPEED
+                    && vel_b.x.abs() <= MAX_PHYSICS_SPEED
+                    && vel_b.y.abs() <= MAX_PHYSICS_SPEED,
+                "contact solver exceeded the velocity bound: vel_a={vel_a:?} vel_b={vel_b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn angled_drag_contact_does_not_create_unbounded_velocity() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+
+        let passive = state.field.spawn_surface(
+            "passive",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let dragged = state.field.spawn_surface(
+            "dragged",
+            Vec2 {
+                x: -420.0,
+                y: -280.0,
+            },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+
+        state.set_drag_authority_node(Some(dragged));
+        for step in 0..48 {
+            let to = Vec2 {
+                x: -180.0 + step as f32 * 9.0,
+                y: -120.0 + step as f32 * 5.5,
+            };
+            let _ = state.carry_surface_non_overlap(dragged, to, false);
+            state.resolve_surface_overlap();
+            let vel = state
+                .physics_velocity
+                .get(&passive)
+                .copied()
+                .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
+            assert!(
+                vel.x.abs() <= MAX_PHYSICS_SPEED && vel.y.abs() <= MAX_PHYSICS_SPEED,
+                "passive window velocity exceeded the configured cap during angled drag: {vel:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn release_preserves_momentum() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+
+        let id = state.field.spawn_surface(
+            "release",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        state
+            .physics_velocity
+            .insert(id, Vec2 { x: 480.0, y: 120.0 });
+        state.finalize_mouse_drag_state(id, Vec2 { x: 0.0, y: 0.0 }, Instant::now());
+        let before = state.field.node(id).expect("release").pos;
+        state.resolve_surface_overlap();
+        let after = state.field.node(id).expect("release").pos;
+
+        assert!(
+            after.x > before.x && after.y > before.y,
+            "released window did not continue moving with stored momentum: before={before:?} after={after:?}"
+        );
+    }
+
+    #[test]
+    fn direct_border_hit_triggers_physics_response() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+
+        let a =
+            state
+                .field
+                .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let b =
+            state
+                .field
+                .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let ea = state.collision_extents_for_node(state.field.node(a).expect("a"));
+        let eb = state.collision_extents_for_node(state.field.node(b).expect("b"));
+        let req_x = state.required_sep_x(0.0, ea, 1.0, eb, state.non_overlap_gap_world());
+        let _ = state.field.carry(b, Vec2 { x: req_x, y: 0.0 });
+        state.physics_velocity.insert(a, Vec2 { x: 320.0, y: 0.0 });
+        state.physics_velocity.insert(b, Vec2 { x: 0.0, y: 0.0 });
+
+        state.resolve_surface_overlap();
+
+        let vb = state
+            .physics_velocity
+            .get(&b)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
+        assert!(
+            vb.x > 0.0,
+            "gap==0 border contact failed to produce a physics response: vb={vb:?}"
+        );
+    }
+
+    #[test]
+    fn windows_settle_back_to_rest_after_contact_clears() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+
+        let a =
+            state
+                .field
+                .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let b =
+            state
+                .field
+                .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+
+        tick_overlap_frames(&mut state, 12);
+        let _ = state.carry_surface_non_overlap(b, Vec2 { x: 700.0, y: 0.0 }, false);
+        tick_overlap_frames(&mut state, 24);
+
+        let va = state
+            .physics_velocity
+            .get(&a)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
+        let vb = state
+            .physics_velocity
+            .get(&b)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
+
+        assert!(
+            va.x.abs() <= PHYSICS_REST_EPSILON
+                && va.y.abs() <= PHYSICS_REST_EPSILON
+                && vb.x.abs() <= PHYSICS_REST_EPSILON
+                && vb.y.abs() <= PHYSICS_REST_EPSILON,
+            "windows failed to settle back to rest after overlap cleared: va={va:?} vb={vb:?}"
+        );
+        assert!(
+            !nodes_overlap(&state, a, b),
+            "windows still overlap after the settling phase"
         );
     }
 }

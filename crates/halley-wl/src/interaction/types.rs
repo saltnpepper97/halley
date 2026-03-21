@@ -28,9 +28,13 @@ pub(crate) struct ModState {
 #[derive(Clone, Copy)]
 pub(crate) struct DragCtx {
     pub(crate) node_id: halley_core::field::NodeId,
+    pub(crate) allow_monitor_transfer: bool,
     pub(crate) current_offset: halley_core::field::Vec2,
     pub(crate) center_latched: bool,
     pub(crate) started_active: bool,
+    pub(crate) last_pointer_world: halley_core::field::Vec2,
+    pub(crate) last_update_at: Instant,
+    pub(crate) release_velocity: halley_core::field::Vec2,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -121,6 +125,7 @@ pub(crate) struct PointerState {
     pub(crate) move_anim: HashMap<halley_core::field::NodeId, NodeMoveAnim>,
     pub(crate) last_title_click: Option<TitleClickCtx>,
     pub(crate) panning: bool,
+    pub(crate) pan_monitor: Option<String>,
     pub(crate) pan_last_screen: (f32, f32),
     pub(crate) hover_started_at: Option<Instant>,
     pub(crate) preview_block_until: Option<Instant>,
@@ -143,6 +148,7 @@ impl Default for PointerState {
             move_anim: HashMap::new(),
             last_title_click: None,
             panning: false,
+            pan_monitor: None,
             pan_last_screen: (0.0, 0.0),
             hover_started_at: None,
             preview_block_until: None,

@@ -1,17 +1,25 @@
 use super::*;
+use std::collections::HashMap;
 
 use crate::interaction::types::ResizeCtx;
 use halley_ipc::{ModeInfo, OutputInfo, OutputStatus};
 
 pub(crate) struct TtyDrmProbe {
-    pub(crate) _card_path: std::path::PathBuf,
+    pub(crate) card_path: std::path::PathBuf,
     pub(crate) dev: DrmDevice,
+    pub(crate) gbm: GbmDevice<DeviceFd>,
     pub(crate) notifier: smithay::backend::drm::DrmDeviceNotifier,
+    pub(crate) renderer: Rc<RefCell<GlesRenderer>>,
+    pub(crate) outputs: Vec<TtyDrmOutput>,
+}
+
+pub(crate) struct TtyDrmOutput {
+    #[allow(dead_code)]
+    pub(crate) connector: drm_control::connector::Handle,
     pub(crate) crtc: drm_control::crtc::Handle,
     pub(crate) connector_name: String,
     pub(crate) mode: drm_control::Mode,
     pub(crate) gbm_surface: Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
-    pub(crate) renderer: Rc<RefCell<GlesRenderer>>,
 }
 
 pub(crate) fn probe_tty_drm_device_via_session(
@@ -82,16 +90,6 @@ pub(crate) fn probe_tty_drm_device_path_via_session(
             err
         ))
     })?;
-    let (crtc, mode, connector, connector_name) = select_tty_scanout(&mut dev, tuning)?;
-    let surface = dev
-        .create_surface(crtc, mode, &[connector])
-        .map_err(|err| {
-            io::Error::other(format!(
-                "failed to create drm surface on {}: {}",
-                card_path.display(),
-                err
-            ))
-        })?;
     let gbm = GbmDevice::new(dev_fd.device_fd()).map_err(|err| {
         io::Error::other(format!(
             "failed to create gbm device for {}: {}",
@@ -120,52 +118,138 @@ pub(crate) fn probe_tty_drm_device_path_via_session(
             err
         ))
     })?;
-    let renderer_formats: Vec<Format> = renderer.dmabuf_formats().iter().copied().collect();
-    let allocator = GbmAllocator::new(gbm, GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
-    let gbm_surface = GbmBufferedSurface::new(
-        surface,
-        allocator,
-        &[Fourcc::Xrgb8888, Fourcc::Argb8888],
-        renderer_formats,
-    )
-    .map_err(|err| {
-        io::Error::other(format!(
-            "failed to create gbm buffered surface for {}: {}",
-            card_path.display(),
-            err
-        ))
-    })?;
+    let outputs = build_tty_outputs(&mut dev, &gbm, &renderer, tuning, card_path.display())?;
     info!(
-        "tty drm device ready: card={} atomic={} crtcs={} connector={} mode={}x{}",
+        "tty drm device ready: card={} atomic={} crtcs={} outputs={}",
         card_path.display(),
         dev.is_atomic(),
         dev.crtcs().len(),
-        connector_name,
-        mode.size().0,
-        mode.size().1
+        outputs
+            .iter()
+            .map(|output| {
+                let (w, h) = output.mode.size();
+                format!("{}:{}x{}", output.connector_name, w, h)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     );
     Ok(TtyDrmProbe {
-        _card_path: card_path.to_path_buf(),
+        card_path: card_path.to_path_buf(),
         dev,
+        gbm,
         notifier,
-        crtc,
-        connector_name,
-        mode,
-        gbm_surface: Rc::new(RefCell::new(gbm_surface)),
         renderer: Rc::new(RefCell::new(renderer)),
+        outputs,
     })
 }
 
-pub(crate) fn select_tty_scanout(
+pub(crate) fn current_tty_output_signature(outputs: &[TtyDrmOutput]) -> Vec<String> {
+    let mut signature = outputs
+        .iter()
+        .map(|output| {
+            let (w, h) = output.mode.size();
+            format!(
+                "{}:{:?}:{}x{}@{}",
+                output.connector_name,
+                output.crtc,
+                w,
+                h,
+                output.mode.vrefresh()
+            )
+        })
+        .collect::<Vec<_>>();
+    signature.sort();
+    signature
+}
+
+pub(crate) fn selected_tty_scanout_signature(
+    dev: &mut DrmDevice,
+    tuning: &RuntimeTuning,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut signature = select_tty_scanouts(dev, tuning)?
+        .into_iter()
+        .map(|(crtc, mode, _connector, connector_name)| {
+            let (w, h) = mode.size();
+            format!("{}:{:?}:{}x{}@{}", connector_name, crtc, w, h, mode.vrefresh())
+        })
+        .collect::<Vec<_>>();
+    signature.sort();
+    Ok(signature)
+}
+
+pub(crate) fn rebuild_tty_outputs(
+    dev: &mut DrmDevice,
+    gbm: &GbmDevice<DeviceFd>,
+    renderer: &Rc<RefCell<GlesRenderer>>,
+    tuning: &RuntimeTuning,
+    card_path: &Path,
+) -> Result<Vec<TtyDrmOutput>, Box<dyn Error>> {
+    let renderer = renderer.borrow();
+    build_tty_outputs(dev, gbm, &renderer, tuning, card_path.display())
+}
+
+fn build_tty_outputs(
+    dev: &mut DrmDevice,
+    gbm: &GbmDevice<DeviceFd>,
+    renderer: &GlesRenderer,
+    tuning: &RuntimeTuning,
+    card_label: impl std::fmt::Display,
+) -> Result<Vec<TtyDrmOutput>, Box<dyn Error>> {
+    let selected = select_tty_scanouts(dev, tuning)?;
+    let renderer_formats: Vec<Format> = renderer.dmabuf_formats().iter().copied().collect();
+    let mut outputs = Vec::new();
+
+    for (crtc, mode, connector, connector_name) in selected {
+        let surface = dev.create_surface(crtc, mode, &[connector]).map_err(|err| {
+            io::Error::other(format!(
+                "failed to create drm surface on {}:{}: {}",
+                card_label, connector_name, err
+            ))
+        })?;
+        let allocator = GbmAllocator::new(
+            gbm.clone(),
+            GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
+        );
+        let gbm_surface = GbmBufferedSurface::new(
+            surface,
+            allocator,
+            &[Fourcc::Xrgb8888, Fourcc::Argb8888],
+            renderer_formats.clone(),
+        )
+        .map_err(|err| {
+            io::Error::other(format!(
+                "failed to create gbm buffered surface for {}:{}: {}",
+                card_label, connector_name, err
+            ))
+        })?;
+        if let Err(err) = gbm_surface.surface().reset_state() {
+            warn!(
+                "failed to reset drm surface state for {}:{}: {}",
+                card_label, connector_name, err
+            );
+        }
+        outputs.push(TtyDrmOutput {
+            connector,
+            crtc,
+            connector_name,
+            mode,
+            gbm_surface: Rc::new(RefCell::new(gbm_surface)),
+        });
+    }
+
+    Ok(outputs)
+}
+
+pub(crate) fn select_tty_scanouts(
     dev: &mut DrmDevice,
     tuning: &RuntimeTuning,
 ) -> Result<
-    (
+    Vec<(
         drm_control::crtc::Handle,
         drm_control::Mode,
         drm_control::connector::Handle,
         String,
-    ),
+    )>,
     Box<dyn Error>,
 > {
     let resources = dev
@@ -184,84 +268,194 @@ pub(crate) fn select_tty_scanout(
         return Err(io::Error::other("no connected drm connector with a usable mode found").into());
     }
 
-    let configured = &tuning.tty_viewports;
-    let selected = if configured.is_empty() {
-        let (conn, info) = &connected[0];
-        let mode = info
-            .modes()
-            .first()
-            .copied()
-            .ok_or_else(|| io::Error::other(format!("connector {} has no modes", info)))?;
-        (*conn, info.clone(), mode)
-    } else {
-        if configured.len() > 1 {
-            warn!(
-                "multiple viewport outputs configured ({}); tty backend is single-output and will use the first connected match",
-                configured.len()
-            );
+    let configured: Vec<_> = tuning
+        .tty_viewports
+        .iter()
+        .filter(|viewport| viewport.enabled)
+        .collect();
+    let desired: Vec<_> = if configured.is_empty() {
+        if tuning.tty_viewports.is_empty() {
+            connected
+                .iter()
+                .map(|(conn, info)| {
+                    let mode = info
+                        .modes()
+                        .first()
+                        .copied()
+                        .ok_or_else(|| io::Error::other(format!("connector {} has no modes", info)))?;
+                    Ok((*conn, info.clone(), mode))
+                })
+                .collect::<Result<Vec<_>, io::Error>>()?
+        } else {
+            return Err(io::Error::other("viewport outputs are configured, but none are enabled").into());
         }
-        let mut found: Option<(
-            drm_control::connector::Handle,
-            drm_control::connector::Info,
-            drm_control::Mode,
-        )> = None;
-        for wanted in configured {
-            if let Some((conn, info)) = connected
+    } else {
+        let mut found = Vec::new();
+        for wanted in &configured {
+            let Some((conn, info)) = connected
                 .iter()
                 .find(|(_, info)| info.to_string() == wanted.connector)
-            {
-                let Some(mode) = info.modes().iter().copied().find(|m| {
-                    m.size() == (wanted.width as u16, wanted.height as u16)
-                        && wanted
-                            .refresh_rate
-                            .is_none_or(|hz| (m.vrefresh() as f64 - hz).abs() < 1.0)
-                }) else {
-                    return Err(io::Error::other(format!(
-                        "configured viewport {} requests {}x{}, but no such mode is available",
-                        wanted.connector, wanted.width, wanted.height
-                    ))
-                    .into());
-                };
-                found = Some((*conn, info.clone(), mode));
-                break;
-            }
+            else {
+                warn!(
+                    "configured viewport {} is not currently connected; skipping it",
+                    wanted.connector
+                );
+                continue;
+            };
+
+            let Some(mode) = info.modes().iter().copied().find(|m| {
+                m.size() == (wanted.width as u16, wanted.height as u16)
+                    && wanted
+                        .refresh_rate
+                        // DRM vrefresh is an integer. Allow 2 Hz of slack so
+                        // that e.g. a config of 59.94 matches DRM vrefresh=60,
+                        // and 180.0 matches vrefresh=180 without rounding risk.
+                        .is_none_or(|hz| (m.vrefresh() as f64 - hz).abs() < 2.0)
+            }) else {
+                warn!(
+                    "configured viewport {} requests {}x{} @ {:?}Hz, but no matching DRM mode is available; skipping it",
+                    wanted.connector,
+                    wanted.width,
+                    wanted.height,
+                    wanted.refresh_rate
+                );
+                continue;
+            };
+
+            found.push((*conn, info.clone(), mode));
         }
-        found.ok_or_else(|| {
-            io::Error::other(format!(
-                "none of configured viewport connectors are connected: {}",
+        if found.is_empty() {
+            return Err(io::Error::other(format!(
+                "none of the configured viewport outputs are usable right now: {}",
                 configured
                     .iter()
-                    .map(|v| v.connector.as_str())
+                    .map(|v| {
+                        match v.refresh_rate {
+                            Some(rate) => {
+                                format!("{}={}x{}@{rate:.3}", v.connector, v.width, v.height)
+                            }
+                            None => format!("{}={}x{}", v.connector, v.width, v.height),
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             ))
-        })?
+            .into());
+        }
+
+        if found.len() < configured.len() {
+            warn!(
+                "using {} of {} configured viewport outputs; invalid outputs were skipped",
+                found.len(),
+                configured.len()
+            );
+        }
+        found
     };
 
-    let (selected_conn, selected_info, selected_mode) = selected;
-    let mut selected_crtc: Option<drm_control::crtc::Handle> = None;
-    if let Some(enc) = selected_info
-        .current_encoder()
-        .or_else(|| selected_info.encoders().first().copied())
-        && let Ok(enc_info) = dev.get_encoder(enc)
-    {
-        if let Some(existing_crtc) = enc_info.crtc() {
+    let mut used_crtcs = std::collections::HashSet::new();
+    let mut selected = Vec::new();
+    for (selected_conn, selected_info, mut selected_mode) in desired {
+        let mut selected_crtc: Option<drm_control::crtc::Handle> = None;
+
+        // Collect the set of CRTCs this connector's encoder(s) can drive.
+        // We must never assign a CRTC that isn't in possible_crtcs — the
+        // kernel will reject the modeset with EINVAL even if the CRTC is
+        // otherwise free.
+        let possible_crtcs: std::collections::HashSet<drm_control::crtc::Handle> = {
+            let mut set = std::collections::HashSet::new();
+            // Check both the current encoder and all encoders the connector
+            // can use, so we have the widest possible set to choose from.
+            let encoder_handles: Vec<_> = {
+                let mut handles = Vec::new();
+                if let Some(enc) = selected_info.current_encoder() {
+                    handles.push(enc);
+                }
+                for &enc in selected_info.encoders() {
+                    if !handles.contains(&enc) {
+                        handles.push(enc);
+                    }
+                }
+                handles
+            };
+            for enc_handle in encoder_handles {
+                if let Ok(enc_info) = dev.get_encoder(enc_handle) {
+                    for crtc in resources.filter_crtcs(enc_info.possible_crtcs()) {
+                        set.insert(crtc);
+                    }
+                }
+            }
+            set
+        };
+
+        // Prefer the CRTC the current encoder is already driving (avoids a
+        // full modeset on some drivers).
+        if let Some(enc) = selected_info
+            .current_encoder()
+            .or_else(|| selected_info.encoders().first().copied())
+            && let Ok(enc_info) = dev.get_encoder(enc)
+            && let Some(existing_crtc) = enc_info.crtc()
+            && !used_crtcs.contains(&existing_crtc)
+            && possible_crtcs.contains(&existing_crtc)
+        {
             selected_crtc = Some(existing_crtc);
-        } else {
-            let candidates = resources.filter_crtcs(enc_info.possible_crtcs());
-            selected_crtc = candidates.first().copied();
         }
+
+        // Otherwise pick any compatible, unused CRTC.
+        if selected_crtc.is_none() {
+            selected_crtc = possible_crtcs
+                .iter()
+                .copied()
+                .find(|crtc| !used_crtcs.contains(crtc));
+        }
+
+        let Some(crtc) = selected_crtc else {
+            return Err(io::Error::other(format!(
+                "failed to find a usable CRTC for connector {} (possible CRTCs: {:?}, used: {:?})",
+                selected_info,
+                possible_crtcs,
+                used_crtcs,
+            ))
+            .into());
+        };
+
+        // If the connector is already lit on this CRTC with the exact
+        // requested resolution/refresh, prefer the live CRTC mode object over
+        // an equivalent mode from the connector mode list. This reduces the
+        // chance that Smithay sees a spurious mode mismatch and forces the
+        // first frame down the blocking commit_pending()/modeset path.
+        if let Some(enc) = selected_info.current_encoder()
+            && let Ok(enc_info) = dev.get_encoder(enc)
+            && enc_info.crtc() == Some(crtc)
+            && let Ok(crtc_info) = dev.get_crtc(crtc)
+            && let Some(current_mode) = crtc_info.mode()
+        {
+            let current_size = current_mode.size();
+            let selected_size = selected_mode.size();
+            let current_refresh = current_mode.vrefresh();
+            let selected_refresh = selected_mode.vrefresh();
+            if current_size == selected_size && current_refresh == selected_refresh {
+                selected_mode = current_mode;
+            }
+        }
+
+        used_crtcs.insert(crtc);
+        selected.push((crtc, selected_mode, selected_conn, selected_info.to_string()));
     }
-    if selected_crtc.is_none() {
-        selected_crtc = resources.crtcs().first().copied();
-    }
-    let Some(crtc) = selected_crtc else {
-        return Err(io::Error::other("failed to find a usable CRTC for selected connector").into());
-    };
 
     if !configured.is_empty() {
+        // Only disable connectors that the user explicitly configured but
+        // that we failed to activate (wrong mode, not connected, etc.).
+        // Previously this blanked ALL unselected connected connectors, which
+        // caused DP-2 to be switched off whenever its mode-match failed —
+        // even though the user had explicitly enabled it in their config.
+        let configured_connectors: std::collections::HashSet<&str> =
+            configured.iter().map(|v| v.connector.as_str()).collect();
         for (conn, info) in connected {
-            if conn == selected_conn {
+            if selected.iter().any(|(_, _, c, _)| *c == conn) {
+                continue;
+            }
+            if !configured_connectors.contains(info.to_string().as_str()) {
                 continue;
             }
             let enc = info
@@ -284,41 +478,20 @@ pub(crate) fn select_tty_scanout(
         }
     }
 
-    Ok((
-        crtc,
-        selected_mode,
-        selected_conn,
-        selected_info.to_string(),
-    ))
-}
-
-pub(crate) fn find_tty_scanout_for_reload(
-    dev: &mut DrmDevice,
-    tuning: &RuntimeTuning,
-) -> Result<
-    (
-        drm_control::crtc::Handle,
-        drm_control::Mode,
-        drm_control::connector::Handle,
-        String,
-    ),
-    Box<dyn Error>,
-> {
-    select_tty_scanout(dev, tuning)
+    Ok(selected)
 }
 
 pub(crate) fn collect_outputs_for_ipc(
     dev: &DrmDevice,
-    active_connector_name: &str,
-    active_mode: drm_control::Mode,
+    active_modes: &HashMap<String, drm_control::Mode>,
+    tuning: &RuntimeTuning,
+    vrr_support: &HashMap<String, String>,
 ) -> Vec<OutputInfo> {
     let mut outputs = Vec::new();
 
     let Ok(resources) = dev.resource_handles() else {
         return outputs;
     };
-
-    let active_mode_info = mode_info_from_drm_mode(active_mode, true, false);
 
     for conn in resources.connectors() {
         let Ok(info) = dev.get_connector(*conn, true) else {
@@ -331,12 +504,13 @@ pub(crate) fn collect_outputs_for_ipc(
             drm_control::connector::State::Unknown => OutputStatus::Unknown,
         };
 
-        let is_active = info.to_string() == active_connector_name;
-        let mut current_mode = is_active.then(|| active_mode_info.clone());
+        let active_mode = active_modes.get(&info.to_string()).copied();
+        let mut current_mode =
+            active_mode.map(|mode| mode_info_from_drm_mode(mode, true, false));
         let mut modes = Vec::new();
 
         for mode in info.modes() {
-            let current_match = is_active && drm_mode_matches(*mode, active_mode);
+            let current_match = active_mode.is_some_and(|active_mode| drm_mode_matches(*mode, active_mode));
             let mode_info = mode_info_from_drm_mode(
                 *mode,
                 current_match,
@@ -351,12 +525,19 @@ pub(crate) fn collect_outputs_for_ipc(
             modes.push(mode_info);
         }
 
+        let output_name = info.to_string();
         outputs.push(OutputInfo {
-            name: info.to_string(),
+            name: output_name.clone(),
             status,
-            enabled: is_active,
+            enabled: active_mode.is_some(),
             current_mode,
             modes,
+            vrr_mode: tuning
+                .tty_viewports
+                .iter()
+                .find(|viewport| viewport.connector == output_name)
+                .map(|viewport| viewport.vrr.as_str().to_string()),
+            vrr_support: vrr_support.get(output_name.as_str()).cloned(),
             logical: None,
         });
     }
@@ -382,6 +563,7 @@ fn mode_info_from_drm_mode(mode: drm_control::Mode, current: bool, preferred: bo
 }
 
 pub(crate) fn queue_tty_drm_frame(
+    output_name: &str,
     gbm_surface: &Rc<RefCell<GbmBufferedSurface<GbmAllocator<DeviceFd>, ()>>>,
     renderer: &Rc<RefCell<GlesRenderer>>,
     st: &mut HalleyWlState,
@@ -391,15 +573,44 @@ pub(crate) fn queue_tty_drm_frame(
     cursor_screen: Option<(f32, f32)>,
     cursor_image: Option<&smithay::input::pointer::CursorImageStatus>,
 ) -> Result<(), Box<dyn Error>> {
+    let previous_monitor = st.current_monitor.clone();
+    let previous_layer_configure = st.suppress_layer_shell_configure;
+    let _ = st.activate_monitor(output_name);
     let mut gbm_surface = gbm_surface.borrow_mut();
     let mut renderer = renderer.borrow_mut();
     let (mut dmabuf, _age) = gbm_surface.next_buffer()?;
     let mode = gbm_surface.pending_mode();
     let (w, h) = mode.size();
+    let requested_vrr = st
+        .tuning
+        .tty_viewports
+        .iter()
+        .find(|viewport| viewport.connector == output_name)
+        .map(|viewport| viewport.vrr.drm_enabled())
+        .unwrap_or(false);
+    if gbm_surface.vrr_enabled() != requested_vrr
+        && let Err(err) = gbm_surface.use_vrr(requested_vrr)
     {
+        warn!(
+            "failed to set vrr={} for {}: {}",
+            requested_vrr, output_name, err
+        );
+    }
+    let local_cursor = cursor_screen.and_then(|(sx, sy)| {
+        st.monitors.get(output_name).and_then(|monitor| {
+            let inside = sx >= monitor.offset_x as f32
+                && sx < (monitor.offset_x + monitor.width) as f32
+                && sy >= monitor.offset_y as f32
+                && sy < (monitor.offset_y + monitor.height) as f32;
+            inside.then_some((sx - monitor.offset_x as f32, sy - monitor.offset_y as f32))
+        })
+    });
+    {
+        let draw_started_at = std::time::Instant::now();
         let mut target = renderer.bind(&mut dmabuf).map_err(|err| {
             io::Error::other(format!("failed to bind renderer to drm buffer: {}", err))
         })?;
+        st.suppress_layer_shell_configure = output_name != previous_monitor;
 
         draw_debug_frame_to_target(
             &mut renderer,
@@ -409,13 +620,17 @@ pub(crate) fn queue_tty_drm_frame(
             resize_preview,
             hover_node,
             preview_hover_node,
-            cursor_screen,
+            local_cursor,
             cursor_image,
-            Transform::Normal,
+            st.output_transform_for(output_name),
         )?;
+        let _ = draw_started_at;
     }
+    st.suppress_layer_shell_configure = previous_layer_configure;
+    let _ = st.activate_monitor(previous_monitor.as_str());
     gbm_surface
         .queue_buffer(None, None, ())
         .map_err(|err| io::Error::other(format!("failed to queue drm frame: {}", err)))?;
     Ok(())
 }
+

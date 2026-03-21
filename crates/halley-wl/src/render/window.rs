@@ -104,14 +104,17 @@ pub(crate) fn collect_active_surfaces(
     let recent_top_node = st.recent_top_node_active(now);
     let output_clip = Rectangle::<i32, Physical>::new((0, 0).into(), size);
 
-    let resize_rect_px = resize_preview.map(|rz| {
-        (
+    let resize_rect_px = resize_preview.and_then(|rz| {
+        if !st.node_visible_on_current_monitor(rz.node_id) {
+            return None;
+        }
+        Some((
             rz.preview_left_px.min(rz.preview_right_px).round() as i32,
             rz.preview_top_px.min(rz.preview_bottom_px).round() as i32,
             rz.preview_left_px.max(rz.preview_right_px).round() as i32,
             rz.preview_top_px.max(rz.preview_bottom_px).round() as i32,
             rz.node_id,
-        )
+        ))
     });
 
     let mut wl_surfaces: Vec<_> = st
@@ -139,7 +142,10 @@ pub(crate) fn collect_active_surfaces(
         let Some(node) = st.field.node(node_id) else {
             continue;
         };
-        if node.state != halley_core::field::NodeState::Active || !st.field.is_visible(node_id) {
+        if node.state != halley_core::field::NodeState::Active
+            || !st.field.is_visible(node_id)
+            || !st.node_visible_on_current_monitor(node_id)
+        {
             continue;
         }
 

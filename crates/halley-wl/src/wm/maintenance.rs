@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::*;
 use crate::wm::overlap::CollisionExtents;
@@ -7,10 +7,26 @@ use halley_core::viewport::{FocusRing, FocusZone};
 impl HalleyWlState {
     const ACTIVE_RING_OUTSIDE_DECAY_FRAC: f32 = 0.98;
 
+    fn focus_ring_center_for_node(&self, id: NodeId) -> Vec2 {
+        self.node_monitor
+            .get(&id)
+            .and_then(|monitor| self.monitors.get(monitor))
+            .map(|monitor| monitor.viewport.center)
+            .unwrap_or(self.viewport.center)
+    }
+
+    fn focus_ring_for_node(&self, id: NodeId) -> FocusRing {
+        self.node_monitor
+            .get(&id)
+            .map(|monitor| self.tuning.focus_ring_for_output(monitor.as_str()))
+            .unwrap_or_else(|| self.active_focus_ring())
+    }
+
     fn focus_ring_coverage_for_extents(
         &self,
         pos: Vec2,
         ext: CollisionExtents,
+        focus_center: Vec2,
         focus_ring: FocusRing,
     ) -> (f32, f32) {
         let samples = 9usize;
@@ -29,7 +45,7 @@ impl HalleyWlState {
                     x: left + fx * width,
                     y: top + fy * height,
                 };
-                if focus_ring.zone(self.viewport.center, sample) == FocusZone::Inside {
+                if focus_ring.zone(focus_center, sample) == FocusZone::Inside {
                     inside += 1;
                 }
                 total += 1;
@@ -44,29 +60,27 @@ impl HalleyWlState {
         (inside_frac, (1.0 - inside_frac).max(0.0))
     }
 
-    fn surface_ring_coverage(&self, id: NodeId, focus_ring: FocusRing) -> (f32, f32) {
+    fn surface_ring_coverage(&self, id: NodeId) -> (f32, f32) {
         let Some(node) = self.field.node(id) else {
             return (0.0, 1.0);
         };
+        let focus_center = self.focus_ring_center_for_node(id);
+        let focus_ring = self.focus_ring_for_node(id);
 
         let ext = match node.state {
             halley_core::field::NodeState::Active => self.surface_window_collision_extents(node),
             _ => self.collision_extents_for_node(node),
         };
 
-        self.focus_ring_coverage_for_extents(node.pos, ext, focus_ring)
+        self.focus_ring_coverage_for_extents(node.pos, ext, focus_center, focus_ring)
     }
 
-    fn surface_is_definitively_outside_focus_ring(
-        &self,
-        id: NodeId,
-        focus_ring: FocusRing,
-    ) -> bool {
-        let (_, outside_frac) = self.surface_ring_coverage(id, focus_ring);
+    fn surface_is_definitively_outside_focus_ring(&self, id: NodeId) -> bool {
+        let (_, outside_frac) = self.surface_ring_coverage(id);
         outside_frac >= Self::ACTIVE_RING_OUTSIDE_DECAY_FRAC
     }
 
-    pub(crate) fn enforce_single_primary_active_unit(&mut self, focus_ring: FocusRing) {
+    pub(crate) fn enforce_single_primary_active_unit(&mut self) {
         let now_ms = self.now_ms(Instant::now());
         let active_windows_allowed = self.tuning.active_windows_allowed.max(1);
         let companion = self.companion_surface_node(now_ms);
@@ -84,59 +98,67 @@ impl HalleyWlState {
             })
             .collect();
 
-        if active_ids.len() <= active_windows_allowed {
-            return;
-        }
-
-        let mut keep_set: HashSet<NodeId> = HashSet::new();
-
-        let focused_breakout: Option<NodeId> = active_ids
-            .iter()
-            .copied()
-            .find(|&id| self.interaction_focus == Some(id))
-            .or_else(|| {
-                active_ids
-                    .iter()
-                    .copied()
-                    .max_by_key(|id| self.last_surface_focus_ms.get(id).copied().unwrap_or(0))
-            });
-
-        if let Some(fid) = focused_breakout {
-            keep_set.insert(fid);
-        }
-
-        if keep_set.len() < active_windows_allowed {
-            let mut ranked = active_ids.clone();
-            ranked.sort_by_key(|id| {
-                let preferred_rank = u8::from(preferred_surface == Some(*id));
-                let focus_rank = u8::from(self.interaction_focus == Some(*id));
-                let companion_rank = u8::from(companion == Some(*id));
-                let inside_rank =
-                    u8::from(!self.surface_is_definitively_outside_focus_ring(*id, focus_ring));
-                let latest_focus = self.last_surface_focus_ms.get(id).copied().unwrap_or(0);
-                (
-                    preferred_rank,
-                    focus_rank,
-                    companion_rank,
-                    inside_rank,
-                    latest_focus,
-                    id.as_u64(),
-                )
-            });
-
-            for id in ranked.iter().rev().copied() {
-                keep_set.insert(id);
-                if keep_set.len() >= active_windows_allowed {
-                    break;
-                }
-            }
-        }
-
+        let mut active_ids_by_monitor: HashMap<Option<String>, Vec<NodeId>> = HashMap::new();
         for id in active_ids {
-            if keep_set.contains(&id) {
+            let monitor = self.node_monitor.get(&id).cloned();
+            active_ids_by_monitor.entry(monitor).or_default().push(id);
+        }
+
+        for active_ids in active_ids_by_monitor.into_values() {
+            if active_ids.len() <= active_windows_allowed {
                 continue;
             }
-            let _ = self.field.set_decay_level(id, DecayLevel::Cold);
+
+            let mut keep_set: HashSet<NodeId> = HashSet::new();
+
+            let focused_breakout: Option<NodeId> = active_ids
+                .iter()
+                .copied()
+                .find(|&id| self.interaction_focus == Some(id))
+                .or_else(|| {
+                    active_ids
+                        .iter()
+                        .copied()
+                        .max_by_key(|id| self.last_surface_focus_ms.get(id).copied().unwrap_or(0))
+                });
+
+            if let Some(fid) = focused_breakout {
+                keep_set.insert(fid);
+            }
+
+            if keep_set.len() < active_windows_allowed {
+                let mut ranked = active_ids.clone();
+                ranked.sort_by_key(|id| {
+                    let preferred_rank = u8::from(preferred_surface == Some(*id));
+                    let focus_rank = u8::from(self.interaction_focus == Some(*id));
+                    let companion_rank = u8::from(companion == Some(*id));
+                    let inside_rank =
+                        u8::from(!self.surface_is_definitively_outside_focus_ring(*id));
+                    let latest_focus = self.last_surface_focus_ms.get(id).copied().unwrap_or(0);
+                    (
+                        preferred_rank,
+                        focus_rank,
+                        companion_rank,
+                        inside_rank,
+                        latest_focus,
+                        id.as_u64(),
+                    )
+                });
+
+                for id in ranked.iter().rev().copied() {
+                    keep_set.insert(id);
+                    if keep_set.len() >= active_windows_allowed {
+                        break;
+                    }
+                }
+            }
+
+            for id in active_ids {
+                if keep_set.contains(&id) {
+                    continue;
+                }
+                let _ = self.field.set_decay_level(id, DecayLevel::Cold);
+            }
         }
     }
 
@@ -166,6 +188,8 @@ impl HalleyWlState {
                 self.last_active_size.insert(id, nn.intrinsic_size);
             }
             self.mark_active_transition(id, now, 620);
+            self.record_focus_trail_visit(id);
+            self.suppress_trail_record_once = true;
             self.set_interaction_focus(Some(id), 30_000, now);
         }
     }
@@ -213,7 +237,7 @@ impl HalleyWlState {
         }
     }
 
-    pub(crate) fn enforce_pan_dominant_zone_states(&mut self, focus_ring: FocusRing, now_ms: u64) {
+    pub(crate) fn enforce_pan_dominant_zone_states(&mut self, now_ms: u64) {
         let active_outside_ring_delay_ms = self.tuning.active_outside_ring_delay_ms;
         let inactive_outside_ring_delay_ms = self.tuning.inactive_outside_ring_delay_ms;
 
@@ -222,7 +246,6 @@ impl HalleyWlState {
         for id in ids {
             self.apply_single_surface_decay_policy(
                 id,
-                focus_ring,
                 now_ms,
                 active_outside_ring_delay_ms,
                 inactive_outside_ring_delay_ms,
@@ -239,7 +262,6 @@ impl HalleyWlState {
     fn apply_single_surface_decay_policy(
         &mut self,
         id: NodeId,
-        focus_ring: FocusRing,
         now_ms: u64,
         active_delay_ms: u64,
         inactive_delay_ms: u64,
@@ -264,7 +286,7 @@ impl HalleyWlState {
             return;
         }
 
-        let outside_ring = self.surface_is_definitively_outside_focus_ring(id, focus_ring);
+        let outside_ring = self.surface_is_definitively_outside_focus_ring(id);
         if !outside_ring {
             self.dock_decay_offscreen_since_ms.remove(&id);
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
@@ -414,7 +436,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
 
         let id = state.field.spawn_surface(
             "edge-overlap",
@@ -429,7 +451,7 @@ mod tests {
             .insert(id, (-50.0, -50.0, 100.0, 100.0));
         state.bbox_loc.insert(id, (0.0, 0.0));
 
-        assert!(!state.surface_is_definitively_outside_focus_ring(id, state.active_focus_ring()));
+        assert!(!state.surface_is_definitively_outside_focus_ring(id));
     }
 
     #[test]
@@ -440,7 +462,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
 
         let id = state.field.spawn_surface(
             "outside",
@@ -455,6 +477,6 @@ mod tests {
             .insert(id, (-50.0, -50.0, 100.0, 100.0));
         state.bbox_loc.insert(id, (0.0, 0.0));
 
-        assert!(state.surface_is_definitively_outside_focus_ring(id, state.active_focus_ring()));
+        assert!(state.surface_is_definitively_outside_focus_ring(id));
     }
 }

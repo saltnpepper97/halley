@@ -25,13 +25,20 @@ impl HalleyWlState {
         root
     }
 
-    pub(super) fn viewport_contains_point(&self, pos: Vec2) -> bool {
-        let half_w = self.viewport.size.x * 0.5;
-        let half_h = self.viewport.size.y * 0.5;
-        pos.x >= self.viewport.center.x - half_w
-            && pos.x <= self.viewport.center.x + half_w
-            && pos.y >= self.viewport.center.y - half_h
-            && pos.y <= self.viewport.center.y + half_h
+    pub(super) fn viewport_fully_contains_surface(&self, id: NodeId) -> bool {
+        let Some(node) = self.field.node(id) else {
+            return false;
+        };
+        let ext = self.spawn_obstacle_extents_for_node(node);
+        let min_x = self.viewport.center.x - self.viewport.size.x * 0.5;
+        let max_x = self.viewport.center.x + self.viewport.size.x * 0.5;
+        let min_y = self.viewport.center.y - self.viewport.size.y * 0.5;
+        let max_y = self.viewport.center.y + self.viewport.size.y * 0.5;
+
+        node.pos.x - ext.left >= min_x
+            && node.pos.x + ext.right <= max_x
+            && node.pos.y - ext.top >= min_y
+            && node.pos.y + ext.bottom <= max_y
     }
 
     fn compact_app_id_label(app_id: &str) -> Option<String> {
@@ -122,7 +129,7 @@ impl HalleyWlState {
             .entry(key.clone())
             .or_insert_with(|| CommitActivity::new(now))
             .on_commit(now);
-        if let Some(output) = &self.primary_output {
+        for output in self.outputs.values() {
             output.enter(surface);
         }
 
@@ -217,6 +224,7 @@ impl HalleyWlState {
         let (pos, needs_pan) = self.pick_spawn_position(size);
 
         let id = self.field.spawn_surface(label.to_string(), pos, size);
+        self.assign_node_to_current_monitor(id);
         let _ = self
             .field
             .set_state(id, halley_core::field::NodeState::Active);
@@ -236,8 +244,18 @@ impl HalleyWlState {
     }
 
     pub fn drop_surface(&mut self, surface: &WlSurface) {
-        if let Some(output) = &self.primary_output {
+        for output in self.outputs.values() {
             output.leave(surface);
+        }
+        let pointer_focused_surface = self
+            .seat
+            .get_pointer()
+            .and_then(|pointer| pointer.current_focus());
+        if pointer_focused_surface
+            .as_ref()
+            .is_some_and(|focused| focused.id() == surface.id())
+        {
+            self.clear_pointer_focus();
         }
         let key = Self::surface_key(surface);
         self.surface_activity.remove(&key);
@@ -252,6 +270,7 @@ impl HalleyWlState {
             self.zoom_last_observed_size.remove(&id);
             self.zoom_resize_static_streak.remove(&id);
             self.node_app_ids.remove(&id);
+            self.focus_trail.forget_node(id);
             self.last_active_size.remove(&id);
             self.bbox_loc.remove(&id);
             self.window_geometry.remove(&id);
@@ -259,6 +278,7 @@ impl HalleyWlState {
             self.active_transition_until_ms.remove(&id);
             self.primary_promote_cooldown_until_ms.remove(&id);
             self.last_surface_focus_ms.remove(&id);
+            self.node_monitor.remove(&id);
             self.carry_zone_hint.remove(&id);
             self.carry_zone_last_change_ms.remove(&id);
             self.carry_zone_pending.remove(&id);
@@ -276,6 +296,7 @@ impl HalleyWlState {
                 self.interaction_focus = None;
                 self.interaction_focus_until_ms = 0;
             }
+            self.suppress_trail_record_once = false;
             self.smoothed_render_pos.remove(&id);
             self.clear_window_offscreen_cache_for(id);
             let _ = self.field.remove(id);

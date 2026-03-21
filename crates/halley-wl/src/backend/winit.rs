@@ -57,6 +57,8 @@ fn publish_winit_output_snapshot(
             preferred: true,
             current: true,
         }],
+        vrr_mode: None,
+        vrr_support: None,
         logical: Some(LogicalOutputInfo {
             scale: 1.0,
             focused,
@@ -130,16 +132,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
             info!("physics enabled: {}", tuning.physics_enabled);
 
-            let mut state = HalleyWlState::new(&dh, tuning.clone());
-            state.seat.add_pointer();
-            if state
-                .seat
-                .add_keyboard(Default::default(), 200, 30)
-                .is_err()
-            {
-                warn!("failed to initialize wl_seat keyboard");
-            }
-
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
                 let config_watch_target = PathBuf::from(config_path.as_str());
@@ -209,6 +201,17 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             })?;
             let backend = Rc::new(RefCell::new(backend));
             let backend_handle = WinitBackendHandle::new(backend.clone());
+            let mut ev: EventLoop<HalleyWlState> = EventLoop::try_new()?;
+            let _signal = ev.get_signal();
+            let mut state = HalleyWlState::new(&dh, ev.handle(), tuning.clone());
+            state.seat.add_pointer();
+            if state
+                .seat
+                .add_keyboard(Default::default(), 200, 30)
+                .is_err()
+            {
+                warn!("failed to initialize wl_seat keyboard");
+            }
             let dmabuf_importer: Rc<dyn DmabufImportBackend> = Rc::new(backend_handle.clone());
             state.configure_dmabuf_importer(dmabuf_importer, None);
             let xwayland = Rc::new(RefCell::new(ensure_xwayland_satellite(sock_name.as_str())?));
@@ -253,6 +256,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mod_state = Rc::new(RefCell::new(ModState::default()));
             let mod_state_for_winit = mod_state.clone();
             let pointer_state = Rc::new(RefCell::new(PointerState::default()));
+            let mod_state_for_timer = mod_state.clone();
             {
                 let ws = backend.borrow().window_size();
                 let mut ps = pointer_state.borrow_mut();
@@ -270,9 +274,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 let ws = backend.borrow().window_size();
                 publish_winit_output_snapshot(ws.w, ws.h, true, 0, 0);
             }
-
-            let mut ev: EventLoop<HalleyWlState> = EventLoop::try_new()?;
-            let _signal = ev.get_signal();
 
             let mut dh_for_clients = dh.clone();
             ev.handle()
@@ -368,6 +369,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         *mod_state_for_winit.borrow_mut() = ModState::default();
                         let mut ps = pointer_state_for_winit.borrow_mut();
                         if ps.resize.is_none() {
+                            st.set_drag_authority_node(None);
                             ps.drag = None;
                             ps.move_anim.clear();
                             ps.panning = false;
@@ -387,7 +389,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         st.request_exit();
                     }
                     WinitEvent::Input(InputEvent::Keyboard { event }) => {
-                        let code = event.key_code().into();
+                        let code: u32 = event.key_code().into();
                         let pressed = event.state() == KeyState::Pressed;
                         handle_backend_input_event(
                             st,
@@ -415,6 +417,13 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 ws_h: ws.h,
                                 sx,
                                 sy,
+                                delta_x: 0.0,
+                                delta_y: 0.0,
+                                delta_x_unaccel: 0.0,
+                                delta_y_unaccel: 0.0,
+                                time_usec: smithay::backend::input::Event::<
+                                    smithay::backend::winit::WinitInput,
+                                >::time(&event),
                             },
                         );
                     }
@@ -441,6 +450,25 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 ws_h: ws.h,
                                 sx,
                                 sy,
+                                delta_x: smithay::backend::input::PointerMotionEvent::<
+                                    smithay::backend::winit::WinitInput,
+                                >::delta_x(&event),
+                                delta_y: smithay::backend::input::PointerMotionEvent::<
+                                    smithay::backend::winit::WinitInput,
+                                >::delta_y(&event),
+                                delta_x_unaccel: smithay::backend::input::PointerMotionEvent::<
+                                    smithay::backend::winit::WinitInput,
+                                >::delta_x_unaccel(
+                                    &event
+                                ),
+                                delta_y_unaccel: smithay::backend::input::PointerMotionEvent::<
+                                    smithay::backend::winit::WinitInput,
+                                >::delta_y_unaccel(
+                                    &event
+                                ),
+                                time_usec: smithay::backend::input::Event::<
+                                    smithay::backend::winit::WinitInput,
+                                >::time(&event),
                             },
                         );
                     }
@@ -467,8 +495,15 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             config_path_for_winit.as_str(),
                             wayland_display_for_winit.as_str(),
                             BackendInputEventData::PointerAxis {
+                                source: event.source(),
+                                amount_v120_horizontal: event.amount_v120(Axis::Horizontal),
                                 amount_v120_vertical: event.amount_v120(Axis::Vertical),
+                                amount_horizontal: event.amount(Axis::Horizontal),
                                 amount_vertical: event.amount(Axis::Vertical),
+                                relative_direction_horizontal: event
+                                    .relative_direction(Axis::Horizontal),
+                                relative_direction_vertical: event
+                                    .relative_direction(Axis::Vertical),
                             },
                         );
                     }
@@ -484,7 +519,25 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             );
             let timer = Timer::from_duration(initial_frame_interval);
             ev.handle().insert_source(timer, move |_tick, _, st| {
+                if st.take_input_state_reset_request() {
+                    *mod_state_for_timer.borrow_mut() = ModState::default();
+                    let mut ps = pointer_state_for_timer.borrow_mut();
+                    ps.intercepted_buttons.clear();
+                    ps.intercepted_binding_buttons.clear();
+                    ps.intercepted_buttons.clear();
+                    st.set_drag_authority_node(None);
+                    ps.drag = None;
+                    ps.move_anim.clear();
+                    ps.panning = false;
+                }
+                if let Some((sx, sy)) = st.take_pointer_screen_hint_request() {
+                    let mut ps = pointer_state_for_timer.borrow_mut();
+                    let (ws_w, ws_h) = ps.workspace_size;
+                    ps.screen = (sx, sy);
+                    ps.world = crate::spatial::screen_to_world(st, ws_w.max(1), ws_h.max(1), sx, sy);
+                }
                 let now = Instant::now();
+                st.drain_drm_syncobj_blockers();
 
                 st.spawned_children.retain_mut(|child| {
                     match child.try_wait() {
@@ -536,15 +589,15 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         }
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
                     }
-                    RuntimeIpcCommand::Docking(command) => {
-                        let _ = crate::interaction::actions::set_docking_mode(
-                            st,
-                            matches!(command, halley_ipc::DockingCommand::Begin),
-                        );
-                    }
                     RuntimeIpcCommand::NodeMove(direction) => {
                         let _ =
                             crate::interaction::actions::move_latest_node_direction(st, direction);
+                    }
+                    RuntimeIpcCommand::Trail(direction) => {
+                        let _ = crate::interaction::actions::step_window_trail(st, direction);
+                    }
+                    RuntimeIpcCommand::Dpms(command) => {
+                        warn!("ipc: ignoring tty-only dpms command on winit backend: {:?}", command);
                     }
                 });
 
@@ -567,6 +620,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 st.tick_frame_effects(now);
                 st.tick_animator_frame(now);
                 st.tick_fullscreen_motion(now);
+                st.begin_render_frame(now);
                 {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     let _ = advance_node_move_anim(st, &mut ps, now);

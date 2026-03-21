@@ -2,7 +2,7 @@ use crate::state::HalleyWlState;
 use eventline::info;
 use halley_core::decay::DecayLevel;
 use halley_core::viewport::FocusZone;
-use halley_ipc::NodeMoveDirection;
+use halley_ipc::{NodeMoveDirection, TrailDirection};
 use std::time::Instant;
 
 pub(crate) fn promote_node_level(
@@ -49,21 +49,6 @@ pub(crate) fn latest_surface_node(st: &HalleyWlState) -> Option<halley_core::fie
     })
 }
 
-pub(crate) fn set_docking_mode(st: &mut HalleyWlState, active: bool) -> bool {
-    if active {
-        st.docking_hold_count = st.docking_hold_count.saturating_add(1);
-        return true;
-    }
-
-    let was_active = st.docking_hold_count > 0;
-    st.docking_hold_count = st.docking_hold_count.saturating_sub(1);
-    was_active
-}
-
-pub(crate) fn docking_mode_active(st: &HalleyWlState) -> bool {
-    st.docking_hold_count > 0
-}
-
 pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) -> bool {
     let Some(id) = latest_surface_node(st) else {
         return false;
@@ -76,7 +61,7 @@ pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) -> bool
         y: n.pos.y + dy,
     };
     let _ = st.field.set_pinned(id, false);
-    st.begin_carry_state_tracking(id, false);
+    st.begin_carry_state_tracking(id);
     if st.carry_surface_non_overlap(id, to, false) {
         st.update_carry_state_preview(id, Instant::now());
         st.end_carry_state_tracking(id);
@@ -108,6 +93,10 @@ pub(crate) fn move_latest_node_direction(
         NodeMoveDirection::Up => move_latest_node(st, 0.0, STEP_NODE),
         NodeMoveDirection::Down => move_latest_node(st, 0.0, -STEP_NODE),
     }
+}
+
+pub(crate) fn step_window_trail(st: &mut HalleyWlState, direction: TrailDirection) -> bool {
+    st.navigate_window_trail(direction, Instant::now())
 }
 
 pub(crate) fn toggle_focused_active_node_state(st: &mut HalleyWlState) -> bool {

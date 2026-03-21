@@ -3,6 +3,11 @@ use halley_core::viewport::{FocusRing, FocusZone};
 
 impl HalleyWlState {
     #[inline]
+    pub(crate) fn set_drag_authority_node(&mut self, id: Option<NodeId>) {
+        self.drag_authority_node = id;
+    }
+
+    #[inline]
     pub(crate) fn mark_direct_carry_node(&mut self, id: NodeId) {
         self.carry_direct_nodes.insert(id);
     }
@@ -107,10 +112,25 @@ impl HalleyWlState {
         let Some(n) = self.field.node(id) else {
             return;
         };
-        if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {}
+        if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {
+            return;
+        }
+        let max_release_speed = 800.0f32;
+        let vel = self
+            .physics_velocity
+            .get(&id)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
+        self.physics_velocity.insert(
+            id,
+            Vec2 {
+                x: vel.x.clamp(-max_release_speed, max_release_speed),
+                y: vel.y.clamp(-max_release_speed, max_release_speed),
+            },
+        );
     }
 
-    pub fn begin_carry_state_tracking(&mut self, id: NodeId, _docking_mode: bool) {
+    pub fn begin_carry_state_tracking(&mut self, id: NodeId) {
         self.clear_direct_carry_nodes();
         self.mark_direct_carry_node(id);
         if self.resize_static_node == Some(id) {
@@ -137,6 +157,9 @@ impl HalleyWlState {
     }
 
     pub fn end_carry_state_tracking(&mut self, id: NodeId) {
+        if self.drag_authority_node == Some(id) {
+            self.drag_authority_node = None;
+        }
         self.mark_direct_carry_node(id);
         self.carry_zone_hint.remove(&id);
         self.carry_zone_last_change_ms.remove(&id);

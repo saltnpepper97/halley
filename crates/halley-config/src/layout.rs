@@ -32,6 +32,20 @@ pub enum NodeBackgroundColorMode {
     Fixed { r: f32, g: f32, b: f32 },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FocusRingConfig {
+    pub rx: f32,
+    pub ry: f32,
+    pub offset_x: f32,
+    pub offset_y: f32,
+}
+
+impl FocusRingConfig {
+    pub fn to_focus_ring(self) -> FocusRing {
+        FocusRing::new(self.rx, self.ry, self.offset_x, self.offset_y)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
     pub debug_tick_dump: bool,
@@ -65,12 +79,15 @@ pub struct RuntimeTuning {
     pub cluster_distance_px: f32,
     pub cluster_dwell_ms: u64,
     pub active_windows_allowed: usize,
+    pub trail_history_length: usize,
+    pub trail_wrap: bool,
 
     pub active_outside_ring_delay_ms: u64,
     pub inactive_outside_ring_delay_ms: u64,
     pub docked_offscreen_delay_ms: u64,
 
     pub non_overlap_gap_px: f32,
+    pub pan_to_new: bool,
     pub non_overlap_active_gap_scale: f32,
     pub non_overlap_bump_newer: bool,
     pub non_overlap_bump_damping: f32,
@@ -93,11 +110,36 @@ pub struct RuntimeTuning {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewportOutputConfig {
     pub connector: String,
+    pub enabled: bool,
     pub offset_x: i32,
     pub offset_y: i32,
     pub width: u32,
     pub height: u32,
     pub refresh_rate: Option<f64>,
+    pub transform_degrees: u16,
+    pub vrr: ViewportVrrMode,
+    pub focus_ring: Option<FocusRingConfig>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewportVrrMode {
+    Off,
+    On,
+    OnDemand,
+}
+
+impl ViewportVrrMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::On => "on",
+            Self::OnDemand => "on-demand",
+        }
+    }
+
+    pub fn drm_enabled(self) -> bool {
+        !matches!(self, Self::Off)
+    }
 }
 
 impl Default for RuntimeTuning {
@@ -136,15 +178,18 @@ impl Default for RuntimeTuning {
             cluster_distance_px: 280.0,
             cluster_dwell_ms: 900,
             active_windows_allowed: 3,
+            trail_history_length: 32,
+            trail_wrap: true,
 
             active_outside_ring_delay_ms: 120_000,
             inactive_outside_ring_delay_ms: 30_000,
             docked_offscreen_delay_ms: 300_000,
 
             non_overlap_gap_px: 20.0,
+            pan_to_new: true,
             non_overlap_active_gap_scale: 0.22,
             non_overlap_bump_newer: false,
-            non_overlap_bump_damping: 0.35,
+            non_overlap_bump_damping: 0.65,
             drag_smoothing_boost: 6.0,
             center_window_to_mouse: false,
             restore_last_active_on_pan_return: true,
@@ -228,6 +273,7 @@ impl RuntimeTuning {
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);
         self.active_windows_allowed = self.active_windows_allowed.clamp(1, 64);
+        self.trail_history_length = self.trail_history_length.clamp(1, 512);
 
         self.active_outside_ring_delay_ms = self.active_outside_ring_delay_ms.clamp(0, 7_200_000);
         self.inactive_outside_ring_delay_ms =
@@ -249,12 +295,27 @@ impl RuntimeTuning {
     }
 
     pub fn focus_ring(&self) -> FocusRing {
-        FocusRing::new(
-            self.focus_ring_rx,
-            self.focus_ring_ry,
-            self.focus_ring_offset_x,
-            self.focus_ring_offset_y,
-        )
+        FocusRingConfig {
+            rx: self.focus_ring_rx,
+            ry: self.focus_ring_ry,
+            offset_x: self.focus_ring_offset_x,
+            offset_y: self.focus_ring_offset_y,
+        }
+        .to_focus_ring()
+    }
+
+    pub fn focus_ring_for_output(&self, output_name: &str) -> FocusRing {
+        self.tty_viewports
+            .iter()
+            .find(|viewport| viewport.connector == output_name)
+            .and_then(|viewport| viewport.focus_ring)
+            .unwrap_or(FocusRingConfig {
+                rx: self.focus_ring_rx,
+                ry: self.focus_ring_ry,
+                offset_x: self.focus_ring_offset_x,
+                offset_y: self.focus_ring_offset_y,
+            })
+            .to_focus_ring()
     }
 
     pub fn focus_ring_decay_policy(&self) -> FocusRingDecayPolicy {
@@ -275,11 +336,18 @@ impl RuntimeTuning {
 }
 
 pub(crate) fn default_pointer_bindings(modifier: KeyModifiers) -> Vec<PointerBinding> {
+    let mut transfer_modifier = modifier;
+    transfer_modifier.shift = true;
     vec![
         PointerBinding {
             modifiers: modifier,
             button: 272,
             action: PointerBindingAction::MoveWindow,
+        },
+        PointerBinding {
+            modifiers: transfer_modifier,
+            button: 272,
+            action: PointerBindingAction::FieldJump,
         },
         PointerBinding {
             modifiers: modifier,
@@ -347,6 +415,22 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
             modifiers: modifier,
             key: key("j"),
             action: CompositorBindingAction::MoveNode(DirectionalAction::Down),
+        },
+        CompositorBinding {
+            modifiers: KeyModifiers {
+                shift: true,
+                ..modifier
+            },
+            key: key("comma"),
+            action: CompositorBindingAction::TrailPrev,
+        },
+        CompositorBinding {
+            modifiers: KeyModifiers {
+                shift: true,
+                ..modifier
+            },
+            key: key("dot"),
+            action: CompositorBindingAction::TrailNext,
         },
     ]
 }

@@ -12,6 +12,8 @@ pub struct OutputInfo {
     pub enabled: bool,
     pub current_mode: Option<ModeInfo>,
     pub modes: Vec<ModeInfo>,
+    pub vrr_mode: Option<String>,
+    pub vrr_support: Option<String>,
     pub logical: Option<LogicalOutputInfo>,
 }
 

@@ -52,6 +52,10 @@ impl Trail {
         self.head.is_none()
     }
 
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
     /// Record a focus visit.
     pub fn record(&mut self, node: NodeId) {
         // If we are not at the tail, drop everything after cursor (browser semantics).
@@ -98,13 +102,63 @@ impl Trail {
         self.cursor()
     }
 
+    pub fn back_wrapping(&mut self) -> Option<NodeId> {
+        if let Some(node) = self.back() {
+            return Some(node);
+        }
+        let tail = self.tail?;
+        self.cursor = Some(tail);
+        self.cursor()
+    }
+
+    pub fn forward_wrapping(&mut self) -> Option<NodeId> {
+        if let Some(node) = self.forward() {
+            return Some(node);
+        }
+        let head = self.head?;
+        self.cursor = Some(head);
+        self.cursor()
+    }
+
+    pub fn truncate_to(&mut self, max_len: usize) {
+        if max_len == 0 {
+            self.head = None;
+            self.tail = None;
+            self.cursor = None;
+            self.entries.clear();
+            self.by_node.clear();
+            return;
+        }
+
+        while self.entries.len() > max_len {
+            let Some(head) = self.head else {
+                break;
+            };
+            self.remove_entry(head);
+        }
+    }
+
     /// Remove all history entries for a given node id.
     pub fn forget_node(&mut self, node: NodeId) {
-        let Some(ids) = self.by_node.remove(&node) else {
+        if !self.by_node.contains_key(&node) {
             return;
-        };
+        }
 
-        // We'll remove each entry id. Order doesn't matter.
+        // Remove occurrences in trail order so cursor repair stays stable.
+        let mut ids = Vec::new();
+        let mut it = self.head;
+        while let Some(id) = it {
+            let next = self.entries.get(&id).and_then(|e| e.next);
+            if self
+                .entries
+                .get(&id)
+                .is_some_and(|entry| entry.node == node)
+            {
+                ids.push(id);
+            }
+            it = next;
+        }
+
         for id in ids {
             self.remove_entry(id);
         }
@@ -280,5 +334,25 @@ mod tests {
         t.forget_node(a);
         assert_eq!(t.cursor(), None);
         assert!(t.is_empty());
+    }
+
+    #[test]
+    fn forget_node_with_multiple_occurrences_keeps_cursor_deterministic() {
+        let mut t = Trail::new();
+        let a = NodeId::new(1);
+        let b = NodeId::new(2);
+        let c = NodeId::new(3);
+
+        t.record(a);
+        t.record(b);
+        t.record(a);
+        t.record(c);
+        t.record(a);
+
+        t.forget_node(a);
+
+        assert_eq!(t.cursor(), Some(c));
+        assert_eq!(t.back(), Some(b));
+        assert_eq!(t.forward(), Some(c));
     }
 }
