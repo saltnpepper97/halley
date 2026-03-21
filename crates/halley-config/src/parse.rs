@@ -484,12 +484,7 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 fn load_trail_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.trail_history_length = pick_u64(
         cfg,
-        &[
-            "trail.max-history",
-            "trail.max_history",
-            "trail.history-length",
-            "trail.history_length",
-        ],
+        &["trail.history-length", "trail.history_length"],
         out.trail_history_length as u64,
     ) as usize;
     out.trail_wrap = pick_bool(cfg, &["trail.wrap", "trail.wrap-history"], out.trail_wrap);
@@ -1315,30 +1310,6 @@ end
         let _ = fs::remove_file(&path);
 
         assert_eq!(tuning.non_overlap_bump_damping, 0.62);
-    }
-
-    #[test]
-    fn trail_max_history_loads_from_trail_section() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("halley-trail-max-history-{unique}.rune"));
-        fs::write(
-            &path,
-            r#"
-trail:
-  max-history 48
-end
-"#,
-        )
-        .expect("write temp config");
-
-        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
-            .expect("config should parse");
-        let _ = fs::remove_file(&path);
-
-        assert_eq!(tuning.trail_history_length, 48);
     }
 
     #[test]
