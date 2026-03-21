@@ -64,7 +64,13 @@ impl HalleyWlState {
         direction: TrailDirection,
         now: Instant,
     ) -> bool {
+        let current_focus = self.interaction_focus;
+        let mut remaining = self.focus_trail.len().max(1);
         loop {
+            if remaining == 0 {
+                return false;
+            }
+            remaining -= 1;
             let next = match direction {
                 TrailDirection::Prev if self.tuning.trail_wrap => self.focus_trail.back_wrapping(),
                 TrailDirection::Prev => self.focus_trail.back(),
@@ -78,6 +84,9 @@ impl HalleyWlState {
             };
             if !self.should_keep_trail_node(id) {
                 self.focus_trail.forget_node(id);
+                continue;
+            }
+            if Some(id) == current_focus {
                 continue;
             }
             return self.select_trail_target(id, now);
@@ -116,6 +125,35 @@ mod tests {
         assert_eq!(state.interaction_focus, Some(first));
 
         assert!(state.navigate_window_trail(TrailDirection::Next, now));
+        assert_eq!(state.interaction_focus, Some(second));
+    }
+
+    #[test]
+    fn trail_navigation_skips_duplicate_current_focus_entries() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let first = state.field.spawn_surface(
+            "first",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let second = state.field.spawn_surface(
+            "second",
+            Vec2 { x: 640.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+
+        state.focus_trail.record(first);
+        state.focus_trail.record(second);
+        state.focus_trail.record(first);
+        state.interaction_focus = Some(first);
+
+        assert!(state.navigate_window_trail(TrailDirection::Prev, now));
         assert_eq!(state.interaction_focus, Some(second));
     }
 }

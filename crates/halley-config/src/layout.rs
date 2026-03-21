@@ -139,7 +139,7 @@ impl Default for RuntimeTuning {
             cluster_distance_px: 280.0,
             cluster_dwell_ms: 900,
             active_windows_allowed: 3,
-            trail_history_length: 25,
+            trail_history_length: 32,
             trail_wrap: true,
 
             active_outside_ring_delay_ms: 120_000,

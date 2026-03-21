@@ -484,7 +484,12 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 fn load_trail_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.trail_history_length = pick_u64(
         cfg,
-        &["trail.history-length", "trail.history_length"],
+        &[
+            "trail.max-history",
+            "trail.max_history",
+            "trail.history-length",
+            "trail.history_length",
+        ],
         out.trail_history_length as u64,
     ) as usize;
     out.trail_wrap = pick_bool(cfg, &["trail.wrap", "trail.wrap-history"], out.trail_wrap);
@@ -530,7 +535,11 @@ fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
 fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.non_overlap_gap_px = pick_f32(cfg, &["field.gap", "field.gap-px"], out.non_overlap_gap_px);
-    out.pan_to_new = pick_bool(cfg, &["field.pan-to-new", "field.pan_to_new"], out.pan_to_new);
+    out.pan_to_new = pick_bool(
+        cfg,
+        &["field.pan-to-new", "field.pan_to_new"],
+        out.pan_to_new,
+    );
     out.active_windows_allowed = pick_u64(
         cfg,
         &[
@@ -1306,6 +1315,30 @@ end
         let _ = fs::remove_file(&path);
 
         assert_eq!(tuning.non_overlap_bump_damping, 0.62);
+    }
+
+    #[test]
+    fn trail_max_history_loads_from_trail_section() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-trail-max-history-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+trail:
+  max-history 48
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.trail_history_length, 48);
     }
 
     #[test]
