@@ -367,6 +367,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         *mod_state_for_winit.borrow_mut() = ModState::default();
                         let mut ps = pointer_state_for_winit.borrow_mut();
                         if ps.resize.is_none() {
+                            st.set_drag_authority_node(None);
                             ps.drag = None;
                             ps.move_anim.clear();
                             ps.panning = false;
@@ -522,6 +523,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     ps.intercepted_buttons.clear();
                     ps.intercepted_binding_buttons.clear();
                     ps.intercepted_buttons.clear();
+                    st.set_drag_authority_node(None);
                     ps.drag = None;
                     ps.move_anim.clear();
                     ps.panning = false;

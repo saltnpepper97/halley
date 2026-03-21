@@ -117,6 +117,8 @@ impl HalleyWlState {
 
         if prev_physics_enabled && !tuning.physics_enabled {
             self.active_transition_until_ms.clear();
+            self.drag_authority_node = None;
+            self.physics_velocity.clear();
             self.smoothed_render_pos.clear();
             self.camera_target_center = self.viewport.center;
             self.camera_target_view_size = self.zoom_ref_size;

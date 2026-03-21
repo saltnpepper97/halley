@@ -257,8 +257,11 @@ pub struct HalleyWlState {
     pub(crate) resize_static_node: Option<NodeId>,
     pub(crate) resize_static_lock_pos: Option<Vec2>,
     pub(crate) resize_static_until_ms: u64,
+    pub(crate) drag_authority_node: Option<NodeId>,
     pub(crate) suspend_overlap_resolve: bool,
     pub(crate) suspend_state_checks: bool,
+    pub(crate) physics_velocity: HashMap<NodeId, Vec2>,
+    pub(crate) physics_last_tick: Instant,
     pub(crate) smoothed_render_pos: HashMap<NodeId, Vec2>,
     pub(crate) node_hover_mix: HashMap<NodeId, f32>,
     pub(crate) node_preview_hover_node: Option<NodeId>,
@@ -392,8 +395,11 @@ impl HalleyWlState {
             resize_static_node: None,
             resize_static_lock_pos: None,
             resize_static_until_ms: 0,
+            drag_authority_node: None,
             suspend_overlap_resolve: false,
             suspend_state_checks: false,
+            physics_velocity: HashMap::new(),
+            physics_last_tick: now,
             smoothed_render_pos: HashMap::new(),
             node_hover_mix: HashMap::new(),
             node_preview_hover_node: None,
@@ -438,6 +444,17 @@ impl HalleyWlState {
             bounce: out.tuning.dev_anim_bounce,
         });
         out
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        dh: &smithay::reexports::wayland_server::DisplayHandle,
+        tuning: RuntimeTuning,
+    ) -> Self {
+        let event_loop = Box::leak(Box::new(
+            calloop::EventLoop::<Self>::try_new().expect("test event loop"),
+        ));
+        Self::new(dh, event_loop.handle(), tuning)
     }
 
     pub(crate) fn configure_dmabuf_importer(

@@ -22,8 +22,7 @@ use smithay::backend::input::ButtonState;
 
 use super::input_utils::modifier_active;
 use super::key_actions::{
-    apply_bound_pointer_input, apply_compositor_action_press,
-    compositor_binding_action_active,
+    apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
 use super::pointer_focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
 use super::resize_helpers::{active_node_screen_rect, pick_resize_handle_from_screen};
@@ -133,7 +132,11 @@ fn set_title_click(ps: &mut PointerState, node_id: halley_core::field::NodeId, n
     ps.last_title_click = Some(TitleClickCtx { node_id, at: now });
 }
 
-fn clear_pointer_activity(_st: &mut HalleyWlState, ps: &mut PointerState) {
+fn clear_pointer_activity(st: &mut HalleyWlState, ps: &mut PointerState) {
+    if let Some(drag) = ps.drag {
+        st.set_drag_authority_node(None);
+        st.end_carry_state_tracking(drag.node_id);
+    }
     ps.drag = None;
     ps.resize = None;
     ps.panning = false;
@@ -151,6 +154,9 @@ fn begin_drag(
         current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
         center_latched: false,
         started_active: false,
+        last_pointer_world: world_now,
+        last_update_at: Instant::now(),
+        release_velocity: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
     };
     if let Some(n) = st.field.node(hit.node_id) {
         drag_ctx.started_active = n.state == halley_core::field::NodeState::Active;
@@ -167,6 +173,9 @@ fn begin_drag(
     }
     ps.drag = Some(drag_ctx);
     let _ = st.field.set_pinned(hit.node_id, false);
+    st.physics_velocity
+        .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
+    st.set_drag_authority_node(Some(hit.node_id));
     st.begin_carry_state_tracking(hit.node_id);
     st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
     let to = halley_core::field::Vec2 {
@@ -548,6 +557,7 @@ fn handle_button_release(
                 } else {
                     st.update_carry_state_preview_at(d.node_id, world_now, now);
                 }
+                st.set_drag_authority_node(None);
                 st.end_carry_state_tracking(d.node_id);
                 ps.preview_block_until = Some(now + Duration::from_millis(360));
             }
@@ -604,7 +614,13 @@ pub(crate) fn handle_pointer_button_input(
                 let _ = apply_compositor_action_press(st, action, config_path, wayland_display);
                 backend.request_redraw();
                 true
-            } else if apply_bound_pointer_input(st, button_code, &mods, config_path, wayland_display) {
+            } else if apply_bound_pointer_input(
+                st,
+                button_code,
+                &mods,
+                config_path,
+                wayland_display,
+            ) {
                 ps.intercepted_binding_buttons.insert(button_code);
                 ps.panning = false;
                 backend.request_redraw();

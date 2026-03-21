@@ -543,15 +543,8 @@ fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.physics_enabled = pick_bool(cfg, &["physics.enabled"], out.physics_enabled);
 
-    out.non_overlap_bump_damping = pick_f32(
-        cfg,
-        &[
-            "physics.damping",
-            "physics.bump-damping",
-            "physics.bump_damping",
-        ],
-        out.non_overlap_bump_damping,
-    );
+    out.non_overlap_bump_damping =
+        pick_f32(cfg, &["physics.damping"], out.non_overlap_bump_damping);
 }
 
 fn load_keybind_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -1263,6 +1256,31 @@ end
 
         assert_eq!(tuning.non_overlap_gap_px, 24.0);
         assert_eq!(tuning.active_windows_allowed, 5);
+    }
+
+    #[test]
+    fn physics_damping_loads_only_from_primary_key() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-physics-damping-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+physics:
+  damping 0.62
+  bump-damping 0.91
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.non_overlap_bump_damping, 0.62);
     }
 
     #[test]

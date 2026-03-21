@@ -187,7 +187,11 @@ impl HalleyWlState {
         self.exit_xdg_fullscreen_inner(node_id, now, true);
     }
 
-    fn restore_fullscreen_snapshot(&mut self, id: NodeId, entry: crate::state::FullscreenSessionEntry) {
+    fn restore_fullscreen_snapshot(
+        &mut self,
+        id: NodeId,
+        entry: crate::state::FullscreenSessionEntry,
+    ) {
         if let Some(node) = self.field.node_mut(id) {
             node.intrinsic_size = entry.intrinsic_size;
         }

@@ -19,6 +19,7 @@ impl HalleyWlState {
         self.render_last_tick = now;
         self.popup_manager.cleanup();
         let alive: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
+        self.physics_velocity.retain(|id, _| alive.contains(id));
         self.smoothed_render_pos.retain(|id, _| alive.contains(id));
         self.node_hover_mix.retain(|id, _| alive.contains(id));
         self.prune_window_offscreen_cache(now);

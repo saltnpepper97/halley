@@ -678,6 +678,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     ps.intercepted_buttons.clear();
                     ps.intercepted_binding_buttons.clear();
                     ps.intercepted_buttons.clear();
+                    st.set_drag_authority_node(None);
                     ps.drag = None;
                     ps.move_anim.clear();
                     ps.panning = false;

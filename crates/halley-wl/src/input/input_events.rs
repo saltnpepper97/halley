@@ -12,8 +12,8 @@ use crate::state::HalleyWlState;
 use super::input_utils::update_mod_state;
 use super::key_actions::{
     apply_bound_key, apply_bound_pointer_input, apply_compositor_action_press,
-    apply_compositor_action_release, compositor_binding_action,
-    compositor_binding_action_active, key_is_compositor_binding,
+    apply_compositor_action_release, compositor_binding_action, compositor_binding_action_active,
+    key_is_compositor_binding,
 };
 use super::pointer_focus::pointer_focus_for_screen;
 use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};

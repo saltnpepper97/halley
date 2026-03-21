@@ -51,7 +51,8 @@ pub(crate) fn compositor_binding_action_active(
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
     for binding in &st.tuning.compositor_bindings {
-        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers) {
+        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers)
+        {
             return Some(binding.action);
         }
     }
@@ -184,7 +185,8 @@ pub(crate) fn apply_bound_pointer_input(
     }
 
     for binding in st.tuning.launch_bindings.clone() {
-        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers) {
+        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers)
+        {
             let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
                 Some(child) => {
                     st.spawned_children.push(child);

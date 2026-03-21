@@ -148,7 +148,7 @@ impl Default for RuntimeTuning {
             non_overlap_gap_px: 20.0,
             non_overlap_active_gap_scale: 0.22,
             non_overlap_bump_newer: false,
-            non_overlap_bump_damping: 0.35,
+            non_overlap_bump_damping: 0.65,
             drag_smoothing_boost: 6.0,
             center_window_to_mouse: false,
             restore_last_active_on_pan_return: true,

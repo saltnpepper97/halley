@@ -95,7 +95,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         let now = Instant::now();
 
         let first = state.field.spawn_surface(

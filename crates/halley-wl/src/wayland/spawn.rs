@@ -397,7 +397,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let state = HalleyWlState::new(&dh, tuning);
+        let state = HalleyWlState::new_for_test(&dh, tuning);
 
         let offsets = state.star_candidate_offsets(Vec2 { x: 100.0, y: 80.0 });
         assert_eq!(offsets[0], Vec2 { x: 0.0, y: 0.0 });
@@ -415,7 +415,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
         state.viewport.size = Vec2 {
             x: 1600.0,
@@ -433,7 +433,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
         state.viewport.size = Vec2 {
             x: 1600.0,
@@ -468,7 +468,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 1200.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
 
@@ -492,7 +492,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 1200.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
 
@@ -518,7 +518,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 500.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
 
@@ -547,7 +547,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 700.0, y: 0.0 };
         state.viewport.size = Vec2 {
             x: 1600.0,
@@ -573,7 +573,7 @@ mod tests {
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new(&dh, tuning);
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
 

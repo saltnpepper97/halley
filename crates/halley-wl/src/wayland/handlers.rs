@@ -89,17 +89,20 @@ impl SeatHandler for HalleyWlState {
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         if let Some(fullscreen_id) = self.fullscreen_active_node {
             let focused_is_layer = focused.is_some_and(|surface| self.is_layer_surface(surface));
-            let fullscreen_surface_id = self
-                .xdg_shell_state
-                .toplevel_surfaces()
-                .iter()
-                .find_map(|top| {
-                    (self.surface_to_node.get(&top.wl_surface().id()).copied()
-                        == Some(fullscreen_id))
-                    .then(|| top.wl_surface().id())
-                });
+            let fullscreen_surface_id =
+                self.xdg_shell_state
+                    .toplevel_surfaces()
+                    .iter()
+                    .find_map(|top| {
+                        (self.surface_to_node.get(&top.wl_surface().id()).copied()
+                            == Some(fullscreen_id))
+                        .then(|| top.wl_surface().id())
+                    });
             let focused_id = focused.map(|wl| wl.id());
-            if !focused_is_layer && fullscreen_surface_id.is_some() && fullscreen_surface_id != focused_id {
+            if !focused_is_layer
+                && fullscreen_surface_id.is_some()
+                && fullscreen_surface_id != focused_id
+            {
                 self.suspend_xdg_fullscreen(fullscreen_id, Instant::now());
             }
         }
@@ -376,10 +379,10 @@ impl HalleyWlState {
             return;
         };
 
-        let sx = (xform.origin_x + location.x as f32 * xform.scale)
-            .clamp(0.0, (ws_w.max(1) - 1) as f32);
-        let sy = (xform.origin_y + location.y as f32 * xform.scale)
-            .clamp(0.0, (ws_h.max(1) - 1) as f32);
+        let sx =
+            (xform.origin_x + location.x as f32 * xform.scale).clamp(0.0, (ws_w.max(1) - 1) as f32);
+        let sy =
+            (xform.origin_y + location.y as f32 * xform.scale).clamp(0.0, (ws_h.max(1) - 1) as f32);
         self.pending_pointer_screen_hint = Some((sx, sy));
 
         let cam_scale = self.camera_render_scale().max(0.001) as f64;

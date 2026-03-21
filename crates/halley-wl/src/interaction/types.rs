@@ -31,6 +31,9 @@ pub(crate) struct DragCtx {
     pub(crate) current_offset: halley_core::field::Vec2,
     pub(crate) center_latched: bool,
     pub(crate) started_active: bool,
+    pub(crate) last_pointer_world: halley_core::field::Vec2,
+    pub(crate) last_update_at: Instant,
+    pub(crate) release_velocity: halley_core::field::Vec2,
 }
 
 #[derive(Clone, Copy, Debug)]

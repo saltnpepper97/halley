@@ -118,6 +118,7 @@ pub(crate) fn handle_pointer_motion_absolute(
 
     if st.has_active_cluster_workspace() {
         ps.hover_node = None;
+        st.set_drag_authority_node(None);
         ps.drag = None;
         ps.resize = None;
         ps.panning = false;
@@ -126,15 +127,34 @@ pub(crate) fn handle_pointer_motion_absolute(
 
     if let Some(drag) = ps.drag {
         if ps.resize.is_some() || !drag_mod_ok {
+            st.set_drag_authority_node(None);
             st.end_carry_state_tracking(drag.node_id);
             ps.drag = None;
         } else {
             let mut next_drag = drag;
+            let dt = now
+                .saturating_duration_since(next_drag.last_update_at)
+                .as_secs_f32()
+                .max(1.0 / 240.0);
+            let raw_velocity = halley_core::field::Vec2 {
+                x: (p.x - next_drag.last_pointer_world.x) / dt,
+                y: (p.y - next_drag.last_pointer_world.y) / dt,
+            };
+            let max_drag_speed = 800.0f32;
+            let clamp_axis = |v: f32| v.clamp(-max_drag_speed, max_drag_speed);
+            next_drag.release_velocity = halley_core::field::Vec2 {
+                x: next_drag.release_velocity.x * 0.35 + clamp_axis(raw_velocity.x) * 0.65,
+                y: next_drag.release_velocity.y * 0.35 + clamp_axis(raw_velocity.y) * 0.65,
+            };
+            next_drag.last_pointer_world = p;
+            next_drag.last_update_at = now;
             let to = halley_core::field::Vec2 {
                 x: p.x - next_drag.current_offset.x,
                 y: p.y - next_drag.current_offset.y,
             };
             if st.carry_surface_non_overlap(drag.node_id, to, false) {
+                st.physics_velocity
+                    .insert(drag.node_id, next_drag.release_velocity);
                 let should_center = st.tuning.center_window_to_mouse
                     && (!next_drag.center_latched
                         || next_drag.current_offset.x.abs() > f32::EPSILON
@@ -344,5 +364,4 @@ pub(crate) fn handle_pointer_motion_absolute(
         ps.hover_started_at = None;
     }
     ps.hover_node = next_hover;
-
 }
