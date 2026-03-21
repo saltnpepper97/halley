@@ -128,6 +128,12 @@ fn print_output(output: &OutputInfo) {
     if let Some(current_mode) = &output.current_mode {
         println!("  current_mode: {}", current_mode.display_string());
     }
+    if let Some(vrr_mode) = &output.vrr_mode {
+        println!("  vrr: {}", vrr_mode);
+    }
+    if let Some(vrr_support) = &output.vrr_support {
+        println!("  vrr_support: {}", vrr_support);
+    }
 
     if output.modes.is_empty() {
         println!("  modes: (none)");

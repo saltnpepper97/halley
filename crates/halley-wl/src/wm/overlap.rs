@@ -87,6 +87,7 @@ impl HalleyWlState {
     fn node_participates_in_overlap(&self, id: NodeId) -> bool {
         self.field.node(id).is_some_and(|n| {
             self.field.is_visible(id)
+                && self.node_visible_on_current_monitor(id)
                 && matches!(
                     n.state,
                     halley_core::field::NodeState::Active
@@ -141,13 +142,21 @@ impl HalleyWlState {
         to: Vec2,
         clamp_only: bool,
     ) -> bool {
-        if !self.tuning.physics_enabled {
-            return self.carry_surface_no_overlap_static(id, to);
-        }
-        if clamp_only || self.suspend_overlap_resolve || self.suspend_state_checks {
-            return self.carry_surface_no_overlap_static(id, to);
-        }
-        self.field.carry(id, to)
+        let moved = if !self.tuning.physics_enabled {
+            self.carry_surface_no_overlap_static(id, to)
+        } else if clamp_only || self.suspend_overlap_resolve || self.suspend_state_checks {
+            self.carry_surface_no_overlap_static(id, to)
+        } else {
+            self.field.carry(id, to)
+        };
+        // Do NOT call monitor_for_screen(node.pos) here. node.pos is world
+        // space; monitor_for_screen expects screen pixels. Calling it here
+        // overwrites node_monitor with a garbage monitor name on every drag
+        // tick, defeating the monitor-locked drag clamp in pointer_motion.rs.
+        // node_monitor is set authoritatively at drag-begin via
+        // assign_node_to_current_monitor, and updated explicitly on a monitor
+        // transfer. It must not be silently mutated by the physics tick.
+        moved
     }
 
     fn carry_surface_no_overlap_static(&mut self, id: NodeId, to: Vec2) -> bool {

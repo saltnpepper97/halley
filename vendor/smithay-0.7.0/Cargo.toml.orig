@@ -1,0 +1,144 @@
+[package]
+name = "smithay"
+version = "0.7.0"
+authors = ["Victor Berger <victor.berger@m4x.org>", "Drakulix (Victoria Brekenfeld)"]
+license = "MIT"
+description = "Smithay is a library for writing wayland compositors."
+repository = "https://github.com/Smithay/smithay"
+edition = "2021"
+readme = "README.md"
+homepage = "https://smithay.github.io/"
+keywords = ["wayland", "compositor", "graphics", "server"]
+categories = ["gui"]
+rust-version = "1.80.1"
+
+[package.metadata.docs.rs]
+features = ["test_all_features", "libseat/docs_rs"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[workspace]
+members = [
+    "smithay-drm-extras",
+    "smallvil",
+    "anvil",
+    "wlcs_anvil",
+    "test_clients",
+]
+
+[dependencies]
+appendlist = "1.4"
+ash = { version = "0.38.0", optional = true }
+bitflags = "2.2.1"
+calloop = "0.14.0"
+cursor-icon = "1.2.0"
+cgmath = "0.18.0"
+downcast-rs = "1.2.0"
+drm-fourcc = "^2.2.0"
+drm = { version = "0.14.0", optional = true }
+drm-ffi = { version = "0.9.0", optional = true }
+errno = "0.3.5"
+gbm = { version = "0.18.0", optional = true, default-features = false, features = ["drm-support"] }
+glow = { version = "0.16", optional = true }
+input = { version = "0.9.0", default-features = false, features=["libinput_1_19"], optional = true }
+indexmap = "2.0"
+libc = "0.2.103"
+libseat = { version = "0.2.3", optional = true, default-features = false }
+libloading = { version="0.8.0", optional = true }
+rustix = { version = "1.0.7", features = ["event", "fs", "mm", "net", "pipe", "process", "shm", "time"] }
+rand = "0.9.0"
+scopeguard = { version = "1.1.0", optional = true }
+tracing = "0.1.37"
+tempfile = { version = "3.0", optional = true }
+thiserror = "2.0.12"
+udev = { version = "0.9.0", optional = true }
+# Require never `wayland-client`/`wayland-cursor` than winit uses to fix `-Z minimal-versions`
+# due to issue in older version.
+wayland-client = { version = "0.31.10", optional = true }
+wayland-cursor = { version = "0.31.10", optional = true }
+wayland-egl = { version = "0.32.7", optional = true }
+wayland-protocols = { version = "0.32.8", features = ["unstable", "staging", "server"], optional = true }
+wayland-protocols-wlr = { version = "0.3.8", features = ["server"], optional = true }
+wayland-protocols-misc = { version = "0.3.8", features = ["server"], optional = true }
+wayland-server = { version = "0.31.9", optional = true }
+wayland-sys = { version = "0.31.6", optional = true }
+wayland-backend = { version = "0.3.10", optional = true }
+winit = { version = "0.30.0", default-features = false, features = ["wayland", "wayland-dlopen", "x11", "rwh_06"], optional = true }
+x11rb = { version = "0.13.0", optional = true, features = ["res"]}
+xkbcommon = { version = "0.8.0", features = ["wayland"]}
+encoding_rs = { version = "0.8.33", optional = true }
+profiling = "1.0.13"
+smallvec = "1.11"
+pixman = { version = "0.2.1", features = ["drm-fourcc", "sync"], optional = true }
+aliasable = { version = "0.1.3", optional = true }
+atomic_float = "1.1.0"
+sha2 = "0.10.9"
+
+[dev-dependencies]
+clap = { version = "4", features = ["derive"] }
+criterion = { version = "0.5" }
+image = "0.25"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+
+[build-dependencies]
+gl_generator = { version = "0.14", optional = true }
+pkg-config = { version = "0.3.17", optional = true }
+cc = { version = "1.0.79", optional = true }
+
+[features]
+default = ["backend_drm", "backend_gbm", "backend_libinput", "backend_udev", "backend_session_libseat", "backend_x11", "backend_winit", "desktop", "renderer_gl", "renderer_pixman", "renderer_multi", "xwayland", "wayland_frontend", "backend_vulkan"]
+backend_winit = ["winit", "backend_egl", "wayland-client", "wayland-cursor", "wayland-egl", "renderer_gl"]
+backend_x11 = ["x11rb", "x11rb/dri3", "x11rb/xfixes", "x11rb/xinput", "x11rb/present", "x11rb_event_source", "backend_gbm", "backend_drm", "backend_egl"]
+backend_drm = ["drm", "drm-ffi"]
+backend_gbm = ["gbm", "cc", "pkg-config", "backend_drm"]
+backend_gbm_has_fd_for_plane = []
+backend_gbm_has_create_with_modifiers2 = []
+backend_egl = ["gl_generator", "libloading"]
+backend_libinput = ["input"]
+backend_session = []
+backend_udev = ["udev", "input/udev"]
+backend_vulkan = ["ash", "scopeguard"]
+backend_session_libseat = ["backend_session", "libseat"]
+desktop = []
+renderer_gl = ["gl_generator", "backend_egl"]
+renderer_glow = ["renderer_gl", "glow"]
+renderer_multi = ["backend_drm", "aliasable"]
+renderer_pixman = ["pixman"]
+renderer_test = []
+use_system_lib = ["wayland_frontend", "wayland-backend/server_system", "wayland-sys", "gbm?/import-wayland"]
+use_bindgen = ["drm-ffi/use_bindgen", "gbm/use_bindgen", "input/use_bindgen"]
+wayland_frontend = ["wayland-server", "wayland-protocols", "wayland-protocols-wlr", "wayland-protocols-misc", "tempfile"]
+x11rb_event_source = ["x11rb"]
+xwayland = ["encoding_rs", "wayland_frontend", "x11rb/composite", "x11rb/xfixes", "x11rb/randr", "x11rb_event_source", "scopeguard"]
+test_all_features = ["default", "use_system_lib", "renderer_glow", "renderer_test"]
+
+[[example]]
+name = "minimal"
+required-features = ["backend_winit", "renderer_gl", "wayland_frontend"]
+
+[[example]]
+name = "seat"
+required-features = ["wayland_frontend"]
+
+[[example]]
+name = "compositor"
+required-features = ["wayland_frontend"]
+
+[[example]]
+name = "vulkan"
+required-features = ["backend_vulkan"]
+
+[[example]]
+name = "buffer_test"
+required-features = ["backend_drm", "backend_gbm", "backend_egl", "backend_vulkan", "renderer_gl"]
+
+[[bench]]
+name = "benchmark"
+harness = false
+
+[[bench]]
+name = "geometry"
+harness = false
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true

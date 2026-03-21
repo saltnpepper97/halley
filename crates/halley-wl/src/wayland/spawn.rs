@@ -8,25 +8,38 @@ use crate::state::HalleyWlState;
 use crate::wm::overlap::CollisionExtents;
 
 /// Spawn candidates are tried in a deterministic star pattern:
-/// center, then right, left, down, up for each ring.
+/// center, then left, right, up, down for each ring.
 fn spawn_cardinal_dirs() -> [Vec2; 4] {
     [
         Vec2 { x: 1.0, y: 0.0 },  // right
         Vec2 { x: -1.0, y: 0.0 }, // left
-        Vec2 { x: 0.0, y: -1.0 }, // down
         Vec2 { x: 0.0, y: 1.0 },  // up
+        Vec2 { x: 0.0, y: -1.0 }, // down
     ]
 }
 
 impl HalleyWlState {
     const SPAWN_STAR_RINGS: usize = 24;
 
+    fn spawn_anchor_on_current_monitor(&self, anchor: Vec2) -> bool {
+        self.monitor_for_screen(anchor.x, anchor.y).as_deref() == Some(self.current_monitor.as_str())
+    }
+
     fn current_spawn_focus(&self) -> (Option<NodeId>, Vec2) {
         if self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
-            return (None, self.spawn_view_anchor);
+            let anchor = if self.spawn_anchor_on_current_monitor(self.spawn_view_anchor) {
+                self.spawn_view_anchor
+            } else {
+                self.viewport.center
+            };
+            return (None, anchor);
         }
         if let Some(id) = self.last_input_surface_node()
             && let Some(node) = self.field.node(id)
+            && self
+                .node_monitor
+                .get(&id)
+                .is_none_or(|monitor| monitor == &self.current_monitor)
         {
             return (Some(id), node.pos);
         }
@@ -61,10 +74,20 @@ impl HalleyWlState {
     fn spawn_candidate_fits(&self, pos: Vec2, size: Vec2, skip_node: Option<NodeId>) -> bool {
         let pair_gap = self.non_overlap_gap_world();
         let candidate = CollisionExtents::symmetric(size);
+        let candidate_monitor = self
+            .monitor_for_screen(pos.x, pos.y)
+            .unwrap_or_else(|| self.current_monitor.clone());
         !self.field.nodes().values().any(|other| {
             if Some(other.id) == skip_node
                 || other.kind != halley_core::field::NodeKind::Surface
                 || !self.field.is_visible(other.id)
+            {
+                return false;
+            }
+            if self
+                .node_monitor
+                .get(&other.id)
+                .is_some_and(|monitor| monitor != &candidate_monitor)
             {
                 return false;
             }
@@ -90,9 +113,19 @@ impl HalleyWlState {
 
     fn pick_cluster_growth_dir(&self, center: Vec2) -> Vec2 {
         let dirs = spawn_cardinal_dirs();
+        let local = self
+            .monitor_for_screen(center.x, center.y)
+            .and_then(|monitor| self.monitors.get(monitor.as_str()))
+            .map(|monitor| {
+                Vec2 {
+                    x: center.x - monitor.offset_x as f32,
+                    y: center.y - monitor.offset_y as f32,
+                }
+            })
+            .unwrap_or(center);
         let idx = ((self.spawn_cursor as usize)
-            .wrapping_add(center.x.abs() as usize)
-            .wrapping_add((center.y.abs() * 3.0) as usize))
+            .wrapping_add(local.x.abs() as usize)
+            .wrapping_add((local.y.abs() * 3.0) as usize))
             % dirs.len();
         dirs[idx]
     }
@@ -122,14 +155,16 @@ impl HalleyWlState {
         let anchor = if use_view_patch {
             self.spawn_patch
                 .as_ref()
-                .filter(|patch| patch.focus_node.is_none())
+                .filter(|patch| {
+                    patch.focus_node.is_none() && self.spawn_anchor_on_current_monitor(patch.anchor)
+                })
                 .map(|patch| patch.anchor)
                 .unwrap_or(self.viewport.center)
         } else if let Some(patch) = &self.spawn_patch {
             let same_focus = patch.focus_node == focus_id;
             let same_focus_pos = (patch.focus_pos.x - focus_pos.x).abs() < 0.01
                 && (patch.focus_pos.y - focus_pos.y).abs() < 0.01;
-            if same_focus || same_focus_pos {
+            if same_focus && same_focus_pos && self.spawn_anchor_on_current_monitor(patch.anchor) {
                 patch.anchor
             } else {
                 focus_pos
@@ -294,7 +329,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn star_offsets_are_center_then_right_left_down_up() {
+    fn star_offsets_are_center_then_left_right_up_down() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
@@ -307,8 +342,8 @@ mod tests {
         let step = state.spawn_star_step(Vec2 { x: 100.0, y: 80.0 });
         assert_eq!(offsets[1], Vec2 { x: step, y: 0.0 });
         assert_eq!(offsets[2], Vec2 { x: -step, y: 0.0 });
-        assert_eq!(offsets[3], Vec2 { x: 0.0, y: -step });
-        assert_eq!(offsets[4], Vec2 { x: 0.0, y: step });
+        assert_eq!(offsets[3], Vec2 { x: 0.0, y: step });
+        assert_eq!(offsets[4], Vec2 { x: 0.0, y: -step });
     }
 
     #[test]
@@ -360,7 +395,7 @@ mod tests {
 
         let (pos, needs_pan) = state.pick_spawn_position(size);
         let step = state.spawn_star_step(size);
-        assert_eq!(pos, Vec2 { x: step, y: 0.0 });
+        assert_eq!(pos, Vec2 { x: -step, y: 0.0 });
         assert!(!needs_pan);
     }
 
@@ -449,7 +484,7 @@ mod tests {
             .spawn_surface("existing", Vec2 { x: 0.0, y: 0.0 }, size);
         let (pos, needs_pan) = state.pick_spawn_position(size);
         let step = state.spawn_star_step(size);
-        assert_eq!(pos, Vec2 { x: step, y: 0.0 });
+        assert_eq!(pos, Vec2 { x: -step, y: 0.0 });
         assert!(!needs_pan);
     }
 
@@ -474,7 +509,7 @@ mod tests {
         assert_eq!(
             second,
             Vec2 {
-                x: 1200.0 + step,
+                x: 1200.0 - step,
                 y: 0.0
             }
         );

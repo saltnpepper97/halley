@@ -20,7 +20,7 @@ pub(crate) fn pick_hit_node_at(
     let mut node_dot: Vec<HitNode> = Vec::new();
 
     for (&id, n) in st.field.nodes() {
-        if !st.field.is_visible(id) {
+        if !st.field.is_visible(id) || !st.node_visible_on_current_monitor(id) {
             continue;
         }
         if !matches!(
@@ -100,6 +100,9 @@ pub(crate) fn node_in_active_area(st: &HalleyWlState, node_id: halley_core::fiel
     let Some(n) = st.field.node(node_id) else {
         return false;
     };
+    if !st.node_visible_on_current_monitor(node_id) {
+        return false;
+    }
     let focus_ring = st.active_focus_ring();
     matches!(
         focus_ring.zone(st.viewport.center, n.pos),

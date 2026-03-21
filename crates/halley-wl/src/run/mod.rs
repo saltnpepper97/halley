@@ -110,7 +110,7 @@ pub(crate) fn apply_reloaded_tuning(
 
 fn normalized_tty_viewports(
     tuning: &RuntimeTuning,
-) -> Vec<(String, i32, i32, u32, u32, Option<i64>)> {
+) -> Vec<(String, bool, i32, i32, u32, u32, Option<i64>, u16, &'static str)> {
     let mut out: Vec<_> = tuning
         .tty_viewports
         .iter()
@@ -118,11 +118,14 @@ fn normalized_tty_viewports(
             let refresh_millihz = viewport.refresh_rate.map(|hz| (hz * 1000.0).round() as i64);
             (
                 viewport.connector.clone(),
+                viewport.enabled,
                 viewport.offset_x,
                 viewport.offset_y,
                 viewport.width,
                 viewport.height,
                 refresh_millihz,
+                viewport.transform_degrees,
+                viewport.vrr.as_str(),
             )
         })
         .collect();
@@ -140,7 +143,28 @@ pub(crate) fn preserve_viewport_section(
 ) -> RuntimeTuning {
     next.viewport_center = prev.viewport_center;
     next.viewport_size = prev.viewport_size;
-    next.tty_viewports = prev.tty_viewports.clone();
+    let prev_viewports: std::collections::HashMap<_, _> = prev
+        .tty_viewports
+        .iter()
+        .map(|viewport| (viewport.connector.clone(), viewport.clone()))
+        .collect();
+    next.tty_viewports = next
+        .tty_viewports
+        .into_iter()
+        .map(|mut viewport| {
+            if let Some(prev_viewport) = prev_viewports.get(&viewport.connector) {
+                viewport.enabled = prev_viewport.enabled;
+                viewport.offset_x = prev_viewport.offset_x;
+                viewport.offset_y = prev_viewport.offset_y;
+                viewport.width = prev_viewport.width;
+                viewport.height = prev_viewport.height;
+                viewport.refresh_rate = prev_viewport.refresh_rate;
+                viewport.transform_degrees = prev_viewport.transform_degrees;
+                viewport.vrr = prev_viewport.vrr;
+            }
+            viewport
+        })
+        .collect();
     next
 }
 
@@ -242,7 +266,7 @@ fn configured_halley_log_file() -> Option<Option<PathBuf>> {
     if matches!(trimmed.to_ascii_lowercase().as_str(), "off" | "false" | "0") {
         return Some(None);
     }
-    Some(Some(PathBuf::from(trimmed)))
+    Some(Some(expand_user_path(trimmed)))
 }
 
 fn default_halley_log_path() -> Option<PathBuf> {
@@ -259,4 +283,18 @@ fn default_halley_log_path() -> Option<PathBuf> {
                 .join("halley.log"),
             )
         })
+}
+
+fn expand_user_path(raw: &str) -> PathBuf {
+    if raw == "~" {
+        return env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(raw));
+    }
+    if let Some(rest) = raw.strip_prefix("~/") {
+        return env::var_os("HOME")
+            .map(|home| PathBuf::from(home).join(rest))
+            .unwrap_or_else(|| PathBuf::from(raw));
+    }
+    PathBuf::from(raw)
 }

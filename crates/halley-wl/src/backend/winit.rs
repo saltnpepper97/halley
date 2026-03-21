@@ -57,6 +57,8 @@ fn publish_winit_output_snapshot(
             preferred: true,
             current: true,
         }],
+        vrr_mode: None,
+        vrr_support: None,
         logical: Some(LogicalOutputInfo {
             scale: 1.0,
             focused,
@@ -387,7 +389,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         st.request_exit();
                     }
                     WinitEvent::Input(InputEvent::Keyboard { event }) => {
-                        let code = event.key_code().into();
+                        let code: u32 = event.key_code().into();
                         let pressed = event.state() == KeyState::Pressed;
                         handle_backend_input_event(
                             st,
@@ -618,6 +620,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 st.tick_frame_effects(now);
                 st.tick_animator_frame(now);
                 st.tick_fullscreen_motion(now);
+                st.begin_render_frame(now);
                 {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     let _ = advance_node_move_anim(st, &mut ps, now);

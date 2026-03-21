@@ -236,11 +236,18 @@ pub(crate) fn handle_pointer_axis_input(
         }
     }
 
-    let (sx, sy, ws_w, ws_h) = {
+    let (sx, sy) = {
         let ps = pointer_state.borrow();
-        let (ws_w, ws_h) = backend.window_size_i32();
-        (ps.screen.0, ps.screen.1, ws_w, ws_h)
+        (ps.screen.0, ps.screen.1)
     };
+    // Apply the same monitor split that handle_pointer_motion_absolute uses so
+    // that scroll/axis events on a second monitor compute focus and world
+    // coords in that monitor's local space rather than the global layout space.
+    let target_monitor = st
+        .monitor_for_screen(sx, sy)
+        .unwrap_or_else(|| st.current_monitor.clone());
+    let _ = st.activate_monitor(target_monitor.as_str());
+    let (ws_w, ws_h, sx, sy) = st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
     {
         let mut ps = pointer_state.borrow_mut();
         ps.workspace_size = (ws_w, ws_h);

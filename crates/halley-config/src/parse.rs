@@ -5,8 +5,11 @@ use super::{
     PointerBinding, PointerBindingAction,
 };
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
-use crate::layout::{ViewportOutputConfig, default_compositor_bindings, default_pointer_bindings};
+use crate::layout::{
+    ViewportOutputConfig, ViewportVrrMode, default_compositor_bindings, default_pointer_bindings,
+};
 use crate::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, RuntimeTuning};
+use crate::layout::FocusRingConfig;
 
 use rune_cfg::RuneConfig;
 
@@ -287,7 +290,7 @@ fn load_viewport_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
     out.tty_viewports = parse_viewport_outputs(cfg, "viewport");
 
-    if let Some(primary) = out.tty_viewports.first() {
+    if let Some(primary) = out.tty_viewports.iter().find(|viewport| viewport.enabled) {
         out.viewport_size.x = primary.width as f32;
         out.viewport_size.y = primary.height as f32;
 
@@ -583,6 +586,15 @@ fn parse_viewport_outputs(cfg: &RuneConfig, root: &str) -> Vec<ViewportOutputCon
     };
 
     for key in keys {
+        let enabled = pick_bool(
+            cfg,
+            &[
+                format!("{root}.{key}.enabled").as_str(),
+                format!("{root}.{key}.active").as_str(),
+            ],
+            true,
+        );
+
         let width = pick_u32(
             cfg,
             &[
@@ -638,17 +650,113 @@ fn parse_viewport_outputs(cfg: &RuneConfig, root: &str) -> Vec<ViewportOutputCon
             if v > 0.0 { Some(v as f64) } else { None }
         };
 
+        let transform_degrees = pick_u32(
+            cfg,
+            &[
+                format!("{root}.{key}.transform").as_str(),
+                format!("{root}.{key}.rotation").as_str(),
+            ],
+            0,
+        );
+        let transform_degrees = match transform_degrees {
+            0 | 90 | 180 | 270 => transform_degrees as u16,
+            1 => 90,
+            2 => 180,
+            3 => 270,
+            _ => 0,
+        };
+
+        let vrr = pick_viewport_vrr_mode(
+            cfg,
+            &[
+                format!("{root}.{key}.vrr").as_str(),
+                format!("{root}.{key}.variable-refresh-rate").as_str(),
+                format!("{root}.{key}.variable_refresh_rate").as_str(),
+            ],
+            ViewportVrrMode::Off,
+        );
+        let focus_ring = parse_viewport_focus_ring(cfg, root, &key);
+
         out.push(ViewportOutputConfig {
             connector: key,
+            enabled,
             offset_x,
             offset_y,
             width,
             height,
             refresh_rate,
+            transform_degrees,
+            vrr,
+            focus_ring,
         });
     }
 
     out
+}
+
+fn pick_viewport_vrr_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: ViewportVrrMode,
+) -> ViewportVrrMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "off" | "false" => ViewportVrrMode::Off,
+        "on" | "true" => ViewportVrrMode::On,
+        "on-demand" | "ondemand" | "adaptive" => ViewportVrrMode::OnDemand,
+        _ => default,
+    }
+}
+
+fn parse_viewport_focus_ring(cfg: &RuneConfig, root: &str, key: &str) -> Option<FocusRingConfig> {
+    let ring_root = format!("{root}.{key}.focus-ring");
+    let rx = pick_f32(
+        cfg,
+        &[
+            format!("{ring_root}.rx").as_str(),
+            format!("{ring_root}.radius-x").as_str(),
+            format!("{ring_root}.radius_x").as_str(),
+            format!("{ring_root}.primary-rx").as_str(),
+            format!("{ring_root}.primary_rx").as_str(),
+        ],
+        0.0,
+    );
+    let ry = pick_f32(
+        cfg,
+        &[
+            format!("{ring_root}.ry").as_str(),
+            format!("{ring_root}.radius-y").as_str(),
+            format!("{ring_root}.radius_y").as_str(),
+            format!("{ring_root}.primary-ry").as_str(),
+            format!("{ring_root}.primary_ry").as_str(),
+        ],
+        0.0,
+    );
+    let offset_x = pick_f32(
+        cfg,
+        &[
+            format!("{ring_root}.offset-x").as_str(),
+            format!("{ring_root}.offset_x").as_str(),
+        ],
+        0.0,
+    );
+    let offset_y = pick_f32(
+        cfg,
+        &[
+            format!("{ring_root}.offset-y").as_str(),
+            format!("{ring_root}.offset_y").as_str(),
+        ],
+        0.0,
+    );
+
+    ((rx > 0.0) || (ry > 0.0) || offset_x != 0.0 || offset_y != 0.0).then_some(FocusRingConfig {
+        rx: if rx > 0.0 { rx } else { 820.0 },
+        ry: if ry > 0.0 { ry } else { 420.0 },
+        offset_x,
+        offset_y,
+    })
 }
 
 fn pick_u64(cfg: &RuneConfig, paths: &[&str], default: u64) -> u64 {
@@ -912,6 +1020,10 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         }
         "move_window" | "move-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::MoveWindow);
+        }
+        "field_jump" | "field-jump" if is_pointer_button_code(key) =>
+        {
+            upsert_pointer_binding(out, mods, key, PointerBindingAction::FieldJump);
         }
         "resize_window" | "resize-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::ResizeWindow);
@@ -1211,6 +1323,53 @@ end
         let _ = fs::remove_file(&path);
 
         assert!(!tuning.pan_to_new);
+    }
+
+    #[test]
+    fn viewport_output_enabled_and_transform_parse() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-viewport-output-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+viewport:
+  DP-1:
+    enabled false
+    offset-x 0
+    offset-y 0
+    width 2560
+    height 1440
+    transform 180
+  end
+  DP-2:
+    enabled true
+    offset-x 2560
+    offset-y 0
+    width 1920
+    height 1200
+    transform 90
+  end
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.tty_viewports.len(), 2);
+        assert!(!tuning.tty_viewports[0].enabled);
+        assert_eq!(tuning.tty_viewports[0].transform_degrees, 180);
+        assert!(tuning.tty_viewports[1].enabled);
+        assert_eq!(tuning.tty_viewports[1].transform_degrees, 90);
+        assert_eq!(tuning.viewport_size.x, 1920.0);
+        assert_eq!(tuning.viewport_size.y, 1200.0);
+        assert_eq!(tuning.viewport_center.x, 3520.0);
+        assert_eq!(tuning.viewport_center.y, 600.0);
     }
 
     #[test]

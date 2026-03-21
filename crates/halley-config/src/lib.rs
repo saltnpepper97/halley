@@ -8,5 +8,5 @@ pub use keybinds::{
 };
 pub use layout::{
     NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, RuntimeTuning,
-    ViewportOutputConfig,
+    ViewportOutputConfig, ViewportVrrMode,
 };

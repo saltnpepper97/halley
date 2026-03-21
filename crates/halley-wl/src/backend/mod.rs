@@ -37,7 +37,7 @@ use smithay::{
     backend::winit::{self as smithay_winit, WinitEvent},
     reexports::input::Libinput,
     reexports::wayland_server::Display,
-    utils::{DeviceFd, Transform},
+    utils::DeviceFd,
     wayland::socket::ListeningSocketSource,
 };
 

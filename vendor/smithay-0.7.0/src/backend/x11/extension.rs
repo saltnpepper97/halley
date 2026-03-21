@@ -1,0 +1,145 @@
+use tracing::{error, info};
+
+use super::{MissingExtensionError, X11Error};
+
+/// The extension macro.
+///
+/// This macro generates a struct which checks for the presence of some X11 extensions and stores
+/// the version supplied by the X server.
+///
+/// ```ignore(cannot-test-this-because-non-exported-macro)
+/// extensions! {
+///     // The extension to check for. This should correspond to the name of the extension inside x11rb's `x11rb::protocol::xproto::<name>` module path.
+///     xfixes {
+///         // The function used to query the available version of the extension. This will be inside the module path as explained above
+///         xfixes_query_version,
+///         // The minimum version of the extension that will be accepted.
+///         minimum: (4, 0),
+///         // The version of the extension to request.
+///         request: (4, 0),
+///     },
+/// }
+///
+/// // The extensions may be checked then using the generated `Extensions` struct using the `check_extensions` function.
+/// ```
+macro_rules! extensions {
+    (
+        $(
+            $extension:ident { // Extension name for path lookup
+                $extension_fn:ident, // Function used to look up the version of the extension
+                required: $required:expr,
+                minimum: ($min_major:expr, $min_minor:expr),
+                request: ($req_major:expr, $req_minor:expr),
+            },
+        )*
+    ) => {
+        #[allow(dead_code)]
+        #[derive(Debug, Copy, Clone)]
+        pub struct Extensions {
+            $(
+                #[doc = concat!(" The version of the `", stringify!($extension), "` extension.")]
+                pub $extension: Option<(u32, u32)>,
+            )*
+        }
+
+        impl Extensions {
+            pub fn check_extensions<C: x11rb::connection::Connection>(connection: &C) -> Result<Extensions, X11Error> {
+                $(
+                    let $extension = {
+                        use x11rb::protocol::$extension::{ConnectionExt as _, X11_EXTENSION_NAME};
+
+                        if connection.extension_information(X11_EXTENSION_NAME)?.is_some() {
+                            let version = connection.$extension_fn($req_major, $req_minor)?.reply()?;
+                            let major_version = u32::from(version.major_version);
+                            let minor_version = u32::from(version.minor_version);
+
+                            #[allow(unused_comparisons)] // Macro comparisons
+                            if major_version >= $req_major
+                                || (major_version == $req_major && minor_version >= $req_minor)
+                            {
+                                info!(
+                                    "Loaded extension {} version {}.{}",
+                                    X11_EXTENSION_NAME,
+                                    major_version,
+                                    minor_version,
+                                );
+
+                                Some((major_version, minor_version))
+                            } else {
+                                if $required {
+                                    error!(
+                                        "required extension {} version is too low (have {}.{}, expected {}.{})",
+                                        X11_EXTENSION_NAME,
+                                        major_version,
+                                        minor_version,
+                                        $req_major,
+                                        $req_minor,
+                                    );
+
+                                    return Err(MissingExtensionError::WrongVersion {
+                                        name: X11_EXTENSION_NAME,
+                                        required_major: $req_major,
+                                        required_minor: $req_minor,
+                                        available_major: major_version,
+                                        available_minor: minor_version,
+                                    }.into());
+                                } else {
+                                    None
+                                }
+                            }
+                        } else {
+                            if $required {
+                                error!("required extension {} not found", X11_EXTENSION_NAME);
+
+                                return Err(MissingExtensionError::NotFound {
+                                    name: X11_EXTENSION_NAME,
+                                    major: $min_major,
+                                    minor: $min_minor,
+                                }
+                                .into());
+                            } else {
+                                None
+                            }
+                        }
+                    };
+                )*
+
+                Ok(Extensions {
+                    $(
+                        $extension,
+                    )*
+                })
+            }
+        }
+    };
+}
+
+extensions! {
+    present {
+        present_query_version,
+        required: true,
+        minimum: (1, 0),
+        request: (1, 0),
+    },
+
+    xfixes {
+        xfixes_query_version,
+        required: true,
+        minimum: (4, 0),
+        request: (4, 0),
+    },
+
+    dri3 {
+        dri3_query_version,
+        required: true,
+        minimum: (1, 0),
+        request: (1, 2),
+    },
+
+    xinput {
+        xinput_xi_query_version,
+        required: true,
+        minimum: (2, 0),
+        request: (2, 4),
+    },
+}

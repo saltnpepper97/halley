@@ -8,25 +8,38 @@ autostart:
   #on-reload "thunderbird"
 end
 
+env:
+  XCURSOR_THEME "Adwaita"
+  XCURSOR_SIZE "24"
+end
+
 viewport:
   DP-1:
+    enabled true
+    
     offset-x 0
     offset-y 0
+    
     width 2560
     height 1440
+    
+    rate 180.0
+    transform 0
+    vrr "on"
+
+
+    focus-ring:
+      primary-rx 820.0
+      primary-ry 420.0
+      offset-x 0
+      offset-y 0
+    end
   end
 end
 
 trail:
   history-length 25
   wrap true
-end
-
-focus-ring:
-  primary-rx 820.0
-  primary-ry 420.0
-  offset-x 0
-  offset-y 0
 end
 
 node:
@@ -45,7 +58,6 @@ end
 
 clusters:
   distance-px 280.0
-  dwell-ms 900
 end
 
 tile:
@@ -58,18 +70,13 @@ end
 
 field:
   gap 20.0
-  active-windows-allowed 3
+  active-windows-allowed 5
   pan-to-new true
 end
 
 physics:
   enabled true
   damping 0.35
-end
-
-env:
-  XCURSOR_THEME "Adwaita"
-  XCURSOR_SIZE "24"
 end
 
 keybinds:
@@ -98,7 +105,11 @@ keybinds:
   "$var.mod+return" "kitty"
   "$var.mod+p" "pavucontrol"
   "$var.mod+d" "fuzzel"
+  "$var.mod+leftmouse" "move-window"
+  "$var.mod+shift+leftmouse" "field-jump"
+  "$var.mod+rightmouse" "resize-window"
 
+  # Media
   "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
   "XF86AudioLowerVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
   "XF86AudioMute" "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"

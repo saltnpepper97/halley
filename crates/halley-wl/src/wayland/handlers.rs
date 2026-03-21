@@ -366,8 +366,13 @@ impl HalleyWlState {
         let Some(node_id) = self.surface_to_node.get(&surface.id()).copied() else {
             return;
         };
-        let ws_w = self.tuning.viewport_size.x.max(1.0).round() as i32;
-        let ws_h = self.tuning.viewport_size.y.max(1.0).round() as i32;
+        let monitor = self
+            .node_monitor
+            .get(&node_id)
+            .cloned()
+            .unwrap_or_else(|| self.current_monitor.clone());
+        let (ws_w, ws_h, _, _) = self.local_screen_in_monitor(monitor.as_str(), 0.0, 0.0);
+        let _ = self.activate_monitor(monitor.as_str());
         let Some(xform) = active_node_surface_transform_screen_details(
             self,
             ws_w,
