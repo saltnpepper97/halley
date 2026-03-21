@@ -59,6 +59,7 @@ end
 field:
   gap 20.0
   active-windows-allowed 3
+  pan-to-new true
 end
 
 physics:

@@ -73,6 +73,7 @@ pub struct RuntimeTuning {
     pub docked_offscreen_delay_ms: u64,
 
     pub non_overlap_gap_px: f32,
+    pub pan_to_new: bool,
     pub non_overlap_active_gap_scale: f32,
     pub non_overlap_bump_newer: bool,
     pub non_overlap_bump_damping: f32,
@@ -146,6 +147,7 @@ impl Default for RuntimeTuning {
             docked_offscreen_delay_ms: 300_000,
 
             non_overlap_gap_px: 20.0,
+            pan_to_new: true,
             non_overlap_active_gap_scale: 0.22,
             non_overlap_bump_newer: false,
             non_overlap_bump_damping: 0.65,

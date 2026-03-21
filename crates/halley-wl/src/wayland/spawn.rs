@@ -8,19 +8,18 @@ use crate::state::HalleyWlState;
 use crate::wm::overlap::CollisionExtents;
 
 /// Spawn candidates are tried in a deterministic star pattern:
-/// center, then right, left, top, bottom for each ring.
+/// center, then right, left, down, up for each ring.
 fn spawn_cardinal_dirs() -> [Vec2; 4] {
     [
         Vec2 { x: 1.0, y: 0.0 },  // right
         Vec2 { x: -1.0, y: 0.0 }, // left
-        Vec2 { x: 0.0, y: 1.0 },  // top
-        Vec2 { x: 0.0, y: -1.0 }, // bottom
+        Vec2 { x: 0.0, y: -1.0 }, // down
+        Vec2 { x: 0.0, y: 1.0 },  // up
     ]
 }
 
 impl HalleyWlState {
-    const SPAWN_STAR_RINGS: usize = 4;
-    const SPAWN_CLUSTER_JUMP_DIAGONALS: f32 = 4.25;
+    const SPAWN_STAR_RINGS: usize = 24;
 
     fn current_spawn_focus(&self) -> (Option<NodeId>, Vec2) {
         if self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
@@ -89,19 +88,6 @@ impl HalleyWlState {
         None
     }
 
-    fn star_has_any_room(&self, center: Vec2, size: Vec2) -> bool {
-        self.star_candidate_offsets(size).into_iter().any(|offset| {
-            self.spawn_candidate_fits(
-                Vec2 {
-                    x: center.x + offset.x,
-                    y: center.y + offset.y,
-                },
-                size,
-                None,
-            )
-        })
-    }
-
     fn pick_cluster_growth_dir(&self, center: Vec2) -> Vec2 {
         let dirs = spawn_cardinal_dirs();
         let idx = ((self.spawn_cursor as usize)
@@ -128,69 +114,21 @@ impl HalleyWlState {
         });
     }
 
-    fn find_nearby_star_center(&self, base: Vec2, size: Vec2) -> Option<(Vec2, Vec2)> {
-        let step = self.spawn_star_step(size);
-        let star_radius = step * Self::SPAWN_STAR_RINGS as f32;
-        let jump = star_radius + step * Self::SPAWN_CLUSTER_JUMP_DIAGONALS;
-
-        let base_dir = self
-            .spawn_patch
-            .as_ref()
-            .map(|p| p.growth_dir)
-            .unwrap_or_else(|| self.pick_cluster_growth_dir(base));
-
-        let dirs = [
-            base_dir,
-            Vec2 {
-                x: -base_dir.y,
-                y: base_dir.x,
-            },
-            Vec2 {
-                x: base_dir.y,
-                y: -base_dir.x,
-            },
-            Vec2 {
-                x: -base_dir.x,
-                y: -base_dir.y,
-            },
-        ];
-
-        for mul in [1.0_f32, 1.35, 1.75, 2.25, 2.9] {
-            for dir in dirs {
-                let center = Vec2 {
-                    x: base.x + dir.x * jump * mul,
-                    y: base.y + dir.y * jump * mul,
-                };
-                if self.star_has_any_room(center, size) {
-                    return Some((center, dir));
-                }
-            }
-        }
-
-        None
-    }
-
     /// Returns `(position, needs_pan)`.
     pub(super) fn pick_spawn_position(&mut self, size: Vec2) -> (Vec2, bool) {
         let (focus_id, focus_pos) = self.current_spawn_focus();
+        let use_view_patch = self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View;
 
-        let focus_intersects_view = focus_id
-            .map(|id| self.surface_intersects_viewport(id))
-            .unwrap_or(false);
-
-        let focus_center_in_view = focus_id
-            .and_then(|id| self.field.node(id))
-            .map(|node| self.viewport_contains_point(node.pos))
-            .unwrap_or(false);
-
-        let local_mode = focus_id.is_some() && focus_intersects_view && focus_center_in_view;
-        let remote_focus_mode = focus_id.is_some() && !local_mode;
-
-        let star_center = if let Some(patch) = &self.spawn_patch {
+        let anchor = if use_view_patch {
+            self.spawn_patch
+                .as_ref()
+                .filter(|patch| patch.focus_node.is_none())
+                .map(|patch| patch.anchor)
+                .unwrap_or(self.viewport.center)
+        } else if let Some(patch) = &self.spawn_patch {
             let same_focus = patch.focus_node == focus_id;
             let same_focus_pos = (patch.focus_pos.x - focus_pos.x).abs() < 0.01
                 && (patch.focus_pos.y - focus_pos.y).abs() < 0.01;
-
             if same_focus || same_focus_pos {
                 patch.anchor
             } else {
@@ -200,71 +138,38 @@ impl HalleyWlState {
             focus_pos
         };
 
-        if remote_focus_mode {
-            if let Some((center, growth_dir)) = self.find_nearby_star_center(star_center, size)
-                && let Some(pos) = self.try_spawn_star(center, size)
-            {
-                self.update_spawn_patch(center, focus_id, focus_pos, growth_dir);
-                return (pos, true);
+        if let Some(pos) = self.try_spawn_star(anchor, size) {
+            let growth_dir = self.pick_cluster_growth_dir(anchor);
+            let patch_focus = if use_view_patch { None } else { focus_id };
+            let patch_focus_pos = if use_view_patch {
+                self.viewport.center
+            } else {
+                focus_pos
+            };
+            self.update_spawn_patch(anchor, patch_focus, patch_focus_pos, growth_dir);
+            if use_view_patch {
+                self.spawn_view_anchor = anchor;
             }
+            return (pos, false);
         }
 
-        if let Some(pos) = self.try_spawn_star(star_center, size) {
-            let growth_dir = self
-                .spawn_patch
-                .as_ref()
-                .filter(|patch| {
-                    (patch.anchor.x - star_center.x).abs() < 0.01
-                        && (patch.anchor.y - star_center.y).abs() < 0.01
-                })
-                .map(|patch| patch.growth_dir)
-                .unwrap_or_else(|| self.pick_cluster_growth_dir(star_center));
-
-            self.update_spawn_patch(star_center, focus_id, focus_pos, growth_dir);
-
-            let is_center =
-                (pos.x - star_center.x).abs() < 0.01 && (pos.y - star_center.y).abs() < 0.01;
-
-            return (pos, local_mode && !is_center);
+        let fallback_anchor = if use_view_patch {
+            self.viewport.center
+        } else {
+            focus_pos
+        };
+        let growth_dir = self.pick_cluster_growth_dir(fallback_anchor);
+        let patch_focus = if use_view_patch { None } else { focus_id };
+        let patch_focus_pos = if use_view_patch {
+            self.viewport.center
+        } else {
+            focus_pos
+        };
+        self.update_spawn_patch(fallback_anchor, patch_focus, patch_focus_pos, growth_dir);
+        if use_view_patch {
+            self.spawn_view_anchor = fallback_anchor;
         }
-
-        if let Some((center, growth_dir)) = self.find_nearby_star_center(star_center, size)
-            && let Some(pos) = self.try_spawn_star(center, size)
-        {
-            self.update_spawn_patch(center, focus_id, focus_pos, growth_dir);
-            return (pos, true);
-        }
-
-        let requested = self.spawn_view_anchor;
-        if self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
-            if let Some(pos) = self.try_spawn_star(requested, size) {
-                let growth_dir = self.pick_cluster_growth_dir(requested);
-                self.update_spawn_patch(requested, None, requested, growth_dir);
-                self.spawn_view_anchor = requested;
-                return (pos, false);
-            }
-
-            if let Some((center, growth_dir)) = self.find_nearby_star_center(requested, size)
-                && let Some(pos) = self.try_spawn_star(center, size)
-            {
-                self.spawn_view_anchor = center;
-                self.update_spawn_patch(center, None, center, growth_dir);
-                return (pos, true);
-            }
-        }
-
-        if let Some((center, growth_dir)) = self.find_nearby_star_center(self.viewport.center, size)
-            && let Some(pos) = self.try_spawn_star(center, size)
-        {
-            self.spawn_view_anchor = center;
-            self.update_spawn_patch(center, None, center, growth_dir);
-            return (pos, true);
-        }
-
-        let fallback = self.viewport.center;
-        let growth_dir = self.pick_cluster_growth_dir(fallback);
-        self.update_spawn_patch(fallback, None, fallback, growth_dir);
-        (fallback, false)
+        (fallback_anchor, false)
     }
 
     pub(crate) fn queue_spawn_pan_to_node(&mut self, id: NodeId, now: Instant) {
@@ -372,11 +277,8 @@ impl HalleyWlState {
             return;
         }
 
-        let visible_in_view = self
-            .field
-            .node(id)
-            .is_some_and(|node| self.viewport_contains_point(node.pos));
-        if visible_in_view {
+        let fully_visible_in_view = self.viewport_fully_contains_surface(id);
+        if fully_visible_in_view || !self.tuning.pan_to_new {
             self.mark_active_transition(id, now, 620);
             self.record_focus_trail_visit(id);
             self.suppress_trail_record_once = true;
@@ -392,7 +294,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn star_offsets_are_center_then_right_left_top_bottom() {
+    fn star_offsets_are_center_then_right_left_down_up() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
@@ -405,8 +307,8 @@ mod tests {
         let step = state.spawn_star_step(Vec2 { x: 100.0, y: 80.0 });
         assert_eq!(offsets[1], Vec2 { x: step, y: 0.0 });
         assert_eq!(offsets[2], Vec2 { x: -step, y: 0.0 });
-        assert_eq!(offsets[3], Vec2 { x: 0.0, y: step });
-        assert_eq!(offsets[4], Vec2 { x: 0.0, y: -step });
+        assert_eq!(offsets[3], Vec2 { x: 0.0, y: -step });
+        assert_eq!(offsets[4], Vec2 { x: 0.0, y: step });
     }
 
     #[test]
@@ -459,11 +361,11 @@ mod tests {
         let (pos, needs_pan) = state.pick_spawn_position(size);
         let step = state.spawn_star_step(size);
         assert_eq!(pos, Vec2 { x: step, y: 0.0 });
-        assert!(needs_pan);
+        assert!(!needs_pan);
     }
 
     #[test]
-    fn current_spawn_focus_keeps_offscreen_focus_anchor() {
+    fn current_spawn_focus_keeps_focused_window_anchor() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
@@ -487,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn offscreen_focused_surface_spawns_to_new_star_and_pans() {
+    fn view_mode_spawns_near_viewport_center_without_pan() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
@@ -506,14 +408,16 @@ mod tests {
             .set_state(focused, halley_core::field::NodeState::Active);
         state.last_surface_focus_ms.insert(focused, 1);
         state.interaction_focus = Some(focused);
+        state.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
+        state.spawn_view_anchor = state.viewport.center;
 
         let (pos, needs_pan) = state.pick_spawn_position(Vec2 { x: 100.0, y: 80.0 });
-        assert!(needs_pan);
-        assert_ne!(pos, Vec2 { x: 0.0, y: 0.0 });
+        assert!(!needs_pan);
+        assert_eq!(pos, state.viewport.center);
     }
 
     #[test]
-    fn partially_visible_focused_surface_spawns_to_new_star_and_pans() {
+    fn focus_mode_keeps_building_around_last_focus() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
             .expect("display")
@@ -525,20 +429,55 @@ mod tests {
         let focused = state.field.spawn_surface(
             "focused",
             Vec2 { x: 0.0, y: 0.0 },
-            Vec2 { x: 500.0, y: 300.0 },
+            Vec2 { x: 120.0, y: 90.0 },
         );
         let _ = state
             .field
             .set_state(focused, halley_core::field::NodeState::Active);
         state.last_surface_focus_ms.insert(focused, 1);
         state.interaction_focus = Some(focused);
+        state.update_spawn_patch(
+            Vec2 { x: 0.0, y: 0.0 },
+            Some(focused),
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 1.0, y: 0.0 },
+        );
 
-        assert!(state.surface_intersects_viewport(focused));
-        assert!(!state.viewport_contains_point(Vec2 { x: 0.0, y: 0.0 }));
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let _ = state
+            .field
+            .spawn_surface("existing", Vec2 { x: 0.0, y: 0.0 }, size);
+        let (pos, needs_pan) = state.pick_spawn_position(size);
+        let step = state.spawn_star_step(size);
+        assert_eq!(pos, Vec2 { x: step, y: 0.0 });
+        assert!(!needs_pan);
+    }
 
-        let (pos, needs_pan) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
-        assert!(needs_pan);
-        assert_ne!(pos, Vec2 { x: 0.0, y: 0.0 });
+    #[test]
+    fn view_mode_continues_local_build_up_around_new_area() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        state.viewport.center = Vec2 { x: 1200.0, y: 0.0 };
+        state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
+        state.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
+        state.spawn_view_anchor = state.viewport.center;
+
+        let size = Vec2 { x: 100.0, y: 80.0 };
+        let first = state.pick_spawn_position(size).0;
+        let _ = state.field.spawn_surface("first", first, size);
+        let second = state.pick_spawn_position(size).0;
+        let step = state.spawn_star_step(size);
+        assert_eq!(first, Vec2 { x: 1200.0, y: 0.0 });
+        assert_eq!(
+            second,
+            Vec2 {
+                x: 1200.0 + step,
+                y: 0.0
+            }
+        );
     }
 
     #[test]
@@ -565,6 +504,30 @@ mod tests {
         assert!(state.pending_spawn_pan_queue.is_empty());
         assert!(state.viewport_pan_anim.is_none());
         assert_eq!(state.interaction_focus, Some(id));
+    }
+
+    #[test]
+    fn reveal_new_toplevel_pans_when_spawn_is_partially_offscreen() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+            .expect("display")
+            .handle();
+        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        state.viewport.center = Vec2 { x: 700.0, y: 0.0 };
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+
+        let id = state.field.spawn_surface(
+            "partial",
+            Vec2 { x: 1460.0, y: 0.0 },
+            Vec2 { x: 240.0, y: 160.0 },
+        );
+
+        state.reveal_new_toplevel_node(id, false, Instant::now());
+
+        assert_eq!(state.active_spawn_pan.map(|pan| pan.node_id), Some(id));
     }
 
     #[test]

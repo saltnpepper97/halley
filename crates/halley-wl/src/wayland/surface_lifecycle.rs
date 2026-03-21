@@ -25,13 +25,20 @@ impl HalleyWlState {
         root
     }
 
-    pub(super) fn viewport_contains_point(&self, pos: Vec2) -> bool {
-        let half_w = self.viewport.size.x * 0.5;
-        let half_h = self.viewport.size.y * 0.5;
-        pos.x >= self.viewport.center.x - half_w
-            && pos.x <= self.viewport.center.x + half_w
-            && pos.y >= self.viewport.center.y - half_h
-            && pos.y <= self.viewport.center.y + half_h
+    pub(super) fn viewport_fully_contains_surface(&self, id: NodeId) -> bool {
+        let Some(node) = self.field.node(id) else {
+            return false;
+        };
+        let ext = self.spawn_obstacle_extents_for_node(node);
+        let min_x = self.viewport.center.x - self.viewport.size.x * 0.5;
+        let max_x = self.viewport.center.x + self.viewport.size.x * 0.5;
+        let min_y = self.viewport.center.y - self.viewport.size.y * 0.5;
+        let max_y = self.viewport.center.y + self.viewport.size.y * 0.5;
+
+        node.pos.x - ext.left >= min_x
+            && node.pos.x + ext.right <= max_x
+            && node.pos.y - ext.top >= min_y
+            && node.pos.y + ext.bottom <= max_y
     }
 
     fn compact_app_id_label(app_id: &str) -> Option<String> {
