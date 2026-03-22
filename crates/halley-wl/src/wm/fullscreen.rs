@@ -63,11 +63,17 @@ impl HalleyWlState {
     }
 
     fn fullscreen_target_size_for(&self, monitor_name: &str) -> (i32, i32) {
-        let (_, size) = self.fullscreen_monitor_view(monitor_name);
-        (
-            size.x.round().max(96.0) as i32,
-            size.y.round().max(72.0) as i32,
-        )
+        self.outputs
+            .get(monitor_name)
+            .and_then(|output| output.current_mode())
+            .map(|mode| (mode.size.w, mode.size.h))
+            .unwrap_or_else(|| {
+                let (_, size) = self.fullscreen_monitor_view(monitor_name);
+                (
+                    size.x.round().max(96.0) as i32,
+                    size.y.round().max(72.0) as i32,
+                )
+            })
     }
 
     fn queue_fullscreen_motion(
