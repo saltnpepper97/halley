@@ -1,4 +1,5 @@
 use super::*;
+use halley_core::field::NodeId;
 use eventline::info;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::desktop::{PopupKind, find_popup_root_surface, utils::bbox_from_surface_tree};
@@ -87,23 +88,51 @@ impl SeatHandler for HalleyWlState {
     }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
-        if let Some(fullscreen_id) = self.fullscreen_active_node {
-            let focused_is_layer = focused.is_some_and(|surface| self.is_layer_surface(surface));
-            let fullscreen_surface_id =
-                self.xdg_shell_state
-                    .toplevel_surfaces()
-                    .iter()
-                    .find_map(|top| {
-                        (self.surface_to_node.get(&top.wl_surface().id()).copied()
-                            == Some(fullscreen_id))
-                        .then(|| top.wl_surface().id())
-                    });
+        // Only suspend a fullscreen if focus moves to a surface on the *same monitor*.
+        // Focus changing on a different monitor must never disturb an unrelated fullscreen.
+        let focused_is_layer = focused.is_some_and(|surface| self.is_layer_surface(surface));
+        if !focused_is_layer {
             let focused_id = focused.map(|wl| wl.id());
-            if !focused_is_layer
-                && fullscreen_surface_id.is_some()
-                && fullscreen_surface_id != focused_id
-            {
-                self.suspend_xdg_fullscreen(fullscreen_id, Instant::now());
+
+            // Which monitor is the newly-focused surface on?
+            let focused_monitor: Option<String> = focused_id.as_ref().and_then(|fid| {
+                let node_id = self.surface_to_node.get(fid).copied()?;
+                Some(
+                    self.node_monitor
+                        .get(&node_id)
+                        .cloned()
+                        .unwrap_or_else(|| self.current_monitor.clone()),
+                )
+            });
+
+            let to_suspend: Vec<NodeId> = self
+                .fullscreen_active_node
+                .iter()
+                .filter_map(|(monitor, &fullscreen_id)| {
+                    // Skip fullscreens on other monitors entirely.
+                    let same_monitor = focused_monitor
+                        .as_deref()
+                        .is_some_and(|fm| fm == monitor.as_str());
+                    if !same_monitor {
+                        return None;
+                    }
+                    let fullscreen_surface_id = self
+                        .xdg_shell_state
+                        .toplevel_surfaces()
+                        .iter()
+                        .find_map(|top| {
+                            (self.surface_to_node.get(&top.wl_surface().id()).copied()
+                                == Some(fullscreen_id))
+                            .then(|| top.wl_surface().id())
+                        });
+                    (fullscreen_surface_id.is_some() && fullscreen_surface_id != focused_id)
+                        .then_some(fullscreen_id)
+                })
+                .collect();
+
+            let now = Instant::now();
+            for fullscreen_id in to_suspend {
+                self.suspend_xdg_fullscreen(fullscreen_id, now);
             }
         }
 

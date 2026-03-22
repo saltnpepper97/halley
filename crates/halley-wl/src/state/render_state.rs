@@ -44,7 +44,7 @@ impl HalleyWlState {
             self.smoothed_render_pos.insert(id, logical);
             return logical;
         }
-        if self.interaction_focus == Some(id)
+        if self.primary_interaction_focus == Some(id)
             || self.companion_surface_node(now_ms) == Some(id)
             || self.is_recently_interacted_surface(id, now_ms)
         {
@@ -88,7 +88,7 @@ impl HalleyWlState {
         let now_ms = self.now_ms(now);
         if self.resize_active == Some(id)
             || (self.resize_static_node == Some(id) && now_ms < self.resize_static_until_ms)
-            || self.interaction_focus == Some(id)
+            || self.primary_interaction_focus == Some(id)
             || self.companion_surface_node(now_ms) == Some(id)
             || self.is_recently_interacted_surface(id, now_ms)
         {

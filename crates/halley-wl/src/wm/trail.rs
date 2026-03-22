@@ -33,7 +33,7 @@ impl HalleyWlState {
         self.suppress_trail_record_once = true;
         let moved = match node.state {
             halley_core::field::NodeState::Active => {
-                let restoring_suspended_fullscreen = self.fullscreen_suspended_node == Some(id);
+                let restoring_suspended_fullscreen = self.fullscreen_suspended_node.values().any(|&nid| nid == id);
                 self.set_interaction_focus(Some(id), 30_000, now);
                 if restoring_suspended_fullscreen {
                     true
@@ -64,7 +64,7 @@ impl HalleyWlState {
         direction: TrailDirection,
         now: Instant,
     ) -> bool {
-        let current_focus = self.interaction_focus;
+        let current_focus = self.primary_interaction_focus;
         let mut remaining = self.focus_trail.len().max(1);
         loop {
             if remaining == 0 {
@@ -122,10 +122,10 @@ mod tests {
         state.set_interaction_focus(Some(second), 30_000, now);
 
         assert!(state.navigate_window_trail(TrailDirection::Prev, now));
-        assert_eq!(state.interaction_focus, Some(first));
+        assert_eq!(state.primary_interaction_focus, Some(first));
 
         assert!(state.navigate_window_trail(TrailDirection::Next, now));
-        assert_eq!(state.interaction_focus, Some(second));
+        assert_eq!(state.primary_interaction_focus, Some(second));
     }
 
     #[test]
@@ -151,9 +151,9 @@ mod tests {
         state.focus_trail.record(first);
         state.focus_trail.record(second);
         state.focus_trail.record(first);
-        state.interaction_focus = Some(first);
+        state.primary_interaction_focus = Some(first);
 
         assert!(state.navigate_window_trail(TrailDirection::Prev, now));
-        assert_eq!(state.interaction_focus, Some(second));
+        assert_eq!(state.primary_interaction_focus, Some(second));
     }
 }

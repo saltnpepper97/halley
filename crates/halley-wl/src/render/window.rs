@@ -246,7 +246,7 @@ pub(crate) fn collect_active_surfaces(
             y: border_y,
             w: border_w,
             h: border_h,
-            focused: st.interaction_focus == Some(node_id),
+            focused: st.primary_interaction_focus == Some(node_id),
         };
         if draw_top_this_node {
             resized_border_rects.push(border_rect);

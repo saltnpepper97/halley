@@ -7,7 +7,7 @@ impl HalleyWlState {
 
     #[inline]
     fn fullscreen_zoom_locked(&self) -> bool {
-        self.fullscreen_active_node.is_some() || !self.fullscreen_motion.is_empty()
+        self.any_fullscreen_active() || !self.fullscreen_motion.is_empty()
     }
 
     #[inline]
@@ -77,7 +77,7 @@ impl HalleyWlState {
 
     pub(crate) fn tick_camera_smoothing(&mut self, now: Instant) {
         if self.viewport_pan_anim.is_some()
-            || self.fullscreen_active_node.is_some()
+            || self.any_fullscreen_active()
             || !self.fullscreen_motion.is_empty()
         {
             self.snap_camera_targets_to_live();

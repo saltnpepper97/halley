@@ -20,7 +20,7 @@ impl HalleyWlState {
     }
 
     pub(crate) fn companion_surface_node(&self, now_ms: u64) -> Option<NodeId> {
-        let focused = self.interaction_focus;
+        let focused = self.primary_interaction_focus;
         self.last_surface_focus_ms
             .iter()
             .filter_map(|(&id, &at)| {

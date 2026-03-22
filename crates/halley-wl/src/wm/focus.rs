@@ -38,13 +38,8 @@ impl HalleyWlState {
     }
 
     fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
-        if let Some(fullscreen_id) = self.fullscreen_active_node
-            && Some(fullscreen_id) != id
-        {
-            self.suspend_xdg_fullscreen(fullscreen_id, Instant::now());
-        }
         if let Some(fid) = id
-            && self.fullscreen_suspended_node == Some(fid)
+            && self.fullscreen_suspended_node.values().any(|&nid| nid == fid)
         {
             if let Some(entry) = self.fullscreen_restore.get(&fid).copied() {
                 self.viewport.center = entry.viewport_center;
@@ -69,19 +64,24 @@ impl HalleyWlState {
 
         for top in self.xdg_shell_state.toplevel_surfaces() {
             let key = top.wl_surface().id();
-            let focused = match id {
-                Some(fid) => self.surface_to_node.get(&key).copied() == Some(fid),
-                None => false,
-            };
+            let node_id = self.surface_to_node.get(&key).copied();
+
+            let activated = node_id.is_some_and(|nid| {
+                self.node_monitor
+                    .get(&nid)
+                    .and_then(|monitor| self.monitor_focus.get(monitor))
+                    .copied()
+                    == Some(nid)
+            });
 
             let state_changed = top.with_pending_state(|s| {
                 let was_active = s.states.contains(xdg_toplevel::State::Activated);
-                if focused {
+                if activated {
                     s.states.set(xdg_toplevel::State::Activated);
                 } else {
                     s.states.unset(xdg_toplevel::State::Activated);
                 }
-                was_active != focused
+                was_active != activated
             });
 
             if state_changed {
@@ -263,7 +263,7 @@ impl HalleyWlState {
     }
 
     fn last_focused_active_surface_node(&self) -> Option<NodeId> {
-        if let Some(id) = self.interaction_focus
+        if let Some(id) = self.primary_interaction_focus
             && self.field.node(id).is_some_and(|n| {
                 self.field.is_visible(id)
                     && n.kind == halley_core::field::NodeKind::Surface
@@ -368,7 +368,7 @@ impl HalleyWlState {
     }
 
     pub fn set_interaction_focus(&mut self, id: Option<NodeId>, hold_ms: u64, now: Instant) {
-        let prev = self.interaction_focus;
+        let prev = self.primary_interaction_focus;
         let now_ms = self.now_ms(now);
 
         if prev == id {
@@ -379,6 +379,11 @@ impl HalleyWlState {
                 self.update_focus_tracking_for_surface(fid, now_ms);
                 self.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
                 self.spawn_pan_start_center = None;
+
+                if let Some(monitor) = self.node_monitor.get(&fid).cloned() {
+                    self.monitor_focus.insert(monitor, fid);
+                }
+
                 self.reassert_wayland_keyboard_focus_if_drifted(id);
             } else {
                 self.interaction_focus_until_ms = 0;
@@ -388,12 +393,16 @@ impl HalleyWlState {
             return;
         }
 
-        self.interaction_focus = id;
+        self.primary_interaction_focus = id;
         if let Some(fid) = id {
             self.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
             self.update_focus_tracking_for_surface(fid, now_ms);
             self.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
             self.spawn_pan_start_center = None;
+
+            if let Some(monitor) = self.node_monitor.get(&fid).cloned() {
+                self.monitor_focus.insert(monitor, fid);
+            }
         } else {
             self.interaction_focus_until_ms = 0;
         }
@@ -411,7 +420,7 @@ impl HalleyWlState {
     }
 
     pub fn last_focused_surface_node(&self) -> Option<NodeId> {
-        if let Some(id) = self.interaction_focus {
+        if let Some(id) = self.primary_interaction_focus {
             let valid = self.field.node(id).is_some_and(|n| {
                 self.field.is_visible(id)
                     && n.kind == halley_core::field::NodeKind::Surface
@@ -443,7 +452,7 @@ impl HalleyWlState {
     }
 
     pub fn last_input_surface_node(&self) -> Option<NodeId> {
-        if let Some(id) = self.interaction_focus {
+        if let Some(id) = self.primary_interaction_focus {
             let valid = self.field.node(id).is_some_and(|n| {
                 self.field.is_visible(id) && n.kind == halley_core::field::NodeKind::Surface
             });

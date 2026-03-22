@@ -114,7 +114,13 @@ impl HalleyWlState {
             let focused_breakout: Option<NodeId> = active_ids
                 .iter()
                 .copied()
-                .find(|&id| self.interaction_focus == Some(id))
+                .find(|&id| {
+                    let monitor = self.node_monitor.get(&id);
+                    monitor
+                        .and_then(|m| self.monitor_focus.get(m))
+                        .copied()
+                        == Some(id)
+                })
                 .or_else(|| {
                     active_ids
                         .iter()
@@ -130,7 +136,13 @@ impl HalleyWlState {
                 let mut ranked = active_ids.clone();
                 ranked.sort_by_key(|id| {
                     let preferred_rank = u8::from(preferred_surface == Some(*id));
-                    let focus_rank = u8::from(self.interaction_focus == Some(*id));
+                    let focus_rank = u8::from({
+                        let monitor = self.node_monitor.get(id);
+                        monitor
+                            .and_then(|m| self.monitor_focus.get(m))
+                            .copied()
+                            == Some(*id)
+                    });
                     let companion_rank = u8::from(companion == Some(*id));
                     let inside_rank =
                         u8::from(!self.surface_is_definitively_outside_focus_ring(*id));
@@ -293,7 +305,7 @@ impl HalleyWlState {
             return;
         }
 
-        let is_primary = self.interaction_focus == Some(id);
+        let is_primary = self.primary_interaction_focus == Some(id);
         let delay_ms = if is_primary {
             active_delay_ms
         } else {
@@ -316,7 +328,7 @@ impl HalleyWlState {
     }
 
     fn is_hard_decay_protected(&self, id: NodeId, now_ms: u64) -> bool {
-        self.interaction_focus == Some(id)
+        self.primary_interaction_focus == Some(id)
             || self.resize_active == Some(id)
             || self.is_recently_resized_node(id, now_ms)
             || self.carry_zone_hint.contains_key(&id)
@@ -411,9 +423,18 @@ impl HalleyWlState {
                     self.resize_static_lock_pos = None;
                     self.resize_static_until_ms = 0;
                 }
-                if self.interaction_focus == Some(id) {
-                    self.interaction_focus = None;
+                if self.primary_interaction_focus == Some(id) {
+                    self.primary_interaction_focus = None;
                     self.interaction_focus_until_ms = 0;
+                }
+                let stale_monitors: Vec<String> = self
+                    .monitor_focus
+                    .iter()
+                    .filter_map(|(monitor, &focused)| (focused == id).then_some(monitor.clone()))
+                    .collect();
+
+                for monitor in stale_monitors {
+                    self.monitor_focus.remove(&monitor);
                 }
                 self.smoothed_render_pos.remove(&id);
                 let _ = self.field.remove(id);

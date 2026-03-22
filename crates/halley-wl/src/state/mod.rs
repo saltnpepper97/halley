@@ -244,7 +244,8 @@ pub struct HalleyWlState {
     pub(crate) zoom_last_observed_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_static_streak: HashMap<NodeId, u8>,
     pub animator: Animator,
-    pub interaction_focus: Option<NodeId>,
+    pub(crate) primary_interaction_focus: Option<NodeId>,
+    pub(crate) monitor_focus: HashMap<String, NodeId>,
     pub(crate) interaction_focus_until_ms: u64,
     pub(crate) last_surface_focus_ms: HashMap<NodeId, u64>,
     pub(crate) focus_trail: Trail,
@@ -300,8 +301,8 @@ pub struct HalleyWlState {
     pub(crate) node_circle_texture: Option<GlesTexture>,
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
     pub(crate) node_label_program: Option<GlesTexProgram>,
-    pub(crate) fullscreen_active_node: Option<NodeId>,
-    pub(crate) fullscreen_suspended_node: Option<NodeId>,
+    pub(crate) fullscreen_active_node: HashMap<String, NodeId>,
+    pub(crate) fullscreen_suspended_node: HashMap<String, NodeId>,
     pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
     pub(crate) fullscreen_motion: HashMap<NodeId, FullscreenMotion>,
     pub(crate) fullscreen_scale_anim: HashMap<NodeId, FullscreenScaleAnim>,
@@ -637,7 +638,8 @@ impl HalleyWlState {
             zoom_last_observed_size: HashMap::new(),
             zoom_resize_static_streak: HashMap::new(),
             animator: Animator::new(now),
-            interaction_focus: None,
+            primary_interaction_focus: None,
+            monitor_focus: HashMap::new(),
             interaction_focus_until_ms: 0,
             last_surface_focus_ms: HashMap::new(),
             focus_trail: Trail::new(),
@@ -688,8 +690,8 @@ impl HalleyWlState {
             node_circle_texture: None,
             node_squircle_program: None,
             node_label_program: None,
-            fullscreen_active_node: None,
-            fullscreen_suspended_node: None,
+            fullscreen_active_node: HashMap::new(),
+            fullscreen_suspended_node: HashMap::new(),
             fullscreen_restore: HashMap::new(),
             fullscreen_motion: HashMap::new(),
             fullscreen_scale_anim: HashMap::new(),
@@ -823,6 +825,18 @@ impl HalleyWlState {
         self.advertise_output(name, mode);
     }
 
+    pub(crate) fn focused_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
+        self.monitor_focus.get(monitor).copied()
+    }
+
+    pub(crate) fn focused_monitor_for_node(&self, id: NodeId) -> Option<String> {
+        self.node_monitor.get(&id).cloned()
+    }
+
+    pub(crate) fn set_monitor_focus(&mut self, monitor: &str, id: NodeId) {
+        self.monitor_focus.insert(monitor.to_string(), id);
+    }
+
     pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
         self.recent_top_node = Some(node_id);
         self.recent_top_until = Some(until);
@@ -916,7 +930,7 @@ impl HalleyWlState {
             next_ms = Some(next_ms.map_or(at_ms, |cur| cur.min(at_ms)));
         };
 
-        if self.interaction_focus.is_some() && self.interaction_focus_until_ms > now_ms {
+        if self.primary_interaction_focus.is_some() && self.interaction_focus_until_ms > now_ms {
             consider(self.interaction_focus_until_ms);
         }
         if self.resize_static_node.is_some() && self.resize_static_until_ms > now_ms {
@@ -983,7 +997,7 @@ impl HalleyWlState {
             self.animator.observe_field(&self.field, now);
             return;
         }
-        if let Some(fid) = self.interaction_focus
+        if let Some(fid) = self.primary_interaction_focus
             && now_ms >= self.interaction_focus_until_ms
         {
             let keep = self.field.node(fid).is_some_and(|n| {
@@ -995,7 +1009,7 @@ impl HalleyWlState {
                 self.set_interaction_focus(None, 0, now);
             }
         }
-        if self.interaction_focus.is_none() && self.layer_keyboard_focus.is_some() {
+        if self.primary_interaction_focus.is_none() && self.layer_keyboard_focus.is_some() {
             self.reassert_layer_surface_keyboard_focus_if_drifted();
         }
         self.active_transition_until_ms

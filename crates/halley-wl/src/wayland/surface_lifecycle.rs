@@ -292,8 +292,8 @@ impl HalleyWlState {
                 self.resize_static_lock_pos = None;
                 self.resize_static_until_ms = 0;
             }
-            if self.interaction_focus == Some(id) {
-                self.interaction_focus = None;
+            if self.primary_interaction_focus == Some(id) {
+                self.primary_interaction_focus = None;
                 self.interaction_focus_until_ms = 0;
             }
             self.suppress_trail_record_once = false;

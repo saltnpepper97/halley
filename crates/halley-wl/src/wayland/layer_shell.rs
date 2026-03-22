@@ -33,7 +33,7 @@ impl HalleyWlState {
             return false;
         }
 
-        self.interaction_focus = None;
+        self.primary_interaction_focus = None;
         self.interaction_focus_until_ms = 0;
         self.layer_keyboard_focus = Some(surface.id());
         if self

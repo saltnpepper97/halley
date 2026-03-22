@@ -175,17 +175,53 @@ impl HalleyWlState {
         }
     }
 
+    /// Returns the monitor name that `node_id` is currently fullscreened on, if any.
+    pub(crate) fn fullscreen_monitor_for_node(&self, node_id: NodeId) -> Option<&str> {
+        self.fullscreen_active_node
+            .iter()
+            .find_map(|(monitor, &id)| (id == node_id).then_some(monitor.as_str()))
+    }
+
+    /// True if any monitor has an active fullscreen right now.
+    pub(crate) fn any_fullscreen_active(&self) -> bool {
+        !self.fullscreen_active_node.is_empty()
+    }
+
+    /// True if `node_id` is the active fullscreen on any monitor.
+    pub(crate) fn is_fullscreen_active(&self, node_id: NodeId) -> bool {
+        self.fullscreen_monitor_for_node(node_id).is_some()
+    }
+
     fn exit_xdg_fullscreen_inner(&mut self, node_id: NodeId, now: Instant, suspend: bool) {
-        if self.fullscreen_active_node != Some(node_id) {
-            return;
-        }
+        // Find which monitor this node is fullscreened on.
+        let monitor_name = match self.fullscreen_monitor_for_node(node_id) {
+            Some(m) => m.to_owned(),
+            None => return, // not active fullscreen on any monitor
+        };
 
         self.reset_input_state_requested = true;
-        self.fullscreen_suspended_node = suspend.then_some(node_id);
+
+        if suspend {
+            self.fullscreen_suspended_node
+                .insert(monitor_name.clone(), node_id);
+        } else {
+            // If we're doing a hard exit, clear any suspended state for this monitor too.
+            self.fullscreen_suspended_node.remove(&monitor_name);
+        }
+
         let now_ms = self.now_ms(now);
+
+        // Restore all nodes that were displaced when this monitor went fullscreen.
+        // We identify bystanders as nodes in fullscreen_restore whose saved
+        // viewport_center matches this monitor's viewport center.
+        let (monitor_viewport_center, _) = self.fullscreen_monitor_view(&monitor_name);
         let restore_entries: Vec<(NodeId, crate::state::FullscreenSessionEntry)> = self
             .fullscreen_restore
             .iter()
+            .filter(|(_, entry)| {
+                (entry.viewport_center.x - monitor_viewport_center.x).abs() < 1.0
+                    && (entry.viewport_center.y - monitor_viewport_center.y).abs() < 1.0
+            })
             .map(|(&id, &entry)| (id, entry))
             .collect();
 
@@ -210,7 +246,7 @@ impl HalleyWlState {
             self.request_toplevel_fullscreen_state(node_id, false, None, None);
         }
 
-        self.fullscreen_active_node = None;
+        self.fullscreen_active_node.remove(&monitor_name);
         self.fullscreen_scale_anim.remove(&node_id);
         self.request_maintenance();
     }
@@ -246,18 +282,26 @@ impl HalleyWlState {
         output: Option<WlOutput>,
         now: Instant,
     ) {
-        if self.fullscreen_active_node == Some(node_id) {
+        let monitor_name = self.fullscreen_monitor_name(node_id, output.as_ref());
+
+        // Already fullscreen on this monitor — no-op.
+        if self.fullscreen_active_node.get(&monitor_name) == Some(&node_id) {
             return;
         }
-        self.fullscreen_suspended_node = None;
-        if let Some(active) = self.fullscreen_active_node {
-            self.exit_xdg_fullscreen(active, now);
+
+        // Clear any suspended state for this monitor.
+        self.fullscreen_suspended_node.remove(&monitor_name);
+
+        // If another window is fullscreened on the same monitor, exit it first.
+        if let Some(existing) = self.fullscreen_active_node.get(&monitor_name).copied() {
+            self.exit_xdg_fullscreen(existing, now);
         }
 
         let now_ms = self.now_ms(now);
-        let monitor_name = self.fullscreen_monitor_name(node_id, output.as_ref());
         let target_size = self.fullscreen_target_size_for(monitor_name.as_str());
         let (viewport_center, viewport_size) = self.fullscreen_monitor_view(monitor_name.as_str());
+
+        // Lock zoom for this monitor's viewport.
         self.zoom_ref_size = self.viewport.size;
         self.camera_target_view_size = self.zoom_ref_size;
 
@@ -267,6 +311,7 @@ impl HalleyWlState {
 
         let saved_size = crate::surface::current_surface_size_for_node(self, node_id)
             .unwrap_or(node.intrinsic_size);
+
         self.fullscreen_restore.insert(
             node_id,
             crate::state::FullscreenSessionEntry {
@@ -295,6 +340,8 @@ impl HalleyWlState {
             },
         );
 
+        // Displace other windows that are on this monitor and intersect its viewport.
+        // Windows on other monitors are left completely alone.
         let others: Vec<NodeId> = self
             .field
             .nodes()
@@ -303,7 +350,10 @@ impl HalleyWlState {
                 (id != node_id
                     && n.kind == halley_core::field::NodeKind::Surface
                     && self.field.is_visible(id)
-                    && self.node_monitor.get(&id).is_none_or(|monitor| monitor == &monitor_name)
+                    && self
+                        .node_monitor
+                        .get(&id)
+                        .is_none_or(|m| m == &monitor_name)
                     && self.node_intersects_monitor_viewport(id, monitor_name.as_str()))
                 .then_some(id)
             })
@@ -337,28 +387,46 @@ impl HalleyWlState {
         }
 
         self.request_toplevel_fullscreen_state(node_id, true, output, Some(target_size));
-        self.fullscreen_active_node = Some(node_id);
+        self.fullscreen_active_node
+            .insert(monitor_name, node_id);
         self.set_interaction_focus(Some(node_id), 30_000, now);
         self.request_maintenance();
     }
 
     pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        self.fullscreen_suspended_node = None;
+        // Clear suspended state on whatever monitor this node is on.
+        if let Some(monitor) = self.fullscreen_monitor_for_node(node_id).map(|s| s.to_owned()) {
+            self.fullscreen_suspended_node.remove(&monitor);
+        }
         self.exit_xdg_fullscreen_inner(node_id, now, false);
     }
 
     pub(crate) fn drop_fullscreen_surface(&mut self, id: NodeId, now: Instant) {
-        if self.fullscreen_suspended_node == Some(id) {
-            self.fullscreen_suspended_node = None;
-        }
-        if self.fullscreen_active_node == Some(id) {
+        // Clear suspended state if this node was suspended on any monitor.
+        self.fullscreen_suspended_node.retain(|_, &mut nid| nid != id);
+
+        if self.is_fullscreen_active(id) {
+            let monitor_name = self
+                .fullscreen_monitor_for_node(id)
+                .map(|s| s.to_owned())
+                .unwrap(); // safe: is_fullscreen_active just confirmed it
+
             self.reset_input_state_requested = true;
-            self.fullscreen_active_node = None;
+            self.fullscreen_active_node.remove(&monitor_name);
+
+            // Restore only bystanders that were displaced for this monitor's fullscreen.
+            let (monitor_viewport_center, _) = self.fullscreen_monitor_view(&monitor_name);
             let restore_entries: Vec<(NodeId, crate::state::FullscreenSessionEntry)> = self
                 .fullscreen_restore
                 .iter()
-                .filter_map(|(&other_id, &entry)| (other_id != id).then_some((other_id, entry)))
+                .filter(|&(&other_id, ref entry)| {
+                    other_id != id
+                        && (entry.viewport_center.x - monitor_viewport_center.x).abs() < 1.0
+                        && (entry.viewport_center.y - monitor_viewport_center.y).abs() < 1.0
+                })
+                .map(|(&other_id, &entry)| (other_id, entry))
                 .collect();
+
             let now_ms = self.now_ms(now);
             for (other_id, entry) in restore_entries {
                 let _ = self.field.set_pinned(other_id, false);
@@ -377,13 +445,14 @@ impl HalleyWlState {
                 );
             }
         }
+
         self.fullscreen_restore.remove(&id);
         self.fullscreen_motion.remove(&id);
         self.fullscreen_scale_anim.remove(&id);
     }
 
     pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {
-        if self.fullscreen_active_node.is_some() || !self.fullscreen_motion.is_empty() {
+        if self.any_fullscreen_active() || !self.fullscreen_motion.is_empty() {
             self.zoom_ref_size = self.viewport.size;
             self.camera_target_view_size = self.zoom_ref_size;
         }
@@ -420,7 +489,19 @@ impl HalleyWlState {
         for id in finished {
             self.fullscreen_motion.remove(&id);
             if let Some(entry) = self.fullscreen_restore.get(&id).copied() {
-                if self.fullscreen_active_node.is_some() {
+                // A node finishing its motion should be pinned only if the fullscreen
+                // it was displaced for is still active — i.e. the monitor it belongs
+                // to still has an active fullscreen session.
+                let node_monitor = self
+                    .node_monitor
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| self.current_monitor.clone());
+                let displaced_for_active = self
+                    .fullscreen_active_node
+                    .contains_key(&node_monitor);
+
+                if displaced_for_active {
                     let _ = self.field.set_pinned(id, true);
                 } else {
                     let _ = self.field.set_pinned(id, entry.pinned);
