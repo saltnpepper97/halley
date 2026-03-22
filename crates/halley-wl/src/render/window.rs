@@ -267,7 +267,7 @@ pub(crate) fn collect_active_surfaces(
         }
 
         let alpha = (anim.alpha * live_ramp).clamp(0.0, 1.0);
-        let use_offscreen_zoom = (cam_scale - 1.0).abs() > 0.001;
+        let use_offscreen_zoom = true;
 
         if use_offscreen_zoom {
             let cache_miss = {

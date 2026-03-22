@@ -5,8 +5,9 @@ use crate::backend::interface::{
     BackendView, DmabufImportBackend, TtyBackendHandle, TtyDmabufImportBackend,
 };
 use crate::backend::tty_drm::{
-    TtyDrmOutput, current_tty_output_signature, probe_tty_drm_device_via_session,
-    queue_tty_drm_frame, rebuild_tty_outputs, selected_tty_scanout_signature,
+    TtyDrmOutput, current_tty_output_signature,
+    probe_tty_drm_device_via_session, queue_tty_drm_frame, rebuild_tty_outputs,
+    selected_tty_scanout_signature,
 };
 use crate::backend::tty_dpms::{
     apply_tty_dpms_command, publish_tty_outputs_snapshot, wake_tty_dpms_on_input,
@@ -21,7 +22,6 @@ use smithay::backend::input::{
 };
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
-const STARTUP_SECONDARY_DEFER_MS: u64 = 1200;
 const OUTPUT_RESCAN_POLL_MS: u64 = 750;
 
 fn active_output_names(outputs: &[TtyDrmOutput]) -> Vec<String> {
@@ -74,42 +74,10 @@ fn layout_size_for_outputs(tuning: &RuntimeTuning, outputs: &[TtyDrmOutput]) -> 
     (layout_w, layout_h)
 }
 
-fn reset_deferred_tty_outputs(
-    outputs: &[TtyDrmOutput],
-    deferred_outputs_until: &Rc<RefCell<HashMap<String, Instant>>>,
-) {
-    let primary_output = outputs
-        .first()
-        .map(|output| output.connector_name.clone());
-    let mut deferred = deferred_outputs_until.borrow_mut();
-    deferred.clear();
-    if outputs.len() <= 1 {
-        return;
-    }
-
-    let until = Instant::now() + Duration::from_millis(STARTUP_SECONDARY_DEFER_MS);
-    for output in outputs {
-        if primary_output
-            .as_ref()
-            .is_some_and(|primary| primary == &output.connector_name)
-        {
-            continue;
-        }
-        deferred.insert(output.connector_name.clone(), until);
-    }
-
-    if !deferred.is_empty() {
-        info!(
-            "deferring secondary tty outputs for {}ms: {}",
-            STARTUP_SECONDARY_DEFER_MS,
-            deferred.keys().cloned().collect::<Vec<_>>().join(", ")
-        );
-    }
-}
-
 fn apply_tty_reload(
     dev: &Rc<RefCell<DrmDevice>>,
-    gbm: &Rc<GbmDevice<DeviceFd>>,
+    gbm: &Rc<GbmDevice<DrmDeviceFd>>,
+    dev_fd: &DrmDeviceFd,
     renderer: &Rc<RefCell<GlesRenderer>>,
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     backend_handle: &TtyBackendHandle,
@@ -123,12 +91,18 @@ fn apply_tty_reload(
     dpms_enabled: bool,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
     scanout_signature: &Rc<RefCell<Vec<String>>>,
-    deferred_outputs_until: &Rc<RefCell<HashMap<String, Instant>>>,
     card_path: &Path,
 ) -> bool {
     let rebuilt = {
         let mut dev_ref = dev.borrow_mut();
-        match rebuild_tty_outputs(&mut dev_ref, gbm.as_ref(), renderer, &next, card_path) {
+        match rebuild_tty_outputs(
+            &mut dev_ref,
+            gbm.as_ref(),
+            dev_fd.clone(),
+            renderer,
+            &next,
+            card_path,
+        ) {
             Ok(target) => target,
             Err(err) => {
                 warn!(
@@ -139,13 +113,16 @@ fn apply_tty_reload(
             }
         }
     };
+
     if reason == "rescan" && outputs_match(&outputs.borrow(), &rebuilt) {
         *scanout_signature.borrow_mut() = current_tty_output_signature(&rebuilt);
         return false;
     }
+
     let next_modes = active_mode_map(&rebuilt);
     let (layout_w, layout_h) = layout_size_for_outputs(&next, &rebuilt);
     backend_handle.set_size(layout_w, layout_h);
+
     {
         let mut ps = pointer_state.borrow_mut();
         let old = ps.workspace_size;
@@ -159,19 +136,22 @@ fn apply_tty_reload(
             );
         }
     }
+
     let live_camera = crate::run::capture_live_camera_state(st);
     st.apply_tuning(next);
     if reason != "rescan" {
         st.reconfigure_active_tty_monitors(&active_output_names(&rebuilt));
     }
     crate::run::restore_live_camera_state(st, live_camera);
+
     *scanout_signature.borrow_mut() = current_tty_output_signature(&rebuilt);
-    reset_deferred_tty_outputs(&rebuilt, deferred_outputs_until);
     *outputs.borrow_mut() = rebuilt;
+
     {
         let mut current = active_modes.borrow_mut();
         *current = next_modes.clone();
     }
+
     {
         let mut pending = output_frame_pending.borrow_mut();
         pending.clear();
@@ -179,21 +159,23 @@ fn apply_tty_reload(
             pending.insert(name.clone(), false);
         }
     }
+
     for (name, mode) in &next_modes {
         st.advertise_output(name.as_str(), (*mode).into());
     }
+
     publish_tty_outputs_snapshot(&dev.borrow(), &active_modes.borrow(), dpms_enabled, &st.tuning);
+
     if reason != "rescan" {
         let reload_commands = st.tuning.autostart_on_reload.clone();
         run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     }
+
     info!(
         "{}: reloaded config from {} with tty layout {}x{}",
-        reason,
-        config_path,
-        layout_w,
-        layout_h
+        reason, config_path, layout_w, layout_h
     );
+
     true
 }
 
@@ -471,17 +453,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
             let dev = Rc::new(RefCell::new(drm_probe.dev));
             let gbm = Rc::new(drm_probe.gbm);
+            let drm_probe_dev_fd = drm_probe.dev_fd; // kept alive so GBM refs stay valid
             let card_path = drm_probe.card_path.clone();
             let active_modes = Rc::new(RefCell::new(active_mode_map(&outputs.borrow())));
             let dpms_enabled = Rc::new(RefCell::new(true));
             publish_tty_outputs_snapshot(&dev.borrow(), &active_modes.borrow(), true, &tuning);
             let outputs_for_vblank = outputs.clone();
             let output_frame_pending = Rc::new(RefCell::new(HashMap::new()));
-            let deferred_outputs_until = Rc::new(RefCell::new(HashMap::<String, Instant>::new()));
-            let scanout_signature =
-                Rc::new(RefCell::new(current_tty_output_signature(&outputs.borrow())));
-            reset_deferred_tty_outputs(&outputs.borrow(), &deferred_outputs_until);
-
+            let scanout_signature = Rc::new(RefCell::new(current_tty_output_signature(&outputs.borrow())));
             let warned_vblank_mismatch = Rc::new(RefCell::new(false));
             let warned_vblank_mismatch_for_notifier = warned_vblank_mismatch.clone();
             let output_frame_pending_for_notifier = output_frame_pending.clone();
@@ -494,6 +473,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let dev_for_timer = dev.clone();
             let dev_for_input = dev.clone();
             let gbm_for_timer = gbm.clone();
+            let dev_fd = drm_probe_dev_fd;
+            let dev_fd_for_timer = dev_fd.clone();
             let active_modes_for_timer = active_modes.clone();
             let active_modes_for_input = active_modes.clone();
             let active_modes_for_notifier = active_modes.clone();
@@ -504,7 +485,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let first_frame_queued_for_timer = first_frame_queued.clone();
             let outputs_for_input = outputs.clone();
             let outputs_for_timer = outputs.clone();
-            let deferred_outputs_until_for_timer = deferred_outputs_until.clone();
             let scanout_signature_for_timer = scanout_signature.clone();
             let pending_scanout_probe_at = Rc::new(RefCell::new(Some(
                 Instant::now() + Duration::from_millis(OUTPUT_RESCAN_POLL_MS),
@@ -520,14 +500,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         for output in outputs_for_vblank.borrow().iter() {
                             let initial_crtc = output.crtc;
                             let output_name = output.connector_name.clone();
-                            let gbm_surface = output.gbm_surface.clone();
-                            let live_crtc = { gbm_surface.borrow().crtc() };
-                            if live_crtc != initial_crtc {
-                                debug!(
-                                    "drm surface live crtc differs from initial for {}: initial={:?} live={:?}",
-                                    output_name, initial_crtc, live_crtc
-                                );
-                            }
+                            let compositor = output.compositor.clone();
                             if crtc != initial_crtc {
                                 continue;
                             }
@@ -546,11 +519,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     )
                                 })
                                 .throttle(refresh_interval, timestamp, {
-                                    let gbm_surface = gbm_surface.clone();
+                                    let compositor = compositor.clone();
                                     let output_frame_pending_for_notifier =
                                         output_frame_pending_for_notifier.clone();
                                     move |_state| {
-                                        if let Err(err) = gbm_surface.borrow_mut().frame_submitted() {
+                                        if let Err(err) = compositor.borrow_mut().frame_submitted() {
                                             warn!("failed to mark drm frame submitted after throttle: {}", err);
                                         }
                                         output_frame_pending_for_notifier
@@ -561,7 +534,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             if should_throttle {
                                 continue;
                             }
-                            if let Err(err) = gbm_surface.borrow_mut().frame_submitted() {
+                            if let Err(err) = compositor.borrow_mut().frame_submitted() {
                                 warn!(
                                     "failed to mark drm frame submitted for {}: {}",
                                     output_name, err
@@ -638,21 +611,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 },
             )?;
 
-            let renderer_for_input = drm_probe.renderer.clone();
+            let _renderer_for_input = drm_probe.renderer.clone();
             ev.handle()
                 .insert_source(libinput_backend, move |event, _, st| match event {
                     InputEvent::Keyboard { event } => {
-                        let gbm_surfaces_for_input: Vec<_> = outputs_for_input
-                            .borrow()
-                            .iter()
-                            .map(|output| output.gbm_surface.clone())
-                            .collect();
                         wake_tty_dpms_on_input(
-                            &gbm_surfaces_for_input,
                             &dev_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
-                            &renderer_for_input,
+                            &outputs_for_input,
                             &st.tuning,
                             &output_frame_pending_for_dpms_input,
                         );
@@ -677,17 +644,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerMotionAbsolute { event } => {
-                        let gbm_surfaces_for_input: Vec<_> = outputs_for_input
-                            .borrow()
-                            .iter()
-                            .map(|output| output.gbm_surface.clone())
-                            .collect();
                         wake_tty_dpms_on_input(
-                            &gbm_surfaces_for_input,
                             &dev_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
-                            &renderer_for_input,
+                            &outputs_for_input,
                             &st.tuning,
                             &output_frame_pending_for_dpms_input,
                         );
@@ -726,17 +687,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerMotion { event } => {
-                        let gbm_surfaces_for_input: Vec<_> = outputs_for_input
-                            .borrow()
-                            .iter()
-                            .map(|output| output.gbm_surface.clone())
-                            .collect();
                         wake_tty_dpms_on_input(
-                            &gbm_surfaces_for_input,
                             &dev_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
-                            &renderer_for_input,
+                            &outputs_for_input,
                             &st.tuning,
                             &output_frame_pending_for_dpms_input,
                         );
@@ -769,17 +724,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerButton { event } => {
-                        let gbm_surfaces_for_input: Vec<_> = outputs_for_input
-                            .borrow()
-                            .iter()
-                            .map(|output| output.gbm_surface.clone())
-                            .collect();
                         wake_tty_dpms_on_input(
-                            &gbm_surfaces_for_input,
                             &dev_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
-                            &renderer_for_input,
+                            &outputs_for_input,
                             &st.tuning,
                             &output_frame_pending_for_dpms_input,
                         );
@@ -801,17 +750,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerAxis { event } => {
-                        let gbm_surfaces_for_input: Vec<_> = outputs_for_input
-                            .borrow()
-                            .iter()
-                            .map(|output| output.gbm_surface.clone())
-                            .collect();
                         wake_tty_dpms_on_input(
-                            &gbm_surfaces_for_input,
                             &dev_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
-                            &renderer_for_input,
+                            &outputs_for_input,
                             &st.tuning,
                             &output_frame_pending_for_dpms_input,
                         );
@@ -901,6 +844,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 apply_tty_reload(
                                     &dev_for_timer,
                                     &gbm_for_timer,
+                                    &dev_fd_for_timer,
                                     &renderer_for_timer,
                                     &outputs_for_timer,
                                     &backend_handle_for_timer,
@@ -914,7 +858,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     *dpms_enabled_for_timer.borrow(),
                                     &output_frame_pending_for_dpms_timer,
                                     &scanout_signature_for_timer,
-                                    &deferred_outputs_until_for_timer,
                                     card_path.as_path(),
                                 );
                             } else {
@@ -943,18 +886,12 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let _ = crate::interaction::actions::step_window_trail(st, direction);
                     }
                     RuntimeIpcCommand::Dpms(command) => {
-                        let gbm_surfaces_for_timer: Vec<_> = outputs_for_timer
-                            .borrow()
-                            .iter()
-                            .map(|output| output.gbm_surface.clone())
-                            .collect();
                         apply_tty_dpms_command(
-                            &gbm_surfaces_for_timer,
                             &dev_for_timer,
                             &active_modes_for_timer,
                             &dpms_enabled_for_timer,
                             command,
-                            &renderer_for_timer,
+                            &outputs_for_timer,
                             &st.tuning,
                             &output_frame_pending_for_dpms_timer,
                         );
@@ -1008,6 +945,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             apply_tty_reload(
                                 &dev_for_timer,
                                 &gbm_for_timer,
+                                &dev_fd_for_timer,
                                 &renderer_for_timer,
                                 &outputs_for_timer,
                                 &backend_handle_for_timer,
@@ -1021,7 +959,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     *dpms_enabled_for_timer.borrow(),
                                     &output_frame_pending_for_dpms_timer,
                                     &scanout_signature_for_timer,
-                                    &deferred_outputs_until_for_timer,
                                     card_path.as_path(),
                                 );
                             } else {
@@ -1079,6 +1016,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     apply_tty_reload(
                         &dev_for_timer,
                         &gbm_for_timer,
+                        &dev_fd_for_timer,
                         &renderer_for_timer,
                         &outputs_for_timer,
                         &backend_handle_for_timer,
@@ -1092,7 +1030,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         *dpms_enabled_for_timer.borrow(),
                         &output_frame_pending_for_dpms_timer,
                         &scanout_signature_for_timer,
-                        &deferred_outputs_until_for_timer,
                         card_path.as_path(),
                     );
                 }
@@ -1102,44 +1039,42 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                 let ps = pointer_state_for_timer.borrow();
                 let resize_preview = ps.resize;
-                let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
-                let cursor_screen = Some(ps.screen);
                 drop(ps);
 
                 if *dpms_enabled_for_timer.borrow() {
                     let cursor_image = st.cursor_image_status.clone();
-                    for output in outputs_for_timer.borrow().iter() {
+                    let previous_monitor = st.current_monitor.clone();
+
+                    let outputs_ref = outputs_for_timer.borrow();
+                    let mut render_order: Vec<_> = outputs_ref.iter().collect();
+
+                    // Queue lower-refresh / "slower" outputs first so the slow secondary
+                    // gets its first frame submitted before the faster primary.
+                    render_order.sort_by_key(|output| output.mode.vrefresh());
+
+                    for output in render_order {
                         let output_name = output.connector_name.as_str();
-                        // If DPMS just woke, don't defer — draw immediately
-                        if !*dpms_enabled_for_timer.borrow() {
-                            continue;
-                        }
-                        if deferred_outputs_until_for_timer
-                            .borrow()
-                            .get(output_name)
-                            .is_some_and(|deadline| now < *deadline)
-                        {
-                            continue;
-                        }
-                        if deferred_outputs_until_for_timer
-                            .borrow_mut()
-                            .remove(output_name)
-                            .is_some()
-                        {
-                            info!("enabling deferred tty output {}", output_name);
-                        }
-                        let gbm_surface = &output.gbm_surface;
+                        let _ = st.activate_monitor(output_name);
+
+                        let ps = pointer_state_for_timer.borrow();
+                        let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
+                        let cursor_screen = Some(ps.screen);
+                        drop(ps);
+
+                        let compositor = &output.compositor;
                         let frame_already_pending = output_frame_pending
                             .borrow()
                             .get(output_name)
                             .copied()
                             .unwrap_or(false);
+
                         if frame_already_pending {
                             continue;
                         }
+
                         if let Err(err) = queue_tty_drm_frame(
                             output_name,
-                            gbm_surface,
+                            compositor,
                             &renderer_for_timer,
                             st,
                             resize_preview,
@@ -1156,11 +1091,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             {
                                 info!("first tty drm frame queued for {}", output_name);
                             }
+
                             output_frame_pending
                                 .borrow_mut()
                                 .insert(output.connector_name.clone(), true);
                         }
                     }
+
+                    let _ = st.activate_monitor(previous_monitor.as_str());
                     st.send_frame_callbacks(now);
                 }
 
@@ -1209,4 +1147,5 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
         }
     )
 }
+
 

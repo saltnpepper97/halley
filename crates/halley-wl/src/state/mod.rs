@@ -501,12 +501,6 @@ impl HalleyWlState {
         self.layer_surface_monitor.insert(surface.id(), monitor);
     }
 
-    pub(crate) fn layer_surface_on_current_monitor(&self, surface: &WlSurface) -> bool {
-        self.layer_surface_monitor
-            .get(&surface.id())
-            .is_none_or(|monitor| monitor == &self.current_monitor)
-    }
-
     pub fn new(
         dh: &smithay::reexports::wayland_server::DisplayHandle,
         loop_handle: LoopHandle<'static, Self>,

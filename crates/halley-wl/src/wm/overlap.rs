@@ -300,6 +300,11 @@ impl HalleyWlState {
             .last_active_size
             .get(&n.id)
             .copied()
+            .or_else(|| {
+                self.window_geometry
+                    .get(&n.id)
+                    .map(|(_, _, w, h)| Vec2 { x: *w, y: *h })
+            })
             .unwrap_or(n.intrinsic_size);
         let bbox_w = n.intrinsic_size.x.max(1.0);
         let bbox_h = n.intrinsic_size.y.max(1.0);

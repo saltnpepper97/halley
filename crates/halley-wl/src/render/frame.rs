@@ -40,8 +40,10 @@ struct PreparedFrameState {
 }
 
 struct SceneCollections {
-    layer_under_elements: Vec<SurfaceElement>,
-    layer_over_elements: Vec<SurfaceElement>,
+    layer_background_elements: Vec<SurfaceElement>,
+    layer_bottom_elements: Vec<SurfaceElement>,
+    layer_top_elements: Vec<SurfaceElement>,
+    layer_overlay_elements: Vec<SurfaceElement>,
     active_elements: Vec<CroppedSurfaceElement>,
     resized_active_elements: Vec<CroppedSurfaceElement>,
     offscreen_textures: Vec<OffscreenNodeTexture>,
@@ -193,8 +195,12 @@ fn collect_debug_frame_scene(
     preview_hover_node: Option<halley_core::field::NodeId>,
     now: Instant,
 ) -> SceneCollections {
-    let (layer_under_elements, layer_over_elements) =
-        collect_layer_surfaces(renderer, st, size, now);
+    let (
+        layer_background_elements,
+        layer_bottom_elements,
+        layer_top_elements,
+        layer_overlay_elements,
+    ) = collect_layer_surfaces(renderer, st, size, now);
 
     let (
         active_elements,
@@ -250,8 +256,10 @@ fn collect_debug_frame_scene(
         .collect();
 
     SceneCollections {
-        layer_under_elements,
-        layer_over_elements,
+        layer_background_elements,
+        layer_bottom_elements,
+        layer_top_elements,
+        layer_overlay_elements,
         active_elements,
         resized_active_elements,
         offscreen_textures,
@@ -302,11 +310,24 @@ fn draw_debug_frame_scene(
     scene: &SceneCollections,
     hover_node: Option<halley_core::field::NodeId>,
 ) -> Result<(), Box<dyn Error>> {
-    if !scene.layer_under_elements.is_empty() {
-        let _ = draw_render_elements(frame, 1.0, &scene.layer_under_elements, &[prepared.damage]);
+    if !scene.layer_background_elements.is_empty() {
+        let _ = draw_render_elements(
+            frame,
+            1.0,
+            &scene.layer_background_elements,
+            &[prepared.damage],
+        );
     }
 
-    // Node markers drawn first — they should sit behind active windows, not on top.
+    if !scene.layer_bottom_elements.is_empty() {
+        let _ = draw_render_elements(
+            frame,
+            1.0,
+            &scene.layer_bottom_elements,
+            &[prepared.damage],
+        );
+    }
+
     draw_node_markers(
         frame,
         st,
@@ -344,11 +365,19 @@ fn draw_debug_frame_scene(
     }
 
     draw_geometry_overlays(frame, st, size, prepared.damage, scene)?;
-
     draw_hover_preview(frame, prepared.damage, scene)?;
 
-    if !scene.layer_over_elements.is_empty() {
-        let _ = draw_render_elements(frame, 1.0, &scene.layer_over_elements, &[prepared.damage]);
+    if !scene.layer_top_elements.is_empty() {
+        let _ = draw_render_elements(frame, 1.0, &scene.layer_top_elements, &[prepared.damage]);
+    }
+
+    if !scene.layer_overlay_elements.is_empty() {
+        let _ = draw_render_elements(
+            frame,
+            1.0,
+            &scene.layer_overlay_elements,
+            &[prepared.damage],
+        );
     }
 
     draw_node_hover_labels(

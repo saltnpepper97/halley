@@ -11,17 +11,20 @@ use smithay::{
 
 use crate::state::HalleyWlState;
 
+type LayerElements =
+    Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>;
+
 pub(crate) fn collect_layer_surfaces(
     renderer: &mut GlesRenderer,
     st: &mut HalleyWlState,
     size: Size<i32, Physical>,
     _now: Instant,
-) -> (
-    Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>,
-    Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>,
-) {
-    let mut under = Vec::new();
-    let mut over = Vec::new();
+) -> (LayerElements, LayerElements, LayerElements, LayerElements) {
+    let mut background = Vec::new();
+    let mut bottom = Vec::new();
+    let mut top = Vec::new();
+    let mut overlay = Vec::new();
+
     let logical_size: Size<i32, Logical> = (size.w, size.h).into();
 
     for placement in st.layer_shell_placements(logical_size) {
@@ -33,11 +36,14 @@ pub(crate) fn collect_layer_surfaces(
             1.0,
             Kind::Unspecified,
         );
+
         match placement.layer {
-            Layer::Background | Layer::Bottom => under.extend(elements),
-            Layer::Top | Layer::Overlay => over.extend(elements),
+            Layer::Background => background.extend(elements),
+            Layer::Bottom => bottom.extend(elements),
+            Layer::Top => top.extend(elements),
+            Layer::Overlay => overlay.extend(elements),
         }
     }
 
-    (under, over)
+    (background, bottom, top, overlay)
 }

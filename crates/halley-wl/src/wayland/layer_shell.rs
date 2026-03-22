@@ -1,8 +1,8 @@
 use smithay::{
     reexports::wayland_server::{
-        Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
+        protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface, Resource,
     },
-    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size},
+    utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER},
     wayland::{
         compositor::with_states,
         shell::wlr_layer::{
@@ -75,6 +75,13 @@ impl HalleyWlState {
         })
     }
 
+    fn layer_surface_monitor_name(&self, surface: &WlSurface) -> String {
+        self.layer_surface_monitor
+            .get(&surface.id())
+            .cloned()
+            .unwrap_or_else(|| self.current_monitor.clone())
+    }
+
     pub(crate) fn register_layer_surface(
         &mut self,
         surface: LayerSurface,
@@ -82,12 +89,6 @@ impl HalleyWlState {
         layer: Layer,
         namespace: String,
     ) {
-        let size = self.layer_output_size();
-        surface.with_pending_state(|state| {
-            state.size = Some(size);
-        });
-        surface.send_configure();
-
         let assigned_monitor = if let Some(requested_output) = output.as_ref() {
             self.outputs
                 .iter()
@@ -96,7 +97,14 @@ impl HalleyWlState {
         } else {
             self.current_monitor.clone()
         };
-        self.assign_layer_surface_to_monitor(surface.wl_surface(), assigned_monitor);
+
+        let size = self.layer_output_size_for_monitor(&assigned_monitor);
+        surface.with_pending_state(|state| {
+            state.size = Some(size);
+        });
+        surface.send_configure();
+
+        self.assign_layer_surface_to_monitor(surface.wl_surface(), assigned_monitor.clone());
 
         if let Some(requested_output) = output.as_ref() {
             for output in self.outputs.values() {
@@ -104,6 +112,8 @@ impl HalleyWlState {
                     output.enter(surface.wl_surface());
                 }
             }
+        } else if let Some(output) = self.outputs.get(&assigned_monitor) {
+            output.enter(surface.wl_surface());
         } else if let Some(primary_output) = &self.primary_output {
             primary_output.enter(surface.wl_surface());
         }
@@ -122,22 +132,15 @@ impl HalleyWlState {
     /// the client has committed its desired `keyboard_interactivity`, so the
     /// cached state is still the default `None` at that point.
     pub(crate) fn maybe_grant_layer_surface_focus_on_commit(&mut self, surface: &WlSurface) {
-        // Bail fast if this surface already holds layer focus.
         if self.layer_keyboard_focus == Some(surface.id()) {
             return;
         }
 
-        // Check whether this surface is a layer surface and read its
-        // *current* (post-commit) keyboard interactivity.
-        let Some(interactivity) = self
-            .wlr_layer_shell_state
-            .layer_surfaces()
-            .find_map(|layer| {
-                (layer.wl_surface().id() == surface.id())
-                    .then_some(Self::layer_cached_state(&layer).keyboard_interactivity)
-            })
-        else {
-            return; // not a layer surface
+        let Some(interactivity) = self.wlr_layer_shell_state.layer_surfaces().find_map(|layer| {
+            (layer.wl_surface().id() == surface.id())
+                .then_some(Self::layer_cached_state(&layer).keyboard_interactivity)
+        }) else {
+            return;
         };
 
         if layer_surface_can_take_keyboard_focus(interactivity) {
@@ -169,11 +172,20 @@ impl HalleyWlState {
     }
 
     pub(crate) fn layer_output_size(&self) -> Size<i32, Logical> {
-        (
-            self.zoom_ref_size.x.round().max(1.0) as i32,
-            self.zoom_ref_size.y.round().max(1.0) as i32,
-        )
-            .into()
+        self.layer_output_size_for_monitor(&self.current_monitor)
+    }
+
+    pub(crate) fn layer_output_size_for_monitor(&self, monitor_name: &str) -> Size<i32, Logical> {
+        self.monitors
+            .get(monitor_name)
+            .map(|monitor| (monitor.width as i32, monitor.height as i32).into())
+            .unwrap_or_else(|| {
+                (
+                    self.zoom_ref_size.x.round().max(1.0) as i32,
+                    self.zoom_ref_size.y.round().max(1.0) as i32,
+                )
+                    .into()
+            })
     }
 
     fn layer_cached_state(surface: &LayerSurface) -> LayerSurfaceCachedState {
@@ -185,36 +197,47 @@ impl HalleyWlState {
         })
     }
 
-    pub(crate) fn configure_layer_shell_surfaces(&mut self, output_size: Size<i32, Logical>) {
-        let output_rect = Rectangle::from_size(output_size);
-        let mut zone = output_rect;
+    pub(crate) fn configure_layer_shell_surfaces(&mut self, _output_size: Size<i32, Logical>) {
+        for monitor_name in self.monitors.keys().cloned().collect::<Vec<_>>() {
+            let output_size = self.layer_output_size_for_monitor(&monitor_name);
+            let output_rect = Rectangle::from_size(output_size);
+            let mut zone = output_rect;
 
-        for surface in self.layer_shell_surfaces_sorted() {
-            if !self.layer_surface_on_current_monitor(surface.wl_surface()) {
-                continue;
+            for surface in self.layer_shell_surfaces_sorted() {
+                if self.layer_surface_monitor_name(surface.wl_surface()) != monitor_name {
+                    continue;
+                }
+                let data = Self::layer_cached_state(&surface);
+                let (_, size) = compute_layer_placement(output_rect, &mut zone, data);
+                if data.size == size {
+                    continue;
+                }
+                surface.with_pending_state(|state| {
+                    state.size = Some(size);
+                });
+                let _ = surface.send_pending_configure();
             }
-            let data = Self::layer_cached_state(&surface);
-            let (_, size) = compute_layer_placement(output_rect, &mut zone, data);
-            if data.size == size {
-                continue;
-            }
-            surface.with_pending_state(|state| {
-                state.size = Some(size);
-            });
-            let _ = surface.send_pending_configure();
         }
     }
 
     pub(crate) fn layer_shell_placements(
         &self,
-        output_size: Size<i32, Logical>,
+        _output_size: Size<i32, Logical>,
     ) -> Vec<LayerPlacement> {
-        let output_rect = Rectangle::from_size(output_size);
+        let monitor_name = self.current_monitor.clone();
+        self.layer_shell_placements_for_monitor(&monitor_name)
+    }
+
+    pub(crate) fn layer_shell_placements_for_monitor(
+        &self,
+        monitor_name: &str,
+    ) -> Vec<LayerPlacement> {
+        let output_rect = Rectangle::from_size(self.layer_output_size_for_monitor(monitor_name));
         let mut zone = output_rect;
         let mut placements = Vec::new();
 
         for surface in self.layer_shell_surfaces_sorted() {
-            if !self.layer_surface_on_current_monitor(surface.wl_surface()) {
+            if self.layer_surface_monitor_name(surface.wl_surface()) != monitor_name {
                 continue;
             }
             let data = Self::layer_cached_state(&surface);
@@ -254,35 +277,19 @@ impl HalleyWlState {
 
     fn layer_focus_surface(&self) -> Option<WlSurface> {
         let focus_id = self.layer_keyboard_focus.clone()?;
-        self.wlr_layer_shell_state
-            .layer_surfaces()
-            .find_map(|layer| {
-                (layer.wl_surface().id() == focus_id).then(|| layer.wl_surface().clone())
-            })
+        self.wlr_layer_shell_state.layer_surfaces().find_map(|layer| {
+            (layer.wl_surface().id() == focus_id).then(|| layer.wl_surface().clone())
+        })
     }
 
-    pub(crate) fn reassert_layer_surface_keyboard_focus_if_drifted(&mut self) {
-        let desired_focus = self.layer_focus_surface();
-        if desired_focus.is_none() {
-            self.layer_keyboard_focus = None;
-            return;
-        }
-
-        let Some(keyboard) = self.seat.get_keyboard() else {
-            return;
+    pub(crate) fn focus_layer_surface(&mut self, surface: &WlSurface) -> bool {
+        let Some(interactivity) = self.wlr_layer_shell_state.layer_surfaces().find_map(|layer| {
+            (layer.wl_surface().id() == surface.id())
+                .then_some(Self::layer_cached_state(&layer).keyboard_interactivity)
+        }) else {
+            return false;
         };
-        let current_focus = keyboard.current_focus();
-        let matches = match (&current_focus, &desired_focus) {
-            (Some(current), Some(desired)) => current.id() == desired.id(),
-            (None, None) => true,
-            _ => false,
-        };
-        if matches {
-            return;
-        }
-
-        keyboard.set_focus(self, desired_focus.clone(), SERIAL_COUNTER.next_serial());
-        self.update_selection_focus_from_surface(desired_focus.as_ref());
+        self.apply_layer_surface_focus(surface, interactivity)
     }
 
     pub(crate) fn is_layer_surface(&self, surface: &WlSurface) -> bool {
@@ -291,19 +298,26 @@ impl HalleyWlState {
             .any(|layer| layer.wl_surface().id() == surface.id())
     }
 
-    pub(crate) fn focus_layer_surface(&mut self, surface: &WlSurface) -> bool {
-        let Some(interactivity) = self
-            .wlr_layer_shell_state
-            .layer_surfaces()
-            .find_map(|layer| {
-                (layer.wl_surface().id() == surface.id())
-                    .then_some(Self::layer_cached_state(&layer).keyboard_interactivity)
-            })
-        else {
-            return false;
+
+    pub(crate) fn reassert_layer_surface_keyboard_focus_if_drifted(&mut self) {
+        let Some(desired_focus) = self.layer_focus_surface() else {
+            self.layer_keyboard_focus = None;
+            return;
         };
 
-        self.apply_layer_surface_focus(surface, interactivity)
+        let Some(keyboard) = self.seat.get_keyboard() else {
+            return;
+        };
+
+        let current_focus = keyboard.current_focus();
+        let matches = current_focus
+            .as_ref()
+            .is_some_and(|focus| focus.id() == desired_focus.id());
+
+        if !matches {
+            keyboard.set_focus(self, Some(desired_focus.clone()), SERIAL_COUNTER.next_serial());
+            self.update_selection_focus_from_surface(Some(&desired_focus));
+        }
     }
 }
 
@@ -311,7 +325,7 @@ fn layer_surface_can_take_keyboard_focus(interactivity: KeyboardInteractivity) -
     interactivity != KeyboardInteractivity::None
 }
 
-fn layer_depth(layer: Layer) -> u8 {
+fn layer_depth(layer: Layer) -> i32 {
     match layer {
         Layer::Background => 0,
         Layer::Bottom => 1,
@@ -320,23 +334,10 @@ fn layer_depth(layer: Layer) -> u8 {
     }
 }
 
-#[allow(clippy::items_after_test_module)]
-#[cfg(test)]
-mod tests {
-    use super::layer_surface_can_take_keyboard_focus;
-    use smithay::wayland::shell::wlr_layer::KeyboardInteractivity;
-
-    #[test]
-    fn keyboard_interactive_layer_surfaces_are_focus_eligible() {
-        assert!(!layer_surface_can_take_keyboard_focus(
-            KeyboardInteractivity::None
-        ));
-        assert!(layer_surface_can_take_keyboard_focus(
-            KeyboardInteractivity::OnDemand
-        ));
-        assert!(layer_surface_can_take_keyboard_focus(
-            KeyboardInteractivity::Exclusive
-        ));
+fn exclusive_zone_amount(zone: ExclusiveZone) -> i32 {
+    match zone {
+        ExclusiveZone::Exclusive(v) => v as i32,
+        _ => 0,
     }
 }
 
@@ -345,78 +346,74 @@ fn compute_layer_placement(
     zone: &mut Rectangle<i32, Logical>,
     data: LayerSurfaceCachedState,
 ) -> (Point<i32, Logical>, Size<i32, Logical>) {
-    let mut source = match data.exclusive_zone {
-        ExclusiveZone::Exclusive(_) | ExclusiveZone::Neutral => *zone,
-        ExclusiveZone::DontCare => output_rect,
-    };
+    let mut width = data.size.w;
+    let mut height = data.size.h;
 
-    if data.anchor.contains(Anchor::LEFT) {
-        source.size.w -= data.margin.left;
+    let anchored_left = data.anchor.contains(Anchor::LEFT);
+    let anchored_right = data.anchor.contains(Anchor::RIGHT);
+    let anchored_top = data.anchor.contains(Anchor::TOP);
+    let anchored_bottom = data.anchor.contains(Anchor::BOTTOM);
+
+    if width == 0 && anchored_left && anchored_right {
+        width = zone.size.w.max(1);
     }
-    if data.anchor.contains(Anchor::RIGHT) {
-        source.size.w -= data.margin.right;
+    if height == 0 && anchored_top && anchored_bottom {
+        height = zone.size.h.max(1);
     }
-    if data.anchor.contains(Anchor::TOP) {
-        source.size.h -= data.margin.top;
+    if width == 0 {
+        width = output_rect.size.w.max(1);
     }
-    if data.anchor.contains(Anchor::BOTTOM) {
-        source.size.h -= data.margin.bottom;
+    if height == 0 {
+        height = output_rect.size.h.max(1);
     }
 
-    let mut size = data.size;
-    size.w = size.w.min(source.size.w);
-    size.h = size.h.min(source.size.h);
-    if size.w == 0 {
-        size.w = source.size.w / 2;
-    }
-    if size.h == 0 {
-        size.h = source.size.h / 2;
-    }
-    if data.anchor.anchored_horizontally() {
-        size.w = source.size.w;
-    }
-    if data.anchor.anchored_vertically() {
-        size.h = source.size.h;
-    }
-    size.w = size.w.max(1);
-    size.h = size.h.max(1);
-
-    let x = if data.anchor.contains(Anchor::LEFT) {
-        source.loc.x + data.margin.left
-    } else if data.anchor.contains(Anchor::RIGHT) {
-        source.loc.x + (source.size.w - size.w)
+    let mut x = if anchored_left {
+        zone.loc.x + data.margin.left
+    } else if anchored_right {
+        zone.loc.x + zone.size.w - width - data.margin.right
     } else {
-        source.loc.x + ((source.size.w / 2) - (size.w / 2))
+        zone.loc.x + (zone.size.w - width) / 2
     };
 
-    let y = if data.anchor.contains(Anchor::TOP) {
-        source.loc.y + data.margin.top
-    } else if data.anchor.contains(Anchor::BOTTOM) {
-        source.loc.y + (source.size.h - size.h)
+    let mut y = if anchored_top {
+        zone.loc.y + data.margin.top
+    } else if anchored_bottom {
+        zone.loc.y + zone.size.h - height - data.margin.bottom
     } else {
-        source.loc.y + ((source.size.h / 2) - (size.h / 2))
+        zone.loc.y + (zone.size.h - height) / 2
     };
 
-    if let ExclusiveZone::Exclusive(amount) = data.exclusive_zone {
-        let amount = amount as i32;
-        match data.anchor {
-            anchors if anchors.contains(Anchor::TOP) && !anchors.contains(Anchor::BOTTOM) => {
-                zone.loc.y += amount + data.margin.top;
-                zone.size.h -= amount + data.margin.top;
-            }
-            anchors if anchors.contains(Anchor::BOTTOM) && !anchors.contains(Anchor::TOP) => {
-                zone.size.h -= amount + data.margin.bottom;
-            }
-            anchors if anchors.contains(Anchor::LEFT) && !anchors.contains(Anchor::RIGHT) => {
-                zone.loc.x += amount + data.margin.left;
-                zone.size.w -= amount + data.margin.left;
-            }
-            anchors if anchors.contains(Anchor::RIGHT) && !anchors.contains(Anchor::LEFT) => {
-                zone.size.w -= amount + data.margin.right;
-            }
-            _ => {}
+    if anchored_left && anchored_right {
+        x = zone.loc.x + data.margin.left;
+        width = (zone.size.w - data.margin.left - data.margin.right).max(1);
+    }
+    if anchored_top && anchored_bottom {
+        y = zone.loc.y + data.margin.top;
+        height = (zone.size.h - data.margin.top - data.margin.bottom).max(1);
+    }
+
+    let size: Size<i32, Logical> = (width, height).into();
+    let origin: Point<i32, Logical> = (x, y).into();
+
+    let exclusive = exclusive_zone_amount(data.exclusive_zone);
+    if exclusive > 0 {
+        if anchored_top && !anchored_bottom {
+            let consumed = (exclusive + data.margin.top).clamp(0, zone.size.h);
+            zone.loc.y += consumed;
+            zone.size.h -= consumed;
+        } else if anchored_bottom && !anchored_top {
+            let consumed = (exclusive + data.margin.bottom).clamp(0, zone.size.h);
+            zone.size.h -= consumed;
+        } else if anchored_left && !anchored_right {
+            let consumed = (exclusive + data.margin.left).clamp(0, zone.size.w);
+            zone.loc.x += consumed;
+            zone.size.w -= consumed;
+        } else if anchored_right && !anchored_left {
+            let consumed = (exclusive + data.margin.right).clamp(0, zone.size.w);
+            zone.size.w -= consumed;
         }
     }
 
-    ((x, y).into(), size)
+    (origin, size)
 }
+

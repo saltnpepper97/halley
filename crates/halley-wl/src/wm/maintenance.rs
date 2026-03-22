@@ -184,8 +184,8 @@ impl HalleyWlState {
                 continue;
             }
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
-            if let Some(nn) = self.field.node(id) {
-                self.last_active_size.insert(id, nn.intrinsic_size);
+            if let Some((_, _, w, h)) = self.window_geometry.get(&id) {
+                self.last_active_size.insert(id, Vec2 { x: *w, y: *h });
             }
             self.mark_active_transition(id, now, 620);
             self.record_focus_trail_visit(id);
