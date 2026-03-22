@@ -10,7 +10,8 @@ use smithay::utils::SERIAL_COUNTER;
 use crate::backend::interface::BackendView;
 use crate::interaction::actions::promote_node_level;
 use crate::interaction::types::{
-    DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState, ResizeCtx, TitleClickCtx,
+    DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState, ResizeCtx,
+    TitleClickCtx,
 };
 use crate::render::world_to_screen;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
@@ -25,7 +26,9 @@ use super::key_actions::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
 use super::pointer_focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
-use super::resize_helpers::{active_node_screen_rect, pick_resize_handle_from_screen};
+use super::resize_helpers::{
+    active_node_screen_rect, handle_from_press_position, weights_from_handle,
+};
 
 #[inline]
 fn now_millis_u32() -> u32 {
@@ -213,6 +216,14 @@ fn begin_drag(
     backend.request_redraw();
 }
 
+/// Begin an interactive resize.
+///
+/// **Edge grabs** (pointer within 28 px of a window border): handle is
+/// committed immediately from the nearest border, same as before.
+///
+/// **Interior/binding grabs**: handle starts as `Pending`. The motion handler
+/// locks it from the drag direction the first time the pointer travels past
+/// the dead zone. Until then the window does not move.
 fn begin_resize(
     st: &mut HalleyWlState,
     ps: &mut PointerState,
@@ -224,7 +235,7 @@ fn begin_resize(
         return;
     };
     let fallback_size = n.intrinsic_size;
-    let fallback_pos = n.pos;
+    let fallback_pos  = n.pos;
     let (start_left, start_top, start_right, start_bottom) = active_node_screen_rect(
         st,
         frame.ws_w,
@@ -243,14 +254,21 @@ fn begin_resize(
             (center_scr.1 as f32) + fallback_size.y * 0.5,
         )
     });
-    let handle = pick_resize_handle_from_screen(
-        (start_left, start_top, start_right, start_bottom),
-        (frame.sx, frame.sy),
-    );
+
+    let rect = (start_left, start_top, start_right, start_bottom);
+
+    // Commit the handle immediately from where the pointer is in the window.
+    // 3×3 grid: outer thirds = edges/corners, centre = nearest edge.
+    // Pressing near top-left and dragging any direction pulls that corner.
+    let handle = handle_from_press_position(rect, (frame.sx, frame.sy));
+    let (h_weight_left, h_weight_right, v_weight_top, v_weight_bottom) =
+        weights_from_handle(handle);
+
     ps.drag = None;
     ps.panning = false;
     ps.move_anim.clear();
     st.begin_resize_interaction(hit.node_id, Instant::now());
+
     let start_w = (start_right - start_left).max(96.0).round() as i32;
     let start_h = (start_bottom - start_top).max(72.0).round() as i32;
     let start_surface =
@@ -258,16 +276,18 @@ fn begin_resize(
             x: start_w as f32,
             y: start_h as f32,
         });
-    let (start_geo_lx, start_geo_ly, _, _) = window_geometry_for_node(st, hit.node_id).unwrap_or((
-        0.0,
-        0.0,
-        start_surface.x.max(1.0),
-        start_surface.y.max(1.0),
-    ));
+    let (start_geo_lx, start_geo_ly, _, _) =
+        window_geometry_for_node(st, hit.node_id).unwrap_or((
+            0.0,
+            0.0,
+            start_surface.x.max(1.0),
+            start_surface.y.max(1.0),
+        ));
     let start_bbox = halley_core::field::Vec2 {
         x: fallback_size.x.max(1.0),
         y: fallback_size.y.max(1.0),
     };
+
     let resize_ctx = ResizeCtx {
         node_id: hit.node_id,
         start_surface_w: start_surface.x.max(96.0).round() as i32,
@@ -278,13 +298,13 @@ fn begin_resize(
         start_visual_h: start_h,
         start_geo_lx,
         start_geo_ly,
-        start_left_px: start_left,
-        start_right_px: start_right,
-        start_top_px: start_top,
+        start_left_px:   start_left,
+        start_right_px:  start_right,
+        start_top_px:    start_top,
         start_bottom_px: start_bottom,
-        preview_left_px: start_left,
-        preview_right_px: start_right,
-        preview_top_px: start_top,
+        preview_left_px:   start_left,
+        preview_right_px:  start_right,
+        preview_top_px:    start_top,
         preview_bottom_px: start_bottom,
         last_sent_w: start_surface.x.max(96.0).round() as i32,
         last_sent_h: start_surface.y.max(72.0).round() as i32,
@@ -292,13 +312,14 @@ fn begin_resize(
         handle,
         press_sx: frame.sx,
         press_sy: frame.sy,
-        press_off_left_px: frame.sx - start_left,
-        press_off_right_px: frame.sx - start_right,
-        press_off_top_px: frame.sy - start_top,
-        press_off_bottom_px: frame.sy - start_bottom,
-        drag_started: true,
+        h_weight_left,
+        h_weight_right,
+        v_weight_top,
+        v_weight_bottom,
+        drag_started: false,
         resize_mode_sent: false,
     };
+
     if st.tuning.debug_tick_dump {
         info!(
             "resize-start id={} handle={:?} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) start_surface=({}, {}) start_bbox=({}, {})",
@@ -316,6 +337,7 @@ fn begin_resize(
             resize_ctx.start_bbox_h,
         );
     }
+
     ps.resize = Some(resize_ctx);
     backend.request_redraw();
 }
@@ -364,8 +386,9 @@ fn finalize_resize(st: &mut HalleyWlState, ps: &mut PointerState, backend: &dyn 
         ((resize.start_bbox_h as f32) + ((final_h - resize.start_surface_h) as f32)).max(1.0);
     if st.tuning.debug_tick_dump {
         info!(
-            "resize-end id={} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) final_surface=({}, {}) final_bbox=({:.1}, {:.1})",
+            "resize-end id={} handle={:?} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) final_surface=({}, {}) final_bbox=({:.1}, {:.1})",
             resize.node_id.as_u64(),
+            resize.handle,
             resize.preview_left_px,
             resize.preview_top_px,
             resize.preview_right_px,
@@ -569,6 +592,8 @@ fn handle_resize_binding_press(
         .node(hit.node_id)
         .is_some_and(|n| n.state == halley_core::field::NodeState::Active);
     if can_resize {
+        // Binding-triggered resize always starts Pending regardless of where
+        // the cursor is — drag direction picks the handle.
         begin_resize(st, ps, backend, hit, frame);
     }
 }
@@ -623,7 +648,7 @@ pub(crate) fn handle_pointer_button_input(
     button_code: u32,
     button_state: ButtonState,
 ) {
-    let left = button_code == 0x110;
+    let left  = button_code == 0x110;
     let right = button_code == 0x111;
     let mut ps = pointer_state.borrow_mut();
     let (ws_w, ws_h) = backend.window_size_i32();
@@ -675,7 +700,7 @@ pub(crate) fn handle_pointer_button_input(
         ButtonState::Released => ps.intercepted_binding_buttons.remove(&button_code),
     };
     let matched_action = match button_state {
-        ButtonState::Pressed => matching_pointer_binding(st, &mods, button_code),
+        ButtonState::Pressed  => matching_pointer_binding(st, &mods, button_code),
         ButtonState::Released => ps.intercepted_buttons.remove(&button_code),
     };
     let intercepted = intercepted_binding || matched_action.is_some();
@@ -701,8 +726,9 @@ pub(crate) fn handle_pointer_button_input(
             if intercepted_binding {
                 return;
             }
-            let hit =
-                pick_hit_node_at(st, local_w, local_h, local_sx, local_sy, Instant::now(), ps.resize);
+            let hit = pick_hit_node_at(
+                st, local_w, local_h, local_sx, local_sy, Instant::now(), ps.resize,
+            );
             if left {
                 handle_left_press(
                     st,

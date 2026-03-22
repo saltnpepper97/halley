@@ -6,7 +6,7 @@ use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::interaction::types::{ModState, PointerState, ResizeHandle};
+use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::{pick_hit_node_at, screen_to_world};
 use crate::state::HalleyWlState;
 use crate::surface::request_toplevel_resize_mode;
@@ -14,6 +14,7 @@ use halley_config::{KeyModifiers, PointerBindingAction};
 
 use super::input_utils::modifier_active;
 use super::pointer_focus::pointer_focus_for_screen;
+use super::resize_helpers::weights_from_handle;
 
 #[inline]
 fn now_millis_u32() -> u32 {
@@ -285,12 +286,6 @@ pub(crate) fn handle_pointer_motion_absolute(
                     .or_else(|| Some(target_monitor.clone()))
                 && let Some(monitor) = st.monitors.get(owner_monitor.as_str())
             {
-                // Clamp `to` (world space) to the zoomed camera frustum of the
-                // owner monitor. We must use zoom_ref_size (the live camera view),
-                // NOT viewport.size (the full unzoomed canvas). Using viewport.size
-                // creates a dead zone when zoomed out (clamp allows past the
-                // visible edge) and a jump when zoomed in (clamp cuts off before
-                // the pointer reaches the screen edge).
                 let half_w = monitor.zoom_ref_size.x * 0.5;
                 let half_h = monitor.zoom_ref_size.y * 0.5;
                 let min_x = monitor.camera_target_center.x - half_w;
@@ -328,19 +323,25 @@ pub(crate) fn handle_pointer_motion_absolute(
 
     if let Some(resize) = ps.resize {
         let mut next = resize;
+
+        // Total pointer displacement from the original press position.
+        // dx positive = rightward, dy positive = downward (screen space).
+        let dx = local_sx - resize.press_sx;
+        let dy = local_sy - resize.press_sy;
+
         const RESIZE_DRAG_START_PX: f32 = 3.0;
 
-        let drag_dx = (local_sx - resize.press_sx).abs();
-        let drag_dy = (local_sy - resize.press_sy).abs();
-        if !next.drag_started && drag_dx.max(drag_dy) < RESIZE_DRAG_START_PX {
-            ps.resize = Some(next);
-            return;
-        }
-
+        // Handle is committed at press time from the press position.
+        // Just wait for the dead zone then start moving.
         if !next.drag_started {
+            if dx.abs().max(dy.abs()) < RESIZE_DRAG_START_PX {
+                ps.resize = Some(next);
+                return;
+            }
             next.drag_started = true;
         }
 
+        // ── Send initial resize-mode configure ───────────────────────────────
         if !next.resize_mode_sent {
             request_toplevel_resize_mode(
                 st,
@@ -356,86 +357,69 @@ pub(crate) fn handle_pointer_motion_absolute(
         let min_w = 96.0_f32;
         let min_h = 72.0_f32;
 
-        // Build preview strictly in visual/screen space.
-        let mut left = resize.start_left_px;
-        let mut right = resize.start_right_px;
-        let mut top = resize.start_top_px;
-        let mut bottom = resize.start_bottom_px;
+        // ── Phase 4: compute new preview rect ───────────────────────────────
+        //
+        // Signed weight convention (see weights_from_handle):
+        //   +1.0  tracks pointer directly     (right / bottom moving edges)
+        //   -1.0  moves opposite to pointer   (left / top moving edges)
+        //    0.0  anchored, does not move
+        //
+        // Uniform formula for all edges:
+        //   new_edge = start_edge + weight * dx_or_dy
+        //
+        // Verification:
+        //   Left edge  (wl = -1.0): drag right (dx>0) → new_left = start_left - dx  → left moves right → window shrinks ✓
+        //   Right edge (wr = +1.0): drag right (dx>0) → new_right = start_right + dx → right moves right → window grows ✓
+        //   Top edge   (wt = -1.0): drag down  (dy>0) → new_top = start_top - dy    → top moves down   → window shrinks ✓
+        //   Bottom edge(wb = +1.0): drag down  (dy>0) → new_bottom = start_bottom + dy → bottom moves down → window grows ✓
+        //   BottomRight corner: right+bottom move, left+top anchored ✓
+        //   Left/Right handles: v weights are 0.0 so top/bottom don't move ✓
+        let desired_left   = resize.start_left_px   + next.h_weight_left  * dx;
+        let desired_right  = resize.start_right_px  + next.h_weight_right * dx;
+        let desired_top    = resize.start_top_px    + next.v_weight_top   * dy;
+        let desired_bottom = resize.start_bottom_px + next.v_weight_bottom * dy;
 
-        // Horizontal movement
-        match resize.handle {
-            ResizeHandle::Left | ResizeHandle::TopLeft | ResizeHandle::BottomLeft => {
-                let desired_left = local_sx - resize.press_off_left_px;
-                let max_left = resize.start_right_px - min_w;
-                left = desired_left.min(max_left);
-            }
-            ResizeHandle::Right | ResizeHandle::TopRight | ResizeHandle::BottomRight => {
-                let desired_right = local_sx - resize.press_off_right_px;
-                let min_right = resize.start_left_px + min_w;
-                right = desired_right.max(min_right);
-            }
-            ResizeHandle::Top | ResizeHandle::Bottom => {}
-        }
+        // Enforce minimum size. Distribute the shortage only to the moving
+        // side(s) using absolute weights, so anchored sides stay exactly fixed.
+        let raw_w = desired_right - desired_left;
+        let (left, right) = if raw_w < min_w {
+            let shortage  = min_w - raw_w;
+            let abs_l     = next.h_weight_left.abs();
+            let abs_r     = next.h_weight_right.abs();
+            let total_hw  = (abs_l + abs_r).max(f32::EPSILON);
+            // Nudge moving edges back inward: left moves right (+), right moves left (-).
+            let nudge_l = shortage * abs_l / total_hw;
+            let nudge_r = shortage * abs_r / total_hw;
+            (desired_left - nudge_l, desired_right - nudge_r)
+        } else {
+            (desired_left, desired_right)
+        };
 
-        // Vertical movement
-        match resize.handle {
-            ResizeHandle::Top | ResizeHandle::TopLeft | ResizeHandle::TopRight => {
-                let desired_top = local_sy - resize.press_off_top_px;
-                let max_top = resize.start_bottom_px - min_h;
-                top = desired_top.min(max_top);
-            }
-            ResizeHandle::Bottom | ResizeHandle::BottomLeft | ResizeHandle::BottomRight => {
-                let desired_bottom = local_sy - resize.press_off_bottom_px;
-                let min_bottom = resize.start_top_px + min_h;
-                bottom = desired_bottom.max(min_bottom);
-            }
-            ResizeHandle::Left | ResizeHandle::Right => {}
-        }
+        let raw_h = desired_bottom - desired_top;
+        let (top, bottom) = if raw_h < min_h {
+            let shortage  = min_h - raw_h;
+            let abs_t     = next.v_weight_top.abs();
+            let abs_b     = next.v_weight_bottom.abs();
+            let total_vw  = (abs_t + abs_b).max(f32::EPSILON);
+            let nudge_t = shortage * abs_t / total_vw;
+            let nudge_b = shortage * abs_b / total_vw;
+            (desired_top - nudge_t, desired_bottom - nudge_b)
+        } else {
+            (desired_top, desired_bottom)
+        };
 
         let target_visual_w = (right - left).round().max(min_w) as i32;
         let target_visual_h = (bottom - top).round().max(min_h) as i32;
 
-        // Renormalize so the anchored side stays exact.
-        match resize.handle {
-            ResizeHandle::Left | ResizeHandle::TopLeft | ResizeHandle::BottomLeft => {
-                left = resize.start_right_px - target_visual_w as f32;
-                right = resize.start_right_px;
-            }
-            ResizeHandle::Right | ResizeHandle::TopRight | ResizeHandle::BottomRight => {
-                left = resize.start_left_px;
-                right = resize.start_left_px + target_visual_w as f32;
-            }
-            ResizeHandle::Top | ResizeHandle::Bottom => {
-                left = resize.start_left_px;
-                right = resize.start_right_px;
-            }
-        }
-
-        match resize.handle {
-            ResizeHandle::Top | ResizeHandle::TopLeft | ResizeHandle::TopRight => {
-                top = resize.start_bottom_px - target_visual_h as f32;
-                bottom = resize.start_bottom_px;
-            }
-            ResizeHandle::Bottom | ResizeHandle::BottomLeft | ResizeHandle::BottomRight => {
-                top = resize.start_top_px;
-                bottom = resize.start_top_px + target_visual_h as f32;
-            }
-            ResizeHandle::Left | ResizeHandle::Right => {
-                top = resize.start_top_px;
-                bottom = resize.start_bottom_px;
-            }
-        }
-
-        // Derive client/bbox sizes from visual delta, not the other way around.
-        // Visual delta is in screen pixels; divide by cam_scale to get logical
-        // pixels for the configure message. At cam_scale=1.0 this is a no-op.
+        // Derive logical (client) size from visual delta / cam_scale.
+        // At cam_scale = 1.0 this is a no-op.
         let cam_scale = st.camera_render_scale();
-        let visual_delta_w = target_visual_w - resize.start_visual_w;
-        let visual_delta_h = target_visual_h - resize.start_visual_h;
-        let logical_delta_w = (visual_delta_w as f32 / cam_scale.max(0.001)).round() as i32;
-        let logical_delta_h = (visual_delta_h as f32 / cam_scale.max(0.001)).round() as i32;
-        let min_logical_w = (min_w / cam_scale.max(0.001)).round() as i32;
-        let min_logical_h = (min_h / cam_scale.max(0.001)).round() as i32;
+        let visual_delta_w  = target_visual_w - resize.start_visual_w;
+        let visual_delta_h  = target_visual_h - resize.start_visual_h;
+        let logical_delta_w = (visual_delta_w  as f32 / cam_scale.max(0.001)).round() as i32;
+        let logical_delta_h = (visual_delta_h  as f32 / cam_scale.max(0.001)).round() as i32;
+        let min_logical_w   = (min_w / cam_scale.max(0.001)).round() as i32;
+        let min_logical_h   = (min_h / cam_scale.max(0.001)).round() as i32;
 
         let target_w = (resize.start_surface_w + logical_delta_w).max(min_logical_w);
         let target_h = (resize.start_surface_h + logical_delta_h).max(min_logical_h);
@@ -449,17 +433,15 @@ pub(crate) fn handle_pointer_motion_absolute(
             next.last_configure_at = now;
         }
 
+        // Keep node world position at the visual center of the preview rect so
+        // overlap resolution and footprint tracking stay accurate regardless of
+        // which corner or edge is moving.
         let center_sx = (left + right) * 0.5;
-        let center_sy = (top + bottom) * 0.5;
-        // Use the local monitor viewport for screen_to_world so the node's
-        // world position is computed in the correct coordinate space when the
-        // resize is happening on a secondary monitor.
+        let center_sy = (top  + bottom) * 0.5;
         let center_world = screen_to_world(st, local_w, local_h, center_sx, center_sy);
-
         if let Some(n) = st.field.node_mut(resize.node_id) {
             n.pos = center_world;
         }
-        // Footprint is in world/logical units, not screen pixels.
         let _ = st.field.set_resize_footprint(
             resize.node_id,
             Some(halley_core::field::Vec2 {
@@ -468,9 +450,9 @@ pub(crate) fn handle_pointer_motion_absolute(
             }),
         );
 
-        next.preview_left_px = left;
-        next.preview_right_px = right;
-        next.preview_top_px = top;
+        next.preview_left_px   = left;
+        next.preview_right_px  = right;
+        next.preview_top_px    = top;
         next.preview_bottom_px = bottom;
         ps.resize = Some(next);
 
@@ -487,8 +469,6 @@ pub(crate) fn handle_pointer_motion_absolute(
         let dx_px = effective_sx - lsx;
         let dy_px = effective_sy - lsy;
         let camera = st.camera_view_size();
-        // Use the active (local) monitor dimensions so that pan speed is
-        // correct regardless of which monitor the pointer is on.
         let dx_world = dx_px * camera.x.max(1.0) / (local_w as f32).max(1.0);
         let dy_world = -dy_px * camera.y.max(1.0) / (local_h as f32).max(1.0);
         let now = Instant::now();
@@ -503,7 +483,16 @@ pub(crate) fn handle_pointer_motion_absolute(
     }
 
     let next_hover = if ps.drag.is_none() && ps.resize.is_none() && !ps.panning {
-        pick_hit_node_at(st, local_w, local_h, local_sx, local_sy, Instant::now(), ps.resize).and_then(|hit| {
+        pick_hit_node_at(
+            st,
+            local_w,
+            local_h,
+            local_sx,
+            local_sy,
+            Instant::now(),
+            ps.resize,
+        )
+        .and_then(|hit| {
             st.field.node(hit.node_id).and_then(|n| {
                 matches!(
                     n.state,

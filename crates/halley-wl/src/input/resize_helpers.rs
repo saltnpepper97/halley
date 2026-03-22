@@ -57,6 +57,8 @@ impl ActiveResizeGeometryScreen {
     }
 }
 
+/// Pick a resize handle from the nearest edge/corner to the press point.
+/// Only called for direct border grabs (press within edge slop zone).
 pub(crate) fn pick_resize_handle_from_screen(
     rect: (f32, f32, f32, f32),
     p: (f32, f32),
@@ -67,33 +69,143 @@ pub(crate) fn pick_resize_handle_from_screen(
     let dt = (p.1 - t).abs();
     let db = (b - p.1).abs();
     let edge_slop = 28.0f32;
-    let near_left = dl <= edge_slop;
-    let near_right = dr <= edge_slop;
-    let near_top = dt <= edge_slop;
+    let near_left   = dl <= edge_slop;
+    let near_right  = dr <= edge_slop;
+    let near_top    = dt <= edge_slop;
     let near_bottom = db <= edge_slop;
 
-    if near_left && near_top {
-        return ResizeHandle::TopLeft;
-    }
-    if near_right && near_top {
-        return ResizeHandle::TopRight;
-    }
-    if near_left && near_bottom {
-        return ResizeHandle::BottomLeft;
-    }
-    if near_right && near_bottom {
-        return ResizeHandle::BottomRight;
-    }
+    if near_left && near_top    { return ResizeHandle::TopLeft;     }
+    if near_right && near_top   { return ResizeHandle::TopRight;    }
+    if near_left && near_bottom { return ResizeHandle::BottomLeft;  }
+    if near_right && near_bottom{ return ResizeHandle::BottomRight; }
 
     let min_d = dl.min(dr).min(dt).min(db);
-    if (min_d - dl).abs() <= f32::EPSILON {
-        ResizeHandle::Left
-    } else if (min_d - dr).abs() <= f32::EPSILON {
-        ResizeHandle::Right
-    } else if (min_d - dt).abs() <= f32::EPSILON {
-        ResizeHandle::Top
+    if (min_d - dl).abs() <= f32::EPSILON { ResizeHandle::Left   }
+    else if (min_d - dr).abs() <= f32::EPSILON { ResizeHandle::Right  }
+    else if (min_d - dt).abs() <= f32::EPSILON { ResizeHandle::Top    }
+    else                                        { ResizeHandle::Bottom }
+}
+
+/// Commit a resize handle from where the pointer pressed within the window,
+/// using a 3×3 grid split at the 1/3 and 2/3 fractional positions:
+///
+///   fx:   0..1/3     1/3..2/3    2/3..1
+///        ┌──────────┬──────────┬──────────┐
+///  0..   │ TopLeft  │   Top    │ TopRight │
+/// 1/3    ├──────────┼──────────┼──────────┤
+///  1/3.. │  Left    │ nearest  │  Right   │
+///  2/3   ├──────────┼──────────┼──────────┤
+///  2/3.. │BotLeft   │  Bottom  │ BotRight │
+///  1     └──────────┴──────────┴──────────┘
+///
+/// Pressing near top-left and dragging any direction pulls the top-left corner.
+/// The centre cell falls back to whichever edge is nearest.
+pub(crate) fn handle_from_press_position(rect: (f32, f32, f32, f32), p: (f32, f32)) -> ResizeHandle {
+    let (l, t, r, b) = rect;
+    let w = (r - l).max(1.0);
+    let h = (b - t).max(1.0);
+    let fx = ((p.0 - l) / w).clamp(0.0, 1.0);
+    let fy = ((p.1 - t) / h).clamp(0.0, 1.0);
+
+    #[derive(PartialEq)]
+    enum Z { Near, Mid, Far }
+    let hz = if fx < 1.0 / 3.0 { Z::Near } else if fx < 2.0 / 3.0 { Z::Mid } else { Z::Far };
+    let vz = if fy < 1.0 / 3.0 { Z::Near } else if fy < 2.0 / 3.0 { Z::Mid } else { Z::Far };
+
+    match (hz, vz) {
+        (Z::Near, Z::Near) => ResizeHandle::TopLeft,
+        (Z::Mid,  Z::Near) => ResizeHandle::Top,
+        (Z::Far,  Z::Near) => ResizeHandle::TopRight,
+        (Z::Near, Z::Mid)  => ResizeHandle::Left,
+        (Z::Mid,  Z::Mid)  => {
+            // Centre: nearest edge
+            let dl = p.0 - l;
+            let dr = r - p.0;
+            let dt = p.1 - t;
+            let db = b - p.1;
+            let min_d = dl.min(dr).min(dt).min(db);
+            if (min_d - dl).abs() <= f32::EPSILON      { ResizeHandle::Left   }
+            else if (min_d - dr).abs() <= f32::EPSILON { ResizeHandle::Right  }
+            else if (min_d - dt).abs() <= f32::EPSILON { ResizeHandle::Top    }
+            else                                        { ResizeHandle::Bottom }
+        }
+        (Z::Far,  Z::Mid)  => ResizeHandle::Right,
+        (Z::Near, Z::Far)  => ResizeHandle::BottomLeft,
+        (Z::Mid,  Z::Far)  => ResizeHandle::Bottom,
+        (Z::Far,  Z::Far)  => ResizeHandle::BottomRight,
+    }
+}
+
+/// Returns `true` if the press point is within the edge slop zone of `rect`.
+pub(crate) fn press_is_near_edge(rect: (f32, f32, f32, f32), p: (f32, f32)) -> bool {
+    let (l, t, r, b) = rect;
+    let edge_slop = 28.0f32;
+    (p.0 - l).abs() <= edge_slop
+        || (r - p.0).abs() <= edge_slop
+        || (p.1 - t).abs() <= edge_slop
+        || (b - p.1).abs() <= edge_slop
+}
+
+/// Commit a resize handle from the drag vector `(dx, dy)` using an octant
+/// split with a 2:1 aspect-ratio threshold:
+///
+///   |dy| < |dx| / 2  →  Left or Right   (wide horizontal band)
+///   |dx| < |dy| / 2  →  Top or Bottom   (wide vertical band)
+///   otherwise         →  corner quadrant
+///
+/// `dx` positive = rightward, `dy` positive = downward (screen space).
+/// Never returns `Pending`.
+pub(crate) fn commit_handle_from_drag(dx: f32, dy: f32) -> ResizeHandle {
+    let adx = dx.abs();
+    let ady = dy.abs();
+    let right = dx >= 0.0;
+    let down  = dy >= 0.0;
+
+    if ady < adx / 2.0 {
+        if right { ResizeHandle::Right  } else { ResizeHandle::Left   }
+    } else if adx < ady / 2.0 {
+        if down  { ResizeHandle::Bottom } else { ResizeHandle::Top    }
     } else {
-        ResizeHandle::Bottom
+        match (right, down) {
+            (true,  true)  => ResizeHandle::BottomRight,
+            (true,  false) => ResizeHandle::TopRight,
+            (false, true)  => ResizeHandle::BottomLeft,
+            (false, false) => ResizeHandle::TopLeft,
+        }
+    }
+}
+
+/// Map a committed handle to its four signed edge weights
+/// `(h_weight_left, h_weight_right, v_weight_top, v_weight_bottom)`.
+///
+/// The preview rect is updated each frame as:
+///
+///   new_left   = start_left   + h_weight_left  * dx
+///   new_right  = start_right  + h_weight_right * dx
+///   new_top    = start_top    + v_weight_top   * dy
+///   new_bottom = start_bottom + v_weight_bottom * dy
+///
+/// Weight semantics:
+///   +1.0  — this edge tracks the pointer directly (right/bottom moving edges)
+///   -1.0  — this edge moves opposite to the pointer (left/top moving edges,
+///            so that dragging right on the left border moves it right = shrink,
+///            and dragging left moves it left = grow, as expected)
+///    0.0  — this edge is anchored and does not move
+///
+/// Both weights being 0.0 on an axis means that axis is not resized at all
+/// (e.g. a pure Left/Right grab does not change the window height).
+pub(crate) fn weights_from_handle(handle: ResizeHandle) -> (f32, f32, f32, f32) {
+    // (h_left, h_right, v_top, v_bottom)
+    match handle {
+        ResizeHandle::Left        => ( 1.0,  0.0,  0.0,  0.0),
+        ResizeHandle::Right       => ( 0.0,  1.0,  0.0,  0.0),
+        ResizeHandle::Top         => ( 0.0,  0.0,  1.0,  0.0),
+        ResizeHandle::Bottom      => ( 0.0,  0.0,  0.0,  1.0),
+        ResizeHandle::TopLeft     => ( 1.0,  0.0,  1.0,  0.0),
+        ResizeHandle::TopRight    => ( 0.0,  1.0,  1.0,  0.0),
+        ResizeHandle::BottomLeft  => ( 1.0,  0.0,  0.0,  1.0),
+        ResizeHandle::BottomRight => ( 0.0,  1.0,  0.0,  1.0),
+        ResizeHandle::Pending     => ( 0.0,  0.0,  0.0,  0.0),
     }
 }
 
@@ -115,8 +227,6 @@ pub(crate) fn active_node_screen_rect(
     }
 
     // Mirror the render path exactly: center on local_geo, derive geometry_rect.
-    // This gives us (rx, ry, rw, rh) which is the screen rect of the visible
-    // window content — identical to what the render path puts in geometry_rect.
     let xform = active_node_surface_transform_screen_details(st, w, h, node_id, now, None)?;
     let local_geo = active_node_visual_local_rect(st, node_id).or_else(|| {
         st.field.node(node_id).map(|n| {
@@ -132,9 +242,6 @@ pub(crate) fn active_node_screen_rect(
     let (gx, gy, gw, gh) = local_geo;
     let rw = (gw * xform.scale).round().max(1.0);
     let rh = (gh * xform.scale).round().max(1.0);
-    // Replicate the integer-division centering from the render path:
-    //   rx = cx - (rw / 2)  where rw is already i32 there.
-    // xform.origin_x = sx = rx - (gx * scale).round(), so rx = origin_x + (gx * scale).round()
     let rx = xform.origin_x + (gx * xform.scale).round();
     let ry = xform.origin_y + (gy * xform.scale).round();
     Some((rx, ry, rx + rw, ry + rh))
@@ -142,20 +249,6 @@ pub(crate) fn active_node_screen_rect(
 
 /// Compute the screen-space surface-tree origin and scale for an active node,
 /// matching exactly the placement used by the render path.
-///
-/// The render path centers on `local_geo` (window geometry, excluding CSD
-/// shadows) using integer division for the half-width, then derives the
-/// surface-tree origin as:
-///
-///   sx = rx - (gx * render_scale).round()
-///
-/// We replicate that here so hit-testing and focus-ring placement are pixel-
-/// perfect at any zoom level.
-///
-/// `resize_preview` must be forwarded from the caller so that during
-/// interactive resize the focus origin stays in sync with where the window is
-/// actually rendered (which uses preview coordinates and scale=1.0).
-///
 pub(crate) fn active_node_surface_transform_screen_details(
     st: &HalleyWlState,
     w: i32,
@@ -192,9 +285,6 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let p = n.pos;
             let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
 
-            // Use the same local_geo the render path uses: window_geometry if
-            // present, otherwise the full bbox. Fall back to intrinsic_size so
-            // we always have something sensible.
             let bbox_lx = st.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0)).0;
             let bbox_ly = st.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0)).1;
             let bbox_w = n.intrinsic_size.x.max(1.0);
@@ -207,11 +297,6 @@ pub(crate) fn active_node_surface_transform_screen_details(
                 .map(|(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
                 .unwrap_or(local_bbox);
 
-            // Mirror the render path exactly:
-            //   rw = (gw * render_scale).round()  (already .max(1) but doesn't
-            //        affect the center calculation meaningfully)
-            //   rx = cx - (rw / 2)                <- integer division
-            //   sx = rx - (gx * render_scale).round()
             let rw = (gw * anim_scale).round() as i32;
             let rh = (gh * anim_scale).round() as i32;
             let rx = cx - (rw / 2);
@@ -235,25 +320,29 @@ pub(crate) fn active_resize_geometry_screen(
     resize_preview: Option<ResizeCtx>,
 ) -> Option<ActiveResizeGeometryScreen> {
     let rz = resize_preview.filter(|rz| rz.node_id == node_id)?;
-    let frame_left = rz.preview_left_px;
-    let frame_top = rz.preview_top_px;
-    let frame_right = rz.preview_right_px;
+    // While Pending the window hasn't moved yet — don't produce a preview rect.
+    if rz.handle == ResizeHandle::Pending {
+        return None;
+    }
+    let frame_left   = rz.preview_left_px;
+    let frame_top    = rz.preview_top_px;
+    let frame_right  = rz.preview_right_px;
     let frame_bottom = rz.preview_bottom_px;
-    // Read live committed geo from window_geometry — updated on every client
-    // commit during resize via note_commit. Zero = not yet committed, callers
-    // fall back to frozen local_geo in that case.
     let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) = st
         .window_geometry
         .get(&node_id)
         .copied()
         .unwrap_or((0.0, 0.0, 0.0, 0.0));
+    let geo_lx = if live_geo_w > 0.0 { live_geo_lx } else { rz.start_geo_lx };
+    let geo_ly = if live_geo_h > 0.0 { live_geo_ly } else { rz.start_geo_ly };
+
     Some(ActiveResizeGeometryScreen {
         frame_left,
         frame_top,
         frame_right,
         frame_bottom,
-        surface_origin_x: frame_left - rz.start_geo_lx.round(),
-        surface_origin_y: frame_top - rz.start_geo_ly.round(),
+        surface_origin_x: frame_left - geo_lx.round(),
+        surface_origin_y: frame_top  - geo_ly.round(),
         live_geo_lx,
         live_geo_ly,
         live_geo_w,

@@ -37,8 +37,11 @@ pub(crate) struct DragCtx {
     pub(crate) release_velocity: halley_core::field::Vec2,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResizeHandle {
+    /// Handle not yet committed. Waiting for the pointer to exceed the dead
+    /// zone so the drag direction can be used to lock an octant.
+    Pending,
     Left,
     Right,
     Top,
@@ -71,13 +74,30 @@ pub(crate) struct ResizeCtx {
     pub(crate) last_sent_w: i32,
     pub(crate) last_sent_h: i32,
     pub(crate) last_configure_at: Instant,
+    /// Which edge/corner is active. Starts as `Pending` for interior/binding
+    /// grabs and is locked once the pointer exceeds the dead zone. Edge grabs
+    /// commit immediately at press time.
     pub(crate) handle: ResizeHandle,
     pub(crate) press_sx: f32,
     pub(crate) press_sy: f32,
-    pub(crate) press_off_left_px: f32,
-    pub(crate) press_off_right_px: f32,
-    pub(crate) press_off_top_px: f32,
-    pub(crate) press_off_bottom_px: f32,
+    /// Signed per-edge weights set at commit time. The preview rect is updated
+    /// each frame as:
+    ///
+    ///   new_left   = start_left   + h_weight_left  * dx
+    ///   new_right  = start_right  + h_weight_right * dx
+    ///   new_top    = start_top    + v_weight_top   * dy
+    ///   new_bottom = start_bottom + v_weight_bottom * dy
+    ///
+    /// Anchored edges have weight 0.0. Moving edges have weight +1.0 (tracks
+    /// pointer directly) or -1.0 (moves opposite — used for left/top edges so
+    /// that dragging right/down on those edges correctly grows the window from
+    /// the opposite side). Zero-weight edges on both sides of an axis means
+    /// that axis is not resized (e.g. a pure Left grab doesn't touch height).
+    pub(crate) h_weight_left: f32,
+    pub(crate) h_weight_right: f32,
+    pub(crate) v_weight_top: f32,
+    pub(crate) v_weight_bottom: f32,
+    /// True once the handle has been committed and motion is live.
     pub(crate) drag_started: bool,
     pub(crate) resize_mode_sent: bool,
 }
