@@ -1038,6 +1038,14 @@ fn upsert_compositor_binding(
     key: u32,
     action: CompositorBindingAction,
 ) {
+    // For actions that should only have one binding, remove any existing ones first.
+    match &action {
+        CompositorBindingAction::Quit { .. } => {
+            out.compositor_bindings
+                .retain(|b| !matches!(b.action, CompositorBindingAction::Quit { .. }));
+        }
+        _ => {}
+    }
     if let Some(existing) = out
         .compositor_bindings
         .iter_mut()

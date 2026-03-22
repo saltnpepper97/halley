@@ -91,7 +91,7 @@ keybinds:
   "$var.mod+middlemouse" "zoom-reset"
 
   # Quit Halley
-  "$var.mod+shift+q" "quit"
+  "$var.mod+shift+e" "quit"
 
   # Move the newest node in a direction
   "$var.mod+h" "move_left"
