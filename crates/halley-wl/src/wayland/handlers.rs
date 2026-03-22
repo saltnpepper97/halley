@@ -69,7 +69,7 @@ fn initial_toplevel_size(st: &HalleyWlState, toplevel: &ToplevelSurface) -> Init
             (st.viewport.size.y * 0.42).round() as i32,
         )
     });
-    let configure_size = detected.is_none().then_some(node_size);
+    let configure_size = None;
 
     InitialToplevelSize {
         node_size,

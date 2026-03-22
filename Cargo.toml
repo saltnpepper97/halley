@@ -6,6 +6,3 @@ members = [
   "crates/halley-wl"
 ]
 resolver = "2"
-
-[patch.crates-io]
-smithay = { path = "vendor/smithay-0.7.0" }
