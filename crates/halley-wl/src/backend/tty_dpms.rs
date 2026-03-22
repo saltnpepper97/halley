@@ -64,23 +64,6 @@ pub(crate) fn apply_tty_dpms_command(
         *dpms_enabled.borrow_mut() = false;
         info!("tty dpms: powered off (atomic CRTC disable)");
     } else {
-        // Wake: force every output compositor back into a fresh post-clear state
-        // so the very next render/queue re-enables scanout immediately even if
-        // Smithay reports no damage on that first frame.
-        for output in outputs.borrow().iter() {
-            let mut compositor = output.compositor.borrow_mut();
-            if let Err(err) = compositor.reset_state() {
-                warn!(
-                    "tty dpms on: reset_state failed for {}: {}",
-                    output.connector_name, err
-                );
-            }
-            compositor.reset_buffers();
-        }
-
-        for val in output_frame_pending.borrow_mut().values_mut() {
-            *val = false;
-        }
         *dpms_enabled.borrow_mut() = true;
         info!("tty dpms: powering on (forced fresh frame on next render)");
     }
