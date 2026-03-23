@@ -37,8 +37,33 @@ impl HalleyWlState {
         set_primary_focus(&self.display_handle, &self.seat, client);
     }
 
+    fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
+        let fullscreen_id = self.fullscreen_active_node.values().next().copied()?;
+
+        if requested == Some(fullscreen_id) {
+            return requested;
+        }
+
+        let fullscreen_monitor = self
+            .fullscreen_monitor_for_node(fullscreen_id)
+            .or_else(|| self.node_monitor.get(&fullscreen_id).map(|m| m.as_str()))?;
+
+        match requested {
+            None => Some(fullscreen_id),
+            Some(requested_id) => {
+                let requested_monitor = self.node_monitor.get(&requested_id).map(|m| m.as_str());
+                if requested_monitor != Some(fullscreen_monitor) {
+                    Some(fullscreen_id)
+                } else {
+                    requested
+                }
+            }
+        }
+    }
+
     fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
-        if let Some(fid) = id
+        let focus_id = self.fullscreen_focus_override(id).or(id);
+        if let Some(fid) = focus_id
             && self.fullscreen_suspended_node.values().any(|&nid| nid == fid)
         {
             if let Some(entry) = self.fullscreen_restore.get(&fid).copied() {
@@ -61,10 +86,21 @@ impl HalleyWlState {
             self.enter_xdg_fullscreen(fid, None, Instant::now());
         }
         self.layer_keyboard_focus = None;
-        let focus_surface = id.and_then(|fid| self.wl_surface_for_node(fid));
-        if self
-            .active_locked_pointer_surface()
-            .is_some_and(|surface| Some(surface.id()) != focus_surface.as_ref().map(|wl| wl.id()))
+        let requested_focus_surface = focus_id.and_then(|fid| self.wl_surface_for_node(fid));
+        let active_locked_surface = self.active_locked_pointer_surface();
+        let locked_surface_node = active_locked_surface
+            .as_ref()
+            .and_then(|surface| self.surface_to_node.get(&surface.id()).copied());
+        let keep_locked_focus = locked_surface_node.is_some_and(|nid| self.is_fullscreen_active(nid));
+        let focus_surface = if keep_locked_focus {
+            active_locked_surface.clone().or(requested_focus_surface.clone())
+        } else {
+            requested_focus_surface.clone()
+        };
+        if !keep_locked_focus
+            && active_locked_surface
+                .as_ref()
+                .is_some_and(|surface| Some(surface.id()) != focus_surface.as_ref().map(|wl| wl.id()))
         {
             self.release_active_pointer_constraint();
         }
@@ -83,6 +119,7 @@ impl HalleyWlState {
                     .and_then(|monitor| self.monitor_focus.get(monitor))
                     .copied()
                     == Some(nid)
+                    || Some(nid) == focus_id
             });
 
             let state_changed = top.with_pending_state(|s| {
@@ -514,4 +551,6 @@ impl HalleyWlState {
         }
     }
 }
+
+
 

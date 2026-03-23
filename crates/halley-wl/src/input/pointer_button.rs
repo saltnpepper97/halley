@@ -445,6 +445,69 @@ fn handle_workspace_left_press(
     }
 }
 
+fn restore_fullscreen_click_focus(
+    st: &mut HalleyWlState,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+) -> bool {
+    if !st.is_fullscreen_active(node_id) {
+        return false;
+    }
+
+    let monitor_name = st
+        .fullscreen_monitor_for_node(node_id)
+        .map(str::to_owned)
+        .or_else(|| st.node_monitor.get(&node_id).cloned())
+        .unwrap_or_else(|| st.current_monitor.clone());
+
+    let entry = st.fullscreen_restore.get(&node_id).copied();
+    let fallback_center = st
+        .monitors
+        .get(monitor_name.as_str())
+        .map(|space| space.viewport.center)
+        .unwrap_or(st.viewport.center);
+    let target_center = st
+        .field
+        .node(node_id)
+        .map(|node| node.pos)
+        .or_else(|| entry.map(|e| e.viewport_center))
+        .unwrap_or(fallback_center);
+
+    let _ = st.activate_monitor(monitor_name.as_str());
+    if let Some(space) = st.monitors.get_mut(monitor_name.as_str()) {
+        let one_x_zoom = halley_core::field::Vec2 {
+            x: space.width as f32,
+            y: space.height as f32,
+        };
+        space.viewport.center = target_center;
+        space.camera_target_center = target_center;
+        space.viewport.size = one_x_zoom;
+        space.zoom_ref_size = one_x_zoom;
+        space.camera_target_view_size = one_x_zoom;
+    }
+    if st.current_monitor == monitor_name {
+        let one_x_zoom = st
+            .monitors
+            .get(monitor_name.as_str())
+            .map(|space| halley_core::field::Vec2 {
+                x: space.width as f32,
+                y: space.height as f32,
+            })
+            .unwrap_or(st.viewport.size);
+        st.viewport.center = target_center;
+        st.camera_target_center = target_center;
+        st.viewport.size = one_x_zoom;
+        st.zoom_ref_size = one_x_zoom;
+        st.camera_target_view_size = one_x_zoom;
+        st.tuning.viewport_center = target_center;
+        st.tuning.viewport_size = one_x_zoom;
+        st.viewport_pan_anim = None;
+    }
+
+    st.set_interaction_focus(Some(node_id), 30_000, now);
+    true
+}
+
 fn handle_left_press(
     st: &mut HalleyWlState,
     ps: &mut PointerState,
@@ -464,6 +527,11 @@ fn handle_left_press(
     if frame.workspace_active {
         handle_workspace_left_press(st, ps, backend, hit);
         return;
+    }
+
+    if !drag_binding_active && restore_fullscreen_click_focus(st, hit.node_id, Instant::now()) {
+        ps.last_title_click = None;
+        backend.request_redraw();
     }
 
     if !drag_binding_active
@@ -787,3 +855,4 @@ pub(crate) fn handle_pointer_button_input(
         }
     }
 }
+
