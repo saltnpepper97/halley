@@ -115,19 +115,11 @@ impl HalleyWlState {
         if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {
             return;
         }
-        let max_release_speed = 800.0f32;
-        let vel = self
-            .physics_velocity
-            .get(&id)
-            .copied()
-            .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
-        self.physics_velocity.insert(
-            id,
-            Vec2 {
-                x: vel.x.clamp(-max_release_speed, max_release_speed),
-                y: vel.y.clamp(-max_release_speed, max_release_speed),
-            },
-        );
+        // Zero out velocity on release. The grabbed window accumulated no
+        // physics while held, so there is nothing meaningful to hand off.
+        // Other windows that were pushed during the drag already have their
+        // own velocities and will continue to settle normally.
+        self.physics_velocity.remove(&id);
     }
 
     pub fn begin_carry_state_tracking(&mut self, id: NodeId) {

@@ -608,8 +608,12 @@ impl HalleyWlState {
                 continue;
             };
             let pinned = node.pinned || self.resize_static_node == Some(id);
-            if let Some(pos) = positions.get(&id).copied() {
-                let _ = self.field.carry(id, pos);
+            // Don't write physics position back to the grabbed window —
+            // carry_surface_non_overlap owns its position each frame.
+            if self.drag_authority_node != Some(id) {
+                if let Some(pos) = positions.get(&id).copied() {
+                    let _ = self.field.carry(id, pos);
+                }
             }
             if self.physics_inv_mass(id, pinned) <= 0.0 {
                 continue;
