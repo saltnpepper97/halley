@@ -114,8 +114,6 @@ impl HalleyWlState {
             }
         } else if let Some(output) = self.outputs.get(&assigned_monitor) {
             output.enter(surface.wl_surface());
-        } else if let Some(primary_output) = &self.primary_output {
-            primary_output.enter(surface.wl_surface());
         }
 
         let interactivity = Self::layer_cached_state(&surface).keyboard_interactivity;
@@ -416,4 +414,5 @@ fn compute_layer_placement(
 
     (origin, size)
 }
+
 

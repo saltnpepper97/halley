@@ -24,6 +24,53 @@ use smithay::backend::input::{
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 const OUTPUT_RESCAN_POLL_MS: u64 = 750;
 
+
+const HALLEY_X11_DISPLAY_NUM: u32 = 0;
+
+fn halley_x11_paths(display_num: u32) -> (PathBuf, PathBuf) {
+    (
+        PathBuf::from(format!("/tmp/.X11-unix/X{}", display_num)),
+        PathBuf::from(format!("/tmp/.X{}-lock", display_num)),
+    )
+}
+
+fn process_exists(pid: u32) -> bool {
+    Path::new(&format!("/proc/{}", pid)).exists()
+}
+
+fn cleanup_stale_x11_display_files(display_num: u32) {
+    let (socket_path, lock_path) = halley_x11_paths(display_num);
+
+    let lock_pid = std::fs::read_to_string(&lock_path)
+        .ok()
+        .and_then(|contents| contents.trim().parse::<u32>().ok());
+
+    let should_remove = match lock_pid {
+        Some(pid) => !process_exists(pid),
+        None => socket_path.exists() || lock_path.exists(),
+    };
+
+    if !should_remove {
+        return;
+    }
+
+    for path in [&socket_path, &lock_path] {
+        if let Err(err) = std::fs::remove_file(path) {
+            if err.kind() != io::ErrorKind::NotFound {
+                warn!("failed to remove stale X11 path {}: {}", path.display(), err);
+            }
+        }
+    }
+}
+
+fn reset_inherited_display_env() {
+    unsafe {
+        env::remove_var("DISPLAY");
+        env::remove_var("WAYLAND_DISPLAY");
+        env::remove_var("WAYLAND_SOCKET");
+    }
+}
+
 fn active_output_names(outputs: &[TtyDrmOutput]) -> Vec<String> {
     outputs
         .iter()
@@ -205,6 +252,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
         {
             ensure_xdg_runtime_dir()?;
             ensure_dbus_session_bus_address();
+            reset_inherited_display_env();
+            cleanup_stale_x11_display_files(HALLEY_X11_DISPLAY_NUM);
             if let Err(err) = init_logging() {
                 eprintln!("halley-wl tty: logging init failed: {err}");
                 return Err(err);
@@ -1170,7 +1219,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             })?;
 
             info!("entering tty main loop");
-            loop {
+            let result = loop {
                 ev.dispatch(None, &mut state)?;
                 if state.exit_requested() || shutdown_requested() {
                     info!("exit requested, shutting down tty main loop");
@@ -1178,7 +1227,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 }
                 display.dispatch_clients(&mut state)?;
                 display.flush_clients()?;
-            }
+            };
+            cleanup_stale_x11_display_files(HALLEY_X11_DISPLAY_NUM);
+            result
         }
     )
 }
+

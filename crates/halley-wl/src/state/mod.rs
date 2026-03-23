@@ -214,7 +214,6 @@ pub struct HalleyWlState {
     pub primary_selection_state: PrimarySelectionState,
     pub data_control_state: DataControlState,
     pub seat: Seat<Self>,
-    pub primary_output: Option<Output>,
     pub(crate) outputs: HashMap<String, Output>,
     pub(crate) current_monitor: String,
     pub(crate) monitors: HashMap<String, MonitorSpace>,
@@ -562,7 +561,7 @@ impl HalleyWlState {
             );
         }
         // Use config order, not HashMap key order (which is non-deterministic).
-        // The first enabled viewport in the config file is the user's primary.
+        // The first enabled viewport in the config file is Halley's default startup monitor.
         let current_monitor = tuning
             .tty_viewports
             .iter()
@@ -571,7 +570,7 @@ impl HalleyWlState {
             .next()
             .or_else(|| monitors.keys().min().cloned())
             .unwrap_or_else(|| "default".to_string());
-        // Bootstrap the viewport/camera from the primary monitor's LOCAL space.
+        // Bootstrap the viewport/camera from the startup monitor's LOCAL space.
         // tuning.viewport_center is in global layout coords (for Wayland output
         // advertising) — using it as a camera center would point the camera at
         // a world position far outside the local viewport on any monitor with
@@ -609,7 +608,6 @@ impl HalleyWlState {
             primary_selection_state,
             data_control_state,
             seat,
-            primary_output: None,
             outputs: HashMap::new(),
             current_monitor,
             monitors,
@@ -809,10 +807,6 @@ impl HalleyWlState {
             let _ = output.create_global::<HalleyWlState>(&self.display_handle);
             output
         });
-        if self.primary_output.is_none() {
-            self.primary_output = Some(output.clone());
-        }
-
         output.add_mode(mode);
         output.set_preferred(mode);
         output.change_current_state(
@@ -821,10 +815,6 @@ impl HalleyWlState {
             Some(Scale::Integer(1)),
             Some(location),
         );
-    }
-
-    pub(crate) fn advertise_primary_output(&mut self, name: &str, mode: OutputMode) {
-        self.advertise_output(name, mode);
     }
 
     pub(crate) fn focused_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {

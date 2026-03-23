@@ -84,7 +84,7 @@ fn apply_winit_reload(
     let live_camera = crate::run::capture_live_camera_state(st);
     st.apply_tuning(next);
     crate::run::restore_live_camera_state(st, live_camera);
-    st.advertise_primary_output(
+    st.advertise_output(
         "winit-0",
         smithay::output::Mode {
             size: (ws.w.max(1), ws.h.max(1)).into(),
@@ -233,7 +233,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     y: ws.h.max(1) as f32,
                 };
                 state.snap_camera_targets_to_live();
-                state.advertise_primary_output(
+                state.advertise_output(
                     "winit-0",
                     smithay::output::Mode {
                         size: (ws.w.max(1), ws.h.max(1)).into(),
@@ -328,7 +328,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             y: size.h.max(1) as f32,
                         };
                         st.snap_camera_targets_to_live();
-                        st.advertise_primary_output(
+                        st.advertise_output(
                             "winit-0",
                             smithay::output::Mode {
                                 size: (size.w.max(1), size.h.max(1)).into(),
@@ -751,3 +751,4 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
         }
     )
 }
+
