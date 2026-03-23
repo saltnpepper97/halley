@@ -100,6 +100,33 @@ fn outputs_match(a: &[TtyDrmOutput], b: &[TtyDrmOutput]) -> bool {
     })
 }
 
+
+fn output_advertise_order(outputs: &[TtyDrmOutput], tuning: &RuntimeTuning) -> Vec<String> {
+    let mut ordered: Vec<(String, i32, i32)> = outputs
+        .iter()
+        .map(|output| {
+            let (offset_x, offset_y) = tuning
+                .tty_viewports
+                .iter()
+                .find(|viewport| viewport.enabled && viewport.connector == output.connector_name)
+                .map(|viewport| (viewport.offset_x, viewport.offset_y))
+                .unwrap_or((0, 0));
+            (output.connector_name.clone(), offset_x, offset_y)
+        })
+        .collect();
+
+    // Xwayland/XRandR output listing follows wl_output global creation order.
+    // Advertise rightmost outputs first so xrandr matches the order seen under
+    // Niri/Xorg-style setups where the primary left display appears last.
+    ordered.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then(a.2.cmp(&b.2))
+            .then(a.0.cmp(&b.0))
+    });
+
+    ordered.into_iter().map(|(name, _, _)| name).collect()
+}
+
 fn layout_size_for_outputs(tuning: &RuntimeTuning, outputs: &[TtyDrmOutput]) -> (i32, i32) {
     let active_names = active_output_names(outputs);
     let layout_w = tuning
@@ -207,8 +234,10 @@ fn apply_tty_reload(
         }
     }
 
-    for (name, mode) in &next_modes {
-        st.advertise_output(name.as_str(), (*mode).into());
+    for name in output_advertise_order(outputs.borrow().as_slice(), &st.tuning) {
+        if let Some(mode) = next_modes.get(name.as_str()) {
+            st.advertise_output(name.as_str(), (*mode).into());
+        }
     }
 
     publish_tty_outputs_snapshot(&dev.borrow(), &active_modes.borrow(), dpms_enabled, &st.tuning);
@@ -226,18 +255,22 @@ fn apply_tty_reload(
     true
 }
 
-/// Returns `(width, height, offset_x, offset_y)` for the first enabled
-/// viewport in the tuning config.  This is the monitor that an absolute
-/// pointer device (touchpad, tablet, most mice in some setups) physically
-/// covers.  We use these dimensions — not the full combined-layout size — when
-/// calling libinput's `x_transformed` / `y_transformed` so that the
-/// normalised [0,1] range maps to one monitor rather than being stretched
-/// across all of them.
+/// Returns `(width, height, offset_x, offset_y)` for the leftmost/topmost
+/// enabled viewport in the tuning config. We use one real monitor's dimensions
+/// — not the full combined-layout size — when calling libinput's
+/// `x_transformed` / `y_transformed` so that the normalised [0,1] range maps
+/// to a single monitor rather than being stretched across all of them.
 fn primary_tty_monitor_dims(tuning: &RuntimeTuning) -> (i32, i32, i32, i32) {
     tuning
         .tty_viewports
         .iter()
-        .find(|v| v.enabled)
+        .filter(|v| v.enabled)
+        .min_by(|a, b| {
+            a.offset_x
+                .cmp(&b.offset_x)
+                .then(a.offset_y.cmp(&b.offset_y))
+                .then(a.connector.cmp(&b.connector))
+        })
         .map(|v| (v.width as i32, v.height as i32, v.offset_x, v.offset_y))
         .unwrap_or((1920, 1080, 0, 0))
 }
@@ -474,8 +507,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             state.reconfigure_active_tty_monitors(&active_output_names(&outputs.borrow()));
             let (layout_w, layout_h) = layout_size_for_outputs(&state.tuning, &outputs.borrow());
             let backend_handle = TtyBackendHandle::new(layout_w, layout_h);
-            for output in outputs.borrow().iter() {
-                state.advertise_output(output.connector_name.as_str(), output.mode.into());
+            for name in output_advertise_order(outputs.borrow().as_slice(), &state.tuning) {
+                if let Some(output) = outputs
+                    .borrow()
+                    .iter()
+                    .find(|output| output.connector_name == name)
+                {
+                    state.advertise_output(output.connector_name.as_str(), output.mode.into());
+                }
             }
             info!("tty logical backend size={}x{}", layout_w, layout_h);
             {
@@ -1233,4 +1272,5 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
         }
     )
 }
+
 

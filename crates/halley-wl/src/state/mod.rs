@@ -325,6 +325,21 @@ pub struct HalleyWlState {
     pub(crate) spawned_children: Vec<std::process::Child>,
 }
 
+
+fn preferred_monitor_name(monitors: &HashMap<String, MonitorSpace>) -> Option<String> {
+    monitors
+        .iter()
+        .min_by(|a, b| {
+            let (_, am) = a;
+            let (_, bm) = b;
+            am.offset_x
+                .cmp(&bm.offset_x)
+                .then(am.offset_y.cmp(&bm.offset_y))
+                .then(a.0.cmp(b.0))
+        })
+        .map(|(name, _)| name.clone())
+}
+
 impl HalleyWlState {
     fn load_monitor_state(&mut self, name: &str) -> bool {
         let Some(space) = self.monitors.get(name).cloned() else {
@@ -430,11 +445,7 @@ impl HalleyWlState {
         self.monitors = monitors;
 
         if !self.monitors.contains_key(&self.current_monitor) {
-            self.current_monitor = self
-                .monitors
-                .keys()
-                .min()
-                .cloned()
+            self.current_monitor = preferred_monitor_name(&self.monitors)
                 .unwrap_or_else(|| "default".to_string());
         }
 
@@ -561,15 +572,11 @@ impl HalleyWlState {
                 },
             );
         }
-        // Use config order, not HashMap key order (which is non-deterministic).
-        // The first enabled viewport in the config file is Halley's default startup monitor.
-        let current_monitor = tuning
-            .tty_viewports
-            .iter()
-            .filter(|v| v.enabled && monitors.contains_key(&v.connector))
-            .map(|v| v.connector.clone())
-            .next()
-            .or_else(|| monitors.keys().min().cloned())
+        // Choose the startup monitor from the actual layout, not config order.
+        // This keeps the compositor's notion of the primary/current monitor
+        // aligned with the leftmost/topmost active output that Xwayland clients
+        // and games expect.
+        let current_monitor = preferred_monitor_name(&monitors)
             .unwrap_or_else(|| "default".to_string());
         // Bootstrap the viewport/camera from the startup monitor's LOCAL space.
         // tuning.viewport_center is in global layout coords (for Wayland output
@@ -1100,3 +1107,4 @@ impl Drop for HalleyWlState {
 }
 
 delegate_dmabuf!(HalleyWlState);
+
