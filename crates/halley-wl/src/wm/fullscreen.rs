@@ -43,6 +43,18 @@ impl HalleyWlState {
             .unwrap_or((self.viewport.center, self.viewport.size))
     }
 
+
+    fn reset_monitor_zoom_once(&mut self, monitor_name: &str) {
+        if let Some(monitor) = self.monitors.get_mut(monitor_name) {
+            monitor.zoom_ref_size = monitor.viewport.size;
+            monitor.camera_target_view_size = monitor.viewport.size;
+        }
+        if self.current_monitor == monitor_name {
+            self.zoom_ref_size = self.viewport.size;
+            self.camera_target_view_size = self.viewport.size;
+        }
+    }
+
     fn node_intersects_monitor_viewport(&self, id: NodeId, monitor_name: &str) -> bool {
         let Some(node) = self.field.node(id) else {
             return false;
@@ -301,9 +313,8 @@ impl HalleyWlState {
         let target_size = self.fullscreen_target_size_for(monitor_name.as_str());
         let (viewport_center, viewport_size) = self.fullscreen_monitor_view(monitor_name.as_str());
 
-        // Lock zoom for this monitor's viewport.
-        self.zoom_ref_size = self.viewport.size;
-        self.camera_target_view_size = self.zoom_ref_size;
+        // One-time reset of the target monitor's zoom to 1.0. Do not hold or lock it.
+        self.reset_monitor_zoom_once(monitor_name.as_str());
 
         let Some(node) = self.field.node(node_id).cloned() else {
             return;
@@ -452,10 +463,6 @@ impl HalleyWlState {
     }
 
     pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {
-        if self.any_fullscreen_active() || !self.fullscreen_motion.is_empty() {
-            self.zoom_ref_size = self.viewport.size;
-            self.camera_target_view_size = self.zoom_ref_size;
-        }
         if self.fullscreen_motion.is_empty() {
             return;
         }

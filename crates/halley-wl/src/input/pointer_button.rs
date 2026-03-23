@@ -6,6 +6,7 @@ use eventline::info;
 use halley_config::{KeyModifiers, PointerBindingAction};
 use smithay::input::pointer::{ButtonEvent, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
+use smithay::reexports::wayland_server::Resource;
 
 use crate::backend::interface::BackendView;
 use crate::interaction::actions::promote_node_level;
@@ -654,8 +655,20 @@ pub(crate) fn handle_pointer_button_input(
     let (ws_w, ws_h) = backend.window_size_i32();
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, ps.screen.0, ps.screen.1);
     let target_monitor = st
-        .monitor_for_screen(sx, sy)
-        .unwrap_or_else(|| st.current_monitor.clone());
+        .active_locked_pointer_surface()
+        .and_then(|surface| {
+            let node_id = st.surface_to_node.get(&surface.id()).copied()?;
+            Some(
+                st.node_monitor
+                    .get(&node_id)
+                    .cloned()
+                    .unwrap_or_else(|| st.current_monitor.clone()),
+            )
+        })
+        .unwrap_or_else(|| {
+            st.monitor_for_screen(sx, sy)
+                .unwrap_or_else(|| st.current_monitor.clone())
+        });
     let _ = st.activate_monitor(target_monitor.as_str());
     let (local_w, local_h, local_sx, local_sy) =
         st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);

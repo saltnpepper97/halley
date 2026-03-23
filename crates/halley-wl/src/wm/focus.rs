@@ -42,10 +42,21 @@ impl HalleyWlState {
             && self.fullscreen_suspended_node.values().any(|&nid| nid == fid)
         {
             if let Some(entry) = self.fullscreen_restore.get(&fid).copied() {
-                self.viewport.center = entry.viewport_center;
-                self.camera_target_center = self.viewport.center;
-                self.tuning.viewport_center = self.viewport.center;
-                self.viewport_pan_anim = None;
+                let target_monitor = self
+                    .node_monitor
+                    .get(&fid)
+                    .cloned()
+                    .unwrap_or_else(|| self.current_monitor.clone());
+                if let Some(space) = self.monitors.get_mut(&target_monitor) {
+                    space.viewport.center = entry.viewport_center;
+                    space.camera_target_center = entry.viewport_center;
+                }
+                if self.current_monitor == target_monitor {
+                    self.viewport.center = entry.viewport_center;
+                    self.camera_target_center = self.viewport.center;
+                    self.tuning.viewport_center = self.viewport.center;
+                    self.viewport_pan_anim = None;
+                }
             }
             self.enter_xdg_fullscreen(fid, None, Instant::now());
         }
@@ -503,3 +514,4 @@ impl HalleyWlState {
         }
     }
 }
+

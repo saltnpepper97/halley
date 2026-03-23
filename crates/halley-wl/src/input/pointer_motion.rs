@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
 use smithay::utils::SERIAL_COUNTER;
+use smithay::reexports::wayland_server::Resource;
 
 use crate::backend::interface::BackendView;
 use crate::interaction::types::{ModState, PointerState};
@@ -14,7 +15,6 @@ use halley_config::{KeyModifiers, PointerBindingAction};
 
 use super::input_utils::modifier_active;
 use super::pointer_focus::pointer_focus_for_screen;
-use super::resize_helpers::weights_from_handle;
 
 #[inline]
 fn now_millis_u32() -> u32 {
@@ -148,8 +148,19 @@ pub(crate) fn handle_pointer_motion_absolute(
         (sx, sy)
     };
 
+    let locked_surface_monitor = locked_surface.as_ref().and_then(|surface| {
+        let node_id = st.surface_to_node.get(&surface.id()).copied()?;
+        Some(
+            st.node_monitor
+                .get(&node_id)
+                .cloned()
+                .unwrap_or_else(|| st.current_monitor.clone()),
+        )
+    });
     let target_monitor = {
-        if let Some((_, owner, allow_monitor_transfer)) = drag_state.as_ref() {
+        if let Some(owner) = locked_surface_monitor {
+            owner
+        } else if let Some((_, owner, allow_monitor_transfer)) = drag_state.as_ref() {
             if *allow_monitor_transfer {
                 st.monitor_for_screen(effective_sx, effective_sy)
                     .unwrap_or_else(|| owner.clone())
@@ -512,3 +523,4 @@ pub(crate) fn handle_pointer_motion_absolute(
     }
     ps.hover_node = next_hover;
 }
+

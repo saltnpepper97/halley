@@ -7,26 +7,7 @@ impl HalleyWlState {
 
     #[inline]
     fn fullscreen_zoom_locked(&self) -> bool {
-        self.any_fullscreen_active() || !self.fullscreen_motion.is_empty()
-    }
-
-    /// True if the current monitor (where the cursor/input is) has an active
-    /// fullscreen session. Used to lock camera smoothing without blocking
-    /// pan/zoom input arriving from a different monitor.
-    #[inline]
-    fn current_monitor_fullscreen_locked(&self) -> bool {
-        if self.fullscreen_active_node.contains_key(&self.current_monitor) {
-            return true;
-        }
-        // Also lock if any fullscreen motion is in progress on the current monitor.
-        // We identify this by checking if any node being animated belongs to the
-        // current monitor.
-        self.fullscreen_motion.keys().any(|id| {
-            self.node_monitor
-                .get(id)
-                .map(|m| m == &self.current_monitor)
-                .unwrap_or(false)
-        })
+        false
     }
 
     #[inline]
@@ -72,9 +53,6 @@ impl HalleyWlState {
     }
 
     pub(crate) fn zoom_by_steps(&mut self, steps: f32) {
-        if self.fullscreen_zoom_locked() {
-            return;
-        }
         let steps = steps.clamp(-4.0, 4.0);
         if steps.abs() < f32::EPSILON {
             return;
@@ -88,16 +66,11 @@ impl HalleyWlState {
     }
 
     pub(crate) fn reset_zoom(&mut self) {
-        if self.fullscreen_zoom_locked() {
-            return;
-        }
         self.set_camera_target_view_size(self.viewport.size);
     }
 
     pub(crate) fn tick_camera_smoothing(&mut self, now: Instant) {
-        if self.viewport_pan_anim.is_some()
-            || self.current_monitor_fullscreen_locked()
-        {
+        if self.viewport_pan_anim.is_some() {
             self.snap_camera_targets_to_live();
             return;
         }
