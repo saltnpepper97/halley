@@ -615,13 +615,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             ev.handle()
                 .insert_source(libinput_backend, move |event, _, st| match event {
                     InputEvent::Keyboard { event } => {
+                        let tuning = st.tuning.clone();
                         wake_tty_dpms_on_input(
                             &dev_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
                             &outputs_for_input,
-                            &st.tuning,
+                            &tuning,
                             &output_frame_pending_for_dpms_input,
+                            st,
                         );
                         if !*keyboard_seen_for_input.borrow() {
                             info!("tty input: first keyboard event received");
@@ -644,13 +646,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerMotionAbsolute { event } => {
+                        let tuning = st.tuning.clone();
                         wake_tty_dpms_on_input(
                             &dev_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
                             &outputs_for_input,
-                            &st.tuning,
+                            &tuning,
                             &output_frame_pending_for_dpms_input,
+                            st,
                         );
                         if !*pointer_seen_for_input.borrow() {
                             info!("tty input: first pointer event received");
@@ -687,13 +691,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerMotion { event } => {
+                        let tuning = st.tuning.clone();
                         wake_tty_dpms_on_input(
                             &dev_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
                             &outputs_for_input,
-                            &st.tuning,
+                            &tuning,
                             &output_frame_pending_for_dpms_input,
+                            st,
                         );
                         if !*pointer_seen_for_input.borrow() {
                             info!("tty input: first pointer event received");
@@ -724,13 +730,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerButton { event } => {
+                        let tuning = st.tuning.clone();
                         wake_tty_dpms_on_input(
                             &dev_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
                             &outputs_for_input,
-                            &st.tuning,
+                            &tuning,
                             &output_frame_pending_for_dpms_input,
+                            st,
                         );
                         if !*pointer_seen_for_input.borrow() {
                             info!("tty input: first pointer event received");
@@ -750,13 +758,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerAxis { event } => {
+                        let tuning = st.tuning.clone();
                         wake_tty_dpms_on_input(
                             &dev_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
                             &outputs_for_input,
-                            &st.tuning,
+                            &tuning,
                             &output_frame_pending_for_dpms_input,
+                            st,
                         );
                         if !*pointer_seen_for_input.borrow() {
                             info!("tty input: first pointer event received");
@@ -886,14 +896,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let _ = crate::interaction::actions::step_window_trail(st, direction);
                     }
                     RuntimeIpcCommand::Dpms(command) => {
+                        let tuning = st.tuning.clone();
                         apply_tty_dpms_command(
                             &dev_for_timer,
                             &active_modes_for_timer,
                             &dpms_enabled_for_timer,
                             command,
                             &outputs_for_timer,
-                            &st.tuning,
+                            &tuning,
                             &output_frame_pending_for_dpms_timer,
+                            st,
                         );
                     }
                 });
@@ -993,11 +1005,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         Ok(next_signature) => {
                             let current_signature = scanout_signature_for_timer.borrow().clone();
                             if next_signature != current_signature {
-                                info!(
-                                    "tty drm topology change detected; scheduling live output rebuild (old={:?}, new={:?})",
-                                    current_signature,
-                                    next_signature
-                                );
                                 *pending_output_rescan_at_for_timer.borrow_mut() = Some(now);
                             }
                         }
@@ -1012,6 +1019,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     .is_some_and(|deadline| now >= deadline)
                 {
                     *pending_output_rescan_at_for_timer.borrow_mut() = None;
+                if *dpms_enabled_for_timer.borrow() {
                     let next = st.tuning.clone();
                     apply_tty_reload(
                         &dev_for_timer,
@@ -1032,6 +1040,12 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         &scanout_signature_for_timer,
                         card_path.as_path(),
                     );
+                } else {
+                    // Reschedule for after wake — just leave pending cleared,
+                    // wake will trigger its own rescan via the output signature check.
+                    debug!("rescan deferred: dpms is off");
+                }
+
                 }
                 if reloaded {
                     info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
@@ -1042,6 +1056,28 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 drop(ps);
 
                 if *dpms_enabled_for_timer.borrow() {
+                    // On the first tick after DPMS wake, re-configure layer shell
+                    // surfaces and flush frame callbacks so wallpaper clients
+                    // re-present before we queue the first scanout frame.
+                    if st.dpms_just_woke {
+                        st.dpms_just_woke = false;
+                        let wake_size = {
+                            let outputs_ref = outputs_for_timer.borrow();
+                            outputs_ref.first().map(|o| {
+                                let (w, h) = o.mode.size();
+                                smithay::utils::Size::<i32, smithay::utils::Logical>::from(
+                                    (w as i32, h as i32),
+                                )
+                            })
+                        };
+                        if let Some(size) = wake_size {
+                            st.configure_layer_shell_surfaces(size);
+                        }
+                        st.send_frame_callbacks(now);
+                    }
+
+                    st.send_frame_callbacks(now);
+
                     let cursor_image = st.cursor_image_status.clone();
                     let previous_monitor = st.current_monitor.clone();
 
@@ -1099,7 +1135,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
 
                     let _ = st.activate_monitor(previous_monitor.as_str());
-                    st.send_frame_callbacks(now);
                 }
 
                 let secs = now.duration_since(input_started_at).as_secs();
@@ -1147,5 +1182,3 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
         }
     )
 }
-
-

@@ -34,7 +34,8 @@ pub(crate) fn apply_tty_dpms_command(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     tuning: &RuntimeTuning,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
-) {
+    st: &mut HalleyWlState,
+) -> bool {
     let target_enabled = match command {
         halley_ipc::DpmsCommand::On => true,
         halley_ipc::DpmsCommand::Off => false,
@@ -42,7 +43,7 @@ pub(crate) fn apply_tty_dpms_command(
     };
 
     if target_enabled == *dpms_enabled.borrow() {
-        return;
+        return false;
     }
 
     if !target_enabled {
@@ -65,6 +66,10 @@ pub(crate) fn apply_tty_dpms_command(
         info!("tty dpms: powered off (atomic CRTC disable)");
     } else {
         *dpms_enabled.borrow_mut() = true;
+        // Signal to the render loop that layer shell surfaces need a fresh
+        // configure + frame callback on the very next rendered frame, so
+        // wallpaper clients re-present after the CRTC comes back up.
+        st.dpms_just_woke = true;
         info!("tty dpms: powering on (forced fresh frame on next render)");
     }
 
@@ -74,6 +79,9 @@ pub(crate) fn apply_tty_dpms_command(
         *dpms_enabled.borrow(),
         tuning,
     );
+
+    // Return true only on off→on transition
+    *dpms_enabled.borrow()
 }
 
 pub(crate) fn wake_tty_dpms_on_input(
@@ -83,9 +91,10 @@ pub(crate) fn wake_tty_dpms_on_input(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     tuning: &RuntimeTuning,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
-) {
+    st: &mut HalleyWlState,
+) -> bool {
     if *dpms_enabled.borrow() {
-        return;
+        return false;
     }
     apply_tty_dpms_command(
         dev,
@@ -95,5 +104,6 @@ pub(crate) fn wake_tty_dpms_on_input(
         outputs,
         tuning,
         output_frame_pending,
-    );
+        st,
+    )
 }

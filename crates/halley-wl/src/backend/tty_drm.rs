@@ -404,8 +404,8 @@ pub(crate) fn select_tty_scanouts(
     for (selected_conn, selected_info, mut selected_mode) in desired {
         let mut selected_crtc: Option<drm_control::crtc::Handle> = None;
 
-        let possible_crtcs: std::collections::HashSet<drm_control::crtc::Handle> = {
-            let mut set = std::collections::HashSet::new();
+        let possible_crtcs: Vec<drm_control::crtc::Handle> = {
+            let mut vec: Vec<drm_control::crtc::Handle> = Vec::new();
             let encoder_handles: Vec<_> = {
                 let mut handles = Vec::new();
                 if let Some(enc) = selected_info.current_encoder() {
@@ -421,11 +421,13 @@ pub(crate) fn select_tty_scanouts(
             for enc_handle in encoder_handles {
                 if let Ok(enc_info) = dev.get_encoder(enc_handle) {
                     for crtc in resources.filter_crtcs(enc_info.possible_crtcs()) {
-                        set.insert(crtc);
+                        if !vec.contains(&crtc) {
+                            vec.push(crtc);
+                        }
                     }
                 }
             }
-            set
+            vec
         };
 
         if let Some(enc) = selected_info

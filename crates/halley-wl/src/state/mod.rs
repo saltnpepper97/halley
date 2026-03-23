@@ -233,6 +233,7 @@ pub struct HalleyWlState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
     pub(crate) suppress_layer_shell_configure: bool,
+    pub dpms_just_woke: bool,
 
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
     pub surface_to_node: HashMap<ObjectId, NodeId>,
@@ -627,6 +628,7 @@ impl HalleyWlState {
             pending_pointer_screen_hint: None,
             suppress_layer_shell_configure: false,
             tuning,
+            dpms_just_woke: false,
 
             surface_activity: HashMap::new(),
             surface_to_node: HashMap::new(),
