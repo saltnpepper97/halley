@@ -8,7 +8,7 @@ use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::ImportMem;
 use smithay::backend::renderer::gles::GlesRenderer;
 
-use crate::state::{HalleyWlState, NodeAppIconCacheEntry, NodeAppIconTexture};
+use crate::state::{Halley, NodeAppIconCacheEntry, NodeAppIconTexture};
 
 use super::node::NodeSnapshot;
 
@@ -23,7 +23,7 @@ struct AppIconRaster {
 
 pub(crate) fn ensure_node_app_icon_resources(
     renderer: &mut GlesRenderer,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     render_nodes: &[NodeSnapshot],
 ) -> Result<(), Box<dyn std::error::Error>> {
     for node in render_nodes {

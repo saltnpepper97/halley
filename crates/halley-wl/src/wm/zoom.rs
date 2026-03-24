@@ -1,6 +1,6 @@
 use super::*;
 
-impl HalleyWlState {
+impl Halley {
     const ZOOM_PER_STEP: f32 = 1.10;
     const CAMERA_SMOOTH_CENTER_RATE: f32 = 11.0;
     const CAMERA_SMOOTH_ZOOM_RATE: f32 = 12.5;

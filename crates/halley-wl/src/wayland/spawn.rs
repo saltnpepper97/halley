@@ -4,7 +4,7 @@ use halley_core::decay::DecayLevel;
 use halley_core::field::{NodeId, Vec2};
 
 use crate::render::ACTIVE_WINDOW_FRAME_PAD_PX;
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 use crate::wm::overlap::CollisionExtents;
 
 /// Spawn candidates are tried in a deterministic star pattern:
@@ -18,7 +18,7 @@ fn spawn_cardinal_dirs() -> [Vec2; 4] {
     ]
 }
 
-impl HalleyWlState {
+impl Halley {
     const SPAWN_STAR_RINGS: usize = 24;
 
     fn spawn_anchor_on_current_monitor(&self, anchor: Vec2) -> bool {
@@ -334,10 +334,10 @@ mod tests {
     #[test]
     fn star_offsets_are_center_then_left_right_up_down() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let state = HalleyWlState::new_for_test(&dh, tuning);
+        let state = Halley::new_for_test(&dh, tuning);
 
         let offsets = state.star_candidate_offsets(Vec2 { x: 100.0, y: 80.0 });
         assert_eq!(offsets[0], Vec2 { x: 0.0, y: 0.0 });
@@ -352,10 +352,10 @@ mod tests {
     #[test]
     fn first_spawn_in_star_is_center() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
         state.viewport.size = Vec2 {
             x: 1600.0,
@@ -370,10 +370,10 @@ mod tests {
     #[test]
     fn second_spawn_uses_first_available_star_slot() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
         state.viewport.size = Vec2 {
             x: 1600.0,
@@ -405,10 +405,10 @@ mod tests {
     #[test]
     fn current_spawn_focus_keeps_focused_window_anchor() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 1200.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
 
@@ -429,10 +429,10 @@ mod tests {
     #[test]
     fn view_mode_spawns_near_viewport_center_without_pan() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 1200.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
 
@@ -457,10 +457,10 @@ mod tests {
     #[test]
     fn focus_mode_keeps_building_around_last_focus() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 500.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
 
@@ -494,10 +494,10 @@ mod tests {
     #[test]
     fn view_mode_continues_local_build_up_around_new_area() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 1200.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
         state.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
@@ -521,10 +521,10 @@ mod tests {
     #[test]
     fn reveal_new_toplevel_skips_pan_when_spawn_is_already_visible() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 700.0, y: 0.0 };
         state.viewport.size = Vec2 {
             x: 1600.0,
@@ -547,10 +547,10 @@ mod tests {
     #[test]
     fn reveal_new_toplevel_pans_when_spawn_is_partially_offscreen() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 700.0, y: 0.0 };
         state.viewport.size = Vec2 {
             x: 1600.0,
@@ -571,10 +571,10 @@ mod tests {
     #[test]
     fn reveal_new_toplevel_pans_when_spawn_is_offscreen() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
 

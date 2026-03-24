@@ -4,7 +4,7 @@ use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
 
 use super::*;
 
-impl HalleyWlState {
+impl Halley {
     const FULLSCREEN_ENTER_MS: u64 = 220;
     const FULLSCREEN_EXIT_MS: u64 = 320;
 

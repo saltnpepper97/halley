@@ -15,7 +15,7 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Size, Transform},
 };
 
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy};
 
 use super::utils::{
@@ -44,7 +44,7 @@ pub(crate) struct NodeSnapshot {
 
 pub(crate) fn ensure_node_circle_resources(
     renderer: &mut GlesRenderer,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
     if st.render_state.node_circle_texture.is_none() {
         const TEX_SIZE: usize = 4;
@@ -85,7 +85,7 @@ pub(crate) fn ensure_node_circle_resources(
 
 fn draw_shader_circle(
     frame: &mut GlesFrame<'_, '_>,
-    st: &HalleyWlState,
+    st: &Halley,
     cx: i32,
     cy: i32,
     radius: i32,
@@ -150,7 +150,7 @@ fn draw_shader_circle(
 
 fn draw_shader_label(
     frame: &mut GlesFrame<'_, '_>,
-    st: &HalleyWlState,
+    st: &Halley,
     x: i32,
     y: i32,
     w: i32,
@@ -224,7 +224,7 @@ fn window_inactive_border_color() -> Color32F {
     Color32F::new(0.28, 0.30, 0.35, 1.0)
 }
 
-fn node_ring_color(st: &HalleyWlState, hovered: bool, alpha: f32) -> Color32F {
+fn node_ring_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
     let mode = if hovered {
         st.tuning.node_border_color_hover
     } else {
@@ -237,7 +237,7 @@ fn node_ring_color(st: &HalleyWlState, hovered: bool, alpha: f32) -> Color32F {
     Color32F::new(base.r(), base.g(), base.b(), alpha)
 }
 
-fn node_fill_color(st: &HalleyWlState, hovered: bool) -> Color32F {
+fn node_fill_color(st: &Halley, hovered: bool) -> Color32F {
     match st.tuning.node_background_color {
         NodeBackgroundColorMode::Auto | NodeBackgroundColorMode::Theme => {
             let ring = node_ring_color(st, hovered, 1.0);
@@ -254,7 +254,7 @@ fn node_fill_color(st: &HalleyWlState, hovered: bool) -> Color32F {
 }
 
 fn node_icon_glyph(
-    st: &HalleyWlState,
+    st: &Halley,
     id: halley_core::field::NodeId,
     fallback: &str,
 ) -> Option<char> {
@@ -274,7 +274,7 @@ fn node_icon_glyph(
 #[allow(clippy::type_complexity)]
 pub(crate) fn collect_hover_preview(
     renderer: &mut GlesRenderer,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     size: Size<i32, Physical>,
     node_surface_map: &HashMap<
         halley_core::field::NodeId,
@@ -368,7 +368,7 @@ pub(crate) fn collect_hover_preview(
 
 pub(crate) fn draw_node_markers(
     frame: &mut GlesFrame<'_, '_>,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     size: Size<i32, Physical>,
     render_nodes: &[NodeSnapshot],
     hover_node: Option<halley_core::field::NodeId>,
@@ -537,7 +537,7 @@ pub(crate) fn draw_node_markers(
 
 pub(crate) fn draw_node_hover_labels(
     frame: &mut GlesFrame<'_, '_>,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     size: Size<i32, Physical>,
     render_nodes: &[NodeSnapshot],
     hover_node: Option<halley_core::field::NodeId>,

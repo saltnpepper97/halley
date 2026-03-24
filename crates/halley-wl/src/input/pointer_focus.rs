@@ -6,12 +6,12 @@ use smithay::utils::{Logical, Point};
 
 use crate::interaction::types::ResizeCtx;
 use crate::spatial::pick_hit_node_at;
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 use super::resize_helpers::active_node_surface_transform_screen_details;
 
 fn popup_focus_for_screen(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ws_w: i32,
     ws_h: i32,
     sx: f32,
@@ -110,7 +110,7 @@ fn popup_focus_for_screen(
 }
 
 fn fullscreen_hit_blocks_non_overlay_layers(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ws_w: i32,
     ws_h: i32,
     sx: f32,
@@ -138,7 +138,7 @@ fn fullscreen_hit_blocks_non_overlay_layers(
 }
 
 pub(crate) fn layer_surface_focus_for_screen(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ws_w: i32,
     ws_h: i32,
     sx: f32,
@@ -211,7 +211,7 @@ pub(crate) fn layer_surface_focus_for_screen(
 /// `focus.1` **must** be the screen-space position of the found surface's
 /// `(0, 0)` origin, not a pre-computed local cursor offset.
 pub(crate) fn pointer_focus_for_screen(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ws_w: i32,
     ws_h: i32,
     sx: f32,

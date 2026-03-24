@@ -10,7 +10,7 @@ use eventline::{FileSetup, LogLevel, LogPolicy, RunHeader, Setup, info, scope, w
 use once_cell::sync::OnceCell;
 
 use crate::input::spawn_command;
-use crate::state::{HalleyWlState, ViewportPanAnim};
+use crate::state::{Halley, ViewportPanAnim};
 
 mod common;
 mod ipc;
@@ -58,7 +58,7 @@ pub(crate) fn request_xwayland_start() {
 /// Spawns autostart commands and pushes the resulting Child handles into
 /// `st.spawned_children` so they are tracked for cleanup on exit.
 pub(crate) fn run_autostart_commands(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     commands: &[String],
     wayland_display: &str,
     label: &str,
@@ -74,7 +74,7 @@ pub(crate) fn run_autostart_commands(
     }
 }
 
-pub(crate) fn capture_live_camera_state(st: &mut HalleyWlState) -> LiveCameraState {
+pub(crate) fn capture_live_camera_state(st: &mut Halley) -> LiveCameraState {
     LiveCameraState {
         viewport: st.viewport,
         zoom_ref_size: st.zoom_ref_size,
@@ -84,7 +84,7 @@ pub(crate) fn capture_live_camera_state(st: &mut HalleyWlState) -> LiveCameraSta
     }
 }
 
-pub(crate) fn restore_live_camera_state(st: &mut HalleyWlState, state: LiveCameraState) {
+pub(crate) fn restore_live_camera_state(st: &mut Halley, state: LiveCameraState) {
     st.viewport = state.viewport;
     st.zoom_ref_size = state.zoom_ref_size;
     st.camera_target_center = state.camera_target_center;
@@ -95,7 +95,7 @@ pub(crate) fn restore_live_camera_state(st: &mut HalleyWlState, state: LiveCamer
 }
 
 pub(crate) fn apply_reloaded_tuning(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     next: RuntimeTuning,
     config_path: &str,
     wayland_display: &str,

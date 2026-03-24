@@ -7,7 +7,7 @@ use halley_core::field::NodeId;
 use halley_core::trail::Trail;
 use halley_core::viewport::FocusZone;
 
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
@@ -25,7 +25,7 @@ pub(crate) struct FocusState {
     pub(crate) recent_top_until: Option<Instant>,
 }
 
-impl HalleyWlState {
+impl Halley {
     pub fn set_interaction_focus(&mut self, id: Option<NodeId>, hold_ms: u64, now: Instant) {
         let prev = self.focus_state.primary_interaction_focus;
         let now_ms = self.now_ms(now);

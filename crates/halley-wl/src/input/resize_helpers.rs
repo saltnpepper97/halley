@@ -8,7 +8,7 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 use crate::animation::active_surface_render_scale;
 use crate::interaction::types::{ResizeCtx, ResizeHandle};
 use crate::render::world_to_screen;
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ActiveNodeSurfaceTransformScreen {
@@ -256,7 +256,7 @@ pub(crate) fn weights_from_handle(handle: ResizeHandle) -> (f32, f32, f32, f32) 
 }
 
 pub(crate) fn active_node_screen_rect(
-    st: &HalleyWlState,
+    st: &Halley,
     w: i32,
     h: i32,
     node_id: halley_core::field::NodeId,
@@ -296,7 +296,7 @@ pub(crate) fn active_node_screen_rect(
 /// Compute the screen-space surface-tree origin and scale for an active node,
 /// matching exactly the placement used by the render path.
 pub(crate) fn active_node_surface_transform_screen_details(
-    st: &HalleyWlState,
+    st: &Halley,
     w: i32,
     h: i32,
     node_id: halley_core::field::NodeId,
@@ -374,7 +374,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
 }
 
 pub(crate) fn active_resize_geometry_screen(
-    st: &HalleyWlState,
+    st: &Halley,
     node_id: halley_core::field::NodeId,
     resize_preview: Option<ResizeCtx>,
 ) -> Option<ActiveResizeGeometryScreen> {
@@ -419,7 +419,7 @@ pub(crate) fn active_resize_geometry_screen(
 }
 
 fn active_node_visual_local_rect(
-    st: &HalleyWlState,
+    st: &Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<(f32, f32, f32, f32)> {
     if let Some(&(x, y, w, h)) = st.render_state.window_geometry.get(&node_id) {

@@ -9,7 +9,7 @@ use smithay::utils::SERIAL_COUNTER;
 use crate::backend::interface::BackendView;
 use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::{pick_hit_node_at, screen_to_world};
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 use crate::surface::request_toplevel_resize_mode;
 use halley_config::{KeyModifiers, PointerBindingAction};
 
@@ -33,7 +33,7 @@ fn clamp_screen_to_workspace(ws_w: i32, ws_h: i32, sx: f32, sy: f32) -> (f32, f3
 }
 
 #[inline]
-fn clamp_screen_to_monitor(st: &HalleyWlState, name: &str, sx: f32, sy: f32) -> (f32, f32) {
+fn clamp_screen_to_monitor(st: &Halley, name: &str, sx: f32, sy: f32) -> (f32, f32) {
     if let Some(monitor) = st.monitor_state.monitors.get(name) {
         let max_x = (monitor.offset_x + monitor.width - 1) as f32;
         let max_y = (monitor.offset_y + monitor.height - 1) as f32;
@@ -47,7 +47,7 @@ fn clamp_screen_to_monitor(st: &HalleyWlState, name: &str, sx: f32, sy: f32) -> 
 }
 
 #[inline]
-fn pointer_outside_monitor(st: &HalleyWlState, name: &str, sx: f32, sy: f32) -> bool {
+fn pointer_outside_monitor(st: &Halley, name: &str, sx: f32, sy: f32) -> bool {
     st.monitor_state.monitors.get(name).is_some_and(|monitor| {
         sx < monitor.offset_x as f32
             || sx >= (monitor.offset_x + monitor.width) as f32
@@ -79,7 +79,7 @@ fn modifier_specificity(modifiers: KeyModifiers) -> u32 {
 
 #[inline]
 fn active_pointer_binding(
-    st: &HalleyWlState,
+    st: &Halley,
     mods: &ModState,
     button_code: u32,
 ) -> Option<PointerBindingAction> {
@@ -93,7 +93,7 @@ fn active_pointer_binding(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_pointer_motion_absolute(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     backend: &impl BackendView,
     mod_state: &Rc<RefCell<ModState>>,
     pointer_state: &Rc<RefCell<PointerState>>,

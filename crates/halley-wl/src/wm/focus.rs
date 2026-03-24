@@ -8,7 +8,7 @@ use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
 
-impl HalleyWlState {
+impl Halley {
     pub(crate) const VIEWPORT_PAN_PRELOAD_MS: u64 = 70;
     pub(crate) const VIEWPORT_PAN_DURATION_MS: u64 = 260;
     const SPAWN_VIEW_HANDOFF_PAN_RATIO: f32 = 0.35;

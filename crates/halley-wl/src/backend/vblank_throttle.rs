@@ -4,11 +4,11 @@ use calloop::timer::{TimeoutAction, Timer};
 use calloop::{LoopHandle, RegistrationToken};
 use eventline::{info, warn};
 
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 #[derive(Debug)]
 pub(crate) struct VBlankThrottle {
-    event_loop: LoopHandle<'static, HalleyWlState>,
+    event_loop: LoopHandle<'static, Halley>,
     last_vblank_at: Option<Instant>,
     throttle_timer_token: Option<RegistrationToken>,
     printed_warning: bool,
@@ -24,7 +24,7 @@ pub(crate) struct VBlankThrottle {
 }
 
 impl VBlankThrottle {
-    pub(crate) fn new(event_loop: LoopHandle<'static, HalleyWlState>, output_name: String) -> Self {
+    pub(crate) fn new(event_loop: LoopHandle<'static, Halley>, output_name: String) -> Self {
         Self {
             event_loop,
             last_vblank_at: None,
@@ -109,7 +109,7 @@ impl VBlankThrottle {
         &mut self,
         refresh_interval: Option<Duration>,
         timestamp: Instant,
-        mut call_vblank: impl FnMut(&mut HalleyWlState) + 'static,
+        mut call_vblank: impl FnMut(&mut Halley) + 'static,
     ) -> bool {
         if let Some(token) = self.throttle_timer_token.take() {
             self.event_loop.remove(token);

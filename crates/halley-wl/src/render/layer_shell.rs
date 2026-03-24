@@ -9,14 +9,14 @@ use smithay::{
     wayland::shell::wlr_layer::Layer,
 };
 
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 type LayerElements =
     Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>;
 
 pub(crate) fn collect_layer_surfaces(
     renderer: &mut GlesRenderer,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     size: Size<i32, Physical>,
     _now: Instant,
 ) -> (LayerElements, LayerElements, LayerElements, LayerElements) {

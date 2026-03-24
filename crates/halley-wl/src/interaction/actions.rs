@@ -1,4 +1,4 @@
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 use eventline::info;
 use halley_core::decay::DecayLevel;
 use halley_core::viewport::FocusZone;
@@ -6,7 +6,7 @@ use halley_ipc::{NodeMoveDirection, TrailDirection};
 use std::time::Instant;
 
 pub(crate) fn promote_node_level(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     node_id: halley_core::field::NodeId,
     now: Instant,
 ) -> bool {
@@ -40,7 +40,7 @@ pub(crate) fn promote_node_level(
     st.animate_viewport_center_to(target_pos, now)
 }
 
-pub(crate) fn latest_surface_node(st: &HalleyWlState) -> Option<halley_core::field::NodeId> {
+pub(crate) fn latest_surface_node(st: &Halley) -> Option<halley_core::field::NodeId> {
     st.last_input_surface_node().or_else(|| {
         st.surface_to_node
             .values()
@@ -49,7 +49,7 @@ pub(crate) fn latest_surface_node(st: &HalleyWlState) -> Option<halley_core::fie
     })
 }
 
-pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) -> bool {
+pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
     let Some(id) = latest_surface_node(st) else {
         return false;
     };
@@ -82,7 +82,7 @@ pub(crate) fn move_latest_node(st: &mut HalleyWlState, dx: f32, dy: f32) -> bool
 }
 
 pub(crate) fn move_latest_node_direction(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     direction: NodeMoveDirection,
 ) -> bool {
     const STEP_NODE: f32 = 80.0;
@@ -95,11 +95,11 @@ pub(crate) fn move_latest_node_direction(
     }
 }
 
-pub(crate) fn step_window_trail(st: &mut HalleyWlState, direction: TrailDirection) -> bool {
+pub(crate) fn step_window_trail(st: &mut Halley, direction: TrailDirection) -> bool {
     st.navigate_window_trail(direction, Instant::now())
 }
 
-pub(crate) fn toggle_focused_active_node_state(st: &mut HalleyWlState) -> bool {
+pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
     let now = Instant::now();
 
     let Some(id) = st.last_focused_surface_node() else {

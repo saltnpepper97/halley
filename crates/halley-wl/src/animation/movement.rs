@@ -1,12 +1,12 @@
 use std::time::Instant;
 
 use crate::interaction::types::{NodeMoveAnim, PointerState};
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 use super::curves::ease_in_out_cubic;
 
 pub(crate) fn advance_node_move_anim(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ps: &mut PointerState,
     now: Instant,
 ) -> Option<halley_core::field::NodeId> {

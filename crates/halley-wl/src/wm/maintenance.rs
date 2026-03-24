@@ -4,7 +4,7 @@ use super::*;
 use crate::wm::overlap::CollisionExtents;
 use halley_core::viewport::{FocusRing, FocusZone};
 
-impl HalleyWlState {
+impl Halley {
     const ACTIVE_RING_OUTSIDE_DECAY_FRAC: f32 = 0.98;
 
     fn focus_ring_center_for_node(&self, id: NodeId) -> Vec2 {
@@ -360,10 +360,10 @@ mod tests {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.focus_ring_rx = 100.0;
         tuning.focus_ring_ry = 100.0;
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
 
         let id = state.field.spawn_surface(
             "edge-overlap",
@@ -388,10 +388,10 @@ mod tests {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.focus_ring_rx = 100.0;
         tuning.focus_ring_ry = 100.0;
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
 
         let id = state.field.spawn_surface(
             "outside",

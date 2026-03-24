@@ -15,7 +15,7 @@ use smithay::{
 
 use crate::interaction::types::ResizeCtx;
 use crate::spatial::node_in_active_area;
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 use super::ACTIVE_WINDOW_FRAME_PAD_PX;
 use super::app_icon::ensure_node_app_icon_resources;
@@ -107,7 +107,7 @@ fn draw_clamped_outline_rect<F: smithay::backend::renderer::Frame>(
 
 pub(crate) fn draw_debug_frame(
     backend: &mut WinitGraphicsBackend<GlesRenderer>,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     resize_preview: Option<ResizeCtx>,
     hover_node: Option<halley_core::field::NodeId>,
     preview_hover_node: Option<halley_core::field::NodeId>,
@@ -138,7 +138,7 @@ pub(crate) fn draw_debug_frame_to_target(
     renderer: &mut GlesRenderer,
     framebuffer: &mut GlesTarget<'_>,
     size: smithay::utils::Size<i32, Physical>,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     resize_preview: Option<ResizeCtx>,
     hover_node: Option<halley_core::field::NodeId>,
     preview_hover_node: Option<halley_core::field::NodeId>,
@@ -182,7 +182,7 @@ pub(crate) fn draw_debug_frame_to_target(
 }
 
 fn prepare_debug_frame_state(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     size: smithay::utils::Size<i32, Physical>,
 ) -> PreparedFrameState {
     let now = Instant::now();
@@ -198,7 +198,7 @@ fn prepare_debug_frame_state(
 
 fn collect_debug_frame_scene(
     renderer: &mut GlesRenderer,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     size: smithay::utils::Size<i32, Physical>,
     resize_preview: Option<ResizeCtx>,
     hover_node: Option<halley_core::field::NodeId>,
@@ -314,7 +314,7 @@ fn collect_cursor_scene(
 
 fn draw_debug_frame_scene(
     frame: &mut GlesFrame<'_, '_>,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     size: smithay::utils::Size<i32, Physical>,
     prepared: &PreparedFrameState,
     scene: &SceneCollections,
@@ -560,7 +560,7 @@ where
 
 fn draw_geometry_overlays<F>(
     frame: &mut F,
-    st: &HalleyWlState,
+    st: &Halley,
     size: smithay::utils::Size<i32, Physical>,
     damage: Rectangle<i32, Physical>,
     scene: &SceneCollections,

@@ -15,7 +15,7 @@ use crate::interaction::types::{
 };
 use crate::render::world_to_screen;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 use crate::surface::{
     current_surface_size_for_node, request_toplevel_resize_mode, window_geometry_for_node,
 };
@@ -59,7 +59,7 @@ struct ButtonFrame {
 }
 
 fn dispatch_pointer_button(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     frame: ButtonFrame,
     resize_preview: Option<ResizeCtx>,
     button_code: u32,
@@ -111,7 +111,7 @@ fn dispatch_pointer_button(
 
 #[inline]
 fn matching_pointer_binding(
-    st: &HalleyWlState,
+    st: &Halley,
     mods: &ModState,
     button_code: u32,
 ) -> Option<PointerBindingAction> {
@@ -158,7 +158,7 @@ fn set_title_click(ps: &mut PointerState, node_id: halley_core::field::NodeId, n
     ps.last_title_click = Some(TitleClickCtx { node_id, at: now });
 }
 
-fn clear_pointer_activity(st: &mut HalleyWlState, ps: &mut PointerState) {
+fn clear_pointer_activity(st: &mut Halley, ps: &mut PointerState) {
     if let Some(drag) = ps.drag {
         st.set_drag_authority_node(None);
         st.end_carry_state_tracking(drag.node_id);
@@ -170,7 +170,7 @@ fn clear_pointer_activity(st: &mut HalleyWlState, ps: &mut PointerState) {
 }
 
 fn begin_drag(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ps: &mut PointerState,
     backend: &dyn BackendView,
     hit: HitNode,
@@ -226,7 +226,7 @@ fn begin_drag(
 /// locks it from the drag direction the first time the pointer travels past
 /// the dead zone. Until then the window does not move.
 fn begin_resize(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ps: &mut PointerState,
     backend: &dyn BackendView,
     hit: HitNode,
@@ -350,7 +350,7 @@ fn begin_resize(
     backend.request_redraw();
 }
 
-fn finalize_resize(st: &mut HalleyWlState, ps: &mut PointerState, backend: &dyn BackendView) {
+fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &dyn BackendView) {
     let ended_resize = ps.resize.take();
     ps.panning = false;
     let Some(resize) = ended_resize else {
@@ -434,7 +434,7 @@ fn finalize_resize(st: &mut HalleyWlState, ps: &mut PointerState, backend: &dyn 
 }
 
 fn handle_workspace_left_press(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ps: &mut PointerState,
     backend: &dyn BackendView,
     hit: HitNode,
@@ -457,7 +457,7 @@ fn handle_workspace_left_press(
 }
 
 fn restore_fullscreen_click_focus(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     node_id: halley_core::field::NodeId,
     now: Instant,
 ) -> bool {
@@ -522,7 +522,7 @@ fn restore_fullscreen_click_focus(
 }
 
 fn handle_left_press(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ps: &mut PointerState,
     backend: &dyn BackendView,
     drag_binding_active: bool,
@@ -603,7 +603,7 @@ fn handle_left_press(
 }
 
 fn handle_right_press(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ps: &mut PointerState,
     backend: &dyn BackendView,
     resize_binding_active: bool,
@@ -631,7 +631,7 @@ fn handle_right_press(
 }
 
 fn handle_move_binding_press(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ps: &mut PointerState,
     backend: &dyn BackendView,
     hit: Option<HitNode>,
@@ -666,7 +666,7 @@ fn handle_move_binding_press(
 }
 
 fn handle_resize_binding_press(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ps: &mut PointerState,
     backend: &dyn BackendView,
     hit: Option<HitNode>,
@@ -695,7 +695,7 @@ fn handle_resize_binding_press(
 }
 
 fn handle_button_release(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     ps: &mut PointerState,
     backend: &dyn BackendView,
     button_code: u32,
@@ -735,7 +735,7 @@ fn handle_button_release(
 }
 
 pub(crate) fn handle_pointer_button_input(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     backend: &impl BackendView,
     mod_state: &Rc<RefCell<ModState>>,
     pointer_state: &Rc<RefCell<PointerState>>,

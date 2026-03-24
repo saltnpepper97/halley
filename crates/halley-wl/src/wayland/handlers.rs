@@ -62,7 +62,7 @@ fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i3
     None
 }
 
-fn initial_toplevel_size(st: &HalleyWlState, toplevel: &ToplevelSurface) -> InitialToplevelSize {
+fn initial_toplevel_size(st: &Halley, toplevel: &ToplevelSurface) -> InitialToplevelSize {
     let detected = detected_initial_toplevel_size(toplevel);
     let node_size = detected.unwrap_or_else(|| {
         (
@@ -78,7 +78,7 @@ fn initial_toplevel_size(st: &HalleyWlState, toplevel: &ToplevelSurface) -> Init
     }
 }
 
-impl SeatHandler for HalleyWlState {
+impl SeatHandler for Halley {
     type KeyboardFocus = WlSurface;
     type PointerFocus = WlSurface;
     type TouchFocus = WlSurface;
@@ -152,37 +152,37 @@ impl SeatHandler for HalleyWlState {
     }
 }
 
-delegate_seat!(HalleyWlState);
-delegate_pointer_constraints!(HalleyWlState);
-delegate_relative_pointer!(HalleyWlState);
-delegate_drm_syncobj!(HalleyWlState);
-delegate_idle_notify!(HalleyWlState);
+delegate_seat!(Halley);
+delegate_pointer_constraints!(Halley);
+delegate_relative_pointer!(Halley);
+delegate_drm_syncobj!(Halley);
+delegate_idle_notify!(Halley);
 
-impl SelectionHandler for HalleyWlState {
+impl SelectionHandler for Halley {
     type SelectionUserData = ();
 }
 
-impl IdleNotifierHandler for HalleyWlState {
+impl IdleNotifierHandler for Halley {
     fn idle_notifier_state(&mut self) -> &mut IdleNotifierState<Self> {
         &mut self.idle_notifier_state
     }
 }
 
-impl DataDeviceHandler for HalleyWlState {
+impl DataDeviceHandler for Halley {
     fn data_device_state(&self) -> &DataDeviceState {
         &self.data_device_state
     }
 }
 
-impl ClientDndGrabHandler for HalleyWlState {}
+impl ClientDndGrabHandler for Halley {}
 
-impl ServerDndGrabHandler for HalleyWlState {
+impl ServerDndGrabHandler for Halley {
     fn send(&mut self, _mime_type: String, _fd: std::os::unix::io::OwnedFd, _seat: Seat<Self>) {}
 }
 
-delegate_data_device!(HalleyWlState);
+delegate_data_device!(Halley);
 
-impl CompositorHandler for HalleyWlState {
+impl CompositorHandler for Halley {
     fn compositor_state(&mut self) -> &mut CompositorState {
         &mut self.compositor_state
     }
@@ -202,16 +202,16 @@ impl CompositorHandler for HalleyWlState {
     }
 }
 
-delegate_compositor!(HalleyWlState);
-delegate_viewporter!(HalleyWlState);
+delegate_compositor!(Halley);
+delegate_viewporter!(Halley);
 
-impl ShmHandler for HalleyWlState {
+impl ShmHandler for Halley {
     fn shm_state(&self) -> &ShmState {
         &self.shm_state
     }
 }
 
-impl BufferHandler for HalleyWlState {
+impl BufferHandler for Halley {
     fn buffer_destroyed(
         &mut self,
         _buffer: &smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer,
@@ -219,9 +219,9 @@ impl BufferHandler for HalleyWlState {
     }
 }
 
-delegate_shm!(HalleyWlState);
+delegate_shm!(Halley);
 
-impl DmabufHandler for HalleyWlState {
+impl DmabufHandler for Halley {
     fn dmabuf_state(&mut self) -> &mut smithay::wayland::dmabuf::DmabufState {
         &mut self.dmabuf_state
     }
@@ -253,13 +253,13 @@ impl DmabufHandler for HalleyWlState {
     }
 }
 
-impl DrmSyncobjHandler for HalleyWlState {
+impl DrmSyncobjHandler for Halley {
     fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> {
         self.drm_syncobj_state.as_mut()
     }
 }
 
-impl PointerConstraintsHandler for HalleyWlState {
+impl PointerConstraintsHandler for Halley {
     fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
         if pointer.current_focus().as_ref() != Some(surface) {
             return;
@@ -283,7 +283,7 @@ impl PointerConstraintsHandler for HalleyWlState {
     }
 }
 
-impl HalleyWlState {
+impl Halley {
     fn install_drm_syncobj_blocker(&mut self, surface: &WlSurface) {
         if self.drm_syncobj_state.is_none() {
             return;
@@ -538,7 +538,7 @@ impl smithay::wayland::compositor::Blocker for SyncobjCommitBlocker {
     }
 }
 
-impl XdgShellHandler for HalleyWlState {
+impl XdgShellHandler for Halley {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
         &mut self.xdg_shell_state
     }
@@ -677,9 +677,9 @@ impl XdgShellHandler for HalleyWlState {
 #[cfg(test)]
 mod tests {}
 
-delegate_xdg_shell!(HalleyWlState);
+delegate_xdg_shell!(Halley);
 
-impl WlrLayerShellHandler for HalleyWlState {
+impl WlrLayerShellHandler for Halley {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {
         &mut self.wlr_layer_shell_state
     }
@@ -701,24 +701,24 @@ impl WlrLayerShellHandler for HalleyWlState {
     }
 }
 
-delegate_layer_shell!(HalleyWlState);
+delegate_layer_shell!(Halley);
 
-impl OutputHandler for HalleyWlState {}
+impl OutputHandler for Halley {}
 
-delegate_output!(HalleyWlState);
+delegate_output!(Halley);
 
-impl PrimarySelectionHandler for HalleyWlState {
+impl PrimarySelectionHandler for Halley {
     fn primary_selection_state(&self) -> &PrimarySelectionState {
         &self.primary_selection_state
     }
 }
 
-delegate_primary_selection!(HalleyWlState);
+delegate_primary_selection!(Halley);
 
-impl DataControlHandler for HalleyWlState {
+impl DataControlHandler for Halley {
     fn data_control_state(&self) -> &DataControlState {
         &self.data_control_state
     }
 }
 
-delegate_data_control!(HalleyWlState);
+delegate_data_control!(Halley);

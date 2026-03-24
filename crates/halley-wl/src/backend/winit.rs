@@ -70,7 +70,7 @@ fn publish_winit_output_snapshot(
 
 fn apply_winit_reload(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     mut next: RuntimeTuning,
     config_path: &str,
     wayland_display: &str,
@@ -114,7 +114,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             init_logging()?;
             let _host_backend_guard = ensure_host_display()?;
 
-            let mut display: Display<HalleyWlState> = Display::new()?;
+            let mut display: Display<Halley> = Display::new()?;
             let dh = display.handle();
 
             let config_path = Rc::new(RuntimeTuning::config_path());
@@ -199,9 +199,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             })?;
             let backend = Rc::new(RefCell::new(backend));
             let backend_handle = WinitBackendHandle::new(backend.clone());
-            let mut ev: EventLoop<HalleyWlState> = EventLoop::try_new()?;
+            let mut ev: EventLoop<Halley> = EventLoop::try_new()?;
             let _signal = ev.get_signal();
-            let mut state = HalleyWlState::new(&dh, ev.handle(), tuning.clone());
+            let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
             state.seat.add_pointer();
             if state
                 .seat

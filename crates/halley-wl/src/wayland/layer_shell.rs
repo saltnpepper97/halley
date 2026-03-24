@@ -13,7 +13,7 @@ use smithay::{
 };
 use std::time::Instant;
 
-use super::HalleyWlState;
+use super::Halley;
 
 #[derive(Clone)]
 pub(crate) struct LayerPlacement {
@@ -23,7 +23,7 @@ pub(crate) struct LayerPlacement {
     pub keyboard_interactivity: KeyboardInteractivity,
 }
 
-impl HalleyWlState {
+impl Halley {
     fn apply_layer_surface_focus(
         &mut self,
         surface: &WlSurface,

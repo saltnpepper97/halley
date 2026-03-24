@@ -5,7 +5,7 @@ use halley_core::cluster_policy::ClusterFormationState;
 use halley_core::field::{NodeId, Vec2};
 use halley_core::viewport::Viewport;
 
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 pub(crate) struct WorkspaceState {
     pub(crate) cluster_form_state: ClusterFormationState,
@@ -18,7 +18,7 @@ pub(crate) struct WorkspaceState {
     pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
 }
 
-impl HalleyWlState {
+impl Halley {
     pub(crate) fn preserve_collapsed_surface(&self, id: NodeId) -> bool {
         self.workspace_state.manual_collapsed_nodes.contains(&id)
             || self.field.node(id).is_some_and(|n| {

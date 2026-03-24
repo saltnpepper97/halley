@@ -1,7 +1,7 @@
 use super::*;
 use halley_core::viewport::{FocusRing, FocusZone};
 
-impl HalleyWlState {
+impl Halley {
     #[inline]
     pub(crate) fn set_drag_authority_node(&mut self, id: Option<NodeId>) {
         self.interaction_state.drag_authority_node = id;

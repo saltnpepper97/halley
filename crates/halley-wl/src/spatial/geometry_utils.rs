@@ -1,7 +1,7 @@
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 pub(crate) fn screen_to_world(
-    st: &HalleyWlState,
+    st: &Halley,
     w: i32,
     h: i32,
     sx: f32,

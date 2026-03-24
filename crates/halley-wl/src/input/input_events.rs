@@ -7,7 +7,7 @@ use smithay::utils::SERIAL_COUNTER;
 use crate::backend::interface::BackendView;
 use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::screen_to_world;
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 use super::input_utils::update_mod_state;
 use super::key_actions::{
@@ -85,7 +85,7 @@ pub(crate) enum BackendInputEventData {
 }
 
 pub(crate) fn handle_keyboard_input(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     mod_state: &std::rc::Rc<std::cell::RefCell<ModState>>,
     backend: &impl BackendView,
     config_path: &str,
@@ -189,7 +189,7 @@ pub(crate) fn handle_keyboard_input(
 }
 
 pub(crate) fn handle_pointer_axis_input(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     mod_state: &std::rc::Rc<std::cell::RefCell<ModState>>,
     pointer_state: &std::rc::Rc<std::cell::RefCell<PointerState>>,
     backend: &impl BackendView,
@@ -341,7 +341,7 @@ pub(crate) fn handle_pointer_axis_input(
 }
 
 pub(crate) fn handle_backend_input_event(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     mod_state: &std::rc::Rc<std::cell::RefCell<ModState>>,
     pointer_state: &std::rc::Rc<std::cell::RefCell<PointerState>>,
     backend: &impl BackendView,

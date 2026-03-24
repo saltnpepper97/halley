@@ -99,7 +99,7 @@ pub(crate) struct RenderState {
     pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
 }
 
-impl HalleyWlState {
+impl Halley {
     pub(crate) fn take_input_state_reset_request(&mut self) -> bool {
         std::mem::take(&mut self.interaction_state.reset_input_state_requested)
     }

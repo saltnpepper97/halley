@@ -9,9 +9,9 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
 use crate::activity::CommitActivity;
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
-impl HalleyWlState {
+impl Halley {
     #[inline]
     fn surface_key(surface: &WlSurface) -> ObjectId {
         surface.id()

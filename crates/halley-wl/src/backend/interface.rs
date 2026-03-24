@@ -9,7 +9,7 @@ use smithay::backend::{allocator::Format, allocator::dmabuf::Dmabuf};
 
 use crate::interaction::types::ResizeCtx;
 use crate::render::draw_debug_frame;
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 use std::cell::Cell;
 
 pub(crate) trait BackendView {
@@ -20,7 +20,7 @@ pub(crate) trait BackendView {
 pub(crate) trait RenderBackend: BackendView {
     fn draw_frame(
         &self,
-        st: &mut HalleyWlState,
+        st: &mut Halley,
         resize_preview: Option<ResizeCtx>,
         hover_node: Option<halley_core::field::NodeId>,
         preview_hover_node: Option<halley_core::field::NodeId>,
@@ -129,7 +129,7 @@ impl BackendView for WinitBackendHandle {
 impl RenderBackend for WinitBackendHandle {
     fn draw_frame(
         &self,
-        st: &mut HalleyWlState,
+        st: &mut Halley,
         resize_preview: Option<ResizeCtx>,
         hover_node: Option<halley_core::field::NodeId>,
         preview_hover_node: Option<halley_core::field::NodeId>,

@@ -121,7 +121,7 @@ pub(crate) struct FullscreenScaleAnim {
     pub duration_ms: u64,
 }
 
-pub struct HalleyWlState {
+pub struct Halley {
     pub display_handle: DisplayHandle,
     pub compositor_state: CompositorState,
     pub viewporter_state: ViewporterState,
@@ -209,7 +209,7 @@ fn preferred_monitor_name(monitors: &HashMap<String, MonitorSpace>) -> Option<St
         .map(|(name, _)| name.clone())
 }
 
-impl HalleyWlState {
+impl Halley {
     pub fn new(
         dh: &smithay::reexports::wayland_server::DisplayHandle,
         loop_handle: LoopHandle<'static, Self>,
@@ -293,27 +293,27 @@ impl HalleyWlState {
             .unwrap_or(tuning.viewport_size);
         let mut seat_state = SeatState::new();
         let seat = seat_state.new_wl_seat(dh, "halley");
-        let primary_selection_state = PrimarySelectionState::new::<HalleyWlState>(dh);
+        let primary_selection_state = PrimarySelectionState::new::<Halley>(dh);
         let data_control_state =
-            DataControlState::new::<HalleyWlState, _>(dh, Some(&primary_selection_state), |_| true);
+            DataControlState::new::<Halley, _>(dh, Some(&primary_selection_state), |_| true);
 
         let mut out = Self {
             display_handle: dh.clone(),
-            compositor_state: CompositorState::new::<HalleyWlState>(dh),
-            viewporter_state: ViewporterState::new::<HalleyWlState>(dh),
-            xdg_shell_state: XdgShellState::new::<HalleyWlState>(dh),
+            compositor_state: CompositorState::new::<Halley>(dh),
+            viewporter_state: ViewporterState::new::<Halley>(dh),
+            xdg_shell_state: XdgShellState::new::<Halley>(dh),
             popup_manager: PopupManager::default(),
-            wlr_layer_shell_state: WlrLayerShellState::new::<HalleyWlState>(dh),
-            pointer_constraints_state: PointerConstraintsState::new::<HalleyWlState>(dh),
-            relative_pointer_manager_state: RelativePointerManagerState::new::<HalleyWlState>(dh),
+            wlr_layer_shell_state: WlrLayerShellState::new::<Halley>(dh),
+            pointer_constraints_state: PointerConstraintsState::new::<Halley>(dh),
+            relative_pointer_manager_state: RelativePointerManagerState::new::<Halley>(dh),
             idle_notifier_state: IdleNotifierState::new(dh, loop_handle),
             drm_syncobj_state: None,
-            output_manager_state: OutputManagerState::new_with_xdg_output::<HalleyWlState>(dh),
-            shm_state: ShmState::new::<HalleyWlState>(dh, vec![]),
+            output_manager_state: OutputManagerState::new_with_xdg_output::<Halley>(dh),
+            shm_state: ShmState::new::<Halley>(dh, vec![]),
             dmabuf_state: DmabufState::new(),
             dmabuf_global: None,
             seat_state,
-            data_device_state: DataDeviceState::new::<HalleyWlState>(dh),
+            data_device_state: DataDeviceState::new::<Halley>(dh),
             primary_selection_state,
             data_control_state,
             seat,
@@ -483,14 +483,14 @@ impl HalleyWlState {
                     .build()
                     .expect("renderer dmabuf feedback should be constructible");
                 self.dmabuf_state
-                    .create_global_with_default_feedback::<HalleyWlState>(
+                    .create_global_with_default_feedback::<Halley>(
                         &self.display_handle,
                         &feedback,
                     )
             }
             None => self
                 .dmabuf_state
-                .create_global::<HalleyWlState>(&self.display_handle, formats.iter().copied()),
+                .create_global::<Halley>(&self.display_handle, formats.iter().copied()),
         };
 
         self.dmabuf_importer = Some(importer);
@@ -730,7 +730,7 @@ impl HalleyWlState {
     }
 }
 
-impl Drop for HalleyWlState {
+impl Drop for Halley {
     fn drop(&mut self) {
         for child in &mut self.spawned_children {
             let pgid = child.id() as i32;
@@ -742,4 +742,4 @@ impl Drop for HalleyWlState {
     }
 }
 
-delegate_dmabuf!(HalleyWlState);
+delegate_dmabuf!(Halley);

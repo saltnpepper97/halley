@@ -192,7 +192,7 @@ fn apply_tty_reload(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     backend_handle: &TtyBackendHandle,
     pointer_state: &Rc<RefCell<PointerState>>,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     next: RuntimeTuning,
     config_path: &str,
     wayland_display: &str,
@@ -414,7 +414,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 seat_name
             );
 
-            let mut display: Display<HalleyWlState> = Display::new()?;
+            let mut display: Display<Halley> = Display::new()?;
             let dh = display.handle();
 
             let config_path = Rc::new(RuntimeTuning::config_path());
@@ -495,9 +495,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let xwayland_request_for_timer = xwayland_request_rx.clone();
             let libinput_backend = libinput_backend;
 
-            let mut ev: EventLoop<HalleyWlState> = EventLoop::try_new()?;
+            let mut ev: EventLoop<Halley> = EventLoop::try_new()?;
             let _signal = ev.get_signal();
-            let mut state = HalleyWlState::new(&dh, ev.handle(), tuning.clone());
+            let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
             let outputs = Rc::new(RefCell::new(drm_probe.outputs));
             let dmabuf_importer: Rc<dyn DmabufImportBackend> =
                 Rc::new(TtyDmabufImportBackend::new(drm_probe.renderer.clone()));
@@ -505,7 +505,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             if smithay::wayland::drm_syncobj::supports_syncobj_eventfd(drm_probe.dev.device_fd()) {
                 state.drm_syncobj_state =
                     Some(smithay::wayland::drm_syncobj::DrmSyncobjState::new::<
-                        HalleyWlState,
+                        Halley,
                     >(&dh, drm_probe.dev.device_fd().clone()));
             }
             state.set_app_focused(true);

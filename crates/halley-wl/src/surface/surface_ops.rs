@@ -4,9 +4,9 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
-pub(crate) fn request_close_focused_toplevel(st: &mut HalleyWlState) -> bool {
+pub(crate) fn request_close_focused_toplevel(st: &mut Halley) -> bool {
     let Some(node_id) = st.last_focused_surface_node() else {
         return false;
     };
@@ -25,7 +25,7 @@ pub(crate) fn request_close_focused_toplevel(st: &mut HalleyWlState) -> bool {
 }
 
 pub(crate) fn request_toplevel_resize_mode(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     node_id: halley_core::field::NodeId,
     width: i32,
     height: i32,
@@ -56,7 +56,7 @@ pub(crate) fn request_toplevel_resize_mode(
 }
 
 pub(crate) fn current_surface_size_for_node(
-    st: &HalleyWlState,
+    st: &Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<halley_core::field::Vec2> {
     if let Some(&(_, _, w, h)) = st.render_state.window_geometry.get(&node_id) {
@@ -103,7 +103,7 @@ pub(crate) fn current_surface_size_for_node(
 }
 
 pub(crate) fn window_geometry_for_node(
-    st: &HalleyWlState,
+    st: &Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<(f32, f32, f32, f32)> {
     if let Some(&geo) = st.render_state.window_geometry.get(&node_id) {

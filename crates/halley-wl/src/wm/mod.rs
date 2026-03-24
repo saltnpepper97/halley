@@ -15,7 +15,7 @@ use smithay::reexports::wayland_server::{
 use crate::activity::{CommitActivity, VisualState};
 use crate::animation::{AnimSpec, AnimStyle};
 use crate::render::{DebugScene, build_debug_scene};
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 mod carry;
 mod focus;

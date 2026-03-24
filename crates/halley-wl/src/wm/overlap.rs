@@ -47,7 +47,7 @@ impl CollisionExtents {
     }
 }
 
-impl HalleyWlState {
+impl Halley {
     #[inline]
     fn clamp_speed(v: Vec2, max_speed: f32) -> Vec2 {
         let speed_sq = v.x * v.x + v.y * v.y;
@@ -682,7 +682,7 @@ impl HalleyWlState {
 mod tests {
     use super::*;
 
-    fn overlap_metrics(state: &HalleyWlState, a: NodeId, b: NodeId) -> (f32, f32, f32, f32) {
+    fn overlap_metrics(state: &Halley, a: NodeId, b: NodeId) -> (f32, f32, f32, f32) {
         let na = state.field.node(a).expect("node a");
         let nb = state.field.node(b).expect("node b");
         let ea = state.collision_extents_for_node(na);
@@ -695,12 +695,12 @@ mod tests {
         (dx, dy, req_x, req_y)
     }
 
-    fn nodes_overlap(state: &HalleyWlState, a: NodeId, b: NodeId) -> bool {
+    fn nodes_overlap(state: &Halley, a: NodeId, b: NodeId) -> bool {
         let (dx, dy, req_x, req_y) = overlap_metrics(state, a, b);
         dx < req_x && dy < req_y
     }
 
-    fn tick_overlap_frames(state: &mut HalleyWlState, frames: usize) {
+    fn tick_overlap_frames(state: &mut Halley, frames: usize) {
         for _ in 0..frames {
             state.resolve_surface_overlap();
         }
@@ -709,10 +709,10 @@ mod tests {
     #[test]
     fn collapsed_surface_nodes_use_marker_collision_extents() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -752,10 +752,10 @@ mod tests {
     #[test]
     fn collapsed_surface_nodes_match_rendered_node_diameter() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -790,10 +790,10 @@ mod tests {
     #[test]
     fn resolve_overlap_settles_collapsed_nodes_when_zoomed_out() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -836,10 +836,10 @@ mod tests {
     #[test]
     fn dragged_window_is_authoritative_while_neighbor_yields() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -884,10 +884,10 @@ mod tests {
     #[test]
     fn active_surface_collision_extents_include_frame_pad() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
 
         let id = state.field.spawn_surface(
             "active",
@@ -908,10 +908,10 @@ mod tests {
     #[test]
     fn resolve_overlap_settles_collapsed_nodes() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -954,10 +954,10 @@ mod tests {
     #[test]
     fn resolve_overlap_settles_active_surface_and_node() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -997,10 +997,10 @@ mod tests {
     #[test]
     fn resolve_overlap_settles_two_active_surfaces() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
@@ -1036,10 +1036,10 @@ mod tests {
     #[test]
     fn body_velocity_is_bounded_under_contact() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
 
         let a =
             state
@@ -1077,10 +1077,10 @@ mod tests {
     #[test]
     fn angled_drag_contact_does_not_create_unbounded_velocity() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
 
         let passive = state.field.spawn_surface(
             "passive",
@@ -1120,10 +1120,10 @@ mod tests {
     #[test]
     fn release_preserves_momentum() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
 
         let id = state.field.spawn_surface(
             "release",
@@ -1148,10 +1148,10 @@ mod tests {
     #[test]
     fn direct_border_hit_triggers_physics_response() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
 
         let a =
             state
@@ -1191,10 +1191,10 @@ mod tests {
     #[test]
     fn windows_settle_back_to_rest_after_contact_clears() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
 
         let a =
             state

@@ -10,7 +10,7 @@ use smithay::{
     utils::{Logical, Physical, Rectangle},
 };
 
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 /// Draw an elliptical ring at a fixed screen-space position and radius.
 ///
@@ -57,7 +57,7 @@ pub(crate) fn draw_ring<F: Frame>(
     Ok(())
 }
 
-pub(crate) fn world_to_screen(st: &HalleyWlState, w: i32, h: i32, x: f32, y: f32) -> (i32, i32) {
+pub(crate) fn world_to_screen(st: &Halley, w: i32, h: i32, x: f32, y: f32) -> (i32, i32) {
     let view = st.camera_view_size();
     let vw = view.x.max(1.0);
     let vh = view.y.max(1.0);
@@ -300,7 +300,7 @@ pub(crate) fn draw_outline_rect<F: Frame>(
 }
 
 pub(crate) fn sync_node_size_from_surface(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     node_id: halley_core::field::NodeId,
     wl: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
 ) -> Rectangle<i32, Logical> {
@@ -335,7 +335,7 @@ pub(crate) fn sync_node_size_from_surface(
 }
 
 pub(crate) fn snapshot_surface_geometry(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     node_id: halley_core::field::NodeId,
     wl: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
 ) -> Rectangle<i32, Logical> {
@@ -381,7 +381,7 @@ pub(crate) fn preview_proxy_size(_real_w: f32, _real_h: f32) -> (f32, f32) {
 }
 
 pub(crate) fn node_render_diameter_px(
-    st: &HalleyWlState,
+    st: &Halley,
     intrinsic_size: halley_core::field::Vec2,
     label_len: usize,
     anim_scale: f32,
@@ -404,7 +404,7 @@ pub(crate) fn node_render_diameter_px(
 }
 
 pub(crate) fn node_marker_metrics(
-    _st: &HalleyWlState,
+    _st: &Halley,
     label_len: usize,
     _anim_scale: f32,
 ) -> (i32, i32, i32, i32) {

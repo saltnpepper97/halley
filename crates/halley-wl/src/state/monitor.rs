@@ -10,7 +10,7 @@ use smithay::{
     utils::Transform,
 };
 
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MonitorSpace {
@@ -47,7 +47,7 @@ fn preferred_monitor_name(monitors: &HashMap<String, MonitorSpace>) -> Option<St
         .map(|(name, _)| name.clone())
 }
 
-impl HalleyWlState {
+impl Halley {
     pub(crate) fn load_monitor_state(&mut self, name: &str) -> bool {
         let Some(space) = self.monitor_state.monitors.get(name).cloned() else {
             return false;
@@ -276,7 +276,7 @@ impl HalleyWlState {
                         model: name.to_string(),
                     },
                 );
-                let _ = output.create_global::<HalleyWlState>(&self.display_handle);
+                let _ = output.create_global::<Halley>(&self.display_handle);
                 output
             });
         output.add_mode(mode);

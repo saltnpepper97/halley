@@ -1,7 +1,7 @@
 use super::*;
 use halley_ipc::TrailDirection;
 
-impl HalleyWlState {
+impl Halley {
     pub(crate) fn record_focus_trail_visit(&mut self, id: NodeId) {
         if self.focus_state.focus_trail.cursor() == Some(id) {
             return;
@@ -107,10 +107,10 @@ mod tests {
     #[test]
     fn trail_navigation_moves_back_and_forward_without_re_recording() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         let now = Instant::now();
 
         let first = state.field.spawn_surface(
@@ -137,10 +137,10 @@ mod tests {
     #[test]
     fn trail_navigation_skips_duplicate_current_focus_entries() {
         let tuning = halley_config::RuntimeTuning::default();
-        let dh = smithay::reexports::wayland_server::Display::<HalleyWlState>::new()
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
-        let mut state = HalleyWlState::new_for_test(&dh, tuning);
+        let mut state = Halley::new_for_test(&dh, tuning);
         let now = Instant::now();
 
         let first = state.field.spawn_surface(

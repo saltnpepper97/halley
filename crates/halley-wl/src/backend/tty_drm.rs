@@ -609,7 +609,7 @@ pub(crate) fn queue_tty_drm_frame(
     output_name: &str,
     compositor: &Rc<RefCell<HalleyDrmCompositor>>,
     renderer: &Rc<RefCell<GlesRenderer>>,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     resize_preview: Option<ResizeCtx>,
     hover_node: Option<halley_core::field::NodeId>,
     preview_hover_node: Option<halley_core::field::NodeId>,

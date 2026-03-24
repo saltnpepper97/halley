@@ -44,7 +44,7 @@ use smithay::{
     },
 };
 
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 mod handlers;
 mod layer_shell;

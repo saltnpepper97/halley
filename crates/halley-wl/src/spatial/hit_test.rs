@@ -4,11 +4,11 @@ use crate::input::active_node_screen_rect;
 use crate::interaction::types::HitNode;
 use crate::interaction::types::ResizeCtx;
 use crate::render::{node_marker_metrics, world_to_screen};
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 use halley_core::viewport::FocusZone;
 
 pub(crate) fn pick_hit_node_at(
-    st: &HalleyWlState,
+    st: &Halley,
     w: i32,
     h: i32,
     sx: f32,
@@ -96,7 +96,7 @@ pub(crate) fn pick_hit_node_at(
         .or_else(|| node_dot.into_iter().next())
 }
 
-pub(crate) fn node_in_active_area(st: &HalleyWlState, node_id: halley_core::field::NodeId) -> bool {
+pub(crate) fn node_in_active_area(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
     let Some(n) = st.field.node(node_id) else {
         return false;
     };

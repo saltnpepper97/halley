@@ -8,7 +8,7 @@ use super::input_utils::{key_matches, modifier_active, modifier_exact};
 use crate::interaction::actions::{move_latest_node_direction, toggle_focused_active_node_state};
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 use crate::surface::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{CompositorBindingAction, DirectionalAction, RuntimeTuning};
@@ -32,7 +32,7 @@ fn from_directional_action(direction: DirectionalAction) -> NodeMoveDirection {
 }
 
 pub(crate) fn compositor_binding_action(
-    st: &HalleyWlState,
+    st: &Halley,
     key_code: u32,
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
@@ -46,7 +46,7 @@ pub(crate) fn compositor_binding_action(
 }
 
 pub(crate) fn compositor_binding_action_active(
-    st: &HalleyWlState,
+    st: &Halley,
     key_code: u32,
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
@@ -61,7 +61,7 @@ pub(crate) fn compositor_binding_action_active(
 }
 
 pub(crate) fn key_is_compositor_binding(
-    st: &HalleyWlState,
+    st: &Halley,
     key_code: u32,
     mods: &ModState,
 ) -> bool {
@@ -72,7 +72,7 @@ pub(crate) fn key_is_compositor_binding(
 }
 
 pub(crate) fn apply_compositor_action_press(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     action: CompositorBindingAction,
     config_path: &str,
     wayland_display: &str,
@@ -126,14 +126,14 @@ pub(crate) fn apply_compositor_action_press(
 }
 
 pub(crate) fn apply_compositor_action_release(
-    _st: &mut HalleyWlState,
+    _st: &mut Halley,
     _action: CompositorBindingAction,
 ) -> bool {
     false
 }
 
 pub(crate) fn apply_bound_key(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     key_code: u32,
     mods: &ModState,
     config_path: &str,
@@ -174,7 +174,7 @@ pub(crate) fn apply_bound_key(
 }
 
 pub(crate) fn apply_bound_pointer_input(
-    st: &mut HalleyWlState,
+    st: &mut Halley,
     key_code: u32,
     mods: &ModState,
     config_path: &str,

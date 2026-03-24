@@ -48,7 +48,7 @@ use crate::run::{
     register_xwayland_request_channel, run_autostart_commands, shutdown_requested,
 };
 use crate::spatial::node_in_active_area;
-use crate::state::{ClientState, HalleyWlState};
+use crate::state::{ClientState, Halley};
 use crate::surface::current_surface_size_for_node;
 
 pub(crate) mod interface;
@@ -67,7 +67,7 @@ pub(crate) fn frame_interval_for_refresh_hz(refresh_hz: Option<f64>) -> Duration
 }
 
 pub(crate) fn resolve_hover_targets(
-    st: &HalleyWlState,
+    st: &Halley,
     ps: &PointerState,
     now: Instant,
 ) -> (

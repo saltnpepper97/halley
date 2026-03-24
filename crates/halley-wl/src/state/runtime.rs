@@ -5,7 +5,7 @@ use halley_config::RuntimeTuning;
 use crate::animation::{AnimSpec, AnimStyle};
 use crate::render::{DebugScene, build_debug_scene};
 
-impl HalleyWlState {
+impl Halley {
     const RECENT_INTERACTION_PROTECT_MS: u64 = 7_500;
     const COMPANION_PROTECT_MS: u64 = 12_000;
     const FOCUS_RING_PREVIEW_MS: u64 = 1_500;

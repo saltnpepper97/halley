@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use halley_core::field::{NodeId, Vec2};
 
-use crate::state::HalleyWlState;
+use crate::state::Halley;
 
 pub(crate) struct ViewportPanAnim {
     pub(crate) start_ms: u64,
@@ -32,7 +32,7 @@ pub(crate) struct InteractionState {
     pub(crate) pan_dominant_until_ms: u64,
 }
 
-impl HalleyWlState {
+impl Halley {
     pub(crate) fn enforce_pan_dominant_zone_states(&mut self, now_ms: u64) {
         let active_outside_ring_delay_ms = self.tuning.active_outside_ring_delay_ms;
         let inactive_outside_ring_delay_ms = self.tuning.inactive_outside_ring_delay_ms;

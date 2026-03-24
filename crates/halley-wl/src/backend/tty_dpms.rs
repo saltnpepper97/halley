@@ -34,7 +34,7 @@ pub(crate) fn apply_tty_dpms_command(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     tuning: &RuntimeTuning,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
 ) -> bool {
     let target_enabled = match command {
         halley_ipc::DpmsCommand::On => true,
@@ -94,7 +94,7 @@ pub(crate) fn wake_tty_dpms_on_input(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     tuning: &RuntimeTuning,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
-    st: &mut HalleyWlState,
+    st: &mut Halley,
 ) -> bool {
     if *dpms_enabled.borrow() {
         return false;
