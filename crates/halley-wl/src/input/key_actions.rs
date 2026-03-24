@@ -212,7 +212,10 @@ pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -
         .env("SDL_VIDEODRIVER", "wayland")
         .env("CLUTTER_BACKEND", "wayland")
         .env("MOZ_ENABLE_WAYLAND", "1")
-        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto");
+        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
 
     // Give each spawned app its own process group so we can kill
     // the whole group (including any children it forks) on WM exit.
