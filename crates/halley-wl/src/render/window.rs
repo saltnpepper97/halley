@@ -433,9 +433,12 @@ pub(crate) fn collect_active_surfaces(
                         // Clipping only to the preview frame was shaving off the recovered edge
                         // margin during resize, which made the resize look slightly tighter than
                         // the steady-state path.
-                        let (surface_origin_x, surface_origin_y) = active_resize.surface_origin_px();
-                        let live_gx = surface_origin_x + (live_lx * cam_scale).round() as i32;
-                        let live_gy = surface_origin_y + (live_ly * cam_scale).round() as i32;
+                        // Keep resize anchored to the same screen-space rect the frame/background
+                        // uses. At non-1.0 zoom, deriving the destination from surface_origin_px
+                        // plus live local geometry can drift by a pixel or two from the preview/frame
+                        // rect because those values round in different spaces. Using the frame/top-left
+                        // anchor directly keeps the texture locked to its background while still sizing
+                        // from the live committed geometry.
                         let live_gw_px = (live_gw * cam_scale).round().max(1.0) as i32;
                         let live_gh_px = (live_gh * cam_scale).round().max(1.0) as i32;
 
@@ -448,8 +451,8 @@ pub(crate) fn collect_active_surfaces(
                             live_ly,
                             live_gw,
                             live_gh,
-                            live_gx,
-                            live_gy,
+                            gx,
+                            gy,
                             live_gw_px,
                             live_gh_px,
                             cam_scale,
@@ -627,5 +630,6 @@ pub(crate) fn collect_active_surfaces(
         overlap_overlay_rects,
     )
 }
+
 
 
