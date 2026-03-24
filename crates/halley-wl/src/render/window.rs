@@ -631,6 +631,3 @@ pub(crate) fn collect_active_surfaces(
         overlap_overlay_rects,
     )
 }
-
-
-

@@ -24,10 +24,7 @@ pub(crate) struct VBlankThrottle {
 }
 
 impl VBlankThrottle {
-    pub(crate) fn new(
-        event_loop: LoopHandle<'static, HalleyWlState>,
-        output_name: String,
-    ) -> Self {
+    pub(crate) fn new(event_loop: LoopHandle<'static, HalleyWlState>, output_name: String) -> Self {
         Self {
             event_loop,
             last_vblank_at: None,
@@ -45,7 +42,12 @@ impl VBlankThrottle {
         }
     }
 
-    fn update_metrics(&mut self, refresh_interval: Option<Duration>, passed: Duration, timestamp: Instant) {
+    fn update_metrics(
+        &mut self,
+        refresh_interval: Option<Duration>,
+        passed: Duration,
+        timestamp: Instant,
+    ) {
         self.samples = self.samples.saturating_add(1);
         self.min_interval = Some(match self.min_interval {
             Some(current) => current.min(passed),
@@ -124,9 +126,7 @@ impl VBlankThrottle {
                         self.printed_warning = true;
                         warn!(
                             "output {} running faster than expected, throttling vblanks: expected refresh {:?}, got vblank after {:?}",
-                            self.output_name,
-                            refresh,
-                            passed
+                            self.output_name, refresh, passed
                         );
                     }
 
@@ -150,4 +150,3 @@ impl VBlankThrottle {
         false
     }
 }
-

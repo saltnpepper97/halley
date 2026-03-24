@@ -70,21 +70,34 @@ pub(crate) fn pick_resize_handle_from_screen(
     let dt = (p.1 - t).abs();
     let db = (b - p.1).abs();
     let edge_slop = 28.0f32;
-    let near_left   = dl <= edge_slop;
-    let near_right  = dr <= edge_slop;
-    let near_top    = dt <= edge_slop;
+    let near_left = dl <= edge_slop;
+    let near_right = dr <= edge_slop;
+    let near_top = dt <= edge_slop;
     let near_bottom = db <= edge_slop;
 
-    if near_left && near_top    { return ResizeHandle::TopLeft;     }
-    if near_right && near_top   { return ResizeHandle::TopRight;    }
-    if near_left && near_bottom { return ResizeHandle::BottomLeft;  }
-    if near_right && near_bottom{ return ResizeHandle::BottomRight; }
+    if near_left && near_top {
+        return ResizeHandle::TopLeft;
+    }
+    if near_right && near_top {
+        return ResizeHandle::TopRight;
+    }
+    if near_left && near_bottom {
+        return ResizeHandle::BottomLeft;
+    }
+    if near_right && near_bottom {
+        return ResizeHandle::BottomRight;
+    }
 
     let min_d = dl.min(dr).min(dt).min(db);
-    if (min_d - dl).abs() <= f32::EPSILON { ResizeHandle::Left   }
-    else if (min_d - dr).abs() <= f32::EPSILON { ResizeHandle::Right  }
-    else if (min_d - dt).abs() <= f32::EPSILON { ResizeHandle::Top    }
-    else                                        { ResizeHandle::Bottom }
+    if (min_d - dl).abs() <= f32::EPSILON {
+        ResizeHandle::Left
+    } else if (min_d - dr).abs() <= f32::EPSILON {
+        ResizeHandle::Right
+    } else if (min_d - dt).abs() <= f32::EPSILON {
+        ResizeHandle::Top
+    } else {
+        ResizeHandle::Bottom
+    }
 }
 
 /// Commit a resize handle from where the pointer pressed within the window,
@@ -101,7 +114,10 @@ pub(crate) fn pick_resize_handle_from_screen(
 ///
 /// Pressing near top-left and dragging any direction pulls the top-left corner.
 /// The centre cell falls back to whichever edge is nearest.
-pub(crate) fn handle_from_press_position(rect: (f32, f32, f32, f32), p: (f32, f32)) -> ResizeHandle {
+pub(crate) fn handle_from_press_position(
+    rect: (f32, f32, f32, f32),
+    p: (f32, f32),
+) -> ResizeHandle {
     let (l, t, r, b) = rect;
     let w = (r - l).max(1.0);
     let h = (b - t).max(1.0);
@@ -109,31 +125,52 @@ pub(crate) fn handle_from_press_position(rect: (f32, f32, f32, f32), p: (f32, f3
     let fy = ((p.1 - t) / h).clamp(0.0, 1.0);
 
     #[derive(PartialEq)]
-    enum Z { Near, Mid, Far }
-    let hz = if fx < 1.0 / 3.0 { Z::Near } else if fx < 2.0 / 3.0 { Z::Mid } else { Z::Far };
-    let vz = if fy < 1.0 / 3.0 { Z::Near } else if fy < 2.0 / 3.0 { Z::Mid } else { Z::Far };
+    enum Z {
+        Near,
+        Mid,
+        Far,
+    }
+    let hz = if fx < 1.0 / 3.0 {
+        Z::Near
+    } else if fx < 2.0 / 3.0 {
+        Z::Mid
+    } else {
+        Z::Far
+    };
+    let vz = if fy < 1.0 / 3.0 {
+        Z::Near
+    } else if fy < 2.0 / 3.0 {
+        Z::Mid
+    } else {
+        Z::Far
+    };
 
     match (hz, vz) {
         (Z::Near, Z::Near) => ResizeHandle::TopLeft,
-        (Z::Mid,  Z::Near) => ResizeHandle::Top,
-        (Z::Far,  Z::Near) => ResizeHandle::TopRight,
-        (Z::Near, Z::Mid)  => ResizeHandle::Left,
-        (Z::Mid,  Z::Mid)  => {
+        (Z::Mid, Z::Near) => ResizeHandle::Top,
+        (Z::Far, Z::Near) => ResizeHandle::TopRight,
+        (Z::Near, Z::Mid) => ResizeHandle::Left,
+        (Z::Mid, Z::Mid) => {
             // Centre: nearest edge
             let dl = p.0 - l;
             let dr = r - p.0;
             let dt = p.1 - t;
             let db = b - p.1;
             let min_d = dl.min(dr).min(dt).min(db);
-            if (min_d - dl).abs() <= f32::EPSILON      { ResizeHandle::Left   }
-            else if (min_d - dr).abs() <= f32::EPSILON { ResizeHandle::Right  }
-            else if (min_d - dt).abs() <= f32::EPSILON { ResizeHandle::Top    }
-            else                                        { ResizeHandle::Bottom }
+            if (min_d - dl).abs() <= f32::EPSILON {
+                ResizeHandle::Left
+            } else if (min_d - dr).abs() <= f32::EPSILON {
+                ResizeHandle::Right
+            } else if (min_d - dt).abs() <= f32::EPSILON {
+                ResizeHandle::Top
+            } else {
+                ResizeHandle::Bottom
+            }
         }
-        (Z::Far,  Z::Mid)  => ResizeHandle::Right,
-        (Z::Near, Z::Far)  => ResizeHandle::BottomLeft,
-        (Z::Mid,  Z::Far)  => ResizeHandle::Bottom,
-        (Z::Far,  Z::Far)  => ResizeHandle::BottomRight,
+        (Z::Far, Z::Mid) => ResizeHandle::Right,
+        (Z::Near, Z::Far) => ResizeHandle::BottomLeft,
+        (Z::Mid, Z::Far) => ResizeHandle::Bottom,
+        (Z::Far, Z::Far) => ResizeHandle::BottomRight,
     }
 }
 
@@ -160,17 +197,25 @@ pub(crate) fn commit_handle_from_drag(dx: f32, dy: f32) -> ResizeHandle {
     let adx = dx.abs();
     let ady = dy.abs();
     let right = dx >= 0.0;
-    let down  = dy >= 0.0;
+    let down = dy >= 0.0;
 
     if ady < adx / 2.0 {
-        if right { ResizeHandle::Right  } else { ResizeHandle::Left   }
+        if right {
+            ResizeHandle::Right
+        } else {
+            ResizeHandle::Left
+        }
     } else if adx < ady / 2.0 {
-        if down  { ResizeHandle::Bottom } else { ResizeHandle::Top    }
+        if down {
+            ResizeHandle::Bottom
+        } else {
+            ResizeHandle::Top
+        }
     } else {
         match (right, down) {
-            (true,  true)  => ResizeHandle::BottomRight,
-            (true,  false) => ResizeHandle::TopRight,
-            (false, true)  => ResizeHandle::BottomLeft,
+            (true, true) => ResizeHandle::BottomRight,
+            (true, false) => ResizeHandle::TopRight,
+            (false, true) => ResizeHandle::BottomLeft,
             (false, false) => ResizeHandle::TopLeft,
         }
     }
@@ -198,15 +243,15 @@ pub(crate) fn commit_handle_from_drag(dx: f32, dy: f32) -> ResizeHandle {
 pub(crate) fn weights_from_handle(handle: ResizeHandle) -> (f32, f32, f32, f32) {
     // (h_left, h_right, v_top, v_bottom)
     match handle {
-        ResizeHandle::Left        => ( 1.0,  0.0,  0.0,  0.0),
-        ResizeHandle::Right       => ( 0.0,  1.0,  0.0,  0.0),
-        ResizeHandle::Top         => ( 0.0,  0.0,  1.0,  0.0),
-        ResizeHandle::Bottom      => ( 0.0,  0.0,  0.0,  1.0),
-        ResizeHandle::TopLeft     => ( 1.0,  0.0,  1.0,  0.0),
-        ResizeHandle::TopRight    => ( 0.0,  1.0,  1.0,  0.0),
-        ResizeHandle::BottomLeft  => ( 1.0,  0.0,  0.0,  1.0),
-        ResizeHandle::BottomRight => ( 0.0,  1.0,  0.0,  1.0),
-        ResizeHandle::Pending     => ( 0.0,  0.0,  0.0,  0.0),
+        ResizeHandle::Left => (1.0, 0.0, 0.0, 0.0),
+        ResizeHandle::Right => (0.0, 1.0, 0.0, 0.0),
+        ResizeHandle::Top => (0.0, 0.0, 1.0, 0.0),
+        ResizeHandle::Bottom => (0.0, 0.0, 0.0, 1.0),
+        ResizeHandle::TopLeft => (1.0, 0.0, 1.0, 0.0),
+        ResizeHandle::TopRight => (0.0, 1.0, 1.0, 0.0),
+        ResizeHandle::BottomLeft => (1.0, 0.0, 0.0, 1.0),
+        ResizeHandle::BottomRight => (0.0, 1.0, 0.0, 1.0),
+        ResizeHandle::Pending => (0.0, 0.0, 0.0, 0.0),
     }
 }
 
@@ -286,8 +331,20 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let p = n.pos;
             let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
 
-            let bbox_lx = st.render_state.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0)).0;
-            let bbox_ly = st.render_state.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0)).1;
+            let bbox_lx = st
+                .render_state
+                .bbox_loc
+                .get(&node_id)
+                .copied()
+                .unwrap_or((0.0, 0.0))
+                .0;
+            let bbox_ly = st
+                .render_state
+                .bbox_loc
+                .get(&node_id)
+                .copied()
+                .unwrap_or((0.0, 0.0))
+                .1;
             let bbox_w = n.intrinsic_size.x.max(1.0);
             let bbox_h = n.intrinsic_size.y.max(1.0);
             let local_bbox = (bbox_lx, bbox_ly, bbox_w, bbox_h);
@@ -326,9 +383,9 @@ pub(crate) fn active_resize_geometry_screen(
     if rz.handle == ResizeHandle::Pending {
         return None;
     }
-    let frame_left   = rz.preview_left_px;
-    let frame_top    = rz.preview_top_px;
-    let frame_right  = rz.preview_right_px;
+    let frame_left = rz.preview_left_px;
+    let frame_top = rz.preview_top_px;
+    let frame_right = rz.preview_right_px;
     let frame_bottom = rz.preview_bottom_px;
     let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) = st
         .render_state
@@ -336,8 +393,16 @@ pub(crate) fn active_resize_geometry_screen(
         .get(&node_id)
         .copied()
         .unwrap_or((0.0, 0.0, 0.0, 0.0));
-    let geo_lx = if live_geo_w > 0.0 { live_geo_lx } else { rz.start_geo_lx };
-    let geo_ly = if live_geo_h > 0.0 { live_geo_ly } else { rz.start_geo_ly };
+    let geo_lx = if live_geo_w > 0.0 {
+        live_geo_lx
+    } else {
+        rz.start_geo_lx
+    };
+    let geo_ly = if live_geo_h > 0.0 {
+        live_geo_ly
+    } else {
+        rz.start_geo_ly
+    };
 
     Some(ActiveResizeGeometryScreen {
         frame_left,
@@ -345,7 +410,7 @@ pub(crate) fn active_resize_geometry_screen(
         frame_right,
         frame_bottom,
         surface_origin_x: frame_left - geo_lx.round(),
-        surface_origin_y: frame_top  - geo_ly.round(),
+        surface_origin_y: frame_top - geo_ly.round(),
         live_geo_lx,
         live_geo_ly,
         live_geo_w,

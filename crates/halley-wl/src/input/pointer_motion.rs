@@ -3,8 +3,8 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
-use smithay::utils::SERIAL_COUNTER;
 use smithay::reexports::wayland_server::Resource;
+use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
 use crate::interaction::types::{ModState, PointerState};
@@ -120,7 +120,8 @@ pub(crate) fn handle_pointer_motion_absolute(
         let ps = pointer_state.borrow();
         ps.drag.map(|drag| {
             let owner = st
-                .monitor_state.node_monitor
+                .monitor_state
+                .node_monitor
                 .get(&drag.node_id)
                 .cloned()
                 .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
@@ -137,7 +138,8 @@ pub(crate) fn handle_pointer_motion_absolute(
     let locked_resize_monitor = {
         let ps = pointer_state.borrow();
         ps.resize.and_then(|resize| {
-            st.monitor_state.node_monitor
+            st.monitor_state
+                .node_monitor
                 .get(&resize.node_id)
                 .cloned()
                 .or_else(|| Some(st.monitor_state.current_monitor.clone()))
@@ -162,7 +164,8 @@ pub(crate) fn handle_pointer_motion_absolute(
     let locked_surface_monitor = locked_surface.as_ref().and_then(|surface| {
         let node_id = st.surface_to_node.get(&surface.id()).copied()?;
         Some(
-            st.monitor_state.node_monitor
+            st.monitor_state
+                .node_monitor
                 .get(&node_id)
                 .cloned()
                 .unwrap_or_else(|| st.monitor_state.current_monitor.clone()),
@@ -196,7 +199,15 @@ pub(crate) fn handle_pointer_motion_absolute(
         let focus = if let Some(surface) = locked_surface.clone() {
             Some((surface, pointer.current_location()))
         } else {
-            pointer_focus_for_screen(st, local_w, local_h, local_sx, local_sy, now, resize_preview)
+            pointer_focus_for_screen(
+                st,
+                local_w,
+                local_h,
+                local_sx,
+                local_sy,
+                now,
+                resize_preview,
+            )
         };
 
         if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
@@ -261,11 +272,16 @@ pub(crate) fn handle_pointer_motion_absolute(
             ps.drag = None;
         } else {
             let mut next_drag = drag;
-            let drag_allow_monitor_transfer = active_pointer_binding(st, &mods, 0x110)
-                == Some(PointerBindingAction::FieldJump);
+            let drag_allow_monitor_transfer =
+                active_pointer_binding(st, &mods, 0x110) == Some(PointerBindingAction::FieldJump);
             next_drag.allow_monitor_transfer = drag_allow_monitor_transfer;
             let edge_pan_active = !drag_allow_monitor_transfer
-                && pointer_outside_monitor(st, st.monitor_state.current_monitor.as_str(), raw_sx, raw_sy);
+                && pointer_outside_monitor(
+                    st,
+                    st.monitor_state.current_monitor.as_str(),
+                    raw_sx,
+                    raw_sy,
+                );
             if edge_pan_active {
                 let dx_px = delta.0 as f32;
                 let dy_px = delta.1 as f32;
@@ -304,7 +320,8 @@ pub(crate) fn handle_pointer_motion_absolute(
             };
             if !drag_allow_monitor_transfer
                 && let Some(owner_monitor) = st
-                    .monitor_state.node_monitor
+                    .monitor_state
+                    .node_monitor
                     .get(&drag.node_id)
                     .cloned()
                     .or_else(|| Some(target_monitor.clone()))
@@ -321,10 +338,12 @@ pub(crate) fn handle_pointer_motion_absolute(
             }
             if st.carry_surface_non_overlap(drag.node_id, to, edge_pan_active) {
                 if drag_allow_monitor_transfer {
-                    st.monitor_state.node_monitor
+                    st.monitor_state
+                        .node_monitor
                         .insert(drag.node_id, st.monitor_state.current_monitor.clone());
                 }
-                st.interaction_state.physics_velocity
+                st.interaction_state
+                    .physics_velocity
                     .insert(drag.node_id, next_drag.release_velocity);
                 let should_center = st.tuning.center_window_to_mouse
                     && (!next_drag.center_latched
@@ -386,7 +405,7 @@ pub(crate) fn handle_pointer_motion_absolute(
         // `weights_from_handle` uses +1.0 for the edge that follows the pointer
         // directly and 0.0 for the anchored opposite edge. For example, a left
         // grab has `(h_weight_left, h_weight_right) = (1.0, 0.0)`, so dragging
-        // right increases `left` and shrinks the window while `right` stays put. 
+        // right increases `left` and shrinks the window while `right` stays put.
         let desired_left = resize.start_left_px + next.h_weight_left * dx;
         let desired_right = resize.start_right_px + next.h_weight_right * dx;
         let desired_top = resize.start_top_px + next.v_weight_top * dy;
@@ -447,12 +466,12 @@ pub(crate) fn handle_pointer_motion_absolute(
         // Derive logical (client) size from visual delta / cam_scale.
         // At cam_scale = 1.0 this is a no-op.
         let cam_scale = st.camera_render_scale();
-        let visual_delta_w  = target_visual_w - resize.start_visual_w;
-        let visual_delta_h  = target_visual_h - resize.start_visual_h;
-        let logical_delta_w = (visual_delta_w  as f32 / cam_scale.max(0.001)).round() as i32;
-        let logical_delta_h = (visual_delta_h  as f32 / cam_scale.max(0.001)).round() as i32;
-        let min_logical_w   = (min_w / cam_scale.max(0.001)).round() as i32;
-        let min_logical_h   = (min_h / cam_scale.max(0.001)).round() as i32;
+        let visual_delta_w = target_visual_w - resize.start_visual_w;
+        let visual_delta_h = target_visual_h - resize.start_visual_h;
+        let logical_delta_w = (visual_delta_w as f32 / cam_scale.max(0.001)).round() as i32;
+        let logical_delta_h = (visual_delta_h as f32 / cam_scale.max(0.001)).round() as i32;
+        let min_logical_w = (min_w / cam_scale.max(0.001)).round() as i32;
+        let min_logical_h = (min_h / cam_scale.max(0.001)).round() as i32;
 
         let target_w = (resize.start_surface_w + logical_delta_w).max(min_logical_w);
         let target_h = (resize.start_surface_h + logical_delta_h).max(min_logical_h);
@@ -467,14 +486,15 @@ pub(crate) fn handle_pointer_motion_absolute(
         }
 
         // While resizing, keep normal motion physics inert for this node.
-        st.interaction_state.physics_velocity
+        st.interaction_state
+            .physics_velocity
             .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
 
         // Keep node world position at the visual center of the preview rect so
         // overlap resolution and footprint tracking stay accurate regardless of
         // which corner or edge is moving.
         let center_sx = (left + right) * 0.5;
-        let center_sy = (top  + bottom) * 0.5;
+        let center_sy = (top + bottom) * 0.5;
         let center_world = screen_to_world(st, local_w, local_h, center_sx, center_sy);
         if let Some(n) = st.field.node_mut(resize.node_id) {
             n.pos = center_world;
@@ -487,9 +507,9 @@ pub(crate) fn handle_pointer_motion_absolute(
             }),
         );
 
-        next.preview_left_px   = left;
-        next.preview_right_px  = right;
-        next.preview_top_px    = top;
+        next.preview_left_px = left;
+        next.preview_right_px = right;
+        next.preview_top_px = top;
         next.preview_bottom_px = bottom;
         ps.resize = Some(next);
 
@@ -549,6 +569,3 @@ pub(crate) fn handle_pointer_motion_absolute(
     }
     ps.hover_node = next_hover;
 }
-
-
-

@@ -749,4 +749,3 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
         }
     )
 }
-

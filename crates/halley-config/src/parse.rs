@@ -5,11 +5,11 @@ use super::{
     PointerBinding, PointerBindingAction,
 };
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
+use crate::layout::FocusRingConfig;
 use crate::layout::{
     ViewportOutputConfig, ViewportVrrMode, default_compositor_bindings, default_pointer_bindings,
 };
 use crate::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, RuntimeTuning};
-use crate::layout::FocusRingConfig;
 
 use rune_cfg::RuneConfig;
 
@@ -1021,8 +1021,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "move_window" | "move-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::MoveWindow);
         }
-        "field_jump" | "field-jump" if is_pointer_button_code(key) =>
-        {
+        "field_jump" | "field-jump" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::FieldJump);
         }
         "resize_window" | "resize-window" if is_pointer_button_code(key) => {

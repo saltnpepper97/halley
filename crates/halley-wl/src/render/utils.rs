@@ -341,7 +341,8 @@ pub(crate) fn snapshot_surface_geometry(
 ) -> Rectangle<i32, Logical> {
     let bbox = bbox_from_surface_tree(wl, (0, 0));
 
-    st.render_state.bbox_loc
+    st.render_state
+        .bbox_loc
         .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
     let geometry = with_states(wl, |states| {
         states

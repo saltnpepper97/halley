@@ -149,7 +149,8 @@ impl HalleyWlState {
                             == Some(*id)
                     });
                     let companion_rank = u8::from(companion == Some(*id));
-                    let inside_rank = u8::from(!self.surface_is_definitively_outside_focus_ring(*id));
+                    let inside_rank =
+                        u8::from(!self.surface_is_definitively_outside_focus_ring(*id));
                     let latest_focus = self
                         .focus_state
                         .last_surface_focus_ms
@@ -206,7 +207,9 @@ impl HalleyWlState {
             }
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
             if let Some((_, _, w, h)) = self.render_state.window_geometry.get(&id) {
-                self.workspace_state.last_active_size.insert(id, Vec2 { x: *w, y: *h });
+                self.workspace_state
+                    .last_active_size
+                    .insert(id, Vec2 { x: *w, y: *h });
             }
             self.mark_active_transition(id, now, 620);
             self.record_focus_trail_visit(id);
@@ -243,10 +246,7 @@ impl HalleyWlState {
                 }
                 _ if matches!(
                     held_state,
-                    Some(
-                        halley_core::field::NodeState::Node
-                            | halley_core::field::NodeState::Core
-                    )
+                    Some(halley_core::field::NodeState::Node | halley_core::field::NodeState::Core)
                 ) =>
                 {
                     DecayLevel::Cold
@@ -316,7 +316,10 @@ impl HalleyWlState {
             || self.interaction_state.resize_active == Some(id)
             || self.is_recently_resized_node(id, now_ms)
             || self.carry_zone_hint.contains_key(&id)
-            || self.workspace_state.active_transition_until_ms.contains_key(&id)
+            || self
+                .workspace_state
+                .active_transition_until_ms
+                .contains_key(&id)
     }
 
     pub fn surface_intersects_viewport(&self, id: NodeId) -> bool {
@@ -345,87 +348,6 @@ impl HalleyWlState {
             && node_left < view_right
             && node_bottom > view_top
             && node_top < view_bottom
-    }
-
-    pub(crate) fn reconcile_surface_bindings(&mut self) {
-        const STALE_SURFACE_GRACE_MS: u64 = 1500;
-        let now = Instant::now();
-
-        let alive: HashSet<ObjectId> = self
-            .xdg_shell_state
-            .toplevel_surfaces()
-            .iter()
-            .map(|t| t.wl_surface().id())
-            .collect();
-
-        let stale: Vec<ObjectId> = self
-            .surface_to_node
-            .keys()
-            .filter(|k| !alive.contains(*k))
-            .filter(|k| {
-                let Some(activity) = self.surface_activity.get(*k) else {
-                    return true;
-                };
-                now.duration_since(activity.last_commit_at()).as_millis() as u64
-                    >= STALE_SURFACE_GRACE_MS
-            })
-            .cloned()
-            .collect();
-
-        for key in stale {
-            self.surface_activity.remove(&key);
-            if let Some(id) = self.surface_to_node.remove(&key) {
-                if self.focus_state.pan_restore_active_focus == Some(id) {
-                    self.focus_state.pan_restore_active_focus = None;
-                }
-                self.workspace_state.manual_collapsed_nodes.remove(&id);
-                self.render_state.zoom_nominal_size.remove(&id);
-                self.render_state.zoom_resize_fallback.remove(&id);
-                self.render_state.zoom_resize_reject_streak.remove(&id);
-                self.render_state.zoom_last_observed_size.remove(&id);
-                self.render_state.zoom_resize_static_streak.remove(&id);
-                self.node_app_ids.remove(&id);
-                self.workspace_state.last_active_size.remove(&id);
-                self.render_state.bbox_loc.remove(&id);
-                self.render_state.window_geometry.remove(&id);
-                self.pending_spawn_activate_at_ms.remove(&id);
-                self.workspace_state.active_transition_until_ms.remove(&id);
-                self.workspace_state.primary_promote_cooldown_until_ms.remove(&id);
-                self.focus_state.last_surface_focus_ms.remove(&id);
-                self.carry_zone_hint.remove(&id);
-                self.carry_zone_last_change_ms.remove(&id);
-                self.carry_zone_pending.remove(&id);
-                self.carry_zone_pending_since_ms.remove(&id);
-                self.carry_activation_anim_armed.remove(&id);
-                self.carry_state_hold.remove(&id);
-                if self.interaction_state.resize_active == Some(id) {
-                    self.interaction_state.resize_active = None;
-                }
-                if self.interaction_state.resize_static_node == Some(id) {
-                    self.interaction_state.resize_static_node = None;
-                    self.interaction_state.resize_static_lock_pos = None;
-                    self.interaction_state.resize_static_until_ms = 0;
-                }
-                if self.focus_state.primary_interaction_focus == Some(id) {
-                    self.focus_state.primary_interaction_focus = None;
-                    self.focus_state.interaction_focus_until_ms = 0;
-                }
-                let stale_monitors: Vec<String> = self
-                    .focus_state
-                    .monitor_focus
-                    .iter()
-                    .filter_map(|(monitor, &focused)| (focused == id).then_some(monitor.clone()))
-                    .collect();
-
-                for monitor in stale_monitors {
-                    self.focus_state.monitor_focus.remove(&monitor);
-                }
-                self.interaction_state.smoothed_render_pos.remove(&id);
-                let _ = self.field.remove(id);
-            }
-        }
-
-        self.surface_activity.retain(|k, _| alive.contains(k));
     }
 }
 

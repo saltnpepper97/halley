@@ -10,8 +10,8 @@ use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags};
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
-use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::element::Kind;
+use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::{Bind, Offscreen};
 use smithay::output::OutputModeSource;
@@ -26,10 +26,10 @@ use smithay::utils::{Physical, Scale, Size, Transform};
 ///   - tracks buffer age for damage-based re-rendering
 ///   - clear() disables the CRTC atomically without blocking
 pub(crate) type HalleyDrmCompositor = DrmCompositor<
-    GbmAllocator<DrmDeviceFd>,        // buffer allocator
+    GbmAllocator<DrmDeviceFd>,           // buffer allocator
     GbmFramebufferExporter<DrmDeviceFd>, // framebuffer exporter
-    (),                                // per-frame user data (unused)
-    DrmDeviceFd,                       // raw DRM fd
+    (),                                  // per-frame user data (unused)
+    DrmDeviceFd,                         // raw DRM fd
 >;
 
 pub(crate) struct TtyDrmProbe {
@@ -149,8 +149,14 @@ pub(crate) fn probe_tty_drm_device_path_via_session(
             err
         ))
     })?;
-    let outputs =
-        build_tty_outputs(&mut dev, &gbm, dev_fd.clone(), &renderer, tuning, card_path.display())?;
+    let outputs = build_tty_outputs(
+        &mut dev,
+        &gbm,
+        dev_fd.clone(),
+        &renderer,
+        tuning,
+        card_path.display(),
+    )?;
     info!(
         "tty drm device ready: card={} atomic={} crtcs={} outputs={}",
         card_path.display(),
@@ -203,7 +209,14 @@ pub(crate) fn selected_tty_scanout_signature(
         .into_iter()
         .map(|(crtc, mode, _connector, connector_name)| {
             let (w, h) = mode.size();
-            format!("{}:{:?}:{}x{}@{}", connector_name, crtc, w, h, mode.vrefresh())
+            format!(
+                "{}:{:?}:{}x{}@{}",
+                connector_name,
+                crtc,
+                w,
+                h,
+                mode.vrefresh()
+            )
         })
         .collect::<Vec<_>>();
     signature.sort();
@@ -239,12 +252,14 @@ fn build_tty_outputs(
     let mut outputs = Vec::new();
 
     for (crtc, mode, connector, connector_name) in selected {
-        let surface = dev.create_surface(crtc, mode, &[connector]).map_err(|err| {
-            io::Error::other(format!(
-                "failed to create drm surface on {}:{}: {}",
-                card_label, connector_name, err
-            ))
-        })?;
+        let surface = dev
+            .create_surface(crtc, mode, &[connector])
+            .map_err(|err| {
+                io::Error::other(format!(
+                    "failed to create drm surface on {}:{}: {}",
+                    card_label, connector_name, err
+                ))
+            })?;
 
         let allocator = GbmAllocator::new(
             gbm.clone(),
@@ -330,11 +345,9 @@ pub(crate) fn select_tty_scanouts(
             connected
                 .iter()
                 .map(|(conn, info)| {
-                    let mode = info
-                        .modes()
-                        .first()
-                        .copied()
-                        .ok_or_else(|| io::Error::other(format!("connector {} has no modes", info)))?;
+                    let mode = info.modes().first().copied().ok_or_else(|| {
+                        io::Error::other(format!("connector {} has no modes", info))
+                    })?;
                     Ok((*conn, info.clone(), mode))
                 })
                 .collect::<Result<Vec<_>, io::Error>>()?
@@ -472,7 +485,12 @@ pub(crate) fn select_tty_scanouts(
         }
 
         used_crtcs.insert(crtc);
-        selected.push((crtc, selected_mode, selected_conn, selected_info.to_string()));
+        selected.push((
+            crtc,
+            selected_mode,
+            selected_conn,
+            selected_info.to_string(),
+        ));
     }
 
     if !configured.is_empty() {
@@ -489,8 +507,12 @@ pub(crate) fn select_tty_scanouts(
                 .current_encoder()
                 .or_else(|| info.encoders().first().copied());
             let Some(enc) = enc else { continue };
-            let Ok(enc_info) = dev.get_encoder(enc) else { continue };
-            let Some(other_crtc) = enc_info.crtc() else { continue };
+            let Ok(enc_info) = dev.get_encoder(enc) else {
+                continue;
+            };
+            let Some(other_crtc) = enc_info.crtc() else {
+                continue;
+            };
             if let Err(err) = dev.set_crtc(other_crtc, None, (0, 0), &[], None) {
                 warn!("failed to disable unconfigured connector {}: {}", info, err);
             } else {
@@ -526,8 +548,7 @@ pub(crate) fn collect_outputs_for_ipc(
         };
 
         let active_mode = active_modes.get(&info.to_string()).copied();
-        let mut current_mode =
-            active_mode.map(|mode| mode_info_from_drm_mode(mode, true, false));
+        let mut current_mode = active_mode.map(|mode| mode_info_from_drm_mode(mode, true, false));
         let mut modes = Vec::new();
 
         for mode in info.modes() {
@@ -625,10 +646,12 @@ pub(crate) fn queue_tty_drm_frame(
         Fourcc::Abgr8888,
         buffer_size,
     )
-    .map_err(|err| io::Error::other(format!(
-        "failed to create tty drm intermediate texture for {}: {}",
-        output_name, err
-    )))?;
+    .map_err(|err| {
+        io::Error::other(format!(
+            "failed to create tty drm intermediate texture for {}: {}",
+            output_name, err
+        ))
+    })?;
 
     {
         let mut target = renderer_ref
@@ -668,21 +691,23 @@ pub(crate) fn queue_tty_drm_frame(
 
     let elements = [element];
     let render_res = compositor
-        .render_frame(&mut *renderer_ref, &elements, [0.0, 0.0, 0.0, 1.0], FrameFlags::empty())
-        .map_err(|err| io::Error::other(format!(
-            "render_frame failed for {}: {}",
-            output_name, err
-        )))?;
+        .render_frame(
+            &mut *renderer_ref,
+            &elements,
+            [0.0, 0.0, 0.0, 1.0],
+            FrameFlags::empty(),
+        )
+        .map_err(|err| {
+            io::Error::other(format!("render_frame failed for {}: {}", output_name, err))
+        })?;
 
     if !render_res.is_empty {
-        compositor
-            .queue_frame(())
-            .map_err(|err| io::Error::other(format!("queue_frame failed for {}: {}", output_name, err)))?;
+        compositor.queue_frame(()).map_err(|err| {
+            io::Error::other(format!("queue_frame failed for {}: {}", output_name, err))
+        })?;
     }
 
     st.interaction_state.suppress_layer_shell_configure = previous_layer_configure;
     let _ = st.activate_monitor(previous_monitor.as_str());
     Ok(())
 }
-
-

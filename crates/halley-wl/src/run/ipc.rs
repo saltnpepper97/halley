@@ -191,11 +191,9 @@ fn remove_stale_socket(path: &Path) -> io::Result<()> {
     }
 }
 
-
 pub fn shutdown_ipc() {
     IPC_SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
     if let Some(path) = IPC_SOCKET_PATH.get() {
         let _ = fs::remove_file(path);
     }
 }
-

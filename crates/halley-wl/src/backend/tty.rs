@@ -4,13 +4,12 @@ use std::collections::HashMap;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, TtyBackendHandle, TtyDmabufImportBackend,
 };
-use crate::backend::tty_drm::{
-    TtyDrmOutput, current_tty_output_signature,
-    probe_tty_drm_device_via_session, queue_tty_drm_frame, rebuild_tty_outputs,
-    selected_tty_scanout_signature,
-};
 use crate::backend::tty_dpms::{
     apply_tty_dpms_command, publish_tty_outputs_snapshot, wake_tty_dpms_on_input,
+};
+use crate::backend::tty_drm::{
+    TtyDrmOutput, current_tty_output_signature, probe_tty_drm_device_via_session,
+    queue_tty_drm_frame, rebuild_tty_outputs, selected_tty_scanout_signature,
 };
 use crate::backend::tty_input::build_tty_libinput_backend;
 use crate::backend::vblank_throttle::VBlankThrottle;
@@ -23,7 +22,6 @@ use smithay::backend::input::{
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 const OUTPUT_RESCAN_POLL_MS: u64 = 750;
-
 
 const HALLEY_X11_DISPLAY_NUM: u32 = 0;
 
@@ -57,7 +55,11 @@ fn cleanup_stale_x11_display_files(display_num: u32) {
     for path in [&socket_path, &lock_path] {
         if let Err(err) = std::fs::remove_file(path) {
             if err.kind() != io::ErrorKind::NotFound {
-                warn!("failed to remove stale X11 path {}: {}", path.display(), err);
+                warn!(
+                    "failed to remove stale X11 path {}: {}",
+                    path.display(),
+                    err
+                );
             }
         }
     }
@@ -99,7 +101,6 @@ fn outputs_match(a: &[TtyDrmOutput], b: &[TtyDrmOutput]) -> bool {
         })
     })
 }
-
 
 fn canonical_tty_main_output_name(
     outputs: &[TtyDrmOutput],
@@ -280,7 +281,12 @@ fn apply_tty_reload(
         }
     }
 
-    publish_tty_outputs_snapshot(&dev.borrow(), &active_modes.borrow(), dpms_enabled, &st.tuning);
+    publish_tty_outputs_snapshot(
+        &dev.borrow(),
+        &active_modes.borrow(),
+        dpms_enabled,
+        &st.tuning,
+    );
 
     if reason != "rescan" {
         let reload_commands = st.tuning.autostart_on_reload.clone();
@@ -616,7 +622,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 // between them, which makes the cursor appear stuck at the
                 // edge of the main display on startup.
                 let (start_sx, start_sy) = state
-                    .monitor_state.monitors
+                    .monitor_state
+                    .monitors
                     .get(&state.monitor_state.current_monitor)
                     .map(|m| {
                         (
@@ -638,7 +645,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             publish_tty_outputs_snapshot(&dev.borrow(), &active_modes.borrow(), true, &tuning);
             let outputs_for_vblank = outputs.clone();
             let output_frame_pending = Rc::new(RefCell::new(HashMap::new()));
-            let scanout_signature = Rc::new(RefCell::new(current_tty_output_signature(&outputs.borrow())));
+            let scanout_signature = Rc::new(RefCell::new(current_tty_output_signature(
+                &outputs.borrow(),
+            )));
             let warned_vblank_mismatch = Rc::new(RefCell::new(false));
             let warned_vblank_mismatch_for_notifier = warned_vblank_mismatch.clone();
             let output_frame_pending_for_notifier = output_frame_pending.clone();
@@ -646,7 +655,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let output_frame_pending_for_dpms_timer = output_frame_pending.clone();
             let vblank_throttles = Rc::new(RefCell::new(HashMap::<String, VBlankThrottle>::new()));
             let vblank_throttles_for_notifier = vblank_throttles.clone();
-            let first_vblank_logged = Rc::new(RefCell::new(std::collections::HashSet::<String>::new()));
+            let first_vblank_logged =
+                Rc::new(RefCell::new(std::collections::HashSet::<String>::new()));
             let first_vblank_logged_for_notifier = first_vblank_logged.clone();
             let dev_for_timer = dev.clone();
             let dev_for_input = dev.clone();
@@ -659,7 +669,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let dpms_enabled_for_timer = dpms_enabled.clone();
             let dpms_enabled_for_input = dpms_enabled.clone();
             let backend_handle_for_timer = backend_handle.clone();
-            let first_frame_queued = Rc::new(RefCell::new(std::collections::HashSet::<String>::new()));
+            let first_frame_queued =
+                Rc::new(RefCell::new(std::collections::HashSet::<String>::new()));
             let first_frame_queued_for_timer = first_frame_queued.clone();
             let outputs_for_input = outputs.clone();
             let outputs_for_timer = outputs.clone();
@@ -1365,6 +1376,3 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
         }
     )
 }
-
-
-

@@ -16,12 +16,14 @@ impl HalleyWlState {
 
     #[inline]
     pub(crate) fn is_recently_resized_node(&self, id: NodeId, now_ms: u64) -> bool {
-        self.interaction_state.resize_static_node == Some(id) && now_ms < self.interaction_state.resize_static_until_ms
+        self.interaction_state.resize_static_node == Some(id)
+            && now_ms < self.interaction_state.resize_static_until_ms
     }
 
     pub(crate) fn companion_surface_node(&self, now_ms: u64) -> Option<NodeId> {
         let focused = self.focus_state.primary_interaction_focus;
-        self.focus_state.last_surface_focus_ms
+        self.focus_state
+            .last_surface_focus_ms
             .iter()
             .filter_map(|(&id, &at)| {
                 if Some(id) == focused {
@@ -40,7 +42,8 @@ impl HalleyWlState {
     }
 
     pub(crate) fn is_recently_interacted_surface(&self, id: NodeId, now_ms: u64) -> bool {
-        self.focus_state.last_surface_focus_ms
+        self.focus_state
+            .last_surface_focus_ms
             .get(&id)
             .is_some_and(|&at| now_ms.saturating_sub(at) <= Self::RECENT_INTERACTION_PROTECT_MS)
     }
@@ -49,7 +52,8 @@ impl HalleyWlState {
         if !self.tuning.physics_enabled {
             return;
         }
-        self.workspace_state.active_transition_until_ms
+        self.workspace_state
+            .active_transition_until_ms
             .insert(id, self.now_ms(now).saturating_add(duration_ms.max(1)));
         self.request_maintenance();
     }
@@ -60,7 +64,8 @@ impl HalleyWlState {
         }
         let now_ms = self.now_ms(now);
         if self.interaction_state.resize_active == Some(id)
-            || (self.interaction_state.resize_static_node == Some(id) && now_ms < self.interaction_state.resize_static_until_ms)
+            || (self.interaction_state.resize_static_node == Some(id)
+                && now_ms < self.interaction_state.resize_static_until_ms)
         {
             return 0.0;
         }
@@ -91,10 +96,16 @@ impl HalleyWlState {
         let prev_physics_enabled = self.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
         let previous_output_names: std::collections::HashSet<String> = self
-            .monitor_state.monitors
+            .monitor_state
+            .monitors
             .keys()
             .cloned()
-            .chain(self.tuning.tty_viewports.iter().map(|v| v.connector.clone()))
+            .chain(
+                self.tuning
+                    .tty_viewports
+                    .iter()
+                    .map(|v| v.connector.clone()),
+            )
             .collect();
 
         tuning.enforce_guards();
@@ -169,7 +180,8 @@ impl HalleyWlState {
 
         let now_ms = self.now_ms(now);
         if self.interaction_state.resize_active == Some(id)
-            || (self.interaction_state.resize_static_node == Some(id) && now_ms < self.interaction_state.resize_static_until_ms)
+            || (self.interaction_state.resize_static_node == Some(id)
+                && now_ms < self.interaction_state.resize_static_until_ms)
         {
             return AnimStyle::default();
         }
@@ -187,11 +199,13 @@ impl HalleyWlState {
     }
 
     pub fn active_focus_ring(&self) -> halley_core::viewport::FocusRing {
-        self.tuning.focus_ring_for_output(self.monitor_state.current_monitor.as_str())
+        self.tuning
+            .focus_ring_for_output(self.monitor_state.current_monitor.as_str())
     }
 
     pub fn should_draw_focus_ring_preview(&self, now: Instant) -> bool {
-        self.focus_state.focus_ring_preview_until_ms
+        self.focus_state
+            .focus_ring_preview_until_ms
             .get(self.monitor_state.current_monitor.as_str())
             .is_some_and(|&until_ms| self.now_ms(now) < until_ms)
     }

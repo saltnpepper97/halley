@@ -86,7 +86,6 @@ pub(crate) struct RenderState {
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
     pub(crate) node_label_program: Option<GlesTexProgram>,
 
-    
     pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_fallback: HashSet<NodeId>,
     pub(crate) zoom_resize_reject_streak: HashMap<NodeId, u8>,
@@ -113,9 +112,15 @@ impl HalleyWlState {
         self.render_state.render_last_tick = now;
         self.popup_manager.cleanup();
         let alive: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
-        self.interaction_state.physics_velocity.retain(|id, _| alive.contains(id));
-        self.interaction_state.smoothed_render_pos.retain(|id, _| alive.contains(id));
-        self.render_state.node_hover_mix.retain(|id, _| alive.contains(id));
+        self.interaction_state
+            .physics_velocity
+            .retain(|id, _| alive.contains(id));
+        self.interaction_state
+            .smoothed_render_pos
+            .retain(|id, _| alive.contains(id));
+        self.render_state
+            .node_hover_mix
+            .retain(|id, _| alive.contains(id));
         self.prune_window_offscreen_cache(now);
     }
 
@@ -124,7 +129,8 @@ impl HalleyWlState {
         node_id: halley_core::field::NodeId,
         now_ms: u64,
     ) -> bool {
-        self.interaction_state.resize_static_node == Some(node_id) && now_ms < self.interaction_state.resize_static_until_ms
+        self.interaction_state.resize_static_node == Some(node_id)
+            && now_ms < self.interaction_state.resize_static_until_ms
     }
 
     pub fn smoothed_render_pos(&mut self, id: NodeId, logical: Vec2, now: Instant) -> Vec2 {
@@ -133,16 +139,21 @@ impl HalleyWlState {
         }
         let now_ms = self.now_ms(now);
         if self.interaction_state.resize_active == Some(id)
-            || (self.interaction_state.resize_static_node == Some(id) && now_ms < self.interaction_state.resize_static_until_ms)
+            || (self.interaction_state.resize_static_node == Some(id)
+                && now_ms < self.interaction_state.resize_static_until_ms)
         {
-            self.interaction_state.smoothed_render_pos.insert(id, logical);
+            self.interaction_state
+                .smoothed_render_pos
+                .insert(id, logical);
             return logical;
         }
         if self.focus_state.primary_interaction_focus == Some(id)
             || self.companion_surface_node(now_ms) == Some(id)
             || self.is_recently_interacted_surface(id, now_ms)
         {
-            self.interaction_state.smoothed_render_pos.insert(id, logical);
+            self.interaction_state
+                .smoothed_render_pos
+                .insert(id, logical);
             return logical;
         }
         let dt = now
@@ -157,7 +168,11 @@ impl HalleyWlState {
             max_step = (max_step * boost).clamp(6.0, 420.0);
         }
 
-        let cur = self.interaction_state.smoothed_render_pos.entry(id).or_insert(logical);
+        let cur = self
+            .interaction_state
+            .smoothed_render_pos
+            .entry(id)
+            .or_insert(logical);
         let dx = logical.x - cur.x;
         let dy = logical.y - cur.y;
         let mut sx = dx * alpha;
@@ -181,14 +196,16 @@ impl HalleyWlState {
         }
         let now_ms = self.now_ms(now);
         if self.interaction_state.resize_active == Some(id)
-            || (self.interaction_state.resize_static_node == Some(id) && now_ms < self.interaction_state.resize_static_until_ms)
+            || (self.interaction_state.resize_static_node == Some(id)
+                && now_ms < self.interaction_state.resize_static_until_ms)
             || self.focus_state.primary_interaction_focus == Some(id)
             || self.companion_surface_node(now_ms) == Some(id)
             || self.is_recently_interacted_surface(id, now_ms)
         {
             return logical;
         }
-        self.interaction_state.smoothed_render_pos
+        self.interaction_state
+            .smoothed_render_pos
             .get(&id)
             .copied()
             .unwrap_or(logical)
@@ -212,7 +229,8 @@ impl HalleyWlState {
         }
         let target = if hovered.is_some() { 1.0 } else { 0.0 };
         let k = if target > 0.5 { 0.30 } else { 0.14 };
-        self.render_state.node_preview_hover_mix += (target - self.render_state.node_preview_hover_mix) * k;
+        self.render_state.node_preview_hover_mix +=
+            (target - self.render_state.node_preview_hover_mix) * k;
         if (self.render_state.node_preview_hover_mix - target).abs() < 0.002 {
             self.render_state.node_preview_hover_mix = target;
         }
@@ -220,7 +238,8 @@ impl HalleyWlState {
             self.render_state.node_preview_hover_mix = 0.0;
             self.render_state.node_preview_hover_node = None;
         }
-        self.render_state.node_preview_hover_node
+        self.render_state
+            .node_preview_hover_node
             .map(|id| (id, self.render_state.node_preview_hover_mix))
     }
 
@@ -243,7 +262,9 @@ impl HalleyWlState {
     }
 
     pub fn tick_live_overlap(&mut self) {
-        if self.interaction_state.suspend_state_checks || self.interaction_state.resize_active.is_some() {
+        if self.interaction_state.suspend_state_checks
+            || self.interaction_state.resize_active.is_some()
+        {
             return;
         }
         self.resolve_surface_overlap();
@@ -270,7 +291,11 @@ impl HalleyWlState {
         height: i32,
         now: Instant,
     ) -> &mut WindowOffscreenCache {
-        let cache = self.render_state.window_offscreen_cache.entry(node_id).or_default();
+        let cache = self
+            .render_state
+            .window_offscreen_cache
+            .entry(node_id)
+            .or_default();
 
         let width = width.max(1);
         let height = height.max(1);
@@ -296,12 +321,14 @@ impl HalleyWlState {
 
     pub(crate) fn prune_window_offscreen_cache(&mut self, now: Instant) {
         let alive: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
-        self.render_state.window_offscreen_cache.retain(|id, cache| {
-            alive.contains(id)
-                && cache
-                    .last_used_at
-                    .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5)
-        });
+        self.render_state
+            .window_offscreen_cache
+            .retain(|id, cache| {
+                alive.contains(id)
+                    && cache
+                        .last_used_at
+                        .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5)
+            });
     }
 }
 

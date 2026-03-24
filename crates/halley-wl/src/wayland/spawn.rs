@@ -22,7 +22,8 @@ impl HalleyWlState {
     const SPAWN_STAR_RINGS: usize = 24;
 
     fn spawn_anchor_on_current_monitor(&self, anchor: Vec2) -> bool {
-        self.monitor_for_screen(anchor.x, anchor.y).as_deref() == Some(self.monitor_state.current_monitor.as_str())
+        self.monitor_for_screen(anchor.x, anchor.y).as_deref()
+            == Some(self.monitor_state.current_monitor.as_str())
     }
 
     fn current_spawn_focus(&self) -> (Option<NodeId>, Vec2) {
@@ -37,7 +38,8 @@ impl HalleyWlState {
         if let Some(id) = self.last_input_surface_node()
             && let Some(node) = self.field.node(id)
             && self
-                .monitor_state.node_monitor
+                .monitor_state
+                .node_monitor
                 .get(&id)
                 .is_none_or(|monitor| monitor == &self.monitor_state.current_monitor)
         {
@@ -85,7 +87,8 @@ impl HalleyWlState {
                 return false;
             }
             if self
-                .monitor_state.node_monitor
+                .monitor_state
+                .node_monitor
                 .get(&other.id)
                 .is_some_and(|monitor| monitor != &candidate_monitor)
             {
@@ -116,11 +119,9 @@ impl HalleyWlState {
         let local = self
             .monitor_for_screen(center.x, center.y)
             .and_then(|monitor| self.monitor_state.monitors.get(monitor.as_str()))
-            .map(|monitor| {
-                Vec2 {
-                    x: center.x - monitor.offset_x as f32,
-                    y: center.y - monitor.offset_y as f32,
-                }
+            .map(|monitor| Vec2 {
+                x: center.x - monitor.offset_x as f32,
+                y: center.y - monitor.offset_y as f32,
             })
             .unwrap_or(center);
         let idx = ((self.spawn_cursor as usize)
@@ -267,7 +268,8 @@ impl HalleyWlState {
         }
 
         let pan_finished = now_ms >= active.reveal_at_ms
-            || (now_ms >= active.pan_start_at_ms && self.interaction_state.viewport_pan_anim.is_none());
+            || (now_ms >= active.pan_start_at_ms
+                && self.interaction_state.viewport_pan_anim.is_none());
         if !pan_finished {
             return;
         }
@@ -275,7 +277,8 @@ impl HalleyWlState {
         let _ = self.field.set_detached(active.node_id, false);
         let _ = self.field.set_decay_level(active.node_id, DecayLevel::Hot);
         if let Some(node) = self.field.node(active.node_id) {
-            self.workspace_state.last_active_size
+            self.workspace_state
+                .last_active_size
                 .insert(active.node_id, node.intrinsic_size);
         }
         self.mark_active_transition(active.node_id, now, 620);

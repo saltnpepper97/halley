@@ -1,18 +1,16 @@
-
-use std::collections::HashMap;
 use halley_core::field::{NodeId, Vec2};
 use halley_core::viewport::Viewport;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::time::Instant;
 
 use smithay::{
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
-    reexports::wayland_server::{
-        Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
-    },
+    reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
     utils::Transform,
 };
 
 use crate::state::HalleyWlState;
-
 
 #[derive(Clone, Debug)]
 pub(crate) struct MonitorSpace {
@@ -63,7 +61,11 @@ impl HalleyWlState {
     }
 
     pub(crate) fn sync_current_monitor_state(&mut self) {
-        if let Some(space) = self.monitor_state.monitors.get_mut(&self.monitor_state.current_monitor) {
+        if let Some(space) = self
+            .monitor_state
+            .monitors
+            .get_mut(&self.monitor_state.current_monitor)
+        {
             space.viewport = self.viewport;
             space.zoom_ref_size = self.zoom_ref_size;
             space.camera_target_center = self.camera_target_center;
@@ -90,7 +92,11 @@ impl HalleyWlState {
             .tty_viewports
             .iter()
             .filter(|viewport| viewport.enabled)
-            .filter(|viewport| active_outputs.iter().any(|name| name == &viewport.connector))
+            .filter(|viewport| {
+                active_outputs
+                    .iter()
+                    .any(|name| name == &viewport.connector)
+            })
         {
             let width = viewport.width.max(1) as i32;
             let height = viewport.height.max(1) as i32;
@@ -115,7 +121,9 @@ impl HalleyWlState {
                     width,
                     height,
                     viewport: restored.map(|m| m.viewport).unwrap_or(default_view),
-                    zoom_ref_size: restored.map(|m| m.zoom_ref_size).unwrap_or(default_view.size),
+                    zoom_ref_size: restored
+                        .map(|m| m.zoom_ref_size)
+                        .unwrap_or(default_view.size),
                     camera_target_center: restored
                         .map(|m| m.camera_target_center)
                         .unwrap_or(default_view.center),
@@ -145,9 +153,14 @@ impl HalleyWlState {
 
         self.monitor_state.monitors = monitors;
 
-        if !self.monitor_state.monitors.contains_key(&self.monitor_state.current_monitor) {
-            self.monitor_state.current_monitor = preferred_monitor_name(&self.monitor_state.monitors)
-                .unwrap_or_else(|| "default".to_string());
+        if !self
+            .monitor_state
+            .monitors
+            .contains_key(&self.monitor_state.current_monitor)
+        {
+            self.monitor_state.current_monitor =
+                preferred_monitor_name(&self.monitor_state.monitors)
+                    .unwrap_or_else(|| "default".to_string());
         }
 
         let current = self.monitor_state.current_monitor.clone();
@@ -186,7 +199,12 @@ impl HalleyWlState {
         best.map(|(name, _)| name.clone())
     }
 
-    pub(crate) fn local_screen_in_monitor(&self, name: &str, sx: f32, sy: f32) -> (i32, i32, f32, f32) {
+    pub(crate) fn local_screen_in_monitor(
+        &self,
+        name: &str,
+        sx: f32,
+        sy: f32,
+    ) -> (i32, i32, f32, f32) {
         if let Some(monitor) = self.monitor_state.monitors.get(name) {
             (
                 monitor.width,
@@ -202,17 +220,22 @@ impl HalleyWlState {
     }
 
     pub(crate) fn node_visible_on_current_monitor(&self, id: NodeId) -> bool {
-        self.monitor_state.node_monitor
+        self.monitor_state
+            .node_monitor
             .get(&id)
             .is_none_or(|monitor| monitor == &self.monitor_state.current_monitor)
     }
 
     pub(crate) fn assign_node_to_current_monitor(&mut self, id: NodeId) {
-        self.monitor_state.node_monitor.insert(id, self.monitor_state.current_monitor.clone());
+        self.monitor_state
+            .node_monitor
+            .insert(id, self.monitor_state.current_monitor.clone());
     }
 
     pub(crate) fn assign_layer_surface_to_monitor(&mut self, surface: &WlSurface, monitor: String) {
-        self.monitor_state.layer_surface_monitor.insert(surface.id(), monitor);
+        self.monitor_state
+            .layer_surface_monitor
+            .insert(surface.id(), monitor);
     }
 
     pub(crate) fn output_transform_for(&self, name: &str) -> Transform {
@@ -234,23 +257,28 @@ impl HalleyWlState {
     pub(crate) fn advertise_output(&mut self, name: &str, mode: OutputMode) {
         let transform = self.output_transform_for(name);
         let location = self
-            .monitor_state.monitors
+            .monitor_state
+            .monitors
             .get(name)
             .map(|monitor| (monitor.offset_x, monitor.offset_y).into())
             .unwrap_or_else(|| (0, 0).into());
-        let output = self.monitor_state.outputs.entry(name.to_string()).or_insert_with(|| {
-            let output = Output::new(
-                name.to_string(),
-                PhysicalProperties {
-                    size: (0, 0).into(),
-                    subpixel: Subpixel::Unknown,
-                    make: "halley".to_string(),
-                    model: name.to_string(),
-                },
-            );
-            let _ = output.create_global::<HalleyWlState>(&self.display_handle);
-            output
-        });
+        let output = self
+            .monitor_state
+            .outputs
+            .entry(name.to_string())
+            .or_insert_with(|| {
+                let output = Output::new(
+                    name.to_string(),
+                    PhysicalProperties {
+                        size: (0, 0).into(),
+                        subpixel: Subpixel::Unknown,
+                        make: "halley".to_string(),
+                        model: name.to_string(),
+                    },
+                );
+                let _ = output.create_global::<HalleyWlState>(&self.display_handle);
+                output
+            });
         output.add_mode(mode);
         output.set_preferred(mode);
         output.change_current_state(
@@ -261,5 +289,86 @@ impl HalleyWlState {
         );
     }
 
+    pub(crate) fn reconcile_surface_bindings(&mut self) {
+        const STALE_SURFACE_GRACE_MS: u64 = 1500;
+        let now = Instant::now();
 
+        let alive: HashSet<ObjectId> = self
+            .xdg_shell_state
+            .toplevel_surfaces()
+            .iter()
+            .map(|t| t.wl_surface().id())
+            .collect();
+
+        let stale: Vec<ObjectId> = self
+            .surface_to_node
+            .keys()
+            .filter(|k| !alive.contains(*k))
+            .filter(|k| {
+                let Some(activity) = self.surface_activity.get(*k) else {
+                    return true;
+                };
+                now.duration_since(activity.last_commit_at()).as_millis() as u64
+                    >= STALE_SURFACE_GRACE_MS
+            })
+            .cloned()
+            .collect();
+
+        for key in stale {
+            self.surface_activity.remove(&key);
+            if let Some(id) = self.surface_to_node.remove(&key) {
+                if self.focus_state.pan_restore_active_focus == Some(id) {
+                    self.focus_state.pan_restore_active_focus = None;
+                }
+                self.workspace_state.manual_collapsed_nodes.remove(&id);
+                self.render_state.zoom_nominal_size.remove(&id);
+                self.render_state.zoom_resize_fallback.remove(&id);
+                self.render_state.zoom_resize_reject_streak.remove(&id);
+                self.render_state.zoom_last_observed_size.remove(&id);
+                self.render_state.zoom_resize_static_streak.remove(&id);
+                self.node_app_ids.remove(&id);
+                self.workspace_state.last_active_size.remove(&id);
+                self.render_state.bbox_loc.remove(&id);
+                self.render_state.window_geometry.remove(&id);
+                self.pending_spawn_activate_at_ms.remove(&id);
+                self.workspace_state.active_transition_until_ms.remove(&id);
+                self.workspace_state
+                    .primary_promote_cooldown_until_ms
+                    .remove(&id);
+                self.focus_state.last_surface_focus_ms.remove(&id);
+                self.carry_zone_hint.remove(&id);
+                self.carry_zone_last_change_ms.remove(&id);
+                self.carry_zone_pending.remove(&id);
+                self.carry_zone_pending_since_ms.remove(&id);
+                self.carry_activation_anim_armed.remove(&id);
+                self.carry_state_hold.remove(&id);
+                if self.interaction_state.resize_active == Some(id) {
+                    self.interaction_state.resize_active = None;
+                }
+                if self.interaction_state.resize_static_node == Some(id) {
+                    self.interaction_state.resize_static_node = None;
+                    self.interaction_state.resize_static_lock_pos = None;
+                    self.interaction_state.resize_static_until_ms = 0;
+                }
+                if self.focus_state.primary_interaction_focus == Some(id) {
+                    self.focus_state.primary_interaction_focus = None;
+                    self.focus_state.interaction_focus_until_ms = 0;
+                }
+                let stale_monitors: Vec<String> = self
+                    .focus_state
+                    .monitor_focus
+                    .iter()
+                    .filter_map(|(monitor, &focused)| (focused == id).then_some(monitor.clone()))
+                    .collect();
+
+                for monitor in stale_monitors {
+                    self.focus_state.monitor_focus.remove(&monitor);
+                }
+                self.interaction_state.smoothed_render_pos.remove(&id);
+                let _ = self.field.remove(id);
+            }
+        }
+
+        self.surface_activity.retain(|k, _| alive.contains(k));
+    }
 }

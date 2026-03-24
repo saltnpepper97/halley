@@ -149,15 +149,8 @@ pub(crate) fn layer_surface_focus_for_screen(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
 )> {
-    let block_non_overlay = fullscreen_hit_blocks_non_overlay_layers(
-        st,
-        ws_w,
-        ws_h,
-        sx,
-        sy,
-        now,
-        resize_preview,
-    );
+    let block_non_overlay =
+        fullscreen_hit_blocks_non_overlay_layers(st, ws_w, ws_h, sx, sy, now, resize_preview);
 
     let mut placements = st.layer_shell_placements((ws_w.max(1), ws_h.max(1)).into());
     placements.sort_by_key(|placement| {
@@ -229,7 +222,8 @@ pub(crate) fn pointer_focus_for_screen(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
 )> {
-    if let Some(focus) = layer_surface_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview) {
+    if let Some(focus) = layer_surface_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)
+    {
         return Some(focus);
     }
     if let Some(focus) = popup_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview) {
@@ -310,4 +304,3 @@ pub(crate) fn pointer_focus_for_screen(
     }
     None
 }
-

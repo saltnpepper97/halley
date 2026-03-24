@@ -67,7 +67,6 @@ struct CursorScene {
     >,
 }
 
-
 fn draw_clamped_outline_rect<F: smithay::backend::renderer::Frame>(
     frame: &mut F,
     rect: (i32, i32, i32, i32),
@@ -161,10 +160,8 @@ pub(crate) fn draw_debug_frame_to_target(
     );
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
-    let offscreen_cleanup_program = renderer.compile_custom_texture_shader(
-        include_str!("shaders/offscreen_cleanup.frag"),
-        &[],
-    )?;
+    let offscreen_cleanup_program = renderer
+        .compile_custom_texture_shader(include_str!("shaders/offscreen_cleanup.frag"), &[])?;
 
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
@@ -334,12 +331,7 @@ fn draw_debug_frame_scene(
     }
 
     if !scene.layer_bottom_elements.is_empty() {
-        let _ = draw_render_elements(
-            frame,
-            1.0,
-            &scene.layer_bottom_elements,
-            &[prepared.damage],
-        );
+        let _ = draw_render_elements(frame, 1.0, &scene.layer_bottom_elements, &[prepared.damage]);
     }
 
     draw_node_markers(
@@ -680,4 +672,3 @@ where
     draw_rect(frame, cx + 4, cy + 8, 6, 1, fill, damage)?;
     Ok(())
 }
-

@@ -142,7 +142,12 @@ pub(crate) fn window_geometry_for_node(
         ));
     }
     st.field.node(node_id).map(|node| {
-        let (bbox_lx, bbox_ly) = st.render_state.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0));
+        let (bbox_lx, bbox_ly) = st
+            .render_state
+            .bbox_loc
+            .get(&node_id)
+            .copied()
+            .unwrap_or((0.0, 0.0));
         (
             bbox_lx,
             bbox_ly,

@@ -42,13 +42,15 @@ pub(crate) fn ensure_node_app_icon_resources(
         }
 
         let Some(icon_path) = resolve_app_icon_path(&app_id) else {
-            st.render_state.node_app_icon_cache
+            st.render_state
+                .node_app_icon_cache
                 .insert(app_id, NodeAppIconCacheEntry::Missing);
             continue;
         };
 
         let Some(raster) = load_icon_raster(&icon_path) else {
-            st.render_state.node_app_icon_cache
+            st.render_state
+                .node_app_icon_cache
                 .insert(app_id, NodeAppIconCacheEntry::Missing);
             continue;
         };

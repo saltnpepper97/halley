@@ -19,7 +19,9 @@ pub(crate) use common::{
     RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite,
 };
-pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc};
+pub(crate) use ipc::{
+    RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc,
+};
 
 static XWAYLAND_REQUEST_TX: OnceCell<mpsc::Sender<()>> = OnceCell::new();
 
@@ -110,7 +112,17 @@ pub(crate) fn apply_reloaded_tuning(
 
 fn normalized_tty_viewports(
     tuning: &RuntimeTuning,
-) -> Vec<(String, bool, i32, i32, u32, u32, Option<i64>, u16, &'static str)> {
+) -> Vec<(
+    String,
+    bool,
+    i32,
+    i32,
+    u32,
+    u32,
+    Option<i64>,
+    u16,
+    &'static str,
+)> {
     let mut out: Vec<_> = tuning
         .tty_viewports
         .iter()
@@ -302,4 +314,3 @@ fn expand_user_path(raw: &str) -> PathBuf {
     }
     PathBuf::from(raw)
 }
-

@@ -28,21 +28,24 @@ impl HalleyWlState {
     fn fullscreen_monitor_name(&self, node_id: NodeId, output: Option<&WlOutput>) -> String {
         output
             .and_then(|requested_output| {
-                self.monitor_state.outputs.iter().find_map(|(name, output)| {
-                    output.owns(requested_output).then_some(name.clone())
-                })
+                self.monitor_state
+                    .outputs
+                    .iter()
+                    .find_map(|(name, output)| {
+                        output.owns(requested_output).then_some(name.clone())
+                    })
             })
             .or_else(|| self.monitor_state.node_monitor.get(&node_id).cloned())
             .unwrap_or_else(|| self.monitor_state.current_monitor.clone())
     }
 
     fn fullscreen_monitor_view(&self, monitor_name: &str) -> (Vec2, Vec2) {
-        self.monitor_state.monitors
+        self.monitor_state
+            .monitors
             .get(monitor_name)
             .map(|monitor| (monitor.viewport.center, monitor.viewport.size))
             .unwrap_or((self.viewport.center, self.viewport.size))
     }
-
 
     fn reset_monitor_zoom_once(&mut self, monitor_name: &str) {
         if let Some(monitor) = self.monitor_state.monitors.get_mut(monitor_name) {
@@ -75,7 +78,8 @@ impl HalleyWlState {
     }
 
     fn fullscreen_target_size_for(&self, monitor_name: &str) -> (i32, i32) {
-        self.monitor_state.outputs
+        self.monitor_state
+            .outputs
             .get(monitor_name)
             .and_then(|output| output.current_mode())
             .map(|mode| (mode.size.w, mode.size.h))
@@ -357,7 +361,8 @@ impl HalleyWlState {
                     && n.kind == halley_core::field::NodeKind::Surface
                     && self.field.is_visible(id)
                     && self
-                        .monitor_state.node_monitor
+                        .monitor_state
+                        .node_monitor
                         .get(&id)
                         .is_none_or(|m| m == &monitor_name)
                     && self.node_intersects_monitor_viewport(id, monitor_name.as_str()))
@@ -393,15 +398,17 @@ impl HalleyWlState {
         }
 
         self.request_toplevel_fullscreen_state(node_id, true, output, Some(target_size));
-        self.fullscreen_active_node
-            .insert(monitor_name, node_id);
+        self.fullscreen_active_node.insert(monitor_name, node_id);
         self.set_interaction_focus(Some(node_id), 30_000, now);
         self.request_maintenance();
     }
 
     pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
         // Clear suspended state on whatever monitor this node is on.
-        if let Some(monitor) = self.fullscreen_monitor_for_node(node_id).map(|s| s.to_owned()) {
+        if let Some(monitor) = self
+            .fullscreen_monitor_for_node(node_id)
+            .map(|s| s.to_owned())
+        {
             self.fullscreen_suspended_node.remove(&monitor);
         }
         self.exit_xdg_fullscreen_inner(node_id, now, false);
@@ -409,7 +416,8 @@ impl HalleyWlState {
 
     pub(crate) fn drop_fullscreen_surface(&mut self, id: NodeId, now: Instant) {
         // Clear suspended state if this node was suspended on any monitor.
-        self.fullscreen_suspended_node.retain(|_, &mut nid| nid != id);
+        self.fullscreen_suspended_node
+            .retain(|_, &mut nid| nid != id);
 
         if self.is_fullscreen_active(id) {
             let monitor_name = self
@@ -495,13 +503,12 @@ impl HalleyWlState {
                 // it was displaced for is still active — i.e. the monitor it belongs
                 // to still has an active fullscreen session.
                 let node_monitor = self
-                    .monitor_state.node_monitor
+                    .monitor_state
+                    .node_monitor
                     .get(&id)
                     .cloned()
                     .unwrap_or_else(|| self.monitor_state.current_monitor.clone());
-                let displaced_for_active = self
-                    .fullscreen_active_node
-                    .contains_key(&node_monitor);
+                let displaced_for_active = self.fullscreen_active_node.contains_key(&node_monitor);
 
                 if displaced_for_active {
                     let _ = self.field.set_pinned(id, true);

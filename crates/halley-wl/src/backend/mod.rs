@@ -26,8 +26,8 @@ use smithay::{
     },
     backend::libinput::LibinputInputBackend,
     backend::libinput::LibinputSessionInterface,
-    backend::renderer::gles::GlesRenderer,
     backend::renderer::ImportDma,
+    backend::renderer::gles::GlesRenderer,
     backend::session::libseat::LibSeatSession,
     backend::session::{Event as SessionEvent, Session},
     backend::udev::{all_gpus, primary_gpu},
@@ -53,8 +53,8 @@ use crate::surface::current_surface_size_for_node;
 
 pub(crate) mod interface;
 pub(crate) mod tty;
-pub(crate) mod tty_drm;
 pub(crate) mod tty_dpms;
+pub(crate) mod tty_drm;
 pub(crate) mod tty_input;
 pub(crate) mod vblank_throttle;
 pub(crate) mod winit;

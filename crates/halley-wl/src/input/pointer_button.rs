@@ -5,14 +5,13 @@ use std::time::{Duration, Instant};
 use eventline::info;
 use halley_config::{KeyModifiers, PointerBindingAction};
 use smithay::input::pointer::{ButtonEvent, MotionEvent};
-use smithay::utils::SERIAL_COUNTER;
 use smithay::reexports::wayland_server::Resource;
+use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
 use crate::interaction::actions::promote_node_level;
 use crate::interaction::types::{
-    DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState, ResizeCtx,
-    TitleClickCtx,
+    DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState, ResizeCtx, TitleClickCtx,
 };
 use crate::render::world_to_screen;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
@@ -204,7 +203,8 @@ fn begin_drag(
     ps.drag = Some(drag_ctx);
     let _ = st.field.set_pinned(hit.node_id, false);
     st.assign_node_to_current_monitor(hit.node_id);
-    st.interaction_state.physics_velocity
+    st.interaction_state
+        .physics_velocity
         .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     st.set_drag_authority_node(Some(hit.node_id));
     st.begin_carry_state_tracking(hit.node_id);
@@ -236,7 +236,7 @@ fn begin_resize(
         return;
     };
     let fallback_size = n.intrinsic_size;
-    let fallback_pos  = n.pos;
+    let fallback_pos = n.pos;
     let (start_left, start_top, start_right, start_bottom) = active_node_screen_rect(
         st,
         frame.ws_w,
@@ -273,7 +273,8 @@ fn begin_resize(
     ps.panning = false;
     ps.pan_monitor = None;
     ps.move_anim.clear();
-    st.interaction_state.physics_velocity
+    st.interaction_state
+        .physics_velocity
         .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     st.begin_resize_interaction(hit.node_id, Instant::now());
 
@@ -284,13 +285,12 @@ fn begin_resize(
             x: start_w as f32,
             y: start_h as f32,
         });
-    let (start_geo_lx, start_geo_ly, _, _) =
-        window_geometry_for_node(st, hit.node_id).unwrap_or((
-            0.0,
-            0.0,
-            start_surface.x.max(1.0),
-            start_surface.y.max(1.0),
-        ));
+    let (start_geo_lx, start_geo_ly, _, _) = window_geometry_for_node(st, hit.node_id).unwrap_or((
+        0.0,
+        0.0,
+        start_surface.x.max(1.0),
+        start_surface.y.max(1.0),
+    ));
     let start_bbox = halley_core::field::Vec2 {
         x: fallback_size.x.max(1.0),
         y: fallback_size.y.max(1.0),
@@ -306,13 +306,13 @@ fn begin_resize(
         start_visual_h: start_h,
         start_geo_lx,
         start_geo_ly,
-        start_left_px:   start_left,
-        start_right_px:  start_right,
-        start_top_px:    start_top,
+        start_left_px: start_left,
+        start_right_px: start_right,
+        start_top_px: start_top,
         start_bottom_px: start_bottom,
-        preview_left_px:   start_left,
-        preview_right_px:  start_right,
-        preview_top_px:    start_top,
+        preview_left_px: start_left,
+        preview_right_px: start_right,
+        preview_top_px: start_top,
         preview_bottom_px: start_bottom,
         last_sent_w: start_surface.x.max(96.0).round() as i32,
         last_sent_h: start_surface.y.max(72.0).round() as i32,
@@ -360,7 +360,8 @@ fn finalize_resize(st: &mut HalleyWlState, ps: &mut PointerState, backend: &dyn 
     let now = Instant::now();
     ps.move_anim.clear();
     st.set_drag_authority_node(None);
-    st.interaction_state.physics_velocity
+    st.interaction_state
+        .physics_velocity
         .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     if st.tuning.debug_tick_dump {
         ps.resize_trace_node = Some(resize.node_id);
@@ -472,7 +473,8 @@ fn restore_fullscreen_click_focus(
 
     let entry = st.fullscreen_restore.get(&node_id).copied();
     let fallback_center = st
-        .monitor_state.monitors
+        .monitor_state
+        .monitors
         .get(monitor_name.as_str())
         .map(|space| space.viewport.center)
         .unwrap_or(st.viewport.center);
@@ -497,7 +499,8 @@ fn restore_fullscreen_click_focus(
     }
     if st.monitor_state.current_monitor == monitor_name {
         let one_x_zoom = st
-            .monitor_state.monitors
+            .monitor_state
+            .monitors
             .get(monitor_name.as_str())
             .map(|space| halley_core::field::Vec2 {
                 x: space.width as f32,
@@ -572,7 +575,14 @@ fn handle_left_press(
         n.kind == halley_core::field::NodeKind::Surface && st.field.is_visible(hit.node_id)
     });
     if drag_binding_active && drag_target_ok && !handled_node_click {
-        begin_drag(st, ps, backend, hit, frame.world_now, allow_monitor_transfer);
+        begin_drag(
+            st,
+            ps,
+            backend,
+            hit,
+            frame.world_now,
+            allow_monitor_transfer,
+        );
     }
 
     if hit.on_titlebar || hit.is_core {
@@ -644,7 +654,14 @@ fn handle_move_binding_press(
         n.kind == halley_core::field::NodeKind::Surface && st.field.is_visible(hit.node_id)
     });
     if drag_target_ok {
-        begin_drag(st, ps, backend, hit, frame.world_now, allow_monitor_transfer);
+        begin_drag(
+            st,
+            ps,
+            backend,
+            hit,
+            frame.world_now,
+            allow_monitor_transfer,
+        );
     }
 }
 
@@ -727,7 +744,7 @@ pub(crate) fn handle_pointer_button_input(
     button_code: u32,
     button_state: ButtonState,
 ) {
-    let left  = button_code == 0x110;
+    let left = button_code == 0x110;
     let right = button_code == 0x111;
     let mut ps = pointer_state.borrow_mut();
     let (ws_w, ws_h) = backend.window_size_i32();
@@ -737,7 +754,8 @@ pub(crate) fn handle_pointer_button_input(
         .and_then(|surface| {
             let node_id = st.surface_to_node.get(&surface.id()).copied()?;
             Some(
-                st.monitor_state.node_monitor
+                st.monitor_state
+                    .node_monitor
                     .get(&node_id)
                     .cloned()
                     .unwrap_or_else(|| st.monitor_state.current_monitor.clone()),
@@ -799,7 +817,7 @@ pub(crate) fn handle_pointer_button_input(
         ButtonState::Released => ps.intercepted_binding_buttons.remove(&button_code),
     };
     let matched_action = match button_state {
-        ButtonState::Pressed  => matching_pointer_binding(st, &mods, button_code),
+        ButtonState::Pressed => matching_pointer_binding(st, &mods, button_code),
         ButtonState::Released => ps.intercepted_buttons.remove(&button_code),
     };
     let intercepted = intercepted_binding || matched_action.is_some();
@@ -826,7 +844,13 @@ pub(crate) fn handle_pointer_button_input(
                 return;
             }
             let hit = pick_hit_node_at(
-                st, local_w, local_h, local_sx, local_sy, Instant::now(), ps.resize,
+                st,
+                local_w,
+                local_h,
+                local_sx,
+                local_sy,
+                Instant::now(),
+                ps.resize,
             );
             if left {
                 handle_left_press(
@@ -873,6 +897,3 @@ pub(crate) fn handle_pointer_button_input(
         }
     }
 }
-
-
-

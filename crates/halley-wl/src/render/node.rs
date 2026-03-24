@@ -24,11 +24,9 @@ use super::utils::{
 };
 use crate::animation::ease_in_out_cubic;
 
-const NODE_SQUIRCLE_SHADER: &str =
-    include_str!("shaders/node_squircle_shader.frag");
+const NODE_SQUIRCLE_SHADER: &str = include_str!("shaders/node_squircle_shader.frag");
 
-const NODE_LABEL_SHADER: &str =
-    include_str!("shaders/node_label_rounded_shader.frag");
+const NODE_LABEL_SHADER: &str = include_str!("shaders/node_label_rounded_shader.frag");
 
 // ---------------------------------------------------------------------------
 // Types

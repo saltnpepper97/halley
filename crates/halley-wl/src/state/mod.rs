@@ -16,9 +16,7 @@ use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
     input::{Seat, SeatState, pointer::CursorImageStatus},
-    reexports::wayland_server::{
-        DisplayHandle, backend::ObjectId,
-    },
+    reexports::wayland_server::{DisplayHandle, backend::ObjectId},
     utils::{Logical, Rectangle},
     wayland::{
         compositor::CompositorState,
@@ -44,7 +42,7 @@ use crate::animation::{AnimSpec, Animator};
 use crate::backend::interface::DmabufImportBackend;
 use crate::state::focus::FocusState;
 use crate::state::interaction::InteractionState;
-use crate::state::monitor::{MonitorState, MonitorSpace};
+use crate::state::monitor::{MonitorSpace, MonitorState};
 use crate::state::render_state::RenderState;
 use crate::state::workspace::WorkspaceState;
 
@@ -58,7 +56,7 @@ mod workspace;
 
 pub use client::ClientState;
 pub(crate) use interaction::ViewportPanAnim;
-pub(crate) use render_state::{NodeAppIconCacheEntry, NodeAppIconTexture}; 
+pub(crate) use render_state::{NodeAppIconCacheEntry, NodeAppIconTexture};
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
@@ -197,7 +195,6 @@ pub struct HalleyWlState {
     pub(crate) spawned_children: Vec<std::process::Child>,
 }
 
-
 fn preferred_monitor_name(monitors: &HashMap<String, MonitorSpace>) -> Option<String> {
     monitors
         .iter()
@@ -221,7 +218,11 @@ impl HalleyWlState {
         let now = Instant::now();
         let initial_view_anchor = tuning.viewport_center;
         let mut monitors = HashMap::new();
-        for viewport in tuning.tty_viewports.iter().filter(|viewport| viewport.enabled) {
+        for viewport in tuning
+            .tty_viewports
+            .iter()
+            .filter(|viewport| viewport.enabled)
+        {
             let width = viewport.width.max(1) as i32;
             let height = viewport.height.max(1) as i32;
             // MonitorSpace viewport uses GLOBAL world coordinates. The center
@@ -275,8 +276,8 @@ impl HalleyWlState {
         // This keeps the compositor's notion of the primary/current monitor
         // aligned with the leftmost/topmost active output that Xwayland clients
         // and games expect.
-        let current_monitor = preferred_monitor_name(&monitors)
-            .unwrap_or_else(|| "default".to_string());
+        let current_monitor =
+            preferred_monitor_name(&monitors).unwrap_or_else(|| "default".to_string());
         // Bootstrap the viewport/camera from the startup monitor's LOCAL space.
         // tuning.viewport_center is in global layout coords (for Wayland output
         // advertising) — using it as a camera center would point the camera at
@@ -295,8 +296,6 @@ impl HalleyWlState {
         let primary_selection_state = PrimarySelectionState::new::<HalleyWlState>(dh);
         let data_control_state =
             DataControlState::new::<HalleyWlState, _>(dh, Some(&primary_selection_state), |_| true);
-        
-
 
         let mut out = Self {
             display_handle: dh.clone(),
@@ -340,7 +339,6 @@ impl HalleyWlState {
                 focus_ring_preview_until_ms: HashMap::new(),
                 recent_top_node: None,
                 recent_top_until: None,
-
             },
 
             workspace_state: WorkspaceState {
@@ -354,7 +352,7 @@ impl HalleyWlState {
                 primary_promote_cooldown_until_ms: HashMap::new(),
             },
 
-            render_state: RenderState {            
+            render_state: RenderState {
                 animator: Animator::new(now),
 
                 node_app_icon_cache: HashMap::new(),
@@ -364,7 +362,7 @@ impl HalleyWlState {
                 node_circle_texture: None,
                 node_squircle_program: None,
                 node_label_program: None,
-                
+
                 zoom_nominal_size: HashMap::new(),
                 zoom_resize_fallback: HashSet::new(),
                 zoom_resize_reject_streak: HashMap::new(),
@@ -373,11 +371,9 @@ impl HalleyWlState {
 
                 render_last_tick: now,
 
-            bbox_loc: HashMap::new(),
-            window_geometry: HashMap::new(),
-            window_offscreen_cache: HashMap::new(),
-
-
+                bbox_loc: HashMap::new(),
+                window_geometry: HashMap::new(),
+                window_offscreen_cache: HashMap::new(),
             },
 
             interaction_state: InteractionState {
@@ -417,8 +413,6 @@ impl HalleyWlState {
             surface_to_node: HashMap::new(),
             node_app_ids: HashMap::new(),
 
-
-
             pending_spawn_activate_at_ms: HashMap::new(),
 
             carry_zone_hint: HashMap::new(),
@@ -429,10 +423,7 @@ impl HalleyWlState {
             carry_direct_nodes: HashSet::new(),
             carry_state_hold: HashMap::new(),
 
-
-
             exit_requested: false,
-
 
             fullscreen_active_node: HashMap::new(),
             fullscreen_suspended_node: HashMap::new(),
@@ -515,8 +506,6 @@ impl HalleyWlState {
         self.configure_dmabuf_importer(importer, main_device);
     }
 
-
-
     pub fn request_exit(&mut self) {
         self.exit_requested = true;
     }
@@ -555,10 +544,14 @@ impl HalleyWlState {
             next_ms = Some(next_ms.map_or(at_ms, |cur| cur.min(at_ms)));
         };
 
-        if self.focus_state.primary_interaction_focus.is_some() && self.focus_state.interaction_focus_until_ms > now_ms {
+        if self.focus_state.primary_interaction_focus.is_some()
+            && self.focus_state.interaction_focus_until_ms > now_ms
+        {
             consider(self.focus_state.interaction_focus_until_ms);
         }
-        if self.interaction_state.resize_static_node.is_some() && self.interaction_state.resize_static_until_ms > now_ms {
+        if self.interaction_state.resize_static_node.is_some()
+            && self.interaction_state.resize_static_until_ms > now_ms
+        {
             consider(self.interaction_state.resize_static_until_ms);
         }
         if let Some(at_ms) = self.pending_spawn_activate_at_ms.values().copied().min()
@@ -566,13 +559,19 @@ impl HalleyWlState {
         {
             consider(at_ms);
         }
-        if let Some(at_ms) = self.workspace_state.active_transition_until_ms.values().copied().min()
+        if let Some(at_ms) = self
+            .workspace_state
+            .active_transition_until_ms
+            .values()
+            .copied()
+            .min()
             && at_ms > now_ms
         {
             consider(at_ms);
         }
         if let Some(at_ms) = self
-            .workspace_state.primary_promote_cooldown_until_ms
+            .workspace_state
+            .primary_promote_cooldown_until_ms
             .values()
             .copied()
             .min()
@@ -634,12 +633,16 @@ impl HalleyWlState {
                 self.set_interaction_focus(None, 0, now);
             }
         }
-        if self.focus_state.primary_interaction_focus.is_none() && self.monitor_state.layer_keyboard_focus.is_some() {
+        if self.focus_state.primary_interaction_focus.is_none()
+            && self.monitor_state.layer_keyboard_focus.is_some()
+        {
             self.reassert_layer_surface_keyboard_focus_if_drifted();
         }
-        self.workspace_state.active_transition_until_ms
+        self.workspace_state
+            .active_transition_until_ms
             .retain(|_, &mut until| until > now_ms);
-        self.workspace_state.primary_promote_cooldown_until_ms
+        self.workspace_state
+            .primary_promote_cooldown_until_ms
             .retain(|_, &mut until| until > now_ms);
         let alive_ids: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
         self.carry_zone_hint.retain(|id, _| alive_ids.contains(id));
@@ -652,9 +655,11 @@ impl HalleyWlState {
         self.carry_activation_anim_armed
             .retain(|id| alive_ids.contains(id));
         self.carry_state_hold.retain(|id, _| alive_ids.contains(id));
-        self.focus_state.last_surface_focus_ms
+        self.focus_state
+            .last_surface_focus_ms
             .retain(|id, _| alive_ids.contains(id));
-        self.workspace_state.manual_collapsed_nodes
+        self.workspace_state
+            .manual_collapsed_nodes
             .retain(|id| alive_ids.contains(id));
 
         self.process_pending_spawn_activations(now, now_ms);
@@ -663,15 +668,18 @@ impl HalleyWlState {
             .resize_static_node
             .is_some_and(|_| now_ms < self.interaction_state.resize_static_until_ms);
         if resize_settling
-            && let (Some(id), Some(lock_pos)) =
-                (self.interaction_state.resize_static_node, self.interaction_state.resize_static_lock_pos)
+            && let (Some(id), Some(lock_pos)) = (
+                self.interaction_state.resize_static_node,
+                self.interaction_state.resize_static_lock_pos,
+            )
             && let Some(n) = self.field.node(id)
             && ((n.pos.x - lock_pos.x).abs() > 0.05 || (n.pos.y - lock_pos.y).abs() > 0.05)
         {
             let _ = self.field.carry(id, lock_pos);
         }
         if self
-            .interaction_state.resize_static_node
+            .interaction_state
+            .resize_static_node
             .is_some_and(|_| now_ms >= self.interaction_state.resize_static_until_ms)
         {
             self.interaction_state.resize_static_node = None;
@@ -687,7 +695,8 @@ impl HalleyWlState {
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
         }
         if self.interaction_state.resize_active.is_none()
-            && !(self.interaction_state.resize_static_node.is_some() && now_ms < self.interaction_state.resize_static_until_ms)
+            && !(self.interaction_state.resize_static_node.is_some()
+                && now_ms < self.interaction_state.resize_static_until_ms)
         {
             self.update_zoom_live_surface_sizes();
         }
@@ -703,7 +712,9 @@ impl HalleyWlState {
             &mut self.workspace_state.cluster_form_state,
         );
         self.enforce_single_primary_active_unit();
-        if !self.interaction_state.suspend_state_checks && self.interaction_state.resize_active.is_none() {
+        if !self.interaction_state.suspend_state_checks
+            && self.interaction_state.resize_active.is_none()
+        {
             self.resolve_surface_overlap();
         }
         self.restore_pan_return_active_focus(now);
@@ -732,4 +743,3 @@ impl Drop for HalleyWlState {
 }
 
 delegate_dmabuf!(HalleyWlState);
-

@@ -1,8 +1,8 @@
 use super::*;
 use std::collections::HashMap;
 
-use crate::backend::tty_drm::collect_outputs_for_ipc;
 use crate::backend::tty_drm::TtyDrmOutput;
+use crate::backend::tty_drm::collect_outputs_for_ipc;
 
 pub(crate) fn publish_tty_outputs_snapshot(
     dev: &DrmDevice,
@@ -56,7 +56,10 @@ pub(crate) fn apply_tty_dpms_command(
         // part of presenting the first frame — no separate modeset step.
         for output in outputs.borrow().iter() {
             if let Err(err) = output.compositor.borrow_mut().clear() {
-                warn!("tty dpms off: clear failed for {}: {}", output.connector_name, err);
+                warn!(
+                    "tty dpms off: clear failed for {}: {}",
+                    output.connector_name, err
+                );
             }
         }
         for val in output_frame_pending.borrow_mut().values_mut() {

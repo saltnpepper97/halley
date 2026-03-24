@@ -148,7 +148,8 @@ impl HalleyWlState {
             use smithay::wayland::shell::xdg::SurfaceCachedState;
 
             let bbox = bbox_from_surface_tree(&root_surface, (0, 0));
-            self.render_state.bbox_loc
+            self.render_state
+                .bbox_loc
                 .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
 
             let geo = with_states(&root_surface, |states| {
@@ -196,7 +197,9 @@ impl HalleyWlState {
                         node.footprint = new_size;
                     }
                 }
-                self.workspace_state.last_active_size.insert(node_id, new_size);
+                self.workspace_state
+                    .last_active_size
+                    .insert(node_id, new_size);
                 self.request_maintenance();
                 if self.interaction_state.resize_static_node != Some(node_id) {
                     self.resolve_overlap_now();
@@ -234,7 +237,9 @@ impl HalleyWlState {
         self.render_state.zoom_nominal_size.insert(id, size);
         self.workspace_state.last_active_size.insert(id, size);
         if self.tuning.dev_anim_enabled {
-            self.render_state.animator.observe_field(&self.field, Instant::now());
+            self.render_state
+                .animator
+                .observe_field(&self.field, Instant::now());
         }
         if needs_pan {
             self.queue_spawn_pan_to_node(id, Instant::now());
@@ -276,7 +281,9 @@ impl HalleyWlState {
             self.render_state.window_geometry.remove(&id);
             self.pending_spawn_activate_at_ms.remove(&id);
             self.workspace_state.active_transition_until_ms.remove(&id);
-            self.workspace_state.primary_promote_cooldown_until_ms.remove(&id);
+            self.workspace_state
+                .primary_promote_cooldown_until_ms
+                .remove(&id);
             self.focus_state.last_surface_focus_ms.remove(&id);
             self.monitor_state.node_monitor.remove(&id);
             self.carry_zone_hint.remove(&id);

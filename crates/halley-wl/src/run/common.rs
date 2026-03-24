@@ -150,7 +150,10 @@ fn terminate_child_with_timeout(child: &mut Child, label: &str, timeout: Duratio
                 std::thread::sleep(Duration::from_millis(20));
             }
             Ok(None) => {
-                warn!("{} pid={} did not exit within {:?}; waiting after kill", label, pid, timeout);
+                warn!(
+                    "{} pid={} did not exit within {:?}; waiting after kill",
+                    label, pid, timeout
+                );
                 let _ = child.wait();
                 break;
             }
@@ -180,7 +183,10 @@ fn terminate_process_group_with_timeout(child: &mut Child, label: &str, timeout:
                 std::thread::sleep(Duration::from_millis(20));
             }
             Ok(None) => {
-                warn!("{} pgid={} ignored SIGTERM for {:?}; sending SIGKILL", label, pid, timeout);
+                warn!(
+                    "{} pgid={} ignored SIGTERM for {:?}; sending SIGKILL",
+                    label, pid, timeout
+                );
                 unsafe {
                     let _ = libc::kill(-pid, libc::SIGKILL);
                 }
@@ -755,4 +761,3 @@ fn runtime_dir_is_usable(path: &Path) -> bool {
         .and_then(|_| fs::remove_file(path.join(".halley-runtime-check")))
         .is_ok()
 }
-

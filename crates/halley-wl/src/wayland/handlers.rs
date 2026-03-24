@@ -1,6 +1,6 @@
 use super::*;
-use halley_core::field::NodeId;
 use eventline::info;
+use halley_core::field::NodeId;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::desktop::{PopupKind, find_popup_root_surface, utils::bbox_from_surface_tree};
 use smithay::input::pointer::{MotionEvent, PointerHandle};
@@ -98,7 +98,8 @@ impl SeatHandler for HalleyWlState {
             let focused_monitor: Option<String> = focused_id.as_ref().and_then(|fid| {
                 let node_id = self.surface_to_node.get(fid).copied()?;
                 Some(
-                    self.monitor_state.node_monitor
+                    self.monitor_state
+                        .node_monitor
                         .get(&node_id)
                         .cloned()
                         .unwrap_or_else(|| self.monitor_state.current_monitor.clone()),
@@ -396,7 +397,8 @@ impl HalleyWlState {
             return;
         };
         let monitor = self
-            .monitor_state.node_monitor
+            .monitor_state
+            .node_monitor
             .get(&node_id)
             .cloned()
             .unwrap_or_else(|| self.monitor_state.current_monitor.clone());
@@ -720,4 +722,3 @@ impl DataControlHandler for HalleyWlState {
 }
 
 delegate_data_control!(HalleyWlState);
-

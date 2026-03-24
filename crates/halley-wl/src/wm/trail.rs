@@ -7,7 +7,8 @@ impl HalleyWlState {
             return;
         }
         self.focus_state.focus_trail.record(id);
-        self.focus_state.focus_trail
+        self.focus_state
+            .focus_trail
             .truncate_to(self.tuning.trail_history_length);
     }
 
@@ -33,7 +34,10 @@ impl HalleyWlState {
         self.focus_state.suppress_trail_record_once = true;
         let moved = match node.state {
             halley_core::field::NodeState::Active => {
-                let restoring_suspended_fullscreen = self.fullscreen_suspended_node.values().any(|&nid| nid == id);
+                let restoring_suspended_fullscreen = self
+                    .fullscreen_suspended_node
+                    .values()
+                    .any(|&nid| nid == id);
                 self.set_interaction_focus(Some(id), 30_000, now);
                 if restoring_suspended_fullscreen {
                     true
@@ -72,7 +76,9 @@ impl HalleyWlState {
             }
             remaining -= 1;
             let next = match direction {
-                TrailDirection::Prev if self.tuning.trail_wrap => self.focus_state.focus_trail.back_wrapping(),
+                TrailDirection::Prev if self.tuning.trail_wrap => {
+                    self.focus_state.focus_trail.back_wrapping()
+                }
                 TrailDirection::Prev => self.focus_state.focus_trail.back(),
                 TrailDirection::Next if self.tuning.trail_wrap => {
                     self.focus_state.focus_trail.forward_wrapping()

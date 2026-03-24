@@ -2,7 +2,7 @@ use std::os::unix::process::CommandExt;
 use std::process::Child;
 use std::process::Command;
 
-use eventline::{info, debug, warn};
+use eventline::{debug, info, warn};
 
 use super::input_utils::{key_matches, modifier_active, modifier_exact};
 use crate::interaction::actions::{move_latest_node_direction, toggle_focused_active_node_state};

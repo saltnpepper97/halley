@@ -201,7 +201,9 @@ impl HalleyWlState {
             .is_some_and(|nn| nn.state == halley_core::field::NodeState::Active);
         if is_active {
             if let Some(nn) = self.field.node(id) {
-                self.workspace_state.last_active_size.insert(id, nn.intrinsic_size);
+                self.workspace_state
+                    .last_active_size
+                    .insert(id, nn.intrinsic_size);
             }
             if !was_active
                 && self.active_transition_alpha(id, now) <= 0.01

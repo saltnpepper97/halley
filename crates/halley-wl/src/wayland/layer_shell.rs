@@ -1,8 +1,8 @@
 use smithay::{
     reexports::wayland_server::{
-        protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface, Resource,
+        Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
     },
-    utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER},
+    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size},
     wayland::{
         compositor::with_states,
         shell::wlr_layer::{
@@ -76,7 +76,8 @@ impl HalleyWlState {
     }
 
     fn layer_surface_monitor_name(&self, surface: &WlSurface) -> String {
-        self.monitor_state.layer_surface_monitor
+        self.monitor_state
+            .layer_surface_monitor
             .get(&surface.id())
             .cloned()
             .unwrap_or_else(|| self.monitor_state.current_monitor.clone())
@@ -90,7 +91,8 @@ impl HalleyWlState {
         namespace: String,
     ) {
         let assigned_monitor = if let Some(requested_output) = output.as_ref() {
-            self.monitor_state.outputs
+            self.monitor_state
+                .outputs
                 .iter()
                 .find_map(|(name, output)| output.owns(requested_output).then_some(name.clone()))
                 .unwrap_or_else(|| self.monitor_state.current_monitor.clone())
@@ -134,10 +136,14 @@ impl HalleyWlState {
             return;
         }
 
-        let Some(interactivity) = self.wlr_layer_shell_state.layer_surfaces().find_map(|layer| {
-            (layer.wl_surface().id() == surface.id())
-                .then_some(Self::layer_cached_state(&layer).keyboard_interactivity)
-        }) else {
+        let Some(interactivity) = self
+            .wlr_layer_shell_state
+            .layer_surfaces()
+            .find_map(|layer| {
+                (layer.wl_surface().id() == surface.id())
+                    .then_some(Self::layer_cached_state(&layer).keyboard_interactivity)
+            })
+        else {
             return;
         };
 
@@ -147,8 +153,11 @@ impl HalleyWlState {
     }
 
     pub(crate) fn remove_layer_surface(&mut self, surface: &LayerSurface) {
-        let removed_focused_layer = self.monitor_state.layer_keyboard_focus == Some(surface.wl_surface().id());
-        self.monitor_state.layer_surface_monitor.remove(&surface.wl_surface().id());
+        let removed_focused_layer =
+            self.monitor_state.layer_keyboard_focus == Some(surface.wl_surface().id());
+        self.monitor_state
+            .layer_surface_monitor
+            .remove(&surface.wl_surface().id());
         if removed_focused_layer {
             self.monitor_state.layer_keyboard_focus = None;
         }
@@ -174,7 +183,8 @@ impl HalleyWlState {
     }
 
     pub(crate) fn layer_output_size_for_monitor(&self, monitor_name: &str) -> Size<i32, Logical> {
-        self.monitor_state.monitors
+        self.monitor_state
+            .monitors
             .get(monitor_name)
             .map(|monitor| (monitor.width as i32, monitor.height as i32).into())
             .unwrap_or_else(|| {
@@ -196,7 +206,13 @@ impl HalleyWlState {
     }
 
     pub(crate) fn configure_layer_shell_surfaces(&mut self, _output_size: Size<i32, Logical>) {
-        for monitor_name in self.monitor_state.monitors.keys().cloned().collect::<Vec<_>>() {
+        for monitor_name in self
+            .monitor_state
+            .monitors
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+        {
             let output_size = self.layer_output_size_for_monitor(&monitor_name);
             let output_rect = Rectangle::from_size(output_size);
             let mut zone = output_rect;
@@ -275,16 +291,22 @@ impl HalleyWlState {
 
     fn layer_focus_surface(&self) -> Option<WlSurface> {
         let focus_id = self.monitor_state.layer_keyboard_focus.clone()?;
-        self.wlr_layer_shell_state.layer_surfaces().find_map(|layer| {
-            (layer.wl_surface().id() == focus_id).then(|| layer.wl_surface().clone())
-        })
+        self.wlr_layer_shell_state
+            .layer_surfaces()
+            .find_map(|layer| {
+                (layer.wl_surface().id() == focus_id).then(|| layer.wl_surface().clone())
+            })
     }
 
     pub(crate) fn focus_layer_surface(&mut self, surface: &WlSurface) -> bool {
-        let Some(interactivity) = self.wlr_layer_shell_state.layer_surfaces().find_map(|layer| {
-            (layer.wl_surface().id() == surface.id())
-                .then_some(Self::layer_cached_state(&layer).keyboard_interactivity)
-        }) else {
+        let Some(interactivity) = self
+            .wlr_layer_shell_state
+            .layer_surfaces()
+            .find_map(|layer| {
+                (layer.wl_surface().id() == surface.id())
+                    .then_some(Self::layer_cached_state(&layer).keyboard_interactivity)
+            })
+        else {
             return false;
         };
         self.apply_layer_surface_focus(surface, interactivity)
@@ -295,7 +317,6 @@ impl HalleyWlState {
             .layer_surfaces()
             .any(|layer| layer.wl_surface().id() == surface.id())
     }
-
 
     pub(crate) fn reassert_layer_surface_keyboard_focus_if_drifted(&mut self) {
         let Some(desired_focus) = self.layer_focus_surface() else {
@@ -313,7 +334,11 @@ impl HalleyWlState {
             .is_some_and(|focus| focus.id() == desired_focus.id());
 
         if !matches {
-            keyboard.set_focus(self, Some(desired_focus.clone()), SERIAL_COUNTER.next_serial());
+            keyboard.set_focus(
+                self,
+                Some(desired_focus.clone()),
+                SERIAL_COUNTER.next_serial(),
+            );
             self.update_selection_focus_from_surface(Some(&desired_focus));
         }
     }
@@ -414,5 +439,3 @@ fn compute_layer_placement(
 
     (origin, size)
 }
-
-
