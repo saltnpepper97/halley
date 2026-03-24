@@ -6,7 +6,7 @@ mod app_icon;
 mod cursor;
 mod cursor_theme;
 mod frame;
-mod layer_shell;
+pub mod layer_shell;
 mod node;
 mod offscreen;
 mod utils;
