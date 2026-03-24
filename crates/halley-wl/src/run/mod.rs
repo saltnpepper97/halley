@@ -19,7 +19,7 @@ pub(crate) use common::{
     RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite,
 };
-pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs};
+pub(crate) use ipc::{RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc};
 
 static XWAYLAND_REQUEST_TX: OnceCell<mpsc::Sender<()>> = OnceCell::new();
 
@@ -173,6 +173,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     // default signal sent by `pkill`/`kill`) triggers a clean shutdown.
     // This lets Drop run, which kills all spawned child process groups.
     // Note: SIGKILL (-9) cannot be caught — use plain `pkill` for clean exit.
+    SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
     unsafe {
         let handler = handle_shutdown_signal as *const () as libc::sighandler_t;
         libc::signal(libc::SIGTERM, handler);
@@ -181,14 +182,17 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
     init_ipc()?;
 
-    match RuntimeBackend::from_env()? {
+    let result = match RuntimeBackend::from_env()? {
         RuntimeBackend::Auto => match auto_backend() {
             RuntimeBackend::Tty => run_tty(),
             RuntimeBackend::Winit | RuntimeBackend::Auto => run_winit(),
         },
         RuntimeBackend::Winit => run_winit(),
         RuntimeBackend::Tty => run_tty(),
-    }
+    };
+
+    shutdown_ipc();
+    result
 }
 
 pub fn run_winit() -> Result<(), Box<dyn Error>> {
@@ -298,3 +302,4 @@ fn expand_user_path(raw: &str) -> PathBuf {
     }
     PathBuf::from(raw)
 }
+

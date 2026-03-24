@@ -335,11 +335,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     config_path.as_str()
                 );
             }
-            info!("runtime tuning: {:?}", tuning);
             info!("config path: {}", config_path.as_str());
             info!("keybind modifier: {}", tuning.keybinds.modifier_name());
             info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
-            info!("physics enabled: {}", tuning.physics_enabled);
 
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();

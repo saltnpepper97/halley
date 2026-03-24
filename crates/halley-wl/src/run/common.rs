@@ -18,7 +18,7 @@ use std::process::Child;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use eventline::{info, warn};
+use eventline::{debug, info, warn};
 use rustix::net::{
     AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
 };
@@ -134,6 +134,67 @@ pub(crate) fn ensure_dbus_session_bus_address() {
     unsafe { env::set_var("DBUS_SESSION_BUS_ADDRESS", addr) };
 }
 
+fn terminate_child_with_timeout(child: &mut Child, label: &str, timeout: Duration) {
+    let pid = child.id();
+    debug!("terminating {} pid={}", label, pid);
+    let _ = child.kill();
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                debug!("{} pid={} exited with {}", label, pid, status);
+                break;
+            }
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(None) => {
+                warn!("{} pid={} did not exit within {:?}; waiting after kill", label, pid, timeout);
+                let _ = child.wait();
+                break;
+            }
+            Err(err) => {
+                warn!("failed to reap {} pid={}: {}", label, pid, err);
+                break;
+            }
+        }
+    }
+}
+
+fn terminate_process_group_with_timeout(child: &mut Child, label: &str, timeout: Duration) {
+    let pid = child.id() as i32;
+    debug!("terminating {} process group pgid={}", label, pid);
+    unsafe {
+        let _ = libc::kill(-pid, libc::SIGTERM);
+    }
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                debug!("{} pgid={} exited with {}", label, pid, status);
+                break;
+            }
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(None) => {
+                warn!("{} pgid={} ignored SIGTERM for {:?}; sending SIGKILL", label, pid, timeout);
+                unsafe {
+                    let _ = libc::kill(-pid, libc::SIGKILL);
+                }
+                let _ = child.wait();
+                break;
+            }
+            Err(err) => {
+                warn!("failed to reap {} pgid={}: {}", label, pid, err);
+                break;
+            }
+        }
+    }
+}
+
 pub(crate) struct HostBackendGuard {
     child: Option<Child>,
 }
@@ -141,8 +202,7 @@ pub(crate) struct HostBackendGuard {
 impl Drop for HostBackendGuard {
     fn drop(&mut self) {
         if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
+            terminate_child_with_timeout(child, "host backend", Duration::from_millis(500));
         }
     }
 }
@@ -454,11 +514,11 @@ impl XwaylandSatellite {
 impl Drop for XwaylandSatellite {
     fn drop(&mut self) {
         if let Some(child) = self.child.as_mut() {
-            let pgid = child.id() as i32;
-            unsafe {
-                libc::kill(-pgid, libc::SIGTERM);
-            }
-            let _ = child.wait();
+            terminate_process_group_with_timeout(
+                child,
+                "xwayland-satellite",
+                Duration::from_millis(1200),
+            );
         }
     }
 }
@@ -695,3 +755,4 @@ fn runtime_dir_is_usable(path: &Path) -> bool {
         .and_then(|_| fs::remove_file(path.join(".halley-runtime-check")))
         .is_ok()
 }
+

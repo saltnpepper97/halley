@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use once_cell::sync::OnceCell;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use eventline::{error, info, warn};
 use halley_ipc::{
@@ -25,6 +27,8 @@ pub enum RuntimeIpcCommand {
 
 static IPC_COMMAND_RX: OnceCell<Mutex<mpsc::Receiver<RuntimeIpcCommand>>> = OnceCell::new();
 static IPC_OUTPUTS: OnceCell<Arc<Mutex<Vec<OutputInfo>>>> = OnceCell::new();
+static IPC_SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+static IPC_SOCKET_PATH: OnceCell<std::path::PathBuf> = OnceCell::new();
 
 pub fn init_ipc() -> io::Result<()> {
     if IPC_COMMAND_RX.get().is_some() {
@@ -35,6 +39,7 @@ pub fn init_ipc() -> io::Result<()> {
     remove_stale_socket(&socket_path)?;
 
     let listener = UnixListener::bind(&socket_path)?;
+    listener.set_nonblocking(true)?;
     let (command_tx, command_rx) = mpsc::channel::<RuntimeIpcCommand>();
     let outputs = Arc::new(Mutex::new(Vec::<OutputInfo>::new()));
 
@@ -52,17 +57,27 @@ pub fn init_ipc() -> io::Result<()> {
         )
     })?;
 
+    let _ = IPC_SOCKET_PATH.set(socket_path.clone());
+    IPC_SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
+
     thread::Builder::new()
         .name("halley-ipc".to_string())
         .spawn(move || {
             info!("halley ipc listening on {}", socket_path.display());
 
-            for stream in listener.incoming() {
-                match stream {
-                    Ok(mut stream) => {
+            loop {
+                if IPC_SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                match listener.accept() {
+                    Ok((mut stream, _addr)) => {
                         if let Err(err) = handle_client(&mut stream, &command_tx, &outputs) {
                             warn!("halley ipc client failed: {}", err);
                         }
+                    }
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(50));
                     }
                     Err(err) => {
                         error!("halley ipc accept failed: {}", err);
@@ -72,6 +87,7 @@ pub fn init_ipc() -> io::Result<()> {
             }
 
             let _ = fs::remove_file(&socket_path);
+            info!("halley ipc listener stopped");
         })?;
 
     Ok(())
@@ -174,3 +190,12 @@ fn remove_stale_socket(path: &Path) -> io::Result<()> {
         Err(err) => Err(err),
     }
 }
+
+
+pub fn shutdown_ipc() {
+    IPC_SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+    if let Some(path) = IPC_SOCKET_PATH.get() {
+        let _ = fs::remove_file(path);
+    }
+}
+
