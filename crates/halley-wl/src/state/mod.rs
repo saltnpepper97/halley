@@ -43,20 +43,20 @@ use crate::backend::interface::DmabufImportBackend;
 use crate::state::focus::FocusState;
 use crate::state::interaction::InteractionState;
 use crate::state::monitor::{MonitorSpace, MonitorState};
-use crate::state::render_state::RenderState;
+use crate::state::render::RenderState;
 use crate::state::workspace::WorkspaceState;
 
 mod client;
 mod focus;
 mod interaction;
 mod monitor;
-mod render_state;
-mod runtime_state;
+mod render;
+mod runtime;
 mod workspace;
 
 pub use client::ClientState;
 pub(crate) use interaction::ViewportPanAnim;
-pub(crate) use render_state::{NodeAppIconCacheEntry, NodeAppIconTexture};
+pub(crate) use render::{NodeAppIconCacheEntry, NodeAppIconTexture};
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
