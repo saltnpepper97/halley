@@ -28,7 +28,7 @@ const NODE_SQUIRCLE_SHADER: &str =
     include_str!("shaders/node_squircle_shader.frag");
 
 const NODE_LABEL_SHADER: &str =
-    include_str!("shaders/node_label_shader.frag");
+    include_str!("shaders/node_label_rounded_shader.frag");
 
 // ---------------------------------------------------------------------------
 // Types

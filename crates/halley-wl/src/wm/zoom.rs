@@ -6,11 +6,6 @@ impl HalleyWlState {
     const CAMERA_SMOOTH_ZOOM_RATE: f32 = 12.5;
 
     #[inline]
-    fn fullscreen_zoom_locked(&self) -> bool {
-        false
-    }
-
-    #[inline]
     pub(crate) fn camera_view_size(&self) -> Vec2 {
         self.zoom_ref_size
     }

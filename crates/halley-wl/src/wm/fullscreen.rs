@@ -194,11 +194,6 @@ impl HalleyWlState {
             .find_map(|(monitor, &id)| (id == node_id).then_some(monitor.as_str()))
     }
 
-    /// True if any monitor has an active fullscreen right now.
-    pub(crate) fn any_fullscreen_active(&self) -> bool {
-        !self.fullscreen_active_node.is_empty()
-    }
-
     /// True if `node_id` is the active fullscreen on any monitor.
     pub(crate) fn is_fullscreen_active(&self, node_id: NodeId) -> bool {
         self.fullscreen_monitor_for_node(node_id).is_some()
