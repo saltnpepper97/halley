@@ -33,7 +33,6 @@ pub(crate) struct MonitorState {
     pub(crate) node_monitor: HashMap<NodeId, String>,
     pub(crate) layer_surface_monitor: HashMap<ObjectId, String>,
     pub(crate) layer_keyboard_focus: Option<ObjectId>,
-    pub(crate) monitor_focus: HashMap<String, NodeId>,
 }
 
 fn preferred_monitor_name(monitors: &HashMap<String, MonitorSpace>) -> Option<String> {
@@ -261,19 +260,6 @@ impl HalleyWlState {
             Some(location),
         );
     }
-    #[allow(dead_code)]
-    pub(crate) fn focused_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        self.monitor_state.monitor_focus.get(monitor).copied()
-    }
 
-    #[allow(dead_code)]
-    pub(crate) fn focused_monitor_for_node(&self, id: NodeId) -> Option<String> {
-        self.monitor_state.node_monitor.get(&id).cloned()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_monitor_focus(&mut self, monitor: &str, id: NodeId) {
-        self.monitor_state.monitor_focus.insert(monitor.to_string(), id);
-    }
 
 }

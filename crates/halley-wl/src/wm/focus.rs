@@ -116,7 +116,7 @@ impl HalleyWlState {
             let activated = node_id.is_some_and(|nid| {
                 self.monitor_state.node_monitor
                     .get(&nid)
-                    .and_then(|monitor| self.monitor_state.monitor_focus.get(monitor))
+                    .and_then(|monitor| self.focus_state.monitor_focus.get(monitor))
                     .copied()
                     == Some(nid)
                     || Some(nid) == focus_id
@@ -175,9 +175,9 @@ impl HalleyWlState {
             return;
         }
 
-        self.last_surface_focus_ms.insert(fid, now_ms);
-        if self.suppress_trail_record_once {
-            self.suppress_trail_record_once = false;
+        self.focus_state.last_surface_focus_ms.insert(fid, now_ms);
+        if self.focus_state.suppress_trail_record_once {
+            self.focus_state.suppress_trail_record_once = false;
         } else {
             self.record_focus_trail_visit(fid);
         }
@@ -186,7 +186,7 @@ impl HalleyWlState {
             let _ = self.field.touch(fid, now_ms);
             let _ = self.field.set_decay_level(fid, DecayLevel::Hot);
             if self.tuning.restore_last_active_on_pan_return {
-                self.pan_restore_active_focus = Some(fid);
+                self.focus_state.pan_restore_active_focus = Some(fid);
             }
         }
     }
@@ -198,9 +198,9 @@ impl HalleyWlState {
         self.spawn_last_pan_ms = now_ms;
         self.spawn_pan_start_center
             .get_or_insert(self.viewport.center);
-        if self.tuning.restore_last_active_on_pan_return && self.pan_restore_active_focus.is_none()
+        if self.tuning.restore_last_active_on_pan_return && self.focus_state.pan_restore_active_focus.is_none()
         {
-            self.pan_restore_active_focus = self.last_focused_active_surface_node();
+            self.focus_state.pan_restore_active_focus = self.last_focused_active_surface_node();
         }
         self.suspend_overlap_resolve = false;
         self.suspend_state_checks = false;
@@ -247,12 +247,12 @@ impl HalleyWlState {
         self.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
         self.spawn_view_anchor = self.viewport.center;
         self.spawn_patch = None;
-        self.pan_restore_active_focus = None;
+        self.focus_state.pan_restore_active_focus = None;
         self.spawn_pan_start_center = Some(self.viewport.center);
     }
 
     pub fn set_pan_restore_focus_target(&mut self, id: NodeId) {
-        self.pan_restore_active_focus = Some(id);
+        self.focus_state.pan_restore_active_focus = Some(id);
     }
 
     pub fn animate_viewport_center_to(&mut self, target_center: Vec2, now: Instant) -> bool {
@@ -311,7 +311,7 @@ impl HalleyWlState {
     }
 
     fn last_focused_active_surface_node(&self) -> Option<NodeId> {
-        if let Some(id) = self.primary_interaction_focus
+        if let Some(id) = self.focus_state.primary_interaction_focus
             && self.field.node(id).is_some_and(|n| {
                 self.field.is_visible(id)
                     && n.kind == halley_core::field::NodeKind::Surface
@@ -320,7 +320,7 @@ impl HalleyWlState {
         {
             return Some(id);
         }
-        self.last_surface_focus_ms
+        self.focus_state.last_surface_focus_ms
             .iter()
             .filter_map(|(&id, &at)| {
                 self.field.node(id).and_then(|n| {
@@ -336,27 +336,27 @@ impl HalleyWlState {
 
     pub(crate) fn restore_pan_return_active_focus(&mut self, now: Instant) {
         if !self.tuning.restore_last_active_on_pan_return {
-            self.pan_restore_active_focus = None;
+            self.focus_state.pan_restore_active_focus = None;
             return;
         }
-        let Some(id) = self.pan_restore_active_focus else {
+        let Some(id) = self.focus_state.pan_restore_active_focus else {
             return;
         };
         let Some(n) = self.field.node(id) else {
-            self.pan_restore_active_focus = None;
+            self.focus_state.pan_restore_active_focus = None;
             return;
         };
         if !self.field.is_visible(id) || n.kind != halley_core::field::NodeKind::Surface {
-            self.pan_restore_active_focus = None;
+            self.focus_state.pan_restore_active_focus = None;
             return;
         }
         if n.state == halley_core::field::NodeState::Active {
-            self.pan_restore_active_focus = None;
+            self.focus_state.pan_restore_active_focus = None;
             return;
         }
 
         if self.preserve_collapsed_surface(id) {
-            self.pan_restore_active_focus = None;
+            self.focus_state.pan_restore_active_focus = None;
             return;
         }
 
@@ -369,7 +369,7 @@ impl HalleyWlState {
         self.mark_active_transition(id, now, 280);
 
         self.set_interaction_focus(Some(id), 12_000, now);
-        self.pan_restore_active_focus = None;
+        self.focus_state.pan_restore_active_focus = None;
     }
 
     pub fn begin_resize_interaction(&mut self, id: NodeId, now: Instant) {
@@ -416,43 +416,43 @@ impl HalleyWlState {
     }
 
     pub fn set_interaction_focus(&mut self, id: Option<NodeId>, hold_ms: u64, now: Instant) {
-        let prev = self.primary_interaction_focus;
+        let prev = self.focus_state.primary_interaction_focus;
         let now_ms = self.now_ms(now);
 
         if prev == id {
             if let Some(fid) = id {
                 let requested_until = now_ms.saturating_add(hold_ms.max(1));
-                self.interaction_focus_until_ms =
-                    self.interaction_focus_until_ms.max(requested_until);
+                self.focus_state.interaction_focus_until_ms =
+                    self.focus_state.interaction_focus_until_ms.max(requested_until);
                 self.update_focus_tracking_for_surface(fid, now_ms);
                 self.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
                 self.spawn_pan_start_center = None;
 
                 if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
-                    self.monitor_state.monitor_focus.insert(monitor, fid);
+                    self.focus_state.monitor_focus.insert(monitor, fid);
                 }
 
                 self.reassert_wayland_keyboard_focus_if_drifted(id);
             } else {
-                self.interaction_focus_until_ms = 0;
+                self.focus_state.interaction_focus_until_ms = 0;
                 self.reassert_wayland_keyboard_focus_if_drifted(None);
             }
             self.request_maintenance();
             return;
         }
 
-        self.primary_interaction_focus = id;
+        self.focus_state.primary_interaction_focus = id;
         if let Some(fid) = id {
-            self.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
+            self.focus_state.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
             self.update_focus_tracking_for_surface(fid, now_ms);
             self.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
             self.spawn_pan_start_center = None;
 
             if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
-                self.monitor_state.monitor_focus.insert(monitor, fid);
+                self.focus_state.monitor_focus.insert(monitor, fid);
             }
         } else {
-            self.interaction_focus_until_ms = 0;
+            self.focus_state.interaction_focus_until_ms = 0;
         }
 
         if prev != id {
@@ -468,7 +468,7 @@ impl HalleyWlState {
     }
 
     pub fn last_focused_surface_node(&self) -> Option<NodeId> {
-        if let Some(id) = self.primary_interaction_focus {
+        if let Some(id) = self.focus_state.primary_interaction_focus {
             let valid = self.field.node(id).is_some_and(|n| {
                 self.field.is_visible(id)
                     && n.kind == halley_core::field::NodeKind::Surface
@@ -481,7 +481,7 @@ impl HalleyWlState {
                 return Some(id);
             }
         }
-        self.last_surface_focus_ms
+        self.focus_state.last_surface_focus_ms
             .iter()
             .filter_map(|(&id, &at)| {
                 self.field.node(id).and_then(|n| {
@@ -500,7 +500,7 @@ impl HalleyWlState {
     }
 
     pub fn last_input_surface_node(&self) -> Option<NodeId> {
-        if let Some(id) = self.primary_interaction_focus {
+        if let Some(id) = self.focus_state.primary_interaction_focus {
             let valid = self.field.node(id).is_some_and(|n| {
                 self.field.is_visible(id) && n.kind == halley_core::field::NodeKind::Surface
             });
@@ -508,7 +508,7 @@ impl HalleyWlState {
                 return Some(id);
             }
         }
-        self.last_surface_focus_ms
+        self.focus_state.last_surface_focus_ms
             .iter()
             .filter_map(|(&id, &at)| {
                 self.field.node(id).and_then(|n| {
@@ -534,7 +534,7 @@ impl HalleyWlState {
                 self.manual_collapsed_nodes.insert(id);
 
                 self.set_interaction_focus(None, 0, now);
-                self.pan_restore_active_focus = None;
+                self.focus_state.pan_restore_active_focus = None;
                 self.request_maintenance();
                 Some(id)
             }

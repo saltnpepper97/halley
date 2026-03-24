@@ -261,8 +261,8 @@ impl HalleyWlState {
         self.surface_activity.remove(&key);
         if let Some(id) = self.surface_to_node.remove(&key) {
             self.drop_fullscreen_surface(id, Instant::now());
-            if self.pan_restore_active_focus == Some(id) {
-                self.pan_restore_active_focus = None;
+            if self.focus_state.pan_restore_active_focus == Some(id) {
+                self.focus_state.pan_restore_active_focus = None;
             }
             self.zoom_nominal_size.remove(&id);
             self.zoom_resize_fallback.remove(&id);
@@ -270,14 +270,14 @@ impl HalleyWlState {
             self.zoom_last_observed_size.remove(&id);
             self.zoom_resize_static_streak.remove(&id);
             self.node_app_ids.remove(&id);
-            self.focus_trail.forget_node(id);
+            self.focus_state.focus_trail.forget_node(id);
             self.last_active_size.remove(&id);
             self.bbox_loc.remove(&id);
             self.window_geometry.remove(&id);
             self.pending_spawn_activate_at_ms.remove(&id);
             self.active_transition_until_ms.remove(&id);
             self.primary_promote_cooldown_until_ms.remove(&id);
-            self.last_surface_focus_ms.remove(&id);
+            self.focus_state.last_surface_focus_ms.remove(&id);
             self.monitor_state.node_monitor.remove(&id);
             self.carry_zone_hint.remove(&id);
             self.carry_zone_last_change_ms.remove(&id);
@@ -292,11 +292,11 @@ impl HalleyWlState {
                 self.resize_static_lock_pos = None;
                 self.resize_static_until_ms = 0;
             }
-            if self.primary_interaction_focus == Some(id) {
-                self.primary_interaction_focus = None;
-                self.interaction_focus_until_ms = 0;
+            if self.focus_state.primary_interaction_focus == Some(id) {
+                self.focus_state.primary_interaction_focus = None;
+                self.focus_state.interaction_focus_until_ms = 0;
             }
-            self.suppress_trail_record_once = false;
+            self.focus_state.suppress_trail_record_once = false;
             self.smoothed_render_pos.remove(&id);
             self.clear_window_offscreen_cache_for(id);
             let _ = self.field.remove(id);

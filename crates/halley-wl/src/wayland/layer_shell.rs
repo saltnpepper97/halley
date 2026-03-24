@@ -33,8 +33,8 @@ impl HalleyWlState {
             return false;
         }
 
-        self.primary_interaction_focus = None;
-        self.interaction_focus_until_ms = 0;
+        self.focus_state.primary_interaction_focus = None;
+        self.focus_state.interaction_focus_until_ms = 0;
         self.monitor_state.layer_keyboard_focus = Some(surface.id());
         if self
             .active_locked_pointer_surface()

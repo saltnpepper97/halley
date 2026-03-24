@@ -117,7 +117,7 @@ impl HalleyWlState {
                 .find(|&id| {
                     let monitor = self.monitor_state.node_monitor.get(&id);
                     monitor
-                        .and_then(|m| self.monitor_state.monitor_focus.get(m))
+                        .and_then(|m| self.focus_state.monitor_focus.get(m))
                         .copied()
                         == Some(id)
                 })
@@ -125,7 +125,7 @@ impl HalleyWlState {
                     active_ids
                         .iter()
                         .copied()
-                        .max_by_key(|id| self.last_surface_focus_ms.get(id).copied().unwrap_or(0))
+                        .max_by_key(|id| self.focus_state.last_surface_focus_ms.get(id).copied().unwrap_or(0))
                 });
 
             if let Some(fid) = focused_breakout {
@@ -139,14 +139,14 @@ impl HalleyWlState {
                     let focus_rank = u8::from({
                         let monitor = self.monitor_state.node_monitor.get(id);
                         monitor
-                            .and_then(|m| self.monitor_state.monitor_focus.get(m))
+                            .and_then(|m| self.focus_state.monitor_focus.get(m))
                             .copied()
                             == Some(*id)
                     });
                     let companion_rank = u8::from(companion == Some(*id));
                     let inside_rank =
                         u8::from(!self.surface_is_definitively_outside_focus_ring(*id));
-                    let latest_focus = self.last_surface_focus_ms.get(id).copied().unwrap_or(0);
+                    let latest_focus = self.focus_state.last_surface_focus_ms.get(id).copied().unwrap_or(0);
                     (
                         preferred_rank,
                         focus_rank,
@@ -201,7 +201,7 @@ impl HalleyWlState {
             }
             self.mark_active_transition(id, now, 620);
             self.record_focus_trail_visit(id);
-            self.suppress_trail_record_once = true;
+            self.focus_state.suppress_trail_record_once = true;
             self.set_interaction_focus(Some(id), 30_000, now);
         }
     }
@@ -305,7 +305,7 @@ impl HalleyWlState {
             return;
         }
 
-        let is_primary = self.primary_interaction_focus == Some(id);
+        let is_primary = self.focus_state.primary_interaction_focus == Some(id);
         let delay_ms = if is_primary {
             active_delay_ms
         } else {
@@ -328,7 +328,7 @@ impl HalleyWlState {
     }
 
     fn is_hard_decay_protected(&self, id: NodeId, now_ms: u64) -> bool {
-        self.primary_interaction_focus == Some(id)
+        self.focus_state.primary_interaction_focus == Some(id)
             || self.resize_active == Some(id)
             || self.is_recently_resized_node(id, now_ms)
             || self.carry_zone_hint.contains_key(&id)
@@ -391,8 +391,8 @@ impl HalleyWlState {
         for key in stale {
             self.surface_activity.remove(&key);
             if let Some(id) = self.surface_to_node.remove(&key) {
-                if self.pan_restore_active_focus == Some(id) {
-                    self.pan_restore_active_focus = None;
+                if self.focus_state.pan_restore_active_focus == Some(id) {
+                    self.focus_state.pan_restore_active_focus = None;
                 }
                 self.manual_collapsed_nodes.remove(&id);
                 self.zoom_nominal_size.remove(&id);
@@ -407,7 +407,7 @@ impl HalleyWlState {
                 self.pending_spawn_activate_at_ms.remove(&id);
                 self.active_transition_until_ms.remove(&id);
                 self.primary_promote_cooldown_until_ms.remove(&id);
-                self.last_surface_focus_ms.remove(&id);
+                self.focus_state.last_surface_focus_ms.remove(&id);
                 self.dock_decay_offscreen_since_ms.remove(&id);
                 self.carry_zone_hint.remove(&id);
                 self.carry_zone_last_change_ms.remove(&id);
@@ -423,18 +423,18 @@ impl HalleyWlState {
                     self.resize_static_lock_pos = None;
                     self.resize_static_until_ms = 0;
                 }
-                if self.primary_interaction_focus == Some(id) {
-                    self.primary_interaction_focus = None;
-                    self.interaction_focus_until_ms = 0;
+                if self.focus_state.primary_interaction_focus == Some(id) {
+                    self.focus_state.primary_interaction_focus = None;
+                    self.focus_state.interaction_focus_until_ms = 0;
                 }
                 let stale_monitors: Vec<String> = self
-                    .monitor_state.monitor_focus
+                    .focus_state.monitor_focus
                     .iter()
                     .filter_map(|(monitor, &focused)| (focused == id).then_some(monitor.clone()))
                     .collect();
 
                 for monitor in stale_monitors {
-                    self.monitor_state.monitor_focus.remove(&monitor);
+                    self.focus_state.monitor_focus.remove(&monitor);
                 }
                 self.smoothed_render_pos.remove(&id);
                 let _ = self.field.remove(id);

@@ -44,10 +44,12 @@ use smithay::{
 use crate::activity::CommitActivity;
 use crate::animation::{AnimSpec, Animator};
 use crate::backend::interface::DmabufImportBackend;
+use crate::state::focus::FocusState;
 use crate::state::monitor::{MonitorState, MonitorSpace};
 use crate::wm::ViewportPanAnim;
 
 mod client;
+mod focus;
 mod monitor;
 mod render_state;
 mod runtime_state;
@@ -205,6 +207,7 @@ pub struct HalleyWlState {
     pub seat: Seat<Self>,
 
     pub(crate) monitor_state: MonitorState,
+    pub(crate) focus_state: FocusState,
 
     pub field: Field,
     pub viewport: Viewport,
@@ -229,13 +232,6 @@ pub struct HalleyWlState {
     pub(crate) zoom_last_observed_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_static_streak: HashMap<NodeId, u8>,
     pub animator: Animator,
-    pub(crate) primary_interaction_focus: Option<NodeId>,
-    pub(crate) interaction_focus_until_ms: u64,
-    pub(crate) last_surface_focus_ms: HashMap<NodeId, u64>,
-    pub(crate) focus_trail: Trail,
-    pub(crate) suppress_trail_record_once: bool,
-    pub pan_restore_active_focus: Option<NodeId>,
-    pub(crate) app_focused: bool,
     pub(crate) cluster_form_state: ClusterFormationState,
     pub(crate) active_cluster_workspace: Option<ClusterId>,
     pub(crate) workspace_hidden_nodes: Vec<NodeId>,
@@ -275,12 +271,10 @@ pub struct HalleyWlState {
     pub(crate) viewport_pan_anim: Option<ViewportPanAnim>,
     pub(crate) pan_dominant_until_ms: u64,
     pub(crate) exit_requested: bool,
-    pub(crate) focus_ring_preview_until_ms: HashMap<String, u64>,
 
     pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
     pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
-    pub(crate) recent_top_node: Option<NodeId>,
-    pub(crate) recent_top_until: Option<Instant>,
+
     pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
@@ -445,8 +439,21 @@ impl HalleyWlState {
                 node_monitor: HashMap::new(),
                 layer_surface_monitor: HashMap::new(),
                 layer_keyboard_focus: None,
+            },
+
+            focus_state: FocusState {
+                interaction_focus_until_ms: 0,
+                last_surface_focus_ms: HashMap::new(),
+                focus_trail: Trail::new(),
+                suppress_trail_record_once: false,
+                pan_restore_active_focus: None,
+                app_focused: true,
                 monitor_focus: HashMap::new(),
-            },          
+                primary_interaction_focus: None,
+                focus_ring_preview_until_ms: HashMap::new(),
+                recent_top_node: None,
+                recent_top_until: None,
+            },
 
             field: Field::new(),
             viewport: primary_viewport,
@@ -471,13 +478,7 @@ impl HalleyWlState {
             zoom_last_observed_size: HashMap::new(),
             zoom_resize_static_streak: HashMap::new(),
             animator: Animator::new(now),
-            primary_interaction_focus: None,
-            interaction_focus_until_ms: 0,
-            last_surface_focus_ms: HashMap::new(),
-            focus_trail: Trail::new(),
-            suppress_trail_record_once: false,
-            pan_restore_active_focus: None,
-            app_focused: true,
+
             cluster_form_state: ClusterFormationState::default(),
             active_cluster_workspace: None,
             workspace_hidden_nodes: Vec::new(),
@@ -512,12 +513,9 @@ impl HalleyWlState {
             viewport_pan_anim: None,
             pan_dominant_until_ms: 0,
             exit_requested: false,
-            focus_ring_preview_until_ms: HashMap::new(),
 
             bbox_loc: HashMap::new(),
             window_geometry: HashMap::new(),
-            recent_top_node: None,
-            recent_top_until: None,
             window_offscreen_cache: HashMap::new(),
             node_circle_texture: None,
             node_squircle_program: None,
@@ -603,21 +601,6 @@ impl HalleyWlState {
         self.configure_dmabuf_importer(importer, main_device);
     }
 
-
-    pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
-        self.recent_top_node = Some(node_id);
-        self.recent_top_until = Some(until);
-    }
-
-    pub fn recent_top_node_active(&mut self, now: Instant) -> Option<NodeId> {
-        if self.recent_top_until.is_some_and(|until| now >= until) {
-            self.recent_top_node = None;
-            self.recent_top_until = None;
-            return None;
-        }
-        self.recent_top_node
-    }
-
     pub(crate) fn ensure_window_offscreen_cache(
         &mut self,
         node_id: NodeId,
@@ -687,7 +670,7 @@ impl HalleyWlState {
     }
 
     pub fn next_maintenance_deadline(&self, now: Instant) -> Option<Instant> {
-        if !self.app_focused {
+        if !self.focus_state.app_focused {
             return None;
         }
 
@@ -697,8 +680,8 @@ impl HalleyWlState {
             next_ms = Some(next_ms.map_or(at_ms, |cur| cur.min(at_ms)));
         };
 
-        if self.primary_interaction_focus.is_some() && self.interaction_focus_until_ms > now_ms {
-            consider(self.interaction_focus_until_ms);
+        if self.focus_state.primary_interaction_focus.is_some() && self.focus_state.interaction_focus_until_ms > now_ms {
+            consider(self.focus_state.interaction_focus_until_ms);
         }
         if self.resize_static_node.is_some() && self.resize_static_until_ms > now_ms {
             consider(self.resize_static_until_ms);
@@ -753,7 +736,7 @@ impl HalleyWlState {
     #[inline]
     pub fn run_maintenance(&mut self, now: Instant) {
         self.maintenance_dirty = false;
-        if !self.app_focused {
+        if !self.focus_state.app_focused {
             return;
         }
         self.reconcile_surface_bindings();
@@ -764,19 +747,19 @@ impl HalleyWlState {
             self.animator.observe_field(&self.field, now);
             return;
         }
-        if let Some(fid) = self.primary_interaction_focus
-            && now_ms >= self.interaction_focus_until_ms
+        if let Some(fid) = self.focus_state.primary_interaction_focus
+            && now_ms >= self.focus_state.interaction_focus_until_ms
         {
             let keep = self.field.node(fid).is_some_and(|n| {
                 self.field.is_visible(fid) && n.kind == halley_core::field::NodeKind::Surface
             });
             if keep {
-                self.interaction_focus_until_ms = now_ms.saturating_add(30_000);
+                self.focus_state.interaction_focus_until_ms = now_ms.saturating_add(30_000);
             } else {
                 self.set_interaction_focus(None, 0, now);
             }
         }
-        if self.primary_interaction_focus.is_none() && self.monitor_state.layer_keyboard_focus.is_some() {
+        if self.focus_state.primary_interaction_focus.is_none() && self.monitor_state.layer_keyboard_focus.is_some() {
             self.reassert_layer_surface_keyboard_focus_if_drifted();
         }
         self.active_transition_until_ms
@@ -794,7 +777,7 @@ impl HalleyWlState {
         self.carry_activation_anim_armed
             .retain(|id| alive_ids.contains(id));
         self.carry_state_hold.retain(|id, _| alive_ids.contains(id));
-        self.last_surface_focus_ms
+        self.focus_state.last_surface_focus_ms
             .retain(|id, _| alive_ids.contains(id));
         self.manual_collapsed_nodes
             .retain(|id| alive_ids.contains(id));

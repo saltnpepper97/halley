@@ -280,7 +280,7 @@ impl HalleyWlState {
         }
         self.mark_active_transition(active.node_id, now, 620);
         self.record_focus_trail_visit(active.node_id);
-        self.suppress_trail_record_once = true;
+        self.focus_state.suppress_trail_record_once = true;
         self.set_interaction_focus(Some(active.node_id), 30_000, now);
         self.active_spawn_pan = None;
         self.maybe_start_pending_spawn_pan(now);
@@ -294,7 +294,7 @@ impl HalleyWlState {
     ) {
         if is_transient {
             self.record_focus_trail_visit(id);
-            self.suppress_trail_record_once = true;
+            self.focus_state.suppress_trail_record_once = true;
             self.set_interaction_focus(Some(id), 30_000, now);
             self.pending_spawn_activate_at_ms.remove(&id);
             self.mark_active_transition(id, now, 620);
@@ -316,7 +316,7 @@ impl HalleyWlState {
         if fully_visible_in_view || !self.tuning.pan_to_new {
             self.mark_active_transition(id, now, 620);
             self.record_focus_trail_visit(id);
-            self.suppress_trail_record_once = true;
+            self.focus_state.suppress_trail_record_once = true;
             self.set_interaction_focus(Some(id), 30_000, now);
         } else {
             self.queue_spawn_pan_to_node(id, now);
@@ -384,8 +384,8 @@ mod tests {
         let _ = state
             .field
             .set_state(first, halley_core::field::NodeState::Active);
-        state.last_surface_focus_ms.insert(first, 1);
-        state.primary_interaction_focus = Some(first);
+        state.focus_state.last_surface_focus_ms.insert(first, 1);
+        state.focus_state.primary_interaction_focus = Some(first);
         state.update_spawn_patch(
             Vec2 { x: 0.0, y: 0.0 },
             Some(first),
@@ -414,8 +414,8 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 100.0, y: 80.0 },
         );
-        state.last_surface_focus_ms.insert(focused, 1);
-        state.primary_interaction_focus = Some(focused);
+        state.focus_state.last_surface_focus_ms.insert(focused, 1);
+        state.focus_state.primary_interaction_focus = Some(focused);
 
         assert_eq!(
             state.current_spawn_focus(),
@@ -441,8 +441,8 @@ mod tests {
         let _ = state
             .field
             .set_state(focused, halley_core::field::NodeState::Active);
-        state.last_surface_focus_ms.insert(focused, 1);
-        state.primary_interaction_focus = Some(focused);
+        state.focus_state.last_surface_focus_ms.insert(focused, 1);
+        state.focus_state.primary_interaction_focus = Some(focused);
         state.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
         state.spawn_view_anchor = state.viewport.center;
 
@@ -469,8 +469,8 @@ mod tests {
         let _ = state
             .field
             .set_state(focused, halley_core::field::NodeState::Active);
-        state.last_surface_focus_ms.insert(focused, 1);
-        state.primary_interaction_focus = Some(focused);
+        state.focus_state.last_surface_focus_ms.insert(focused, 1);
+        state.focus_state.primary_interaction_focus = Some(focused);
         state.update_spawn_patch(
             Vec2 { x: 0.0, y: 0.0 },
             Some(focused),
@@ -538,7 +538,7 @@ mod tests {
         assert!(state.active_spawn_pan.is_none());
         assert!(state.pending_spawn_pan_queue.is_empty());
         assert!(state.viewport_pan_anim.is_none());
-        assert_eq!(state.primary_interaction_focus, Some(id));
+        assert_eq!(state.focus_state.primary_interaction_focus, Some(id));
     }
 
     #[test]

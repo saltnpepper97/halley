@@ -20,8 +20,8 @@ impl HalleyWlState {
     }
 
     pub(crate) fn companion_surface_node(&self, now_ms: u64) -> Option<NodeId> {
-        let focused = self.primary_interaction_focus;
-        self.last_surface_focus_ms
+        let focused = self.focus_state.primary_interaction_focus;
+        self.focus_state.last_surface_focus_ms
             .iter()
             .filter_map(|(&id, &at)| {
                 if Some(id) == focused {
@@ -40,7 +40,7 @@ impl HalleyWlState {
     }
 
     pub(crate) fn is_recently_interacted_surface(&self, id: NodeId, now_ms: u64) -> bool {
-        self.last_surface_focus_ms
+        self.focus_state.last_surface_focus_ms
             .get(&id)
             .is_some_and(|&at| now_ms.saturating_sub(at) <= Self::RECENT_INTERACTION_PROTECT_MS)
     }
@@ -142,7 +142,7 @@ impl HalleyWlState {
             if self.tuning.focus_ring_for_output(output_name.as_str())
                 != tuning.focus_ring_for_output(output_name.as_str())
             {
-                self.focus_ring_preview_until_ms.insert(
+                self.focus_state.focus_ring_preview_until_ms.insert(
                     output_name,
                     now_ms.saturating_add(Self::FOCUS_RING_PREVIEW_MS),
                 );
@@ -191,7 +191,7 @@ impl HalleyWlState {
     }
 
     pub fn should_draw_focus_ring_preview(&self, now: Instant) -> bool {
-        self.focus_ring_preview_until_ms
+        self.focus_state.focus_ring_preview_until_ms
             .get(self.monitor_state.current_monitor.as_str())
             .is_some_and(|&until_ms| self.now_ms(now) < until_ms)
     }

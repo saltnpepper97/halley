@@ -124,7 +124,7 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut HalleyWlState) -> bool {
             st.manual_collapsed_nodes.insert(id);
 
             st.set_interaction_focus(None, 0, now);
-            st.pan_restore_active_focus = None;
+            st.focus_state.pan_restore_active_focus = None;
             true
         }
 
