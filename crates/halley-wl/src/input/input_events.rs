@@ -245,7 +245,7 @@ pub(crate) fn handle_pointer_axis_input(
     // coords in that monitor's local space rather than the global layout space.
     let target_monitor = st
         .monitor_for_screen(sx, sy)
-        .unwrap_or_else(|| st.current_monitor.clone());
+        .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
     let _ = st.activate_monitor(target_monitor.as_str());
     let (ws_w, ws_h, sx, sy) = st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
     {

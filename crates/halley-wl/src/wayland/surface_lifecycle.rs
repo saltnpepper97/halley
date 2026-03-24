@@ -129,7 +129,7 @@ impl HalleyWlState {
             .entry(key.clone())
             .or_insert_with(|| CommitActivity::new(now))
             .on_commit(now);
-        for output in self.outputs.values() {
+        for output in self.monitor_state.outputs.values() {
             output.enter(surface);
         }
 
@@ -244,7 +244,7 @@ impl HalleyWlState {
     }
 
     pub fn drop_surface(&mut self, surface: &WlSurface) {
-        for output in self.outputs.values() {
+        for output in self.monitor_state.outputs.values() {
             output.leave(surface);
         }
         let pointer_focused_surface = self
@@ -278,7 +278,7 @@ impl HalleyWlState {
             self.active_transition_until_ms.remove(&id);
             self.primary_promote_cooldown_until_ms.remove(&id);
             self.last_surface_focus_ms.remove(&id);
-            self.node_monitor.remove(&id);
+            self.monitor_state.node_monitor.remove(&id);
             self.carry_zone_hint.remove(&id);
             self.carry_zone_last_change_ms.remove(&id);
             self.carry_zone_pending.remove(&id);

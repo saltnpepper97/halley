@@ -596,7 +596,7 @@ pub(crate) fn queue_tty_drm_frame(
     cursor_image: Option<&smithay::input::pointer::CursorImageStatus>,
 ) -> Result<(), Box<dyn Error>> {
     use crate::render::draw_debug_frame_to_target;
-    let previous_monitor = st.current_monitor.clone();
+    let previous_monitor = st.monitor_state.current_monitor.clone();
     let previous_layer_configure = st.suppress_layer_shell_configure;
     let _ = st.activate_monitor(output_name);
 

@@ -467,12 +467,12 @@ fn restore_fullscreen_click_focus(
     let monitor_name = st
         .fullscreen_monitor_for_node(node_id)
         .map(str::to_owned)
-        .or_else(|| st.node_monitor.get(&node_id).cloned())
-        .unwrap_or_else(|| st.current_monitor.clone());
+        .or_else(|| st.monitor_state.node_monitor.get(&node_id).cloned())
+        .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
 
     let entry = st.fullscreen_restore.get(&node_id).copied();
     let fallback_center = st
-        .monitors
+        .monitor_state.monitors
         .get(monitor_name.as_str())
         .map(|space| space.viewport.center)
         .unwrap_or(st.viewport.center);
@@ -484,7 +484,7 @@ fn restore_fullscreen_click_focus(
         .unwrap_or(fallback_center);
 
     let _ = st.activate_monitor(monitor_name.as_str());
-    if let Some(space) = st.monitors.get_mut(monitor_name.as_str()) {
+    if let Some(space) = st.monitor_state.monitors.get_mut(monitor_name.as_str()) {
         let one_x_zoom = halley_core::field::Vec2 {
             x: space.width as f32,
             y: space.height as f32,
@@ -495,9 +495,9 @@ fn restore_fullscreen_click_focus(
         space.zoom_ref_size = one_x_zoom;
         space.camera_target_view_size = one_x_zoom;
     }
-    if st.current_monitor == monitor_name {
+    if st.monitor_state.current_monitor == monitor_name {
         let one_x_zoom = st
-            .monitors
+            .monitor_state.monitors
             .get(monitor_name.as_str())
             .map(|space| halley_core::field::Vec2 {
                 x: space.width as f32,
@@ -529,7 +529,7 @@ fn handle_left_press(
 ) {
     let Some(hit) = hit else {
         ps.panning = true;
-        ps.pan_monitor = Some(st.current_monitor.clone());
+        ps.pan_monitor = Some(st.monitor_state.current_monitor.clone());
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
         ps.last_title_click = None;
         return;
@@ -607,7 +607,7 @@ fn handle_right_press(
 
     let Some(hit) = hit else {
         ps.panning = true;
-        ps.pan_monitor = Some(st.current_monitor.clone());
+        ps.pan_monitor = Some(st.monitor_state.current_monitor.clone());
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
         return;
     };
@@ -635,7 +635,7 @@ fn handle_move_binding_press(
 
     let Some(hit) = hit else {
         ps.panning = true;
-        ps.pan_monitor = Some(st.current_monitor.clone());
+        ps.pan_monitor = Some(st.monitor_state.current_monitor.clone());
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
         ps.last_title_click = None;
         return;
@@ -662,7 +662,7 @@ fn handle_resize_binding_press(
 
     let Some(hit) = hit else {
         ps.panning = true;
-        ps.pan_monitor = Some(st.current_monitor.clone());
+        ps.pan_monitor = Some(st.monitor_state.current_monitor.clone());
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
         return;
     };
@@ -737,15 +737,15 @@ pub(crate) fn handle_pointer_button_input(
         .and_then(|surface| {
             let node_id = st.surface_to_node.get(&surface.id()).copied()?;
             Some(
-                st.node_monitor
+                st.monitor_state.node_monitor
                     .get(&node_id)
                     .cloned()
-                    .unwrap_or_else(|| st.current_monitor.clone()),
+                    .unwrap_or_else(|| st.monitor_state.current_monitor.clone()),
             )
         })
         .unwrap_or_else(|| {
             st.monitor_for_screen(sx, sy)
-                .unwrap_or_else(|| st.current_monitor.clone())
+                .unwrap_or_else(|| st.monitor_state.current_monitor.clone())
         });
     let _ = st.activate_monitor(target_monitor.as_str());
     let (local_w, local_h, local_sx, local_sy) =

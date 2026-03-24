@@ -91,7 +91,7 @@ impl HalleyWlState {
         let prev_physics_enabled = self.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
         let previous_output_names: std::collections::HashSet<String> = self
-            .monitors
+            .monitor_state.monitors
             .keys()
             .cloned()
             .chain(self.tuning.tty_viewports.iter().map(|v| v.connector.clone()))
@@ -187,12 +187,12 @@ impl HalleyWlState {
     }
 
     pub fn active_focus_ring(&self) -> halley_core::viewport::FocusRing {
-        self.tuning.focus_ring_for_output(self.current_monitor.as_str())
+        self.tuning.focus_ring_for_output(self.monitor_state.current_monitor.as_str())
     }
 
     pub fn should_draw_focus_ring_preview(&self, now: Instant) -> bool {
         self.focus_ring_preview_until_ms
-            .get(self.current_monitor.as_str())
+            .get(self.monitor_state.current_monitor.as_str())
             .is_some_and(|&until_ms| self.now_ms(now) < until_ms)
     }
 }

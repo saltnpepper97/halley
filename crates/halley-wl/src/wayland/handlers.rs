@@ -98,10 +98,10 @@ impl SeatHandler for HalleyWlState {
             let focused_monitor: Option<String> = focused_id.as_ref().and_then(|fid| {
                 let node_id = self.surface_to_node.get(fid).copied()?;
                 Some(
-                    self.node_monitor
+                    self.monitor_state.node_monitor
                         .get(&node_id)
                         .cloned()
-                        .unwrap_or_else(|| self.current_monitor.clone()),
+                        .unwrap_or_else(|| self.monitor_state.current_monitor.clone()),
                 )
             });
 
@@ -396,12 +396,12 @@ impl HalleyWlState {
             return;
         };
         let monitor = self
-            .node_monitor
+            .monitor_state.node_monitor
             .get(&node_id)
             .cloned()
-            .unwrap_or_else(|| self.current_monitor.clone());
+            .unwrap_or_else(|| self.monitor_state.current_monitor.clone());
         let (ws_w, ws_h, _, _) = self.local_screen_in_monitor(monitor.as_str(), 0.0, 0.0);
-        let previous_monitor = self.current_monitor.clone();
+        let previous_monitor = self.monitor_state.current_monitor.clone();
         let changed_monitor = previous_monitor != monitor;
         if changed_monitor {
             let _ = self.activate_monitor(monitor.as_str());

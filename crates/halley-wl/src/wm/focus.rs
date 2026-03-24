@@ -46,12 +46,12 @@ impl HalleyWlState {
 
         let fullscreen_monitor = self
             .fullscreen_monitor_for_node(fullscreen_id)
-            .or_else(|| self.node_monitor.get(&fullscreen_id).map(|m| m.as_str()))?;
+            .or_else(|| self.monitor_state.node_monitor.get(&fullscreen_id).map(|m| m.as_str()))?;
 
         match requested {
             None => Some(fullscreen_id),
             Some(requested_id) => {
-                let requested_monitor = self.node_monitor.get(&requested_id).map(|m| m.as_str());
+                let requested_monitor = self.monitor_state.node_monitor.get(&requested_id).map(|m| m.as_str());
                 if requested_monitor != Some(fullscreen_monitor) {
                     Some(fullscreen_id)
                 } else {
@@ -68,15 +68,15 @@ impl HalleyWlState {
         {
             if let Some(entry) = self.fullscreen_restore.get(&fid).copied() {
                 let target_monitor = self
-                    .node_monitor
+                    .monitor_state.node_monitor
                     .get(&fid)
                     .cloned()
-                    .unwrap_or_else(|| self.current_monitor.clone());
-                if let Some(space) = self.monitors.get_mut(&target_monitor) {
+                    .unwrap_or_else(|| self.monitor_state.current_monitor.clone());
+                if let Some(space) = self.monitor_state.monitors.get_mut(&target_monitor) {
                     space.viewport.center = entry.viewport_center;
                     space.camera_target_center = entry.viewport_center;
                 }
-                if self.current_monitor == target_monitor {
+                if self.monitor_state.current_monitor == target_monitor {
                     self.viewport.center = entry.viewport_center;
                     self.camera_target_center = self.viewport.center;
                     self.tuning.viewport_center = self.viewport.center;
@@ -85,7 +85,7 @@ impl HalleyWlState {
             }
             self.enter_xdg_fullscreen(fid, None, Instant::now());
         }
-        self.layer_keyboard_focus = None;
+        self.monitor_state.layer_keyboard_focus = None;
         let requested_focus_surface = focus_id.and_then(|fid| self.wl_surface_for_node(fid));
         let active_locked_surface = self.active_locked_pointer_surface();
         let locked_surface_node = active_locked_surface
@@ -114,9 +114,9 @@ impl HalleyWlState {
             let node_id = self.surface_to_node.get(&key).copied();
 
             let activated = node_id.is_some_and(|nid| {
-                self.node_monitor
+                self.monitor_state.node_monitor
                     .get(&nid)
-                    .and_then(|monitor| self.monitor_focus.get(monitor))
+                    .and_then(|monitor| self.monitor_state.monitor_focus.get(monitor))
                     .copied()
                     == Some(nid)
                     || Some(nid) == focus_id
@@ -139,7 +139,7 @@ impl HalleyWlState {
     }
 
     fn reassert_wayland_keyboard_focus_if_drifted(&mut self, id: Option<NodeId>) {
-        if self.layer_keyboard_focus.is_some() {
+        if self.monitor_state.layer_keyboard_focus.is_some() {
             self.reassert_layer_surface_keyboard_focus_if_drifted();
             return;
         }
@@ -428,8 +428,8 @@ impl HalleyWlState {
                 self.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
                 self.spawn_pan_start_center = None;
 
-                if let Some(monitor) = self.node_monitor.get(&fid).cloned() {
-                    self.monitor_focus.insert(monitor, fid);
+                if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
+                    self.monitor_state.monitor_focus.insert(monitor, fid);
                 }
 
                 self.reassert_wayland_keyboard_focus_if_drifted(id);
@@ -448,8 +448,8 @@ impl HalleyWlState {
             self.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
             self.spawn_pan_start_center = None;
 
-            if let Some(monitor) = self.node_monitor.get(&fid).cloned() {
-                self.monitor_focus.insert(monitor, fid);
+            if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
+                self.monitor_state.monitor_focus.insert(monitor, fid);
             }
         } else {
             self.interaction_focus_until_ms = 0;

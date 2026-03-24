@@ -8,15 +8,15 @@ impl HalleyWlState {
     const ACTIVE_RING_OUTSIDE_DECAY_FRAC: f32 = 0.98;
 
     fn focus_ring_center_for_node(&self, id: NodeId) -> Vec2 {
-        self.node_monitor
+        self.monitor_state.node_monitor
             .get(&id)
-            .and_then(|monitor| self.monitors.get(monitor))
+            .and_then(|monitor| self.monitor_state.monitors.get(monitor))
             .map(|monitor| monitor.viewport.center)
             .unwrap_or(self.viewport.center)
     }
 
     fn focus_ring_for_node(&self, id: NodeId) -> FocusRing {
-        self.node_monitor
+        self.monitor_state.node_monitor
             .get(&id)
             .map(|monitor| self.tuning.focus_ring_for_output(monitor.as_str()))
             .unwrap_or_else(|| self.active_focus_ring())
@@ -100,7 +100,7 @@ impl HalleyWlState {
 
         let mut active_ids_by_monitor: HashMap<Option<String>, Vec<NodeId>> = HashMap::new();
         for id in active_ids {
-            let monitor = self.node_monitor.get(&id).cloned();
+            let monitor = self.monitor_state.node_monitor.get(&id).cloned();
             active_ids_by_monitor.entry(monitor).or_default().push(id);
         }
 
@@ -115,9 +115,9 @@ impl HalleyWlState {
                 .iter()
                 .copied()
                 .find(|&id| {
-                    let monitor = self.node_monitor.get(&id);
+                    let monitor = self.monitor_state.node_monitor.get(&id);
                     monitor
-                        .and_then(|m| self.monitor_focus.get(m))
+                        .and_then(|m| self.monitor_state.monitor_focus.get(m))
                         .copied()
                         == Some(id)
                 })
@@ -137,9 +137,9 @@ impl HalleyWlState {
                 ranked.sort_by_key(|id| {
                     let preferred_rank = u8::from(preferred_surface == Some(*id));
                     let focus_rank = u8::from({
-                        let monitor = self.node_monitor.get(id);
+                        let monitor = self.monitor_state.node_monitor.get(id);
                         monitor
-                            .and_then(|m| self.monitor_focus.get(m))
+                            .and_then(|m| self.monitor_state.monitor_focus.get(m))
                             .copied()
                             == Some(*id)
                     });
@@ -428,13 +428,13 @@ impl HalleyWlState {
                     self.interaction_focus_until_ms = 0;
                 }
                 let stale_monitors: Vec<String> = self
-                    .monitor_focus
+                    .monitor_state.monitor_focus
                     .iter()
                     .filter_map(|(monitor, &focused)| (focused == id).then_some(monitor.clone()))
                     .collect();
 
                 for monitor in stale_monitors {
-                    self.monitor_focus.remove(&monitor);
+                    self.monitor_state.monitor_focus.remove(&monitor);
                 }
                 self.smoothed_render_pos.remove(&id);
                 let _ = self.field.remove(id);

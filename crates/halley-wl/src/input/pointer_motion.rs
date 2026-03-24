@@ -34,7 +34,7 @@ fn clamp_screen_to_workspace(ws_w: i32, ws_h: i32, sx: f32, sy: f32) -> (f32, f3
 
 #[inline]
 fn clamp_screen_to_monitor(st: &HalleyWlState, name: &str, sx: f32, sy: f32) -> (f32, f32) {
-    if let Some(monitor) = st.monitors.get(name) {
+    if let Some(monitor) = st.monitor_state.monitors.get(name) {
         let max_x = (monitor.offset_x + monitor.width - 1) as f32;
         let max_y = (monitor.offset_y + monitor.height - 1) as f32;
         (
@@ -48,7 +48,7 @@ fn clamp_screen_to_monitor(st: &HalleyWlState, name: &str, sx: f32, sy: f32) -> 
 
 #[inline]
 fn pointer_outside_monitor(st: &HalleyWlState, name: &str, sx: f32, sy: f32) -> bool {
-    st.monitors.get(name).is_some_and(|monitor| {
+    st.monitor_state.monitors.get(name).is_some_and(|monitor| {
         sx < monitor.offset_x as f32
             || sx >= (monitor.offset_x + monitor.width) as f32
             || sy < monitor.offset_y as f32
@@ -120,10 +120,10 @@ pub(crate) fn handle_pointer_motion_absolute(
         let ps = pointer_state.borrow();
         ps.drag.map(|drag| {
             let owner = st
-                .node_monitor
+                .monitor_state.node_monitor
                 .get(&drag.node_id)
                 .cloned()
-                .unwrap_or_else(|| st.current_monitor.clone());
+                .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
             let allow_monitor_transfer =
                 active_pointer_binding(st, &mods, 0x110) == Some(PointerBindingAction::FieldJump);
             (drag, owner, allow_monitor_transfer)
@@ -137,10 +137,10 @@ pub(crate) fn handle_pointer_motion_absolute(
     let locked_resize_monitor = {
         let ps = pointer_state.borrow();
         ps.resize.and_then(|resize| {
-            st.node_monitor
+            st.monitor_state.node_monitor
                 .get(&resize.node_id)
                 .cloned()
-                .or_else(|| Some(st.current_monitor.clone()))
+                .or_else(|| Some(st.monitor_state.current_monitor.clone()))
         })
     };
     let locked_pan_monitor = {
@@ -162,10 +162,10 @@ pub(crate) fn handle_pointer_motion_absolute(
     let locked_surface_monitor = locked_surface.as_ref().and_then(|surface| {
         let node_id = st.surface_to_node.get(&surface.id()).copied()?;
         Some(
-            st.node_monitor
+            st.monitor_state.node_monitor
                 .get(&node_id)
                 .cloned()
-                .unwrap_or_else(|| st.current_monitor.clone()),
+                .unwrap_or_else(|| st.monitor_state.current_monitor.clone()),
         )
     });
     let target_monitor = {
@@ -184,7 +184,7 @@ pub(crate) fn handle_pointer_motion_absolute(
             owner
         } else {
             st.monitor_for_screen(effective_sx, effective_sy)
-                .unwrap_or_else(|| st.current_monitor.clone())
+                .unwrap_or_else(|| st.monitor_state.current_monitor.clone())
         }
     };
     let _ = st.activate_monitor(target_monitor.as_str());
@@ -265,7 +265,7 @@ pub(crate) fn handle_pointer_motion_absolute(
                 == Some(PointerBindingAction::FieldJump);
             next_drag.allow_monitor_transfer = drag_allow_monitor_transfer;
             let edge_pan_active = !drag_allow_monitor_transfer
-                && pointer_outside_monitor(st, st.current_monitor.as_str(), raw_sx, raw_sy);
+                && pointer_outside_monitor(st, st.monitor_state.current_monitor.as_str(), raw_sx, raw_sy);
             if edge_pan_active {
                 let dx_px = delta.0 as f32;
                 let dy_px = delta.1 as f32;
@@ -304,11 +304,11 @@ pub(crate) fn handle_pointer_motion_absolute(
             };
             if !drag_allow_monitor_transfer
                 && let Some(owner_monitor) = st
-                    .node_monitor
+                    .monitor_state.node_monitor
                     .get(&drag.node_id)
                     .cloned()
                     .or_else(|| Some(target_monitor.clone()))
-                && let Some(monitor) = st.monitors.get(owner_monitor.as_str())
+                && let Some(monitor) = st.monitor_state.monitors.get(owner_monitor.as_str())
             {
                 let half_w = monitor.zoom_ref_size.x * 0.5;
                 let half_h = monitor.zoom_ref_size.y * 0.5;
@@ -321,8 +321,8 @@ pub(crate) fn handle_pointer_motion_absolute(
             }
             if st.carry_surface_non_overlap(drag.node_id, to, edge_pan_active) {
                 if drag_allow_monitor_transfer {
-                    st.node_monitor
-                        .insert(drag.node_id, st.current_monitor.clone());
+                    st.monitor_state.node_monitor
+                        .insert(drag.node_id, st.monitor_state.current_monitor.clone());
                 }
                 st.physics_velocity
                     .insert(drag.node_id, next_drag.release_velocity);

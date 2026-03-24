@@ -126,12 +126,12 @@ fn fullscreen_hit_blocks_non_overlay_layers(
 
     let pointer_monitor = st
         .monitor_for_screen(sx, sy)
-        .unwrap_or_else(|| st.current_monitor.clone());
+        .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
     let node_monitor = st
         .fullscreen_monitor_for_node(hit.node_id)
         .map(str::to_owned)
-        .or_else(|| st.node_monitor.get(&hit.node_id).cloned())
-        .unwrap_or_else(|| st.current_monitor.clone());
+        .or_else(|| st.monitor_state.node_monitor.get(&hit.node_id).cloned())
+        .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
 
     pointer_monitor == node_monitor
 }

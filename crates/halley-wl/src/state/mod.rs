@@ -18,11 +18,10 @@ use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
     input::{Seat, SeatState, pointer::CursorImageStatus},
-    output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::wayland_server::{
-        DisplayHandle, Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
+        DisplayHandle, backend::ObjectId,
     },
-    utils::{Logical, Rectangle, Transform},
+    utils::{Logical, Rectangle},
     wayland::{
         compositor::CompositorState,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
@@ -45,9 +44,11 @@ use smithay::{
 use crate::activity::CommitActivity;
 use crate::animation::{AnimSpec, Animator};
 use crate::backend::interface::DmabufImportBackend;
+use crate::state::monitor::{MonitorState, MonitorSpace};
 use crate::wm::ViewportPanAnim;
 
 mod client;
+mod monitor;
 mod render_state;
 mod runtime_state;
 pub use client::ClientState;
@@ -182,18 +183,6 @@ pub(crate) struct FullscreenScaleAnim {
     pub duration_ms: u64,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct MonitorSpace {
-    pub offset_x: i32,
-    pub offset_y: i32,
-    pub width: i32,
-    pub height: i32,
-    pub viewport: Viewport,
-    pub zoom_ref_size: Vec2,
-    pub camera_target_center: Vec2,
-    pub camera_target_view_size: Vec2,
-}
-
 pub struct HalleyWlState {
     pub display_handle: DisplayHandle,
     pub compositor_state: CompositorState,
@@ -214,12 +203,8 @@ pub struct HalleyWlState {
     pub primary_selection_state: PrimarySelectionState,
     pub data_control_state: DataControlState,
     pub seat: Seat<Self>,
-    pub(crate) outputs: HashMap<String, Output>,
-    pub(crate) current_monitor: String,
-    pub(crate) monitors: HashMap<String, MonitorSpace>,
-    pub(crate) node_monitor: HashMap<NodeId, String>,
-    pub(crate) layer_surface_monitor: HashMap<ObjectId, String>,
-    pub layer_keyboard_focus: Option<ObjectId>,
+
+    pub(crate) monitor_state: MonitorState,
 
     pub field: Field,
     pub viewport: Viewport,
@@ -245,7 +230,6 @@ pub struct HalleyWlState {
     pub(crate) zoom_resize_static_streak: HashMap<NodeId, u8>,
     pub animator: Animator,
     pub(crate) primary_interaction_focus: Option<NodeId>,
-    pub(crate) monitor_focus: HashMap<String, NodeId>,
     pub(crate) interaction_focus_until_ms: u64,
     pub(crate) last_surface_focus_ms: HashMap<NodeId, u64>,
     pub(crate) focus_trail: Trail,
@@ -340,177 +324,12 @@ fn preferred_monitor_name(monitors: &HashMap<String, MonitorSpace>) -> Option<St
 }
 
 impl HalleyWlState {
-    fn load_monitor_state(&mut self, name: &str) -> bool {
-        let Some(space) = self.monitors.get(name).cloned() else {
-            return false;
-        };
-        self.current_monitor = name.to_string();
-        self.viewport = space.viewport;
-        self.zoom_ref_size = space.zoom_ref_size;
-        self.camera_target_center = space.camera_target_center;
-        self.camera_target_view_size = space.camera_target_view_size;
-        true
-    }
-
     pub(crate) fn preserve_collapsed_surface(&self, id: NodeId) -> bool {
         self.manual_collapsed_nodes.contains(&id)
             || self.field.node(id).is_some_and(|n| {
                 n.kind == halley_core::field::NodeKind::Surface
                     && n.state == halley_core::field::NodeState::Node
             })
-    }
-
-    pub(crate) fn sync_current_monitor_state(&mut self) {
-        if let Some(space) = self.monitors.get_mut(&self.current_monitor) {
-            space.viewport = self.viewport;
-            space.zoom_ref_size = self.zoom_ref_size;
-            space.camera_target_center = self.camera_target_center;
-            space.camera_target_view_size = self.camera_target_view_size;
-        }
-    }
-
-    pub(crate) fn activate_monitor(&mut self, name: &str) -> bool {
-        if self.current_monitor == name {
-            return self.monitors.contains_key(name);
-        }
-        self.sync_current_monitor_state();
-        self.load_monitor_state(name)
-    }
-
-    pub(crate) fn reconfigure_active_tty_monitors(&mut self, active_outputs: &[String]) {
-        self.sync_current_monitor_state();
-
-        let previous = self.monitors.clone();
-        let mut monitors = HashMap::new();
-
-        for viewport in self
-            .tuning
-            .tty_viewports
-            .iter()
-            .filter(|viewport| viewport.enabled)
-            .filter(|viewport| active_outputs.iter().any(|name| name == &viewport.connector))
-        {
-            let width = viewport.width.max(1) as i32;
-            let height = viewport.height.max(1) as i32;
-            let center = Vec2 {
-                x: viewport.offset_x as f32 + width as f32 * 0.5,
-                y: viewport.offset_y as f32 + height as f32 * 0.5,
-            };
-            let default_view = Viewport::new(
-                center,
-                Vec2 {
-                    x: width as f32,
-                    y: height as f32,
-                },
-            );
-
-            let restored = previous.get(&viewport.connector);
-            monitors.insert(
-                viewport.connector.clone(),
-                MonitorSpace {
-                    offset_x: viewport.offset_x,
-                    offset_y: viewport.offset_y,
-                    width,
-                    height,
-                    viewport: restored.map(|m| m.viewport).unwrap_or(default_view),
-                    zoom_ref_size: restored.map(|m| m.zoom_ref_size).unwrap_or(default_view.size),
-                    camera_target_center: restored
-                        .map(|m| m.camera_target_center)
-                        .unwrap_or(default_view.center),
-                    camera_target_view_size: restored
-                        .map(|m| m.camera_target_view_size)
-                        .unwrap_or(default_view.size),
-                },
-            );
-        }
-
-        if monitors.is_empty() {
-            let view = self.tuning.viewport();
-            monitors.insert(
-                "default".to_string(),
-                MonitorSpace {
-                    offset_x: 0,
-                    offset_y: 0,
-                    width: self.tuning.viewport_size.x.max(1.0).round() as i32,
-                    height: self.tuning.viewport_size.y.max(1.0).round() as i32,
-                    viewport: view,
-                    zoom_ref_size: self.tuning.viewport_size,
-                    camera_target_center: self.tuning.viewport_center,
-                    camera_target_view_size: self.tuning.viewport_size,
-                },
-            );
-        }
-
-        self.monitors = monitors;
-
-        if !self.monitors.contains_key(&self.current_monitor) {
-            self.current_monitor = preferred_monitor_name(&self.monitors)
-                .unwrap_or_else(|| "default".to_string());
-        }
-
-        let current = self.current_monitor.clone();
-        let _ = self.load_monitor_state(current.as_str());
-    }
-
-    pub(crate) fn monitor_for_screen(&self, sx: f32, sy: f32) -> Option<String> {
-        let mut best: Option<(&String, i64)> = None;
-        for (name, monitor) in &self.monitors {
-            let inside = sx >= monitor.offset_x as f32
-                && sx < (monitor.offset_x + monitor.width) as f32
-                && sy >= monitor.offset_y as f32
-                && sy < (monitor.offset_y + monitor.height) as f32;
-            let dx = if sx < monitor.offset_x as f32 {
-                (monitor.offset_x as f32 - sx).round() as i64
-            } else if sx >= (monitor.offset_x + monitor.width) as f32 {
-                (sx - (monitor.offset_x + monitor.width) as f32).round() as i64
-            } else {
-                0
-            };
-            let dy = if sy < monitor.offset_y as f32 {
-                (monitor.offset_y as f32 - sy).round() as i64
-            } else if sy >= (monitor.offset_y + monitor.height) as f32 {
-                (sy - (monitor.offset_y + monitor.height) as f32).round() as i64
-            } else {
-                0
-            };
-            let distance = dx * dx + dy * dy;
-            if inside {
-                return Some(name.clone());
-            }
-            if best.is_none_or(|(_, best_distance)| distance < best_distance) {
-                best = Some((name, distance));
-            }
-        }
-        best.map(|(name, _)| name.clone())
-    }
-
-    pub(crate) fn local_screen_in_monitor(&self, name: &str, sx: f32, sy: f32) -> (i32, i32, f32, f32) {
-        if let Some(monitor) = self.monitors.get(name) {
-            (
-                monitor.width,
-                monitor.height,
-                sx - monitor.offset_x as f32,
-                sy - monitor.offset_y as f32,
-            )
-        } else {
-            let w = self.tuning.viewport_size.x.max(1.0).round() as i32;
-            let h = self.tuning.viewport_size.y.max(1.0).round() as i32;
-            (w, h, sx, sy)
-        }
-    }
-
-    pub(crate) fn node_visible_on_current_monitor(&self, id: NodeId) -> bool {
-        self.node_monitor
-            .get(&id)
-            .is_none_or(|monitor| monitor == &self.current_monitor)
-    }
-
-    pub(crate) fn assign_node_to_current_monitor(&mut self, id: NodeId) {
-        self.node_monitor.insert(id, self.current_monitor.clone());
-    }
-
-    pub(crate) fn assign_layer_surface_to_monitor(&mut self, surface: &WlSurface, monitor: String) {
-        self.layer_surface_monitor.insert(surface.id(), monitor);
     }
 
     pub fn new(
@@ -595,6 +414,9 @@ impl HalleyWlState {
         let primary_selection_state = PrimarySelectionState::new::<HalleyWlState>(dh);
         let data_control_state =
             DataControlState::new::<HalleyWlState, _>(dh, Some(&primary_selection_state), |_| true);
+        
+
+
         let mut out = Self {
             display_handle: dh.clone(),
             compositor_state: CompositorState::new::<HalleyWlState>(dh),
@@ -615,12 +437,16 @@ impl HalleyWlState {
             primary_selection_state,
             data_control_state,
             seat,
-            outputs: HashMap::new(),
-            current_monitor,
-            monitors,
-            node_monitor: HashMap::new(),
-            layer_surface_monitor: HashMap::new(),
-            layer_keyboard_focus: None,
+
+            monitor_state: MonitorState {
+                outputs: HashMap::new(),
+                current_monitor: current_monitor.clone(),
+                monitors,
+                node_monitor: HashMap::new(),
+                layer_surface_monitor: HashMap::new(),
+                layer_keyboard_focus: None,
+                monitor_focus: HashMap::new(),
+            },          
 
             field: Field::new(),
             viewport: primary_viewport,
@@ -646,7 +472,6 @@ impl HalleyWlState {
             zoom_resize_static_streak: HashMap::new(),
             animator: Animator::new(now),
             primary_interaction_focus: None,
-            monitor_focus: HashMap::new(),
             interaction_focus_until_ms: 0,
             last_surface_focus_ms: HashMap::new(),
             focus_trail: Trail::new(),
@@ -723,7 +548,7 @@ impl HalleyWlState {
             state_change_ms: out.tuning.dev_anim_state_change_ms,
             bounce: out.tuning.dev_anim_bounce,
         });
-        let current_monitor = out.current_monitor.clone();
+        let current_monitor = out.monitor_state.current_monitor.clone();
         let _ = out.load_monitor_state(current_monitor.as_str());
         out
     }
@@ -778,63 +603,6 @@ impl HalleyWlState {
         self.configure_dmabuf_importer(importer, main_device);
     }
 
-    pub(crate) fn output_transform_for(&self, name: &str) -> Transform {
-        let degrees = self
-            .tuning
-            .tty_viewports
-            .iter()
-            .find(|viewport| viewport.connector == name)
-            .map(|viewport| viewport.transform_degrees)
-            .unwrap_or(0);
-        match degrees {
-            90 => Transform::_90,
-            180 => Transform::_180,
-            270 => Transform::_270,
-            _ => Transform::Normal,
-        }
-    }
-
-    pub(crate) fn advertise_output(&mut self, name: &str, mode: OutputMode) {
-        let transform = self.output_transform_for(name);
-        let location = self
-            .monitors
-            .get(name)
-            .map(|monitor| (monitor.offset_x, monitor.offset_y).into())
-            .unwrap_or_else(|| (0, 0).into());
-        let output = self.outputs.entry(name.to_string()).or_insert_with(|| {
-            let output = Output::new(
-                name.to_string(),
-                PhysicalProperties {
-                    size: (0, 0).into(),
-                    subpixel: Subpixel::Unknown,
-                    make: "halley".to_string(),
-                    model: name.to_string(),
-                },
-            );
-            let _ = output.create_global::<HalleyWlState>(&self.display_handle);
-            output
-        });
-        output.add_mode(mode);
-        output.set_preferred(mode);
-        output.change_current_state(
-            Some(mode),
-            Some(transform),
-            Some(Scale::Integer(1)),
-            Some(location),
-        );
-    }
-
-    pub(crate) fn focused_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        self.monitor_focus.get(monitor).copied()
-    }
-
-    pub(crate) fn focused_monitor_for_node(&self, id: NodeId) -> Option<String> {
-        self.node_monitor.get(&id).cloned()
-    }
-
-    pub(crate) fn set_monitor_focus(&mut self, monitor: &str, id: NodeId) {
-        self.monitor_focus.insert(monitor.to_string(), id);
-    }
 
     pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
         self.recent_top_node = Some(node_id);
@@ -1008,7 +776,7 @@ impl HalleyWlState {
                 self.set_interaction_focus(None, 0, now);
             }
         }
-        if self.primary_interaction_focus.is_none() && self.layer_keyboard_focus.is_some() {
+        if self.primary_interaction_focus.is_none() && self.monitor_state.layer_keyboard_focus.is_some() {
             self.reassert_layer_surface_keyboard_focus_if_drifted();
         }
         self.active_transition_until_ms

@@ -251,7 +251,7 @@ fn apply_tty_reload(
     if reason != "rescan" {
         st.reconfigure_active_tty_monitors(&active_output_names(&rebuilt));
         if let Some(main_output) = canonical_tty_main_output_name(&rebuilt, &st.tuning) {
-            if st.current_monitor != main_output {
+            if st.monitor_state.current_monitor != main_output {
                 let _ = st.activate_monitor(main_output.as_str());
             }
         }
@@ -591,7 +591,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             if let Some(main_output) =
                 canonical_tty_main_output_name(outputs.borrow().as_slice(), &state.tuning)
             {
-                if state.current_monitor != main_output {
+                if state.monitor_state.current_monitor != main_output {
                     let _ = state.activate_monitor(main_output.as_str());
                 }
             }
@@ -616,8 +616,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 // between them, which makes the cursor appear stuck at the
                 // edge of the main display on startup.
                 let (start_sx, start_sy) = state
-                    .monitors
-                    .get(&state.current_monitor)
+                    .monitor_state.monitors
+                    .get(&state.monitor_state.current_monitor)
                     .map(|m| {
                         (
                             m.offset_x as f32 + m.width as f32 * 0.5,
@@ -845,7 +845,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         // layout dimensions here would stretch [0,1] across all
                         // monitors and lock the pointer to only the leftmost one.
                         let (mon_w, mon_h, mon_ox, mon_oy) = primary_tty_monitor_dims(
-                            st.current_monitor.as_str(),
+                            st.monitor_state.current_monitor.as_str(),
                             &st.tuning,
                             outputs_for_input.borrow().as_slice(),
                         );
@@ -1260,7 +1260,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     st.send_frame_callbacks(now);
 
                     let cursor_image = st.cursor_image_status.clone();
-                    let previous_monitor = st.current_monitor.clone();
+                    let previous_monitor = st.monitor_state.current_monitor.clone();
 
                     let outputs_ref = outputs_for_timer.borrow();
                     let mut render_order: Vec<_> = outputs_ref.iter().collect();
