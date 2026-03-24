@@ -101,8 +101,38 @@ fn outputs_match(a: &[TtyDrmOutput], b: &[TtyDrmOutput]) -> bool {
 }
 
 
+fn canonical_tty_main_output_name(
+    outputs: &[TtyDrmOutput],
+    tuning: &RuntimeTuning,
+) -> Option<String> {
+    outputs
+        .iter()
+        .min_by(|a, b| {
+            let a_viewport = tuning
+                .tty_viewports
+                .iter()
+                .find(|viewport| viewport.enabled && viewport.connector == a.connector_name);
+            let b_viewport = tuning
+                .tty_viewports
+                .iter()
+                .find(|viewport| viewport.enabled && viewport.connector == b.connector_name);
+
+            let a_offset_x = a_viewport.map(|viewport| viewport.offset_x).unwrap_or(0);
+            let b_offset_x = b_viewport.map(|viewport| viewport.offset_x).unwrap_or(0);
+            let a_offset_y = a_viewport.map(|viewport| viewport.offset_y).unwrap_or(0);
+            let b_offset_y = b_viewport.map(|viewport| viewport.offset_y).unwrap_or(0);
+
+            a_offset_x
+                .cmp(&b_offset_x)
+                .then(a_offset_y.cmp(&b_offset_y))
+                .then(a.connector_name.cmp(&b.connector_name))
+        })
+        .map(|output| output.connector_name.clone())
+}
+
 fn output_advertise_order(outputs: &[TtyDrmOutput], tuning: &RuntimeTuning) -> Vec<String> {
-    let mut ordered: Vec<(String, i32, i32)> = outputs
+    let main_output = canonical_tty_main_output_name(outputs, tuning);
+    let mut ordered: Vec<(String, i32, i32, bool)> = outputs
         .iter()
         .map(|output| {
             let (offset_x, offset_y) = tuning
@@ -111,20 +141,25 @@ fn output_advertise_order(outputs: &[TtyDrmOutput], tuning: &RuntimeTuning) -> V
                 .find(|viewport| viewport.enabled && viewport.connector == output.connector_name)
                 .map(|viewport| (viewport.offset_x, viewport.offset_y))
                 .unwrap_or((0, 0));
-            (output.connector_name.clone(), offset_x, offset_y)
+            let is_main = main_output
+                .as_deref()
+                .is_some_and(|name| name == output.connector_name.as_str());
+            (output.connector_name.clone(), offset_x, offset_y, is_main)
         })
         .collect();
 
     // Xwayland/XRandR output listing follows wl_output global creation order.
-    // Advertise rightmost outputs first so xrandr matches the order seen under
-    // Niri/Xorg-style setups where the primary left display appears last.
+    // Keep the compositor's canonical main output last, and advertise the rest
+    // from right-to-left so the wl_output/XRandR view stays stable even when
+    // connectors probe in a different order at boot.
     ordered.sort_by(|a, b| {
-        b.1.cmp(&a.1)
+        a.3.cmp(&b.3)
+            .then(b.1.cmp(&a.1))
             .then(a.2.cmp(&b.2))
             .then(a.0.cmp(&b.0))
     });
 
-    ordered.into_iter().map(|(name, _, _)| name).collect()
+    ordered.into_iter().map(|(name, _, _, _)| name).collect()
 }
 
 fn layout_size_for_outputs(tuning: &RuntimeTuning, outputs: &[TtyDrmOutput]) -> (i32, i32) {
@@ -215,6 +250,11 @@ fn apply_tty_reload(
     st.apply_tuning(next);
     if reason != "rescan" {
         st.reconfigure_active_tty_monitors(&active_output_names(&rebuilt));
+        if let Some(main_output) = canonical_tty_main_output_name(&rebuilt, &st.tuning) {
+            if st.current_monitor != main_output {
+                let _ = st.activate_monitor(main_output.as_str());
+            }
+        }
     }
     crate::run::restore_live_camera_state(st, live_camera);
 
@@ -255,23 +295,68 @@ fn apply_tty_reload(
     true
 }
 
-/// Returns `(width, height, offset_x, offset_y)` for the leftmost/topmost
-/// enabled viewport in the tuning config. We use one real monitor's dimensions
-/// — not the full combined-layout size — when calling libinput's
-/// `x_transformed` / `y_transformed` so that the normalised [0,1] range maps
-/// to a single monitor rather than being stretched across all of them.
-fn primary_tty_monitor_dims(tuning: &RuntimeTuning) -> (i32, i32, i32, i32) {
-    tuning
-        .tty_viewports
+/// Returns `(width, height, offset_x, offset_y)` for the compositor's current
+/// tty monitor when available, otherwise for the canonical live main output.
+/// We use one real monitor's dimensions — not the full combined-layout size —
+/// when calling libinput's `x_transformed` / `y_transformed` so that the
+/// normalised [0,1] range maps to one monitor rather than being stretched
+/// across all of them.
+fn primary_tty_monitor_dims(
+    current_monitor: &str,
+    tuning: &RuntimeTuning,
+    outputs: &[TtyDrmOutput],
+) -> (i32, i32, i32, i32) {
+    let canonical_name = canonical_tty_main_output_name(outputs, tuning);
+    let preferred_name = if outputs
         .iter()
-        .filter(|v| v.enabled)
-        .min_by(|a, b| {
-            a.offset_x
-                .cmp(&b.offset_x)
-                .then(a.offset_y.cmp(&b.offset_y))
-                .then(a.connector.cmp(&b.connector))
+        .any(|output| output.connector_name == current_monitor)
+    {
+        Some(current_monitor)
+    } else {
+        canonical_name.as_deref()
+    };
+
+    preferred_name
+        .and_then(|name| {
+            tuning
+                .tty_viewports
+                .iter()
+                .find(|viewport| viewport.enabled && viewport.connector == name)
+                .map(|viewport| {
+                    (
+                        viewport.width as i32,
+                        viewport.height as i32,
+                        viewport.offset_x,
+                        viewport.offset_y,
+                    )
+                })
         })
-        .map(|v| (v.width as i32, v.height as i32, v.offset_x, v.offset_y))
+        .or_else(|| {
+            outputs.iter().find_map(|output| {
+                (output.connector_name == current_monitor).then(|| {
+                    let (w, h) = output.mode.size();
+                    (w as i32, h as i32, 0, 0)
+                })
+            })
+        })
+        .or_else(|| {
+            canonical_tty_main_output_name(outputs, tuning).and_then(|name| {
+                outputs.iter().find_map(|output| {
+                    (output.connector_name == name).then(|| {
+                        let (w, h) = output.mode.size();
+                        let (offset_x, offset_y) = tuning
+                            .tty_viewports
+                            .iter()
+                            .find(|viewport| {
+                                viewport.enabled && viewport.connector == output.connector_name
+                            })
+                            .map(|viewport| (viewport.offset_x, viewport.offset_y))
+                            .unwrap_or((0, 0));
+                        (w as i32, h as i32, offset_x, offset_y)
+                    })
+                })
+            })
+        })
         .unwrap_or((1920, 1080, 0, 0))
 }
 
@@ -503,6 +588,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let config_path_for_timer = config_path.clone();
             let wayland_display_for_timer = sock_name.clone();
             state.reconfigure_active_tty_monitors(&active_output_names(&outputs.borrow()));
+            if let Some(main_output) =
+                canonical_tty_main_output_name(outputs.borrow().as_slice(), &state.tuning)
+            {
+                if state.current_monitor != main_output {
+                    let _ = state.activate_monitor(main_output.as_str());
+                }
+            }
             let (layout_w, layout_h) = layout_size_for_outputs(&state.tuning, &outputs.borrow());
             let backend_handle = TtyBackendHandle::new(layout_w, layout_h);
             for name in output_advertise_order(outputs.borrow().as_slice(), &state.tuning) {
@@ -752,8 +844,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         // offset into the combined layout.  Using the full
                         // layout dimensions here would stretch [0,1] across all
                         // monitors and lock the pointer to only the leftmost one.
-                        let (mon_w, mon_h, mon_ox, mon_oy) =
-                            primary_tty_monitor_dims(&st.tuning);
+                        let (mon_w, mon_h, mon_ox, mon_oy) = primary_tty_monitor_dims(
+                            st.current_monitor.as_str(),
+                            &st.tuning,
+                            outputs_for_input.borrow().as_slice(),
+                        );
                         let sx = mon_ox as f32 + event.x_transformed(mon_w) as f32;
                         let sy = mon_oy as f32 + event.y_transformed(mon_h) as f32;
                         handle_backend_input_event(
@@ -1270,5 +1365,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
         }
     )
 }
+
 
 

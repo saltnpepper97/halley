@@ -265,9 +265,16 @@ fn begin_resize(
     let (h_weight_left, h_weight_right, v_weight_top, v_weight_bottom) =
         weights_from_handle(handle);
 
+    if let Some(drag) = ps.drag {
+        st.set_drag_authority_node(None);
+        st.end_carry_state_tracking(drag.node_id);
+    }
     ps.drag = None;
     ps.panning = false;
+    ps.pan_monitor = None;
     ps.move_anim.clear();
+    st.physics_velocity
+        .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     st.begin_resize_interaction(hit.node_id, Instant::now());
 
     let start_w = (start_right - start_left).max(96.0).round() as i32;
@@ -352,6 +359,9 @@ fn finalize_resize(st: &mut HalleyWlState, ps: &mut PointerState, backend: &dyn 
 
     let now = Instant::now();
     ps.move_anim.clear();
+    st.set_drag_authority_node(None);
+    st.physics_velocity
+        .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     if st.tuning.debug_tick_dump {
         ps.resize_trace_node = Some(resize.node_id);
         ps.resize_trace_until = Some(now + Duration::from_millis(1_200));
@@ -863,5 +873,6 @@ pub(crate) fn handle_pointer_button_input(
         }
     }
 }
+
 
 

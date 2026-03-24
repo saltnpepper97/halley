@@ -134,11 +134,22 @@ pub(crate) fn handle_pointer_motion_absolute(
         .and_then(|(_, owner, allow_monitor_transfer)| {
             (!*allow_monitor_transfer).then(|| owner.clone())
         });
+    let locked_resize_monitor = {
+        let ps = pointer_state.borrow();
+        ps.resize.and_then(|resize| {
+            st.node_monitor
+                .get(&resize.node_id)
+                .cloned()
+                .or_else(|| Some(st.current_monitor.clone()))
+        })
+    };
     let locked_pan_monitor = {
         let ps = pointer_state.borrow();
         ps.panning.then(|| ps.pan_monitor.clone()).flatten()
     };
-    let (effective_sx, effective_sy) = if let Some(owner) = locked_drag_monitor.as_deref() {
+    let (effective_sx, effective_sy) = if let Some(owner) = locked_resize_monitor.as_deref() {
+        clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
+    } else if let Some(owner) = locked_drag_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
     } else if let Some(owner) = locked_pan_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
@@ -159,6 +170,8 @@ pub(crate) fn handle_pointer_motion_absolute(
     });
     let target_monitor = {
         if let Some(owner) = locked_surface_monitor {
+            owner
+        } else if let Some(owner) = locked_resize_monitor {
             owner
         } else if let Some((_, owner, allow_monitor_transfer)) = drag_state.as_ref() {
             if *allow_monitor_transfer {
@@ -453,6 +466,10 @@ pub(crate) fn handle_pointer_motion_absolute(
             next.last_configure_at = now;
         }
 
+        // While resizing, keep normal motion physics inert for this node.
+        st.physics_velocity
+            .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
+
         // Keep node world position at the visual center of the preview rect so
         // overlap resolution and footprint tracking stay accurate regardless of
         // which corner or edge is moving.
@@ -532,5 +549,6 @@ pub(crate) fn handle_pointer_motion_absolute(
     }
     ps.hover_node = next_hover;
 }
+
 
 
