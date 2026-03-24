@@ -37,7 +37,7 @@ pub(crate) fn compositor_binding_action(
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
     for binding in &st.tuning.compositor_bindings {
-        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
+        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers) {
             return Some(binding.action);
         }
     }
@@ -67,7 +67,7 @@ pub(crate) fn key_is_compositor_binding(
 ) -> bool {
     compositor_binding_action(st, key_code, mods).is_some()
         || st.tuning.launch_bindings.iter().any(|binding| {
-            input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
+            input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers)
         })
 }
 
@@ -157,7 +157,7 @@ pub(crate) fn apply_bound_key(
     }
 
     for binding in st.tuning.launch_bindings.clone() {
-        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
+        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers) {
             // FIX: store the child so it's tracked for cleanup on WM exit,
             // rather than dropping it immediately (which orphaned the process).
             let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
