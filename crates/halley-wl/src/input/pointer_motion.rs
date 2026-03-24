@@ -370,53 +370,62 @@ pub(crate) fn handle_pointer_motion_absolute(
 
         // ── Phase 4: compute new preview rect ───────────────────────────────
         //
-        // Signed weight convention (see weights_from_handle):
-        //   +1.0  tracks pointer directly     (right / bottom moving edges)
-        //   -1.0  moves opposite to pointer   (left / top moving edges)
-        //    0.0  anchored, does not move
-        //
-        // Uniform formula for all edges:
-        //   new_edge = start_edge + weight * dx_or_dy
-        //
-        // Verification:
-        //   Left edge  (wl = -1.0): drag right (dx>0) → new_left = start_left - dx  → left moves right → window shrinks ✓
-        //   Right edge (wr = +1.0): drag right (dx>0) → new_right = start_right + dx → right moves right → window grows ✓
-        //   Top edge   (wt = -1.0): drag down  (dy>0) → new_top = start_top - dy    → top moves down   → window shrinks ✓
-        //   Bottom edge(wb = +1.0): drag down  (dy>0) → new_bottom = start_bottom + dy → bottom moves down → window grows ✓
-        //   BottomRight corner: right+bottom move, left+top anchored ✓
-        //   Left/Right handles: v weights are 0.0 so top/bottom don't move ✓
-        let desired_left   = resize.start_left_px   + next.h_weight_left  * dx;
-        let desired_right  = resize.start_right_px  + next.h_weight_right * dx;
-        let desired_top    = resize.start_top_px    + next.v_weight_top   * dy;
+        // `weights_from_handle` uses +1.0 for the edge that follows the pointer
+        // directly and 0.0 for the anchored opposite edge. For example, a left
+        // grab has `(h_weight_left, h_weight_right) = (1.0, 0.0)`, so dragging
+        // right increases `left` and shrinks the window while `right` stays put. 
+        let desired_left = resize.start_left_px + next.h_weight_left * dx;
+        let desired_right = resize.start_right_px + next.h_weight_right * dx;
+        let desired_top = resize.start_top_px + next.v_weight_top * dy;
         let desired_bottom = resize.start_bottom_px + next.v_weight_bottom * dy;
 
-        // Enforce minimum size. Distribute the shortage only to the moving
-        // side(s) using absolute weights, so anchored sides stay exactly fixed.
-        let raw_w = desired_right - desired_left;
-        let (left, right) = if raw_w < min_w {
-            let shortage  = min_w - raw_w;
-            let abs_l     = next.h_weight_left.abs();
-            let abs_r     = next.h_weight_right.abs();
-            let total_hw  = (abs_l + abs_r).max(f32::EPSILON);
-            // Nudge moving edges back inward: left moves right (+), right moves left (-).
-            let nudge_l = shortage * abs_l / total_hw;
-            let nudge_r = shortage * abs_r / total_hw;
-            (desired_left - nudge_l, desired_right - nudge_r)
+        // Preserve the anchored edge whenever the minimum size is reached.
+        // This stops the preview from translating toward the cursor once the
+        // dragged edge can no longer move any farther inward.
+        let (left, right) = if next.h_weight_left != 0.0 && next.h_weight_right == 0.0 {
+            let anchored_right = resize.start_right_px;
+            let clamped_left = desired_left.min(anchored_right - min_w);
+            (clamped_left, anchored_right)
+        } else if next.h_weight_right != 0.0 && next.h_weight_left == 0.0 {
+            let anchored_left = resize.start_left_px;
+            let clamped_right = desired_right.max(anchored_left + min_w);
+            (anchored_left, clamped_right)
         } else {
-            (desired_left, desired_right)
+            let raw_w = desired_right - desired_left;
+            if raw_w < min_w {
+                let shortage = min_w - raw_w;
+                let abs_l = next.h_weight_left.abs();
+                let abs_r = next.h_weight_right.abs();
+                let total_hw = (abs_l + abs_r).max(f32::EPSILON);
+                let nudge_l = shortage * abs_l / total_hw;
+                let nudge_r = shortage * abs_r / total_hw;
+                (desired_left - nudge_l, desired_right + nudge_r)
+            } else {
+                (desired_left, desired_right)
+            }
         };
 
-        let raw_h = desired_bottom - desired_top;
-        let (top, bottom) = if raw_h < min_h {
-            let shortage  = min_h - raw_h;
-            let abs_t     = next.v_weight_top.abs();
-            let abs_b     = next.v_weight_bottom.abs();
-            let total_vw  = (abs_t + abs_b).max(f32::EPSILON);
-            let nudge_t = shortage * abs_t / total_vw;
-            let nudge_b = shortage * abs_b / total_vw;
-            (desired_top - nudge_t, desired_bottom - nudge_b)
+        let (top, bottom) = if next.v_weight_top != 0.0 && next.v_weight_bottom == 0.0 {
+            let anchored_bottom = resize.start_bottom_px;
+            let clamped_top = desired_top.min(anchored_bottom - min_h);
+            (clamped_top, anchored_bottom)
+        } else if next.v_weight_bottom != 0.0 && next.v_weight_top == 0.0 {
+            let anchored_top = resize.start_top_px;
+            let clamped_bottom = desired_bottom.max(anchored_top + min_h);
+            (anchored_top, clamped_bottom)
         } else {
-            (desired_top, desired_bottom)
+            let raw_h = desired_bottom - desired_top;
+            if raw_h < min_h {
+                let shortage = min_h - raw_h;
+                let abs_t = next.v_weight_top.abs();
+                let abs_b = next.v_weight_bottom.abs();
+                let total_vw = (abs_t + abs_b).max(f32::EPSILON);
+                let nudge_t = shortage * abs_t / total_vw;
+                let nudge_b = shortage * abs_b / total_vw;
+                (desired_top - nudge_t, desired_bottom + nudge_b)
+            } else {
+                (desired_top, desired_bottom)
+            }
         };
 
         let target_visual_w = (right - left).round().max(min_w) as i32;
@@ -523,4 +532,5 @@ pub(crate) fn handle_pointer_motion_absolute(
     }
     ps.hover_node = next_hover;
 }
+
 

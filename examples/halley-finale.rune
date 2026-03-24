@@ -46,7 +46,6 @@ end
 cursor:
   theme "Adwaita"
   size 24
-
   hide-while-typing true
 end
 
@@ -72,6 +71,7 @@ viewport:
 
     # Refresh rate in Hz
     rate 180.0
+    vrr "on"
 
     # Display rotation
     #
@@ -95,6 +95,8 @@ viewport:
   #  height 1200
   #
   #  rate 75.0
+  #  vrr "off"
+  #
   #  transform 90
   #end
 end
@@ -214,6 +216,7 @@ end
 # Weighted tile layout used inside clusters.
 tile:
   # Newly opened windows appear with higher priority
+  new-on-top true
 
   gaps:
     inner 8
@@ -273,6 +276,7 @@ decorations:
 end
 
 animations:
+  enabled true
 end
 
 physics:
@@ -289,58 +293,52 @@ end
 # "modifier+key" "command"
 #
 keybinds:
-  # primary modifier key
-  #
-  # Examples:
-  #
-  # `lalt`, `lctl`, `ralt`, `rsuper`, etc.
-  # or simply general to map to either
-  # `alt`, `super` `ctrl` etc.
-  #
   mod "super"
 
-  #  Applications
-  "$var.mod+t" terminal
-  "$var.mod+d" launcher
-
-  # Core compositor controls
+  # basic compositor controls
+  "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
   "$var.mod+q" "close-focused"
-  "$var.mod+equal" "zoom-in"
-  "$var.mod+minus" "zoom-out"
-  "$var.mod+0" "zoom-reset"
-  "$var.mod+h" "home"
+  "$var.mod+mousewheelup" "zoom-in"
+  "$var.mod+mousewheeldown" "zoom-out"
+  "$var.mod+middlemouse" "zoom-reset"
 
-  # Lock the screen
-  "$var.mod+l" "swaylock"
-
-  # Navigate your app trail
-  "$var.mod+shift+," "trail prev"
-  "$var.mod+shift+." "trail next"
-
-  # Exit Halley
+  # quit halley
   "$var.mod+shift+e" "quit"
 
-  # Bearings visibility
-  "$var.mod+z" "bearrings"
-  "$var.mod+shift+z" "bearings toggle"
+  # move the newest node in a direction
+  "$var.mod+h" "move_left"
+  "$var.mod+l" "move_right"
+  "$var.mod+k" "move_up"
+  "$var.mod+j" "move_down"
+  "$var.mod+shift+," "trail-prev"
+  "$var.mod+shift+." "trail-next"
 
-  # Tile layout controls
-  "$var.mod+up" "tile promote"
-  "$var.mod+down" "tile demote"
+  # applications
+  "$var.mod+return" "kitty"
+  "$var.mod+d" "fuzzel"
 
-  # Audio controls
-  "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
-  "XF86AudioLowerVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
-  "XF86AudioMute" "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+  "$var.mod+leftmouse" "move-window"
+  "$var.mod+rightmouse" "resize-window"
+  "$var.mod+shift+leftmouse" "field-jump"
+
+  # media
+  "xf86audioraisevolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
+  "xf86audiolowervolume" "wpctl set-volume @default_audio_sink@ 5%-"
+  "xf86audiomute" "wpctl set-mute @default_audio_sink@ toggle"
 end
 
 # Rules allow matching specific applications
 # and applying behaviour automatically.
 rules:
   kitty:
-    app-id "kitty"
-    float true
+    app-id "file picker"
+    overlap-policy "allow"
+  end
+
+  picture-in-picture:
+    app-id ""
+    overlap-policy "allow"
   end
 end
 

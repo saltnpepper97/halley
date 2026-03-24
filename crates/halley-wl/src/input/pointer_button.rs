@@ -742,7 +742,15 @@ pub(crate) fn handle_pointer_button_input(
         st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
     ps.screen = (sx, sy);
     ps.workspace_size = (local_w, local_h);
-    let layer_focus = layer_surface_focus_for_screen(st, local_w, local_h, local_sx, local_sy);
+    let layer_focus = layer_surface_focus_for_screen(
+        st,
+        local_w,
+        local_h,
+        local_sx,
+        local_sy,
+        Instant::now(),
+        ps.resize,
+    );
     let world_now = screen_to_world(st, local_w, local_h, local_sx, local_sy);
     let frame = ButtonFrame {
         ws_w: local_w,
@@ -855,4 +863,5 @@ pub(crate) fn handle_pointer_button_input(
         }
     }
 }
+
 

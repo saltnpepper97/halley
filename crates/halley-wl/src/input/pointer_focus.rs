@@ -108,16 +108,56 @@ fn popup_focus_for_screen(
     None
 }
 
-pub(crate) fn layer_surface_focus_for_screen(
-    st: &HalleyWlState,
+fn fullscreen_hit_blocks_non_overlay_layers(
+    st: &mut HalleyWlState,
     ws_w: i32,
     ws_h: i32,
     sx: f32,
     sy: f32,
+    now: Instant,
+    resize_preview: Option<ResizeCtx>,
+) -> bool {
+    let Some(hit) = pick_hit_node_at(st, ws_w, ws_h, sx, sy, now, resize_preview) else {
+        return false;
+    };
+    if !st.is_fullscreen_active(hit.node_id) {
+        return false;
+    }
+
+    let pointer_monitor = st
+        .monitor_for_screen(sx, sy)
+        .unwrap_or_else(|| st.current_monitor.clone());
+    let node_monitor = st
+        .fullscreen_monitor_for_node(hit.node_id)
+        .map(str::to_owned)
+        .or_else(|| st.node_monitor.get(&hit.node_id).cloned())
+        .unwrap_or_else(|| st.current_monitor.clone());
+
+    pointer_monitor == node_monitor
+}
+
+pub(crate) fn layer_surface_focus_for_screen(
+    st: &mut HalleyWlState,
+    ws_w: i32,
+    ws_h: i32,
+    sx: f32,
+    sy: f32,
+    now: Instant,
+    resize_preview: Option<ResizeCtx>,
 ) -> Option<(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
 )> {
+    let block_non_overlay = fullscreen_hit_blocks_non_overlay_layers(
+        st,
+        ws_w,
+        ws_h,
+        sx,
+        sy,
+        now,
+        resize_preview,
+    );
+
     let mut placements = st.layer_shell_placements((ws_w.max(1), ws_h.max(1)).into());
     placements.sort_by_key(|placement| {
         std::cmp::Reverse(match placement.layer {
@@ -129,6 +169,15 @@ pub(crate) fn layer_surface_focus_for_screen(
     });
 
     for placement in placements {
+        if block_non_overlay
+            && !matches!(
+                placement.layer,
+                smithay::wayland::shell::wlr_layer::Layer::Overlay
+            )
+        {
+            continue;
+        }
+
         let local = Point::<f64, Logical>::from((
             (sx.round() as i32 - placement.origin.x) as f64,
             (sy.round() as i32 - placement.origin.y) as f64,
@@ -179,7 +228,7 @@ pub(crate) fn pointer_focus_for_screen(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
 )> {
-    if let Some(focus) = layer_surface_focus_for_screen(st, ws_w, ws_h, sx, sy) {
+    if let Some(focus) = layer_surface_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview) {
         return Some(focus);
     }
     if let Some(focus) = popup_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview) {
@@ -260,3 +309,4 @@ pub(crate) fn pointer_focus_for_screen(
     }
     None
 }
+

@@ -35,6 +35,28 @@ viewport:
       offset-y 0
     end
   end
+
+  #DP-2:
+  #  enabled true
+  #  
+  #  offset-x 0
+  #  offset-y 0
+  #  
+  #  width 1920
+  #  height 1200
+  #  
+  #  rate 75.0
+  #  transform 0
+  #  vrr "off"
+  #
+  #
+  #  focus-ring:
+  #    primary-rx 820.0
+  #    primary-ry 420.0
+  #    offset-x 0
+  #    offset-y 0
+  #  end
+  #end
 end
 
 trail:
@@ -82,7 +104,7 @@ end
 keybinds:
   mod "super"
 
-  # Basic compositor controls
+  # basic compositor controls
   "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
   "$var.mod+q" "close-focused"
@@ -90,10 +112,10 @@ keybinds:
   "$var.mod+mousewheeldown" "zoom-out"
   "$var.mod+middlemouse" "zoom-reset"
 
-  # Quit Halley
+  # quit halley
   "$var.mod+shift+e" "quit"
 
-  # Move the newest node in a direction
+  # move the newest node in a direction
   "$var.mod+h" "move_left"
   "$var.mod+l" "move_right"
   "$var.mod+k" "move_up"
@@ -101,18 +123,18 @@ keybinds:
   "$var.mod+shift+," "trail-prev"
   "$var.mod+shift+." "trail-next"
 
-  # Applications
+  # applications
   "$var.mod+return" "kitty"
-  "$var.mod+p" "pavucontrol"
   "$var.mod+d" "fuzzel"
-  "$var.mod+leftmouse" "move-window"
-  "$var.mod+shift+leftmouse" "field-jump"
-  "$var.mod+rightmouse" "resize-window"
 
-  # Media
-  "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
-  "XF86AudioLowerVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
-  "XF86AudioMute" "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+  "$var.mod+leftmouse" "move-window"
+  "$var.mod+rightmouse" "resize-window"
+  "$var.mod+shift+leftmouse" "field-jump"
+
+  # media
+  "xf86audioraisevolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
+  "xf86audiolowervolume" "wpctl set-volume @default_audio_sink@ 5%-"
+  "xf86audiomute" "wpctl set-mute @default_audio_sink@ toggle"
 end
 
 dev:
