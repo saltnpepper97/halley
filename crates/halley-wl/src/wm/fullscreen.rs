@@ -206,7 +206,7 @@ impl HalleyWlState {
             None => return, // not active fullscreen on any monitor
         };
 
-        self.reset_input_state_requested = true;
+        self.interaction_state.reset_input_state_requested = true;
 
         if suspend {
             self.fullscreen_suspended_node
@@ -271,14 +271,14 @@ impl HalleyWlState {
             node.intrinsic_size = entry.intrinsic_size;
         }
         if let Some(loc) = entry.bbox_loc {
-            self.bbox_loc.insert(id, loc);
+            self.render_state.bbox_loc.insert(id, loc);
         } else {
-            self.bbox_loc.remove(&id);
+            self.render_state.bbox_loc.remove(&id);
         }
         if let Some(geo) = entry.window_geometry {
-            self.window_geometry.insert(id, geo);
+            self.render_state.window_geometry.insert(id, geo);
         } else {
-            self.window_geometry.remove(&id);
+            self.render_state.window_geometry.remove(&id);
         }
         self.set_last_active_size_now(id, entry.intrinsic_size);
     }
@@ -325,8 +325,8 @@ impl HalleyWlState {
                 size: saved_size,
                 viewport_center,
                 intrinsic_size: node.intrinsic_size,
-                bbox_loc: self.bbox_loc.get(&node_id).copied(),
-                window_geometry: self.window_geometry.get(&node_id).copied(),
+                bbox_loc: self.render_state.bbox_loc.get(&node_id).copied(),
+                window_geometry: self.render_state.window_geometry.get(&node_id).copied(),
                 pinned: node.pinned,
             },
         );
@@ -377,8 +377,8 @@ impl HalleyWlState {
                         .unwrap_or(other.intrinsic_size),
                     viewport_center,
                     intrinsic_size: other.intrinsic_size,
-                    bbox_loc: self.bbox_loc.get(&other_id).copied(),
-                    window_geometry: self.window_geometry.get(&other_id).copied(),
+                    bbox_loc: self.render_state.bbox_loc.get(&other_id).copied(),
+                    window_geometry: self.render_state.window_geometry.get(&other_id).copied(),
                     pinned: other.pinned,
                 },
             );
@@ -417,7 +417,7 @@ impl HalleyWlState {
                 .map(|s| s.to_owned())
                 .unwrap(); // safe: is_fullscreen_active just confirmed it
 
-            self.reset_input_state_requested = true;
+            self.interaction_state.reset_input_state_requested = true;
             self.fullscreen_active_node.remove(&monitor_name);
 
             // Restore only bystanders that were displaced for this monitor's fullscreen.

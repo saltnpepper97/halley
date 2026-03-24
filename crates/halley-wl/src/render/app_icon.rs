@@ -37,18 +37,18 @@ pub(crate) fn ensure_node_app_icon_resources(
         let Some(app_id) = st.node_app_ids.get(&node.id).cloned() else {
             continue;
         };
-        if st.node_app_icon_cache.contains_key(&app_id) {
+        if st.render_state.node_app_icon_cache.contains_key(&app_id) {
             continue;
         }
 
         let Some(icon_path) = resolve_app_icon_path(&app_id) else {
-            st.node_app_icon_cache
+            st.render_state.node_app_icon_cache
                 .insert(app_id, NodeAppIconCacheEntry::Missing);
             continue;
         };
 
         let Some(raster) = load_icon_raster(&icon_path) else {
-            st.node_app_icon_cache
+            st.render_state.node_app_icon_cache
                 .insert(app_id, NodeAppIconCacheEntry::Missing);
             continue;
         };
@@ -68,7 +68,7 @@ pub(crate) fn ensure_node_app_icon_resources(
             }),
             Err(_) => NodeAppIconCacheEntry::Missing,
         };
-        st.node_app_icon_cache.insert(app_id, entry);
+        st.render_state.node_app_icon_cache.insert(app_id, entry);
     }
 
     Ok(())

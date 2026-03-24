@@ -10,7 +10,7 @@ use eventline::{FileSetup, LogLevel, LogPolicy, RunHeader, Setup, info, scope, w
 use once_cell::sync::OnceCell;
 
 use crate::input::spawn_command;
-use crate::state::HalleyWlState;
+use crate::state::{HalleyWlState, ViewportPanAnim};
 
 mod common;
 mod ipc;
@@ -32,7 +32,7 @@ pub(crate) struct LiveCameraState {
     zoom_ref_size: halley_core::field::Vec2,
     camera_target_center: halley_core::field::Vec2,
     camera_target_view_size: halley_core::field::Vec2,
-    viewport_pan_anim: Option<crate::wm::ViewportPanAnim>,
+    viewport_pan_anim: Option<ViewportPanAnim>,
 }
 
 extern "C" fn handle_shutdown_signal(_: libc::c_int) {
@@ -78,7 +78,7 @@ pub(crate) fn capture_live_camera_state(st: &mut HalleyWlState) -> LiveCameraSta
         zoom_ref_size: st.zoom_ref_size,
         camera_target_center: st.camera_target_center,
         camera_target_view_size: st.camera_target_view_size,
-        viewport_pan_anim: st.viewport_pan_anim.take(),
+        viewport_pan_anim: st.interaction_state.viewport_pan_anim.take(),
     }
 }
 
@@ -87,7 +87,7 @@ pub(crate) fn restore_live_camera_state(st: &mut HalleyWlState, state: LiveCamer
     st.zoom_ref_size = state.zoom_ref_size;
     st.camera_target_center = state.camera_target_center;
     st.camera_target_view_size = state.camera_target_view_size;
-    st.viewport_pan_anim = state.viewport_pan_anim;
+    st.interaction_state.viewport_pan_anim = state.viewport_pan_anim;
     st.tuning.viewport_center = st.viewport.center;
     st.tuning.viewport_size = st.viewport.size;
 }

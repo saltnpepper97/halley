@@ -4,7 +4,7 @@ use halley_core::viewport::{FocusRing, FocusZone};
 impl HalleyWlState {
     #[inline]
     pub(crate) fn set_drag_authority_node(&mut self, id: Option<NodeId>) {
-        self.drag_authority_node = id;
+        self.interaction_state.drag_authority_node = id;
     }
 
     #[inline]
@@ -119,19 +119,19 @@ impl HalleyWlState {
         // physics while held, so there is nothing meaningful to hand off.
         // Other windows that were pushed during the drag already have their
         // own velocities and will continue to settle normally.
-        self.physics_velocity.remove(&id);
+        self.interaction_state.physics_velocity.remove(&id);
     }
 
     pub fn begin_carry_state_tracking(&mut self, id: NodeId) {
         self.clear_direct_carry_nodes();
         self.mark_direct_carry_node(id);
-        if self.resize_static_node == Some(id) {
-            self.resize_static_node = None;
-            self.resize_static_lock_pos = None;
-            self.resize_static_until_ms = 0;
+        if self.interaction_state.resize_static_node == Some(id) {
+            self.interaction_state.resize_static_node = None;
+            self.interaction_state.resize_static_lock_pos = None;
+            self.interaction_state.resize_static_until_ms = 0;
         }
-        self.suspend_overlap_resolve = false;
-        self.suspend_state_checks = false;
+        self.interaction_state.suspend_overlap_resolve = false;
+        self.interaction_state.suspend_state_checks = false;
         let _ = self.field.set_pinned(id, false);
 
         if let Some(n) = self.field.node(id) {
@@ -149,8 +149,8 @@ impl HalleyWlState {
     }
 
     pub fn end_carry_state_tracking(&mut self, id: NodeId) {
-        if self.drag_authority_node == Some(id) {
-            self.drag_authority_node = None;
+        if self.interaction_state.drag_authority_node == Some(id) {
+            self.interaction_state.drag_authority_node = None;
         }
         self.mark_direct_carry_node(id);
         self.carry_zone_hint.remove(&id);
@@ -159,8 +159,8 @@ impl HalleyWlState {
         self.carry_zone_pending_since_ms.remove(&id);
         self.carry_activation_anim_armed.remove(&id);
         self.carry_state_hold.remove(&id);
-        self.suspend_overlap_resolve = false;
-        self.suspend_state_checks = false;
+        self.interaction_state.suspend_overlap_resolve = false;
+        self.interaction_state.suspend_state_checks = false;
         self.clear_direct_carry_nodes();
         self.request_maintenance();
     }

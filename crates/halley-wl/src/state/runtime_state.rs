@@ -16,7 +16,7 @@ impl HalleyWlState {
 
     #[inline]
     pub(crate) fn is_recently_resized_node(&self, id: NodeId, now_ms: u64) -> bool {
-        self.resize_static_node == Some(id) && now_ms < self.resize_static_until_ms
+        self.interaction_state.resize_static_node == Some(id) && now_ms < self.interaction_state.resize_static_until_ms
     }
 
     pub(crate) fn companion_surface_node(&self, now_ms: u64) -> Option<NodeId> {
@@ -59,8 +59,8 @@ impl HalleyWlState {
             return 0.0;
         }
         let now_ms = self.now_ms(now);
-        if self.resize_active == Some(id)
-            || (self.resize_static_node == Some(id) && now_ms < self.resize_static_until_ms)
+        if self.interaction_state.resize_active == Some(id)
+            || (self.interaction_state.resize_static_node == Some(id) && now_ms < self.interaction_state.resize_static_until_ms)
         {
             return 0.0;
         }
@@ -113,20 +113,20 @@ impl HalleyWlState {
             if prev_runtime_viewport.center != next_viewport.center
                 || prev_runtime_viewport.size != next_viewport.size
             {
-                self.viewport_pan_anim = None;
+                self.interaction_state.viewport_pan_anim = None;
             }
         }
 
-        self.animator.set_spec(AnimSpec {
+        self.render_state.animator.set_spec(AnimSpec {
             state_change_ms: tuning.dev_anim_state_change_ms,
             bounce: tuning.dev_anim_bounce,
         });
 
         if prev_physics_enabled && !tuning.physics_enabled {
             self.workspace_state.active_transition_until_ms.clear();
-            self.drag_authority_node = None;
-            self.physics_velocity.clear();
-            self.smoothed_render_pos.clear();
+            self.interaction_state.drag_authority_node = None;
+            self.interaction_state.physics_velocity.clear();
+            self.interaction_state.smoothed_render_pos.clear();
             self.camera_target_center = self.viewport.center;
             self.camera_target_view_size = self.zoom_ref_size;
         }
@@ -168,13 +168,13 @@ impl HalleyWlState {
         }
 
         let now_ms = self.now_ms(now);
-        if self.resize_active == Some(id)
-            || (self.resize_static_node == Some(id) && now_ms < self.resize_static_until_ms)
+        if self.interaction_state.resize_active == Some(id)
+            || (self.interaction_state.resize_static_node == Some(id) && now_ms < self.interaction_state.resize_static_until_ms)
         {
             return AnimStyle::default();
         }
 
-        self.animator.style_for(id, state, now)
+        self.render_state.animator.style_for(id, state, now)
     }
 
     pub fn anim_track_elapsed_for(
@@ -183,7 +183,7 @@ impl HalleyWlState {
         state: halley_core::field::NodeState,
         now: Instant,
     ) -> Option<std::time::Duration> {
-        self.animator.track_elapsed_for(id, state, now)
+        self.render_state.animator.track_elapsed_for(id, state, now)
     }
 
     pub fn active_focus_ring(&self) -> halley_core::viewport::FocusRing {

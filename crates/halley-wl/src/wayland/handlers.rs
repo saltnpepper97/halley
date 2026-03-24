@@ -424,7 +424,7 @@ impl HalleyWlState {
             (xform.origin_x + location.x as f32 * xform.scale).clamp(0.0, (ws_w.max(1) - 1) as f32);
         let sy =
             (xform.origin_y + location.y as f32 * xform.scale).clamp(0.0, (ws_h.max(1) - 1) as f32);
-        self.pending_pointer_screen_hint = Some((sx, sy));
+        self.interaction_state.pending_pointer_screen_hint = Some((sx, sy));
 
         let cam_scale = self.camera_render_scale().max(0.001) as f64;
         let focus_origin = smithay::utils::Point::<f64, smithay::utils::Logical>::from((
@@ -464,7 +464,7 @@ impl HalleyWlState {
         });
         if released {
             self.clear_pointer_focus();
-            self.reset_input_state_requested = true;
+            self.interaction_state.reset_input_state_requested = true;
         }
         released
     }
@@ -660,7 +660,7 @@ impl XdgShellHandler for HalleyWlState {
                 "toplevel_destroyed with active focus (keyboard={} pointer={}); scheduling input state reset",
                 had_keyboard_focus, had_pointer_focus
             );
-            self.reset_input_state_requested = true;
+            self.interaction_state.reset_input_state_requested = true;
         }
 
         if had_keyboard_focus {

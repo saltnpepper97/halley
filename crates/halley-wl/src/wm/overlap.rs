@@ -76,7 +76,7 @@ impl HalleyWlState {
 
     #[inline]
     fn physics_inv_mass(&self, id: NodeId, pinned: bool) -> f32 {
-        if pinned || self.drag_authority_node == Some(id) || self.resize_active == Some(id) {
+        if pinned || self.interaction_state.drag_authority_node == Some(id) || self.interaction_state.resize_active == Some(id) {
             0.0
         } else {
             1.0
@@ -144,7 +144,7 @@ impl HalleyWlState {
     ) -> bool {
         let moved = if !self.tuning.physics_enabled {
             self.carry_surface_no_overlap_static(id, to)
-        } else if clamp_only || self.suspend_overlap_resolve || self.suspend_state_checks {
+        } else if clamp_only || self.interaction_state.suspend_overlap_resolve || self.interaction_state.suspend_state_checks {
             self.carry_surface_no_overlap_static(id, to)
         } else {
             self.field.carry(id, to)
@@ -302,15 +302,16 @@ impl HalleyWlState {
             .get(&n.id)
             .copied()
             .or_else(|| {
-                self.window_geometry
+                self.render_state.window_geometry
                     .get(&n.id)
                     .map(|(_, _, w, h)| Vec2 { x: *w, y: *h })
             })
             .unwrap_or(n.intrinsic_size);
         let bbox_w = n.intrinsic_size.x.max(1.0);
         let bbox_h = n.intrinsic_size.y.max(1.0);
-        let (bbox_lx, bbox_ly) = self.bbox_loc.get(&n.id).copied().unwrap_or((0.0, 0.0));
+        let (bbox_lx, bbox_ly) = self.render_state.bbox_loc.get(&n.id).copied().unwrap_or((0.0, 0.0));
         let (geo_lx, geo_ly, geo_w, geo_h) = self
+            .render_state
             .window_geometry
             .get(&n.id)
             .copied()
@@ -393,7 +394,7 @@ impl HalleyWlState {
         if !self.tuning.physics_enabled {
             return;
         }
-        if self.suspend_overlap_resolve {
+        if self.interaction_state.suspend_overlap_resolve {
             return;
         }
 
@@ -413,10 +414,10 @@ impl HalleyWlState {
 
         let now = Instant::now();
         let dt = now
-            .saturating_duration_since(self.physics_last_tick)
+            .saturating_duration_since(self.interaction_state.physics_last_tick)
             .as_secs_f32()
             .clamp(1.0 / 240.0, 1.0 / 30.0);
-        self.physics_last_tick = now;
+        self.interaction_state.physics_last_tick = now;
 
         let gap = self.non_overlap_gap_world();
         let damping_per_sec = self.physics_damping_per_sec();
@@ -434,7 +435,8 @@ impl HalleyWlState {
             velocities.insert(
                 id,
                 Self::clamp_speed(
-                    self.physics_velocity
+                    self.interaction_state
+                        .physics_velocity
                         .get(&id)
                         .copied()
                         .unwrap_or(Vec2 { x: 0.0, y: 0.0 }),
@@ -447,7 +449,7 @@ impl HalleyWlState {
             let Some(node) = self.field.node(id) else {
                 continue;
             };
-            let pinned = node.pinned || self.resize_static_node == Some(id);
+            let pinned = node.pinned || self.interaction_state.resize_static_node == Some(id);
             if self.physics_inv_mass(id, pinned) <= 0.0 {
                 continue;
             }
@@ -472,8 +474,8 @@ impl HalleyWlState {
                         continue;
                     };
 
-                    let a_pinned = na.pinned || self.resize_static_node == Some(a);
-                    let b_pinned = nb.pinned || self.resize_static_node == Some(b);
+                    let a_pinned = na.pinned || self.interaction_state.resize_static_node == Some(a);
+                    let b_pinned = nb.pinned || self.interaction_state.resize_static_node == Some(b);
                     let inv_mass_a = self.physics_inv_mass(a, a_pinned);
                     let inv_mass_b = self.physics_inv_mass(b, b_pinned);
                     if inv_mass_a <= 0.0 && inv_mass_b <= 0.0 {
@@ -609,10 +611,10 @@ impl HalleyWlState {
             let Some(node) = self.field.node(id) else {
                 continue;
             };
-            let pinned = node.pinned || self.resize_static_node == Some(id);
+            let pinned = node.pinned || self.interaction_state.resize_static_node == Some(id);
             // Don't write physics position back to the grabbed window —
             // carry_surface_non_overlap owns its position each frame.
-            if self.drag_authority_node != Some(id) {
+            if self.interaction_state.drag_authority_node != Some(id) {
                 if let Some(pos) = positions.get(&id).copied() {
                     let _ = self.field.carry(id, pos);
                 }
@@ -628,9 +630,9 @@ impl HalleyWlState {
                 MAX_PHYSICS_SPEED,
             );
             if vel.x.abs() < PHYSICS_REST_EPSILON && vel.y.abs() < PHYSICS_REST_EPSILON {
-                self.physics_velocity.remove(&id);
+                self.interaction_state.physics_velocity.remove(&id);
             } else {
-                self.physics_velocity.insert(id, vel);
+                self.interaction_state.physics_velocity.insert(id, vel);
             }
         }
     }
@@ -1037,11 +1039,13 @@ mod tests {
         for _ in 0..12 {
             state.resolve_surface_overlap();
             let vel_a = state
+                .interaction_state
                 .physics_velocity
                 .get(&a)
                 .copied()
                 .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
             let vel_b = state
+                .interaction_state
                 .physics_velocity
                 .get(&b)
                 .copied()
@@ -1087,6 +1091,7 @@ mod tests {
             let _ = state.carry_surface_non_overlap(dragged, to, false);
             state.resolve_surface_overlap();
             let vel = state
+                .interaction_state
                 .physics_velocity
                 .get(&passive)
                 .copied()
@@ -1112,6 +1117,7 @@ mod tests {
             Vec2 { x: 420.0, y: 280.0 },
         );
         state
+            .interaction_state
             .physics_velocity
             .insert(id, Vec2 { x: 480.0, y: 120.0 });
         state.finalize_mouse_drag_state(id, Vec2 { x: 0.0, y: 0.0 }, Instant::now());
@@ -1145,12 +1151,13 @@ mod tests {
         let eb = state.collision_extents_for_node(state.field.node(b).expect("b"));
         let req_x = state.required_sep_x(0.0, ea, 1.0, eb, state.non_overlap_gap_world());
         let _ = state.field.carry(b, Vec2 { x: req_x, y: 0.0 });
-        state.physics_velocity.insert(a, Vec2 { x: 320.0, y: 0.0 });
-        state.physics_velocity.insert(b, Vec2 { x: 0.0, y: 0.0 });
+        state.interaction_state.physics_velocity.insert(a, Vec2 { x: 320.0, y: 0.0 });
+        state.interaction_state.physics_velocity.insert(b, Vec2 { x: 0.0, y: 0.0 });
 
         state.resolve_surface_overlap();
 
         let vb = state
+            .interaction_state
             .physics_velocity
             .get(&b)
             .copied()
@@ -1183,11 +1190,13 @@ mod tests {
         tick_overlap_frames(&mut state, 24);
 
         let va = state
+            .interaction_state
             .physics_velocity
             .get(&a)
             .copied()
             .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
         let vb = state
+            .interaction_state
             .physics_velocity
             .get(&b)
             .copied()

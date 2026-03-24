@@ -324,7 +324,7 @@ pub(crate) fn handle_pointer_motion_absolute(
                     st.monitor_state.node_monitor
                         .insert(drag.node_id, st.monitor_state.current_monitor.clone());
                 }
-                st.physics_velocity
+                st.interaction_state.physics_velocity
                     .insert(drag.node_id, next_drag.release_velocity);
                 let should_center = st.tuning.center_window_to_mouse
                     && (!next_drag.center_latched
@@ -467,7 +467,7 @@ pub(crate) fn handle_pointer_motion_absolute(
         }
 
         // While resizing, keep normal motion physics inert for this node.
-        st.physics_velocity
+        st.interaction_state.physics_velocity
             .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
 
         // Keep node world position at the visual center of the preview rect so

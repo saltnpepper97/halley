@@ -59,6 +59,7 @@ fn popup_focus_for_screen(
         let scale = xform.scale.max(0.001);
 
         let parent_geo = st
+            .render_state
             .window_geometry
             .get(&node_id)
             .map(|&(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))

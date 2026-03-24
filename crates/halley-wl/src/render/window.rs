@@ -343,6 +343,7 @@ pub(crate) fn collect_active_surfaces(
                 match render_surface_tree_to_texture(renderer, &wl, 1.0) {
                     Ok(offscreen) => {
                         let cache = st
+                            .render_state
                             .window_offscreen_cache
                             .get_mut(&node_id)
                             .expect("offscreen cache should exist after ensure");
@@ -381,11 +382,11 @@ pub(crate) fn collect_active_surfaces(
                 }
             }
 
-            if let Some(cache) = st.window_offscreen_cache.get_mut(&node_id) {
+            if let Some(cache) = st.render_state.window_offscreen_cache.get_mut(&node_id) {
                 cache.touch(now);
             }
 
-            match st.window_offscreen_cache.get(&node_id) {
+            match st.render_state.window_offscreen_cache.get(&node_id) {
                 Some(cache) => {
                     let Some(texture) = cache.texture.as_ref() else {
                         continue;

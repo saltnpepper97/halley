@@ -1240,8 +1240,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     // On the first tick after DPMS wake, re-configure layer shell
                     // surfaces and flush frame callbacks so wallpaper clients
                     // re-present before we queue the first scanout frame.
-                    if st.dpms_just_woke {
-                        st.dpms_just_woke = false;
+                    if st.interaction_state.dpms_just_woke {
+                        st.interaction_state.dpms_just_woke = false;
                         let wake_size = {
                             let outputs_ref = outputs_for_timer.borrow();
                             outputs_ref.first().map(|o| {

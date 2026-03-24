@@ -204,7 +204,7 @@ fn begin_drag(
     ps.drag = Some(drag_ctx);
     let _ = st.field.set_pinned(hit.node_id, false);
     st.assign_node_to_current_monitor(hit.node_id);
-    st.physics_velocity
+    st.interaction_state.physics_velocity
         .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     st.set_drag_authority_node(Some(hit.node_id));
     st.begin_carry_state_tracking(hit.node_id);
@@ -273,7 +273,7 @@ fn begin_resize(
     ps.panning = false;
     ps.pan_monitor = None;
     ps.move_anim.clear();
-    st.physics_velocity
+    st.interaction_state.physics_velocity
         .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     st.begin_resize_interaction(hit.node_id, Instant::now());
 
@@ -360,7 +360,7 @@ fn finalize_resize(st: &mut HalleyWlState, ps: &mut PointerState, backend: &dyn 
     let now = Instant::now();
     ps.move_anim.clear();
     st.set_drag_authority_node(None);
-    st.physics_velocity
+    st.interaction_state.physics_velocity
         .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     if st.tuning.debug_tick_dump {
         ps.resize_trace_node = Some(resize.node_id);
@@ -511,7 +511,7 @@ fn restore_fullscreen_click_focus(
         st.camera_target_view_size = one_x_zoom;
         st.tuning.viewport_center = target_center;
         st.tuning.viewport_size = one_x_zoom;
-        st.viewport_pan_anim = None;
+        st.interaction_state.viewport_pan_anim = None;
     }
 
     st.set_interaction_focus(Some(node_id), 30_000, now);

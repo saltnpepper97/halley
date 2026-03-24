@@ -41,10 +41,10 @@ impl HalleyWlState {
     }
 
     pub(crate) fn update_zoom_live_surface_sizes(&mut self) {
-        self.zoom_resize_fallback.clear();
-        self.zoom_resize_reject_streak.clear();
-        self.zoom_resize_static_streak.clear();
-        self.zoom_last_observed_size.clear();
+        self.render_state.zoom_resize_fallback.clear();
+        self.render_state.zoom_resize_reject_streak.clear();
+        self.render_state.zoom_resize_static_streak.clear();
+        self.render_state.zoom_last_observed_size.clear();
     }
 
     pub(crate) fn zoom_by_steps(&mut self, steps: f32) {
@@ -65,7 +65,7 @@ impl HalleyWlState {
     }
 
     pub(crate) fn tick_camera_smoothing(&mut self, now: Instant) {
-        if self.viewport_pan_anim.is_some() {
+        if self.interaction_state.viewport_pan_anim.is_some() {
             self.snap_camera_targets_to_live();
             return;
         }
@@ -79,7 +79,7 @@ impl HalleyWlState {
         }
 
         let dt = now
-            .saturating_duration_since(self.render_last_tick)
+            .saturating_duration_since(self.render_state.render_last_tick)
             .as_secs_f32()
             .clamp(1.0 / 240.0, 1.0 / 20.0);
         let center_alpha = (dt * Self::CAMERA_SMOOTH_CENTER_RATE).clamp(0.08, 0.55);

@@ -205,7 +205,7 @@ impl HalleyWlState {
                 continue;
             }
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
-            if let Some((_, _, w, h)) = self.window_geometry.get(&id) {
+            if let Some((_, _, w, h)) = self.render_state.window_geometry.get(&id) {
                 self.workspace_state.last_active_size.insert(id, Vec2 { x: *w, y: *h });
             }
             self.mark_active_transition(id, now, 620);
@@ -261,23 +261,7 @@ impl HalleyWlState {
         }
     }
 
-    pub(crate) fn enforce_pan_dominant_zone_states(&mut self, now_ms: u64) {
-        let active_outside_ring_delay_ms = self.tuning.active_outside_ring_delay_ms;
-        let inactive_outside_ring_delay_ms = self.tuning.inactive_outside_ring_delay_ms;
-
-        let ids: Vec<NodeId> = self.field.nodes().keys().copied().collect();
-
-        for id in ids {
-            self.apply_single_surface_decay_policy(
-                id,
-                now_ms,
-                active_outside_ring_delay_ms,
-                inactive_outside_ring_delay_ms,
-            );
-        }
-    }
-
-    fn apply_single_surface_decay_policy(
+    pub fn apply_single_surface_decay_policy(
         &mut self,
         id: NodeId,
         now_ms: u64,
@@ -329,7 +313,7 @@ impl HalleyWlState {
 
     fn is_hard_decay_protected(&self, id: NodeId, now_ms: u64) -> bool {
         self.focus_state.primary_interaction_focus == Some(id)
-            || self.resize_active == Some(id)
+            || self.interaction_state.resize_active == Some(id)
             || self.is_recently_resized_node(id, now_ms)
             || self.carry_zone_hint.contains_key(&id)
             || self.workspace_state.active_transition_until_ms.contains_key(&id)
@@ -395,15 +379,15 @@ impl HalleyWlState {
                     self.focus_state.pan_restore_active_focus = None;
                 }
                 self.workspace_state.manual_collapsed_nodes.remove(&id);
-                self.zoom_nominal_size.remove(&id);
-                self.zoom_resize_fallback.remove(&id);
-                self.zoom_resize_reject_streak.remove(&id);
-                self.zoom_last_observed_size.remove(&id);
-                self.zoom_resize_static_streak.remove(&id);
+                self.render_state.zoom_nominal_size.remove(&id);
+                self.render_state.zoom_resize_fallback.remove(&id);
+                self.render_state.zoom_resize_reject_streak.remove(&id);
+                self.render_state.zoom_last_observed_size.remove(&id);
+                self.render_state.zoom_resize_static_streak.remove(&id);
                 self.node_app_ids.remove(&id);
                 self.workspace_state.last_active_size.remove(&id);
-                self.bbox_loc.remove(&id);
-                self.window_geometry.remove(&id);
+                self.render_state.bbox_loc.remove(&id);
+                self.render_state.window_geometry.remove(&id);
                 self.pending_spawn_activate_at_ms.remove(&id);
                 self.workspace_state.active_transition_until_ms.remove(&id);
                 self.workspace_state.primary_promote_cooldown_until_ms.remove(&id);
@@ -414,13 +398,13 @@ impl HalleyWlState {
                 self.carry_zone_pending_since_ms.remove(&id);
                 self.carry_activation_anim_armed.remove(&id);
                 self.carry_state_hold.remove(&id);
-                if self.resize_active == Some(id) {
-                    self.resize_active = None;
+                if self.interaction_state.resize_active == Some(id) {
+                    self.interaction_state.resize_active = None;
                 }
-                if self.resize_static_node == Some(id) {
-                    self.resize_static_node = None;
-                    self.resize_static_lock_pos = None;
-                    self.resize_static_until_ms = 0;
+                if self.interaction_state.resize_static_node == Some(id) {
+                    self.interaction_state.resize_static_node = None;
+                    self.interaction_state.resize_static_lock_pos = None;
+                    self.interaction_state.resize_static_until_ms = 0;
                 }
                 if self.focus_state.primary_interaction_focus == Some(id) {
                     self.focus_state.primary_interaction_focus = None;
@@ -436,7 +420,7 @@ impl HalleyWlState {
                 for monitor in stale_monitors {
                     self.focus_state.monitor_focus.remove(&monitor);
                 }
-                self.smoothed_render_pos.remove(&id);
+                self.interaction_state.smoothed_render_pos.remove(&id);
                 let _ = self.field.remove(id);
             }
         }
@@ -469,9 +453,10 @@ mod tests {
             .last_active_size
             .insert(id, Vec2 { x: 100.0, y: 100.0 });
         state
+            .render_state
             .window_geometry
             .insert(id, (-50.0, -50.0, 100.0, 100.0));
-        state.bbox_loc.insert(id, (0.0, 0.0));
+        state.render_state.bbox_loc.insert(id, (0.0, 0.0));
 
         assert!(!state.surface_is_definitively_outside_focus_ring(id));
     }
@@ -496,9 +481,10 @@ mod tests {
             .last_active_size
             .insert(id, Vec2 { x: 100.0, y: 100.0 });
         state
+            .render_state
             .window_geometry
             .insert(id, (-50.0, -50.0, 100.0, 100.0));
-        state.bbox_loc.insert(id, (0.0, 0.0));
+        state.render_state.bbox_loc.insert(id, (0.0, 0.0));
 
         assert!(state.surface_is_definitively_outside_focus_ring(id));
     }

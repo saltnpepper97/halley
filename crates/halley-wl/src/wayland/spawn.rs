@@ -267,7 +267,7 @@ impl HalleyWlState {
         }
 
         let pan_finished = now_ms >= active.reveal_at_ms
-            || (now_ms >= active.pan_start_at_ms && self.viewport_pan_anim.is_none());
+            || (now_ms >= active.pan_start_at_ms && self.interaction_state.viewport_pan_anim.is_none());
         if !pan_finished {
             return;
         }
@@ -537,7 +537,7 @@ mod tests {
 
         assert!(state.active_spawn_pan.is_none());
         assert!(state.pending_spawn_pan_queue.is_empty());
-        assert!(state.viewport_pan_anim.is_none());
+        assert!(state.interaction_state.viewport_pan_anim.is_none());
         assert_eq!(state.focus_state.primary_interaction_focus, Some(id));
     }
 

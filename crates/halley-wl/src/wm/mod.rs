@@ -25,5 +25,3 @@ pub(crate) mod overlap;
 mod trail;
 mod workspace;
 mod zoom;
-
-pub(crate) use focus::ViewportPanAnim;

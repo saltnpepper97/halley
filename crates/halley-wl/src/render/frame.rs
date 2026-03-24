@@ -189,7 +189,7 @@ fn prepare_debug_frame_state(
     size: smithay::utils::Size<i32, Physical>,
 ) -> PreparedFrameState {
     let now = Instant::now();
-    if !st.suppress_layer_shell_configure {
+    if !st.interaction_state.suppress_layer_shell_configure {
         st.configure_layer_shell_surfaces((size.w, size.h).into());
     }
 

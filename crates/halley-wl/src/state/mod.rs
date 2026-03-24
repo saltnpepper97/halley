@@ -12,7 +12,6 @@ use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::trail::Trail;
 use halley_core::viewport::{FocusZone, Viewport};
 
-use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
@@ -44,18 +43,22 @@ use crate::activity::CommitActivity;
 use crate::animation::{AnimSpec, Animator};
 use crate::backend::interface::DmabufImportBackend;
 use crate::state::focus::FocusState;
+use crate::state::interaction::InteractionState;
 use crate::state::monitor::{MonitorState, MonitorSpace};
+use crate::state::render_state::RenderState;
 use crate::state::workspace::WorkspaceState;
-use crate::wm::ViewportPanAnim;
 
 mod client;
 mod focus;
+mod interaction;
 mod monitor;
 mod render_state;
 mod runtime_state;
 mod workspace;
 
 pub use client::ClientState;
+pub(crate) use interaction::ViewportPanAnim;
+pub(crate) use render_state::{NodeAppIconCacheEntry, NodeAppIconTexture}; 
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
@@ -93,73 +96,6 @@ pub(crate) struct ActiveSpawnPan {
 pub(crate) enum SpawnAnchorMode {
     Focus,
     View,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct WindowOffscreenKey {
-    pub width: i32,
-    pub height: i32,
-}
-
-#[derive(Default)]
-pub(crate) struct WindowOffscreenCache {
-    /// Native 1.0x surface-tree bbox size used to build the offscreen image.
-    pub key: WindowOffscreenKey,
-
-    /// Set when the cached offscreen image should be rebuilt before use.
-    pub dirty: bool,
-
-    /// Last frame this cache entry was touched.
-    pub last_used_at: Option<Instant>,
-
-    /// Cached 1.0x surface-tree render target for zoomed compositing.
-    pub texture: Option<GlesTexture>,
-
-    /// Logical bbox paired with the cached texture.
-    pub bbox: Option<Rectangle<i32, Logical>>,
-}
-
-impl WindowOffscreenCache {
-    #[inline]
-    pub fn matches_size(&self, width: i32, height: i32) -> bool {
-        self.key.width == width && self.key.height == height
-    }
-
-    #[inline]
-    pub fn set_size(&mut self, width: i32, height: i32) {
-        self.key = WindowOffscreenKey { width, height };
-        self.texture = None;
-        self.bbox = None;
-    }
-
-    #[inline]
-    pub fn mark_dirty(&mut self) {
-        self.dirty = true;
-    }
-
-    #[inline]
-    pub fn mark_clean(&mut self, now: Instant) {
-        self.dirty = false;
-        self.last_used_at = Some(now);
-    }
-
-    #[inline]
-    pub fn touch(&mut self, now: Instant) {
-        self.last_used_at = Some(now);
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct NodeAppIconTexture {
-    pub texture: GlesTexture,
-    pub width: i32,
-    pub height: i32,
-}
-
-#[derive(Clone)]
-pub(crate) enum NodeAppIconCacheEntry {
-    Ready(NodeAppIconTexture),
-    Missing,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -211,6 +147,8 @@ pub struct HalleyWlState {
     pub(crate) monitor_state: MonitorState,
     pub(crate) focus_state: FocusState,
     pub(crate) workspace_state: WorkspaceState,
+    pub(crate) interaction_state: InteractionState,
+    pub(crate) render_state: RenderState,
 
     pub field: Field,
     pub viewport: Viewport,
@@ -220,21 +158,10 @@ pub struct HalleyWlState {
     pub(crate) camera_target_view_size: Vec2,
     pub cursor_image_status: CursorImageStatus,
     pub(crate) dmabuf_importer: Option<Rc<dyn DmabufImportBackend>>,
-    pub(crate) reset_input_state_requested: bool,
-    pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
-    pub(crate) suppress_layer_shell_configure: bool,
-    pub dpms_just_woke: bool,
 
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
     pub surface_to_node: HashMap<ObjectId, NodeId>,
     pub(crate) node_app_ids: HashMap<NodeId, String>,
-    pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
-    pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
-    pub(crate) zoom_resize_fallback: HashSet<NodeId>,
-    pub(crate) zoom_resize_reject_streak: HashMap<NodeId, u8>,
-    pub(crate) zoom_last_observed_size: HashMap<NodeId, Vec2>,
-    pub(crate) zoom_resize_static_streak: HashMap<NodeId, u8>,
-    pub animator: Animator,
     pub pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
 
     pub(crate) carry_zone_hint: HashMap<NodeId, FocusZone>,
@@ -245,31 +172,8 @@ pub struct HalleyWlState {
     pub(crate) carry_direct_nodes: HashSet<NodeId>,
     pub(crate) carry_state_hold: HashMap<NodeId, halley_core::field::NodeState>,
 
-    pub(crate) resize_active: Option<NodeId>,
-    pub(crate) resize_static_node: Option<NodeId>,
-    pub(crate) resize_static_lock_pos: Option<Vec2>,
-    pub(crate) resize_static_until_ms: u64,
-    pub(crate) drag_authority_node: Option<NodeId>,
-    pub(crate) suspend_overlap_resolve: bool,
-    pub(crate) suspend_state_checks: bool,
-    pub(crate) physics_velocity: HashMap<NodeId, Vec2>,
-    pub(crate) physics_last_tick: Instant,
-    pub(crate) smoothed_render_pos: HashMap<NodeId, Vec2>,
-    pub(crate) node_hover_mix: HashMap<NodeId, f32>,
-    pub(crate) node_preview_hover_node: Option<NodeId>,
-    pub(crate) node_preview_hover_mix: f32,
-    pub(crate) render_last_tick: Instant,
-    pub(crate) viewport_pan_anim: Option<ViewportPanAnim>,
-    pub(crate) pan_dominant_until_ms: u64,
     pub(crate) exit_requested: bool,
 
-    pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
-    pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
-
-    pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
-    pub(crate) node_circle_texture: Option<GlesTexture>,
-    pub(crate) node_squircle_program: Option<GlesTexProgram>,
-    pub(crate) node_label_program: Option<GlesTexProgram>,
     pub(crate) fullscreen_active_node: HashMap<String, NodeId>,
     pub(crate) fullscreen_suspended_node: HashMap<String, NodeId>,
     pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
@@ -450,6 +354,55 @@ impl HalleyWlState {
                 primary_promote_cooldown_until_ms: HashMap::new(),
             },
 
+            render_state: RenderState {            
+                animator: Animator::new(now),
+
+                node_app_icon_cache: HashMap::new(),
+                node_hover_mix: HashMap::new(),
+                node_preview_hover_node: None,
+                node_preview_hover_mix: 0.0,
+                node_circle_texture: None,
+                node_squircle_program: None,
+                node_label_program: None,
+                
+                zoom_nominal_size: HashMap::new(),
+                zoom_resize_fallback: HashSet::new(),
+                zoom_resize_reject_streak: HashMap::new(),
+                zoom_last_observed_size: HashMap::new(),
+                zoom_resize_static_streak: HashMap::new(),
+
+                render_last_tick: now,
+
+            bbox_loc: HashMap::new(),
+            window_geometry: HashMap::new(),
+            window_offscreen_cache: HashMap::new(),
+
+
+            },
+
+            interaction_state: InteractionState {
+                reset_input_state_requested: false,
+                pending_pointer_screen_hint: None,
+                suppress_layer_shell_configure: false,
+                dpms_just_woke: false,
+
+                resize_active: None,
+                resize_static_node: None,
+                resize_static_lock_pos: None,
+                resize_static_until_ms: 0,
+                drag_authority_node: None,
+
+                suspend_overlap_resolve: false,
+                suspend_state_checks: false,
+
+                physics_velocity: HashMap::new(),
+                physics_last_tick: now,
+
+                smoothed_render_pos: HashMap::new(),
+                viewport_pan_anim: None,
+                pan_dominant_until_ms: 0,
+            },
+
             field: Field::new(),
             viewport: primary_viewport,
             zoom_ref_size: primary_zoom_ref,
@@ -457,22 +410,13 @@ impl HalleyWlState {
             camera_target_view_size: primary_zoom_ref,
             cursor_image_status: CursorImageStatus::default_named(),
             dmabuf_importer: None,
-            reset_input_state_requested: false,
-            pending_pointer_screen_hint: None,
-            suppress_layer_shell_configure: false,
+
             tuning,
-            dpms_just_woke: false,
 
             surface_activity: HashMap::new(),
             surface_to_node: HashMap::new(),
             node_app_ids: HashMap::new(),
-            node_app_icon_cache: HashMap::new(),
-            zoom_nominal_size: HashMap::new(),
-            zoom_resize_fallback: HashSet::new(),
-            zoom_resize_reject_streak: HashMap::new(),
-            zoom_last_observed_size: HashMap::new(),
-            zoom_resize_static_streak: HashMap::new(),
-            animator: Animator::new(now),
+
 
 
             pending_spawn_activate_at_ms: HashMap::new(),
@@ -484,30 +428,12 @@ impl HalleyWlState {
             carry_activation_anim_armed: HashSet::new(),
             carry_direct_nodes: HashSet::new(),
             carry_state_hold: HashMap::new(),
-            resize_active: None,
-            resize_static_node: None,
-            resize_static_lock_pos: None,
-            resize_static_until_ms: 0,
-            drag_authority_node: None,
-            suspend_overlap_resolve: false,
-            suspend_state_checks: false,
-            physics_velocity: HashMap::new(),
-            physics_last_tick: now,
-            smoothed_render_pos: HashMap::new(),
-            node_hover_mix: HashMap::new(),
-            node_preview_hover_node: None,
-            node_preview_hover_mix: 0.0,
-            render_last_tick: now,
-            viewport_pan_anim: None,
-            pan_dominant_until_ms: 0,
+
+
+
             exit_requested: false,
 
-            bbox_loc: HashMap::new(),
-            window_geometry: HashMap::new(),
-            window_offscreen_cache: HashMap::new(),
-            node_circle_texture: None,
-            node_squircle_program: None,
-            node_label_program: None,
+
             fullscreen_active_node: HashMap::new(),
             fullscreen_suspended_node: HashMap::new(),
             fullscreen_restore: HashMap::new(),
@@ -530,7 +456,7 @@ impl HalleyWlState {
 
             spawned_children: Vec::new(),
         };
-        out.animator.set_spec(AnimSpec {
+        out.render_state.animator.set_spec(AnimSpec {
             state_change_ms: out.tuning.dev_anim_state_change_ms,
             bounce: out.tuning.dev_anim_bounce,
         });
@@ -589,46 +515,7 @@ impl HalleyWlState {
         self.configure_dmabuf_importer(importer, main_device);
     }
 
-    pub(crate) fn ensure_window_offscreen_cache(
-        &mut self,
-        node_id: NodeId,
-        width: i32,
-        height: i32,
-        now: Instant,
-    ) -> &mut WindowOffscreenCache {
-        let cache = self.window_offscreen_cache.entry(node_id).or_default();
 
-        let width = width.max(1);
-        let height = height.max(1);
-
-        if !cache.matches_size(width, height) {
-            cache.set_size(width, height);
-            cache.mark_dirty();
-        }
-
-        cache.touch(now);
-        cache
-    }
-
-    pub(crate) fn mark_window_offscreen_dirty(&mut self, node_id: NodeId) {
-        if let Some(cache) = self.window_offscreen_cache.get_mut(&node_id) {
-            cache.mark_dirty();
-        }
-    }
-
-    pub(crate) fn clear_window_offscreen_cache_for(&mut self, node_id: NodeId) {
-        self.window_offscreen_cache.remove(&node_id);
-    }
-
-    pub(crate) fn prune_window_offscreen_cache(&mut self, now: Instant) {
-        let alive: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
-        self.window_offscreen_cache.retain(|id, cache| {
-            alive.contains(id)
-                && cache
-                    .last_used_at
-                    .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5)
-        });
-    }
 
     pub fn request_exit(&mut self) {
         self.exit_requested = true;
@@ -671,8 +558,8 @@ impl HalleyWlState {
         if self.focus_state.primary_interaction_focus.is_some() && self.focus_state.interaction_focus_until_ms > now_ms {
             consider(self.focus_state.interaction_focus_until_ms);
         }
-        if self.resize_static_node.is_some() && self.resize_static_until_ms > now_ms {
-            consider(self.resize_static_until_ms);
+        if self.interaction_state.resize_static_node.is_some() && self.interaction_state.resize_static_until_ms > now_ms {
+            consider(self.interaction_state.resize_static_until_ms);
         }
         if let Some(at_ms) = self.pending_spawn_activate_at_ms.values().copied().min()
             && at_ms > now_ms
@@ -732,7 +619,7 @@ impl HalleyWlState {
         let _ = self.recent_top_node_active(now);
         if self.workspace_state.active_cluster_workspace.is_some() {
             self.layout_active_cluster_workspace(now_ms);
-            self.animator.observe_field(&self.field, now);
+            self.render_state.animator.observe_field(&self.field, now);
             return;
         }
         if let Some(fid) = self.focus_state.primary_interaction_focus
@@ -772,34 +659,35 @@ impl HalleyWlState {
 
         self.process_pending_spawn_activations(now, now_ms);
         let resize_settling = self
+            .interaction_state
             .resize_static_node
-            .is_some_and(|_| now_ms < self.resize_static_until_ms);
+            .is_some_and(|_| now_ms < self.interaction_state.resize_static_until_ms);
         if resize_settling
             && let (Some(id), Some(lock_pos)) =
-                (self.resize_static_node, self.resize_static_lock_pos)
+                (self.interaction_state.resize_static_node, self.interaction_state.resize_static_lock_pos)
             && let Some(n) = self.field.node(id)
             && ((n.pos.x - lock_pos.x).abs() > 0.05 || (n.pos.y - lock_pos.y).abs() > 0.05)
         {
             let _ = self.field.carry(id, lock_pos);
         }
         if self
-            .resize_static_node
-            .is_some_and(|_| now_ms >= self.resize_static_until_ms)
+            .interaction_state.resize_static_node
+            .is_some_and(|_| now_ms >= self.interaction_state.resize_static_until_ms)
         {
-            self.resize_static_node = None;
-            self.resize_static_lock_pos = None;
-            self.resize_static_until_ms = 0;
+            self.interaction_state.resize_static_node = None;
+            self.interaction_state.resize_static_lock_pos = None;
+            self.interaction_state.resize_static_until_ms = 0;
         }
-        if !self.suspend_state_checks {
+        if !self.interaction_state.suspend_state_checks {
             self.enforce_pan_dominant_zone_states(now_ms);
             self.enforce_carry_zone_states();
         }
-        if let Some(id) = self.resize_active {
+        if let Some(id) = self.interaction_state.resize_active {
             let _ = self.field.touch(id, now_ms);
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
         }
-        if self.resize_active.is_none()
-            && !(self.resize_static_node.is_some() && now_ms < self.resize_static_until_ms)
+        if self.interaction_state.resize_active.is_none()
+            && !(self.interaction_state.resize_static_node.is_some() && now_ms < self.interaction_state.resize_static_until_ms)
         {
             self.update_zoom_live_surface_sizes();
         }
@@ -815,11 +703,11 @@ impl HalleyWlState {
             &mut self.workspace_state.cluster_form_state,
         );
         self.enforce_single_primary_active_unit();
-        if !self.suspend_state_checks && self.resize_active.is_none() {
+        if !self.interaction_state.suspend_state_checks && self.interaction_state.resize_active.is_none() {
             self.resolve_surface_overlap();
         }
         self.restore_pan_return_active_focus(now);
-        self.animator.observe_field(&self.field, now);
+        self.render_state.animator.observe_field(&self.field, now);
 
         if self.tuning.debug_tick_dump
             && now.duration_since(self.last_debug_dump_at).as_millis() as u64

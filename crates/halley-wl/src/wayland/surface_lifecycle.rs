@@ -148,7 +148,7 @@ impl HalleyWlState {
             use smithay::wayland::shell::xdg::SurfaceCachedState;
 
             let bbox = bbox_from_surface_tree(&root_surface, (0, 0));
-            self.bbox_loc
+            self.render_state.bbox_loc
                 .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
 
             let geo = with_states(&root_surface, |states| {
@@ -159,7 +159,7 @@ impl HalleyWlState {
                     .geometry
             });
             if let Some(g) = geo {
-                self.window_geometry.insert(
+                self.render_state.window_geometry.insert(
                     node_id,
                     (
                         g.loc.x as f32,
@@ -169,7 +169,7 @@ impl HalleyWlState {
                     ),
                 );
             } else {
-                self.window_geometry.insert(
+                self.render_state.window_geometry.insert(
                     node_id,
                     (
                         bbox.loc.x as f32,
@@ -189,7 +189,7 @@ impl HalleyWlState {
                     || (node.intrinsic_size.y - new_size.y).abs() > 0.5
             });
 
-            if size_changed && self.resize_active != Some(node_id) {
+            if size_changed && self.interaction_state.resize_active != Some(node_id) {
                 if let Some(node) = self.field.node_mut(node_id) {
                     node.intrinsic_size = new_size;
                     if node.state == halley_core::field::NodeState::Active {
@@ -198,7 +198,7 @@ impl HalleyWlState {
                 }
                 self.workspace_state.last_active_size.insert(node_id, new_size);
                 self.request_maintenance();
-                if self.resize_static_node != Some(node_id) {
+                if self.interaction_state.resize_static_node != Some(node_id) {
                     self.resolve_overlap_now();
                 }
             }
@@ -231,10 +231,10 @@ impl HalleyWlState {
         let _ = self.field.set_decay_level(id, DecayLevel::Hot);
 
         self.surface_to_node.insert(key, id);
-        self.zoom_nominal_size.insert(id, size);
+        self.render_state.zoom_nominal_size.insert(id, size);
         self.workspace_state.last_active_size.insert(id, size);
         if self.tuning.dev_anim_enabled {
-            self.animator.observe_field(&self.field, Instant::now());
+            self.render_state.animator.observe_field(&self.field, Instant::now());
         }
         if needs_pan {
             self.queue_spawn_pan_to_node(id, Instant::now());
@@ -264,16 +264,16 @@ impl HalleyWlState {
             if self.focus_state.pan_restore_active_focus == Some(id) {
                 self.focus_state.pan_restore_active_focus = None;
             }
-            self.zoom_nominal_size.remove(&id);
-            self.zoom_resize_fallback.remove(&id);
-            self.zoom_resize_reject_streak.remove(&id);
-            self.zoom_last_observed_size.remove(&id);
-            self.zoom_resize_static_streak.remove(&id);
+            self.render_state.zoom_nominal_size.remove(&id);
+            self.render_state.zoom_resize_fallback.remove(&id);
+            self.render_state.zoom_resize_reject_streak.remove(&id);
+            self.render_state.zoom_last_observed_size.remove(&id);
+            self.render_state.zoom_resize_static_streak.remove(&id);
             self.node_app_ids.remove(&id);
             self.focus_state.focus_trail.forget_node(id);
             self.workspace_state.last_active_size.remove(&id);
-            self.bbox_loc.remove(&id);
-            self.window_geometry.remove(&id);
+            self.render_state.bbox_loc.remove(&id);
+            self.render_state.window_geometry.remove(&id);
             self.pending_spawn_activate_at_ms.remove(&id);
             self.workspace_state.active_transition_until_ms.remove(&id);
             self.workspace_state.primary_promote_cooldown_until_ms.remove(&id);
@@ -284,20 +284,20 @@ impl HalleyWlState {
             self.carry_zone_pending.remove(&id);
             self.carry_zone_pending_since_ms.remove(&id);
             self.carry_activation_anim_armed.remove(&id);
-            if self.resize_active == Some(id) {
-                self.resize_active = None;
+            if self.interaction_state.resize_active == Some(id) {
+                self.interaction_state.resize_active = None;
             }
-            if self.resize_static_node == Some(id) {
-                self.resize_static_node = None;
-                self.resize_static_lock_pos = None;
-                self.resize_static_until_ms = 0;
+            if self.interaction_state.resize_static_node == Some(id) {
+                self.interaction_state.resize_static_node = None;
+                self.interaction_state.resize_static_lock_pos = None;
+                self.interaction_state.resize_static_until_ms = 0;
             }
             if self.focus_state.primary_interaction_focus == Some(id) {
                 self.focus_state.primary_interaction_focus = None;
                 self.focus_state.interaction_focus_until_ms = 0;
             }
             self.focus_state.suppress_trail_record_once = false;
-            self.smoothed_render_pos.remove(&id);
+            self.interaction_state.smoothed_render_pos.remove(&id);
             self.clear_window_offscreen_cache_for(id);
             let _ = self.field.remove(id);
         }

@@ -48,10 +48,10 @@ pub(crate) fn ensure_node_circle_resources(
     renderer: &mut GlesRenderer,
     st: &mut HalleyWlState,
 ) -> Result<(), Box<dyn Error>> {
-    if st.node_circle_texture.is_none() {
+    if st.render_state.node_circle_texture.is_none() {
         const TEX_SIZE: usize = 4;
         let pixel = vec![255u8; TEX_SIZE * TEX_SIZE * 4];
-        st.node_circle_texture = Some(renderer.import_memory(
+        st.render_state.node_circle_texture = Some(renderer.import_memory(
             &pixel,
             Fourcc::Abgr8888,
             (TEX_SIZE as i32, TEX_SIZE as i32).into(),
@@ -59,8 +59,8 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.node_squircle_program.is_none() {
-        st.node_squircle_program = Some(renderer.compile_custom_texture_shader(
+    if st.render_state.node_squircle_program.is_none() {
+        st.render_state.node_squircle_program = Some(renderer.compile_custom_texture_shader(
             NODE_SQUIRCLE_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
@@ -69,8 +69,8 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.node_label_program.is_none() {
-        st.node_label_program = Some(renderer.compile_custom_texture_shader(
+    if st.render_state.node_label_program.is_none() {
+        st.render_state.node_label_program = Some(renderer.compile_custom_texture_shader(
             NODE_LABEL_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
@@ -96,10 +96,10 @@ fn draw_shader_circle(
     fill_color: Color32F,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = st.node_circle_texture.as_ref() else {
+    let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.node_squircle_program.as_ref() else {
+    let Some(program) = st.render_state.node_squircle_program.as_ref() else {
         return Ok(());
     };
 
@@ -164,10 +164,10 @@ fn draw_shader_label(
     fill_color: Color32F,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = st.node_circle_texture.as_ref() else {
+    let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.node_label_program.as_ref() else {
+    let Some(program) = st.render_state.node_label_program.as_ref() else {
         return Ok(());
     };
 
@@ -487,7 +487,7 @@ pub(crate) fn draw_node_markers(
             if icon_alpha > 0.01
                 && let Some(app_id) = st.node_app_ids.get(&id)
                 && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
-                    st.node_app_icon_cache.get(app_id)
+                    st.render_state.node_app_icon_cache.get(app_id)
             {
                 let side = ((render_radius * 2) as f32 * st.tuning.node_icon_size).round() as i32;
                 let side = side.clamp(16, 42);

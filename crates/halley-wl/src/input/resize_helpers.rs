@@ -25,6 +25,7 @@ pub(crate) struct ActiveResizeGeometryScreen {
     pub(crate) frame_bottom: f32,
     pub(crate) surface_origin_x: f32,
     pub(crate) surface_origin_y: f32,
+
     /// Live committed window geometry from st.window_geometry, updated on
     /// every client commit during resize. Zero means not yet committed.
     pub(crate) live_geo_lx: f32,
@@ -285,12 +286,13 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let p = n.pos;
             let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
 
-            let bbox_lx = st.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0)).0;
-            let bbox_ly = st.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0)).1;
+            let bbox_lx = st.render_state.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0)).0;
+            let bbox_ly = st.render_state.bbox_loc.get(&node_id).copied().unwrap_or((0.0, 0.0)).1;
             let bbox_w = n.intrinsic_size.x.max(1.0);
             let bbox_h = n.intrinsic_size.y.max(1.0);
             let local_bbox = (bbox_lx, bbox_ly, bbox_w, bbox_h);
             let (gx, gy, gw, gh) = st
+                .render_state
                 .window_geometry
                 .get(&node_id)
                 .copied()
@@ -329,6 +331,7 @@ pub(crate) fn active_resize_geometry_screen(
     let frame_right  = rz.preview_right_px;
     let frame_bottom = rz.preview_bottom_px;
     let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) = st
+        .render_state
         .window_geometry
         .get(&node_id)
         .copied()
@@ -354,7 +357,7 @@ fn active_node_visual_local_rect(
     st: &HalleyWlState,
     node_id: halley_core::field::NodeId,
 ) -> Option<(f32, f32, f32, f32)> {
-    if let Some(&(x, y, w, h)) = st.window_geometry.get(&node_id) {
+    if let Some(&(x, y, w, h)) = st.render_state.window_geometry.get(&node_id) {
         return Some((x, y, w.max(1.0), h.max(1.0)));
     }
 

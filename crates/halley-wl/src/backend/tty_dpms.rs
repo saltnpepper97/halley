@@ -69,7 +69,7 @@ pub(crate) fn apply_tty_dpms_command(
         // Signal to the render loop that layer shell surfaces need a fresh
         // configure + frame callback on the very next rendered frame, so
         // wallpaper clients re-present after the CRTC comes back up.
-        st.dpms_just_woke = true;
+        st.interaction_state.dpms_just_woke = true;
         info!("tty dpms: powering on (forced fresh frame on next render)");
     }
 

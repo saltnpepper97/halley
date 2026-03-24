@@ -6,14 +6,7 @@ use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurfa
 use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
-
-pub(crate) struct ViewportPanAnim {
-    pub(super) start_ms: u64,
-    pub(super) delay_ms: u64,
-    pub(super) duration_ms: u64,
-    pub(super) from_center: Vec2,
-    pub(super) to_center: Vec2,
-}
+use crate::state::ViewportPanAnim;
 
 impl HalleyWlState {
     pub(crate) const VIEWPORT_PAN_PRELOAD_MS: u64 = 70;
@@ -80,7 +73,7 @@ impl HalleyWlState {
                     self.viewport.center = entry.viewport_center;
                     self.camera_target_center = self.viewport.center;
                     self.tuning.viewport_center = self.viewport.center;
-                    self.viewport_pan_anim = None;
+                    self.interaction_state.viewport_pan_anim = None;
                 }
             }
             self.enter_xdg_fullscreen(fid, None, Instant::now());
@@ -192,9 +185,9 @@ impl HalleyWlState {
     }
 
     pub fn note_pan_activity(&mut self, now: Instant) {
-        self.viewport_pan_anim = None;
+        self.interaction_state.viewport_pan_anim = None;
         let now_ms = self.now_ms(now);
-        self.pan_dominant_until_ms = now_ms.saturating_add(220);
+        self.interaction_state.pan_dominant_until_ms = now_ms.saturating_add(220);
         self.spawn_last_pan_ms = now_ms;
         self.spawn_pan_start_center
             .get_or_insert(self.viewport.center);
@@ -202,8 +195,8 @@ impl HalleyWlState {
         {
             self.focus_state.pan_restore_active_focus = self.last_focused_active_surface_node();
         }
-        self.suspend_overlap_resolve = false;
-        self.suspend_state_checks = false;
+        self.interaction_state.suspend_overlap_resolve = false;
+        self.interaction_state.suspend_state_checks = false;
         self.request_maintenance();
     }
 
@@ -271,7 +264,7 @@ impl HalleyWlState {
         if dx.abs() < 0.25 && dy.abs() < 0.25 {
             return false;
         }
-        self.viewport_pan_anim = Some(ViewportPanAnim {
+        self.interaction_state.viewport_pan_anim = Some(ViewportPanAnim {
             start_ms: self.now_ms(now),
             delay_ms,
             duration_ms: Self::VIEWPORT_PAN_DURATION_MS,
@@ -282,7 +275,7 @@ impl HalleyWlState {
     }
 
     pub(crate) fn tick_viewport_pan_animation(&mut self, now_ms: u64) {
-        let Some(anim) = &self.viewport_pan_anim else {
+        let Some(anim) = &self.interaction_state.viewport_pan_anim else {
             return;
         };
         if now_ms <= anim.start_ms.saturating_add(anim.delay_ms) {
@@ -306,7 +299,7 @@ impl HalleyWlState {
         self.camera_target_center = self.viewport.center;
         self.tuning.viewport_center = self.viewport.center;
         if t >= 1.0 {
-            self.viewport_pan_anim = None;
+            self.interaction_state.viewport_pan_anim = None;
         }
     }
 
@@ -373,12 +366,12 @@ impl HalleyWlState {
     }
 
     pub fn begin_resize_interaction(&mut self, id: NodeId, now: Instant) {
-        self.resize_active = Some(id);
-        self.resize_static_node = Some(id);
-        self.resize_static_lock_pos = None;
-        self.resize_static_until_ms = self.now_ms(now).saturating_add(60_000);
-        self.suspend_overlap_resolve = true;
-        self.suspend_state_checks = true;
+        self.interaction_state.resize_active = Some(id);
+        self.interaction_state.resize_static_node = Some(id);
+        self.interaction_state.resize_static_lock_pos = None;
+        self.interaction_state.resize_static_until_ms = self.now_ms(now).saturating_add(60_000);
+        self.interaction_state.suspend_overlap_resolve = true;
+        self.interaction_state.suspend_state_checks = true;
         self.set_interaction_focus(Some(id), 60_000, now);
         let now_ms = self.now_ms(now);
         let _ = self.field.touch(id, now_ms);
@@ -388,27 +381,27 @@ impl HalleyWlState {
     }
 
     pub fn end_resize_interaction(&mut self, now: Instant) {
-        let ended = self.resize_active.take();
+        let ended = self.interaction_state.resize_active.take();
         if let Some(id) = ended {
-            self.resize_static_node = Some(id);
-            self.resize_static_lock_pos = self.field.node(id).map(|n| n.pos);
-            self.resize_static_until_ms = self.now_ms(now).saturating_add(120);
+            self.interaction_state.resize_static_node = Some(id);
+            self.interaction_state.resize_static_lock_pos = self.field.node(id).map(|n| n.pos);
+            self.interaction_state.resize_static_until_ms = self.now_ms(now).saturating_add(120);
             self.set_interaction_focus(Some(id), 30_000, now);
         } else {
-            self.resize_static_lock_pos = None;
+            self.interaction_state.resize_static_lock_pos = None;
             self.set_interaction_focus(None, 0, now);
         }
-        self.suspend_state_checks = false;
-        self.suspend_overlap_resolve = false;
+        self.interaction_state.suspend_state_checks = false;
+        self.interaction_state.suspend_overlap_resolve = false;
         self.resolve_surface_overlap();
         self.request_maintenance();
     }
 
     pub fn resolve_overlap_now(&mut self) {
-        let saved_suspend = self.suspend_overlap_resolve;
-        self.suspend_overlap_resolve = false;
+        let saved_suspend = self.interaction_state.suspend_overlap_resolve;
+        self.interaction_state.suspend_overlap_resolve = false;
         self.resolve_surface_overlap();
-        self.suspend_overlap_resolve = saved_suspend;
+        self.interaction_state.suspend_overlap_resolve = saved_suspend;
     }
 
     pub fn set_last_active_size_now(&mut self, id: NodeId, size: Vec2) {
