@@ -383,7 +383,7 @@ impl HalleyWlState {
         let now_ms = self.now_ms(now);
         let _ = self.field.touch(id, now_ms);
         let _ = self.field.set_decay_level(id, DecayLevel::Hot);
-        self.manual_collapsed_nodes.remove(&id);
+        self.workspace_state.manual_collapsed_nodes.remove(&id);
         self.request_maintenance();
     }
 
@@ -412,7 +412,7 @@ impl HalleyWlState {
     }
 
     pub fn set_last_active_size_now(&mut self, id: NodeId, size: Vec2) {
-        self.last_active_size.insert(id, size);
+        self.workspace_state.last_active_size.insert(id, size);
     }
 
     pub fn set_interaction_focus(&mut self, id: Option<NodeId>, hold_ms: u64, now: Instant) {
@@ -531,7 +531,7 @@ impl HalleyWlState {
                     .set_state(id, halley_core::field::NodeState::Node);
                 let _ = self.field.set_decay_level(id, DecayLevel::Cold);
                 self.pending_spawn_activate_at_ms.remove(&id);
-                self.manual_collapsed_nodes.insert(id);
+                self.workspace_state.manual_collapsed_nodes.insert(id);
 
                 self.set_interaction_focus(None, 0, now);
                 self.focus_state.pan_restore_active_focus = None;
@@ -539,7 +539,7 @@ impl HalleyWlState {
                 Some(id)
             }
             halley_core::field::NodeState::Node => {
-                self.manual_collapsed_nodes.remove(&id);
+                self.workspace_state.manual_collapsed_nodes.remove(&id);
                 let _ = self.field.set_decay_level(id, DecayLevel::Hot);
                 self.pending_spawn_activate_at_ms.remove(&id);
 

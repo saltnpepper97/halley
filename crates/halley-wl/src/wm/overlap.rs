@@ -297,6 +297,7 @@ impl HalleyWlState {
         n: &halley_core::field::Node,
     ) -> CollisionExtents {
         let basis = self
+            .workspace_state
             .last_active_size
             .get(&n.id)
             .copied()
@@ -350,6 +351,7 @@ impl HalleyWlState {
         match n.state {
             halley_core::field::NodeState::Active => {
                 let basis = self
+                    .workspace_state
                     .last_active_size
                     .get(&n.id)
                     .copied()

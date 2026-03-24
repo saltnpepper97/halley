@@ -2,7 +2,7 @@ use super::*;
 
 impl HalleyWlState {
     pub fn toggle_cluster_workspace_by_core(&mut self, core_id: NodeId, now: Instant) -> bool {
-        if let Some(cid) = self.active_cluster_workspace
+        if let Some(cid) = self.workspace_state.active_cluster_workspace
             && self.field.cluster_id_for_core_public(core_id) == Some(cid)
         {
             return self.exit_cluster_workspace(now);
@@ -11,11 +11,11 @@ impl HalleyWlState {
     }
 
     pub fn has_active_cluster_workspace(&self) -> bool {
-        self.active_cluster_workspace.is_some()
+        self.workspace_state.active_cluster_workspace.is_some()
     }
 
     pub fn exit_cluster_workspace_if_member(&mut self, member: NodeId, now: Instant) -> bool {
-        let Some(cid) = self.active_cluster_workspace else {
+        let Some(cid) = self.workspace_state.active_cluster_workspace else {
             return false;
         };
         let Some(c) = self.field.cluster(cid) else {
@@ -31,10 +31,10 @@ impl HalleyWlState {
         let Some(cid) = self.field.cluster_id_for_core_public(core_id) else {
             return false;
         };
-        if self.active_cluster_workspace == Some(cid) {
+        if self.workspace_state.active_cluster_workspace == Some(cid) {
             return true;
         }
-        if self.active_cluster_workspace.is_some() {
+        if self.workspace_state.active_cluster_workspace.is_some() {
             let _ = self.exit_cluster_workspace(now);
         }
 
@@ -46,7 +46,7 @@ impl HalleyWlState {
             return false;
         }
 
-        self.workspace_prev_viewport = Some(self.viewport);
+        self.workspace_state.workspace_prev_viewport = Some(self.viewport);
         self.zoom_ref_size = self.viewport.size;
         if let Some(core) = self.field.node(core_id) {
             self.viewport.center = core.pos;
@@ -77,19 +77,19 @@ impl HalleyWlState {
             c.enter_active(ActiveLayoutMode::TiledWeighted);
         }
 
-        self.workspace_hidden_nodes = hidden;
-        self.active_cluster_workspace = Some(cid);
+        self.workspace_state.workspace_hidden_nodes = hidden;
+        self.workspace_state.active_cluster_workspace = Some(cid);
         self.set_interaction_focus(None, 0, now);
         self.layout_active_cluster_workspace(self.now_ms(now));
         true
     }
 
     fn exit_cluster_workspace(&mut self, now: Instant) -> bool {
-        let Some(cid) = self.active_cluster_workspace else {
+        let Some(cid) = self.workspace_state.active_cluster_workspace else {
             return false;
         };
 
-        for id in self.workspace_hidden_nodes.drain(..) {
+        for id in self.workspace_state.workspace_hidden_nodes.drain(..) {
             let _ = self.field.set_detached(id, false);
         }
 
@@ -103,19 +103,19 @@ impl HalleyWlState {
             let _ = self.field.touch(core_id, self.now_ms(now));
         }
 
-        if let Some(vp) = self.workspace_prev_viewport.take() {
+        if let Some(vp) = self.workspace_state.workspace_prev_viewport.take() {
             self.viewport = vp;
             self.zoom_ref_size = self.viewport.size;
             self.snap_camera_targets_to_live();
             self.tuning.viewport_center = self.viewport.center;
             self.tuning.viewport_size = self.viewport.size;
         }
-        self.active_cluster_workspace = None;
+        self.workspace_state.active_cluster_workspace = None;
         true
     }
 
     pub(crate) fn layout_active_cluster_workspace(&mut self, now_ms: u64) {
-        let Some(cid) = self.active_cluster_workspace else {
+        let Some(cid) = self.workspace_state.active_cluster_workspace else {
             return;
         };
         // Workspace mode stays fixed to the logical fullscreen view while active.
@@ -123,7 +123,7 @@ impl HalleyWlState {
         self.camera_target_view_size = self.zoom_ref_size;
         self.tuning.viewport_size = self.viewport.size;
         let Some(cluster) = self.field.cluster(cid) else {
-            self.active_cluster_workspace = None;
+            self.workspace_state.active_cluster_workspace = None;
             return;
         };
         let members = cluster.members.clone();

@@ -49,7 +49,7 @@ impl HalleyWlState {
         if !self.tuning.physics_enabled {
             return;
         }
-        self.active_transition_until_ms
+        self.workspace_state.active_transition_until_ms
             .insert(id, self.now_ms(now).saturating_add(duration_ms.max(1)));
         self.request_maintenance();
     }
@@ -64,7 +64,7 @@ impl HalleyWlState {
         {
             return 0.0;
         }
-        let Some(&until) = self.active_transition_until_ms.get(&id) else {
+        let Some(&until) = self.workspace_state.active_transition_until_ms.get(&id) else {
             return 0.0;
         };
         if now_ms >= until {
@@ -123,7 +123,7 @@ impl HalleyWlState {
         });
 
         if prev_physics_enabled && !tuning.physics_enabled {
-            self.active_transition_until_ms.clear();
+            self.workspace_state.active_transition_until_ms.clear();
             self.drag_authority_node = None;
             self.physics_velocity.clear();
             self.smoothed_render_pos.clear();

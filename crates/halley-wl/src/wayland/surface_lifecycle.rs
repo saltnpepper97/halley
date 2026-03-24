@@ -196,7 +196,7 @@ impl HalleyWlState {
                         node.footprint = new_size;
                     }
                 }
-                self.last_active_size.insert(node_id, new_size);
+                self.workspace_state.last_active_size.insert(node_id, new_size);
                 self.request_maintenance();
                 if self.resize_static_node != Some(node_id) {
                     self.resolve_overlap_now();
@@ -232,7 +232,7 @@ impl HalleyWlState {
 
         self.surface_to_node.insert(key, id);
         self.zoom_nominal_size.insert(id, size);
-        self.last_active_size.insert(id, size);
+        self.workspace_state.last_active_size.insert(id, size);
         if self.tuning.dev_anim_enabled {
             self.animator.observe_field(&self.field, Instant::now());
         }
@@ -271,12 +271,12 @@ impl HalleyWlState {
             self.zoom_resize_static_streak.remove(&id);
             self.node_app_ids.remove(&id);
             self.focus_state.focus_trail.forget_node(id);
-            self.last_active_size.remove(&id);
+            self.workspace_state.last_active_size.remove(&id);
             self.bbox_loc.remove(&id);
             self.window_geometry.remove(&id);
             self.pending_spawn_activate_at_ms.remove(&id);
-            self.active_transition_until_ms.remove(&id);
-            self.primary_promote_cooldown_until_ms.remove(&id);
+            self.workspace_state.active_transition_until_ms.remove(&id);
+            self.workspace_state.primary_promote_cooldown_until_ms.remove(&id);
             self.focus_state.last_surface_focus_ms.remove(&id);
             self.monitor_state.node_monitor.remove(&id);
             self.carry_zone_hint.remove(&id);

@@ -26,7 +26,7 @@ pub(crate) fn promote_node_level(
 
     if in_focus_ring {
         // This is a deliberate promote, not a stale auto-resurrect.
-        st.manual_collapsed_nodes.remove(&node_id);
+        st.workspace_state.manual_collapsed_nodes.remove(&node_id);
 
         let _ = st.field.set_decay_level(node_id, DecayLevel::Hot);
         st.mark_active_transition(node_id, now, 360);
@@ -121,7 +121,7 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut HalleyWlState) -> bool {
                 .field
                 .set_decay_level(id, halley_core::decay::DecayLevel::Cold);
             st.pending_spawn_activate_at_ms.remove(&id);
-            st.manual_collapsed_nodes.insert(id);
+            st.workspace_state.manual_collapsed_nodes.insert(id);
 
             st.set_interaction_focus(None, 0, now);
             st.focus_state.pan_restore_active_focus = None;
@@ -129,7 +129,7 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut HalleyWlState) -> bool {
         }
 
         halley_core::field::NodeState::Node => {
-            st.manual_collapsed_nodes.remove(&id);
+            st.workspace_state.manual_collapsed_nodes.remove(&id);
             let _ = st
                 .field
                 .set_decay_level(id, halley_core::decay::DecayLevel::Hot);

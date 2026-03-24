@@ -275,7 +275,7 @@ impl HalleyWlState {
         let _ = self.field.set_detached(active.node_id, false);
         let _ = self.field.set_decay_level(active.node_id, DecayLevel::Hot);
         if let Some(node) = self.field.node(active.node_id) {
-            self.last_active_size
+            self.workspace_state.last_active_size
                 .insert(active.node_id, node.intrinsic_size);
         }
         self.mark_active_transition(active.node_id, now, 620);

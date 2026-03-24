@@ -6,7 +6,6 @@ use std::time::Instant;
 
 use calloop::{LoopHandle, ping::Ping};
 use halley_config::RuntimeTuning;
-use halley_core::cluster::ClusterId;
 use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_cluster_formation};
 use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2};
@@ -46,6 +45,7 @@ use crate::animation::{AnimSpec, Animator};
 use crate::backend::interface::DmabufImportBackend;
 use crate::state::focus::FocusState;
 use crate::state::monitor::{MonitorState, MonitorSpace};
+use crate::state::workspace::WorkspaceState;
 use crate::wm::ViewportPanAnim;
 
 mod client;
@@ -53,6 +53,8 @@ mod focus;
 mod monitor;
 mod render_state;
 mod runtime_state;
+mod workspace;
+
 pub use client::ClientState;
 
 #[allow(dead_code)]
@@ -208,6 +210,7 @@ pub struct HalleyWlState {
 
     pub(crate) monitor_state: MonitorState,
     pub(crate) focus_state: FocusState,
+    pub(crate) workspace_state: WorkspaceState,
 
     pub field: Field,
     pub viewport: Viewport,
@@ -232,16 +235,8 @@ pub struct HalleyWlState {
     pub(crate) zoom_last_observed_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_static_streak: HashMap<NodeId, u8>,
     pub animator: Animator,
-    pub(crate) cluster_form_state: ClusterFormationState,
-    pub(crate) active_cluster_workspace: Option<ClusterId>,
-    pub(crate) workspace_hidden_nodes: Vec<NodeId>,
-    pub(crate) workspace_prev_viewport: Option<Viewport>,
-    pub(crate) last_active_size: HashMap<NodeId, Vec2>,
     pub pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
-    pub(crate) active_transition_until_ms: HashMap<NodeId, u64>,
-    pub(crate) primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
 
-    pub(crate) dock_decay_offscreen_since_ms: HashMap<NodeId, u64>,
     pub(crate) carry_zone_hint: HashMap<NodeId, FocusZone>,
     pub(crate) carry_zone_last_change_ms: HashMap<NodeId, u64>,
     pub(crate) carry_zone_pending: HashMap<NodeId, FocusZone>,
@@ -249,10 +244,6 @@ pub struct HalleyWlState {
     pub(crate) carry_activation_anim_armed: HashSet<NodeId>,
     pub(crate) carry_direct_nodes: HashSet<NodeId>,
     pub(crate) carry_state_hold: HashMap<NodeId, halley_core::field::NodeState>,
-
-    // Nodes explicitly collapsed by the user via keybind/toggle.
-    // Maintenance must not auto-resurrect these.
-    pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
 
     pub(crate) resize_active: Option<NodeId>,
     pub(crate) resize_static_node: Option<NodeId>,
@@ -318,14 +309,6 @@ fn preferred_monitor_name(monitors: &HashMap<String, MonitorSpace>) -> Option<St
 }
 
 impl HalleyWlState {
-    pub(crate) fn preserve_collapsed_surface(&self, id: NodeId) -> bool {
-        self.manual_collapsed_nodes.contains(&id)
-            || self.field.node(id).is_some_and(|n| {
-                n.kind == halley_core::field::NodeKind::Surface
-                    && n.state == halley_core::field::NodeState::Node
-            })
-    }
-
     pub fn new(
         dh: &smithay::reexports::wayland_server::DisplayHandle,
         loop_handle: LoopHandle<'static, Self>,
@@ -453,6 +436,18 @@ impl HalleyWlState {
                 focus_ring_preview_until_ms: HashMap::new(),
                 recent_top_node: None,
                 recent_top_until: None,
+
+            },
+
+            workspace_state: WorkspaceState {
+                cluster_form_state: ClusterFormationState::default(),
+                active_cluster_workspace: None,
+                workspace_hidden_nodes: Vec::new(),
+                workspace_prev_viewport: None,
+                last_active_size: HashMap::new(),
+                manual_collapsed_nodes: HashSet::new(),
+                active_transition_until_ms: HashMap::new(),
+                primary_promote_cooldown_until_ms: HashMap::new(),
             },
 
             field: Field::new(),
@@ -479,15 +474,9 @@ impl HalleyWlState {
             zoom_resize_static_streak: HashMap::new(),
             animator: Animator::new(now),
 
-            cluster_form_state: ClusterFormationState::default(),
-            active_cluster_workspace: None,
-            workspace_hidden_nodes: Vec::new(),
-            workspace_prev_viewport: None,
-            last_active_size: HashMap::new(),
+
             pending_spawn_activate_at_ms: HashMap::new(),
-            active_transition_until_ms: HashMap::new(),
-            primary_promote_cooldown_until_ms: HashMap::new(),
-            dock_decay_offscreen_since_ms: HashMap::new(),
+
             carry_zone_hint: HashMap::new(),
             carry_zone_last_change_ms: HashMap::new(),
             carry_zone_pending: HashMap::new(),
@@ -495,7 +484,6 @@ impl HalleyWlState {
             carry_activation_anim_armed: HashSet::new(),
             carry_direct_nodes: HashSet::new(),
             carry_state_hold: HashMap::new(),
-            manual_collapsed_nodes: HashSet::new(),
             resize_active: None,
             resize_static_node: None,
             resize_static_lock_pos: None,
@@ -691,13 +679,13 @@ impl HalleyWlState {
         {
             consider(at_ms);
         }
-        if let Some(at_ms) = self.active_transition_until_ms.values().copied().min()
+        if let Some(at_ms) = self.workspace_state.active_transition_until_ms.values().copied().min()
             && at_ms > now_ms
         {
             consider(at_ms);
         }
         if let Some(at_ms) = self
-            .primary_promote_cooldown_until_ms
+            .workspace_state.primary_promote_cooldown_until_ms
             .values()
             .copied()
             .min()
@@ -742,7 +730,7 @@ impl HalleyWlState {
         self.reconcile_surface_bindings();
         let now_ms = now.duration_since(self.started_at).as_millis() as u64;
         let _ = self.recent_top_node_active(now);
-        if self.active_cluster_workspace.is_some() {
+        if self.workspace_state.active_cluster_workspace.is_some() {
             self.layout_active_cluster_workspace(now_ms);
             self.animator.observe_field(&self.field, now);
             return;
@@ -762,9 +750,9 @@ impl HalleyWlState {
         if self.focus_state.primary_interaction_focus.is_none() && self.monitor_state.layer_keyboard_focus.is_some() {
             self.reassert_layer_surface_keyboard_focus_if_drifted();
         }
-        self.active_transition_until_ms
+        self.workspace_state.active_transition_until_ms
             .retain(|_, &mut until| until > now_ms);
-        self.primary_promote_cooldown_until_ms
+        self.workspace_state.primary_promote_cooldown_until_ms
             .retain(|_, &mut until| until > now_ms);
         let alive_ids: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
         self.carry_zone_hint.retain(|id, _| alive_ids.contains(id));
@@ -779,7 +767,7 @@ impl HalleyWlState {
         self.carry_state_hold.retain(|id, _| alive_ids.contains(id));
         self.focus_state.last_surface_focus_ms
             .retain(|id, _| alive_ids.contains(id));
-        self.manual_collapsed_nodes
+        self.workspace_state.manual_collapsed_nodes
             .retain(|id| alive_ids.contains(id));
 
         self.process_pending_spawn_activations(now, now_ms);
@@ -824,7 +812,7 @@ impl HalleyWlState {
                 dwell_ms: self.tuning.cluster_dwell_ms,
                 ..Default::default()
             },
-            &mut self.cluster_form_state,
+            &mut self.workspace_state.cluster_form_state,
         );
         self.enforce_single_primary_active_unit();
         if !self.suspend_state_checks && self.resize_active.is_none() {

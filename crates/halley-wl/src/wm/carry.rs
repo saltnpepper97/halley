@@ -159,7 +159,6 @@ impl HalleyWlState {
         self.carry_zone_pending_since_ms.remove(&id);
         self.carry_activation_anim_armed.remove(&id);
         self.carry_state_hold.remove(&id);
-        self.dock_decay_offscreen_since_ms.remove(&id);
         self.suspend_overlap_resolve = false;
         self.suspend_state_checks = false;
         self.clear_direct_carry_nodes();
@@ -202,7 +201,7 @@ impl HalleyWlState {
             .is_some_and(|nn| nn.state == halley_core::field::NodeState::Active);
         if is_active {
             if let Some(nn) = self.field.node(id) {
-                self.last_active_size.insert(id, nn.intrinsic_size);
+                self.workspace_state.last_active_size.insert(id, nn.intrinsic_size);
             }
             if !was_active
                 && self.active_transition_alpha(id, now) <= 0.01
