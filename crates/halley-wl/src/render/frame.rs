@@ -6,7 +6,7 @@ use smithay::{
         Color32F, Frame, Renderer, Texture,
         element::Kind,
         element::surface::render_elements_from_surface_tree,
-        gles::{GlesFrame, GlesRenderer, GlesTarget},
+        gles::{GlesFrame, GlesRenderer, GlesTarget, GlesTexProgram},
         utils::draw_render_elements,
     },
     backend::winit::WinitGraphicsBackend,
@@ -66,6 +66,7 @@ struct CursorScene {
         smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>,
     >,
 }
+
 
 fn draw_clamped_outline_rect<F: smithay::backend::renderer::Frame>(
     frame: &mut F,
@@ -160,11 +161,23 @@ pub(crate) fn draw_debug_frame_to_target(
     );
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
+    let offscreen_cleanup_program = renderer.compile_custom_texture_shader(
+        include_str!("shaders/offscreen_cleanup.frag"),
+        &[],
+    )?;
 
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
 
-    draw_debug_frame_scene(&mut frame, st, size, &prepared, &scene, hover_node)?;
+    draw_debug_frame_scene(
+        &mut frame,
+        st,
+        size,
+        &prepared,
+        &scene,
+        hover_node,
+        &offscreen_cleanup_program,
+    )?;
     draw_cursor_layer(&mut frame, prepared.damage, cursor_screen, &cursor)?;
 
     let _ = frame.finish()?;
@@ -309,6 +322,7 @@ fn draw_debug_frame_scene(
     prepared: &PreparedFrameState,
     scene: &SceneCollections,
     hover_node: Option<halley_core::field::NodeId>,
+    offscreen_cleanup_program: &GlesTexProgram,
 ) -> Result<(), Box<dyn Error>> {
     if !scene.layer_background_elements.is_empty() {
         let _ = draw_render_elements(
@@ -344,7 +358,12 @@ fn draw_debug_frame_scene(
         let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
     }
 
-    draw_offscreen_textures(frame, prepared.damage, &scene.offscreen_textures)?;
+    draw_offscreen_textures(
+        frame,
+        prepared.damage,
+        &scene.offscreen_textures,
+        offscreen_cleanup_program,
+    )?;
     draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
     draw_window_backgrounds(frame, size, prepared.damage, &scene.resized_border_rects)?;
 
@@ -357,8 +376,18 @@ fn draw_debug_frame_scene(
         );
     }
 
-    draw_offscreen_textures(frame, prepared.damage, &scene.resized_offscreen_textures)?;
-    draw_offscreen_textures(frame, prepared.damage, &scene.popup_offscreen_textures)?;
+    draw_offscreen_textures(
+        frame,
+        prepared.damage,
+        &scene.resized_offscreen_textures,
+        offscreen_cleanup_program,
+    )?;
+    draw_offscreen_textures(
+        frame,
+        prepared.damage,
+        &scene.popup_offscreen_textures,
+        offscreen_cleanup_program,
+    )?;
 
     if !scene.popup_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.popup_elements, &[prepared.damage]);
@@ -417,6 +446,7 @@ fn draw_offscreen_textures(
     frame: &mut GlesFrame<'_, '_>,
     damage: Rectangle<i32, Physical>,
     offscreen_textures: &[OffscreenNodeTexture],
+    offscreen_cleanup_program: &GlesTexProgram,
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
     for tex in offscreen_textures {
         let tex_size = tex.texture.size();
@@ -459,7 +489,7 @@ fn draw_offscreen_textures(
             &[],
             Transform::Normal,
             tex.alpha,
-            None,
+            Some(offscreen_cleanup_program),
             &[],
         )?;
     }
@@ -650,3 +680,4 @@ where
     draw_rect(frame, cx + 4, cy + 8, 6, 1, fill, damage)?;
     Ok(())
 }
+

@@ -64,6 +64,69 @@ fn rect_from_local_geometry(
     )
 }
 
+fn offscreen_visual_crop_and_dst(
+    bbox_loc_x: i32,
+    bbox_loc_y: i32,
+    bbox_w: i32,
+    bbox_h: i32,
+    geo_lx: f32,
+    geo_ly: f32,
+    geo_w: f32,
+    geo_h: f32,
+    dst_x: i32,
+    dst_y: i32,
+    dst_w: i32,
+    dst_h: i32,
+    scale: f32,
+    clip: Rectangle<i32, Physical>,
+) -> (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32) {
+    const VISUAL_MARGIN_CAP: i32 = 4;
+
+    let geo_x = (geo_lx.round() as i32) - bbox_loc_x;
+    let geo_y = (geo_ly.round() as i32) - bbox_loc_y;
+    let geo_w_i = geo_w.round().max(1.0) as i32;
+    let geo_h_i = geo_h.round().max(1.0) as i32;
+
+    let bbox_right = bbox_loc_x + bbox_w;
+    let bbox_bottom = bbox_loc_y + bbox_h;
+    let geo_right_abs = (geo_lx + geo_w).round() as i32;
+    let geo_bottom_abs = (geo_ly + geo_h).round() as i32;
+
+    let left_extra = geo_x.clamp(0, VISUAL_MARGIN_CAP);
+    let top_extra = geo_y.clamp(0, VISUAL_MARGIN_CAP);
+    let right_extra = (bbox_right - geo_right_abs).clamp(0, VISUAL_MARGIN_CAP);
+    let bottom_extra = (bbox_bottom - geo_bottom_abs).clamp(0, VISUAL_MARGIN_CAP);
+
+    let src_x = (geo_x - left_extra).max(0);
+    let src_y = (geo_y - top_extra).max(0);
+    let src_w = (geo_w_i + left_extra + right_extra)
+        .min(bbox_w.saturating_sub(src_x))
+        .max(1);
+    let src_h = (geo_h_i + top_extra + bottom_extra)
+        .min(bbox_h.saturating_sub(src_y))
+        .max(1);
+
+    let dst_expand_l = ((left_extra as f32) * scale).round() as i32;
+    let dst_expand_t = ((top_extra as f32) * scale).round() as i32;
+    let dst_expand_r = ((right_extra as f32) * scale).round() as i32;
+    let dst_expand_b = ((bottom_extra as f32) * scale).round() as i32;
+
+    (
+        src_x,
+        src_y,
+        src_w,
+        src_h,
+        dst_x - dst_expand_l,
+        dst_y - dst_expand_t,
+        dst_w.max(1) + dst_expand_l + dst_expand_r,
+        dst_h.max(1) + dst_expand_t + dst_expand_b,
+        clip.loc.x,
+        clip.loc.y,
+        clip.size.w,
+        clip.size.h,
+    )
+}
+
 #[allow(clippy::type_complexity)]
 pub(crate) fn collect_active_surfaces(
     renderer: &mut GlesRenderer,
@@ -347,7 +410,6 @@ pub(crate) fn collect_active_surfaces(
                         clip_w,
                         clip_h,
                     ) = if let Some(active_resize) = active_resize {
-                        let (fx, fy, fw, fh) = active_resize.frame_rect_px();
                         // Use live committed geo (updated on every client commit)
                         // as the single source of truth. Falls back to frozen
                         // local_geo before the first commit after resize starts.
@@ -365,48 +427,50 @@ pub(crate) fn collect_active_surfaces(
                                 let rz = resize_preview.unwrap();
                                 (rz.start_geo_lx, rz.start_geo_ly, local_geo.2, local_geo.3)
                             };
-                        // Crop src to just the geo region — excludes the CSD
-                        // shadow pixels (transparent black) at bbox edges which
-                        // would otherwise blit over the border strips.
-                        // src coords are in logical texture pixels (1:1 with surface).
-                        let src_x = (live_lx.round() as i32) - ob.loc.x;
-                        let src_y = (live_ly.round() as i32) - ob.loc.y;
-                        let src_w = live_gw.round() as i32;
-                        let src_h = live_gh.round() as i32;
-                        let clip_w = (live_gw * cam_scale).round() as i32;
-                        let clip_h = (live_gh * cam_scale).round() as i32;
-                        (
-                            src_x.max(0),
-                            src_y.max(0),
-                            src_w.max(1),
-                            src_h.max(1),
-                            fx,
-                            fy,
-                            clip_w.max(1).min(fw),
-                            clip_h.max(1).min(fh),
-                            fx,
-                            fy,
-                            clip_w.max(1).min(fw),
-                            clip_h.max(1).min(fh),
+
+                        // Match the normal offscreen path: anchor the destination from the
+                        // live geometry rect itself, then let the visual crop helper expand it.
+                        // Clipping only to the preview frame was shaving off the recovered edge
+                        // margin during resize, which made the resize look slightly tighter than
+                        // the steady-state path.
+                        let (surface_origin_x, surface_origin_y) = active_resize.surface_origin_px();
+                        let live_gx = surface_origin_x + (live_lx * cam_scale).round() as i32;
+                        let live_gy = surface_origin_y + (live_ly * cam_scale).round() as i32;
+                        let live_gw_px = (live_gw * cam_scale).round().max(1.0) as i32;
+                        let live_gh_px = (live_gh * cam_scale).round().max(1.0) as i32;
+
+                        offscreen_visual_crop_and_dst(
+                            ob.loc.x,
+                            ob.loc.y,
+                            ob.size.w.max(1),
+                            ob.size.h.max(1),
+                            live_lx,
+                            live_ly,
+                            live_gw,
+                            live_gh,
+                            live_gx,
+                            live_gy,
+                            live_gw_px,
+                            live_gh_px,
+                            cam_scale,
+                            output_clip,
                         )
                     } else {
-                        let src_x = (local_geo.0.round() as i32) - ob.loc.x;
-                        let src_y = (local_geo.1.round() as i32) - ob.loc.y;
-                        let src_w = local_geo.2.round().max(1.0) as i32;
-                        let src_h = local_geo.3.round().max(1.0) as i32;
-                        (
-                            src_x,
-                            src_y,
-                            src_w,
-                            src_h,
+                        offscreen_visual_crop_and_dst(
+                            ob.loc.x,
+                            ob.loc.y,
+                            ob.size.w.max(1),
+                            ob.size.h.max(1),
+                            local_geo.0,
+                            local_geo.1,
+                            local_geo.2,
+                            local_geo.3,
                             gx,
                             gy,
                             gw.max(1),
                             gh.max(1),
-                            gx,
-                            gy,
-                            gw.max(1),
-                            gh.max(1),
+                            cam_scale,
+                            output_clip,
                         )
                     };
 
@@ -563,3 +627,5 @@ pub(crate) fn collect_active_surfaces(
         overlap_overlay_rects,
     )
 }
+
+

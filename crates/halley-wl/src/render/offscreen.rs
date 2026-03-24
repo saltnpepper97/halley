@@ -80,7 +80,7 @@ pub(crate) fn render_surface_tree_to_texture(
         let damage = Rectangle::<i32, Physical>::from_size(physical_size);
 
         let mut frame = renderer.render(&mut target, physical_size, Transform::Normal)?;
-        frame.clear(Color32F::new(0.0, 0.0, 0.0, 0.0), &[damage])?;
+        frame.clear(Color32F::TRANSPARENT, &[damage])?;
 
         let _ = draw_render_elements(&mut frame, 1.0, &elements, &[damage]);
 
