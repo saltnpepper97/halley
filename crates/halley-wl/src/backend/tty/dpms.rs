@@ -1,8 +1,8 @@
 use super::*;
 use std::collections::HashMap;
 
-use crate::backend::tty_drm::TtyDrmOutput;
-use crate::backend::tty_drm::collect_outputs_for_ipc;
+use crate::backend::tty::drm::TtyDrmOutput;
+use crate::backend::tty::drm::collect_outputs_for_ipc;
 
 pub(crate) fn publish_tty_outputs_snapshot(
     dev: &DrmDevice,
@@ -110,3 +110,4 @@ pub(crate) fn wake_tty_dpms_on_input(
         st,
     )
 }
+

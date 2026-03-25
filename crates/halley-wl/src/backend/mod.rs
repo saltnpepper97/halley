@@ -53,9 +53,6 @@ use crate::surface_ops::current_surface_size_for_node;
 
 pub(crate) mod interface;
 pub(crate) mod tty;
-pub(crate) mod tty_dpms;
-pub(crate) mod tty_drm;
-pub(crate) mod tty_input;
 pub(crate) mod vblank_throttle;
 pub(crate) mod winit;
 

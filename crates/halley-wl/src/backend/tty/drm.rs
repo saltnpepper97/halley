@@ -711,3 +711,4 @@ pub(crate) fn queue_tty_drm_frame(
     let _ = st.activate_monitor(previous_monitor.as_str());
     Ok(())
 }
+

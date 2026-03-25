@@ -1,17 +1,19 @@
+mod dpms;
+mod drm;
+
 use super::*;
 use std::collections::HashMap;
 
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, TtyBackendHandle, TtyDmabufImportBackend,
 };
-use crate::backend::tty_dpms::{
+use crate::backend::tty::dpms::{
     apply_tty_dpms_command, publish_tty_outputs_snapshot, wake_tty_dpms_on_input,
 };
-use crate::backend::tty_drm::{
+use crate::backend::tty::drm::{
     TtyDrmOutput, current_tty_output_signature, probe_tty_drm_device_via_session,
     queue_tty_drm_frame, rebuild_tty_outputs, selected_tty_scanout_signature,
 };
-use crate::backend::tty_input::build_tty_libinput_backend;
 use crate::backend::vblank_throttle::VBlankThrottle;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 
@@ -1375,4 +1377,17 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             result
         }
     )
+}
+
+#[allow(clippy::type_complexity)]
+pub(crate) fn build_tty_libinput_backend(
+    session: Rc<RefCell<LibSeatSession>>,
+    seat: &str,
+) -> Result<(LibinputInputBackend, Rc<RefCell<Libinput>>), Box<dyn Error>> {
+    let mut context = Libinput::new_with_udev(LibinputSessionInterface::from(session));
+    context
+        .udev_assign_seat(seat)
+        .map_err(|_| io::Error::other(format!("libinput seat assign failed for {}", seat)))?;
+    let context_handle = Rc::new(RefCell::new(context.clone()));
+    Ok((LibinputInputBackend::new(context), context_handle))
 }
