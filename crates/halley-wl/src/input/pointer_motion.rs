@@ -10,7 +10,7 @@ use crate::backend::interface::BackendView;
 use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::{pick_hit_node_at, screen_to_world};
 use crate::state::Halley;
-use crate::surface::request_toplevel_resize_mode;
+use crate::surface_ops::request_toplevel_resize_mode;
 use halley_config::{KeyModifiers, PointerBindingAction};
 
 use super::input_utils::modifier_active;

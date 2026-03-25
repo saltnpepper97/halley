@@ -320,7 +320,7 @@ impl Halley {
             return;
         };
 
-        let saved_size = crate::surface::current_surface_size_for_node(self, node_id)
+        let saved_size = crate::surface_ops::current_surface_size_for_node(self, node_id)
             .unwrap_or(node.intrinsic_size);
 
         self.fullscreen_state.fullscreen_restore.insert(
@@ -379,7 +379,7 @@ impl Halley {
                 other_id,
                 crate::state::FullscreenSessionEntry {
                     pos: other.pos,
-                    size: crate::surface::current_surface_size_for_node(self, other_id)
+                    size: crate::surface_ops::current_surface_size_for_node(self, other_id)
                         .unwrap_or(other.intrinsic_size),
                     viewport_center,
                     intrinsic_size: other.intrinsic_size,

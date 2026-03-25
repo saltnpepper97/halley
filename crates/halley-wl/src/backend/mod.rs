@@ -49,7 +49,7 @@ use crate::run::{
 };
 use crate::spatial::node_in_active_area;
 use crate::state::{ClientState, Halley};
-use crate::surface::current_surface_size_for_node;
+use crate::surface_ops::current_surface_size_for_node;
 
 pub(crate) mod interface;
 pub(crate) mod tty;

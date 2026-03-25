@@ -16,7 +16,7 @@ use crate::interaction::types::{
 use crate::render::world_to_screen;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
 use crate::state::Halley;
-use crate::surface::{
+use crate::surface_ops::{
     current_surface_size_for_node, request_toplevel_resize_mode, window_geometry_for_node,
 };
 use smithay::backend::input::ButtonState;

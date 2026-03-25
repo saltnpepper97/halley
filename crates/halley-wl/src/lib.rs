@@ -7,7 +7,7 @@ pub mod render;
 pub mod run;
 pub(crate) mod spatial;
 pub mod state;
-pub(crate) mod surface;
+pub(crate) mod surface_ops;
 pub(crate) mod wayland;
 pub(crate) mod wm;
 

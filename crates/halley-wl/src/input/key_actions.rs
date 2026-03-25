@@ -9,7 +9,7 @@ use crate::interaction::actions::{move_latest_node_direction, toggle_focused_act
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
 use crate::state::Halley;
-use crate::surface::request_close_focused_toplevel;
+use crate::surface_ops::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{CompositorBindingAction, DirectionalAction, RuntimeTuning};
 use halley_ipc::NodeMoveDirection;
