@@ -1,6 +1,6 @@
 use std::env;
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
@@ -17,7 +17,7 @@ mod ipc;
 
 pub(crate) use common::{
     RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
-    ensure_xdg_runtime_dir, ensure_xwayland_satellite,
+    ensure_xdg_runtime_dir, ensure_xwayland_satellite, halley_runtime_dir,
 };
 pub(crate) use ipc::{
     RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc,
@@ -286,19 +286,7 @@ fn configured_halley_log_file() -> Option<Option<PathBuf>> {
 }
 
 fn default_halley_log_path() -> Option<PathBuf> {
-    env::var("XDG_RUNTIME_DIR")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .map(|dir| Path::new(dir.as_str()).join("halley").join("halley.log"))
-        .or_else(|| {
-            Some(
-                PathBuf::from(format!(
-                    "/tmp/halley-{}",
-                    rustix::process::getuid().as_raw()
-                ))
-                .join("halley.log"),
-            )
-        })
+    halley_runtime_dir().ok().map(|dir| dir.join("halley.log"))
 }
 
 fn expand_user_path(raw: &str) -> PathBuf {
@@ -314,3 +302,4 @@ fn expand_user_path(raw: &str) -> PathBuf {
     }
     PathBuf::from(raw)
 }
+

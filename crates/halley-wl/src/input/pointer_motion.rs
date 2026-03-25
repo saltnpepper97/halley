@@ -13,7 +13,7 @@ use crate::state::Halley;
 use crate::surface_ops::request_toplevel_resize_mode;
 use halley_config::{KeyModifiers, PointerBindingAction};
 
-use super::input_utils::modifier_active;
+use super::utils::modifier_active;
 use super::pointer_focus::pointer_focus_for_screen;
 
 #[inline]

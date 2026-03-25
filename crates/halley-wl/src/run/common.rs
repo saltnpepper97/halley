@@ -115,6 +115,23 @@ pub(crate) fn ensure_xdg_runtime_dir() -> Result<(), Box<dyn Error>> {
     Err("unable to find a usable XDG_RUNTIME_DIR".into())
 }
 
+pub(crate) fn halley_runtime_dir() -> io::Result<PathBuf> {
+    if let Some(dir) = env::var_os("XDG_RUNTIME_DIR") {
+        let path = Path::new(&dir).join("halley");
+        fs::create_dir_all(&path)?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+        return Ok(path);
+    }
+
+    let fallback = PathBuf::from(format!(
+        "/tmp/halley-{}",
+        rustix::process::getuid().as_raw()
+    ));
+    fs::create_dir_all(&fallback)?;
+    fs::set_permissions(&fallback, fs::Permissions::from_mode(0o700))?;
+    Ok(fallback)
+}
+
 pub(crate) fn ensure_dbus_session_bus_address() {
     if env::var("DBUS_SESSION_BUS_ADDRESS").is_ok() {
         return;
@@ -761,3 +778,4 @@ fn runtime_dir_is_usable(path: &Path) -> bool {
         .and_then(|_| fs::remove_file(path.join(".halley-runtime-check")))
         .is_ok()
 }
+

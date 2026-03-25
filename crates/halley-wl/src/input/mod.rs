@@ -1,5 +1,5 @@
 mod input_events;
-mod input_utils;
+mod utils;
 mod key_actions;
 mod pointer_button;
 mod pointer_focus;

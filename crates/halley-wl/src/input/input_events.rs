@@ -9,7 +9,7 @@ use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::screen_to_world;
 use crate::state::Halley;
 
-use super::input_utils::update_mod_state;
+use super::utils::update_mod_state;
 use super::key_actions::{
     apply_bound_key, apply_bound_pointer_input, apply_compositor_action_press,
     apply_compositor_action_release, compositor_binding_action, compositor_binding_action_active,

@@ -21,7 +21,7 @@ use crate::surface_ops::{
 };
 use smithay::backend::input::ButtonState;
 
-use super::input_utils::modifier_active;
+use super::utils::modifier_active;
 use super::key_actions::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };

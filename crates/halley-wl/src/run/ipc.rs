@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use eventline::{error, info, warn};
+use crate::run::common::halley_runtime_dir;
 use halley_ipc::{
     DpmsCommand, IpcError, NodeMoveDirection, OutputInfo, OutputsResponse, Request, Response,
     TrailDirection, decode_request, encode_response, read_frame, write_frame,
@@ -35,7 +36,10 @@ pub fn init_ipc() -> io::Result<()> {
         return Ok(());
     }
 
-    let socket_path = halley_ipc::default_socket_path()?;
+    let socket_path = halley_runtime_dir()?.join("socket");
+    if let Some(parent) = socket_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     remove_stale_socket(&socket_path)?;
 
     let listener = UnixListener::bind(&socket_path)?;
@@ -197,3 +201,4 @@ pub fn shutdown_ipc() {
         let _ = fs::remove_file(path);
     }
 }
+
