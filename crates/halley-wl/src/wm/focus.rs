@@ -181,8 +181,8 @@ impl Halley {
         self.interaction_state.viewport_pan_anim = None;
         let now_ms = self.now_ms(now);
         self.interaction_state.pan_dominant_until_ms = now_ms.saturating_add(220);
-        self.spawn_last_pan_ms = now_ms;
-        self.spawn_pan_start_center
+        self.spawn_state.spawn_last_pan_ms = now_ms;
+        self.spawn_state.spawn_pan_start_center
             .get_or_insert(self.viewport.center);
         if self.tuning.restore_last_active_on_pan_return
             && self.focus_state.pan_restore_active_focus.is_none()
@@ -203,11 +203,11 @@ impl Halley {
     }
 
     pub(crate) fn note_pan_viewport_change(&mut self, _now: Instant) {
-        if self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
-            self.spawn_view_anchor = self.viewport.center;
+        if self.spawn_state.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
+            self.spawn_state.spawn_view_anchor = self.viewport.center;
         }
         self.request_maintenance();
-        let Some(start_center) = self.spawn_pan_start_center else {
+        let Some(start_center) = self.spawn_state.spawn_pan_start_center else {
             return;
         };
 
@@ -231,11 +231,11 @@ impl Halley {
             return;
         }
 
-        self.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
-        self.spawn_view_anchor = self.viewport.center;
-        self.spawn_patch = None;
+        self.spawn_state.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
+        self.spawn_state.spawn_view_anchor = self.viewport.center;
+        self.spawn_state.spawn_patch = None;
         self.focus_state.pan_restore_active_focus = None;
-        self.spawn_pan_start_center = Some(self.viewport.center);
+        self.spawn_state.spawn_pan_start_center = Some(self.viewport.center);
     }
 
     pub fn set_pan_restore_focus_target(&mut self, id: NodeId) {
@@ -430,7 +430,7 @@ impl Halley {
                     .field
                     .set_state(id, halley_core::field::NodeState::Node);
                 let _ = self.field.set_decay_level(id, DecayLevel::Cold);
-                self.pending_spawn_activate_at_ms.remove(&id);
+                self.spawn_state.pending_spawn_activate_at_ms.remove(&id);
                 self.workspace_state.manual_collapsed_nodes.insert(id);
 
                 self.set_interaction_focus(None, 0, now);
@@ -441,7 +441,7 @@ impl Halley {
             halley_core::field::NodeState::Node => {
                 self.workspace_state.manual_collapsed_nodes.remove(&id);
                 let _ = self.field.set_decay_level(id, DecayLevel::Hot);
-                self.pending_spawn_activate_at_ms.remove(&id);
+                self.spawn_state.pending_spawn_activate_at_ms.remove(&id);
 
                 self.set_interaction_focus(Some(id), 30_000, now);
                 self.request_maintenance();

@@ -219,7 +219,7 @@ impl Halley {
             return id;
         }
 
-        self.spawn_cursor += 1;
+        self.spawn_state.spawn_cursor += 1;
         let size = Vec2 {
             x: size_px.0.max(64) as f32,
             y: size_px.1.max(64) as f32,
@@ -279,7 +279,7 @@ impl Halley {
             self.workspace_state.last_active_size.remove(&id);
             self.render_state.bbox_loc.remove(&id);
             self.render_state.window_geometry.remove(&id);
-            self.pending_spawn_activate_at_ms.remove(&id);
+            self.spawn_state.pending_spawn_activate_at_ms.remove(&id);
             self.workspace_state.active_transition_until_ms.remove(&id);
             self.workspace_state
                 .primary_promote_cooldown_until_ms

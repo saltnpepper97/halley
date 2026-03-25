@@ -184,39 +184,7 @@ impl Halley {
         }
     }
 
-    pub(crate) fn process_pending_spawn_activations(&mut self, now: Instant, now_ms: u64) {
-        let due: Vec<NodeId> = self
-            .pending_spawn_activate_at_ms
-            .iter()
-            .filter_map(|(&id, &at)| (now_ms >= at).then_some(id))
-            .collect();
 
-        for id in due {
-            self.pending_spawn_activate_at_ms.remove(&id);
-            if !self.field.is_visible(id) {
-                continue;
-            }
-            let Some(n) = self.field.node(id) else {
-                continue;
-            };
-            if n.kind != halley_core::field::NodeKind::Surface {
-                continue;
-            }
-            if self.preserve_collapsed_surface(id) {
-                continue;
-            }
-            let _ = self.field.set_decay_level(id, DecayLevel::Hot);
-            if let Some((_, _, w, h)) = self.render_state.window_geometry.get(&id) {
-                self.workspace_state
-                    .last_active_size
-                    .insert(id, Vec2 { x: *w, y: *h });
-            }
-            self.mark_active_transition(id, now, 620);
-            self.record_focus_trail_visit(id);
-            self.focus_state.suppress_trail_record_once = true;
-            self.set_interaction_focus(Some(id), 30_000, now);
-        }
-    }
 
     pub(crate) fn enforce_carry_zone_states(&mut self) {
         let tracked: Vec<(NodeId, FocusZone)> = self

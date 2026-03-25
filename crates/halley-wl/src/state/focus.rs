@@ -38,8 +38,8 @@ impl Halley {
                     .interaction_focus_until_ms
                     .max(requested_until);
                 self.update_focus_tracking_for_surface(fid, now_ms);
-                self.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
-                self.spawn_pan_start_center = None;
+                self.spawn_state.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
+                self.spawn_state.spawn_pan_start_center = None;
 
                 if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
                     self.focus_state.monitor_focus.insert(monitor, fid);
@@ -58,8 +58,8 @@ impl Halley {
         if let Some(fid) = id {
             self.focus_state.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
             self.update_focus_tracking_for_surface(fid, now_ms);
-            self.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
-            self.spawn_pan_start_center = None;
+            self.spawn_state.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
+            self.spawn_state.spawn_pan_start_center = None;
 
             if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
                 self.focus_state.monitor_focus.insert(monitor, fid);

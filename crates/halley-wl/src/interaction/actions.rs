@@ -120,7 +120,7 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
             let _ = st
                 .field
                 .set_decay_level(id, halley_core::decay::DecayLevel::Cold);
-            st.pending_spawn_activate_at_ms.remove(&id);
+            st.spawn_state.pending_spawn_activate_at_ms.remove(&id);
             st.workspace_state.manual_collapsed_nodes.insert(id);
 
             st.set_interaction_focus(None, 0, now);
@@ -133,7 +133,7 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
             let _ = st
                 .field
                 .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
-            st.pending_spawn_activate_at_ms.remove(&id);
+            st.spawn_state.pending_spawn_activate_at_ms.remove(&id);
             st.mark_active_transition(id, now, 360);
 
             st.set_interaction_focus(Some(id), 30_000, now);

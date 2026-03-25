@@ -330,7 +330,7 @@ impl Halley {
                 self.workspace_state.last_active_size.remove(&id);
                 self.render_state.bbox_loc.remove(&id);
                 self.render_state.window_geometry.remove(&id);
-                self.pending_spawn_activate_at_ms.remove(&id);
+                self.spawn_state.pending_spawn_activate_at_ms.remove(&id);
                 self.workspace_state.active_transition_until_ms.remove(&id);
                 self.workspace_state
                     .primary_promote_cooldown_until_ms

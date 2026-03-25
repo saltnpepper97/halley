@@ -45,6 +45,7 @@ use crate::state::fullscreen::FullscreenState;
 use crate::state::interaction::InteractionState;
 use crate::state::monitor::{MonitorSpace, MonitorState};
 use crate::state::render::RenderState;
+use crate::state::spawn::SpawnState;
 use crate::state::workspace::WorkspaceState;
 
 mod client;
@@ -54,52 +55,14 @@ mod interaction;
 mod monitor;
 mod render;
 mod runtime;
+mod spawn;
 mod workspace;
 
 pub use client::ClientState;
 pub(crate) use interaction::ViewportPanAnim;
 pub(crate) use render::{NodeAppIconCacheEntry, NodeAppIconTexture};
 pub(crate) use fullscreen::{FullscreenMotion, FullscreenSessionEntry, FullscreenScaleAnim};
-
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct SpawnFrontierPoint {
-    pub pos: Vec2,
-    pub score: f32,
-    pub dir: Vec2,
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-pub(crate) struct SpawnPatch {
-    pub anchor: Vec2,
-    pub focus_node: Option<NodeId>,
-    pub focus_pos: Vec2,
-    pub growth_dir: Vec2,
-    pub placements_in_patch: u32,
-    pub frontier: Vec<SpawnFrontierPoint>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct PendingSpawnPan {
-    pub node_id: NodeId,
-    pub target_center: Vec2,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ActiveSpawnPan {
-    pub node_id: NodeId,
-    pub pan_start_at_ms: u64,
-    pub reveal_at_ms: u64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SpawnAnchorMode {
-    Focus,
-    View,
-}
-
-
+pub(crate) use spawn::{SpawnPatch, PendingSpawnPan, ActiveSpawnPan, SpawnAnchorMode};
 
 pub struct Halley {
     pub display_handle: DisplayHandle,
@@ -128,6 +91,7 @@ pub struct Halley {
     pub(crate) interaction_state: InteractionState,
     pub(crate) render_state: RenderState,
     pub(crate) fullscreen_state: FullscreenState,
+    pub(crate) spawn_state: SpawnState,
 
     pub field: Field,
     pub viewport: Viewport,
@@ -141,7 +105,6 @@ pub struct Halley {
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
     pub surface_to_node: HashMap<ObjectId, NodeId>,
     pub(crate) node_app_ids: HashMap<NodeId, String>,
-    pub pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
 
     pub(crate) carry_zone_hint: HashMap<NodeId, FocusZone>,
     pub(crate) carry_zone_last_change_ms: HashMap<NodeId, u64>,
@@ -153,14 +116,6 @@ pub struct Halley {
 
     pub(crate) exit_requested: bool,
 
-    pub(crate) spawn_cursor: u32,
-    pub(crate) spawn_patch: Option<SpawnPatch>,
-    pub(crate) spawn_anchor_mode: SpawnAnchorMode,
-    pub(crate) spawn_view_anchor: Vec2,
-    pub(crate) spawn_pan_start_center: Option<Vec2>,
-    pub(crate) spawn_last_pan_ms: u64,
-    pub(crate) pending_spawn_pan_queue: VecDeque<PendingSpawnPan>,
-    pub(crate) active_spawn_pan: Option<ActiveSpawnPan>,
     pub(crate) started_at: Instant,
     pub(crate) last_debug_dump_at: Instant,
     pub(crate) maintenance_dirty: bool,
@@ -382,6 +337,18 @@ impl Halley {
                 fullscreen_scale_anim: HashMap::new(),
             },
 
+            spawn_state: SpawnState {
+                pending_spawn_activate_at_ms: HashMap::new(),
+                spawn_cursor: 0,
+                spawn_patch: None,
+                spawn_anchor_mode: SpawnAnchorMode::Focus,
+                spawn_view_anchor: initial_view_anchor,
+                spawn_pan_start_center: None,
+                spawn_last_pan_ms: 0,
+                pending_spawn_pan_queue: VecDeque::new(),
+                active_spawn_pan: None,
+            },
+
             field: Field::new(),
             viewport: primary_viewport,
             zoom_ref_size: primary_zoom_ref,
@@ -396,8 +363,6 @@ impl Halley {
             surface_to_node: HashMap::new(),
             node_app_ids: HashMap::new(),
 
-            pending_spawn_activate_at_ms: HashMap::new(),
-
             carry_zone_hint: HashMap::new(),
             carry_zone_last_change_ms: HashMap::new(),
             carry_zone_pending: HashMap::new(),
@@ -408,14 +373,6 @@ impl Halley {
 
             exit_requested: false,
 
-            spawn_cursor: 0,
-            spawn_patch: None,
-            spawn_anchor_mode: SpawnAnchorMode::Focus,
-            spawn_view_anchor: initial_view_anchor,
-            spawn_pan_start_center: None,
-            spawn_last_pan_ms: 0,
-            pending_spawn_pan_queue: VecDeque::new(),
-            active_spawn_pan: None,
             started_at: now,
             last_debug_dump_at: now,
             maintenance_dirty: true,
@@ -531,7 +488,7 @@ impl Halley {
         {
             consider(self.interaction_state.resize_static_until_ms);
         }
-        if let Some(at_ms) = self.pending_spawn_activate_at_ms.values().copied().min()
+        if let Some(at_ms) = self.spawn_state.pending_spawn_activate_at_ms.values().copied().min()
             && at_ms > now_ms
         {
             consider(at_ms);

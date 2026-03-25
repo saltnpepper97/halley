@@ -27,9 +27,9 @@ impl Halley {
     }
 
     fn current_spawn_focus(&self) -> (Option<NodeId>, Vec2) {
-        if self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
-            let anchor = if self.spawn_anchor_on_current_monitor(self.spawn_view_anchor) {
-                self.spawn_view_anchor
+        if self.spawn_state.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
+            let anchor = if self.spawn_anchor_on_current_monitor(self.spawn_state.spawn_view_anchor) {
+                self.spawn_state.spawn_view_anchor
             } else {
                 self.viewport.center
             };
@@ -124,7 +124,7 @@ impl Halley {
                 y: center.y - monitor.offset_y as f32,
             })
             .unwrap_or(center);
-        let idx = ((self.spawn_cursor as usize)
+        let idx = ((self.spawn_state.spawn_cursor as usize)
             .wrapping_add(local.x.abs() as usize)
             .wrapping_add((local.y.abs() * 3.0) as usize))
             % dirs.len();
@@ -138,7 +138,7 @@ impl Halley {
         focus_pos: Vec2,
         growth_dir: Vec2,
     ) {
-        self.spawn_patch = Some(crate::state::SpawnPatch {
+        self.spawn_state.spawn_patch = Some(crate::state::SpawnPatch {
             anchor,
             focus_node,
             focus_pos,
@@ -151,17 +151,17 @@ impl Halley {
     /// Returns `(position, needs_pan)`.
     pub(super) fn pick_spawn_position(&mut self, size: Vec2) -> (Vec2, bool) {
         let (focus_id, focus_pos) = self.current_spawn_focus();
-        let use_view_patch = self.spawn_anchor_mode == crate::state::SpawnAnchorMode::View;
+        let use_view_patch = self.spawn_state.spawn_anchor_mode == crate::state::SpawnAnchorMode::View;
 
         let anchor = if use_view_patch {
-            self.spawn_patch
+            self.spawn_state.spawn_patch
                 .as_ref()
                 .filter(|patch| {
                     patch.focus_node.is_none() && self.spawn_anchor_on_current_monitor(patch.anchor)
                 })
                 .map(|patch| patch.anchor)
                 .unwrap_or(self.viewport.center)
-        } else if let Some(patch) = &self.spawn_patch {
+        } else if let Some(patch) = &self.spawn_state.spawn_patch {
             let same_focus = patch.focus_node == focus_id;
             let same_focus_pos = (patch.focus_pos.x - focus_pos.x).abs() < 0.01
                 && (patch.focus_pos.y - focus_pos.y).abs() < 0.01;
@@ -184,7 +184,7 @@ impl Halley {
             };
             self.update_spawn_patch(anchor, patch_focus, patch_focus_pos, growth_dir);
             if use_view_patch {
-                self.spawn_view_anchor = anchor;
+                self.spawn_state.spawn_view_anchor = anchor;
             }
             return (pos, false);
         }
@@ -203,7 +203,7 @@ impl Halley {
         };
         self.update_spawn_patch(fallback_anchor, patch_focus, patch_focus_pos, growth_dir);
         if use_view_patch {
-            self.spawn_view_anchor = fallback_anchor;
+            self.spawn_state.spawn_view_anchor = fallback_anchor;
         }
         (fallback_anchor, false)
     }
@@ -213,8 +213,8 @@ impl Halley {
             return;
         };
         let _ = self.field.set_detached(id, true);
-        self.pending_spawn_activate_at_ms.remove(&id);
-        self.pending_spawn_pan_queue
+        self.spawn_state.pending_spawn_activate_at_ms.remove(&id);
+        self.spawn_state.pending_spawn_pan_queue
             .push_back(crate::state::PendingSpawnPan {
                 node_id: id,
                 target_center,
@@ -223,12 +223,12 @@ impl Halley {
     }
 
     pub(crate) fn maybe_start_pending_spawn_pan(&mut self, now: Instant) {
-        if self.active_spawn_pan.is_some() {
+        if self.spawn_state.active_spawn_pan.is_some() {
             return;
         }
 
         let now_ms = self.now_ms(now);
-        while let Some(next) = self.pending_spawn_pan_queue.pop_front() {
+        while let Some(next) = self.spawn_state.pending_spawn_pan_queue.pop_front() {
             if self.field.node(next.node_id).is_none() {
                 continue;
             }
@@ -238,7 +238,7 @@ impl Halley {
                 now,
                 Self::VIEWPORT_PAN_PRELOAD_MS,
             );
-            self.active_spawn_pan = Some(crate::state::ActiveSpawnPan {
+            self.spawn_state.active_spawn_pan = Some(crate::state::ActiveSpawnPan {
                 node_id: next.node_id,
                 pan_start_at_ms: now_ms.saturating_add(if did_pan {
                     Self::VIEWPORT_PAN_PRELOAD_MS
@@ -256,13 +256,13 @@ impl Halley {
     }
 
     pub(crate) fn tick_pending_spawn_pan(&mut self, now: Instant, now_ms: u64) {
-        let Some(active) = self.active_spawn_pan else {
+        let Some(active) = self.spawn_state.active_spawn_pan else {
             self.maybe_start_pending_spawn_pan(now);
             return;
         };
 
         if self.field.node(active.node_id).is_none() {
-            self.active_spawn_pan = None;
+            self.spawn_state.active_spawn_pan = None;
             self.maybe_start_pending_spawn_pan(now);
             return;
         }
@@ -285,7 +285,7 @@ impl Halley {
         self.record_focus_trail_visit(active.node_id);
         self.focus_state.suppress_trail_record_once = true;
         self.set_interaction_focus(Some(active.node_id), 30_000, now);
-        self.active_spawn_pan = None;
+        self.spawn_state.active_spawn_pan = None;
         self.maybe_start_pending_spawn_pan(now);
     }
 
@@ -299,15 +299,17 @@ impl Halley {
             self.record_focus_trail_visit(id);
             self.focus_state.suppress_trail_record_once = true;
             self.set_interaction_focus(Some(id), 30_000, now);
-            self.pending_spawn_activate_at_ms.remove(&id);
+            self.spawn_state.pending_spawn_activate_at_ms.remove(&id);
             self.mark_active_transition(id, now, 620);
             return;
         }
 
         if self
+            .spawn_state
             .active_spawn_pan
             .is_some_and(|active| active.node_id == id)
             || self
+                .spawn_state
                 .pending_spawn_pan_queue
                 .iter()
                 .any(|pending| pending.node_id == id)
@@ -446,8 +448,8 @@ mod tests {
             .set_state(focused, halley_core::field::NodeState::Active);
         state.focus_state.last_surface_focus_ms.insert(focused, 1);
         state.focus_state.primary_interaction_focus = Some(focused);
-        state.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
-        state.spawn_view_anchor = state.viewport.center;
+        state.spawn_state.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
+        state.spawn_state.spawn_view_anchor = state.viewport.center;
 
         let (pos, needs_pan) = state.pick_spawn_position(Vec2 { x: 100.0, y: 80.0 });
         assert!(!needs_pan);
@@ -500,8 +502,8 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 1200.0, y: 0.0 };
         state.viewport.size = Vec2 { x: 800.0, y: 600.0 };
-        state.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
-        state.spawn_view_anchor = state.viewport.center;
+        state.spawn_state.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
+        state.spawn_state.spawn_view_anchor = state.viewport.center;
 
         let size = Vec2 { x: 100.0, y: 80.0 };
         let first = state.pick_spawn_position(size).0;
@@ -538,8 +540,8 @@ mod tests {
 
         state.reveal_new_toplevel_node(id, false, Instant::now());
 
-        assert!(state.active_spawn_pan.is_none());
-        assert!(state.pending_spawn_pan_queue.is_empty());
+        assert!(state.spawn_state.active_spawn_pan.is_none());
+        assert!(state.spawn_state.pending_spawn_pan_queue.is_empty());
         assert!(state.interaction_state.viewport_pan_anim.is_none());
         assert_eq!(state.focus_state.primary_interaction_focus, Some(id));
     }
@@ -565,7 +567,7 @@ mod tests {
 
         state.reveal_new_toplevel_node(id, false, Instant::now());
 
-        assert_eq!(state.active_spawn_pan.map(|pan| pan.node_id), Some(id));
+        assert_eq!(state.spawn_state.active_spawn_pan.map(|pan| pan.node_id), Some(id));
     }
 
     #[test]
@@ -586,6 +588,6 @@ mod tests {
 
         state.reveal_new_toplevel_node(id, false, Instant::now());
 
-        assert_eq!(state.active_spawn_pan.map(|pan| pan.node_id), Some(id));
+        assert_eq!(state.spawn_state.active_spawn_pan.map(|pan| pan.node_id), Some(id));
     }
 }
