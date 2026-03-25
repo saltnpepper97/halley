@@ -4,7 +4,7 @@ use std::process::Command;
 
 use eventline::{debug, info, warn};
 
-use super::input_utils::{key_matches, modifier_active, modifier_exact};
+use super::input_utils::{key_matches, modifier_active};
 use crate::interaction::actions::{move_latest_node_direction, toggle_focused_active_node_state};
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;

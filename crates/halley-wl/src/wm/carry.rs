@@ -9,12 +9,12 @@ impl Halley {
 
     #[inline]
     pub(crate) fn mark_direct_carry_node(&mut self, id: NodeId) {
-        self.carry_direct_nodes.insert(id);
+        self.carry_state.carry_direct_nodes.insert(id);
     }
 
     #[inline]
     pub(crate) fn clear_direct_carry_nodes(&mut self) {
-        self.carry_direct_nodes.clear();
+        self.carry_state.carry_direct_nodes.clear();
     }
 
     #[inline]
@@ -75,7 +75,7 @@ impl Halley {
         let focus_ring = self.active_focus_ring();
         let footprint = self.zone_eval_footprint_for(id, footprint);
         let (p_inside, p_outside) = self.focus_ring_coverage_fractions(pos, footprint, focus_ring);
-        let prev = self.carry_zone_hint.get(&id).copied();
+        let prev = self.carry_state.carry_zone_hint.get(&id).copied();
 
         const ACTIVE_RETAIN_FRAC: f32 = 0.04;
         const ACTIVE_ENTER_FRAC: f32 = 0.10;
@@ -101,10 +101,10 @@ impl Halley {
         };
 
         let now_ms = self.now_ms(Instant::now());
-        self.carry_zone_last_change_ms.insert(id, now_ms);
-        self.carry_zone_pending.remove(&id);
-        self.carry_zone_pending_since_ms.remove(&id);
-        self.carry_zone_hint.insert(id, zone);
+        self.carry_state.carry_zone_last_change_ms.insert(id, now_ms);
+        self.carry_state.carry_zone_pending.remove(&id);
+        self.carry_state.carry_zone_pending_since_ms.remove(&id);
+        self.carry_state.carry_zone_hint.insert(id, zone);
         zone
     }
 
@@ -135,15 +135,15 @@ impl Halley {
         let _ = self.field.set_pinned(id, false);
 
         if let Some(n) = self.field.node(id) {
-            self.carry_state_hold.insert(id, n.state.clone());
+            self.carry_state.carry_state_hold.insert(id, n.state.clone());
             let fp = self.collision_size_for_node(n);
             let z = self.zone_for_pos_with_hysteresis(id, n.pos, fp);
-            self.carry_zone_hint.insert(id, z);
-            self.carry_zone_last_change_ms
+            self.carry_state.carry_zone_hint.insert(id, z);
+            self.carry_state.carry_zone_last_change_ms
                 .insert(id, self.now_ms(Instant::now()));
-            self.carry_zone_pending.remove(&id);
-            self.carry_zone_pending_since_ms.remove(&id);
-            self.carry_activation_anim_armed.insert(id);
+            self.carry_state.carry_zone_pending.remove(&id);
+            self.carry_state.carry_zone_pending_since_ms.remove(&id);
+            self.carry_state.carry_activation_anim_armed.insert(id);
         }
         self.request_maintenance();
     }
@@ -153,12 +153,12 @@ impl Halley {
             self.interaction_state.drag_authority_node = None;
         }
         self.mark_direct_carry_node(id);
-        self.carry_zone_hint.remove(&id);
-        self.carry_zone_last_change_ms.remove(&id);
-        self.carry_zone_pending.remove(&id);
-        self.carry_zone_pending_since_ms.remove(&id);
-        self.carry_activation_anim_armed.remove(&id);
-        self.carry_state_hold.remove(&id);
+        self.carry_state.carry_zone_hint.remove(&id);
+        self.carry_state.carry_zone_last_change_ms.remove(&id);
+        self.carry_state.carry_zone_pending.remove(&id);
+        self.carry_state.carry_zone_pending_since_ms.remove(&id);
+        self.carry_state.carry_activation_anim_armed.remove(&id);
+        self.carry_state.carry_state_hold.remove(&id);
         self.interaction_state.suspend_overlap_resolve = false;
         self.interaction_state.suspend_state_checks = false;
         self.clear_direct_carry_nodes();
@@ -183,7 +183,7 @@ impl Halley {
             return;
         }
         let zone = self.zone_for_pos_with_hysteresis(id, source_pos, footprint);
-        let held_state = self.carry_state_hold.get(&id);
+        let held_state = self.carry_state.carry_state_hold.get(&id);
         let target = match held_state {
             Some(halley_core::field::NodeState::Active) => DecayLevel::Hot,
             Some(halley_core::field::NodeState::Node | halley_core::field::NodeState::Core) => {
@@ -207,7 +207,7 @@ impl Halley {
             }
             if !was_active
                 && self.active_transition_alpha(id, now) <= 0.01
-                && self.carry_activation_anim_armed.remove(&id)
+                && self.carry_state.carry_activation_anim_armed.remove(&id)
             {
                 self.mark_active_transition(id, now, 360);
             }

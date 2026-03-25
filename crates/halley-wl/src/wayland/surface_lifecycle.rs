@@ -286,11 +286,11 @@ impl Halley {
                 .remove(&id);
             self.focus_state.last_surface_focus_ms.remove(&id);
             self.monitor_state.node_monitor.remove(&id);
-            self.carry_zone_hint.remove(&id);
-            self.carry_zone_last_change_ms.remove(&id);
-            self.carry_zone_pending.remove(&id);
-            self.carry_zone_pending_since_ms.remove(&id);
-            self.carry_activation_anim_armed.remove(&id);
+            self.carry_state.carry_zone_hint.remove(&id);
+            self.carry_state.carry_zone_last_change_ms.remove(&id);
+            self.carry_state.carry_zone_pending.remove(&id);
+            self.carry_state.carry_zone_pending_since_ms.remove(&id);
+            self.carry_state.carry_activation_anim_armed.remove(&id);
             if self.interaction_state.resize_active == Some(id) {
                 self.interaction_state.resize_active = None;
             }

@@ -185,50 +185,6 @@ impl Halley {
     }
 
 
-
-    pub(crate) fn enforce_carry_zone_states(&mut self) {
-        let tracked: Vec<(NodeId, FocusZone)> = self
-            .carry_zone_hint
-            .iter()
-            .map(|(&id, &z)| (id, z))
-            .collect();
-
-        for (id, zone) in tracked {
-            if !self.field.is_visible(id) {
-                continue;
-            }
-            let Some(n) = self.field.node(id) else {
-                continue;
-            };
-            if n.kind != halley_core::field::NodeKind::Surface {
-                continue;
-            }
-            if self.preserve_collapsed_surface(id) {
-                continue;
-            }
-
-            let held_state = self.carry_state_hold.get(&id);
-            let target = match zone {
-                _ if matches!(held_state, Some(halley_core::field::NodeState::Active)) => {
-                    DecayLevel::Hot
-                }
-                _ if matches!(
-                    held_state,
-                    Some(halley_core::field::NodeState::Node | halley_core::field::NodeState::Core)
-                ) =>
-                {
-                    DecayLevel::Cold
-                }
-                FocusZone::Inside if n.state == halley_core::field::NodeState::Active => {
-                    DecayLevel::Hot
-                }
-                FocusZone::Inside => DecayLevel::Cold,
-                FocusZone::Outside => DecayLevel::Cold,
-            };
-            let _ = self.field.set_decay_level(id, target);
-        }
-    }
-
     pub fn apply_single_surface_decay_policy(
         &mut self,
         id: NodeId,
@@ -283,7 +239,7 @@ impl Halley {
         self.focus_state.primary_interaction_focus == Some(id)
             || self.interaction_state.resize_active == Some(id)
             || self.is_recently_resized_node(id, now_ms)
-            || self.carry_zone_hint.contains_key(&id)
+            || self.carry_state.carry_zone_hint.contains_key(&id)
             || self
                 .workspace_state
                 .active_transition_until_ms

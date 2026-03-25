@@ -10,7 +10,7 @@ use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_clu
 use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::trail::Trail;
-use halley_core::viewport::{FocusZone, Viewport};
+use halley_core::viewport::Viewport;
 
 use smithay::{
     delegate_dmabuf,
@@ -40,6 +40,7 @@ use smithay::{
 use crate::activity::CommitActivity;
 use crate::animation::{AnimSpec, Animator};
 use crate::backend::interface::DmabufImportBackend;
+use crate::state::carry::CarryState;
 use crate::state::focus::FocusState;
 use crate::state::fullscreen::FullscreenState;
 use crate::state::interaction::InteractionState;
@@ -48,6 +49,7 @@ use crate::state::render::RenderState;
 use crate::state::spawn::SpawnState;
 use crate::state::workspace::WorkspaceState;
 
+mod carry;
 mod client;
 mod focus;
 mod fullscreen;
@@ -85,6 +87,7 @@ pub struct Halley {
     pub data_control_state: DataControlState,
     pub seat: Seat<Self>,
 
+    pub(crate) carry_state: CarryState,
     pub(crate) monitor_state: MonitorState,
     pub(crate) focus_state: FocusState,
     pub(crate) workspace_state: WorkspaceState,
@@ -105,14 +108,6 @@ pub struct Halley {
     pub surface_activity: HashMap<ObjectId, CommitActivity>,
     pub surface_to_node: HashMap<ObjectId, NodeId>,
     pub(crate) node_app_ids: HashMap<NodeId, String>,
-
-    pub(crate) carry_zone_hint: HashMap<NodeId, FocusZone>,
-    pub(crate) carry_zone_last_change_ms: HashMap<NodeId, u64>,
-    pub(crate) carry_zone_pending: HashMap<NodeId, FocusZone>,
-    pub(crate) carry_zone_pending_since_ms: HashMap<NodeId, u64>,
-    pub(crate) carry_activation_anim_armed: HashSet<NodeId>,
-    pub(crate) carry_direct_nodes: HashSet<NodeId>,
-    pub(crate) carry_state_hold: HashMap<NodeId, halley_core::field::NodeState>,
 
     pub(crate) exit_requested: bool,
 
@@ -248,6 +243,16 @@ impl Halley {
             data_control_state,
             seat,
 
+            carry_state: CarryState {
+                carry_zone_hint: HashMap::new(),
+                carry_zone_last_change_ms: HashMap::new(),
+                carry_zone_pending: HashMap::new(),
+                carry_zone_pending_since_ms: HashMap::new(),
+                carry_activation_anim_armed: HashSet::new(),
+                carry_direct_nodes: HashSet::new(),
+                carry_state_hold: HashMap::new(),
+            },
+
             monitor_state: MonitorState {
                 outputs: HashMap::new(),
                 current_monitor: current_monitor.clone(),
@@ -362,14 +367,6 @@ impl Halley {
             surface_activity: HashMap::new(),
             surface_to_node: HashMap::new(),
             node_app_ids: HashMap::new(),
-
-            carry_zone_hint: HashMap::new(),
-            carry_zone_last_change_ms: HashMap::new(),
-            carry_zone_pending: HashMap::new(),
-            carry_zone_pending_since_ms: HashMap::new(),
-            carry_activation_anim_armed: HashSet::new(),
-            carry_direct_nodes: HashSet::new(),
-            carry_state_hold: HashMap::new(),
 
             exit_requested: false,
 
@@ -579,16 +576,16 @@ impl Halley {
             .primary_promote_cooldown_until_ms
             .retain(|_, &mut until| until > now_ms);
         let alive_ids: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
-        self.carry_zone_hint.retain(|id, _| alive_ids.contains(id));
-        self.carry_zone_last_change_ms
+        self.carry_state.carry_zone_hint.retain(|id, _| alive_ids.contains(id));
+        self.carry_state.carry_zone_last_change_ms
             .retain(|id, _| alive_ids.contains(id));
-        self.carry_zone_pending
+        self.carry_state.carry_zone_pending
             .retain(|id, _| alive_ids.contains(id));
-        self.carry_zone_pending_since_ms
+        self.carry_state.carry_zone_pending_since_ms
             .retain(|id, _| alive_ids.contains(id));
-        self.carry_activation_anim_armed
+        self.carry_state.carry_activation_anim_armed
             .retain(|id| alive_ids.contains(id));
-        self.carry_state_hold.retain(|id, _| alive_ids.contains(id));
+        self.carry_state.carry_state_hold.retain(|id, _| alive_ids.contains(id));
         self.focus_state
             .last_surface_focus_ms
             .retain(|id, _| alive_ids.contains(id));

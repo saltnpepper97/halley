@@ -162,7 +162,7 @@ impl Halley {
             .clamp(1.0 / 240.0, 1.0 / 20.0);
         let mut alpha = (dt * 18.0).clamp(0.10, 0.42);
         let mut max_step = (dt * 1800.0).clamp(6.0, 70.0);
-        if self.carry_zone_hint.contains_key(&id) {
+        if self.carry_state.carry_zone_hint.contains_key(&id) {
             let boost = self.tuning.drag_smoothing_boost.clamp(0.1, 20.0);
             alpha = (alpha * boost).clamp(0.10, 1.0);
             max_step = (max_step * boost).clamp(6.0, 420.0);

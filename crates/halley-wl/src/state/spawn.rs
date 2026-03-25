@@ -6,6 +6,7 @@ use halley_core::decay::DecayLevel;
 
 use super::Halley;
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SpawnFrontierPoint {
     pub pos: Vec2,
@@ -13,6 +14,7 @@ pub(crate) struct SpawnFrontierPoint {
     pub dir: Vec2,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct SpawnPatch {
     pub anchor: Vec2,
