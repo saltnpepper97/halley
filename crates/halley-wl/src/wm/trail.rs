@@ -35,6 +35,7 @@ impl Halley {
         let moved = match node.state {
             halley_core::field::NodeState::Active => {
                 let restoring_suspended_fullscreen = self
+                    .fullscreen_state
                     .fullscreen_suspended_node
                     .values()
                     .any(|&nid| nid == id);

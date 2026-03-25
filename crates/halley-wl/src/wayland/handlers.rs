@@ -107,6 +107,7 @@ impl SeatHandler for Halley {
             });
 
             let to_suspend: Vec<NodeId> = self
+                .fullscreen_state
                 .fullscreen_active_node
                 .iter()
                 .filter_map(|(monitor, &fullscreen_id)| {

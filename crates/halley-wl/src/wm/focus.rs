@@ -31,7 +31,7 @@ impl Halley {
     }
 
     fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
-        let fullscreen_id = self.fullscreen_active_node.values().next().copied()?;
+        let fullscreen_id = self.fullscreen_state.fullscreen_active_node.values().next().copied()?;
 
         if requested == Some(fullscreen_id) {
             return requested;
@@ -67,11 +67,12 @@ impl Halley {
         let focus_id = self.fullscreen_focus_override(id).or(id);
         if let Some(fid) = focus_id
             && self
+                .fullscreen_state
                 .fullscreen_suspended_node
                 .values()
                 .any(|&nid| nid == fid)
         {
-            if let Some(entry) = self.fullscreen_restore.get(&fid).copied() {
+            if let Some(entry) = self.fullscreen_state.fullscreen_restore.get(&fid).copied() {
                 let target_monitor = self
                     .monitor_state
                     .node_monitor

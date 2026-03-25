@@ -41,6 +41,7 @@ use crate::activity::CommitActivity;
 use crate::animation::{AnimSpec, Animator};
 use crate::backend::interface::DmabufImportBackend;
 use crate::state::focus::FocusState;
+use crate::state::fullscreen::FullscreenState;
 use crate::state::interaction::InteractionState;
 use crate::state::monitor::{MonitorSpace, MonitorState};
 use crate::state::render::RenderState;
@@ -48,6 +49,7 @@ use crate::state::workspace::WorkspaceState;
 
 mod client;
 mod focus;
+mod fullscreen;
 mod interaction;
 mod monitor;
 mod render;
@@ -57,6 +59,7 @@ mod workspace;
 pub use client::ClientState;
 pub(crate) use interaction::ViewportPanAnim;
 pub(crate) use render::{NodeAppIconCacheEntry, NodeAppIconTexture};
+pub(crate) use fullscreen::{FullscreenMotion, FullscreenSessionEntry, FullscreenScaleAnim};
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
@@ -96,30 +99,7 @@ pub(crate) enum SpawnAnchorMode {
     View,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct FullscreenSessionEntry {
-    pub pos: Vec2,
-    pub size: Vec2,
-    pub viewport_center: Vec2,
-    pub intrinsic_size: Vec2,
-    pub bbox_loc: Option<(f32, f32)>,
-    pub window_geometry: Option<(f32, f32, f32, f32)>,
-    pub pinned: bool,
-}
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct FullscreenMotion {
-    pub from: Vec2,
-    pub to: Vec2,
-    pub start_ms: u64,
-    pub duration_ms: u64,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct FullscreenScaleAnim {
-    pub start_ms: u64,
-    pub duration_ms: u64,
-}
 
 pub struct Halley {
     pub display_handle: DisplayHandle,
@@ -147,6 +127,7 @@ pub struct Halley {
     pub(crate) workspace_state: WorkspaceState,
     pub(crate) interaction_state: InteractionState,
     pub(crate) render_state: RenderState,
+    pub(crate) fullscreen_state: FullscreenState,
 
     pub field: Field,
     pub viewport: Viewport,
@@ -171,12 +152,6 @@ pub struct Halley {
     pub(crate) carry_state_hold: HashMap<NodeId, halley_core::field::NodeState>,
 
     pub(crate) exit_requested: bool,
-
-    pub(crate) fullscreen_active_node: HashMap<String, NodeId>,
-    pub(crate) fullscreen_suspended_node: HashMap<String, NodeId>,
-    pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
-    pub(crate) fullscreen_motion: HashMap<NodeId, FullscreenMotion>,
-    pub(crate) fullscreen_scale_anim: HashMap<NodeId, FullscreenScaleAnim>,
 
     pub(crate) spawn_cursor: u32,
     pub(crate) spawn_patch: Option<SpawnPatch>,
@@ -399,6 +374,14 @@ impl Halley {
                 pan_dominant_until_ms: 0,
             },
 
+            fullscreen_state: FullscreenState {
+                fullscreen_active_node: HashMap::new(),
+                fullscreen_suspended_node: HashMap::new(),
+                fullscreen_restore: HashMap::new(),
+                fullscreen_motion: HashMap::new(),
+                fullscreen_scale_anim: HashMap::new(),
+            },
+
             field: Field::new(),
             viewport: primary_viewport,
             zoom_ref_size: primary_zoom_ref,
@@ -424,12 +407,6 @@ impl Halley {
             carry_state_hold: HashMap::new(),
 
             exit_requested: false,
-
-            fullscreen_active_node: HashMap::new(),
-            fullscreen_suspended_node: HashMap::new(),
-            fullscreen_restore: HashMap::new(),
-            fullscreen_motion: HashMap::new(),
-            fullscreen_scale_anim: HashMap::new(),
 
             spawn_cursor: 0,
             spawn_patch: None,

@@ -471,7 +471,7 @@ fn restore_fullscreen_click_focus(
         .or_else(|| st.monitor_state.node_monitor.get(&node_id).cloned())
         .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
 
-    let entry = st.fullscreen_restore.get(&node_id).copied();
+    let entry = st.fullscreen_state.fullscreen_restore.get(&node_id).copied();
     let fallback_center = st
         .monitor_state
         .monitors
