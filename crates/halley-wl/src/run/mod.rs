@@ -20,9 +20,7 @@ pub(crate) use common::{
     RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite, halley_runtime_dir,
 };
-pub(crate) use ipc::{
-    RuntimeIpcCommand, drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc,
-};
+pub(crate) use ipc::{drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc};
 
 static XWAYLAND_REQUEST_TX: OnceCell<mpsc::Sender<()>> = OnceCell::new();
 

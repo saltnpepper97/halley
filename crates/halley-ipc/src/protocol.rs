@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::IpcError;
-use crate::types::OutputsResponse;
+use crate::types::{NodeInfo, NodeListResponse, OutputsResponse, TrailListResponse};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum NodeMoveDirection {
@@ -25,13 +25,97 @@ pub enum DpmsCommand {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Request {
+pub enum NodeSelector {
+    Focused,
+    Latest,
+    Id(u64),
+    Title(String),
+    App(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TrailTarget {
+    Index(usize),
+    Selector(NodeSelector),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MonitorFocusDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MonitorFocusTarget {
+    Direction(MonitorFocusDirection),
+    Output(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CompositorRequest {
     Quit,
     Reload,
     Outputs,
-    NodeMove(NodeMoveDirection),
-    Trail(TrailDirection),
-    Dpms(DpmsCommand),
+    Dpms {
+        command: DpmsCommand,
+        output: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NodeRequest {
+    List {
+        output: Option<String>,
+    },
+    Info {
+        selector: Option<NodeSelector>,
+        output: Option<String>,
+    },
+    Focus {
+        selector: Option<NodeSelector>,
+        output: Option<String>,
+    },
+    Move {
+        direction: NodeMoveDirection,
+        selector: Option<NodeSelector>,
+        output: Option<String>,
+    },
+    Close {
+        selector: Option<NodeSelector>,
+        output: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TrailRequest {
+    Prev {
+        output: Option<String>,
+    },
+    Next {
+        output: Option<String>,
+    },
+    List {
+        output: Option<String>,
+    },
+    Goto {
+        target: TrailTarget,
+        output: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MonitorRequest {
+    Focus(MonitorFocusTarget),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Request {
+    Compositor(CompositorRequest),
+    Node(NodeRequest),
+    Trail(TrailRequest),
+    Monitor(MonitorRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,5 +123,8 @@ pub enum Response {
     Ok,
     Reloaded,
     Outputs(OutputsResponse),
+    NodeList(NodeListResponse),
+    NodeInfo(NodeInfo),
+    TrailList(TrailListResponse),
     Error(IpcError),
 }

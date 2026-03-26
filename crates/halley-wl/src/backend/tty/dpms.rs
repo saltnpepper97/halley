@@ -31,11 +31,21 @@ pub(crate) fn apply_tty_dpms_command(
     active_modes: &Rc<RefCell<HashMap<String, drm_control::Mode>>>,
     dpms_enabled: &Rc<RefCell<bool>>,
     command: halley_ipc::DpmsCommand,
+    output: Option<&str>,
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     tuning: &RuntimeTuning,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
     st: &mut Halley,
 ) -> bool {
+    if let Some(output) = output {
+        let known = outputs
+            .borrow()
+            .iter()
+            .any(|candidate| candidate.connector_name == output);
+        if !known {
+            return false;
+        }
+    }
     let target_enabled = match command {
         halley_ipc::DpmsCommand::On => true,
         halley_ipc::DpmsCommand::Off => false,
@@ -104,10 +114,10 @@ pub(crate) fn wake_tty_dpms_on_input(
         active_modes,
         dpms_enabled,
         halley_ipc::DpmsCommand::On,
+        None,
         outputs,
         tuning,
         output_frame_pending,
         st,
     )
 }
-

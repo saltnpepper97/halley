@@ -135,7 +135,7 @@ pub(crate) fn handle_keyboard_input(
             let mut ms = mod_state.borrow_mut();
             first_binding_press = ms.intercepted_keys.insert(code);
             repeat_binding_press = !first_binding_press;
-            if first_binding_press && let Some(action) = matched_action {
+            if first_binding_press && let Some(action) = matched_action.clone() {
                 ms.intercepted_compositor_actions.insert(code, action);
             }
             true
@@ -185,7 +185,9 @@ pub(crate) fn handle_keyboard_input(
         && matched_binding
         && ((first_binding_press)
             || (repeat_binding_press
-                && matched_action.is_some_and(compositor_action_allows_repeat)))
+                && matched_action
+                    .as_ref()
+                    .is_some_and(|action| compositor_action_allows_repeat(action.clone()))))
         && apply_bound_key(st, code, &mods, config_path, wayland_display)
     {
         backend.request_redraw();

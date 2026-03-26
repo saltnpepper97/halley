@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use super::{
     CompositorBinding, CompositorBindingAction, DirectionalAction, KeyModifiers, LaunchBinding,
-    PointerBinding, PointerBindingAction,
+    MonitorBindingAction, MonitorBindingTarget, NodeBindingAction, PointerBinding,
+    PointerBindingAction, TrailBindingAction,
 };
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
 use crate::layout::FocusRingConfig;
@@ -1100,7 +1101,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
                 out,
                 mods,
                 key,
-                CompositorBindingAction::MoveNode(DirectionalAction::Left),
+                CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Left)),
             );
         }
         "move_right" | "move-right" => {
@@ -1108,7 +1109,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
                 out,
                 mods,
                 key,
-                CompositorBindingAction::MoveNode(DirectionalAction::Right),
+                CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Right)),
             );
         }
         "move_up" | "move-up" => {
@@ -1116,7 +1117,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
                 out,
                 mods,
                 key,
-                CompositorBindingAction::MoveNode(DirectionalAction::Up),
+                CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Up)),
             );
         }
         "move_down" | "move-down" => {
@@ -1124,14 +1125,24 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
                 out,
                 mods,
                 key,
-                CompositorBindingAction::MoveNode(DirectionalAction::Down),
+                CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Down)),
             );
         }
         "trail_prev" | "trail-prev" | "trail prev" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::TrailPrev);
+            upsert_compositor_binding(
+                out,
+                mods,
+                key,
+                CompositorBindingAction::Trail(TrailBindingAction::Prev),
+            );
         }
         "trail_next" | "trail-next" | "trail next" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::TrailNext);
+            upsert_compositor_binding(
+                out,
+                mods,
+                key,
+                CompositorBindingAction::Trail(TrailBindingAction::Next),
+            );
         }
         "zoom_in" | "zoom-in" => {
             upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomIn);
@@ -1151,7 +1162,46 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "resize_window" | "resize-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::ResizeWindow);
         }
-        _ => upsert_launch_binding(out, mods, key, action_trimmed),
+        _ => {
+            if let Some(action) = parse_parameterized_compositor_action(action_trimmed) {
+                upsert_compositor_binding(out, mods, key, action);
+            } else {
+                upsert_launch_binding(out, mods, key, action_trimmed);
+            }
+        }
+    }
+}
+
+fn parse_parameterized_compositor_action(action: &str) -> Option<CompositorBindingAction> {
+    let mut parts = action.split_whitespace();
+    let command = parts.next()?.to_ascii_lowercase();
+    let arg = parts.collect::<Vec<_>>().join(" ");
+    let arg = arg.trim();
+    if arg.is_empty() {
+        return None;
+    }
+
+    match command.as_str() {
+        "node-move" | "node_move" => parse_directional_action(arg)
+            .map(|direction| CompositorBindingAction::Node(NodeBindingAction::Move(direction))),
+        "monitor-focus" | "monitor_focus" => Some(CompositorBindingAction::Monitor(
+            MonitorBindingAction::Focus(
+                parse_directional_action(arg)
+                    .map(MonitorBindingTarget::Direction)
+                    .unwrap_or_else(|| MonitorBindingTarget::Output(arg.to_string())),
+            ),
+        )),
+        _ => None,
+    }
+}
+
+fn parse_directional_action(text: &str) -> Option<DirectionalAction> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "left" => Some(DirectionalAction::Left),
+        "right" => Some(DirectionalAction::Right),
+        "up" => Some(DirectionalAction::Up),
+        "down" => Some(DirectionalAction::Down),
+        _ => None,
     }
 }
 
@@ -1233,8 +1283,9 @@ mod tests {
     use super::apply_explicit_keybind_overrides_map;
     use crate::{
         ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-        CompositorBindingAction, DirectionalAction, NodeBackgroundColorMode, NodeDisplayPolicy,
-        PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
+        CompositorBindingAction, DirectionalAction, MonitorBindingAction, MonitorBindingTarget,
+        NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy, PanToNewMode,
+        RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
         keybinds::key_name_to_evdev,
     };
 
@@ -1272,7 +1323,43 @@ mod tests {
         apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
 
         assert!(tuning.compositor_bindings.iter().any(|binding| {
-            binding.action == CompositorBindingAction::MoveNode(DirectionalAction::Left)
+            binding.action
+                == CompositorBindingAction::Node(NodeBindingAction::Move(
+                    DirectionalAction::Left,
+                ))
+        }));
+    }
+
+    #[test]
+    fn family_style_node_move_actions_parse_as_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([("$mod+h".to_string(), "node-move left".to_string())]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action
+                == CompositorBindingAction::Node(NodeBindingAction::Move(
+                    DirectionalAction::Left,
+                ))
+        }));
+    }
+
+    #[test]
+    fn monitor_focus_family_actions_parse_as_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([(
+            "$mod+o".to_string(),
+            "monitor-focus HDMI-A-1".to_string(),
+        )]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action
+                == CompositorBindingAction::Monitor(MonitorBindingAction::Focus(
+                    MonitorBindingTarget::Output("HDMI-A-1".to_string()),
+                ))
         }));
     }
 

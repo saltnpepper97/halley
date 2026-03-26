@@ -10,29 +10,26 @@ use once_cell::sync::OnceCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use eventline::{error, info, warn};
 use crate::run::common::halley_runtime_dir;
+use eventline::{error, info, warn};
 use halley_ipc::{
-    DpmsCommand, IpcError, NodeMoveDirection, OutputInfo, OutputsResponse, Request, Response,
-    TrailDirection, decode_request, encode_response, read_frame, write_frame,
+    IpcError, OutputInfo, OutputsResponse, Request, Response, decode_request, encode_response,
+    read_frame, write_frame,
 };
 
-#[derive(Debug, Clone, Copy)]
-pub enum RuntimeIpcCommand {
-    Quit,
-    Reload,
-    NodeMove(NodeMoveDirection),
-    Trail(TrailDirection),
-    Dpms(DpmsCommand),
+#[derive(Debug)]
+pub struct RuntimeIpcRequest {
+    pub request: Request,
+    pub reply_tx: mpsc::Sender<Response>,
 }
 
-static IPC_COMMAND_RX: OnceCell<Mutex<mpsc::Receiver<RuntimeIpcCommand>>> = OnceCell::new();
+static IPC_REQUEST_RX: OnceCell<Mutex<mpsc::Receiver<RuntimeIpcRequest>>> = OnceCell::new();
 static IPC_OUTPUTS: OnceCell<Arc<Mutex<Vec<OutputInfo>>>> = OnceCell::new();
 static IPC_SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 static IPC_SOCKET_PATH: OnceCell<std::path::PathBuf> = OnceCell::new();
 
 pub fn init_ipc() -> io::Result<()> {
-    if IPC_COMMAND_RX.get().is_some() {
+    if IPC_REQUEST_RX.get().is_some() {
         return Ok(());
     }
 
@@ -44,13 +41,13 @@ pub fn init_ipc() -> io::Result<()> {
 
     let listener = UnixListener::bind(&socket_path)?;
     listener.set_nonblocking(true)?;
-    let (command_tx, command_rx) = mpsc::channel::<RuntimeIpcCommand>();
+    let (request_tx, request_rx) = mpsc::channel::<RuntimeIpcRequest>();
     let outputs = Arc::new(Mutex::new(Vec::<OutputInfo>::new()));
 
-    IPC_COMMAND_RX.set(Mutex::new(command_rx)).map_err(|_| {
+    IPC_REQUEST_RX.set(Mutex::new(request_rx)).map_err(|_| {
         io::Error::new(
             io::ErrorKind::AlreadyExists,
-            "IPC command receiver already initialized",
+            "IPC request receiver already initialized",
         )
     })?;
 
@@ -76,7 +73,7 @@ pub fn init_ipc() -> io::Result<()> {
 
                 match listener.accept() {
                     Ok((mut stream, _addr)) => {
-                        if let Err(err) = handle_client(&mut stream, &command_tx, &outputs) {
+                        if let Err(err) = handle_client(&mut stream, &request_tx, &outputs) {
                             warn!("halley ipc client failed: {}", err);
                         }
                     }
@@ -114,9 +111,9 @@ pub fn publish_outputs(outputs: Vec<OutputInfo>) {
 
 pub fn drain_ipc_commands<F>(mut f: F)
 where
-    F: FnMut(RuntimeIpcCommand),
+    F: FnMut(Request) -> Response,
 {
-    let Some(rx) = IPC_COMMAND_RX.get() else {
+    let Some(rx) = IPC_REQUEST_RX.get() else {
         return;
     };
 
@@ -130,7 +127,10 @@ where
 
     loop {
         match guard.try_recv() {
-            Ok(cmd) => f(cmd),
+            Ok(request) => {
+                let response = f(request.request);
+                let _ = request.reply_tx.send(response);
+            }
             Err(mpsc::TryRecvError::Empty) => break,
             Err(mpsc::TryRecvError::Disconnected) => break,
         }
@@ -139,11 +139,11 @@ where
 
 fn handle_client(
     stream: &mut UnixStream,
-    command_tx: &mpsc::Sender<RuntimeIpcCommand>,
+    request_tx: &mpsc::Sender<RuntimeIpcRequest>,
     outputs: &Arc<Mutex<Vec<OutputInfo>>>,
 ) -> io::Result<()> {
     let response = match read_frame(stream).and_then(|bytes| decode_request(&bytes)) {
-        Ok(request) => handle_request(request, command_tx, outputs),
+        Ok(request) => handle_request(request, request_tx, outputs),
         Err(err) => Response::Error(IpcError::InvalidRequest(err.to_string())),
     };
 
@@ -153,38 +153,29 @@ fn handle_client(
 
 fn handle_request(
     request: Request,
-    command_tx: &mpsc::Sender<RuntimeIpcCommand>,
+    request_tx: &mpsc::Sender<RuntimeIpcRequest>,
     outputs: &Arc<Mutex<Vec<OutputInfo>>>,
 ) -> Response {
     match request {
-        Request::Quit => match command_tx.send(RuntimeIpcCommand::Quit) {
-            Ok(()) => Response::Ok,
-            Err(err) => Response::Error(IpcError::Internal(err.to_string())),
-        },
-        Request::Reload => match command_tx.send(RuntimeIpcCommand::Reload) {
-            Ok(()) => Response::Reloaded,
-            Err(err) => Response::Error(IpcError::Internal(err.to_string())),
-        },
-        Request::NodeMove(direction) => {
-            match command_tx.send(RuntimeIpcCommand::NodeMove(direction)) {
-                Ok(()) => Response::Ok,
-                Err(err) => Response::Error(IpcError::Internal(err.to_string())),
-            }
-        }
-        Request::Trail(direction) => match command_tx.send(RuntimeIpcCommand::Trail(direction)) {
-            Ok(()) => Response::Ok,
-            Err(err) => Response::Error(IpcError::Internal(err.to_string())),
-        },
-        Request::Dpms(command) => match command_tx.send(RuntimeIpcCommand::Dpms(command)) {
-            Ok(()) => Response::Ok,
-            Err(err) => Response::Error(IpcError::Internal(err.to_string())),
-        },
-        Request::Outputs => match outputs.lock() {
+        Request::Compositor(halley_ipc::CompositorRequest::Outputs) => match outputs.lock() {
             Ok(guard) => Response::Outputs(OutputsResponse {
                 outputs: guard.clone(),
             }),
             Err(err) => Response::Error(IpcError::Internal(err.to_string())),
         },
+        request => {
+            let (reply_tx, reply_rx) = mpsc::channel();
+            let envelope = RuntimeIpcRequest { request, reply_tx };
+            if let Err(err) = request_tx.send(envelope) {
+                return Response::Error(IpcError::Internal(err.to_string()));
+            }
+            match reply_rx.recv_timeout(Duration::from_secs(2)) {
+                Ok(response) => response,
+                Err(err) => Response::Error(IpcError::Internal(format!(
+                    "timed out waiting for compositor response: {err}"
+                ))),
+            }
+        }
     }
 }
 fn remove_stale_socket(path: &Path) -> io::Result<()> {
@@ -201,4 +192,3 @@ pub fn shutdown_ipc() {
         let _ = fs::remove_file(path);
     }
 }
-

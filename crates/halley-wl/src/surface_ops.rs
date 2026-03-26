@@ -14,6 +14,13 @@ pub(crate) fn request_close_focused_toplevel(st: &mut Halley) -> bool {
         return false;
     };
 
+    request_close_node_toplevel(st, node_id)
+}
+
+pub(crate) fn request_close_node_toplevel(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+) -> bool {
     for top in st.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface();
         let key = wl.id();

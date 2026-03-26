@@ -37,18 +37,40 @@ pub enum DirectionalAction {
     Down,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NodeBindingAction {
+    Move(DirectionalAction),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TrailBindingAction {
+    Prev,
+    Next,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MonitorBindingTarget {
+    Direction(DirectionalAction),
+    Output(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MonitorBindingAction {
+    Focus(MonitorBindingTarget),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CompositorBindingAction {
     Reload,
     ToggleState,
     CloseFocusedWindow,
     Quit { requires_shift: bool },
-    MoveNode(DirectionalAction),
-    TrailPrev,
-    TrailNext,
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    Node(NodeBindingAction),
+    Trail(TrailBindingAction),
+    Monitor(MonitorBindingAction),
 }
 
 #[derive(Clone, Debug)]

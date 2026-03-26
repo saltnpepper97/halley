@@ -551,12 +551,13 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                 });
 
-                drain_ipc_commands(|cmd| match cmd {
-                    RuntimeIpcCommand::Quit => {
+                drain_ipc_commands(|request| match request {
+                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
                         st.request_exit();
+                        halley_ipc::Response::Ok
                     }
-                    RuntimeIpcCommand::Reload => {
+                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Reload) => {
                         if let Some(next) =
                             RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                         {
@@ -586,17 +587,22 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             );
                         }
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                        halley_ipc::Response::Reloaded
                     }
-                    RuntimeIpcCommand::NodeMove(direction) => {
-                        let _ =
-                            crate::interaction::actions::move_latest_node_direction(st, direction);
+                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
+                        command,
+                        output,
+                    }) => {
+                        let target = output.unwrap_or_else(|| "all outputs".to_string());
+                        warn!(
+                            "ipc: ignoring tty-only dpms command on winit backend: {:?} ({})",
+                            command, target
+                        );
+                        halley_ipc::Response::Error(halley_ipc::IpcError::Unsupported(
+                            "dpms is only supported on the tty backend".into(),
+                        ))
                     }
-                    RuntimeIpcCommand::Trail(direction) => {
-                        let _ = crate::interaction::actions::step_window_trail(st, direction);
-                    }
-                    RuntimeIpcCommand::Dpms(command) => {
-                        warn!("ipc: ignoring tty-only dpms command on winit backend: {:?}", command);
-                    }
+                    request => crate::ipc::handle_request(st, request),
                 });
 
                 {

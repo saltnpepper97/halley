@@ -9,7 +9,7 @@ use halley_core::viewport::{FocusRing, Viewport};
 
 use super::{
     CompositorBinding, CompositorBindingAction, DirectionalAction, KeyModifiers, Keybinds,
-    LaunchBinding, PointerBinding, PointerBindingAction,
+    LaunchBinding, NodeBindingAction, PointerBinding, PointerBindingAction, TrailBindingAction,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -436,22 +436,22 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
         CompositorBinding {
             modifiers: modifier,
             key: key("h"),
-            action: CompositorBindingAction::MoveNode(DirectionalAction::Left),
+            action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Left)),
         },
         CompositorBinding {
             modifiers: modifier,
             key: key("k"),
-            action: CompositorBindingAction::MoveNode(DirectionalAction::Up),
+            action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Up)),
         },
         CompositorBinding {
             modifiers: modifier,
             key: key("l"),
-            action: CompositorBindingAction::MoveNode(DirectionalAction::Right),
+            action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Right)),
         },
         CompositorBinding {
             modifiers: modifier,
             key: key("j"),
-            action: CompositorBindingAction::MoveNode(DirectionalAction::Down),
+            action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Down)),
         },
         CompositorBinding {
             modifiers: KeyModifiers {
@@ -459,7 +459,7 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
                 ..modifier
             },
             key: key("comma"),
-            action: CompositorBindingAction::TrailPrev,
+            action: CompositorBindingAction::Trail(TrailBindingAction::Prev),
         },
         CompositorBinding {
             modifiers: KeyModifiers {
@@ -467,7 +467,7 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
                 ..modifier
             },
             key: key("dot"),
-            action: CompositorBindingAction::TrailNext,
+            action: CompositorBindingAction::Trail(TrailBindingAction::Next),
         },
     ]
 }

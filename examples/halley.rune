@@ -123,11 +123,16 @@ keybinds:
   # quit halley
   "$var.mod+shift+e" "quit"
 
-  # move the newest node in a direction
-  "$var.mod+h" "move_left"
-  "$var.mod+l" "move_right"
-  "$var.mod+k" "move_up"
-  "$var.mod+j" "move_down"
+  # move the selected/latest node in a direction
+  "$var.mod+h" "node-move left"
+  "$var.mod+l" "node-move right"
+  "$var.mod+k" "node-move up"
+  "$var.mod+j" "node-move down"
+
+  # switch monitor focus
+  "$var.mod+shift+h" "monitor-focus left"
+  "$var.mod+shift+l" "monitor-focus right"
+
   "$var.mod+shift+," "trail-prev"
   "$var.mod+shift+." "trail-next"
 

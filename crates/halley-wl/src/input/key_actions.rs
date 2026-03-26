@@ -11,7 +11,10 @@ use crate::run::request_xwayland_start;
 use crate::state::Halley;
 use crate::surface_ops::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
-use halley_config::{CompositorBindingAction, DirectionalAction, RuntimeTuning};
+use halley_config::{
+    CompositorBindingAction, DirectionalAction, MonitorBindingAction, MonitorBindingTarget,
+    NodeBindingAction, RuntimeTuning, TrailBindingAction,
+};
 use halley_ipc::NodeMoveDirection;
 
 pub(crate) fn input_matches_binding(actual: u32, binding_key: u32) -> bool {
@@ -38,7 +41,7 @@ pub(crate) fn compositor_binding_action(
 ) -> Option<CompositorBindingAction> {
     for binding in &st.tuning.compositor_bindings {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            return Some(binding.action);
+            return Some(binding.action.clone());
         }
     }
 
@@ -53,7 +56,7 @@ pub(crate) fn compositor_binding_action_active(
     for binding in &st.tuning.compositor_bindings {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
         {
-            return Some(binding.action);
+            return Some(binding.action.clone());
         }
     }
 
@@ -74,9 +77,9 @@ pub(crate) fn key_is_compositor_binding(
 pub(crate) fn compositor_action_allows_repeat(action: CompositorBindingAction) -> bool {
     matches!(
         action,
-        CompositorBindingAction::MoveNode(_)
-            | CompositorBindingAction::TrailPrev
-            | CompositorBindingAction::TrailNext
+        CompositorBindingAction::Node(NodeBindingAction::Move(_))
+            | CompositorBindingAction::Trail(TrailBindingAction::Prev)
+            | CompositorBindingAction::Trail(TrailBindingAction::Next)
             | CompositorBindingAction::ZoomIn
             | CompositorBindingAction::ZoomOut
     )
@@ -112,14 +115,44 @@ pub(crate) fn apply_compositor_action_press(
         }
         CompositorBindingAction::ToggleState => toggle_focused_active_node_state(st),
         CompositorBindingAction::CloseFocusedWindow => request_close_focused_toplevel(st),
-        CompositorBindingAction::MoveNode(direction) => {
+        CompositorBindingAction::Node(NodeBindingAction::Move(direction)) => {
             move_latest_node_direction(st, from_directional_action(direction))
         }
-        CompositorBindingAction::TrailPrev => {
+        CompositorBindingAction::Trail(TrailBindingAction::Prev) => {
             crate::interaction::actions::step_window_trail(st, halley_ipc::TrailDirection::Prev)
         }
-        CompositorBindingAction::TrailNext => {
+        CompositorBindingAction::Trail(TrailBindingAction::Next) => {
             crate::interaction::actions::step_window_trail(st, halley_ipc::TrailDirection::Next)
+        }
+        CompositorBindingAction::Monitor(MonitorBindingAction::Focus(target)) => {
+            let target = match target {
+                MonitorBindingTarget::Direction(DirectionalAction::Left) => {
+                    halley_ipc::MonitorFocusTarget::Direction(halley_ipc::MonitorFocusDirection::Left)
+                }
+                MonitorBindingTarget::Direction(DirectionalAction::Right) => {
+                    halley_ipc::MonitorFocusTarget::Direction(
+                        halley_ipc::MonitorFocusDirection::Right,
+                    )
+                }
+                MonitorBindingTarget::Direction(DirectionalAction::Up) => {
+                    halley_ipc::MonitorFocusTarget::Direction(halley_ipc::MonitorFocusDirection::Up)
+                }
+                MonitorBindingTarget::Direction(DirectionalAction::Down) => {
+                    halley_ipc::MonitorFocusTarget::Direction(
+                        halley_ipc::MonitorFocusDirection::Down,
+                    )
+                }
+                MonitorBindingTarget::Output(output) => {
+                    halley_ipc::MonitorFocusTarget::Output(output)
+                }
+            };
+            matches!(
+                crate::ipc::handle_request(
+                    st,
+                    halley_ipc::Request::Monitor(halley_ipc::MonitorRequest::Focus(target)),
+                ),
+                halley_ipc::Response::Ok
+            )
         }
         CompositorBindingAction::ZoomIn => {
             st.zoom_by_steps(1.0);
@@ -152,12 +185,13 @@ pub(crate) fn apply_bound_key(
 ) -> bool {
     if let Some(action) = compositor_binding_action(st, key_code, mods) {
         return match action {
-            CompositorBindingAction::MoveNode(_)
+            CompositorBindingAction::Node(NodeBindingAction::Move(_))
             | CompositorBindingAction::Reload
             | CompositorBindingAction::ToggleState
             | CompositorBindingAction::CloseFocusedWindow
-            | CompositorBindingAction::TrailPrev
-            | CompositorBindingAction::TrailNext
+            | CompositorBindingAction::Trail(TrailBindingAction::Prev)
+            | CompositorBindingAction::Trail(TrailBindingAction::Next)
+            | CompositorBindingAction::Monitor(_)
             | CompositorBindingAction::Quit { .. }
             | CompositorBindingAction::ZoomIn
             | CompositorBindingAction::ZoomOut
@@ -258,7 +292,7 @@ pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -
 #[cfg(test)]
 mod tests {
     use super::{compositor_action_allows_repeat, input_matches_binding};
-    use halley_config::CompositorBindingAction;
+    use halley_config::{CompositorBindingAction, TrailBindingAction};
     use halley_config::WHEEL_UP_CODE;
     use halley_config::keybinds::key_name_to_evdev;
 
@@ -282,7 +316,9 @@ mod tests {
     #[test]
     fn repeat_policy_is_limited_to_safe_actions() {
         assert!(compositor_action_allows_repeat(CompositorBindingAction::ZoomIn));
-        assert!(compositor_action_allows_repeat(CompositorBindingAction::TrailNext));
+        assert!(compositor_action_allows_repeat(CompositorBindingAction::Trail(
+            TrailBindingAction::Next,
+        )));
         assert!(!compositor_action_allows_repeat(
             CompositorBindingAction::CloseFocusedWindow
         ));

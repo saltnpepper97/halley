@@ -7,8 +7,15 @@ pub use codec::{
     decode_request, decode_response, encode_request, encode_response, read_frame, write_frame,
 };
 pub use error::{CodecError, IpcError};
-pub use protocol::{DpmsCommand, NodeMoveDirection, Request, Response, TrailDirection};
-pub use types::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus, OutputsResponse};
+pub use protocol::{
+    CompositorRequest, DpmsCommand, MonitorFocusDirection, MonitorFocusTarget, MonitorRequest,
+    NodeMoveDirection, NodeRequest, NodeSelector, Request, Response, TrailDirection, TrailRequest,
+    TrailTarget,
+};
+pub use types::{
+    LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup, NodeState,
+    OutputInfo, OutputStatus, OutputsResponse, TrailEntryInfo, TrailListResponse,
+};
 
 use std::env;
 use std::io;

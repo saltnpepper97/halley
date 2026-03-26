@@ -1,6 +1,7 @@
 pub mod activity;
 pub mod animation;
 pub(crate) mod backend;
+pub(crate) mod ipc;
 pub(crate) mod input;
 pub(crate) mod interaction;
 pub mod render;

@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcError {
     InvalidRequest(String),
+    NotFound(String),
+    Ambiguous(String),
     Unsupported(String),
     Internal(String),
 }

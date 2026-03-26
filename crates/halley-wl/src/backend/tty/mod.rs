@@ -1051,12 +1051,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
                 });
 
-                drain_ipc_commands(|cmd| match cmd {
-                    RuntimeIpcCommand::Quit => {
+                drain_ipc_commands(|request| match request {
+                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
                         st.request_exit();
+                        halley_ipc::Response::Ok
                     }
-                    RuntimeIpcCommand::Reload => {
+                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Reload) => {
                         if let Some(next) =
                             RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                         {
@@ -1097,27 +1098,40 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             );
                         }
                         info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                        halley_ipc::Response::Reloaded
                     }
-                    RuntimeIpcCommand::NodeMove(direction) => {
-                        let _ =
-                            crate::interaction::actions::move_latest_node_direction(st, direction);
-                    }
-                    RuntimeIpcCommand::Trail(direction) => {
-                        let _ = crate::interaction::actions::step_window_trail(st, direction);
-                    }
-                    RuntimeIpcCommand::Dpms(command) => {
+                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
+                        command,
+                        output,
+                    }) => {
+                        if output.is_some() {
+                            return halley_ipc::Response::Error(
+                                halley_ipc::IpcError::Unsupported(
+                                    "per-output dpms is not implemented on the tty backend".into(),
+                                ),
+                            );
+                        }
                         let tuning = st.tuning.clone();
-                        apply_tty_dpms_command(
+                        let changed = apply_tty_dpms_command(
                             &dev_for_timer,
                             &active_modes_for_timer,
                             &dpms_enabled_for_timer,
                             command,
+                            None,
                             &outputs_for_timer,
                             &tuning,
                             &output_frame_pending_for_dpms_timer,
                             st,
                         );
+                        if changed {
+                            halley_ipc::Response::Ok
+                        } else {
+                            halley_ipc::Response::Error(halley_ipc::IpcError::NotFound(
+                                "dpms request made no change".into(),
+                            ))
+                        }
                     }
+                    request => crate::ipc::handle_request(st, request),
                 });
 
                 {

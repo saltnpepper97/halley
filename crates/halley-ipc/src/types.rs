@@ -41,6 +41,62 @@ pub struct LogicalOutputInfo {
     pub offset_y: i32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NodeKind {
+    Surface,
+    Core,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NodeState {
+    Active,
+    Drifting,
+    Node,
+    Core,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeInfo {
+    pub id: u64,
+    pub title: String,
+    pub app_id: Option<String>,
+    pub output: Option<String>,
+    pub kind: NodeKind,
+    pub state: NodeState,
+    pub visible: bool,
+    pub focused: bool,
+    pub latest: bool,
+    pub pos_x: f32,
+    pub pos_y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeOutputGroup {
+    pub output: String,
+    pub nodes: Vec<NodeInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeListResponse {
+    pub outputs: Vec<NodeOutputGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrailEntryInfo {
+    pub index: usize,
+    pub cursor: bool,
+    pub node: NodeInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrailListResponse {
+    pub output: String,
+    pub entries: Vec<TrailEntryInfo>,
+    pub cursor_index: Option<usize>,
+}
+
 impl ModeInfo {
     pub fn display_string(&self) -> String {
         match self.refresh_hz {

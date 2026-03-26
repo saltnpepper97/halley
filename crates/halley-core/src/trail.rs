@@ -56,6 +56,85 @@ impl Trail {
         self.entries.len()
     }
 
+    pub fn entries(&self) -> Vec<NodeId> {
+        let mut out = Vec::with_capacity(self.entries.len());
+        let mut it = self.head;
+        while let Some(id) = it {
+            let Some(entry) = self.entries.get(&id) else {
+                break;
+            };
+            out.push(entry.node);
+            it = entry.next;
+        }
+        out
+    }
+
+    pub fn cursor_index(&self) -> Option<usize> {
+        let cursor = self.cursor?;
+        let mut index = 0usize;
+        let mut it = self.head;
+        while let Some(id) = it {
+            if id == cursor {
+                return Some(index);
+            }
+            let Some(entry) = self.entries.get(&id) else {
+                break;
+            };
+            index += 1;
+            it = entry.next;
+        }
+        None
+    }
+
+    pub fn node_at_index(&self, index: usize) -> Option<NodeId> {
+        let mut current = 0usize;
+        let mut it = self.head;
+        while let Some(id) = it {
+            let entry = self.entries.get(&id)?;
+            if current == index {
+                return Some(entry.node);
+            }
+            current += 1;
+            it = entry.next;
+        }
+        None
+    }
+
+    pub fn seek_to_index(&mut self, index: usize) -> Option<NodeId> {
+        let mut current = 0usize;
+        let mut it = self.head;
+        while let Some(id) = it {
+            let entry = self.entries.get(&id)?;
+            if current == index {
+                self.cursor = Some(id);
+                return Some(entry.node);
+            }
+            current += 1;
+            it = entry.next;
+        }
+        None
+    }
+
+    pub fn seek_to_node(&mut self, node: NodeId) -> bool {
+        let mut last_match = None;
+        let mut it = self.head;
+        while let Some(id) = it {
+            let Some(entry) = self.entries.get(&id) else {
+                break;
+            };
+            if entry.node == node {
+                last_match = Some(id);
+            }
+            it = entry.next;
+        }
+        if let Some(id) = last_match {
+            self.cursor = Some(id);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Record a focus visit.
     pub fn record(&mut self, node: NodeId) {
         // If we are not at the tail, drop everything after cursor (browser semantics).

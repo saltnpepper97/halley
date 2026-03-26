@@ -939,6 +939,8 @@ name = "halley-cli"
 version = "0.1.0"
 dependencies = [
  "halley-ipc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
