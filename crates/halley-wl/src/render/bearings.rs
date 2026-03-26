@@ -1,7 +1,10 @@
 use std::error::Error;
 
-use halley_core::bearings::{Bearing, bearings_for_visible_nodes};
-use halley_core::field::NodeId;
+use halley_core::{
+    bearings::{Bearing, bearings_for_visible_nodes},
+    field::{NodeId, Vec2},
+    viewport::Viewport,
+};
 use smithay::{
     backend::renderer::{
         Color32F, Texture,
@@ -29,29 +32,120 @@ pub(crate) struct BearingChipLayout {
 
 const CHIP_PAD_X: i32 = 10;
 const CHIP_PAD_Y: i32 = 7;
-const CHIP_GAP: i32 = 10;
 const EDGE_PAD: i32 = 16;
 const LABEL_SCALE: i32 = 2;
 const META_SCALE: i32 = 1;
 const ICON_SIZE: i32 = 16;
+const ICON_TEXT_GAP: i32 = 6;
 const DISTANCE_GAP: i32 = 4;
 const META_PAD_X: i32 = 7;
 const META_PAD_Y: i32 = 4;
+const GROUP_GAP: i32 = 10;
 const MAX_LABEL_CHARS: usize = 24;
 const MIN_DISTANCE_ALPHA: f32 = 0.34;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BearingLane {
+    NW,
+    N,
+    NE,
+    W,
+    E,
+    SW,
+    S,
+    SE,
+}
+
+impl BearingLane {
+    fn all() -> [Self; 8] {
+        [
+            Self::NW,
+            Self::N,
+            Self::NE,
+            Self::W,
+            Self::E,
+            Self::SW,
+            Self::S,
+            Self::SE,
+        ]
+    }
+
+    fn from_bearing(bearing: Bearing) -> Self {
+        match bearing {
+            Bearing::NW => Self::NW,
+            Bearing::N => Self::N,
+            Bearing::NE => Self::NE,
+            Bearing::W => Self::W,
+            Bearing::E => Self::E,
+            Bearing::SW => Self::SW,
+            Bearing::S => Self::S,
+            Bearing::SE => Self::SE,
+        }
+    }
+
+    fn uses_horizontal_axis(self) -> bool {
+        matches!(self, Self::N | Self::S)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BearingSize {
+    chip_w: i32,
+    chip_h: i32,
+    show_icon: bool,
+    distance_rect_w: i32,
+    distance_rect_h: i32,
+    distance_block_h: i32,
+}
+
+impl BearingSize {
+    fn total_height(self) -> i32 {
+        self.distance_block_h + self.chip_h
+    }
+
+    fn primary_extent(self, lane: BearingLane) -> i32 {
+        if lane.uses_horizontal_axis() {
+            self.chip_w
+        } else {
+            self.total_height()
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct BearingCandidate {
+    node_id: NodeId,
+    lane: BearingLane,
+    projected: f32,
+    distance: f32,
+    label: String,
+    size: BearingSize,
+}
+
+#[derive(Clone, Debug)]
+struct BearingGroup {
+    lane: BearingLane,
+    projected: f32,
+    node_id: NodeId,
+    label: String,
+    distance: f32,
+    size: BearingSize,
+    alpha: f32,
+}
 
 pub(crate) fn ensure_bearing_icon_resources(
     renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
     st: &mut Halley,
     monitor: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let viewport = st.viewport_for_monitor(monitor);
+    let viewport = bearings_viewport_for_monitor(st, monitor);
     let node_ids = bearings_for_visible_nodes(&st.field, &viewport)
         .into_iter()
         .filter_map(|(id, _)| {
             let node = st.field.node(id)?;
             (node.kind == halley_core::field::NodeKind::Surface
-                && st.monitor_state.node_monitor.get(&id).map(String::as_str) == Some(monitor))
+                && st.monitor_state.node_monitor.get(&id).map(String::as_str) == Some(monitor)
+                && !node_intersects_bearings_view(st, monitor, id))
             .then_some(id)
         })
         .collect::<Vec<_>>();
@@ -69,8 +163,8 @@ pub(crate) fn collect_bearing_layouts(
         return Vec::new();
     }
 
-    let viewport = st.viewport_for_monitor(monitor);
-    let mut groups: [Vec<(NodeId, f32)>; 8] = std::array::from_fn(|_| Vec::new());
+    let viewport = bearings_viewport_for_monitor(st, monitor);
+    let mut candidates = Vec::new();
     for (id, bearing) in bearings_for_visible_nodes(&st.field, &viewport) {
         let Some(node) = st.field.node(id) else {
             continue;
@@ -81,109 +175,57 @@ pub(crate) fn collect_bearing_layouts(
         if st.monitor_state.node_monitor.get(&id).map(String::as_str) != Some(monitor) {
             continue;
         }
-        if st.node_intersects_viewport_on_monitor(monitor, id) {
+        if node_intersects_bearings_view(st, monitor, id) {
             continue;
         }
-        let distance = offscreen_distance_from_view_edge(st, monitor, id).unwrap_or(0.0);
-        groups[bearing_index(bearing)].push((id, distance));
-    }
 
-    for entries in &mut groups {
-        entries.sort_by(|(a_id, a_dist), (b_id, b_dist)| {
-            a_dist
-                .partial_cmp(b_dist)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a_id.as_u64().cmp(&b_id.as_u64()))
+        let lane = BearingLane::from_bearing(bearing);
+        let distance = offscreen_distance_from_monitor_edge(st, monitor, id).unwrap_or(0.0);
+        let label = bearing_label(st, id, node.label.as_str());
+        let projected = projected_anchor_for_lane(st, monitor, id, lane, screen_w, screen_h);
+        let distance_text = st
+            .tuning
+            .bearings
+            .show_distance
+            .then(|| format!("{:.0}px", distance.round()));
+        let size = bearing_size(
+            label.as_str(),
+            st.tuning.bearings.show_icons,
+            distance_text.as_deref(),
+        );
+
+        candidates.push(BearingCandidate {
+            node_id: id,
+            lane,
+            projected,
+            distance,
+            label,
+            size,
         });
     }
 
-    let mut out = Vec::new();
-    for bearing in [
-        Bearing::NW,
-        Bearing::N,
-        Bearing::NE,
-        Bearing::W,
-        Bearing::E,
-        Bearing::SW,
-        Bearing::S,
-        Bearing::SE,
-    ] {
-        let entries = &groups[bearing_index(bearing)];
-        if entries.is_empty() {
+    let mut layouts = Vec::new();
+    for lane in BearingLane::all() {
+        let mut lane_candidates = candidates
+            .iter()
+            .filter(|candidate| candidate.lane == lane)
+            .cloned()
+            .collect::<Vec<_>>();
+        if lane_candidates.is_empty() {
             continue;
         }
-        for (index, &(node_id, distance)) in entries.iter().enumerate() {
-            let Some(node) = st.field.node(node_id) else {
-                continue;
-            };
-            let label = bearing_label(st, node_id, node.label.as_str());
-            let (label_w, label_h) = bitmap_text_size(label.as_str(), LABEL_SCALE);
-            let show_icon = st.tuning.bearings.show_icons;
-            let chip_w = CHIP_PAD_X * 2
-                + label_w
-                + if show_icon {
-                    ICON_SIZE + CHIP_PAD_X.saturating_sub(4)
-                } else {
-                    0
-                };
-            let chip_h = (CHIP_PAD_Y * 2 + label_h.max(ICON_SIZE)).max(24);
-            let distance_text = st
-                .tuning
-                .bearings
-                .show_distance
-                .then(|| format!("{:.0}px", distance.round()));
-            let distance_h = distance_text
-                .as_ref()
-                .map(|text| bitmap_text_size(text, META_SCALE).1 + META_PAD_Y * 2 + DISTANCE_GAP)
-                .unwrap_or(0);
-            let stack_h = chip_h + distance_h + CHIP_GAP;
-            let (chip_x, chip_y) =
-                bearing_origin(bearing, screen_w, screen_h, chip_w, chip_h, distance_h, index, stack_h);
-            let icon_rect = show_icon.then(|| {
-                Rectangle::new(
-                    (chip_x + CHIP_PAD_X, chip_y + (chip_h - ICON_SIZE) / 2).into(),
-                    (ICON_SIZE, ICON_SIZE).into(),
-                )
-            });
-            let distance_rect = distance_text.as_ref().map(|text| {
-                let (distance_w, distance_h_px) = bitmap_text_size(text, META_SCALE);
-                let meta_w = distance_w + META_PAD_X * 2;
-                let meta_h = distance_h_px + META_PAD_Y * 2;
-                Rectangle::new(
-                    (chip_x + ((chip_w - meta_w) / 2), chip_y - DISTANCE_GAP - meta_h).into(),
-                    (meta_w, meta_h).into(),
-                )
-            });
-            let distance_pos = distance_text
-                .as_ref()
-                .zip(distance_rect)
-                .map(|(text, rect)| {
-                    let (_, distance_h_px) = bitmap_text_size(text, META_SCALE);
-                    (
-                        rect.loc.x + META_PAD_X,
-                        rect.loc.y + (rect.size.h - distance_h_px) / 2,
-                    )
-                });
-            let distance_fade = if st.tuning.bearings.fade_distance <= f32::EPSILON {
-                1.0
-            } else {
-                let t = (distance / st.tuning.bearings.fade_distance).clamp(0.0, 1.0);
-                MIN_DISTANCE_ALPHA + (1.0 - t) * (1.0 - MIN_DISTANCE_ALPHA)
-            };
-            out.push(BearingChipLayout {
-                node_id,
-                chip_rect: Rectangle::new((chip_x, chip_y).into(), (chip_w, chip_h).into()),
-                icon_rect,
-                label,
-                distance_text,
-                distance_rect,
-                distance_pos,
-                alpha: (ui_mix * distance_fade).clamp(0.0, 1.0),
-            });
-        }
+        lane_candidates.sort_by(|a, b| {
+            a.projected
+                .partial_cmp(&b.projected)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.node_id.as_u64().cmp(&b.node_id.as_u64()))
+        });
+
+        let groups = group_lane_candidates(st, lane_candidates, ui_mix);
+        layouts.extend(layout_lane_groups(st, lane, groups, screen_w, screen_h));
     }
 
-    out
+    layouts
 }
 
 pub(crate) fn bearing_hit_test(
@@ -222,7 +264,6 @@ pub(crate) fn draw_bearings(
             continue;
         }
 
-        let fill = Color32F::new(0.92, 0.95, 0.98, 0.92 * layout.alpha);
         draw_shader_label(
             frame,
             st,
@@ -234,7 +275,7 @@ pub(crate) fn draw_bearings(
             0.0,
             layout.alpha,
             Color32F::new(0.92, 0.95, 0.98, 0.0),
-            fill,
+            Color32F::new(0.92, 0.95, 0.98, 0.92 * layout.alpha),
             damage,
         )?;
 
@@ -270,7 +311,7 @@ pub(crate) fn draw_bearings(
         let text_x = layout.chip_rect.loc.x
             + CHIP_PAD_X
             + if layout.icon_rect.is_some() {
-                ICON_SIZE + CHIP_PAD_X.saturating_sub(4)
+                ICON_SIZE + ICON_TEXT_GAP
             } else {
                 0
             };
@@ -294,55 +335,335 @@ pub(crate) fn draw_bearings(
     Ok(())
 }
 
-fn bearing_origin(
-    bearing: Bearing,
-    screen_w: i32,
-    screen_h: i32,
-    chip_w: i32,
-    chip_h: i32,
-    distance_h: i32,
-    index: usize,
-    stack_h: i32,
-) -> (i32, i32) {
-    let idx = index as i32;
-    match bearing {
-        Bearing::N => ((screen_w - chip_w) / 2, EDGE_PAD + idx * stack_h + distance_h),
-        Bearing::S => (
-            (screen_w - chip_w) / 2,
-            screen_h - EDGE_PAD - chip_h - idx * stack_h,
-        ),
-        Bearing::W => (
-            EDGE_PAD,
-            (screen_h - chip_h) / 2 + idx * stack_h - distance_h / 2,
-        ),
-        Bearing::E => (
-            screen_w - EDGE_PAD - chip_w,
-            (screen_h - chip_h) / 2 + idx * stack_h - distance_h / 2,
-        ),
-        Bearing::NW => (EDGE_PAD, EDGE_PAD + idx * stack_h + distance_h),
-        Bearing::NE => (
-            screen_w - EDGE_PAD - chip_w,
-            EDGE_PAD + idx * stack_h + distance_h,
-        ),
-        Bearing::SW => (EDGE_PAD, screen_h - EDGE_PAD - chip_h - idx * stack_h),
-        Bearing::SE => (
-            screen_w - EDGE_PAD - chip_w,
-            screen_h - EDGE_PAD - chip_h - idx * stack_h,
-        ),
+fn group_lane_candidates(
+    st: &Halley,
+    candidates: Vec<BearingCandidate>,
+    ui_mix: f32,
+) -> Vec<BearingGroup> {
+    let mut groups = Vec::new();
+    let mut current: Vec<BearingCandidate> = Vec::new();
+
+    for candidate in candidates {
+        if let Some(previous) = current.last() {
+            let min_gap = crowding_threshold(previous.lane, previous.size, candidate.size);
+            if candidate.projected - previous.projected > min_gap {
+                groups.push(finalize_group(st, std::mem::take(&mut current), ui_mix));
+            }
+        }
+        current.push(candidate);
+    }
+
+    if !current.is_empty() {
+        groups.push(finalize_group(st, current, ui_mix));
+    }
+
+    groups
+}
+
+fn finalize_group(st: &Halley, members: Vec<BearingCandidate>, ui_mix: f32) -> BearingGroup {
+    let member_count = members.len();
+    let lane = members[0].lane;
+    let nearest = members
+        .iter()
+        .min_by(|a, b| {
+            a.distance
+                .partial_cmp(&b.distance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.node_id.as_u64().cmp(&b.node_id.as_u64()))
+        })
+        .expect("bearing group should not be empty");
+    let projected =
+        members.iter().map(|candidate| candidate.projected).sum::<f32>() / member_count as f32;
+    let label = if member_count == 1 {
+        nearest.label.clone()
+    } else {
+        format!("{member_count} nodes")
+    };
+    let distance = nearest.distance;
+    let distance_text = st
+        .tuning
+        .bearings
+        .show_distance
+        .then(|| format!("{:.0}px", distance.round()));
+    let size = bearing_size(
+        label.as_str(),
+        member_count == 1 && st.tuning.bearings.show_icons,
+        distance_text.as_deref(),
+    );
+    let distance_fade = if st.tuning.bearings.fade_distance <= f32::EPSILON {
+        1.0
+    } else {
+        let t = (distance / st.tuning.bearings.fade_distance).clamp(0.0, 1.0);
+        MIN_DISTANCE_ALPHA + (1.0 - t) * (1.0 - MIN_DISTANCE_ALPHA)
+    };
+
+    BearingGroup {
+        lane,
+        projected,
+        node_id: nearest.node_id,
+        label,
+        distance,
+        size,
+        alpha: (ui_mix * distance_fade).clamp(0.0, 1.0),
     }
 }
 
-fn bearing_index(bearing: Bearing) -> usize {
-    match bearing {
-        Bearing::NW => 0,
-        Bearing::N => 1,
-        Bearing::NE => 2,
-        Bearing::W => 3,
-        Bearing::E => 4,
-        Bearing::SW => 5,
-        Bearing::S => 6,
-        Bearing::SE => 7,
+fn layout_lane_groups(
+    st: &Halley,
+    lane: BearingLane,
+    groups: Vec<BearingGroup>,
+    screen_w: i32,
+    screen_h: i32,
+) -> Vec<BearingChipLayout> {
+    let mut groups = groups;
+    if groups.is_empty() {
+        return Vec::new();
     }
+
+    groups.sort_by(|a, b| {
+        a.projected
+            .partial_cmp(&b.projected)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.node_id.as_u64().cmp(&b.node_id.as_u64()))
+    });
+
+    let mut centers = groups
+        .iter()
+        .map(|group| {
+            let (min_center, max_center) = lane_center_bounds(lane, group.size, screen_w, screen_h);
+            group.projected.clamp(min_center, max_center)
+        })
+        .collect::<Vec<_>>();
+
+    for index in 1..centers.len() {
+        let min_sep = crowding_threshold(lane, groups[index - 1].size, groups[index].size);
+        let min_center = centers[index - 1] + min_sep;
+        if centers[index] < min_center {
+            centers[index] = min_center;
+        }
+    }
+    for index in (0..centers.len().saturating_sub(1)).rev() {
+        let (_, max_center) = lane_center_bounds(lane, groups[index].size, screen_w, screen_h);
+        centers[index] = centers[index].min(max_center);
+        let max_prev =
+            centers[index + 1] - crowding_threshold(lane, groups[index].size, groups[index + 1].size);
+        if centers[index] > max_prev {
+            centers[index] = max_prev;
+        }
+    }
+    for index in 1..centers.len() {
+        let min_sep = crowding_threshold(lane, groups[index - 1].size, groups[index].size);
+        let min_center = centers[index - 1] + min_sep;
+        if centers[index] < min_center {
+            centers[index] = min_center;
+        }
+    }
+
+    groups
+        .into_iter()
+        .zip(centers)
+        .map(|(group, center)| build_layout_from_group(st, group, center, screen_w, screen_h))
+        .collect()
+}
+
+fn build_layout_from_group(
+    st: &Halley,
+    group: BearingGroup,
+    center: f32,
+    screen_w: i32,
+    screen_h: i32,
+) -> BearingChipLayout {
+    let chip_w = group.size.chip_w;
+    let chip_h = group.size.chip_h;
+    let total_h = group.size.total_height();
+    let total_top = (center.round() as i32) - total_h / 2;
+    let chip_y_vertical = total_top + group.size.distance_block_h;
+    let distance_text = st
+        .tuning
+        .bearings
+        .show_distance
+        .then(|| format!("{:.0}px", group.distance.round()));
+
+    let (chip_x, chip_y) = match group.lane {
+        BearingLane::N => (
+            (center.round() as i32) - chip_w / 2,
+            EDGE_PAD + group.size.distance_block_h,
+        ),
+        BearingLane::S => (
+            (center.round() as i32) - chip_w / 2,
+            screen_h - EDGE_PAD - chip_h,
+        ),
+        BearingLane::W => (EDGE_PAD, chip_y_vertical),
+        BearingLane::E => (screen_w - EDGE_PAD - chip_w, chip_y_vertical),
+        BearingLane::NW => (EDGE_PAD, chip_y_vertical),
+        BearingLane::NE => (screen_w - EDGE_PAD - chip_w, chip_y_vertical),
+        BearingLane::SW => (EDGE_PAD, chip_y_vertical),
+        BearingLane::SE => (screen_w - EDGE_PAD - chip_w, chip_y_vertical),
+    };
+
+    let icon_rect = group.size.show_icon.then(|| {
+        Rectangle::new(
+            (chip_x + CHIP_PAD_X, chip_y + (chip_h - ICON_SIZE) / 2).into(),
+            (ICON_SIZE, ICON_SIZE).into(),
+        )
+    });
+    let distance_rect = distance_text.as_ref().map(|_| {
+        Rectangle::new(
+            (
+                chip_x + ((chip_w - group.size.distance_rect_w) / 2),
+                chip_y - DISTANCE_GAP - group.size.distance_rect_h,
+            )
+                .into(),
+            (group.size.distance_rect_w, group.size.distance_rect_h).into(),
+        )
+    });
+    let distance_pos = distance_text.as_ref().zip(distance_rect).map(|(text, rect)| {
+        let (_, text_h) = bitmap_text_size(text, META_SCALE);
+        (
+            rect.loc.x + META_PAD_X,
+            rect.loc.y + (rect.size.h - text_h) / 2,
+        )
+    });
+
+    BearingChipLayout {
+        node_id: group.node_id,
+        chip_rect: Rectangle::new((chip_x, chip_y).into(), (chip_w, chip_h).into()),
+        icon_rect,
+        label: group.label,
+        distance_text,
+        distance_rect,
+        distance_pos,
+        alpha: group.alpha,
+    }
+}
+
+fn bearing_size(label: &str, show_icon: bool, distance_text: Option<&str>) -> BearingSize {
+    let (label_w, label_h) = bitmap_text_size(label, LABEL_SCALE);
+    let icon_gap = if show_icon { ICON_SIZE + ICON_TEXT_GAP } else { 0 };
+    let chip_w = (CHIP_PAD_X * 2 + icon_gap + label_w).max(44);
+    let chip_h = (CHIP_PAD_Y * 2 + label_h.max(if show_icon { ICON_SIZE } else { 0 })).max(24);
+    let (distance_rect_w, distance_rect_h, distance_block_h) = distance_text
+        .map(|text| {
+            let (text_w, text_h) = bitmap_text_size(text, META_SCALE);
+            let rect_w = text_w + META_PAD_X * 2;
+            let rect_h = text_h + META_PAD_Y * 2;
+            (rect_w, rect_h, rect_h + DISTANCE_GAP)
+        })
+        .unwrap_or((0, 0, 0));
+
+    BearingSize {
+        chip_w,
+        chip_h,
+        show_icon,
+        distance_rect_w,
+        distance_rect_h,
+        distance_block_h,
+    }
+}
+
+fn crowding_threshold(lane: BearingLane, left: BearingSize, right: BearingSize) -> f32 {
+    ((left.primary_extent(lane) + right.primary_extent(lane)) as f32 * 0.5) + GROUP_GAP as f32
+}
+
+fn lane_center_bounds(
+    lane: BearingLane,
+    size: BearingSize,
+    screen_w: i32,
+    screen_h: i32,
+) -> (f32, f32) {
+    if lane.uses_horizontal_axis() {
+        let half = size.chip_w as f32 * 0.5;
+        (EDGE_PAD as f32 + half, screen_w as f32 - EDGE_PAD as f32 - half)
+    } else {
+        let half = size.total_height() as f32 * 0.5;
+        (EDGE_PAD as f32 + half, screen_h as f32 - EDGE_PAD as f32 - half)
+    }
+}
+
+fn bearings_viewport_for_monitor(st: &Halley, monitor: &str) -> Viewport {
+    let (center, size) = monitor_view_center_size(st, monitor);
+    Viewport::new(center, size)
+}
+
+fn monitor_view_center_size(st: &Halley, monitor: &str) -> (Vec2, Vec2) {
+    if st.monitor_state.current_monitor == monitor {
+        (st.viewport.center, st.zoom_ref_size)
+    } else {
+        st.monitor_state
+            .monitors
+            .get(monitor)
+            .map(|space| (space.viewport.center, space.zoom_ref_size))
+            .unwrap_or((st.viewport.center, st.zoom_ref_size))
+    }
+}
+
+fn node_intersects_bearings_view(st: &Halley, monitor: &str, node_id: NodeId) -> bool {
+    let Some(node) = st.field.node(node_id) else {
+        return false;
+    };
+    let ext = st.spawn_obstacle_extents_for_node(node);
+    let (center, size) = monitor_view_center_size(st, monitor);
+    let min_x = center.x - size.x * 0.5;
+    let max_x = center.x + size.x * 0.5;
+    let min_y = center.y - size.y * 0.5;
+    let max_y = center.y + size.y * 0.5;
+
+    let node_min_x = node.pos.x - ext.left;
+    let node_max_x = node.pos.x + ext.right;
+    let node_min_y = node.pos.y - ext.top;
+    let node_max_y = node.pos.y + ext.bottom;
+
+    node_max_x > min_x && node_min_x < max_x && node_max_y > min_y && node_min_y < max_y
+}
+
+fn projected_anchor_for_lane(
+    st: &Halley,
+    monitor: &str,
+    node_id: NodeId,
+    lane: BearingLane,
+    screen_w: i32,
+    screen_h: i32,
+) -> f32 {
+    let Some(node) = st.field.node(node_id) else {
+        return if lane.uses_horizontal_axis() {
+            screen_w as f32 * 0.5
+        } else {
+            screen_h as f32 * 0.5
+        };
+    };
+    let (center, size) = monitor_view_center_size(st, monitor);
+    let dx = node.pos.x - center.x;
+    let dy = node.pos.y - center.y;
+    let half_w = size.x * 0.5;
+    let half_h = size.y * 0.5;
+    let tx = if dx.abs() <= f32::EPSILON {
+        f32::INFINITY
+    } else {
+        half_w / dx.abs()
+    };
+    let ty = if dy.abs() <= f32::EPSILON {
+        f32::INFINITY
+    } else {
+        half_h / dy.abs()
+    };
+    let t = tx.min(ty);
+    let edge_x = center.x + dx * t;
+    let edge_y = center.y + dy * t;
+
+    let scalar = if lane.uses_horizontal_axis() {
+        ((edge_x - (center.x - half_w)) / size.x.max(1.0)) * screen_w as f32
+    } else {
+        (((center.y + half_h) - edge_y) / size.y.max(1.0)) * screen_h as f32
+    };
+
+    scalar.clamp(
+        EDGE_PAD as f32,
+        if lane.uses_horizontal_axis() {
+            screen_w as f32 - EDGE_PAD as f32
+        } else {
+            screen_h as f32 - EDGE_PAD as f32
+        },
+    )
 }
 
 fn bearing_label(st: &Halley, node_id: NodeId, title: &str) -> String {
@@ -356,14 +677,18 @@ fn bearing_label(st: &Halley, node_id: NodeId, title: &str) -> String {
     truncate_label(base.as_str())
 }
 
-fn offscreen_distance_from_view_edge(st: &Halley, monitor: &str, node_id: NodeId) -> Option<f32> {
+fn offscreen_distance_from_monitor_edge(
+    st: &Halley,
+    monitor: &str,
+    node_id: NodeId,
+) -> Option<f32> {
     let node = st.field.node(node_id)?;
     let ext = st.spawn_obstacle_extents_for_node(node);
-    let viewport = st.viewport_for_monitor(monitor);
-    let min_x = viewport.center.x - viewport.size.x * 0.5;
-    let max_x = viewport.center.x + viewport.size.x * 0.5;
-    let min_y = viewport.center.y - viewport.size.y * 0.5;
-    let max_y = viewport.center.y + viewport.size.y * 0.5;
+    let (center, size) = monitor_view_center_size(st, monitor);
+    let min_x = center.x - size.x * 0.5;
+    let max_x = center.x + size.x * 0.5;
+    let min_y = center.y - size.y * 0.5;
+    let max_y = center.y + size.y * 0.5;
 
     let node_min_x = node.pos.x - ext.left;
     let node_max_x = node.pos.x + ext.right;

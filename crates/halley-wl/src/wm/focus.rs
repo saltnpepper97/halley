@@ -360,25 +360,6 @@ impl Halley {
             && node.pos.y + ext.bottom <= max_y
     }
 
-    pub(crate) fn node_intersects_viewport_on_monitor(&self, monitor: &str, id: NodeId) -> bool {
-        let Some(node) = self.field.node(id) else {
-            return false;
-        };
-        let ext = self.spawn_obstacle_extents_for_node(node);
-        let viewport = self.viewport_for_monitor(monitor);
-        let min_x = viewport.center.x - viewport.size.x * 0.5;
-        let max_x = viewport.center.x + viewport.size.x * 0.5;
-        let min_y = viewport.center.y - viewport.size.y * 0.5;
-        let max_y = viewport.center.y + viewport.size.y * 0.5;
-
-        let node_min_x = node.pos.x - ext.left;
-        let node_max_x = node.pos.x + ext.right;
-        let node_min_y = node.pos.y - ext.top;
-        let node_max_y = node.pos.y + ext.bottom;
-
-        node_max_x > min_x && node_min_x < max_x && node_max_y > min_y && node_min_y < max_y
-    }
-
     pub(crate) fn minimal_reveal_center_for_surface_on_monitor(
         &self,
         monitor: &str,
