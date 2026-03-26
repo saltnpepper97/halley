@@ -83,6 +83,21 @@ impl Halley {
         self.load_monitor_state(name)
     }
 
+    pub(crate) fn begin_temporary_render_monitor(&mut self, name: &str) -> Option<String> {
+        let previous = self.monitor_state.current_monitor.clone();
+        if previous != name && self.activate_monitor(name) {
+            Some(previous)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn end_temporary_render_monitor(&mut self, previous: Option<String>) {
+        if let Some(previous) = previous {
+            let _ = self.activate_monitor(previous.as_str());
+        }
+    }
+
     pub(crate) fn interaction_monitor(&self) -> &str {
         if self
             .monitor_state

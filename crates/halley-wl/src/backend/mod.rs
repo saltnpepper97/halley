@@ -47,7 +47,7 @@ use crate::run::{
     ensure_xdg_runtime_dir, ensure_xwayland_satellite, init_logging, publish_outputs,
     register_xwayland_request_channel, run_autostart_commands, shutdown_requested,
 };
-use crate::spatial::node_in_active_area;
+use crate::spatial::{node_in_active_area, node_in_active_area_for_monitor};
 use crate::state::{ClientState, Halley};
 use crate::surface_ops::current_surface_size_for_node;
 
@@ -75,6 +75,30 @@ pub(crate) fn resolve_hover_targets(
     let hovered = if hover_blocked { None } else { ps.hover_node };
     let preview_ready = hovered.is_some_and(|id| {
         node_in_active_area(st, id)
+            && ps.hover_started_at.is_some_and(|at| {
+                now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
+            })
+    });
+    if preview_ready {
+        (None, hovered)
+    } else {
+        (hovered, None)
+    }
+}
+
+pub(crate) fn resolve_hover_targets_for_monitor(
+    st: &Halley,
+    ps: &PointerState,
+    now: Instant,
+    monitor: &str,
+) -> (
+    Option<halley_core::field::NodeId>,
+    Option<halley_core::field::NodeId>,
+) {
+    let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
+    let hovered = if hover_blocked { None } else { ps.hover_node };
+    let preview_ready = hovered.is_some_and(|id| {
+        node_in_active_area_for_monitor(st, id, monitor)
             && ps.hover_started_at.is_some_and(|at| {
                 now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
             })

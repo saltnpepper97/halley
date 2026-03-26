@@ -97,15 +97,29 @@ pub(crate) fn pick_hit_node_at(
 }
 
 pub(crate) fn node_in_active_area(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
+    node_in_active_area_for_monitor(st, node_id, st.monitor_state.current_monitor.as_str())
+}
+
+pub(crate) fn node_in_active_area_for_monitor(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+    monitor: &str,
+) -> bool {
     let Some(n) = st.field.node(node_id) else {
         return false;
     };
-    if !st.node_visible_on_current_monitor(node_id) {
+    if st
+        .monitor_state
+        .node_monitor
+        .get(&node_id)
+        .is_some_and(|owner| owner != monitor)
+    {
         return false;
     }
-    let focus_ring = st.active_focus_ring();
+    let focus_ring = st.focus_ring_for_monitor(monitor);
+    let focus_center = st.view_center_for_monitor(monitor);
     matches!(
-        focus_ring.zone(st.viewport.center, n.pos),
+        focus_ring.zone(focus_center, n.pos),
         FocusZone::Inside
     )
 }

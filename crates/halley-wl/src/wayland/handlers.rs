@@ -404,11 +404,7 @@ impl Halley {
             .cloned()
             .unwrap_or_else(|| self.monitor_state.current_monitor.clone());
         let (ws_w, ws_h, _, _) = self.local_screen_in_monitor(monitor.as_str(), 0.0, 0.0);
-        let previous_monitor = self.monitor_state.current_monitor.clone();
-        let changed_monitor = previous_monitor != monitor;
-        if changed_monitor {
-            let _ = self.activate_monitor(monitor.as_str());
-        }
+        let previous_monitor = self.begin_temporary_render_monitor(monitor.as_str());
         let Some(xform) = active_node_surface_transform_screen_details(
             self,
             ws_w,
@@ -417,9 +413,7 @@ impl Halley {
             Instant::now(),
             None,
         ) else {
-            if changed_monitor {
-                let _ = self.activate_monitor(previous_monitor.as_str());
-            }
+            self.end_temporary_render_monitor(previous_monitor);
             return;
         };
 
@@ -444,9 +438,7 @@ impl Halley {
             },
         );
         pointer.frame(self);
-        if changed_monitor {
-            let _ = self.activate_monitor(previous_monitor.as_str());
-        }
+        self.end_temporary_render_monitor(previous_monitor);
     }
 
     pub(crate) fn release_active_pointer_constraint(&mut self) -> bool {

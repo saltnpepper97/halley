@@ -1284,10 +1284,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                     for output in render_order {
                         let output_name = output.connector_name.as_str();
-                        let _ = st.activate_monitor(output_name);
 
                         let ps = pointer_state_for_timer.borrow();
-                        let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
+                        let (hover_node, preview_hover_node) =
+                            resolve_hover_targets_for_monitor(st, &ps, now, output_name);
                         let cursor_screen = Some(ps.screen);
                         drop(ps);
 
