@@ -292,12 +292,15 @@ impl Halley {
             .bearings_mix
             .entry(monitor.to_string())
             .or_insert(target);
-        let k = if target > 0.5 { 0.18 } else { 0.12 };
-        *mix += (target - *mix) * k;
-        if (*mix - target).abs() < 0.002 {
+        if target > 0.5 {
+            *mix += (target - *mix) * 0.18;
+        } else {
+            *mix *= 0.72;
+        }
+        if (*mix - target).abs() < 0.004 {
             *mix = target;
         }
-        if target <= 0.0 && *mix <= 0.002 {
+        if target <= 0.0 && *mix <= 0.02 {
             *mix = 0.0;
         }
         *mix
