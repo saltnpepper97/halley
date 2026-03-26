@@ -115,11 +115,8 @@ impl Halley {
         if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {
             return;
         }
-        // Zero out velocity on release. The grabbed window accumulated no
-        // physics while held, so there is nothing meaningful to hand off.
-        // Other windows that were pushed during the drag already have their
-        // own velocities and will continue to settle normally.
-        self.interaction_state.physics_velocity.remove(&id);
+        // Preserve the drag-smoothed release velocity so the window continues
+        // moving naturally on the next physics tick after release.
     }
 
     pub fn begin_carry_state_tracking(&mut self, id: NodeId) {

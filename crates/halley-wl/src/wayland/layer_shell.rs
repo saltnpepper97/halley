@@ -179,6 +179,11 @@ impl Halley {
             return;
         }
 
+        if self.spawn_state.pending_spawn_monitor.is_some() {
+            self.set_interaction_focus(None, 0, Instant::now());
+            return;
+        }
+
         if let Some(id) = self
             .last_input_surface_node_for_monitor(self.focused_monitor())
             .or_else(|| self.last_input_surface_node())

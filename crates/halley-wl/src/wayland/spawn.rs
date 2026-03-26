@@ -78,6 +78,7 @@ impl Halley {
             && node.pos.y + ext.bottom <= max_y
     }
 
+    #[cfg(test)]
     fn right_spawn_candidate_for_focus(&self, id: NodeId, size: Vec2) -> Option<Vec2> {
         self.spawn_candidate_for_focus_dir(id, size, Vec2 { x: 1.0, y: 0.0 })
     }
@@ -123,6 +124,7 @@ impl Halley {
             + self.non_overlap_gap_world()
     }
 
+    #[cfg(test)]
     fn spawn_star_step(&self, size: Vec2) -> f32 {
         self.spawn_star_step_x(size).max(self.spawn_star_step_y(size))
     }
