@@ -7,6 +7,7 @@ pub use keybinds::{
     LaunchBinding, PointerBinding, PointerBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
 };
 pub use layout::{
-    CloseRestorePanMode, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    PanToNewMode, RuntimeTuning, ViewportOutputConfig, ViewportVrrMode,
+    ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode,
+    RuntimeTuning, ViewportOutputConfig, ViewportVrrMode,
 };

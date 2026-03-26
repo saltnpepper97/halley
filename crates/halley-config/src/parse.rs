@@ -7,7 +7,7 @@ use super::{
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
 use crate::layout::FocusRingConfig;
 use crate::layout::{
-    CloseRestorePanMode, PanToNewMode,
+    ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode, PanToNewMode,
     ViewportOutputConfig, ViewportVrrMode, default_compositor_bindings, default_pointer_bindings,
 };
 use crate::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, RuntimeTuning};
@@ -484,6 +484,26 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.node_border_color_inactive,
     );
+    out.click_collapsed_outside_focus = pick_click_collapsed_outside_focus_mode(
+        cfg,
+        &[
+            "node.click-collapsed-outside-focus",
+            "node.click_collapsed_outside_focus",
+            "nodes.click-collapsed-outside-focus",
+            "nodes.click_collapsed_outside_focus",
+        ],
+        out.click_collapsed_outside_focus,
+    );
+    out.click_collapsed_pan = pick_click_collapsed_pan_mode(
+        cfg,
+        &[
+            "node.click-collapsed-pan",
+            "node.click_collapsed_pan",
+            "nodes.click-collapsed-pan",
+            "nodes.click_collapsed_pan",
+        ],
+        out.click_collapsed_pan,
+    );
 }
 
 fn load_trail_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -770,6 +790,37 @@ fn pick_close_restore_pan_mode(
         "never" => CloseRestorePanMode::Never,
         "if-offscreen" | "if_offscreen" => CloseRestorePanMode::IfOffscreen,
         "always" => CloseRestorePanMode::Always,
+        _ => default,
+    }
+}
+
+fn pick_click_collapsed_outside_focus_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: ClickCollapsedOutsideFocusMode,
+) -> ClickCollapsedOutsideFocusMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "ignore" => ClickCollapsedOutsideFocusMode::Ignore,
+        "activate" => ClickCollapsedOutsideFocusMode::Activate,
+        _ => default,
+    }
+}
+
+fn pick_click_collapsed_pan_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: ClickCollapsedPanMode,
+) -> ClickCollapsedPanMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "never" => ClickCollapsedPanMode::Never,
+        "if-offscreen" | "if_offscreen" => ClickCollapsedPanMode::IfOffscreen,
+        "always" => ClickCollapsedPanMode::Always,
         _ => default,
     }
 }
@@ -1181,9 +1232,10 @@ mod tests {
 
     use super::apply_explicit_keybind_overrides_map;
     use crate::{
-        CloseRestorePanMode, CompositorBindingAction, DirectionalAction,
-        NodeBackgroundColorMode, NodeDisplayPolicy, PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE,
-        WHEEL_UP_CODE, keybinds::key_name_to_evdev,
+        ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
+        CompositorBindingAction, DirectionalAction, NodeBackgroundColorMode, NodeDisplayPolicy,
+        PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
+        keybinds::key_name_to_evdev,
     };
 
     #[test]
@@ -1584,6 +1636,11 @@ end
         assert_eq!(tuning.node_show_app_icons, NodeDisplayPolicy::Always);
         assert_eq!(tuning.node_icon_size, 0.72);
         assert_eq!(
+            tuning.click_collapsed_outside_focus,
+            ClickCollapsedOutsideFocusMode::Activate
+        );
+        assert_eq!(tuning.click_collapsed_pan, ClickCollapsedPanMode::IfOffscreen);
+        assert_eq!(
             tuning.node_background_color,
             NodeBackgroundColorMode::Fixed {
                 r: 0x8f as f32 / 255.0,
@@ -1615,6 +1672,35 @@ end
         let _ = fs::remove_file(&path);
 
         assert_eq!(tuning.node_show_labels, NodeDisplayPolicy::Always);
+    }
+
+    #[test]
+    fn node_click_collapsed_settings_parse_from_strings() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-node-click-collapsed-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+node:
+  click-collapsed-outside-focus "ignore"
+  click-collapsed-pan "always"
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(
+            tuning.click_collapsed_outside_focus,
+            ClickCollapsedOutsideFocusMode::Ignore
+        );
+        assert_eq!(tuning.click_collapsed_pan, ClickCollapsedPanMode::Always);
     }
 
     #[test]

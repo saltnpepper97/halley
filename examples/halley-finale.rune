@@ -160,6 +160,8 @@ nodes:
 
   border-colour-active "use-window-active"
   border-colour-inactive "use-window-inactive"
+  click-collapsed-outside-focus "activate"
+  click-collapsed-pan "if-offscreen"
 end
 
 decay:

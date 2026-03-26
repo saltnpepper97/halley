@@ -9,7 +9,7 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::interaction::actions::promote_node_level;
+use crate::interaction::actions::activate_collapsed_node_from_click;
 use crate::interaction::types::{
     DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState, ResizeCtx, TitleClickCtx,
 };
@@ -569,7 +569,7 @@ fn handle_left_press(
             .is_some_and(|n| n.state == halley_core::field::NodeState::Node);
         if is_node {
             let now = Instant::now();
-            if promote_node_level(st, hit.node_id, now) {
+            if activate_collapsed_node_from_click(st, hit.node_id, now) {
                 backend.request_redraw();
             }
             ps.last_title_click = None;

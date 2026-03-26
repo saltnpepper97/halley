@@ -1,5 +1,6 @@
 use crate::state::Halley;
 use eventline::info;
+use halley_config::{ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode};
 use halley_core::decay::DecayLevel;
 use halley_core::viewport::FocusZone;
 use halley_ipc::{NodeMoveDirection, TrailDirection};
@@ -45,6 +46,59 @@ pub(crate) fn promote_node_level(
     st.set_interaction_focus(Some(node_id), 30_000, now);
     st.set_pan_restore_focus_target(node_id);
     st.animate_viewport_center_to(target_pos, now)
+}
+
+pub(crate) fn activate_collapsed_node_from_click(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+) -> bool {
+    let Some(n) = st.field.node(node_id) else {
+        return false;
+    };
+    if n.kind != halley_core::field::NodeKind::Surface {
+        return false;
+    }
+    if n.state != halley_core::field::NodeState::Node {
+        return false;
+    }
+
+    let target_monitor = st
+        .monitor_state
+        .node_monitor
+        .get(&node_id)
+        .cloned()
+        .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
+    let focus_center = st.view_center_for_monitor(target_monitor.as_str());
+    let focus_ring = st.focus_ring_for_monitor(target_monitor.as_str());
+    let in_focus_ring = focus_ring.zone(focus_center, n.pos) == FocusZone::Inside;
+
+    if in_focus_ring || st.tuning.click_collapsed_outside_focus == ClickCollapsedOutsideFocusMode::Ignore
+    {
+        return promote_node_level(st, node_id, now);
+    }
+
+    st.workspace_state.manual_collapsed_nodes.remove(&node_id);
+    let _ = st.field.set_decay_level(node_id, DecayLevel::Hot);
+    st.mark_active_transition(node_id, now, 360);
+    st.set_interaction_focus(Some(node_id), 30_000, now);
+
+    match st.tuning.click_collapsed_pan {
+        ClickCollapsedPanMode::Never => false,
+        ClickCollapsedPanMode::IfOffscreen => {
+            if st.surface_is_sufficiently_visible_on_monitor(target_monitor.as_str(), node_id) {
+                false
+            } else {
+                st.minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
+                    .map(|target| st.animate_viewport_center_to(target, now))
+                    .unwrap_or(false)
+            }
+        }
+        ClickCollapsedPanMode::Always => st
+            .minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
+            .map(|target| st.animate_viewport_center_to(target, now))
+            .unwrap_or(false),
+    }
 }
 
 pub(crate) fn latest_surface_node(st: &Halley) -> Option<halley_core::field::NodeId> {

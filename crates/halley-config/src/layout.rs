@@ -46,6 +46,19 @@ pub enum CloseRestorePanMode {
     Always,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClickCollapsedOutsideFocusMode {
+    Ignore,
+    Activate,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClickCollapsedPanMode {
+    Never,
+    IfOffscreen,
+    Always,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FocusRingConfig {
     pub rx: f32,
@@ -81,6 +94,8 @@ pub struct RuntimeTuning {
     pub node_background_color: NodeBackgroundColorMode,
     pub node_border_color_hover: NodeBorderColorMode,
     pub node_border_color_inactive: NodeBorderColorMode,
+    pub click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode,
+    pub click_collapsed_pan: ClickCollapsedPanMode,
 
     pub dev_enabled: bool,
     pub dev_show_geometry_overlay: bool,
@@ -183,6 +198,8 @@ impl Default for RuntimeTuning {
             node_background_color: NodeBackgroundColorMode::Auto,
             node_border_color_hover: NodeBorderColorMode::UseWindowActive,
             node_border_color_inactive: NodeBorderColorMode::UseWindowInactive,
+            click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode::Activate,
+            click_collapsed_pan: ClickCollapsedPanMode::IfOffscreen,
 
             dev_enabled: false,
             dev_show_geometry_overlay: false,
