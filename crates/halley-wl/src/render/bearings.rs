@@ -601,7 +601,7 @@ fn node_intersects_bearings_view(st: &Halley, monitor: &str, node_id: NodeId) ->
     let Some(node) = st.field.node(node_id) else {
         return false;
     };
-    let ext = st.spawn_obstacle_extents_for_node(node);
+    let ext = bearings_collision_extents(st, node);
     let (center, size) = monitor_view_center_size(st, monitor);
     let min_x = center.x - size.x * 0.5;
     let max_x = center.x + size.x * 0.5;
@@ -683,7 +683,7 @@ fn offscreen_distance_from_monitor_edge(
     node_id: NodeId,
 ) -> Option<f32> {
     let node = st.field.node(node_id)?;
-    let ext = st.spawn_obstacle_extents_for_node(node);
+    let ext = bearings_collision_extents(st, node);
     let (center, size) = monitor_view_center_size(st, monitor);
     let min_x = center.x - size.x * 0.5;
     let max_x = center.x + size.x * 0.5;
@@ -711,6 +711,20 @@ fn offscreen_distance_from_monitor_edge(
     };
 
     Some((overflow_x * overflow_x + overflow_y * overflow_y).sqrt())
+}
+
+fn bearings_collision_extents(
+    st: &Halley,
+    node: &halley_core::field::Node,
+) -> crate::wm::overlap::CollisionExtents {
+    match node.state {
+        halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
+            st.collision_extents_for_node(node)
+        }
+        halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting => {
+            st.surface_window_collision_extents(node)
+        }
+    }
 }
 
 fn truncate_label(label: &str) -> String {
