@@ -60,6 +60,7 @@ impl ActiveResizeGeometryScreen {
 
 /// Pick a resize handle from the nearest edge/corner to the press point.
 /// Only called for direct border grabs (press within edge slop zone).
+#[allow(dead_code)]
 pub(crate) fn pick_resize_handle_from_screen(
     rect: (f32, f32, f32, f32),
     p: (f32, f32),
@@ -175,6 +176,7 @@ pub(crate) fn handle_from_press_position(
 }
 
 /// Returns `true` if the press point is within the edge slop zone of `rect`.
+#[allow(dead_code)]
 pub(crate) fn press_is_near_edge(rect: (f32, f32, f32, f32), p: (f32, f32)) -> bool {
     let (l, t, r, b) = rect;
     let edge_slop = 28.0f32;
@@ -193,6 +195,7 @@ pub(crate) fn press_is_near_edge(rect: (f32, f32, f32, f32), p: (f32, f32)) -> b
 ///
 /// `dx` positive = rightward, `dy` positive = downward (screen space).
 /// Never returns `Pending`.
+#[allow(dead_code)]
 pub(crate) fn commit_handle_from_drag(dx: f32, dy: f32) -> ResizeHandle {
     let adx = dx.abs();
     let ady = dy.abs();

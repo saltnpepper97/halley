@@ -33,6 +33,12 @@ impl Halley {
             return false;
         }
 
+        let monitor = self.layer_surface_monitor_name(surface);
+        self.set_interaction_monitor(monitor.as_str());
+        self.set_focused_monitor(monitor.as_str());
+        self.spawn_state.pending_spawn_monitor = Some(monitor.clone());
+        let _ = self.activate_monitor(monitor.as_str());
+
         self.focus_state.primary_interaction_focus = None;
         self.focus_state.interaction_focus_until_ms = 0;
         self.monitor_state.layer_keyboard_focus = Some(surface.id());

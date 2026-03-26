@@ -533,7 +533,9 @@ fn handle_left_press(
 ) {
     let Some(hit) = hit else {
         let now = Instant::now();
-        let monitor = st.monitor_state.current_monitor.clone();
+        let monitor = st
+            .monitor_for_screen(frame.global_sx, frame.global_sy)
+            .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
         st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
@@ -622,7 +624,9 @@ fn handle_right_press(
 
     let Some(hit) = hit else {
         let now = Instant::now();
-        let monitor = st.monitor_state.current_monitor.clone();
+        let monitor = st
+            .monitor_for_screen(frame.global_sx, frame.global_sy)
+            .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
         st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
@@ -654,7 +658,9 @@ fn handle_move_binding_press(
 
     let Some(hit) = hit else {
         let now = Instant::now();
-        let monitor = st.monitor_state.current_monitor.clone();
+        let monitor = st
+            .monitor_for_screen(frame.global_sx, frame.global_sy)
+            .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
         st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
@@ -692,7 +698,9 @@ fn handle_resize_binding_press(
 
     let Some(hit) = hit else {
         let now = Instant::now();
-        let monitor = st.monitor_state.current_monitor.clone();
+        let monitor = st
+            .monitor_for_screen(frame.global_sx, frame.global_sy)
+            .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
         st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
