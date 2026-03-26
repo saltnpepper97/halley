@@ -9,13 +9,13 @@ use crate::interaction::types::{ModState, PointerState};
 use crate::spatial::screen_to_world;
 use crate::state::Halley;
 
-use super::utils::update_mod_state;
 use super::key_actions::{
     apply_bound_key, apply_bound_pointer_input, apply_compositor_action_press,
-    apply_compositor_action_release, compositor_binding_action, compositor_binding_action_active,
-    compositor_action_allows_repeat, key_is_compositor_binding,
+    apply_compositor_action_release, compositor_action_allows_repeat, compositor_binding_action,
+    compositor_binding_action_active, key_is_compositor_binding,
 };
 use super::pointer_focus::pointer_focus_for_screen;
+use super::utils::update_mod_state;
 use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};
 use smithay::backend::input::{Axis, AxisRelativeDirection, AxisSource, ButtonState, KeyState};
 

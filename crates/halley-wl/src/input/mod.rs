@@ -1,10 +1,10 @@
 mod input_events;
-mod utils;
 mod key_actions;
 mod pointer_button;
 mod pointer_focus;
 mod pointer_motion;
 mod resize_helpers;
+mod utils;
 
 pub(crate) use input_events::{BackendInputEventData, handle_backend_input_event};
 pub(crate) use key_actions::spawn_command;

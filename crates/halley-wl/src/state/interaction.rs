@@ -116,7 +116,8 @@ impl Halley {
             y: desired_center.y.clamp(min_center_y, max_center_y),
         };
         let edge_contact = Vec2 {
-            x: if previous_contact.x < 0.0 && desired_center.x < min_center_x + EDGE_PAN_EXIT_MARGIN {
+            x: if previous_contact.x < 0.0 && desired_center.x < min_center_x + EDGE_PAN_EXIT_MARGIN
+            {
                 -1.0
             } else if previous_contact.x > 0.0
                 && desired_center.x > max_center_x - EDGE_PAN_EXIT_MARGIN
@@ -129,7 +130,8 @@ impl Halley {
             } else {
                 0.0
             },
-            y: if previous_contact.y < 0.0 && desired_center.y < min_center_y + EDGE_PAN_EXIT_MARGIN {
+            y: if previous_contact.y < 0.0 && desired_center.y < min_center_y + EDGE_PAN_EXIT_MARGIN
+            {
                 -1.0
             } else if previous_contact.y > 0.0
                 && desired_center.y > max_center_y - EDGE_PAN_EXIT_MARGIN

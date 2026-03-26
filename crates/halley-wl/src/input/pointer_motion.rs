@@ -13,8 +13,8 @@ use crate::state::{ActiveDragState, Halley};
 use crate::surface_ops::request_toplevel_resize_mode;
 use halley_config::{KeyModifiers, PointerBindingAction};
 
-use super::utils::modifier_active;
 use super::pointer_focus::pointer_focus_for_screen;
+use super::utils::modifier_active;
 
 #[inline]
 fn now_millis_u32() -> u32 {
@@ -303,8 +303,7 @@ pub(crate) fn handle_pointer_motion_absolute(
                         x: next_drag.edge_pan_x.sign(),
                         y: next_drag.edge_pan_y.sign(),
                     },
-                )
-                {
+                ) {
                     const EDGE_PAN_PRESSURE_THRESHOLD: f32 = 28.0;
                     const EDGE_PAN_PRESSURE_DECAY_PER_SEC: f32 = 120.0;
                     const EDGE_PAN_RELEASE_DISTANCE: f32 = 42.0;
@@ -401,7 +400,8 @@ pub(crate) fn handle_pointer_motion_absolute(
                         x: engage_x,
                         y: engage_y,
                     };
-                    let edge_pan_active = edge_pan_direction.x != 0.0 || edge_pan_direction.y != 0.0;
+                    let edge_pan_active =
+                        edge_pan_direction.x != 0.0 || edge_pan_direction.y != 0.0;
 
                     st.interaction_state.grabbed_edge_pan_active = edge_pan_active;
                     st.interaction_state.grabbed_edge_pan_direction = edge_pan_direction;

@@ -312,8 +312,14 @@ fn collect_cursor_scene(
         });
         let (hotspot_x, hotspot_y) = cursor_surface_hotspot(&surface);
         let loc = (sx.round() as i32 - hotspot_x, sy.round() as i32 - hotspot_y);
-        cursor_surface_elements =
-            render_elements_from_surface_tree(renderer, &surface, loc, scale, 1.0, Kind::Unspecified);
+        cursor_surface_elements = render_elements_from_surface_tree(
+            renderer,
+            &surface,
+            loc,
+            scale,
+            1.0,
+            Kind::Unspecified,
+        );
     }
 
     CursorScene {

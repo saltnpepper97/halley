@@ -42,12 +42,7 @@ impl Halley {
                 let requested_monitor = self
                     .fullscreen_monitor_for_node(requested_id)
                     .map(str::to_string)
-                    .or_else(|| {
-                        self.monitor_state
-                            .node_monitor
-                            .get(&requested_id)
-                            .cloned()
-                    });
+                    .or_else(|| self.monitor_state.node_monitor.get(&requested_id).cloned());
                 let Some(requested_monitor) = requested_monitor else {
                     return requested;
                 };
@@ -57,13 +52,12 @@ impl Halley {
                     .get(requested_monitor.as_str())
                     .copied();
                 let fullscreen_monitor = fullscreen_id.and_then(|fullscreen_id| {
-                    self.fullscreen_monitor_for_node(fullscreen_id)
-                        .or_else(|| {
-                            self.monitor_state
-                                .node_monitor
-                                .get(&fullscreen_id)
-                                .map(|m| m.as_str())
-                        })
+                    self.fullscreen_monitor_for_node(fullscreen_id).or_else(|| {
+                        self.monitor_state
+                            .node_monitor
+                            .get(&fullscreen_id)
+                            .map(|m| m.as_str())
+                    })
                 });
                 if fullscreen_id == Some(requested_id) {
                     return requested;
@@ -227,7 +221,9 @@ impl Halley {
 
     pub(crate) fn note_pan_viewport_change(&mut self, _now: Instant) {
         let current_monitor = self.monitor_state.current_monitor.clone();
-        if self.spawn_monitor_state(current_monitor.as_str()).spawn_anchor_mode
+        if self
+            .spawn_monitor_state(current_monitor.as_str())
+            .spawn_anchor_mode
             == crate::state::SpawnAnchorMode::View
         {
             self.spawn_monitor_state_mut(current_monitor.as_str())
@@ -568,7 +564,7 @@ impl Halley {
                         )
                         && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
                             == Some(monitor))
-                        .then_some((id, at))
+                    .then_some((id, at))
                 })
             })
             .max_by_key(|(id, at)| (*at, id.as_u64()))
@@ -618,7 +614,14 @@ impl Halley {
                         && n.kind == halley_core::field::NodeKind::Surface
                         && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
                             == Some(monitor))
-                    .then_some((id, self.focus_state.last_surface_focus_ms.get(&id).copied().unwrap_or(0)))
+                    .then_some((
+                        id,
+                        self.focus_state
+                            .last_surface_focus_ms
+                            .get(&id)
+                            .copied()
+                            .unwrap_or(0),
+                    ))
                 })
             });
         primary
@@ -626,17 +629,17 @@ impl Halley {
             .chain(monitor_focus)
             .chain(
                 self.focus_state
-            .last_surface_focus_ms
-            .iter()
-            .filter_map(|(&id, &at)| {
-                self.field.node(id).and_then(|n| {
-                    (self.field.is_visible(id)
-                        && n.kind == halley_core::field::NodeKind::Surface
-                        && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
-                            == Some(monitor))
-                        .then_some((id, at))
-                })
-            }),
+                    .last_surface_focus_ms
+                    .iter()
+                    .filter_map(|(&id, &at)| {
+                        self.field.node(id).and_then(|n| {
+                            (self.field.is_visible(id)
+                                && n.kind == halley_core::field::NodeKind::Surface
+                                && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
+                                    == Some(monitor))
+                            .then_some((id, at))
+                        })
+                    }),
             )
             .max_by_key(|(id, at)| (*at, id.as_u64()))
             .map(|(id, _)| id)
@@ -703,11 +706,23 @@ mod tests {
         state.focus_state.primary_interaction_focus = Some(right);
         state.focus_state.last_surface_focus_ms.insert(left, 1);
         state.focus_state.last_surface_focus_ms.insert(right, 2);
-        state.focus_state.monitor_focus.insert("default".to_string(), left);
-        state.focus_state.monitor_focus.insert("other".to_string(), right);
+        state
+            .focus_state
+            .monitor_focus
+            .insert("default".to_string(), left);
+        state
+            .focus_state
+            .monitor_focus
+            .insert("other".to_string(), right);
 
-        assert_eq!(state.last_input_surface_node_for_monitor("default"), Some(left));
-        assert_eq!(state.last_input_surface_node_for_monitor("other"), Some(right));
+        assert_eq!(
+            state.last_input_surface_node_for_monitor("default"),
+            Some(left)
+        );
+        assert_eq!(
+            state.last_input_surface_node_for_monitor("other"),
+            Some(right)
+        );
     }
 
     #[test]
@@ -751,12 +766,16 @@ mod tests {
         );
         let right = state.field.spawn_surface(
             "right",
-            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            },
             Vec2 { x: 200.0, y: 140.0 },
         );
         state.assign_node_to_monitor(fullscreen_left, "left");
         state.assign_node_to_monitor(right, "right");
-        state.fullscreen_state
+        state
+            .fullscreen_state
             .fullscreen_active_node
             .insert("left".to_string(), fullscreen_left);
         state.set_interaction_monitor("right");
@@ -812,7 +831,8 @@ mod tests {
         );
         state.assign_node_to_monitor(fullscreen_left, "left");
         state.assign_node_to_monitor(other_left, "left");
-        state.fullscreen_state
+        state
+            .fullscreen_state
             .fullscreen_active_node
             .insert("left".to_string(), fullscreen_left);
         state.set_interaction_monitor("left");
@@ -862,7 +882,10 @@ mod tests {
 
         let right = state.field.spawn_surface(
             "right",
-            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            },
             Vec2 { x: 200.0, y: 140.0 },
         );
         state.assign_node_to_monitor(right, "right");
@@ -910,7 +933,10 @@ mod tests {
 
         let right = state.field.spawn_surface(
             "right",
-            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            },
             Vec2 { x: 200.0, y: 140.0 },
         );
         state.assign_node_to_monitor(right, "right");
@@ -973,20 +999,18 @@ mod tests {
     fn focus_monitor_view_does_not_restore_blocked_monitor_focus() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.close_restore_focus = false;
-        tuning.tty_viewports = vec![
-            halley_config::ViewportOutputConfig {
-                connector: "right".to_string(),
-                enabled: true,
-                offset_x: 0,
-                offset_y: 0,
-                width: 800,
-                height: 600,
-                refresh_rate: None,
-                transform_degrees: 0,
-                vrr: halley_config::ViewportVrrMode::Off,
-                focus_ring: None,
-            },
-        ];
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "right".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -998,7 +1022,10 @@ mod tests {
             Vec2 { x: 100.0, y: 80.0 },
         );
         state.assign_node_to_monitor(right, "right");
-        state.focus_state.monitor_focus.insert("right".to_string(), right);
+        state
+            .focus_state
+            .monitor_focus
+            .insert("right".to_string(), right);
         state
             .focus_state
             .blocked_monitor_focus_restore
@@ -1008,5 +1035,4 @@ mod tests {
 
         assert_eq!(state.focus_state.primary_interaction_focus, None);
     }
-
 }

@@ -22,7 +22,6 @@ use crate::surface_ops::{
 };
 use smithay::backend::input::ButtonState;
 
-use super::utils::modifier_active;
 use super::key_actions::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
@@ -30,6 +29,7 @@ use super::pointer_focus::{layer_surface_focus_for_screen, pointer_focus_for_scr
 use super::resize_helpers::{
     active_node_screen_rect, handle_from_press_position, weights_from_handle,
 };
+use super::utils::modifier_active;
 
 #[inline]
 fn now_millis_u32() -> u32 {
@@ -500,7 +500,11 @@ fn restore_fullscreen_click_focus(
         .or_else(|| st.monitor_state.node_monitor.get(&node_id).cloned())
         .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
 
-    let entry = st.fullscreen_state.fullscreen_restore.get(&node_id).copied();
+    let entry = st
+        .fullscreen_state
+        .fullscreen_restore
+        .get(&node_id)
+        .copied();
     let fallback_center = st
         .monitor_state
         .monitors
@@ -842,7 +846,10 @@ pub(crate) fn handle_pointer_button_input(
     {
         let monitor = st.layer_surface_monitor_name(surface);
         st.spawn_state.pending_spawn_monitor = Some(monitor.clone());
-        info!("pending spawn monitor latched from layer press: {}", monitor);
+        info!(
+            "pending spawn monitor latched from layer press: {}",
+            monitor
+        );
     }
     let world_now = screen_to_world(st, local_w, local_h, local_sx, local_sy);
     let frame = ButtonFrame {

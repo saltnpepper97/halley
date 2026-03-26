@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 
 use halley_core::field::{NodeId, Vec2};

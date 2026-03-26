@@ -118,8 +118,5 @@ pub(crate) fn node_in_active_area_for_monitor(
     }
     let focus_ring = st.focus_ring_for_monitor(monitor);
     let focus_center = st.view_center_for_monitor(monitor);
-    matches!(
-        focus_ring.zone(focus_center, n.pos),
-        FocusZone::Inside
-    )
+    matches!(focus_ring.zone(focus_center, n.pos), FocusZone::Inside)
 }

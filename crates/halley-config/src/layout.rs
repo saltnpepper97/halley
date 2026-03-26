@@ -446,7 +446,9 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
         CompositorBinding {
             modifiers: modifier,
             key: key("l"),
-            action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Right)),
+            action: CompositorBindingAction::Node(NodeBindingAction::Move(
+                DirectionalAction::Right,
+            )),
         },
         CompositorBinding {
             modifiers: modifier,

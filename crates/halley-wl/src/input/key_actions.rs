@@ -54,8 +54,7 @@ pub(crate) fn compositor_binding_action_active(
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
     for binding in &st.tuning.compositor_bindings {
-        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
-        {
+        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             return Some(binding.action.clone());
         }
     }
@@ -63,11 +62,7 @@ pub(crate) fn compositor_binding_action_active(
     None
 }
 
-pub(crate) fn key_is_compositor_binding(
-    st: &Halley,
-    key_code: u32,
-    mods: &ModState,
-) -> bool {
+pub(crate) fn key_is_compositor_binding(st: &Halley, key_code: u32, mods: &ModState) -> bool {
     compositor_binding_action(st, key_code, mods).is_some()
         || st.tuning.launch_bindings.iter().any(|binding| {
             input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
@@ -127,7 +122,9 @@ pub(crate) fn apply_compositor_action_press(
         CompositorBindingAction::Monitor(MonitorBindingAction::Focus(target)) => {
             let target = match target {
                 MonitorBindingTarget::Direction(DirectionalAction::Left) => {
-                    halley_ipc::MonitorFocusTarget::Direction(halley_ipc::MonitorFocusDirection::Left)
+                    halley_ipc::MonitorFocusTarget::Direction(
+                        halley_ipc::MonitorFocusDirection::Left,
+                    )
                 }
                 MonitorBindingTarget::Direction(DirectionalAction::Right) => {
                     halley_ipc::MonitorFocusTarget::Direction(
@@ -230,8 +227,7 @@ pub(crate) fn apply_bound_pointer_input(
     }
 
     for binding in st.tuning.launch_bindings.clone() {
-        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
-        {
+        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
                 Some(child) => {
                     st.spawned_children.push(child);
@@ -292,9 +288,9 @@ pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -
 #[cfg(test)]
 mod tests {
     use super::{compositor_action_allows_repeat, input_matches_binding};
-    use halley_config::{CompositorBindingAction, TrailBindingAction};
     use halley_config::WHEEL_UP_CODE;
     use halley_config::keybinds::key_name_to_evdev;
+    use halley_config::{CompositorBindingAction, TrailBindingAction};
 
     #[test]
     fn matcher_accepts_direct_wheel_codes() {
@@ -315,13 +311,17 @@ mod tests {
 
     #[test]
     fn repeat_policy_is_limited_to_safe_actions() {
-        assert!(compositor_action_allows_repeat(CompositorBindingAction::ZoomIn));
-        assert!(compositor_action_allows_repeat(CompositorBindingAction::Trail(
-            TrailBindingAction::Next,
-        )));
+        assert!(compositor_action_allows_repeat(
+            CompositorBindingAction::ZoomIn
+        ));
+        assert!(compositor_action_allows_repeat(
+            CompositorBindingAction::Trail(TrailBindingAction::Next,)
+        ));
         assert!(!compositor_action_allows_repeat(
             CompositorBindingAction::CloseFocusedWindow
         ));
-        assert!(!compositor_action_allows_repeat(CompositorBindingAction::ToggleState));
+        assert!(!compositor_action_allows_repeat(
+            CompositorBindingAction::ToggleState
+        ));
     }
 }

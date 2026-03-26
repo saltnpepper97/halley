@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
 use halley_core::decay::DecayLevel;
 use halley_core::field::NodeId;
 use halley_core::viewport::FocusZone;
+use std::collections::{HashMap, HashSet};
 
 use crate::state::Halley;
 

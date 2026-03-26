@@ -253,11 +253,7 @@ fn node_fill_color(st: &Halley, hovered: bool) -> Color32F {
     }
 }
 
-fn node_icon_glyph(
-    st: &Halley,
-    id: halley_core::field::NodeId,
-    fallback: &str,
-) -> Option<char> {
+fn node_icon_glyph(st: &Halley, id: halley_core::field::NodeId, fallback: &str) -> Option<char> {
     st.node_app_ids
         .get(&id)
         .map(String::as_str)

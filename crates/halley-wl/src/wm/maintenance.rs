@@ -184,7 +184,6 @@ impl Halley {
         }
     }
 
-
     pub fn apply_single_surface_decay_policy(
         &mut self,
         id: NodeId,

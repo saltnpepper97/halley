@@ -380,9 +380,11 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let id = state
-            .field
-            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 120.0, y: 90.0 });
+        let id = state.field.spawn_surface(
+            "focused",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
         state.assign_node_to_current_monitor(id);
         state.set_interaction_focus(Some(id), 30_000, Instant::now());
 
@@ -433,9 +435,14 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let right_id = state
-            .field
-            .spawn_surface("right", Vec2 { x: 3200.0, y: 300.0 }, Vec2 { x: 120.0, y: 90.0 });
+        let right_id = state.field.spawn_surface(
+            "right",
+            Vec2 {
+                x: 3200.0,
+                y: 300.0,
+            },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
         state.assign_node_to_monitor(right_id, "right");
         state.set_interaction_focus(Some(right_id), 30_000, Instant::now());
 

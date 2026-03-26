@@ -115,7 +115,9 @@ impl Halley {
                 self.trail_for_monitor_mut(monitor.as_str()).forget_node(id);
                 continue;
             }
-            if self.monitor_state.node_monitor.get(&id).map(|m| m.as_str()) != Some(monitor.as_str()) {
+            if self.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
+                != Some(monitor.as_str())
+            {
                 self.trail_for_monitor_mut(monitor.as_str()).forget_node(id);
                 continue;
             }

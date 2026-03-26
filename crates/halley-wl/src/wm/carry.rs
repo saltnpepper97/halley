@@ -108,7 +108,9 @@ impl Halley {
         };
 
         let now_ms = self.now_ms(Instant::now());
-        self.carry_state.carry_zone_last_change_ms.insert(id, now_ms);
+        self.carry_state
+            .carry_zone_last_change_ms
+            .insert(id, now_ms);
         self.carry_state.carry_zone_pending.remove(&id);
         self.carry_state.carry_zone_pending_since_ms.remove(&id);
         self.carry_state.carry_zone_hint.insert(id, zone);
@@ -139,11 +141,14 @@ impl Halley {
         let _ = self.field.set_pinned(id, false);
 
         if let Some(n) = self.field.node(id) {
-            self.carry_state.carry_state_hold.insert(id, n.state.clone());
+            self.carry_state
+                .carry_state_hold
+                .insert(id, n.state.clone());
             let fp = self.collision_size_for_node(n);
             let z = self.zone_for_pos_with_hysteresis(id, n.pos, fp);
             self.carry_state.carry_zone_hint.insert(id, z);
-            self.carry_state.carry_zone_last_change_ms
+            self.carry_state
+                .carry_zone_last_change_ms
                 .insert(id, self.now_ms(Instant::now()));
             self.carry_state.carry_zone_pending.remove(&id);
             self.carry_state.carry_zone_pending_since_ms.remove(&id);

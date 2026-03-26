@@ -280,10 +280,8 @@ impl Halley {
     pub(crate) fn tick_active_drag(&mut self, now: Instant) {
         let Some(mut active_drag) = self.interaction_state.active_drag.clone() else {
             self.interaction_state.grabbed_edge_pan_active = false;
-            self.interaction_state.grabbed_edge_pan_direction = halley_core::field::Vec2 {
-                x: 0.0,
-                y: 0.0,
-            };
+            self.interaction_state.grabbed_edge_pan_direction =
+                halley_core::field::Vec2 { x: 0.0, y: 0.0 };
             self.interaction_state.grabbed_edge_pan_monitor = None;
             return;
         };
@@ -295,10 +293,8 @@ impl Halley {
         if node_id != active_drag.node_id {
             self.interaction_state.active_drag = None;
             self.interaction_state.grabbed_edge_pan_active = false;
-            self.interaction_state.grabbed_edge_pan_direction = halley_core::field::Vec2 {
-                x: 0.0,
-                y: 0.0,
-            };
+            self.interaction_state.grabbed_edge_pan_direction =
+                halley_core::field::Vec2 { x: 0.0, y: 0.0 };
             self.interaction_state.grabbed_edge_pan_monitor = None;
             return;
         }
@@ -317,19 +313,15 @@ impl Halley {
 
         let moved = if active_drag.allow_monitor_transfer {
             self.interaction_state.grabbed_edge_pan_active = false;
-            self.interaction_state.grabbed_edge_pan_direction = halley_core::field::Vec2 {
-                x: 0.0,
-                y: 0.0,
-            };
+            self.interaction_state.grabbed_edge_pan_direction =
+                halley_core::field::Vec2 { x: 0.0, y: 0.0 };
             self.interaction_state.grabbed_edge_pan_monitor = None;
             self.assign_node_to_monitor(node_id, active_drag.pointer_monitor.as_str());
             self.carry_surface_non_overlap(node_id, desired_to, false)
         } else if !active_drag.edge_pan_eligible {
             self.interaction_state.grabbed_edge_pan_active = false;
-            self.interaction_state.grabbed_edge_pan_direction = halley_core::field::Vec2 {
-                x: 0.0,
-                y: 0.0,
-            };
+            self.interaction_state.grabbed_edge_pan_direction =
+                halley_core::field::Vec2 { x: 0.0, y: 0.0 };
             self.interaction_state.grabbed_edge_pan_monitor = None;
             self.carry_surface_non_overlap(node_id, desired_to, false)
         } else if let Some((clamped_center, edge_contact)) = self.dragged_node_edge_pan_clamp(
@@ -341,11 +333,13 @@ impl Halley {
                 y: active_drag.edge_pan_y.sign(),
             },
         ) {
-            if active_drag.edge_pan_x.sign() != 0.0 && edge_contact.x != active_drag.edge_pan_x.sign()
+            if active_drag.edge_pan_x.sign() != 0.0
+                && edge_contact.x != active_drag.edge_pan_x.sign()
             {
                 active_drag.edge_pan_x = crate::interaction::types::DragAxisMode::Free;
             }
-            if active_drag.edge_pan_y.sign() != 0.0 && edge_contact.y != active_drag.edge_pan_y.sign()
+            if active_drag.edge_pan_y.sign() != 0.0
+                && edge_contact.y != active_drag.edge_pan_y.sign()
             {
                 active_drag.edge_pan_y = crate::interaction::types::DragAxisMode::Free;
             }
@@ -357,8 +351,8 @@ impl Halley {
             let edge_pan_active = direction.x != 0.0 || direction.y != 0.0;
             self.interaction_state.grabbed_edge_pan_active = edge_pan_active;
             self.interaction_state.grabbed_edge_pan_direction = direction;
-            self.interaction_state.grabbed_edge_pan_monitor = edge_pan_active
-                .then(|| active_drag.pointer_monitor.clone());
+            self.interaction_state.grabbed_edge_pan_monitor =
+                edge_pan_active.then(|| active_drag.pointer_monitor.clone());
 
             let mut to = clamped_center;
             if edge_pan_active {
@@ -393,10 +387,8 @@ impl Halley {
         } else {
             self.interaction_state.active_drag = None;
             self.interaction_state.grabbed_edge_pan_active = false;
-            self.interaction_state.grabbed_edge_pan_direction = halley_core::field::Vec2 {
-                x: 0.0,
-                y: 0.0,
-            };
+            self.interaction_state.grabbed_edge_pan_direction =
+                halley_core::field::Vec2 { x: 0.0, y: 0.0 };
             self.interaction_state.grabbed_edge_pan_monitor = None;
             return;
         };

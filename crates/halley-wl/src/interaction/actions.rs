@@ -73,7 +73,8 @@ pub(crate) fn activate_collapsed_node_from_click(
     let focus_ring = st.focus_ring_for_monitor(target_monitor.as_str());
     let in_focus_ring = focus_ring.zone(focus_center, n.pos) == FocusZone::Inside;
 
-    if in_focus_ring || st.tuning.click_collapsed_outside_focus == ClickCollapsedOutsideFocusMode::Ignore
+    if in_focus_ring
+        || st.tuning.click_collapsed_outside_focus == ClickCollapsedOutsideFocusMode::Ignore
     {
         return promote_node_level(st, node_id, now);
     }
@@ -105,10 +106,10 @@ pub(crate) fn latest_surface_node(st: &Halley) -> Option<halley_core::field::Nod
     st.last_input_surface_node_for_monitor(st.focused_monitor())
         .or_else(|| st.last_input_surface_node())
         .or_else(|| {
-        st.surface_to_node
-            .values()
-            .copied()
-            .max_by_key(|id| id.as_u64())
+            st.surface_to_node
+                .values()
+                .copied()
+                .max_by_key(|id| id.as_u64())
         })
 }
 
@@ -144,10 +145,7 @@ pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
     false
 }
 
-pub(crate) fn move_latest_node_direction(
-    st: &mut Halley,
-    direction: NodeMoveDirection,
-) -> bool {
+pub(crate) fn move_latest_node_direction(st: &mut Halley, direction: NodeMoveDirection) -> bool {
     const STEP_NODE: f32 = 80.0;
 
     match direction {

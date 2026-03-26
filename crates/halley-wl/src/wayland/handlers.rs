@@ -109,13 +109,12 @@ fn constrain_layer_popup(st: &Halley, popup: &PopupSurface, positioner: Position
     let mut geometry = positioner.get_unconstrained_geometry(target);
     if !rectangle_fits_within(target, geometry) {
         let mut fallback_positioner = positioner;
-        fallback_positioner.constraint_adjustment |=
-            xdg_positioner::ConstraintAdjustment::FlipX
-                | xdg_positioner::ConstraintAdjustment::FlipY
-                | xdg_positioner::ConstraintAdjustment::SlideX
-                | xdg_positioner::ConstraintAdjustment::SlideY
-                | xdg_positioner::ConstraintAdjustment::ResizeX
-                | xdg_positioner::ConstraintAdjustment::ResizeY;
+        fallback_positioner.constraint_adjustment |= xdg_positioner::ConstraintAdjustment::FlipX
+            | xdg_positioner::ConstraintAdjustment::FlipY
+            | xdg_positioner::ConstraintAdjustment::SlideX
+            | xdg_positioner::ConstraintAdjustment::SlideY
+            | xdg_positioner::ConstraintAdjustment::ResizeX
+            | xdg_positioner::ConstraintAdjustment::ResizeY;
         geometry = fallback_positioner.get_unconstrained_geometry(target);
     }
 
@@ -124,10 +123,7 @@ fn constrain_layer_popup(st: &Halley, popup: &PopupSurface, positioner: Position
     });
 }
 
-fn rectangle_fits_within(
-    target: Rectangle<i32, Logical>,
-    rect: Rectangle<i32, Logical>,
-) -> bool {
+fn rectangle_fits_within(target: Rectangle<i32, Logical>, rect: Rectangle<i32, Logical>) -> bool {
     rect.loc.x >= target.loc.x
         && rect.loc.y >= target.loc.y
         && rect.loc.x + rect.size.w <= target.loc.x + target.size.w
@@ -798,8 +794,7 @@ impl XdgShellHandler for Halley {
             }
         }
 
-        if had_keyboard_focus
-        {
+        if had_keyboard_focus {
             self.clear_keyboard_focus();
         }
 
@@ -809,13 +804,17 @@ impl XdgShellHandler for Halley {
                 (closing_id, focused_monitor.as_deref())
         {
             let now = Instant::now();
-            if let Some(previous) = self.previous_window_from_trail_on_close(focused_monitor, closing_id)
+            if let Some(previous) =
+                self.previous_window_from_trail_on_close(focused_monitor, closing_id)
             {
                 let _ = self.restore_focus_to_node_after_close(focused_monitor, previous, now);
             } else if let Some(fallback) = self
                 .last_focused_surface_node_for_monitor(focused_monitor)
                 .filter(|&id| id != closing_id)
-                .or_else(|| self.last_focused_surface_node().filter(|&id| id != closing_id))
+                .or_else(|| {
+                    self.last_focused_surface_node()
+                        .filter(|&id| id != closing_id)
+                })
             {
                 let _ = self.restore_focus_to_node_after_close(focused_monitor, fallback, now);
             }

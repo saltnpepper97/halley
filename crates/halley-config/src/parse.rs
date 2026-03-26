@@ -1284,9 +1284,8 @@ mod tests {
     use crate::{
         ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
         CompositorBindingAction, DirectionalAction, MonitorBindingAction, MonitorBindingTarget,
-        NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy, PanToNewMode,
-        RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
-        keybinds::key_name_to_evdev,
+        NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy, PanToNewMode, RuntimeTuning,
+        WHEEL_DOWN_CODE, WHEEL_UP_CODE, keybinds::key_name_to_evdev,
     };
 
     #[test]
@@ -1324,9 +1323,7 @@ mod tests {
 
         assert!(tuning.compositor_bindings.iter().any(|binding| {
             binding.action
-                == CompositorBindingAction::Node(NodeBindingAction::Move(
-                    DirectionalAction::Left,
-                ))
+                == CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Left))
         }));
     }
 
@@ -1339,19 +1336,15 @@ mod tests {
 
         assert!(tuning.compositor_bindings.iter().any(|binding| {
             binding.action
-                == CompositorBindingAction::Node(NodeBindingAction::Move(
-                    DirectionalAction::Left,
-                ))
+                == CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Left))
         }));
     }
 
     #[test]
     fn monitor_focus_family_actions_parse_as_compositor_bindings() {
         let mut tuning = RuntimeTuning::default();
-        let bindings = HashMap::from([(
-            "$mod+o".to_string(),
-            "monitor-focus HDMI-A-1".to_string(),
-        )]);
+        let bindings =
+            HashMap::from([("$mod+o".to_string(), "monitor-focus HDMI-A-1".to_string())]);
 
         apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
 
@@ -1726,7 +1719,10 @@ end
             tuning.click_collapsed_outside_focus,
             ClickCollapsedOutsideFocusMode::Activate
         );
-        assert_eq!(tuning.click_collapsed_pan, ClickCollapsedPanMode::IfOffscreen);
+        assert_eq!(
+            tuning.click_collapsed_pan,
+            ClickCollapsedPanMode::IfOffscreen
+        );
         assert_eq!(
             tuning.node_background_color,
             NodeBackgroundColorMode::Fixed {
@@ -1813,5 +1809,4 @@ end
 
         assert!(tuning.no_csd);
     }
-
 }

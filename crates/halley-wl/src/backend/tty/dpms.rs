@@ -1,25 +1,56 @@
 use super::*;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use crate::backend::tty::drm::TtyDrmOutput;
 use crate::backend::tty::drm::collect_outputs_for_ipc;
 
+pub(crate) fn sync_tty_dpms_state(
+    outputs: &[TtyDrmOutput],
+    dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
+) {
+    let mut next = HashMap::new();
+    let current = dpms_enabled.borrow();
+    for output in outputs {
+        next.insert(
+            output.connector_name.clone(),
+            current
+                .get(output.connector_name.as_str())
+                .copied()
+                .unwrap_or(true),
+        );
+    }
+    drop(current);
+    *dpms_enabled.borrow_mut() = next;
+}
+
+pub(crate) fn tty_output_dpms_enabled(
+    dpms_enabled: &HashMap<String, bool>,
+    output_name: &str,
+) -> bool {
+    dpms_enabled.get(output_name).copied().unwrap_or(true)
+}
+
+pub(crate) fn any_tty_output_dpms_enabled(dpms_enabled: &HashMap<String, bool>) -> bool {
+    dpms_enabled.values().copied().any(|enabled| enabled)
+}
+
 pub(crate) fn publish_tty_outputs_snapshot(
     dev: &DrmDevice,
     active_modes: &HashMap<String, drm_control::Mode>,
-    dpms_enabled: bool,
+    dpms_enabled: &HashMap<String, bool>,
     tuning: &RuntimeTuning,
 ) {
     let vrr_support: HashMap<String, String> = HashMap::new();
     let mut outputs = collect_outputs_for_ipc(dev, active_modes, tuning, &vrr_support);
-    if !dpms_enabled {
-        for output in &mut outputs {
-            if active_modes.contains_key(&output.name) {
-                output.enabled = false;
-                output.current_mode = None;
-                for mode in &mut output.modes {
-                    mode.current = false;
-                }
+    for output in &mut outputs {
+        if active_modes.contains_key(&output.name)
+            && !tty_output_dpms_enabled(dpms_enabled, output.name.as_str())
+        {
+            output.enabled = false;
+            output.current_mode = None;
+            for mode in &mut output.modes {
+                mode.current = false;
             }
         }
     }
@@ -29,84 +60,128 @@ pub(crate) fn publish_tty_outputs_snapshot(
 pub(crate) fn apply_tty_dpms_command(
     dev: &Rc<RefCell<DrmDevice>>,
     active_modes: &Rc<RefCell<HashMap<String, drm_control::Mode>>>,
-    dpms_enabled: &Rc<RefCell<bool>>,
+    dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
     command: halley_ipc::DpmsCommand,
     output: Option<&str>,
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     tuning: &RuntimeTuning,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
+    dpms_just_woke_outputs: &Rc<RefCell<HashSet<String>>>,
     st: &mut Halley,
 ) -> bool {
-    if let Some(output) = output {
-        let known = outputs
-            .borrow()
-            .iter()
-            .any(|candidate| candidate.connector_name == output);
-        if !known {
-            return false;
+    let target_outputs: Vec<String> = {
+        let outputs = outputs.borrow();
+        match output {
+            Some(output) => {
+                let Some(found) = outputs
+                    .iter()
+                    .find(|candidate| candidate.connector_name == output)
+                    .map(|candidate| candidate.connector_name.clone())
+                else {
+                    return false;
+                };
+                vec![found]
+            }
+            None => outputs
+                .iter()
+                .map(|output| output.connector_name.clone())
+                .collect(),
         }
-    }
+    };
+
     let target_enabled = match command {
         halley_ipc::DpmsCommand::On => true,
         halley_ipc::DpmsCommand::Off => false,
-        halley_ipc::DpmsCommand::Toggle => !*dpms_enabled.borrow(),
+        halley_ipc::DpmsCommand::Toggle => {
+            let current = dpms_enabled.borrow();
+            !target_outputs
+                .iter()
+                .all(|name| tty_output_dpms_enabled(&current, name.as_str()))
+        }
     };
 
-    if target_enabled == *dpms_enabled.borrow() {
+    let already_matches = {
+        let current = dpms_enabled.borrow();
+        target_outputs
+            .iter()
+            .all(|name| tty_output_dpms_enabled(&current, name.as_str()) == target_enabled)
+    };
+    if already_matches {
         return false;
     }
 
     if !target_enabled {
-        // DrmCompositor::clear() disables the CRTC using an atomic
-        // ALLOW_MODESET commit — non-blocking, returns immediately.
-        // The kernel queues the disable and fires it on the next vblank.
-        //
-        // This also resets the compositor's internal buffer/damage state so
-        // the next queue_frame after wake atomically re-enables the CRTC as
-        // part of presenting the first frame — no separate modeset step.
         for output in outputs.borrow().iter() {
+            if !target_outputs.contains(&output.connector_name) {
+                continue;
+            }
             if let Err(err) = output.compositor.borrow_mut().clear() {
                 warn!(
                     "tty dpms off: clear failed for {}: {}",
                     output.connector_name, err
                 );
             }
+            output_frame_pending
+                .borrow_mut()
+                .insert(output.connector_name.clone(), false);
+            dpms_just_woke_outputs
+                .borrow_mut()
+                .remove(output.connector_name.as_str());
         }
-        for val in output_frame_pending.borrow_mut().values_mut() {
-            *val = false;
+        {
+            let mut current = dpms_enabled.borrow_mut();
+            for output in &target_outputs {
+                current.insert(output.clone(), false);
+            }
         }
-        *dpms_enabled.borrow_mut() = false;
-        info!("tty dpms: powered off (atomic CRTC disable)");
+        info!(
+            "tty dpms: powered off outputs {}",
+            target_outputs.join(", ")
+        );
     } else {
-        *dpms_enabled.borrow_mut() = true;
-        // Signal to the render loop that layer shell surfaces need a fresh
-        // configure + frame callback on the very next rendered frame, so
-        // wallpaper clients re-present after the CRTC comes back up.
+        {
+            let mut current = dpms_enabled.borrow_mut();
+            for output in &target_outputs {
+                current.insert(output.clone(), true);
+            }
+        }
+        {
+            let mut woke = dpms_just_woke_outputs.borrow_mut();
+            for output in &target_outputs {
+                woke.insert(output.clone());
+            }
+        }
         st.interaction_state.dpms_just_woke = true;
-        info!("tty dpms: powering on (forced fresh frame on next render)");
+        info!(
+            "tty dpms: powering on outputs {}",
+            target_outputs.join(", ")
+        );
     }
 
     publish_tty_outputs_snapshot(
         &dev.borrow(),
         &active_modes.borrow(),
-        *dpms_enabled.borrow(),
+        &dpms_enabled.borrow(),
         tuning,
     );
 
-    // Return true only on off→on transition
-    *dpms_enabled.borrow()
+    true
 }
 
 pub(crate) fn wake_tty_dpms_on_input(
     dev: &Rc<RefCell<DrmDevice>>,
     active_modes: &Rc<RefCell<HashMap<String, drm_control::Mode>>>,
-    dpms_enabled: &Rc<RefCell<bool>>,
+    dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     tuning: &RuntimeTuning,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
+    dpms_just_woke_outputs: &Rc<RefCell<HashSet<String>>>,
+    target_output: Option<&str>,
     st: &mut Halley,
 ) -> bool {
-    if *dpms_enabled.borrow() {
+    let focused_monitor = st.focused_monitor().to_string();
+    let output = target_output.unwrap_or(focused_monitor.as_str());
+    if tty_output_dpms_enabled(&dpms_enabled.borrow(), output) {
         return false;
     }
     apply_tty_dpms_command(
@@ -114,10 +189,11 @@ pub(crate) fn wake_tty_dpms_on_input(
         active_modes,
         dpms_enabled,
         halley_ipc::DpmsCommand::On,
-        None,
+        Some(output),
         outputs,
         tuning,
         output_frame_pending,
+        dpms_just_woke_outputs,
         st,
     )
 }

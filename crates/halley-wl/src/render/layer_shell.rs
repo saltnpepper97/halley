@@ -72,8 +72,8 @@ pub(crate) fn collect_layer_surfaces(
             let popup_origin = clamp_layer_popup_origin(
                 &popup,
                 (
-                placement.origin.x + popup_offset.x - popup_geo.loc.x,
-                placement.origin.y + popup_offset.y - popup_geo.loc.y,
+                    placement.origin.x + popup_offset.x - popup_geo.loc.x,
+                    placement.origin.y + popup_offset.y - popup_geo.loc.y,
                 ),
                 logical_size,
             );

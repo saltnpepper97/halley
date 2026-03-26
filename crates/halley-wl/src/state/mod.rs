@@ -60,9 +60,9 @@ mod spawn;
 mod workspace;
 
 pub use client::ClientState;
+pub(crate) use fullscreen::{FullscreenMotion, FullscreenScaleAnim, FullscreenSessionEntry};
 pub(crate) use interaction::{ActiveDragState, ViewportPanAnim};
 pub(crate) use render::{NodeAppIconCacheEntry, NodeAppIconTexture};
-pub(crate) use fullscreen::{FullscreenMotion, FullscreenSessionEntry, FullscreenScaleAnim};
 pub(crate) use spawn::{
     ActiveSpawnPan, MonitorSpawnState, PendingSpawnPan, SpawnAnchorMode, SpawnPatch,
 };
@@ -430,10 +430,7 @@ impl Halley {
                     .build()
                     .expect("renderer dmabuf feedback should be constructible");
                 self.dmabuf_state
-                    .create_global_with_default_feedback::<Halley>(
-                        &self.display_handle,
-                        &feedback,
-                    )
+                    .create_global_with_default_feedback::<Halley>(&self.display_handle, &feedback)
             }
             None => self
                 .dmabuf_state
@@ -501,7 +498,12 @@ impl Halley {
         {
             consider(self.interaction_state.resize_static_until_ms);
         }
-        if let Some(at_ms) = self.spawn_state.pending_spawn_activate_at_ms.values().copied().min()
+        if let Some(at_ms) = self
+            .spawn_state
+            .pending_spawn_activate_at_ms
+            .values()
+            .copied()
+            .min()
             && at_ms > now_ms
         {
             consider(at_ms);
@@ -592,16 +594,24 @@ impl Halley {
             .primary_promote_cooldown_until_ms
             .retain(|_, &mut until| until > now_ms);
         let alive_ids: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
-        self.carry_state.carry_zone_hint.retain(|id, _| alive_ids.contains(id));
-        self.carry_state.carry_zone_last_change_ms
+        self.carry_state
+            .carry_zone_hint
             .retain(|id, _| alive_ids.contains(id));
-        self.carry_state.carry_zone_pending
+        self.carry_state
+            .carry_zone_last_change_ms
             .retain(|id, _| alive_ids.contains(id));
-        self.carry_state.carry_zone_pending_since_ms
+        self.carry_state
+            .carry_zone_pending
             .retain(|id, _| alive_ids.contains(id));
-        self.carry_state.carry_activation_anim_armed
+        self.carry_state
+            .carry_zone_pending_since_ms
+            .retain(|id, _| alive_ids.contains(id));
+        self.carry_state
+            .carry_activation_anim_armed
             .retain(|id| alive_ids.contains(id));
-        self.carry_state.carry_state_hold.retain(|id, _| alive_ids.contains(id));
+        self.carry_state
+            .carry_state_hold
+            .retain(|id, _| alive_ids.contains(id));
         self.focus_state
             .last_surface_focus_ms
             .retain(|id, _| alive_ids.contains(id));

@@ -339,14 +339,21 @@ end
 # Rules allow matching specific applications
 # and applying behaviour automatically.
 rules:
-  kitty:
-    app-id "file picker"
-    overlap-policy "allow"
+  file-picker:
+    title "Open File"
+    overlap-policy "parent"
+    spawn-position "preserve-request"
+    pan-into-view "never"
+    focus-behavior "focus-on-open"
   end
 
   picture-in-picture:
     app-id ""
-    overlap-policy "allow"
+    title "Picture-in-Picture"
+    overlap-scope "all"
+    spawn-position "center-parent"
+    pan-into-view "never"
+    focus-behavior "focus-on-open"
   end
 end
 

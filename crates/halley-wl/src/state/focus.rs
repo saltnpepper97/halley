@@ -32,7 +32,10 @@ impl Halley {
         self.set_focused_monitor(monitor);
         self.spawn_state.pending_spawn_monitor = None;
         let _ = self.activate_monitor(monitor);
-        if !self.focus_state.blocked_monitor_focus_restore.contains(monitor)
+        if !self
+            .focus_state
+            .blocked_monitor_focus_restore
+            .contains(monitor)
             && let Some(id) = self.last_focused_surface_node_for_monitor(monitor)
         {
             self.set_interaction_focus(Some(id), 30_000, now);
@@ -71,7 +74,9 @@ impl Halley {
                     .max(requested_until);
                 self.update_focus_tracking_for_surface(fid, now_ms);
                 if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
-                    self.focus_state.blocked_monitor_focus_restore.remove(&monitor);
+                    self.focus_state
+                        .blocked_monitor_focus_restore
+                        .remove(&monitor);
                     self.set_interaction_monitor(monitor.as_str());
                     self.set_focused_monitor(monitor.as_str());
                     self.spawn_state.pending_spawn_monitor = None;
@@ -101,7 +106,9 @@ impl Halley {
             self.focus_state.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
             self.update_focus_tracking_for_surface(fid, now_ms);
             if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
-                self.focus_state.blocked_monitor_focus_restore.remove(&monitor);
+                self.focus_state
+                    .blocked_monitor_focus_restore
+                    .remove(&monitor);
                 self.set_interaction_monitor(monitor.as_str());
                 self.set_focused_monitor(monitor.as_str());
                 self.spawn_state.pending_spawn_monitor = None;

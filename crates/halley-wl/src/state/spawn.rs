@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
-use halley_core::field::{NodeId, Vec2};
 use halley_core::decay::DecayLevel;
+use halley_core::field::{NodeId, Vec2};
 
 use super::Halley;
 

@@ -778,4 +778,3 @@ fn runtime_dir_is_usable(path: &Path) -> bool {
         .and_then(|_| fs::remove_file(path.join(".halley-runtime-check")))
         .is_ok()
 }
-

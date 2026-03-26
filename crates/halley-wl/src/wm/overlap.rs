@@ -185,7 +185,7 @@ impl Halley {
         let mut mover_pos = to;
 
         for _ in 0..24 {
-                let others: Vec<(NodeId, Vec2, CollisionExtents)> = self
+            let others: Vec<(NodeId, Vec2, CollisionExtents)> = self
                 .field
                 .nodes()
                 .iter()
@@ -466,10 +466,7 @@ impl Halley {
                     .copied()
                     .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
             };
-            velocities.insert(
-                id,
-                Self::clamp_speed(vel, MAX_PHYSICS_SPEED),
-            );
+            velocities.insert(id, Self::clamp_speed(vel, MAX_PHYSICS_SPEED));
         }
 
         for &id in &ids {
@@ -889,12 +886,18 @@ mod tests {
 
         let a = state.field.spawn_surface(
             "right-a",
-            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            },
             Vec2 { x: 320.0, y: 220.0 },
         );
         let b = state.field.spawn_surface(
             "right-b",
-            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            },
             Vec2 { x: 320.0, y: 220.0 },
         );
         state.assign_node_to_monitor(a, "right");
@@ -1274,14 +1277,16 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let dragged =
-            state
-                .field
-                .spawn_surface("dragged", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
-        let passive =
-            state
-                .field
-                .spawn_surface("passive", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let dragged = state.field.spawn_surface(
+            "dragged",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let passive = state.field.spawn_surface(
+            "passive",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
         let ea = state.collision_extents_for_node(state.field.node(dragged).expect("dragged"));
         let eb = state.collision_extents_for_node(state.field.node(passive).expect("passive"));
         let req_x = state.required_sep_x(0.0, ea, 1.0, eb, state.non_overlap_gap_world());
@@ -1309,7 +1314,10 @@ mod tests {
             "passive window should receive physics from a grabbed kinematic collider: {passive_velocity:?}"
         );
         assert!(
-            !state.interaction_state.physics_velocity.contains_key(&dragged),
+            !state
+                .interaction_state
+                .physics_velocity
+                .contains_key(&dragged),
             "grabbed window should not retain physics momentum"
         );
     }

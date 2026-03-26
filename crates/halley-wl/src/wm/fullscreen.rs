@@ -112,7 +112,12 @@ impl Halley {
     }
 
     pub(crate) fn fullscreen_entry_scale(&self, node_id: NodeId, now_ms: u64) -> f32 {
-        let Some(anim) = self.fullscreen_state.fullscreen_scale_anim.get(&node_id).copied() else {
+        let Some(anim) = self
+            .fullscreen_state
+            .fullscreen_scale_anim
+            .get(&node_id)
+            .copied()
+        else {
             return 1.0;
         };
         let elapsed = now_ms.saturating_sub(anim.start_ms);
@@ -201,7 +206,8 @@ impl Halley {
 
     /// Returns the monitor name that `node_id` is currently fullscreened on, if any.
     pub(crate) fn fullscreen_monitor_for_node(&self, node_id: NodeId) -> Option<&str> {
-        self.fullscreen_state.fullscreen_active_node
+        self.fullscreen_state
+            .fullscreen_active_node
             .iter()
             .find_map(|(monitor, &id)| (id == node_id).then_some(monitor.as_str()))
     }
@@ -221,11 +227,14 @@ impl Halley {
         self.interaction_state.reset_input_state_requested = true;
 
         if suspend {
-            self.fullscreen_state.fullscreen_suspended_node
+            self.fullscreen_state
+                .fullscreen_suspended_node
                 .insert(monitor_name.clone(), node_id);
         } else {
             // If we're doing a hard exit, clear any suspended state for this monitor too.
-            self.fullscreen_state.fullscreen_suspended_node.remove(&monitor_name);
+            self.fullscreen_state
+                .fullscreen_suspended_node
+                .remove(&monitor_name);
         }
 
         let now_ms = self.now_ms(now);
@@ -252,7 +261,12 @@ impl Halley {
             self.queue_fullscreen_motion(*id, from, entry.pos, now_ms, Self::FULLSCREEN_EXIT_MS);
         }
 
-        if let Some(entry) = self.fullscreen_state.fullscreen_restore.get(&node_id).copied() {
+        if let Some(entry) = self
+            .fullscreen_state
+            .fullscreen_restore
+            .get(&node_id)
+            .copied()
+        {
             self.request_toplevel_fullscreen_state(
                 node_id,
                 false,
@@ -266,7 +280,9 @@ impl Halley {
             self.request_toplevel_fullscreen_state(node_id, false, None, None);
         }
 
-        self.fullscreen_state.fullscreen_active_node.remove(&monitor_name);
+        self.fullscreen_state
+            .fullscreen_active_node
+            .remove(&monitor_name);
         self.fullscreen_state.fullscreen_scale_anim.remove(&node_id);
         self.request_maintenance();
     }
@@ -305,15 +321,27 @@ impl Halley {
         let monitor_name = self.fullscreen_monitor_name(node_id, output.as_ref());
 
         // Already fullscreen on this monitor — no-op.
-        if self.fullscreen_state.fullscreen_active_node.get(&monitor_name) == Some(&node_id) {
+        if self
+            .fullscreen_state
+            .fullscreen_active_node
+            .get(&monitor_name)
+            == Some(&node_id)
+        {
             return;
         }
 
         // Clear any suspended state for this monitor.
-        self.fullscreen_state.fullscreen_suspended_node.remove(&monitor_name);
+        self.fullscreen_state
+            .fullscreen_suspended_node
+            .remove(&monitor_name);
 
         // If another window is fullscreened on the same monitor, exit it first.
-        if let Some(existing) = self.fullscreen_state.fullscreen_active_node.get(&monitor_name).copied() {
+        if let Some(existing) = self
+            .fullscreen_state
+            .fullscreen_active_node
+            .get(&monitor_name)
+            .copied()
+        {
             self.exit_xdg_fullscreen(existing, now);
         }
 
@@ -407,7 +435,9 @@ impl Halley {
         }
 
         self.request_toplevel_fullscreen_state(node_id, true, output, Some(target_size));
-        self.fullscreen_state.fullscreen_active_node.insert(monitor_name, node_id);
+        self.fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor_name, node_id);
         self.set_interaction_focus(Some(node_id), 30_000, now);
         self.request_maintenance();
     }
@@ -418,14 +448,17 @@ impl Halley {
             .fullscreen_monitor_for_node(node_id)
             .map(|s| s.to_owned())
         {
-            self.fullscreen_state.fullscreen_suspended_node.remove(&monitor);
+            self.fullscreen_state
+                .fullscreen_suspended_node
+                .remove(&monitor);
         }
         self.exit_xdg_fullscreen_inner(node_id, now, false);
     }
 
     pub(crate) fn drop_fullscreen_surface(&mut self, id: NodeId, now: Instant) {
         // Clear suspended state if this node was suspended on any monitor.
-        self.fullscreen_state.fullscreen_suspended_node
+        self.fullscreen_state
+            .fullscreen_suspended_node
             .retain(|_, &mut nid| nid != id);
 
         if self.is_fullscreen_active(id) {
@@ -435,7 +468,9 @@ impl Halley {
                 .unwrap(); // safe: is_fullscreen_active just confirmed it
 
             self.interaction_state.reset_input_state_requested = true;
-            self.fullscreen_state.fullscreen_active_node.remove(&monitor_name);
+            self.fullscreen_state
+                .fullscreen_active_node
+                .remove(&monitor_name);
 
             // Restore only bystanders that were displaced for this monitor's fullscreen.
             let (monitor_viewport_center, _) = self.fullscreen_monitor_view(&monitor_name);
@@ -519,7 +554,10 @@ impl Halley {
                     .get(&id)
                     .cloned()
                     .unwrap_or_else(|| self.monitor_state.current_monitor.clone());
-                let displaced_for_active = self.fullscreen_state.fullscreen_active_node.contains_key(&node_monitor);
+                let displaced_for_active = self
+                    .fullscreen_state
+                    .fullscreen_active_node
+                    .contains_key(&node_monitor);
 
                 if displaced_for_active {
                     let _ = self.field.set_pinned(id, true);
@@ -530,7 +568,8 @@ impl Halley {
             }
         }
 
-        self.fullscreen_state.fullscreen_scale_anim
+        self.fullscreen_state
+            .fullscreen_scale_anim
             .retain(|_, anim| now_ms < anim.start_ms.saturating_add(anim.duration_ms));
     }
 }

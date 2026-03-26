@@ -4,11 +4,11 @@ pub mod parse;
 
 pub use keybinds::{
     CompositorBinding, CompositorBindingAction, DirectionalAction, KeyModifiers, Keybinds,
-    LaunchBinding, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction,
-    PointerBinding, PointerBindingAction, TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
+    LaunchBinding, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction, PointerBinding,
+    PointerBindingAction, TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
 };
 pub use layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode,
-    RuntimeTuning, ViewportOutputConfig, ViewportVrrMode,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode, RuntimeTuning,
+    ViewportOutputConfig, ViewportVrrMode,
 };

@@ -114,20 +114,17 @@ impl Halley {
     }
 
     fn spawn_star_step_x(&self, size: Vec2) -> f32 {
-        size.x
-            + (ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32 * 2.0)
-            + self.non_overlap_gap_world()
+        size.x + (ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32 * 2.0) + self.non_overlap_gap_world()
     }
 
     fn spawn_star_step_y(&self, size: Vec2) -> f32 {
-        size.y
-            + (ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32 * 2.0)
-            + self.non_overlap_gap_world()
+        size.y + (ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32 * 2.0) + self.non_overlap_gap_world()
     }
 
     #[cfg(test)]
     fn spawn_star_step(&self, size: Vec2) -> f32 {
-        self.spawn_star_step_x(size).max(self.spawn_star_step_y(size))
+        self.spawn_star_step_x(size)
+            .max(self.spawn_star_step_y(size))
     }
 
     fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
@@ -237,7 +234,8 @@ impl Halley {
             .take()
             .filter(|monitor| self.monitor_state.monitors.contains_key(monitor))
             .unwrap_or_else(|| self.resolve_spawn_target_monitor());
-        self.spawn_monitor_state_mut(target_monitor.as_str()).spawn_cursor += 1;
+        self.spawn_monitor_state_mut(target_monitor.as_str())
+            .spawn_cursor += 1;
         let monitor_spawn = self.spawn_monitor_state(target_monitor.as_str());
         let viewport_center = self.viewport_center_for_monitor(target_monitor.as_str());
         let (focus_id, focus_pos) = self.current_spawn_focus(target_monitor.as_str());
@@ -282,7 +280,11 @@ impl Halley {
             }
         }
 
-        let anchor = if focus_visible { focus_pos } else { viewport_center };
+        let anchor = if focus_visible {
+            focus_pos
+        } else {
+            viewport_center
+        };
         if let Some(pos) = self.try_spawn_star(target_monitor.as_str(), anchor, size) {
             let growth_dir = self.pick_cluster_growth_dir(target_monitor.as_str(), anchor);
             self.update_spawn_patch(
@@ -344,17 +346,17 @@ impl Halley {
             .unwrap_or_else(|| self.focused_monitor().to_string());
         let Some(target_center) = (match self.tuning.pan_to_new {
             PanToNewMode::Always => self.field.node(id).map(|node| node.pos),
-            PanToNewMode::IfNeeded => self.minimal_reveal_center_for_surface_on_monitor(
-                monitor.as_str(),
-                id,
-            ),
+            PanToNewMode::IfNeeded => {
+                self.minimal_reveal_center_for_surface_on_monitor(monitor.as_str(), id)
+            }
             PanToNewMode::Never => None,
         }) else {
             return;
         };
         let _ = self.field.set_detached(id, true);
         self.spawn_state.pending_spawn_activate_at_ms.remove(&id);
-        self.spawn_state.pending_spawn_pan_queue
+        self.spawn_state
+            .pending_spawn_pan_queue
             .push_back(crate::state::PendingSpawnPan {
                 node_id: id,
                 target_center,
@@ -580,7 +582,8 @@ mod tests {
         state.focus_state.last_surface_focus_ms.insert(focused, 1);
         state.focus_state.primary_interaction_focus = Some(focused);
         state.assign_node_to_current_monitor(focused);
-        state.focus_state
+        state
+            .focus_state
             .monitor_focus
             .insert(state.monitor_state.current_monitor.clone(), focused);
 
@@ -645,7 +648,8 @@ mod tests {
         state.focus_state.last_surface_focus_ms.insert(focused, 1);
         state.focus_state.primary_interaction_focus = Some(focused);
         state.assign_node_to_current_monitor(focused);
-        state.focus_state
+        state
+            .focus_state
             .monitor_focus
             .insert(state.monitor_state.current_monitor.clone(), focused);
         let current_monitor = state.monitor_state.current_monitor.clone();
@@ -737,7 +741,10 @@ mod tests {
 
         let focused = state.field.spawn_surface(
             "focused",
-            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            },
             Vec2 { x: 120.0, y: 90.0 },
         );
         state.assign_node_to_monitor(focused, "right");
@@ -787,17 +794,24 @@ mod tests {
 
         let stale = state.field.spawn_surface(
             "stale",
-            Vec2 { x: 1040.0, y: 300.0 },
+            Vec2 {
+                x: 1040.0,
+                y: 300.0,
+            },
             Vec2 { x: 120.0, y: 90.0 },
         );
         let latest = state.field.spawn_surface(
             "latest",
-            Vec2 { x: 1320.0, y: 300.0 },
+            Vec2 {
+                x: 1320.0,
+                y: 300.0,
+            },
             Vec2 { x: 120.0, y: 90.0 },
         );
         state.assign_node_to_monitor(stale, "right");
         state.assign_node_to_monitor(latest, "right");
-        state.focus_state
+        state
+            .focus_state
             .monitor_focus
             .insert("right".to_string(), stale);
         state.focus_state.last_surface_focus_ms.insert(stale, 1);
@@ -867,7 +881,10 @@ mod tests {
         {
             let spawn = state.spawn_monitor_state_mut("right");
             spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
-            spawn.spawn_view_anchor = Vec2 { x: 1200.0, y: 300.0 };
+            spawn.spawn_view_anchor = Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            };
         }
         let first_right = state.pick_spawn_position(size).1;
         let right_id = state.field.spawn_surface("right-1", first_right, size);
@@ -879,7 +896,13 @@ mod tests {
         let second_left = state.pick_spawn_position(size).1;
 
         assert_eq!(first_left, Vec2 { x: 400.0, y: 300.0 });
-        assert_eq!(first_right, Vec2 { x: 1200.0, y: 300.0 });
+        assert_eq!(
+            first_right,
+            Vec2 {
+                x: 1200.0,
+                y: 300.0
+            }
+        );
         assert_eq!(
             second_left,
             Vec2 {
@@ -897,17 +920,23 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
         state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
-        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
+        state.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
 
         let size = Vec2 { x: 120.0, y: 90.0 };
-        let anchor = state.field.spawn_surface("anchor", Vec2 { x: 0.0, y: 0.0 }, size);
+        let anchor = state
+            .field
+            .spawn_surface("anchor", Vec2 { x: 0.0, y: 0.0 }, size);
         let _ = state
             .field
             .set_state(anchor, halley_core::field::NodeState::Active);
         state.assign_node_to_current_monitor(anchor);
         state.focus_state.primary_interaction_focus = Some(anchor);
         state.focus_state.last_surface_focus_ms.insert(anchor, 1);
-        state.focus_state
+        state
+            .focus_state
             .monitor_focus
             .insert(state.monitor_state.current_monitor.clone(), anchor);
 
@@ -982,7 +1011,13 @@ mod tests {
 
         let (monitor, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
         assert_eq!(monitor, "right");
-        assert_eq!(pos, Vec2 { x: 1200.0, y: 300.0 });
+        assert_eq!(
+            pos,
+            Vec2 {
+                x: 1200.0,
+                y: 300.0
+            }
+        );
     }
 
     #[test]
@@ -1033,7 +1068,13 @@ mod tests {
 
         assert_eq!(state.focused_monitor(), "right");
         assert_eq!(monitor, "right");
-        assert_eq!(pos, Vec2 { x: 1200.0, y: 300.0 });
+        assert_eq!(
+            pos,
+            Vec2 {
+                x: 1200.0,
+                y: 300.0
+            }
+        );
     }
 
     #[test]
@@ -1083,7 +1124,13 @@ mod tests {
 
         let (monitor, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
         assert_eq!(monitor, "right");
-        assert_eq!(pos, Vec2 { x: 1200.0, y: 300.0 });
+        assert_eq!(
+            pos,
+            Vec2 {
+                x: 1200.0,
+                y: 300.0
+            }
+        );
     }
 
     #[test]
@@ -1132,7 +1179,13 @@ mod tests {
 
         let (monitor, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
         assert_eq!(monitor, "right");
-        assert_eq!(pos, Vec2 { x: 1200.0, y: 300.0 });
+        assert_eq!(
+            pos,
+            Vec2 {
+                x: 1200.0,
+                y: 300.0
+            }
+        );
         assert!(state.spawn_state.pending_spawn_monitor.is_none());
     }
 
@@ -1189,7 +1242,13 @@ mod tests {
         let third_expected = state
             .right_spawn_candidate_for_focus(second_id, size)
             .expect("right spawn candidate");
-        assert_eq!(first, Vec2 { x: 3520.0, y: 600.0 });
+        assert_eq!(
+            first,
+            Vec2 {
+                x: 3520.0,
+                y: 600.0
+            }
+        );
         assert_eq!(second, second_expected);
         assert_eq!(third, third_expected);
     }
@@ -1280,7 +1339,10 @@ mod tests {
 
         state.reveal_new_toplevel_node(id, false, Instant::now());
 
-        assert_eq!(state.spawn_state.active_spawn_pan.map(|pan| pan.node_id), Some(id));
+        assert_eq!(
+            state.spawn_state.active_spawn_pan.map(|pan| pan.node_id),
+            Some(id)
+        );
     }
 
     #[test]
@@ -1301,6 +1363,9 @@ mod tests {
 
         state.reveal_new_toplevel_node(id, false, Instant::now());
 
-        assert_eq!(state.spawn_state.active_spawn_pan.map(|pan| pan.node_id), Some(id));
+        assert_eq!(
+            state.spawn_state.active_spawn_pan.map(|pan| pan.node_id),
+            Some(id)
+        );
     }
 }
