@@ -37,6 +37,7 @@ impl RuntimeTuning {
         load_decay_section(&cfg, &mut out);
         load_field_section(&cfg, &mut out);
         load_physics_section(&cfg, &mut out);
+        load_decorations_section(&cfg, &mut out);
         load_keybind_sections(&cfg, &mut out);
 
         if !inline_keybinds.is_empty() {
@@ -555,6 +556,20 @@ fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         pick_f32(cfg, &["physics.damping"], out.non_overlap_bump_damping);
 }
 
+fn load_decorations_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    if let Some(no_csd) = pick_optional_bool(
+        cfg,
+        &[
+            "decoration.no-csd",
+            "decoration.no_csd",
+            "decorations.no-csd",
+            "decorations.no_csd",
+        ],
+    ) {
+        out.no_csd = no_csd;
+    }
+}
+
 fn load_keybind_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.keybinds.modifier = pick_modifiers(cfg, &["keybinds.mod"], out.keybinds.modifier);
     out.compositor_bindings = default_compositor_bindings(out.keybinds.modifier);
@@ -802,6 +817,15 @@ fn pick_bool(cfg: &RuneConfig, paths: &[&str], default: bool) -> bool {
         }
     }
     default
+}
+
+fn pick_optional_bool(cfg: &RuneConfig, paths: &[&str]) -> Option<bool> {
+    for path in paths {
+        if let Ok(Some(v)) = cfg.get_optional::<bool>(path) {
+            return Some(v);
+        }
+    }
+    None
 }
 
 fn pick_string(cfg: &RuneConfig, paths: &[&str]) -> Option<String> {
@@ -1538,4 +1562,29 @@ end
 
         assert_eq!(tuning.node_show_labels, NodeDisplayPolicy::Always);
     }
+
+    #[test]
+    fn decorations_no_csd_parses_from_plural_section() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-decorations-no-csd-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+decorations:
+  no-csd true
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert!(tuning.no_csd);
+    }
+
 }

@@ -272,7 +272,7 @@ decorations:
   end
 
   # Disable client-side decorations if possible
-  allow-csd false
+  no-csd true
 end
 
 animations:

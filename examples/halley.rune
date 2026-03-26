@@ -101,6 +101,10 @@ physics:
   damping 0.35
 end
 
+decorations:
+  no-csd true
+end
+
 keybinds:
   mod "super"
 

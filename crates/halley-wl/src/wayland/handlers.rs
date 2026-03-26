@@ -4,6 +4,7 @@ use halley_core::field::NodeId;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::desktop::{PopupKind, find_popup_root_surface, utils::bbox_from_surface_tree};
 use smithay::input::pointer::{MotionEvent, PointerHandle};
+use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
@@ -285,6 +286,44 @@ impl PointerConstraintsHandler for Halley {
 }
 
 impl Halley {
+    fn preferred_xdg_decoration_mode(&self) -> XdgDecorationMode {
+        if self.tuning.no_csd {
+            XdgDecorationMode::ServerSide
+        } else {
+            XdgDecorationMode::ClientSide
+        }
+    }
+
+    pub(crate) fn apply_toplevel_tiled_hint(
+        &self,
+        state: &mut smithay::wayland::shell::xdg::ToplevelState,
+    ) {
+        let tiled = self.tuning.no_csd && !state.states.contains(xdg_toplevel::State::Fullscreen);
+        for edge in [
+            xdg_toplevel::State::TiledTop,
+            xdg_toplevel::State::TiledBottom,
+            xdg_toplevel::State::TiledLeft,
+            xdg_toplevel::State::TiledRight,
+        ] {
+            if tiled {
+                state.states.set(edge);
+            } else {
+                state.states.unset(edge);
+            }
+        }
+    }
+
+    pub(crate) fn refresh_xdg_decoration_mode(&mut self) {
+        let mode = self.preferred_xdg_decoration_mode();
+        for toplevel in self.xdg_shell_state.toplevel_surfaces() {
+            toplevel.with_pending_state(|state| {
+                state.decoration_mode = Some(mode);
+                self.apply_toplevel_tiled_hint(state);
+            });
+            toplevel.send_configure();
+        }
+    }
+
     fn install_drm_syncobj_blocker(&mut self, surface: &WlSurface) {
         if self.drm_syncobj_state.is_none() {
             return;
@@ -531,6 +570,35 @@ impl smithay::wayland::compositor::Blocker for SyncobjCommitBlocker {
     }
 }
 
+impl XdgDecorationHandler for Halley {
+    fn new_decoration(&mut self, toplevel: ToplevelSurface) {
+        let mode = self.preferred_xdg_decoration_mode();
+        toplevel.with_pending_state(|state| {
+            state.decoration_mode = Some(mode);
+            self.apply_toplevel_tiled_hint(state);
+        });
+        toplevel.send_configure();
+    }
+
+    fn request_mode(&mut self, toplevel: ToplevelSurface, mode: XdgDecorationMode) {
+        toplevel.with_pending_state(|state| {
+            state.decoration_mode = Some(mode);
+            self.apply_toplevel_tiled_hint(state);
+        });
+        toplevel.send_configure();
+    }
+
+    fn unset_mode(&mut self, toplevel: ToplevelSurface) {
+        toplevel.with_pending_state(|state| {
+            state.decoration_mode = None;
+            self.apply_toplevel_tiled_hint(state);
+        });
+        toplevel.send_configure();
+    }
+}
+
+delegate_xdg_decoration!(Halley);
+
 impl XdgShellHandler for Halley {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
         &mut self.xdg_shell_state
@@ -546,6 +614,8 @@ impl XdgShellHandler for Halley {
             if let Some((w, h)) = initial_size.configure_size {
                 s.size = Some((w, h).into());
             }
+            s.decoration_mode = Some(self.preferred_xdg_decoration_mode());
+            self.apply_toplevel_tiled_hint(s);
         });
         toplevel.send_configure();
 

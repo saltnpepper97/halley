@@ -95,6 +95,7 @@ pub struct RuntimeTuning {
     pub center_window_to_mouse: bool,
     pub restore_last_active_on_pan_return: bool,
     pub physics_enabled: bool,
+    pub no_csd: bool,
 
     pub keybinds: Keybinds,
     pub compositor_bindings: Vec<CompositorBinding>,
@@ -194,6 +195,7 @@ impl Default for RuntimeTuning {
             center_window_to_mouse: false,
             restore_last_active_on_pan_return: true,
             physics_enabled: true,
+            no_csd: false,
 
             keybinds: Keybinds::default(),
             compositor_bindings: default_compositor_bindings(Keybinds::default().modifier),

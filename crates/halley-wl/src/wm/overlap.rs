@@ -687,6 +687,7 @@ impl Halley {
                 } else {
                     s.states.unset(xdg_toplevel::State::Activated);
                 }
+                self.apply_toplevel_tiled_hint(s);
             });
             top.send_configure();
             break;

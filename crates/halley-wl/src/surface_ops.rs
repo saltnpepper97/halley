@@ -52,6 +52,7 @@ pub(crate) fn request_toplevel_resize_mode(
             } else {
                 s.states.unset(xdg_toplevel::State::Resizing);
             }
+            st.apply_toplevel_tiled_hint(s);
         });
         top.send_configure();
         break;

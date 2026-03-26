@@ -192,6 +192,7 @@ impl Halley {
                     s.states.unset(xdg_toplevel::State::Fullscreen);
                     s.fullscreen_output = None;
                 }
+                self.apply_toplevel_tiled_hint(s);
             });
             top.send_configure();
             break;
