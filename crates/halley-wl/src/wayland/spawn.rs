@@ -34,23 +34,23 @@ impl Halley {
     }
 
     fn resolve_spawn_target_monitor(&self) -> String {
-        let fallback = self.interaction_monitor().to_string();
+        let focused = self.focused_monitor().to_string();
         if self
-            .spawn_monitor_state(fallback.as_str())
+            .spawn_monitor_state(focused.as_str())
             .spawn_anchor_mode
             == crate::state::SpawnAnchorMode::View
         {
-            return fallback;
+            return focused;
         }
-        if let Some(id) = self
-            .focus_state
-            .primary_interaction_focus
-            .or_else(|| self.last_input_surface_node())
+        if let Some(id) = self.focus_state.primary_interaction_focus
             && let Some(monitor) = self.monitor_state.node_monitor.get(&id)
         {
             return monitor.clone();
         }
-        fallback
+        if self.monitor_state.monitors.contains_key(focused.as_str()) {
+            return focused;
+        }
+        self.interaction_monitor().to_string()
     }
 
     fn current_spawn_focus(&self, monitor: &str) -> (Option<NodeId>, Vec2) {
@@ -710,6 +710,7 @@ mod tests {
         state.focus_state.last_surface_focus_ms.insert(stale, 1);
         state.focus_state.last_surface_focus_ms.insert(latest, 2);
         state.set_interaction_monitor("right");
+        state.set_focused_monitor("right");
 
         let (monitor, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
         let step = state.spawn_star_step(Vec2 { x: 120.0, y: 90.0 });
@@ -761,6 +762,7 @@ mod tests {
 
         let _ = state.activate_monitor("left");
         state.set_interaction_monitor("left");
+        state.set_focused_monitor("left");
         {
             let spawn = state.spawn_monitor_state_mut("left");
             spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
@@ -772,6 +774,7 @@ mod tests {
 
         let _ = state.activate_monitor("right");
         state.set_interaction_monitor("right");
+        state.set_focused_monitor("right");
         {
             let spawn = state.spawn_monitor_state_mut("right");
             spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
@@ -783,6 +786,7 @@ mod tests {
 
         let _ = state.activate_monitor("left");
         state.set_interaction_monitor("left");
+        state.set_focused_monitor("left");
         let second_left = state.pick_spawn_position(size).1;
 
         assert_eq!(first_left, Vec2 { x: 400.0, y: 300.0 });
@@ -875,6 +879,7 @@ mod tests {
         state.focus_monitor_view("right", Instant::now());
 
         assert_eq!(state.interaction_monitor(), "right");
+        assert_eq!(state.focused_monitor(), "right");
         assert_eq!(state.focus_state.primary_interaction_focus, None);
         assert_eq!(
             state.spawn_monitor_state("right").spawn_anchor_mode,
@@ -882,6 +887,57 @@ mod tests {
         );
 
         let (monitor, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
+        assert_eq!(monitor, "right");
+        assert_eq!(pos, Vec2 { x: 1200.0, y: 300.0 });
+    }
+
+    #[test]
+    fn focused_monitor_beats_interaction_monitor_drift_for_spawn_target() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let left = state.field.spawn_surface(
+            "left",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_monitor(left, "left");
+        state.set_interaction_focus(Some(left), 30_000, Instant::now());
+        state.focus_monitor_view("right", Instant::now());
+
+        state.set_interaction_monitor("left");
+        let (monitor, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
+
+        assert_eq!(state.focused_monitor(), "right");
         assert_eq!(monitor, "right");
         assert_eq!(pos, Vec2 { x: 1200.0, y: 300.0 });
     }

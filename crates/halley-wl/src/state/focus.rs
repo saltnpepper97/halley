@@ -28,6 +28,7 @@ pub(crate) struct FocusState {
 impl Halley {
     pub(crate) fn focus_monitor_view(&mut self, monitor: &str, now: Instant) {
         self.set_interaction_monitor(monitor);
+        self.set_focused_monitor(monitor);
         let _ = self.activate_monitor(monitor);
         self.set_interaction_focus(None, 0, now);
         let view_center = self.view_center_for_monitor(monitor);
@@ -52,6 +53,7 @@ impl Halley {
                 self.update_focus_tracking_for_surface(fid, now_ms);
                 if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
                     self.set_interaction_monitor(monitor.as_str());
+                    self.set_focused_monitor(monitor.as_str());
                     let spawn = self.spawn_monitor_state_mut(monitor.as_str());
                     spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
                     spawn.spawn_pan_start_center = None;
@@ -78,6 +80,7 @@ impl Halley {
             self.update_focus_tracking_for_surface(fid, now_ms);
             if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
                 self.set_interaction_monitor(monitor.as_str());
+                self.set_focused_monitor(monitor.as_str());
                 let spawn = self.spawn_monitor_state_mut(monitor.as_str());
                 spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
                 spawn.spawn_pan_start_center = None;

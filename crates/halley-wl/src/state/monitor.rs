@@ -29,6 +29,7 @@ pub(crate) struct MonitorState {
     pub(crate) outputs: HashMap<String, Output>,
     pub(crate) current_monitor: String,
     pub(crate) interaction_monitor: String,
+    pub(crate) focused_monitor: String,
     pub(crate) monitors: HashMap<String, MonitorSpace>,
     pub(crate) node_monitor: HashMap<NodeId, String>,
     pub(crate) layer_surface_monitor: HashMap<ObjectId, String>,
@@ -110,9 +111,27 @@ impl Halley {
         }
     }
 
+    pub(crate) fn focused_monitor(&self) -> &str {
+        if self
+            .monitor_state
+            .monitors
+            .contains_key(&self.monitor_state.focused_monitor)
+        {
+            self.monitor_state.focused_monitor.as_str()
+        } else {
+            self.interaction_monitor()
+        }
+    }
+
     pub(crate) fn set_interaction_monitor(&mut self, name: &str) {
         if self.monitor_state.monitors.contains_key(name) {
             self.monitor_state.interaction_monitor = name.to_string();
+        }
+    }
+
+    pub(crate) fn set_focused_monitor(&mut self, name: &str) {
+        if self.monitor_state.monitors.contains_key(name) {
+            self.monitor_state.focused_monitor = name.to_string();
         }
     }
 
@@ -216,6 +235,13 @@ impl Halley {
             .contains_key(&self.monitor_state.interaction_monitor)
         {
             self.monitor_state.interaction_monitor = self.monitor_state.current_monitor.clone();
+        }
+        if !self
+            .monitor_state
+            .monitors
+            .contains_key(&self.monitor_state.focused_monitor)
+        {
+            self.monitor_state.focused_monitor = self.monitor_state.interaction_monitor.clone();
         }
 
         let current = self.monitor_state.current_monitor.clone();
