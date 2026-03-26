@@ -20,9 +20,16 @@ pub(crate) fn promote_node_level(
         return false;
     }
     let target_pos = n.pos;
+    let target_monitor = st
+        .monitor_state
+        .node_monitor
+        .get(&node_id)
+        .cloned()
+        .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
+    let focus_center = st.view_center_for_monitor(target_monitor.as_str());
+    let focus_ring = st.focus_ring_for_monitor(target_monitor.as_str());
 
-    let in_focus_ring =
-        st.active_focus_ring().zone(st.viewport.center, target_pos) == FocusZone::Inside;
+    let in_focus_ring = focus_ring.zone(focus_center, target_pos) == FocusZone::Inside;
 
     if in_focus_ring {
         // This is a deliberate promote, not a stale auto-resurrect.

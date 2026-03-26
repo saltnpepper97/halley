@@ -116,8 +116,15 @@ impl Halley {
             return;
         }
 
-        let focus_ring = self.active_focus_ring();
-        if focus_ring.zone(self.viewport.center, n.pos) != FocusZone::Inside {
+        let target_monitor = self
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| self.monitor_state.current_monitor.clone());
+        let focus_center = self.view_center_for_monitor(target_monitor.as_str());
+        let focus_ring = self.focus_ring_for_monitor(target_monitor.as_str());
+        if focus_ring.zone(focus_center, n.pos) != FocusZone::Inside {
             return;
         }
 

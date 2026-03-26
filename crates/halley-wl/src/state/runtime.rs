@@ -203,6 +203,18 @@ impl Halley {
             .focus_ring_for_output(self.monitor_state.current_monitor.as_str())
     }
 
+    pub fn focus_ring_for_monitor(&self, monitor: &str) -> halley_core::viewport::FocusRing {
+        self.tuning.focus_ring_for_output(monitor)
+    }
+
+    pub fn view_center_for_monitor(&self, monitor: &str) -> Vec2 {
+        self.monitor_state
+            .monitors
+            .get(monitor)
+            .map(|space| space.viewport.center)
+            .unwrap_or(self.viewport.center)
+    }
+
     pub fn should_draw_focus_ring_preview(&self, now: Instant) -> bool {
         self.focus_state
             .focus_ring_preview_until_ms
