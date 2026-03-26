@@ -93,6 +93,12 @@ trail:
   wrap true
 end
 
+bearings:
+  show-distance true
+  show-icons true
+  fade-distance 1200
+end
+
 clusters:
   distance-px 280.0
 end
@@ -132,6 +138,10 @@ keybinds:
   # switch monitor focus
   "$var.mod+shift+h" "monitor-focus left"
   "$var.mod+shift+l" "monitor-focus right"
+
+  # bearings
+  "$var.mod+z" "bearings-toggle"
+  "$var.mod+shift+z" "bearings-show"
 
   "$var.mod+shift+," "trail-prev"
   "$var.mod+shift+." "trail-next"

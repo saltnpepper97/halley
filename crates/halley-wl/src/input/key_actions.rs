@@ -12,8 +12,8 @@ use crate::state::Halley;
 use crate::surface_ops::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{
-    CompositorBindingAction, DirectionalAction, MonitorBindingAction, MonitorBindingTarget,
-    NodeBindingAction, RuntimeTuning, TrailBindingAction,
+    BearingsBindingAction, CompositorBindingAction, DirectionalAction, MonitorBindingAction,
+    MonitorBindingTarget, NodeBindingAction, RuntimeTuning, TrailBindingAction,
 };
 use halley_ipc::NodeMoveDirection;
 
@@ -151,6 +151,13 @@ pub(crate) fn apply_compositor_action_press(
                 halley_ipc::Response::Ok
             )
         }
+        CompositorBindingAction::Bearings(BearingsBindingAction::Show) => {
+            st.set_bearings_visible(true)
+        }
+        CompositorBindingAction::Bearings(BearingsBindingAction::Toggle) => {
+            st.toggle_bearings_visible();
+            true
+        }
         CompositorBindingAction::ZoomIn => {
             st.zoom_by_steps(1.0);
             true
@@ -189,6 +196,7 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::Trail(TrailBindingAction::Prev)
             | CompositorBindingAction::Trail(TrailBindingAction::Next)
             | CompositorBindingAction::Monitor(_)
+            | CompositorBindingAction::Bearings(_)
             | CompositorBindingAction::Quit { .. }
             | CompositorBindingAction::ZoomIn
             | CompositorBindingAction::ZoomOut

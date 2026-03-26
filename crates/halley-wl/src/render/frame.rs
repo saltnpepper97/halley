@@ -20,6 +20,8 @@ use crate::state::Halley;
 
 use super::ACTIVE_WINDOW_FRAME_PAD_PX;
 use super::app_icon::ensure_node_app_icon_resources;
+use super::bearings::BearingChipLayout;
+use super::bearings::{collect_bearing_layouts, draw_bearings, ensure_bearing_icon_resources};
 use super::cursor::{cursor_surface_hotspot, draw_cursor_sprite};
 use super::cursor_theme::themed_cursor_sprite_with_fallback;
 use super::layer_shell::collect_layer_surfaces;
@@ -59,6 +61,7 @@ struct SceneCollections {
     hover_preview_rect: Option<(i32, i32, i32, i32)>,
     hover_preview_elements: Vec<SurfaceElement>,
     render_nodes: Vec<NodeSnapshot>,
+    bearing_layouts: Vec<BearingChipLayout>,
 }
 
 struct CursorScene {
@@ -160,6 +163,8 @@ pub(crate) fn draw_debug_frame_to_target(
         prepared.now,
     );
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
+    let current_monitor = st.monitor_state.current_monitor.clone();
+    ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
     let offscreen_cleanup_program = renderer
         .compile_custom_texture_shader(include_str!("shaders/offscreen_cleanup.frag"), &[])?;
@@ -207,6 +212,7 @@ fn collect_debug_frame_scene(
     now: Instant,
 ) -> SceneCollections {
     let render_monitor = st.monitor_state.current_monitor.clone();
+    let bearings_mix = st.bearings_mix_for_monitor(render_monitor.as_str());
     let (
         layer_background_elements,
         layer_bottom_elements,
@@ -267,6 +273,8 @@ fn collect_debug_frame_scene(
             })
         })
         .collect();
+    let bearing_layouts =
+        collect_bearing_layouts(st, size.w, size.h, render_monitor.as_str(), bearings_mix);
 
     SceneCollections {
         layer_background_elements,
@@ -287,6 +295,7 @@ fn collect_debug_frame_scene(
         hover_preview_rect,
         hover_preview_elements,
         render_nodes,
+        bearing_layouts,
     }
 }
 
@@ -415,6 +424,10 @@ fn draw_debug_frame_scene(
             &scene.layer_overlay_elements,
             &[prepared.damage],
         );
+    }
+
+    if !scene.bearing_layouts.is_empty() {
+        draw_bearings(frame, st, prepared.damage, &scene.bearing_layouts)?;
     }
 
     draw_node_hover_labels(

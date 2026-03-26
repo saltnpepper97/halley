@@ -325,7 +325,7 @@ impl Halley {
         }
     }
 
-    fn viewport_for_monitor(&self, monitor: &str) -> halley_core::viewport::Viewport {
+    pub(crate) fn viewport_for_monitor(&self, monitor: &str) -> halley_core::viewport::Viewport {
         if self.monitor_state.current_monitor == monitor {
             self.viewport
         } else {

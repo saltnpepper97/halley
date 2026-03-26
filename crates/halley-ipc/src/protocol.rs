@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::IpcError;
-use crate::types::{NodeInfo, NodeListResponse, OutputsResponse, TrailListResponse};
+use crate::types::{
+    BearingsStatusResponse, NodeInfo, NodeListResponse, OutputsResponse, TrailListResponse,
+};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum NodeMoveDirection {
@@ -51,6 +53,14 @@ pub enum MonitorFocusDirection {
 pub enum MonitorFocusTarget {
     Direction(MonitorFocusDirection),
     Output(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BearingsRequest {
+    Show,
+    Hide,
+    Toggle,
+    Status,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,6 +126,7 @@ pub enum Request {
     Node(NodeRequest),
     Trail(TrailRequest),
     Monitor(MonitorRequest),
+    Bearings(BearingsRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,5 +137,6 @@ pub enum Response {
     NodeList(NodeListResponse),
     NodeInfo(NodeInfo),
     TrailList(TrailListResponse),
+    BearingsStatus(BearingsStatusResponse),
     Error(IpcError),
 }

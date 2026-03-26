@@ -8,8 +8,9 @@ use halley_core::field::Vec2;
 use halley_core::viewport::{FocusRing, Viewport};
 
 use super::{
-    CompositorBinding, CompositorBindingAction, DirectionalAction, KeyModifiers, Keybinds,
-    LaunchBinding, NodeBindingAction, PointerBinding, PointerBindingAction, TrailBindingAction,
+    BearingsBindingAction, CompositorBinding, CompositorBindingAction, DirectionalAction,
+    KeyModifiers, Keybinds, LaunchBinding, NodeBindingAction, PointerBinding,
+    PointerBindingAction, TrailBindingAction,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,6 +74,13 @@ impl FocusRingConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BearingsConfig {
+    pub show_distance: bool,
+    pub show_icons: bool,
+    pub fade_distance: f32,
+}
+
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
     pub debug_tick_dump: bool,
@@ -96,6 +104,7 @@ pub struct RuntimeTuning {
     pub node_border_color_inactive: NodeBorderColorMode,
     pub click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode,
     pub click_collapsed_pan: ClickCollapsedPanMode,
+    pub bearings: BearingsConfig,
 
     pub dev_enabled: bool,
     pub dev_show_geometry_overlay: bool,
@@ -200,6 +209,11 @@ impl Default for RuntimeTuning {
             node_border_color_inactive: NodeBorderColorMode::UseWindowInactive,
             click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode::Activate,
             click_collapsed_pan: ClickCollapsedPanMode::IfOffscreen,
+            bearings: BearingsConfig {
+                show_distance: true,
+                show_icons: true,
+                fade_distance: 1200.0,
+            },
 
             dev_enabled: false,
             dev_show_geometry_overlay: false,
@@ -302,6 +316,7 @@ impl RuntimeTuning {
         self.primary_hot_inner_frac = self.primary_hot_inner_frac.clamp(0.1, 1.0);
         self.primary_to_node_ms = self.primary_to_node_ms.clamp(250, 7_200_000);
         self.node_icon_size = self.node_icon_size.clamp(0.35, 0.95);
+        self.bearings.fade_distance = self.bearings.fade_distance.clamp(120.0, 100_000.0);
 
         self.dev_zoom_decay_min_frac = self.dev_zoom_decay_min_frac.clamp(0.005, 0.5);
         self.dev_anim_state_change_ms = self.dev_anim_state_change_ms.clamp(30, 3_000);
@@ -407,6 +422,11 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
             modifiers: modifier,
             key: key("n"),
             action: CompositorBindingAction::ToggleState,
+        },
+        CompositorBinding {
+            modifiers: modifier,
+            key: key("z"),
+            action: CompositorBindingAction::Bearings(BearingsBindingAction::Toggle),
         },
         CompositorBinding {
             modifiers: modifier,

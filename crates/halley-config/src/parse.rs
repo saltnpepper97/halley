@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use super::{
-    CompositorBinding, CompositorBindingAction, DirectionalAction, KeyModifiers, LaunchBinding,
-    MonitorBindingAction, MonitorBindingTarget, NodeBindingAction, PointerBinding,
-    PointerBindingAction, TrailBindingAction,
+    BearingsBindingAction, CompositorBinding, CompositorBindingAction, DirectionalAction,
+    KeyModifiers, LaunchBinding, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction,
+    PointerBinding, PointerBindingAction, TrailBindingAction,
 };
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
 use crate::layout::FocusRingConfig;
@@ -33,6 +33,7 @@ impl RuntimeTuning {
         load_env_section(&cfg, &mut out);
         load_viewport_section(&cfg, &mut out);
         load_focus_ring_section(&cfg, &mut out);
+        load_bearings_section(&cfg, &mut out);
         load_trail_section(&cfg, &mut out);
         load_nodes_section(&cfg, &mut out);
         load_clusters_section(&cfg, &mut out);
@@ -342,6 +343,24 @@ fn load_focus_ring_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         cfg,
         &["focus-ring.primary-ry", "focus-ring.primary_ry"],
         out.focus_ring_ry,
+    );
+}
+
+fn load_bearings_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.bearings.show_distance = pick_bool(
+        cfg,
+        &["bearings.show-distance", "bearings.show_distance"],
+        out.bearings.show_distance,
+    );
+    out.bearings.show_icons = pick_bool(
+        cfg,
+        &["bearings.show-icons", "bearings.show_icons"],
+        out.bearings.show_icons,
+    );
+    out.bearings.fade_distance = pick_f32(
+        cfg,
+        &["bearings.fade-distance", "bearings.fade_distance"],
+        out.bearings.fade_distance,
     );
 }
 
@@ -1086,6 +1105,22 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "close_focused" | "close-focused" | "close_window" | "close-window" => {
             upsert_compositor_binding(out, mods, key, CompositorBindingAction::CloseFocusedWindow);
         }
+        "bearings_show" | "bearings-show" => {
+            upsert_compositor_binding(
+                out,
+                mods,
+                key,
+                CompositorBindingAction::Bearings(BearingsBindingAction::Show),
+            );
+        }
+        "bearings_toggle" | "bearings-toggle" => {
+            upsert_compositor_binding(
+                out,
+                mods,
+                key,
+                CompositorBindingAction::Bearings(BearingsBindingAction::Toggle),
+            );
+        }
         "quit" => {
             upsert_compositor_binding(
                 out,
@@ -1282,10 +1317,11 @@ mod tests {
 
     use super::apply_explicit_keybind_overrides_map;
     use crate::{
-        ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-        CompositorBindingAction, DirectionalAction, MonitorBindingAction, MonitorBindingTarget,
-        NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy, PanToNewMode, RuntimeTuning,
-        WHEEL_DOWN_CODE, WHEEL_UP_CODE, keybinds::key_name_to_evdev,
+        BearingsBindingAction, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
+        CloseRestorePanMode, CompositorBindingAction, DirectionalAction, MonitorBindingAction,
+        MonitorBindingTarget, NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy,
+        PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
+        keybinds::key_name_to_evdev,
     };
 
     #[test]
@@ -1353,6 +1389,24 @@ mod tests {
                 == CompositorBindingAction::Monitor(MonitorBindingAction::Focus(
                     MonitorBindingTarget::Output("HDMI-A-1".to_string()),
                 ))
+        }));
+    }
+
+    #[test]
+    fn bearings_family_actions_parse_as_compositor_bindings() {
+        let mut tuning = RuntimeTuning::default();
+        let bindings = HashMap::from([
+            ("$mod+z".to_string(), "bearings-toggle".to_string()),
+            ("$mod+shift+z".to_string(), "bearings-show".to_string()),
+        ]);
+
+        apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
+
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::Bearings(BearingsBindingAction::Toggle)
+        }));
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.action == CompositorBindingAction::Bearings(BearingsBindingAction::Show)
         }));
     }
 

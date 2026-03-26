@@ -102,6 +102,42 @@ pub(crate) fn activate_collapsed_node_from_click(
     }
 }
 
+pub(crate) fn focus_or_reveal_surface_node(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+) -> bool {
+    let Some(node) = st.field.node(node_id).cloned() else {
+        return false;
+    };
+    if node.kind != halley_core::field::NodeKind::Surface {
+        return false;
+    }
+
+    let target_monitor = st
+        .monitor_state
+        .node_monitor
+        .get(&node_id)
+        .cloned()
+        .unwrap_or_else(|| st.monitor_state.current_monitor.clone());
+    if st.focused_monitor() != target_monitor {
+        st.focus_monitor_view(target_monitor.as_str(), now);
+    }
+
+    match node.state {
+        halley_core::field::NodeState::Node => promote_node_level(st, node_id, now),
+        halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting => {
+            st.set_interaction_focus(Some(node_id), 30_000, now);
+            let panned = st
+                .minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
+                .map(|target| st.animate_viewport_center_to(target, now))
+                .unwrap_or(false);
+            panned || true
+        }
+        halley_core::field::NodeState::Core => false,
+    }
+}
+
 pub(crate) fn latest_surface_node(st: &Halley) -> Option<halley_core::field::NodeId> {
     st.last_input_surface_node_for_monitor(st.focused_monitor())
         .or_else(|| st.last_input_surface_node())

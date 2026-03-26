@@ -8,14 +8,14 @@ pub use codec::{
 };
 pub use error::{CodecError, IpcError};
 pub use protocol::{
-    CompositorRequest, DpmsCommand, MonitorFocusDirection, MonitorFocusTarget, MonitorRequest,
-    NodeMoveDirection, NodeRequest, NodeSelector, Request, Response, TrailDirection, TrailRequest,
-    TrailTarget,
+    BearingsRequest, CompositorRequest, DpmsCommand, MonitorFocusDirection, MonitorFocusTarget,
+    MonitorRequest, NodeMoveDirection, NodeRequest, NodeSelector, Request, Response,
+    TrailDirection, TrailRequest, TrailTarget,
 };
 pub use types::{
-    LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup,
-    NodeProtocolFamily, NodeRelationInfo, NodeRole, NodeState, OutputInfo, OutputStatus,
-    OutputsResponse, TrailEntryInfo, TrailListResponse,
+    BearingsStatusResponse, LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse,
+    NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo, NodeRole, NodeState, OutputInfo,
+    OutputStatus, OutputsResponse, TrailEntryInfo, TrailListResponse,
 };
 
 use std::env;

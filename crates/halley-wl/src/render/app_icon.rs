@@ -26,54 +26,87 @@ pub(crate) fn ensure_node_app_icon_resources(
     st: &mut Halley,
     render_nodes: &[NodeSnapshot],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    for node in render_nodes {
-        if !matches!(
-            node.state,
-            halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
-        ) {
-            continue;
-        }
+    let node_ids = render_nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.state,
+                halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+            )
+        })
+        .map(|node| node.id)
+        .collect::<Vec<_>>();
+    ensure_app_icon_resources_for_node_ids(renderer, st, node_ids.into_iter())
+}
 
-        let Some(app_id) = st.node_app_ids.get(&node.id).cloned() else {
-            continue;
-        };
-        if st.render_state.node_app_icon_cache.contains_key(&app_id) {
-            continue;
-        }
-
-        let Some(icon_path) = resolve_app_icon_path(&app_id) else {
-            st.render_state
-                .node_app_icon_cache
-                .insert(app_id, NodeAppIconCacheEntry::Missing);
-            continue;
-        };
-
-        let Some(raster) = load_icon_raster(&icon_path) else {
-            st.render_state
-                .node_app_icon_cache
-                .insert(app_id, NodeAppIconCacheEntry::Missing);
+pub(crate) fn ensure_app_icon_resources_for_node_ids<I>(
+    renderer: &mut GlesRenderer,
+    st: &mut Halley,
+    node_ids: I,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    I: IntoIterator<Item = halley_core::field::NodeId>,
+{
+    for node_id in node_ids {
+        let Some(app_id) = st.node_app_ids.get(&node_id).cloned() else {
             continue;
         };
+        ensure_app_icon_resource(renderer, st, &app_id)?;
+    }
+    Ok(())
+}
 
-        let texture = renderer.import_memory(
-            &raster.pixels_rgba,
-            Fourcc::Abgr8888,
-            (raster.width, raster.height).into(),
-            false,
-        );
-
-        let entry = match texture {
-            Ok(texture) => NodeAppIconCacheEntry::Ready(NodeAppIconTexture {
-                texture,
-                width: raster.width,
-                height: raster.height,
-            }),
-            Err(_) => NodeAppIconCacheEntry::Missing,
-        };
-        st.render_state.node_app_icon_cache.insert(app_id, entry);
+fn ensure_app_icon_resource(
+    renderer: &mut GlesRenderer,
+    st: &mut Halley,
+    app_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if st.render_state.node_app_icon_cache.contains_key(app_id) {
+        return Ok(());
     }
 
+    let Some(icon_path) = resolve_app_icon_path(app_id) else {
+        st.render_state
+            .node_app_icon_cache
+            .insert(app_id.to_string(), NodeAppIconCacheEntry::Missing);
+        return Ok(());
+    };
+
+    let Some(raster) = load_icon_raster(&icon_path) else {
+        st.render_state
+            .node_app_icon_cache
+            .insert(app_id.to_string(), NodeAppIconCacheEntry::Missing);
+        return Ok(());
+    };
+
+    let texture = renderer.import_memory(
+        &raster.pixels_rgba,
+        Fourcc::Abgr8888,
+        (raster.width, raster.height).into(),
+        false,
+    );
+
+    let entry = match texture {
+        Ok(texture) => NodeAppIconCacheEntry::Ready(NodeAppIconTexture {
+            texture,
+            width: raster.width,
+            height: raster.height,
+        }),
+        Err(_) => NodeAppIconCacheEntry::Missing,
+    };
+    st.render_state
+        .node_app_icon_cache
+        .insert(app_id.to_string(), entry);
     Ok(())
+}
+
+pub(crate) fn node_app_icon_entry<'a>(
+    st: &'a Halley,
+    node_id: halley_core::field::NodeId,
+) -> Option<&'a NodeAppIconCacheEntry> {
+    st.node_app_ids
+        .get(&node_id)
+        .and_then(|app_id| st.render_state.node_app_icon_cache.get(app_id))
 }
 
 fn resolve_app_icon_path(app_id: &str) -> Option<PathBuf> {

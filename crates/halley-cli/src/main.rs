@@ -1,5 +1,5 @@
 use halley_ipc::{
-    send_request, CompositorRequest, DpmsCommand, IpcError, LogicalOutputInfo,
+    send_request, BearingsRequest, CompositorRequest, DpmsCommand, IpcError, LogicalOutputInfo,
     MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, NodeInfo, NodeListResponse,
     NodeMoveDirection, NodeProtocolFamily, NodeRelationInfo, NodeRequest, NodeRole, NodeSelector,
     OutputInfo, OutputStatus, OutputsResponse, Request, Response, TrailEntryInfo,
@@ -49,6 +49,11 @@ enum HelpTopic {
     TrailGoto,
     Monitor,
     MonitorFocus,
+    Bearings,
+    BearingsShow,
+    BearingsHide,
+    BearingsToggle,
+    BearingsStatus,
 }
 
 struct UsageError {
@@ -76,6 +81,7 @@ fn parse_request(args: &[String]) -> Result<ParseOutcome, UsageError> {
         "node" => parse_node_request(&args[1..]),
         "trail" => parse_trail_request(&args[1..]),
         "monitor" => parse_monitor_request(&args[1..]),
+        "bearings" => parse_bearings_request(&args[1..]),
         "quit" => parse_leaf_alias(
             &args[1..],
             HelpTopic::Comp,
@@ -361,6 +367,36 @@ fn parse_monitor_focus(args: &[String]) -> Result<ParseOutcome, UsageError> {
     )))
 }
 
+fn parse_bearings_request(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    match args.first().map(String::as_str) {
+        None | Some("-h" | "--help") => Ok(ParseOutcome::Help(HelpTopic::Bearings)),
+        Some("show") => parse_leaf_command(
+            &args[1..],
+            HelpTopic::BearingsShow,
+            Request::Bearings(BearingsRequest::Show),
+        ),
+        Some("hide") => parse_leaf_command(
+            &args[1..],
+            HelpTopic::BearingsHide,
+            Request::Bearings(BearingsRequest::Hide),
+        ),
+        Some("toggle") => parse_leaf_command(
+            &args[1..],
+            HelpTopic::BearingsToggle,
+            Request::Bearings(BearingsRequest::Toggle),
+        ),
+        Some("status") => parse_leaf_command(
+            &args[1..],
+            HelpTopic::BearingsStatus,
+            Request::Bearings(BearingsRequest::Status),
+        ),
+        Some(other) => Err(UsageError::new(
+            format!("unknown bearings command: {other}"),
+            HelpTopic::Bearings,
+        )),
+    }
+}
+
 fn parse_output_option(args: &[String], help: HelpTopic) -> Result<Option<String>, UsageError> {
     let mut output = None;
     let mut index = 0usize;
@@ -500,6 +536,7 @@ fn print_help(topic: HelpTopic) {
                 ("node", "Node actions and inspection"),
                 ("trail", "Trail navigation and inspection"),
                 ("monitor", "Monitor-related actions"),
+                ("bearings", "Bearings visibility controls"),
             ],
         ),
         HelpTopic::Comp => print_help_page(
@@ -636,6 +673,41 @@ fn print_help(topic: HelpTopic) {
                 "Direction or exact output name to focus",
             )],
         ),
+        HelpTopic::Bearings => print_help_page(
+            "halleyctl bearings",
+            &[
+                "halleyctl bearings show",
+                "halleyctl bearings hide",
+                "halleyctl bearings toggle",
+                "halleyctl bearings status",
+            ],
+            &[
+                ("show", "Enable bearings"),
+                ("hide", "Hide bearings"),
+                ("toggle", "Toggle bearings visibility"),
+                ("status", "Print current bearings visibility"),
+            ],
+        ),
+        HelpTopic::BearingsShow => print_help_page(
+            "halleyctl bearings show",
+            &["halleyctl bearings show"],
+            &[("show", "Enable bearings")],
+        ),
+        HelpTopic::BearingsHide => print_help_page(
+            "halleyctl bearings hide",
+            &["halleyctl bearings hide"],
+            &[("hide", "Hide bearings")],
+        ),
+        HelpTopic::BearingsToggle => print_help_page(
+            "halleyctl bearings toggle",
+            &["halleyctl bearings toggle"],
+            &[("toggle", "Toggle bearings visibility")],
+        ),
+        HelpTopic::BearingsStatus => print_help_page(
+            "halleyctl bearings status",
+            &["halleyctl bearings status"],
+            &[("status", "Print current bearings visibility")],
+        ),
     }
 }
 
@@ -695,6 +767,13 @@ fn print_response(response: Response) -> Result<(), String> {
                 print_trail_list(&list);
                 Ok(())
             }
+        }
+        Response::BearingsStatus(status) => {
+            println!(
+                "{}",
+                if status.visible { "visible" } else { "hidden" }
+            );
+            Ok(())
         }
         Response::Error(err) => Err(format_ipc_error(&err)),
     }

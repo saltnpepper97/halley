@@ -9,7 +9,8 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::interaction::actions::activate_collapsed_node_from_click;
+use crate::interaction::actions::{activate_collapsed_node_from_click, focus_or_reveal_surface_node};
+use crate::render::bearing_hit_test;
 use crate::interaction::types::{
     DragAxisMode, DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState, ResizeCtx,
     TitleClickCtx,
@@ -862,6 +863,18 @@ pub(crate) fn handle_pointer_button_input(
         world_now,
         workspace_active: st.has_active_cluster_workspace(),
     };
+    if matches!(button_state, ButtonState::Pressed)
+        && left
+        && !frame.workspace_active
+        && let Some(node_id) = bearing_hit_test(st, local_w, local_h, target_monitor.as_str(), local_sx, local_sy)
+    {
+        let now = Instant::now();
+        let _ = focus_or_reveal_surface_node(st, node_id, now);
+        ps.last_title_click = None;
+        ps.panning = false;
+        backend.request_redraw();
+        return;
+    }
     let mods = mod_state.borrow().clone();
     let intercepted_binding = match button_state {
         ButtonState::Pressed => {

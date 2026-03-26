@@ -129,6 +129,11 @@ pub struct TrailListResponse {
     pub cursor_index: Option<usize>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BearingsStatusResponse {
+    pub visible: bool,
+}
+
 impl ModeInfo {
     pub fn display_string(&self) -> String {
         match self.refresh_hz {

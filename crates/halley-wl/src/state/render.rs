@@ -87,6 +87,8 @@ pub(crate) struct RenderState {
     pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
     pub(crate) node_hover_mix: HashMap<NodeId, f32>,
     pub(crate) node_preview_hover: HashMap<String, PreviewHoverState>,
+    pub(crate) bearings_visible: bool,
+    pub(crate) bearings_mix: HashMap<String, f32>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
     pub(crate) node_label_program: Option<GlesTexProgram>,
@@ -129,6 +131,9 @@ impl Halley {
         self.render_state.node_preview_hover.retain(|_, state| {
             state.node = state.node.filter(|id| alive.contains(id));
             state.node.is_some() || state.mix > 0.002
+        });
+        self.render_state.bearings_mix.retain(|monitor, mix| {
+            self.monitor_state.monitors.contains_key(monitor) || *mix > 0.002
         });
         self.prune_window_offscreen_cache(now);
     }
@@ -256,6 +261,46 @@ impl Halley {
             state.node = None;
         }
         state.node.map(|id| (id, state.mix))
+    }
+
+    pub fn bearings_visible(&self) -> bool {
+        self.render_state.bearings_visible
+    }
+
+    pub fn set_bearings_visible(&mut self, visible: bool) -> bool {
+        if self.render_state.bearings_visible == visible {
+            return false;
+        }
+        self.render_state.bearings_visible = visible;
+        true
+    }
+
+    pub fn toggle_bearings_visible(&mut self) -> bool {
+        let next = !self.render_state.bearings_visible;
+        self.set_bearings_visible(next);
+        next
+    }
+
+    pub fn bearings_mix_for_monitor(&mut self, monitor: &str) -> f32 {
+        let target = if self.render_state.bearings_visible {
+            1.0
+        } else {
+            0.0
+        };
+        let mix = self
+            .render_state
+            .bearings_mix
+            .entry(monitor.to_string())
+            .or_insert(target);
+        let k = if target > 0.5 { 0.18 } else { 0.12 };
+        *mix += (target - *mix) * k;
+        if (*mix - target).abs() < 0.002 {
+            *mix = target;
+        }
+        if target <= 0.0 && *mix <= 0.002 {
+            *mix = 0.0;
+        }
+        *mix
     }
 
     pub fn set_app_focused(&mut self, focused: bool) {

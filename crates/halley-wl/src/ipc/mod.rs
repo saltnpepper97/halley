@@ -3,10 +3,11 @@ use std::time::Instant;
 
 use halley_core::field::{NodeId, NodeKind as FieldNodeKind, NodeState as FieldNodeState};
 use halley_ipc::{
-    CompositorRequest, IpcError, MonitorFocusDirection, MonitorFocusTarget, MonitorRequest,
-    NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo,
-    NodeRequest, NodeRole, NodeSelector, NodeState, Request, Response, TrailEntryInfo,
-    TrailListResponse, TrailRequest, TrailTarget,
+    BearingsRequest, BearingsStatusResponse, CompositorRequest, IpcError,
+    MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, NodeInfo, NodeKind,
+    NodeListResponse, NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo, NodeRequest,
+    NodeRole, NodeSelector, NodeState, Request, Response, TrailEntryInfo, TrailListResponse,
+    TrailRequest, TrailTarget,
 };
 use smithay::desktop::PopupManager;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
@@ -22,6 +23,7 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Node(request) => handle_node_request(st, request),
         Request::Trail(request) => handle_trail_request(st, request),
         Request::Monitor(request) => handle_monitor_request(st, request),
+        Request::Bearings(request) => handle_bearings_request(st, request),
         Request::Compositor(CompositorRequest::Outputs) => Response::Error(IpcError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
@@ -139,6 +141,26 @@ fn handle_monitor_request(st: &mut Halley, request: MonitorRequest) -> Response 
             }
             Err(err) => Response::Error(err),
         },
+    }
+}
+
+fn handle_bearings_request(st: &mut Halley, request: BearingsRequest) -> Response {
+    match request {
+        BearingsRequest::Show => {
+            st.set_bearings_visible(true);
+            Response::Ok
+        }
+        BearingsRequest::Hide => {
+            st.set_bearings_visible(false);
+            Response::Ok
+        }
+        BearingsRequest::Toggle => {
+            st.toggle_bearings_visible();
+            Response::Ok
+        }
+        BearingsRequest::Status => Response::BearingsStatus(BearingsStatusResponse {
+            visible: st.bearings_visible(),
+        }),
     }
 }
 

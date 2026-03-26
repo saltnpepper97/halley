@@ -60,6 +60,12 @@ pub enum MonitorBindingAction {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BearingsBindingAction {
+    Show,
+    Toggle,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CompositorBindingAction {
     Reload,
     ToggleState,
@@ -71,6 +77,7 @@ pub enum CompositorBindingAction {
     Node(NodeBindingAction),
     Trail(TrailBindingAction),
     Monitor(MonitorBindingAction),
+    Bearings(BearingsBindingAction),
 }
 
 #[derive(Clone, Debug)]
