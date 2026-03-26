@@ -5,7 +5,7 @@ use smithay::{
         element::{Kind, surface::render_elements_from_surface_tree},
         gles::GlesRenderer,
     },
-    desktop::PopupManager,
+    desktop::{PopupManager, utils::bbox_from_surface_tree},
     utils::{Logical, Physical, Size},
     wayland::shell::wlr_layer::Layer,
 };
@@ -14,6 +14,34 @@ use crate::state::Halley;
 
 type LayerElements =
     Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>;
+
+fn clamp_layer_popup_origin(
+    popup: &smithay::desktop::PopupKind,
+    popup_origin: (i32, i32),
+    output_size: Size<i32, Logical>,
+) -> (i32, i32) {
+    let bbox = bbox_from_surface_tree(popup.wl_surface(), (0, 0));
+    let mut origin_x = popup_origin.0;
+    let mut origin_y = popup_origin.1;
+
+    let left = origin_x + bbox.loc.x;
+    let right = left + bbox.size.w;
+    if left < 0 {
+        origin_x -= left;
+    } else if right > output_size.w {
+        origin_x -= right - output_size.w;
+    }
+
+    let top = origin_y + bbox.loc.y;
+    let bottom = top + bbox.size.h;
+    if top < 0 {
+        origin_y -= top;
+    } else if bottom > output_size.h {
+        origin_y -= bottom - output_size.h;
+    }
+
+    (origin_x, origin_y)
+}
 
 pub(crate) fn collect_layer_surfaces(
     renderer: &mut GlesRenderer,
@@ -41,9 +69,13 @@ pub(crate) fn collect_layer_surfaces(
         popups.reverse();
         for (popup, popup_offset) in popups {
             let popup_geo = popup.geometry();
-            let popup_origin = (
+            let popup_origin = clamp_layer_popup_origin(
+                &popup,
+                (
                 placement.origin.x + popup_offset.x - popup_geo.loc.x,
                 placement.origin.y + popup_offset.y - popup_geo.loc.y,
+                ),
+                logical_size,
             );
             elements.extend(render_elements_from_surface_tree(
                 renderer,

@@ -5,11 +5,11 @@ use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::desktop::{PopupKind, find_popup_root_surface, utils::bbox_from_surface_tree};
 use smithay::input::pointer::{MotionEvent, PointerHandle};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+use smithay::reexports::wayland_protocols::xdg::shell::server::{xdg_positioner, xdg_toplevel};
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
 };
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{Logical, Rectangle, SERIAL_COUNTER};
 use smithay::wayland::compositor::{add_blocker, with_states};
 use smithay::wayland::dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, ImportNotifier};
 use smithay::wayland::drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjHandler};
@@ -77,6 +77,61 @@ fn initial_toplevel_size(st: &Halley, toplevel: &ToplevelSurface) -> InitialTopl
         node_size,
         configure_size,
     }
+}
+
+fn layer_popup_constraint_target(
+    st: &Halley,
+    popup: &PopupSurface,
+) -> Option<Rectangle<i32, Logical>> {
+    let popup = PopupKind::from(popup.clone());
+    let root = find_popup_root_surface(&popup).ok()?;
+    if !st.is_layer_surface(&root) {
+        return None;
+    }
+
+    let monitor = st.layer_surface_monitor_name(&root);
+    let placement = st
+        .layer_shell_placements_for_monitor(monitor.as_str())
+        .into_iter()
+        .find(|placement| placement.wl_surface.id() == root.id())?;
+    let output_size = st.layer_output_size_for_monitor(monitor.as_str());
+
+    Some(Rectangle::new(
+        (-placement.origin.x, -placement.origin.y).into(),
+        output_size,
+    ))
+}
+
+fn constrain_layer_popup(st: &Halley, popup: &PopupSurface, positioner: PositionerState) {
+    let Some(target) = layer_popup_constraint_target(st, popup) else {
+        return;
+    };
+    let mut geometry = positioner.get_unconstrained_geometry(target);
+    if !rectangle_fits_within(target, geometry) {
+        let mut fallback_positioner = positioner;
+        fallback_positioner.constraint_adjustment |=
+            xdg_positioner::ConstraintAdjustment::FlipX
+                | xdg_positioner::ConstraintAdjustment::FlipY
+                | xdg_positioner::ConstraintAdjustment::SlideX
+                | xdg_positioner::ConstraintAdjustment::SlideY
+                | xdg_positioner::ConstraintAdjustment::ResizeX
+                | xdg_positioner::ConstraintAdjustment::ResizeY;
+        geometry = fallback_positioner.get_unconstrained_geometry(target);
+    }
+
+    popup.with_pending_state(|state| {
+        state.geometry = geometry;
+    });
+}
+
+fn rectangle_fits_within(
+    target: Rectangle<i32, Logical>,
+    rect: Rectangle<i32, Logical>,
+) -> bool {
+    rect.loc.x >= target.loc.x
+        && rect.loc.y >= target.loc.y
+        && rect.loc.x + rect.size.w <= target.loc.x + target.size.w
+        && rect.loc.y + rect.size.h <= target.loc.y + target.size.h
 }
 
 impl SeatHandler for Halley {
@@ -643,10 +698,11 @@ impl XdgShellHandler for Halley {
         self.refresh_node_identity_for_surface(surface.wl_surface(), "Window");
     }
 
-    fn new_popup(&mut self, popup: PopupSurface, _positioner: PositionerState) {
+    fn new_popup(&mut self, popup: PopupSurface, positioner: PositionerState) {
         let _ = self
             .popup_manager
             .track_popup(PopupKind::from(popup.clone()));
+        constrain_layer_popup(self, &popup, positioner);
         let _ = popup.send_configure();
     }
 
@@ -696,9 +752,10 @@ impl XdgShellHandler for Halley {
     fn reposition_request(
         &mut self,
         surface: PopupSurface,
-        _positioner: PositionerState,
+        positioner: PositionerState,
         token: u32,
     ) {
+        constrain_layer_popup(self, &surface, positioner);
         surface.send_repositioned(token);
         let _ = surface.send_configure();
     }

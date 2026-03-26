@@ -1,6 +1,8 @@
 use std::time::Instant;
 
-use smithay::desktop::{PopupManager, WindowSurfaceType, utils::under_from_surface_tree};
+use smithay::desktop::{
+    PopupManager, WindowSurfaceType, utils::{bbox_from_surface_tree, under_from_surface_tree},
+};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};
 
@@ -9,6 +11,34 @@ use crate::spatial::pick_hit_node_at;
 use crate::state::Halley;
 
 use super::resize_helpers::active_node_surface_transform_screen_details;
+
+fn clamp_layer_popup_origin(
+    popup: &smithay::desktop::PopupKind,
+    popup_origin: (i32, i32),
+    output_size: (i32, i32),
+) -> (i32, i32) {
+    let bbox = bbox_from_surface_tree(popup.wl_surface(), (0, 0));
+    let mut origin_x = popup_origin.0;
+    let mut origin_y = popup_origin.1;
+
+    let left = origin_x + bbox.loc.x;
+    let right = left + bbox.size.w;
+    if left < 0 {
+        origin_x -= left;
+    } else if right > output_size.0 {
+        origin_x -= right - output_size.0;
+    }
+
+    let top = origin_y + bbox.loc.y;
+    let bottom = top + bbox.size.h;
+    if top < 0 {
+        origin_y -= top;
+    } else if bottom > output_size.1 {
+        origin_y -= bottom - output_size.1;
+    }
+
+    (origin_x, origin_y)
+}
 
 fn popup_focus_for_screen(
     st: &mut Halley,
@@ -176,8 +206,14 @@ pub(crate) fn layer_surface_focus_for_screen(
         popups.reverse();
         for (popup, popup_offset) in popups {
             let popup_geo = popup.geometry();
-            let popup_origin_x = placement.origin.x + popup_offset.x - popup_geo.loc.x;
-            let popup_origin_y = placement.origin.y + popup_offset.y - popup_geo.loc.y;
+            let (popup_origin_x, popup_origin_y) = clamp_layer_popup_origin(
+                &popup,
+                (
+                    placement.origin.x + popup_offset.x - popup_geo.loc.x,
+                    placement.origin.y + popup_offset.y - popup_geo.loc.y,
+                ),
+                (ws_w, ws_h),
+            );
             let popup_local = Point::<f64, Logical>::from((
                 (sx.round() as i32 - popup_origin_x) as f64,
                 (sy.round() as i32 - popup_origin_y) as f64,

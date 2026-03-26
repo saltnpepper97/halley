@@ -81,7 +81,7 @@ impl Halley {
         })
     }
 
-    fn layer_surface_monitor_name(&self, surface: &WlSurface) -> String {
+    pub(crate) fn layer_surface_monitor_name(&self, surface: &WlSurface) -> String {
         self.monitor_state
             .layer_surface_monitor
             .get(&surface.id())
