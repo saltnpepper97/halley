@@ -7,9 +7,9 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::interaction::types::{ModState, PointerState};
+use crate::interaction::types::{DragAxisMode, ModState, PointerState};
 use crate::spatial::{pick_hit_node_at, screen_to_world};
-use crate::state::Halley;
+use crate::state::{ActiveDragState, Halley};
 use crate::surface_ops::request_toplevel_resize_mode;
 use halley_config::{KeyModifiers, PointerBindingAction};
 
@@ -44,16 +44,6 @@ fn clamp_screen_to_monitor(st: &Halley, name: &str, sx: f32, sy: f32) -> (f32, f
     } else {
         (sx, sy)
     }
-}
-
-#[inline]
-fn pointer_outside_monitor(st: &Halley, name: &str, sx: f32, sy: f32) -> bool {
-    st.monitor_state.monitors.get(name).is_some_and(|monitor| {
-        sx < monitor.offset_x as f32
-            || sx >= (monitor.offset_x + monitor.width) as f32
-            || sy < monitor.offset_y as f32
-            || sy >= (monitor.offset_y + monitor.height) as f32
-    })
 }
 
 #[inline]
@@ -252,7 +242,7 @@ pub(crate) fn handle_pointer_motion_absolute(
     let drag_mod_ok = modifier_active(&mods, st.tuning.keybinds.modifier);
 
     let mut ps = pointer_state.borrow_mut();
-    let mut pointer_world = p;
+    let pointer_world = p;
     ps.world = pointer_world;
     ps.screen = (effective_sx, effective_sy);
     ps.workspace_size = (local_w, local_h);
@@ -276,29 +266,6 @@ pub(crate) fn handle_pointer_motion_absolute(
             let drag_allow_monitor_transfer =
                 active_pointer_binding(st, &mods, 0x110) == Some(PointerBindingAction::FieldJump);
             next_drag.allow_monitor_transfer = drag_allow_monitor_transfer;
-            let edge_pan_active = !drag_allow_monitor_transfer
-                && pointer_outside_monitor(
-                    st,
-                    st.monitor_state.current_monitor.as_str(),
-                    raw_sx,
-                    raw_sy,
-                );
-            if edge_pan_active {
-                let dx_px = delta.0 as f32;
-                let dy_px = delta.1 as f32;
-                let camera = st.camera_view_size();
-                let dx_world = dx_px * camera.x.max(1.0) / (local_w as f32).max(1.0);
-                let dy_world = -dy_px * camera.y.max(1.0) / (local_h as f32).max(1.0);
-                let pan_delta = halley_core::field::Vec2 {
-                    x: dx_world,
-                    y: dy_world,
-                };
-                st.note_pan_activity(now);
-                st.pan_camera_target(pan_delta);
-                st.note_pan_viewport_change(now);
-                pointer_world = screen_to_world(st, local_w, local_h, local_sx, local_sy);
-                ps.world = pointer_world;
-            }
             let dt = now
                 .saturating_duration_since(next_drag.last_update_at)
                 .as_secs_f32()
@@ -315,7 +282,7 @@ pub(crate) fn handle_pointer_motion_absolute(
             };
             next_drag.last_pointer_world = pointer_world;
             next_drag.last_update_at = now;
-            let mut to = halley_core::field::Vec2 {
+            let desired_to = halley_core::field::Vec2 {
                 x: pointer_world.x - next_drag.current_offset.x,
                 y: pointer_world.y - next_drag.current_offset.y,
             };
@@ -326,39 +293,158 @@ pub(crate) fn handle_pointer_motion_absolute(
                     .get(&drag.node_id)
                     .cloned()
                     .or_else(|| Some(target_monitor.clone()))
-                && let Some(monitor) = st.monitor_state.monitors.get(owner_monitor.as_str())
             {
-                let half_w = monitor.zoom_ref_size.x * 0.5;
-                let half_h = monitor.zoom_ref_size.y * 0.5;
-                let min_x = monitor.camera_target_center.x - half_w;
-                let max_x = monitor.camera_target_center.x + half_w;
-                let min_y = monitor.camera_target_center.y - half_h;
-                let max_y = monitor.camera_target_center.y + half_h;
-                to.x = to.x.clamp(min_x, max_x);
-                to.y = to.y.clamp(min_y, max_y);
-            }
-            if st.carry_surface_non_overlap(drag.node_id, to, edge_pan_active) {
-                if drag_allow_monitor_transfer {
-                    let monitor = st.monitor_state.current_monitor.clone();
-                    st.assign_node_to_monitor(drag.node_id, monitor.as_str());
-                }
-                st.interaction_state.drag_authority_velocity = next_drag.release_velocity;
-                let should_center = st.tuning.center_window_to_mouse
-                    && (!next_drag.center_latched
-                        || next_drag.current_offset.x.abs() > f32::EPSILON
-                        || next_drag.current_offset.y.abs() > f32::EPSILON);
-                if should_center {
-                    next_drag.current_offset = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-                    next_drag.center_latched = true;
-                    let centered = halley_core::field::Vec2 {
-                        x: pointer_world.x,
-                        y: pointer_world.y,
+                if let Some((clamped_center, edge_contact)) = st.dragged_node_edge_pan_clamp(
+                    owner_monitor.as_str(),
+                    drag.node_id,
+                    desired_to,
+                    halley_core::field::Vec2 {
+                        x: next_drag.edge_pan_x.sign(),
+                        y: next_drag.edge_pan_y.sign(),
+                    },
+                )
+                {
+                    const EDGE_PAN_PRESSURE_THRESHOLD: f32 = 28.0;
+                    const EDGE_PAN_PRESSURE_DECAY_PER_SEC: f32 = 120.0;
+                    const EDGE_PAN_RELEASE_DISTANCE: f32 = 42.0;
+
+                    next_drag.edge_pan_pressure.x = (next_drag.edge_pan_pressure.x
+                        - EDGE_PAN_PRESSURE_DECAY_PER_SEC * dt)
+                        .max(0.0);
+                    next_drag.edge_pan_pressure.y = (next_drag.edge_pan_pressure.y
+                        - EDGE_PAN_PRESSURE_DECAY_PER_SEC * dt)
+                        .max(0.0);
+
+                    if edge_contact.x < 0.0 {
+                        next_drag.edge_pan_pressure.x += (clamped_center.x - desired_to.x).max(0.0);
+                    } else if edge_contact.x > 0.0 {
+                        next_drag.edge_pan_pressure.x += (desired_to.x - clamped_center.x).max(0.0);
+                    } else {
+                        next_drag.edge_pan_pressure.x = 0.0;
+                    }
+
+                    if edge_contact.y < 0.0 {
+                        next_drag.edge_pan_pressure.y += (clamped_center.y - desired_to.y).max(0.0);
+                    } else if edge_contact.y > 0.0 {
+                        next_drag.edge_pan_pressure.y += (desired_to.y - clamped_center.y).max(0.0);
+                    } else {
+                        next_drag.edge_pan_pressure.y = 0.0;
+                    }
+
+                    next_drag.edge_pan_x = match next_drag.edge_pan_x {
+                        DragAxisMode::Free => {
+                            if edge_contact.x < 0.0
+                                && next_drag.edge_pan_pressure.x >= EDGE_PAN_PRESSURE_THRESHOLD
+                            {
+                                DragAxisMode::EdgePanNeg
+                            } else if edge_contact.x > 0.0
+                                && next_drag.edge_pan_pressure.x >= EDGE_PAN_PRESSURE_THRESHOLD
+                            {
+                                DragAxisMode::EdgePanPos
+                            } else {
+                                DragAxisMode::Free
+                            }
+                        }
+                        DragAxisMode::EdgePanNeg => {
+                            if desired_to.x > clamped_center.x + EDGE_PAN_RELEASE_DISTANCE {
+                                next_drag.edge_pan_pressure.x = 0.0;
+                                DragAxisMode::Free
+                            } else {
+                                DragAxisMode::EdgePanNeg
+                            }
+                        }
+                        DragAxisMode::EdgePanPos => {
+                            if desired_to.x < clamped_center.x - EDGE_PAN_RELEASE_DISTANCE {
+                                next_drag.edge_pan_pressure.x = 0.0;
+                                DragAxisMode::Free
+                            } else {
+                                DragAxisMode::EdgePanPos
+                            }
+                        }
                     };
-                    let _ = st.carry_surface_non_overlap(drag.node_id, centered, false);
+                    next_drag.edge_pan_y = match next_drag.edge_pan_y {
+                        DragAxisMode::Free => {
+                            if edge_contact.y < 0.0
+                                && next_drag.edge_pan_pressure.y >= EDGE_PAN_PRESSURE_THRESHOLD
+                            {
+                                DragAxisMode::EdgePanNeg
+                            } else if edge_contact.y > 0.0
+                                && next_drag.edge_pan_pressure.y >= EDGE_PAN_PRESSURE_THRESHOLD
+                            {
+                                DragAxisMode::EdgePanPos
+                            } else {
+                                DragAxisMode::Free
+                            }
+                        }
+                        DragAxisMode::EdgePanNeg => {
+                            if desired_to.y > clamped_center.y + EDGE_PAN_RELEASE_DISTANCE {
+                                next_drag.edge_pan_pressure.y = 0.0;
+                                DragAxisMode::Free
+                            } else {
+                                DragAxisMode::EdgePanNeg
+                            }
+                        }
+                        DragAxisMode::EdgePanPos => {
+                            if desired_to.y < clamped_center.y - EDGE_PAN_RELEASE_DISTANCE {
+                                next_drag.edge_pan_pressure.y = 0.0;
+                                DragAxisMode::Free
+                            } else {
+                                DragAxisMode::EdgePanPos
+                            }
+                        }
+                    };
+
+                    let engage_x = next_drag.edge_pan_x.sign();
+                    let engage_y = next_drag.edge_pan_y.sign();
+                    let edge_pan_direction = halley_core::field::Vec2 {
+                        x: engage_x,
+                        y: engage_y,
+                    };
+                    let edge_pan_active = edge_pan_direction.x != 0.0 || edge_pan_direction.y != 0.0;
+
+                    st.interaction_state.grabbed_edge_pan_active = edge_pan_active;
+                    st.interaction_state.grabbed_edge_pan_direction = edge_pan_direction;
+                    st.interaction_state.grabbed_edge_pan_monitor =
+                        edge_pan_active.then(|| owner_monitor.clone());
+                } else {
+                    st.interaction_state.grabbed_edge_pan_active = false;
+                    st.interaction_state.grabbed_edge_pan_direction =
+                        halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+                    st.interaction_state.grabbed_edge_pan_monitor = None;
+                    next_drag.edge_pan_x = DragAxisMode::Free;
+                    next_drag.edge_pan_y = DragAxisMode::Free;
+                    next_drag.edge_pan_pressure = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
                 }
-                ps.drag = Some(next_drag);
-                backend.request_redraw();
+            } else {
+                st.interaction_state.grabbed_edge_pan_active = false;
+                st.interaction_state.grabbed_edge_pan_direction =
+                    halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+                st.interaction_state.grabbed_edge_pan_monitor = None;
+                next_drag.edge_pan_x = DragAxisMode::Free;
+                next_drag.edge_pan_y = DragAxisMode::Free;
+                next_drag.edge_pan_pressure = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
             }
+            let should_center = st.tuning.center_window_to_mouse
+                && (!next_drag.center_latched
+                    || next_drag.current_offset.x.abs() > f32::EPSILON
+                    || next_drag.current_offset.y.abs() > f32::EPSILON);
+            if should_center {
+                next_drag.current_offset = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+                next_drag.center_latched = true;
+            }
+            st.interaction_state.drag_authority_velocity = next_drag.release_velocity;
+            st.interaction_state.active_drag = Some(ActiveDragState {
+                node_id: drag.node_id,
+                allow_monitor_transfer: drag_allow_monitor_transfer,
+                current_offset: next_drag.current_offset,
+                pointer_monitor: target_monitor.clone(),
+                pointer_workspace_size: (local_w, local_h),
+                pointer_screen_local: (local_sx, local_sy),
+                edge_pan_x: next_drag.edge_pan_x,
+                edge_pan_y: next_drag.edge_pan_y,
+            });
+            ps.drag = Some(next_drag);
+            backend.request_redraw();
         }
     }
 

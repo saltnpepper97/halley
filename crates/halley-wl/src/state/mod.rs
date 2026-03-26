@@ -60,7 +60,7 @@ mod spawn;
 mod workspace;
 
 pub use client::ClientState;
-pub(crate) use interaction::ViewportPanAnim;
+pub(crate) use interaction::{ActiveDragState, ViewportPanAnim};
 pub(crate) use render::{NodeAppIconCacheEntry, NodeAppIconTexture};
 pub(crate) use fullscreen::{FullscreenMotion, FullscreenSessionEntry, FullscreenScaleAnim};
 pub(crate) use spawn::{
@@ -337,6 +337,10 @@ impl Halley {
                 smoothed_render_pos: HashMap::new(),
                 viewport_pan_anim: None,
                 pan_dominant_until_ms: 0,
+                active_drag: None,
+                grabbed_edge_pan_active: false,
+                grabbed_edge_pan_direction: Vec2 { x: 0.0, y: 0.0 },
+                grabbed_edge_pan_monitor: None,
             },
 
             fullscreen_state: FullscreenState {

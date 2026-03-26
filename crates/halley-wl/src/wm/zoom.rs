@@ -70,6 +70,15 @@ impl Halley {
             return;
         }
 
+        if self.interaction_state.grabbed_edge_pan_active {
+            self.viewport.center = self.camera_target_center;
+            self.zoom_ref_size = self.camera_target_view_size;
+            self.tuning.viewport_center = self.viewport.center;
+            self.tuning.viewport_size = self.zoom_ref_size;
+            self.sync_current_monitor_state();
+            return;
+        }
+
         if !self.tuning.physics_enabled {
             self.viewport.center = self.camera_target_center;
             self.zoom_ref_size = self.camera_target_view_size;

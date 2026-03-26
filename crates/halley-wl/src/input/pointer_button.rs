@@ -11,11 +11,12 @@ use smithay::utils::SERIAL_COUNTER;
 use crate::backend::interface::BackendView;
 use crate::interaction::actions::activate_collapsed_node_from_click;
 use crate::interaction::types::{
-    DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState, ResizeCtx, TitleClickCtx,
+    DragAxisMode, DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState, ResizeCtx,
+    TitleClickCtx,
 };
 use crate::render::world_to_screen;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
-use crate::state::Halley;
+use crate::state::{ActiveDragState, Halley};
 use crate::surface_ops::{
     current_surface_size_for_node, request_toplevel_resize_mode, window_geometry_for_node,
 };
@@ -163,6 +164,10 @@ fn clear_pointer_activity(st: &mut Halley, ps: &mut PointerState) {
         st.set_drag_authority_node(None);
         st.end_carry_state_tracking(drag.node_id);
     }
+    st.interaction_state.grabbed_edge_pan_active = false;
+    st.interaction_state.grabbed_edge_pan_direction = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+    st.interaction_state.grabbed_edge_pan_monitor = None;
+    st.interaction_state.active_drag = None;
     ps.drag = None;
     ps.resize = None;
     ps.panning = false;
@@ -183,6 +188,9 @@ fn begin_drag(
         current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
         center_latched: false,
         started_active: false,
+        edge_pan_x: DragAxisMode::Free,
+        edge_pan_y: DragAxisMode::Free,
+        edge_pan_pressure: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
         last_pointer_world: world_now,
         last_update_at: Instant::now(),
         release_velocity: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -205,6 +213,19 @@ fn begin_drag(
     st.assign_node_to_current_monitor(hit.node_id);
     st.interaction_state.physics_velocity.remove(&hit.node_id);
     st.interaction_state.drag_authority_velocity = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+    st.interaction_state.grabbed_edge_pan_active = false;
+    st.interaction_state.grabbed_edge_pan_direction = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+    st.interaction_state.grabbed_edge_pan_monitor = None;
+    st.interaction_state.active_drag = Some(ActiveDragState {
+        node_id: hit.node_id,
+        allow_monitor_transfer,
+        current_offset: drag_ctx.current_offset,
+        pointer_monitor: st.monitor_state.current_monitor.clone(),
+        pointer_workspace_size: (1, 1),
+        pointer_screen_local: (0.0, 0.0),
+        edge_pan_x: DragAxisMode::Free,
+        edge_pan_y: DragAxisMode::Free,
+    });
     st.set_drag_authority_node(Some(hit.node_id));
     st.begin_carry_state_tracking(hit.node_id);
     st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
@@ -739,6 +760,7 @@ fn handle_button_release(
                 st.end_carry_state_tracking(d.node_id);
                 ps.preview_block_until = Some(now + Duration::from_millis(360));
             }
+            st.interaction_state.active_drag = None;
             ps.drag = None;
             ps.panning = false;
             ps.pan_monitor = None;
