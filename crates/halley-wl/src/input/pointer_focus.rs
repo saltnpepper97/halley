@@ -172,6 +172,31 @@ pub(crate) fn layer_surface_focus_for_screen(
             continue;
         }
 
+        let mut popups: Vec<_> = PopupManager::popups_for_surface(&placement.wl_surface).collect();
+        popups.reverse();
+        for (popup, popup_offset) in popups {
+            let popup_geo = popup.geometry();
+            let popup_origin_x = placement.origin.x + popup_offset.x - popup_geo.loc.x;
+            let popup_origin_y = placement.origin.y + popup_offset.y - popup_geo.loc.y;
+            let popup_local = Point::<f64, Logical>::from((
+                (sx.round() as i32 - popup_origin_x) as f64,
+                (sy.round() as i32 - popup_origin_y) as f64,
+            ));
+            let Some((surface, surface_loc)) = under_from_surface_tree(
+                popup.wl_surface(),
+                popup_local,
+                (0, 0),
+                WindowSurfaceType::ALL,
+            ) else {
+                continue;
+            };
+            let focus_origin = Point::<f64, Logical>::from((
+                (popup_origin_x + surface_loc.x) as f64,
+                (popup_origin_y + surface_loc.y) as f64,
+            ));
+            return Some((surface, focus_origin));
+        }
+
         let local = Point::<f64, Logical>::from((
             (sx.round() as i32 - placement.origin.x) as f64,
             (sy.round() as i32 - placement.origin.y) as f64,

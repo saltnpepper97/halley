@@ -5,6 +5,7 @@ use smithay::{
         element::{Kind, surface::render_elements_from_surface_tree},
         gles::GlesRenderer,
     },
+    desktop::PopupManager,
     utils::{Logical, Physical, Size},
     wayland::shell::wlr_layer::Layer,
 };
@@ -28,7 +29,7 @@ pub(crate) fn collect_layer_surfaces(
     let logical_size: Size<i32, Logical> = (size.w, size.h).into();
 
     for placement in st.layer_shell_placements(logical_size) {
-        let elements = render_elements_from_surface_tree(
+        let mut elements = render_elements_from_surface_tree(
             renderer,
             &placement.wl_surface,
             (placement.origin.x, placement.origin.y),
@@ -36,6 +37,23 @@ pub(crate) fn collect_layer_surfaces(
             1.0,
             Kind::Unspecified,
         );
+        let mut popups: Vec<_> = PopupManager::popups_for_surface(&placement.wl_surface).collect();
+        popups.reverse();
+        for (popup, popup_offset) in popups {
+            let popup_geo = popup.geometry();
+            let popup_origin = (
+                placement.origin.x + popup_offset.x - popup_geo.loc.x,
+                placement.origin.y + popup_offset.y - popup_geo.loc.y,
+            );
+            elements.extend(render_elements_from_surface_tree(
+                renderer,
+                popup.wl_surface(),
+                popup_origin,
+                1.0,
+                1.0,
+                Kind::Unspecified,
+            ));
+        }
 
         match placement.layer {
             Layer::Background => background.extend(elements),
