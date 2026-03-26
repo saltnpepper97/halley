@@ -342,9 +342,7 @@ pub(crate) fn handle_pointer_motion_absolute(
                     let monitor = st.monitor_state.current_monitor.clone();
                     st.assign_node_to_monitor(drag.node_id, monitor.as_str());
                 }
-                st.interaction_state
-                    .physics_velocity
-                    .insert(drag.node_id, next_drag.release_velocity);
+                st.interaction_state.drag_authority_velocity = next_drag.release_velocity;
                 let should_center = st.tuning.center_window_to_mouse
                     && (!next_drag.center_latched
                         || next_drag.current_offset.x.abs() > f32::EPSILON

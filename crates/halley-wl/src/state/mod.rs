@@ -325,6 +325,7 @@ impl Halley {
                 resize_static_lock_pos: None,
                 resize_static_until_ms: 0,
                 drag_authority_node: None,
+                drag_authority_velocity: Vec2 { x: 0.0, y: 0.0 },
 
                 suspend_overlap_resolve: false,
                 suspend_state_checks: false,

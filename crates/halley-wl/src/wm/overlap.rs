@@ -457,16 +457,18 @@ impl Halley {
                 continue;
             };
             positions.insert(id, node.pos);
+            let vel = if self.interaction_state.drag_authority_node == Some(id) {
+                self.interaction_state.drag_authority_velocity
+            } else {
+                self.interaction_state
+                    .physics_velocity
+                    .get(&id)
+                    .copied()
+                    .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
+            };
             velocities.insert(
                 id,
-                Self::clamp_speed(
-                    self.interaction_state
-                        .physics_velocity
-                        .get(&id)
-                        .copied()
-                        .unwrap_or(Vec2 { x: 0.0, y: 0.0 }),
-                    MAX_PHYSICS_SPEED,
-                ),
+                Self::clamp_speed(vel, MAX_PHYSICS_SPEED),
             );
         }
 
@@ -1197,7 +1199,7 @@ mod tests {
     }
 
     #[test]
-    fn release_preserves_momentum() {
+    fn release_clears_grabbed_window_momentum() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
@@ -1214,13 +1216,10 @@ mod tests {
             .physics_velocity
             .insert(id, Vec2 { x: 480.0, y: 120.0 });
         state.finalize_mouse_drag_state(id, Vec2 { x: 0.0, y: 0.0 }, Instant::now());
-        let before = state.field.node(id).expect("release").pos;
-        state.resolve_surface_overlap();
-        let after = state.field.node(id).expect("release").pos;
 
         assert!(
-            after.x > before.x && after.y > before.y,
-            "released window did not continue moving with stored momentum: before={before:?} after={after:?}"
+            !state.interaction_state.physics_velocity.contains_key(&id),
+            "grabbed window should not retain momentum after release"
         );
     }
 
@@ -1264,6 +1263,54 @@ mod tests {
         assert!(
             vb.x > 0.0,
             "gap==0 border contact failed to produce a physics response: vb={vb:?}"
+        );
+    }
+
+    #[test]
+    fn grabbed_window_kinematic_velocity_pushes_neighbor_without_retaining_momentum() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let dragged =
+            state
+                .field
+                .spawn_surface("dragged", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let passive =
+            state
+                .field
+                .spawn_surface("passive", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let ea = state.collision_extents_for_node(state.field.node(dragged).expect("dragged"));
+        let eb = state.collision_extents_for_node(state.field.node(passive).expect("passive"));
+        let req_x = state.required_sep_x(0.0, ea, 1.0, eb, state.non_overlap_gap_world());
+        let _ = state.field.carry(
+            passive,
+            Vec2 {
+                x: req_x - 1.0,
+                y: 0.0,
+            },
+        );
+
+        state.set_drag_authority_node(Some(dragged));
+        state.interaction_state.drag_authority_velocity = Vec2 { x: 420.0, y: 0.0 };
+
+        state.resolve_surface_overlap();
+
+        let passive_velocity = state
+            .interaction_state
+            .physics_velocity
+            .get(&passive)
+            .copied()
+            .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
+        assert!(
+            passive_velocity.x > 0.0,
+            "passive window should receive physics from a grabbed kinematic collider: {passive_velocity:?}"
+        );
+        assert!(
+            !state.interaction_state.physics_velocity.contains_key(&dragged),
+            "grabbed window should not retain physics momentum"
         );
     }
 

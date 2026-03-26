@@ -23,6 +23,7 @@ pub(crate) struct InteractionState {
     pub(crate) resize_static_lock_pos: Option<Vec2>,
     pub(crate) resize_static_until_ms: u64,
     pub(crate) drag_authority_node: Option<NodeId>,
+    pub(crate) drag_authority_velocity: Vec2,
     pub(crate) suspend_overlap_resolve: bool,
     pub(crate) suspend_state_checks: bool,
     pub(crate) physics_velocity: HashMap<NodeId, Vec2>,

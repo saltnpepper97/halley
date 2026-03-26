@@ -5,6 +5,9 @@ impl Halley {
     #[inline]
     pub(crate) fn set_drag_authority_node(&mut self, id: Option<NodeId>) {
         self.interaction_state.drag_authority_node = id;
+        if id.is_none() {
+            self.interaction_state.drag_authority_velocity = Vec2 { x: 0.0, y: 0.0 };
+        }
     }
 
     #[inline]
@@ -115,8 +118,8 @@ impl Halley {
         if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {
             return;
         }
-        // Preserve the drag-smoothed release velocity so the window continues
-        // moving naturally on the next physics tick after release.
+        self.interaction_state.physics_velocity.remove(&id);
+        self.interaction_state.drag_authority_velocity = Vec2 { x: 0.0, y: 0.0 };
     }
 
     pub fn begin_carry_state_tracking(&mut self, id: NodeId) {

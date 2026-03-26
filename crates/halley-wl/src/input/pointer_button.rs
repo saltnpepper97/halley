@@ -203,9 +203,8 @@ fn begin_drag(
     ps.drag = Some(drag_ctx);
     let _ = st.field.set_pinned(hit.node_id, false);
     st.assign_node_to_current_monitor(hit.node_id);
-    st.interaction_state
-        .physics_velocity
-        .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
+    st.interaction_state.physics_velocity.remove(&hit.node_id);
+    st.interaction_state.drag_authority_velocity = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
     st.set_drag_authority_node(Some(hit.node_id));
     st.begin_carry_state_tracking(hit.node_id);
     st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
