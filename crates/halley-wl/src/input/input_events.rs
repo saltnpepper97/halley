@@ -113,7 +113,9 @@ pub(crate) fn handle_keyboard_input(
     if pressed
         && !matched_binding
         && !st.keyboard_focus_is_layer_surface()
-        && let Some(fid) = st.last_input_surface_node()
+        && let Some(fid) = st
+            .last_input_surface_node_for_monitor(st.monitor_state.current_monitor.as_str())
+            .or_else(|| st.last_input_surface_node())
     {
         st.set_interaction_focus(Some(fid), 30_000, Instant::now());
     }

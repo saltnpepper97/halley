@@ -41,12 +41,14 @@ pub(crate) fn promote_node_level(
 }
 
 pub(crate) fn latest_surface_node(st: &Halley) -> Option<halley_core::field::NodeId> {
-    st.last_input_surface_node().or_else(|| {
+    st.last_input_surface_node_for_monitor(st.monitor_state.current_monitor.as_str())
+        .or_else(|| st.last_input_surface_node())
+        .or_else(|| {
         st.surface_to_node
             .values()
             .copied()
             .max_by_key(|id| id.as_u64())
-    })
+        })
 }
 
 pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
@@ -102,7 +104,10 @@ pub(crate) fn step_window_trail(st: &mut Halley, direction: TrailDirection) -> b
 pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
     let now = Instant::now();
 
-    let Some(id) = st.last_focused_surface_node() else {
+    let Some(id) = st
+        .last_focused_surface_node_for_monitor(st.monitor_state.current_monitor.as_str())
+        .or_else(|| st.last_focused_surface_node())
+    else {
         return false;
     };
 

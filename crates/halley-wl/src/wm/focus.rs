@@ -409,6 +409,42 @@ impl Halley {
             .map(|(id, _)| id)
     }
 
+    pub fn last_focused_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
+        if let Some(id) = self.focus_state.monitor_focus.get(monitor).copied() {
+            let valid = self.field.node(id).is_some_and(|n| {
+                self.field.is_visible(id)
+                    && n.kind == halley_core::field::NodeKind::Surface
+                    && matches!(
+                        n.state,
+                        halley_core::field::NodeState::Active | halley_core::field::NodeState::Node
+                    )
+                    && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str()) == Some(monitor)
+            });
+            if valid {
+                return Some(id);
+            }
+        }
+        self.focus_state
+            .last_surface_focus_ms
+            .iter()
+            .filter_map(|(&id, &at)| {
+                self.field.node(id).and_then(|n| {
+                    (self.field.is_visible(id)
+                        && n.kind == halley_core::field::NodeKind::Surface
+                        && matches!(
+                            n.state,
+                            halley_core::field::NodeState::Active
+                                | halley_core::field::NodeState::Node
+                        )
+                        && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
+                            == Some(monitor))
+                        .then_some((id, at))
+                })
+            })
+            .max_by_key(|(id, at)| (*at, id.as_u64()))
+            .map(|(id, _)| id)
+    }
+
     pub fn last_input_surface_node(&self) -> Option<NodeId> {
         if let Some(id) = self.focus_state.primary_interaction_focus {
             let valid = self.field.node(id).is_some_and(|n| {
@@ -431,8 +467,47 @@ impl Halley {
             .map(|(id, _)| id)
     }
 
+    pub fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
+        if let Some(id) = self.focus_state.primary_interaction_focus {
+            let valid = self.field.node(id).is_some_and(|n| {
+                self.field.is_visible(id)
+                    && n.kind == halley_core::field::NodeKind::Surface
+                    && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str()) == Some(monitor)
+            });
+            if valid {
+                return Some(id);
+            }
+        }
+        if let Some(id) = self.focus_state.monitor_focus.get(monitor).copied() {
+            let valid = self.field.node(id).is_some_and(|n| {
+                self.field.is_visible(id)
+                    && n.kind == halley_core::field::NodeKind::Surface
+                    && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str()) == Some(monitor)
+            });
+            if valid {
+                return Some(id);
+            }
+        }
+        self.focus_state
+            .last_surface_focus_ms
+            .iter()
+            .filter_map(|(&id, &at)| {
+                self.field.node(id).and_then(|n| {
+                    (self.field.is_visible(id)
+                        && n.kind == halley_core::field::NodeKind::Surface
+                        && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
+                            == Some(monitor))
+                        .then_some((id, at))
+                })
+            })
+            .max_by_key(|(id, at)| (*at, id.as_u64()))
+            .map(|(id, _)| id)
+    }
+
     pub fn toggle_last_focused_surface_node(&mut self, now: Instant) -> Option<NodeId> {
-        let id = self.last_focused_surface_node()?;
+        let id = self
+            .last_focused_surface_node_for_monitor(self.monitor_state.current_monitor.as_str())
+            .or_else(|| self.last_focused_surface_node())?;
 
         let state = self.field.node(id)?.state.clone();
         match state {
@@ -460,5 +535,40 @@ impl Halley {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn last_input_surface_prefers_current_monitor_local_focus() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let left = state.field.spawn_surface(
+            "left",
+            Vec2 { x: -200.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        let right = state.field.spawn_surface(
+            "right",
+            Vec2 { x: 200.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        state.assign_node_to_monitor(left, "default");
+        state.assign_node_to_monitor(right, "other");
+        state.focus_state.primary_interaction_focus = Some(right);
+        state.focus_state.last_surface_focus_ms.insert(left, 1);
+        state.focus_state.last_surface_focus_ms.insert(right, 2);
+        state.focus_state.monitor_focus.insert("default".to_string(), left);
+        state.focus_state.monitor_focus.insert("other".to_string(), right);
+
+        assert_eq!(state.last_input_surface_node_for_monitor("default"), Some(left));
+        assert_eq!(state.last_input_surface_node_for_monitor("other"), Some(right));
     }
 }

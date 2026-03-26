@@ -164,7 +164,14 @@ impl Halley {
         output: Option<WlOutput>,
         size: Option<(i32, i32)>,
     ) {
-        let focused_node = self.last_input_surface_node();
+        let monitor_name = self
+            .fullscreen_monitor_for_node(node_id)
+            .map(str::to_string)
+            .or_else(|| self.monitor_state.node_monitor.get(&node_id).cloned())
+            .unwrap_or_else(|| self.monitor_state.current_monitor.clone());
+        let focused_node = self
+            .last_input_surface_node_for_monitor(monitor_name.as_str())
+            .or_else(|| self.last_input_surface_node());
         for top in self.xdg_shell_state.toplevel_surfaces() {
             let wl = top.wl_surface();
             let key = wl.id();

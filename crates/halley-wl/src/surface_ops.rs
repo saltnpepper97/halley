@@ -7,7 +7,10 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 use crate::state::Halley;
 
 pub(crate) fn request_close_focused_toplevel(st: &mut Halley) -> bool {
-    let Some(node_id) = st.last_focused_surface_node() else {
+    let Some(node_id) = st
+        .last_focused_surface_node_for_monitor(st.monitor_state.current_monitor.as_str())
+        .or_else(|| st.last_focused_surface_node())
+    else {
         return false;
     };
 
