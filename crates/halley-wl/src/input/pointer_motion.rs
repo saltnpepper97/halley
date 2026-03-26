@@ -287,6 +287,7 @@ pub(crate) fn handle_pointer_motion_absolute(
                 y: pointer_world.y - next_drag.current_offset.y,
             };
             if !drag_allow_monitor_transfer
+                && next_drag.edge_pan_eligible
                 && let Some(owner_monitor) = st
                     .monitor_state
                     .node_monitor
@@ -436,6 +437,7 @@ pub(crate) fn handle_pointer_motion_absolute(
             st.interaction_state.active_drag = Some(ActiveDragState {
                 node_id: drag.node_id,
                 allow_monitor_transfer: drag_allow_monitor_transfer,
+                edge_pan_eligible: next_drag.edge_pan_eligible,
                 current_offset: next_drag.current_offset,
                 pointer_monitor: target_monitor.clone(),
                 pointer_workspace_size: (local_w, local_h),

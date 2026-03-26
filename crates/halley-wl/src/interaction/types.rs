@@ -46,6 +46,7 @@ impl DragAxisMode {
 pub(crate) struct DragCtx {
     pub(crate) node_id: halley_core::field::NodeId,
     pub(crate) allow_monitor_transfer: bool,
+    pub(crate) edge_pan_eligible: bool,
     pub(crate) current_offset: halley_core::field::Vec2,
     pub(crate) center_latched: bool,
     pub(crate) started_active: bool,

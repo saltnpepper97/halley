@@ -179,12 +179,18 @@ fn begin_drag(
     ps: &mut PointerState,
     backend: &dyn BackendView,
     hit: HitNode,
+    frame: ButtonFrame,
     world_now: halley_core::field::Vec2,
     allow_monitor_transfer: bool,
 ) {
+    let drag_monitor = st.monitor_state.current_monitor.clone();
+    let edge_pan_eligible = st
+        .node_fully_visible_on_monitor(drag_monitor.as_str(), hit.node_id)
+        .unwrap_or(false);
     let mut drag_ctx = DragCtx {
         node_id: hit.node_id,
         allow_monitor_transfer,
+        edge_pan_eligible,
         current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
         center_latched: false,
         started_active: false,
@@ -219,21 +225,24 @@ fn begin_drag(
     st.interaction_state.active_drag = Some(ActiveDragState {
         node_id: hit.node_id,
         allow_monitor_transfer,
+        edge_pan_eligible,
         current_offset: drag_ctx.current_offset,
-        pointer_monitor: st.monitor_state.current_monitor.clone(),
-        pointer_workspace_size: (1, 1),
-        pointer_screen_local: (0.0, 0.0),
+        pointer_monitor: drag_monitor,
+        pointer_workspace_size: (frame.ws_w, frame.ws_h),
+        pointer_screen_local: (frame.sx, frame.sy),
         edge_pan_x: DragAxisMode::Free,
         edge_pan_y: DragAxisMode::Free,
     });
     st.set_drag_authority_node(Some(hit.node_id));
     st.begin_carry_state_tracking(hit.node_id);
     st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
-    let to = halley_core::field::Vec2 {
-        x: world_now.x - drag_ctx.current_offset.x,
-        y: world_now.y - drag_ctx.current_offset.y,
-    };
-    let _ = st.carry_surface_non_overlap(hit.node_id, to, false);
+    if edge_pan_eligible {
+        let to = halley_core::field::Vec2 {
+            x: world_now.x - drag_ctx.current_offset.x,
+            y: world_now.y - drag_ctx.current_offset.y,
+        };
+        let _ = st.carry_surface_non_overlap(hit.node_id, to, false);
+    }
     backend.request_redraw();
 }
 
@@ -607,6 +616,7 @@ fn handle_left_press(
             ps,
             backend,
             hit,
+            frame,
             frame.world_now,
             allow_monitor_transfer,
         );
@@ -698,6 +708,7 @@ fn handle_move_binding_press(
             ps,
             backend,
             hit,
+            frame,
             frame.world_now,
             allow_monitor_transfer,
         );

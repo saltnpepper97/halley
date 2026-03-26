@@ -324,6 +324,14 @@ impl Halley {
             self.interaction_state.grabbed_edge_pan_monitor = None;
             self.assign_node_to_monitor(node_id, active_drag.pointer_monitor.as_str());
             self.carry_surface_non_overlap(node_id, desired_to, false)
+        } else if !active_drag.edge_pan_eligible {
+            self.interaction_state.grabbed_edge_pan_active = false;
+            self.interaction_state.grabbed_edge_pan_direction = halley_core::field::Vec2 {
+                x: 0.0,
+                y: 0.0,
+            };
+            self.interaction_state.grabbed_edge_pan_monitor = None;
+            self.carry_surface_non_overlap(node_id, desired_to, false)
         } else if let Some((clamped_center, edge_contact)) = self.dragged_node_edge_pan_clamp(
             active_drag.pointer_monitor.as_str(),
             node_id,

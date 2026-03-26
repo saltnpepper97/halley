@@ -18,6 +18,7 @@ pub(crate) struct ViewportPanAnim {
 pub(crate) struct ActiveDragState {
     pub(crate) node_id: NodeId,
     pub(crate) allow_monitor_transfer: bool,
+    pub(crate) edge_pan_eligible: bool,
     pub(crate) current_offset: Vec2,
     pub(crate) pointer_monitor: String,
     pub(crate) pointer_workspace_size: (i32, i32),
@@ -51,6 +52,37 @@ pub(crate) struct InteractionState {
 }
 
 impl Halley {
+    pub(crate) fn node_fully_visible_on_monitor(
+        &self,
+        monitor_name: &str,
+        node_id: NodeId,
+    ) -> Option<bool> {
+        let node = self.field.node(node_id)?;
+        let monitor = self.monitor_state.monitors.get(monitor_name)?;
+        let ext = if node.kind == halley_core::field::NodeKind::Surface {
+            self.surface_window_collision_extents(node)
+        } else {
+            self.collision_extents_for_node(node)
+        };
+
+        let (view_center, view_size) = if self.monitor_state.current_monitor == monitor_name {
+            (self.viewport.center, self.zoom_ref_size)
+        } else {
+            (monitor.viewport.center, monitor.zoom_ref_size)
+        };
+        let left = view_center.x - view_size.x * 0.5;
+        let right = view_center.x + view_size.x * 0.5;
+        let top = view_center.y - view_size.y * 0.5;
+        let bottom = view_center.y + view_size.y * 0.5;
+
+        Some(
+            node.pos.x - ext.left >= left
+                && node.pos.x + ext.right <= right
+                && node.pos.y - ext.top >= top
+                && node.pos.y + ext.bottom <= bottom,
+        )
+    }
+
     pub(crate) fn dragged_node_edge_pan_clamp(
         &self,
         monitor_name: &str,
