@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use eventline::info;
+use halley_config::PanToNewMode;
 use halley_core::decay::DecayLevel;
 use halley_core::field::{NodeId, Vec2};
 
@@ -335,7 +336,20 @@ impl Halley {
     }
 
     pub(crate) fn queue_spawn_pan_to_node(&mut self, id: NodeId, now: Instant) {
-        let Some(target_center) = self.field.node(id).map(|node| node.pos) else {
+        let monitor = self
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| self.focused_monitor().to_string());
+        let Some(target_center) = (match self.tuning.pan_to_new {
+            PanToNewMode::Always => self.field.node(id).map(|node| node.pos),
+            PanToNewMode::IfNeeded => self.minimal_reveal_center_for_surface_on_monitor(
+                monitor.as_str(),
+                id,
+            ),
+            PanToNewMode::Never => None,
+        }) else {
             return;
         };
         let _ = self.field.set_detached(id, true);
@@ -443,8 +457,20 @@ impl Halley {
             return;
         }
 
-        let fully_visible_in_view = self.viewport_fully_contains_surface(id);
-        if fully_visible_in_view || !self.tuning.pan_to_new {
+        let monitor = self
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| self.focused_monitor().to_string());
+        let should_pan = match self.tuning.pan_to_new {
+            PanToNewMode::Never => false,
+            PanToNewMode::Always => true,
+            PanToNewMode::IfNeeded => {
+                !self.surface_is_sufficiently_visible_on_monitor(monitor.as_str(), id)
+            }
+        };
+        if !should_pan {
             self.mark_active_transition(id, now, 620);
             self.record_focus_trail_visit(id);
             self.focus_state.suppress_trail_record_once = true;

@@ -1,3 +1,8 @@
+env:
+  XCURSOR_THEME "Adwaita"
+  XCURSOR_SIZE "24"
+end
+
 autostart:
   once "waybar"
 
@@ -6,11 +11,6 @@ autostart:
 
   # Example:
   #on-reload "thunderbird"
-end
-
-env:
-  XCURSOR_THEME "Adwaita"
-  XCURSOR_SIZE "24"
 end
 
 viewport:
@@ -26,7 +26,6 @@ viewport:
     rate 180.0
     transform 0
     vrr "on"
-
 
     focus-ring:
       primary-rx 820.0
@@ -59,10 +58,15 @@ viewport:
   #end
 end
 
-trail:
-  history-length 25
-  wrap true
+field:
+  gap 20.0
+  active-windows-allowed 5
+  pan-to-new "if-needed"
+  close-restore-focus true
+  close-restore-pan "if-offscreen"
 end
+
+
 
 node:
   # Keep nodes recognizable without making the field too noisy.
@@ -78,22 +82,21 @@ node:
   border-colour-inactive "use-window-inactive"
 end
 
-clusters:
-  distance-px 280.0
-end
-
-tile:
-end
-
 decay:
   active-delay 120
   inactive-delay 30
 end
 
-field:
-  gap 20.0
-  active-windows-allowed 5
-  pan-to-new true
+trail:
+  history-length 25
+  wrap true
+end
+
+clusters:
+  distance-px 280.0
+end
+
+tile:
 end
 
 physics:
@@ -139,19 +142,4 @@ keybinds:
   "xf86audioraisevolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
   "xf86audiolowervolume" "wpctl set-volume @default_audio_sink@ 5%-"
   "xf86audiomute" "wpctl set-mute @default_audio_sink@ toggle"
-end
-
-dev:
-  enabled true
-  show_geometry_overlay false
-  debug_tick_dump false
-  debug_dump_every_ms 1000
-  zoom_decay_enabled true
-  zoom_decay_min_frac 0.07
-
-  anim:
-    enabled true
-    state_change_ms 360
-    bounce 1.45
-  end
 end

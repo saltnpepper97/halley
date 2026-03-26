@@ -25,22 +25,6 @@ impl Halley {
         root
     }
 
-    pub(super) fn viewport_fully_contains_surface(&self, id: NodeId) -> bool {
-        let Some(node) = self.field.node(id) else {
-            return false;
-        };
-        let ext = self.spawn_obstacle_extents_for_node(node);
-        let min_x = self.viewport.center.x - self.viewport.size.x * 0.5;
-        let max_x = self.viewport.center.x + self.viewport.size.x * 0.5;
-        let min_y = self.viewport.center.y - self.viewport.size.y * 0.5;
-        let max_y = self.viewport.center.y + self.viewport.size.y * 0.5;
-
-        node.pos.x - ext.left >= min_x
-            && node.pos.x + ext.right <= max_x
-            && node.pos.y - ext.top >= min_y
-            && node.pos.y + ext.bottom <= max_y
-    }
-
     fn compact_app_id_label(app_id: &str) -> Option<String> {
         let tail = app_id
             .rsplit(['.', '/'])

@@ -1,6 +1,7 @@
 use super::*;
 use crate::state::ViewportPanAnim;
 use eventline::info;
+use halley_config::CloseRestorePanMode;
 use halley_core::viewport::FocusZone;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
@@ -325,6 +326,115 @@ impl Halley {
         self.tuning.viewport_center = self.viewport.center;
         if t >= 1.0 {
             self.interaction_state.viewport_pan_anim = None;
+        }
+    }
+
+    fn viewport_for_monitor(&self, monitor: &str) -> halley_core::viewport::Viewport {
+        if self.monitor_state.current_monitor == monitor {
+            self.viewport
+        } else {
+            self.monitor_state
+                .monitors
+                .get(monitor)
+                .map(|space| space.viewport)
+                .unwrap_or(self.viewport)
+        }
+    }
+
+    pub(crate) fn surface_is_sufficiently_visible_on_monitor(
+        &self,
+        monitor: &str,
+        id: NodeId,
+    ) -> bool {
+        let Some(node) = self.field.node(id) else {
+            return false;
+        };
+        let ext = self.spawn_obstacle_extents_for_node(node);
+        let viewport = self.viewport_for_monitor(monitor);
+        let margin_x = (viewport.size.x * 0.08).clamp(32.0, 160.0);
+        let margin_y = (viewport.size.y * 0.08).clamp(32.0, 120.0);
+        let min_x = viewport.center.x - viewport.size.x * 0.5 + margin_x;
+        let max_x = viewport.center.x + viewport.size.x * 0.5 - margin_x;
+        let min_y = viewport.center.y - viewport.size.y * 0.5 + margin_y;
+        let max_y = viewport.center.y + viewport.size.y * 0.5 - margin_y;
+
+        node.pos.x - ext.left >= min_x
+            && node.pos.x + ext.right <= max_x
+            && node.pos.y - ext.top >= min_y
+            && node.pos.y + ext.bottom <= max_y
+    }
+
+    pub(crate) fn minimal_reveal_center_for_surface_on_monitor(
+        &self,
+        monitor: &str,
+        id: NodeId,
+    ) -> Option<Vec2> {
+        let node = self.field.node(id)?;
+        let ext = self.spawn_obstacle_extents_for_node(node);
+        let viewport = self.viewport_for_monitor(monitor);
+        let margin_x = (viewport.size.x * 0.08).clamp(32.0, 160.0);
+        let margin_y = (viewport.size.y * 0.08).clamp(32.0, 120.0);
+        let avail_w = (viewport.size.x - margin_x * 2.0).max(1.0);
+        let avail_h = (viewport.size.y - margin_y * 2.0).max(1.0);
+
+        let mut target = viewport.center;
+        if ext.left + ext.right > avail_w {
+            target.x = node.pos.x;
+        } else {
+            let min_x = viewport.center.x - viewport.size.x * 0.5 + margin_x;
+            let max_x = viewport.center.x + viewport.size.x * 0.5 - margin_x;
+            let left = node.pos.x - ext.left;
+            let right = node.pos.x + ext.right;
+            if left < min_x {
+                target.x += left - min_x;
+            } else if right > max_x {
+                target.x += right - max_x;
+            }
+        }
+
+        if ext.top + ext.bottom > avail_h {
+            target.y = node.pos.y;
+        } else {
+            let min_y = viewport.center.y - viewport.size.y * 0.5 + margin_y;
+            let max_y = viewport.center.y + viewport.size.y * 0.5 - margin_y;
+            let top = node.pos.y - ext.top;
+            let bottom = node.pos.y + ext.bottom;
+            if top < min_y {
+                target.y += top - min_y;
+            } else if bottom > max_y {
+                target.y += bottom - max_y;
+            }
+        }
+
+        Some(target)
+    }
+
+    pub(crate) fn maybe_pan_to_restored_focus_on_close(
+        &mut self,
+        monitor: &str,
+        id: NodeId,
+        now: Instant,
+    ) -> bool {
+        if !self.tuning.close_restore_focus {
+            return false;
+        }
+
+        match self.tuning.close_restore_pan {
+            CloseRestorePanMode::Never => false,
+            CloseRestorePanMode::Always => {
+                let Some(target_pos) = self.field.node(id).map(|node| node.pos) else {
+                    return false;
+                };
+                self.animate_viewport_center_to(target_pos, now)
+            }
+            CloseRestorePanMode::IfOffscreen => {
+                if self.surface_is_sufficiently_visible_on_monitor(monitor, id) {
+                    return false;
+                }
+                self.minimal_reveal_center_for_surface_on_monitor(monitor, id)
+                    .map(|target| self.animate_viewport_center_to(target, now))
+                    .unwrap_or(false)
+            }
         }
     }
 
@@ -856,6 +966,46 @@ mod tests {
         assert_eq!(state.focused_monitor(), "right");
         assert_eq!(state.interaction_monitor(), "right");
         assert_eq!(state.monitor_state.current_monitor, "right");
+        assert_eq!(state.focus_state.primary_interaction_focus, None);
+    }
+
+    #[test]
+    fn focus_monitor_view_does_not_restore_blocked_monitor_focus() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.close_restore_focus = false;
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let right = state.field.spawn_surface(
+            "right",
+            Vec2 { x: 200.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        state.assign_node_to_monitor(right, "right");
+        state.focus_state.monitor_focus.insert("right".to_string(), right);
+        state
+            .focus_state
+            .blocked_monitor_focus_restore
+            .insert("right".to_string());
+
+        state.focus_monitor_view("right", Instant::now());
+
         assert_eq!(state.focus_state.primary_interaction_focus, None);
     }
 

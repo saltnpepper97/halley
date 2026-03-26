@@ -709,6 +709,7 @@ impl XdgShellHandler for Halley {
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         let key = surface.wl_surface().id();
+        let closing_id = self.surface_to_node.get(&key).copied();
         let had_keyboard_focus = self
             .seat
             .get_keyboard()
@@ -731,7 +732,7 @@ impl XdgShellHandler for Halley {
                 had_keyboard_focus, had_pointer_focus
             );
             self.interaction_state.reset_input_state_requested = true;
-            if let Some(focused_monitor) = focused_monitor {
+            if let Some(ref focused_monitor) = focused_monitor {
                 self.spawn_state.pending_spawn_monitor = Some(focused_monitor.clone());
                 info!(
                     "pending spawn monitor latched from destroyed toplevel: {}",
@@ -740,8 +741,34 @@ impl XdgShellHandler for Halley {
             }
         }
 
-        if had_keyboard_focus {
+        if had_keyboard_focus
+        {
             self.clear_keyboard_focus();
+        }
+
+        if had_keyboard_focus
+            && self.tuning.close_restore_focus
+            && let (Some(closing_id), Some(focused_monitor)) =
+                (closing_id, focused_monitor.as_deref())
+        {
+            let now = Instant::now();
+            if let Some(previous) = self.previous_window_from_trail_on_close(focused_monitor, closing_id)
+            {
+                let _ = self.restore_focus_to_node_after_close(focused_monitor, previous, now);
+            } else if let Some(fallback) = self
+                .last_focused_surface_node_for_monitor(focused_monitor)
+                .filter(|&id| id != closing_id)
+                .or_else(|| self.last_focused_surface_node().filter(|&id| id != closing_id))
+            {
+                let _ = self.restore_focus_to_node_after_close(focused_monitor, fallback, now);
+            }
+        } else if had_keyboard_focus
+            && !self.tuning.close_restore_focus
+            && let Some(focused_monitor) = focused_monitor.as_deref()
+        {
+            self.focus_state
+                .blocked_monitor_focus_restore
+                .insert(focused_monitor.to_string());
         }
         if had_pointer_focus {
             self.clear_pointer_focus();

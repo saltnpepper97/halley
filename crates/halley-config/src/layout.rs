@@ -32,6 +32,20 @@ pub enum NodeBackgroundColorMode {
     Fixed { r: f32, g: f32, b: f32 },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PanToNewMode {
+    Never,
+    IfNeeded,
+    Always,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CloseRestorePanMode {
+    Never,
+    IfOffscreen,
+    Always,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FocusRingConfig {
     pub rx: f32,
@@ -87,7 +101,9 @@ pub struct RuntimeTuning {
     pub docked_offscreen_delay_ms: u64,
 
     pub non_overlap_gap_px: f32,
-    pub pan_to_new: bool,
+    pub pan_to_new: PanToNewMode,
+    pub close_restore_focus: bool,
+    pub close_restore_pan: CloseRestorePanMode,
     pub non_overlap_active_gap_scale: f32,
     pub non_overlap_bump_newer: bool,
     pub non_overlap_bump_damping: f32,
@@ -187,7 +203,9 @@ impl Default for RuntimeTuning {
             docked_offscreen_delay_ms: 300_000,
 
             non_overlap_gap_px: 20.0,
-            pan_to_new: true,
+            pan_to_new: PanToNewMode::IfNeeded,
+            close_restore_focus: true,
+            close_restore_pan: CloseRestorePanMode::IfOffscreen,
             non_overlap_active_gap_scale: 0.22,
             non_overlap_bump_newer: false,
             non_overlap_bump_damping: 0.65,

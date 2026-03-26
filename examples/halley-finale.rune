@@ -106,6 +106,12 @@ end
 # These options control how the camera moves
 # through the field.
 field:
+  gap 20.0
+  active-windows-allowed 5
+  pan-to-new "if-needed"
+  close-restore-focus true
+  close-restore-pan "if-offscreen"
+
   # Allow panning the view with scrolling or dragging
   scroll-pan false
 

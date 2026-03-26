@@ -7,6 +7,7 @@ use super::{
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
 use crate::layout::FocusRingConfig;
 use crate::layout::{
+    CloseRestorePanMode, PanToNewMode,
     ViewportOutputConfig, ViewportVrrMode, default_compositor_bindings, default_pointer_bindings,
 };
 use crate::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, RuntimeTuning};
@@ -534,10 +535,20 @@ fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
 fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.non_overlap_gap_px = pick_f32(cfg, &["field.gap", "field.gap-px"], out.non_overlap_gap_px);
-    out.pan_to_new = pick_bool(
+    out.pan_to_new = pick_pan_to_new_mode(
         cfg,
         &["field.pan-to-new", "field.pan_to_new"],
         out.pan_to_new,
+    );
+    out.close_restore_focus = pick_bool(
+        cfg,
+        &["field.close-restore-focus", "field.close_restore_focus"],
+        out.close_restore_focus,
+    );
+    out.close_restore_pan = pick_close_restore_pan_mode(
+        cfg,
+        &["field.close-restore-pan", "field.close_restore_pan"],
+        out.close_restore_pan,
     );
     out.active_windows_allowed = pick_u64(
         cfg,
@@ -721,6 +732,44 @@ fn pick_viewport_vrr_mode(
         "off" | "false" => ViewportVrrMode::Off,
         "on" | "true" => ViewportVrrMode::On,
         "on-demand" | "ondemand" | "adaptive" => ViewportVrrMode::OnDemand,
+        _ => default,
+    }
+}
+
+fn pick_pan_to_new_mode(cfg: &RuneConfig, paths: &[&str], default: PanToNewMode) -> PanToNewMode {
+    for path in paths {
+        if let Ok(Some(v)) = cfg.get_optional::<bool>(path) {
+            return if v {
+                PanToNewMode::Always
+            } else {
+                PanToNewMode::Never
+            };
+        }
+    }
+
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "never" => PanToNewMode::Never,
+        "if-needed" | "if_needed" => PanToNewMode::IfNeeded,
+        "always" => PanToNewMode::Always,
+        _ => default,
+    }
+}
+
+fn pick_close_restore_pan_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: CloseRestorePanMode,
+) -> CloseRestorePanMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "never" => CloseRestorePanMode::Never,
+        "if-offscreen" | "if_offscreen" => CloseRestorePanMode::IfOffscreen,
+        "always" => CloseRestorePanMode::Always,
         _ => default,
     }
 }
@@ -1132,8 +1181,9 @@ mod tests {
 
     use super::apply_explicit_keybind_overrides_map;
     use crate::{
-        CompositorBindingAction, DirectionalAction, NodeBackgroundColorMode, NodeDisplayPolicy,
-        RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE, keybinds::key_name_to_evdev,
+        CloseRestorePanMode, CompositorBindingAction, DirectionalAction,
+        NodeBackgroundColorMode, NodeDisplayPolicy, PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE,
+        WHEEL_UP_CODE, keybinds::key_name_to_evdev,
     };
 
     #[test]
@@ -1343,7 +1393,9 @@ end
             &path,
             r#"
 field:
-  pan-to-new false
+  pan-to-new "if-needed"
+  close-restore-focus true
+  close-restore-pan "if-offscreen"
 end
 "#,
         )
@@ -1353,7 +1405,9 @@ end
             .expect("config should parse");
         let _ = fs::remove_file(&path);
 
-        assert!(!tuning.pan_to_new);
+        assert_eq!(tuning.pan_to_new, PanToNewMode::IfNeeded);
+        assert!(tuning.close_restore_focus);
+        assert_eq!(tuning.close_restore_pan, CloseRestorePanMode::IfOffscreen);
     }
 
     #[test]

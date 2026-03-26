@@ -270,6 +270,7 @@ impl Halley {
                 interaction_focus_until_ms: 0,
                 last_surface_focus_ms: HashMap::new(),
                 focus_trail: HashMap::new(),
+                blocked_monitor_focus_restore: HashSet::new(),
                 suppress_trail_record_once: false,
                 pan_restore_active_focus: None,
                 app_focused: true,
