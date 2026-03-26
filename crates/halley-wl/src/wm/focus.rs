@@ -31,31 +31,50 @@ impl Halley {
     }
 
     fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
-        let fullscreen_id = self.fullscreen_state.fullscreen_active_node.values().next().copied()?;
-
-        if requested == Some(fullscreen_id) {
-            return requested;
-        }
-
-        let fullscreen_monitor = self
-            .fullscreen_monitor_for_node(fullscreen_id)
-            .or_else(|| {
-                self.monitor_state
-                    .node_monitor
-                    .get(&fullscreen_id)
-                    .map(|m| m.as_str())
-            })?;
-
         match requested {
-            None => Some(fullscreen_id),
+            None => self
+                .fullscreen_state
+                .fullscreen_active_node
+                .get(self.interaction_monitor())
+                .copied(),
             Some(requested_id) => {
+                let requested_monitor = self
+                    .fullscreen_monitor_for_node(requested_id)
+                    .map(str::to_string)
+                    .or_else(|| {
+                        self.monitor_state
+                            .node_monitor
+                            .get(&requested_id)
+                            .cloned()
+                    });
+                let Some(requested_monitor) = requested_monitor else {
+                    return requested;
+                };
+                let fullscreen_id = self
+                    .fullscreen_state
+                    .fullscreen_active_node
+                    .get(requested_monitor.as_str())
+                    .copied();
+                let fullscreen_monitor = fullscreen_id.and_then(|fullscreen_id| {
+                    self.fullscreen_monitor_for_node(fullscreen_id)
+                        .or_else(|| {
+                            self.monitor_state
+                                .node_monitor
+                                .get(&fullscreen_id)
+                                .map(|m| m.as_str())
+                        })
+                });
+                if fullscreen_id == Some(requested_id) {
+                    return requested;
+                }
                 let requested_monitor = self
                     .monitor_state
                     .node_monitor
                     .get(&requested_id)
-                    .map(|m| m.as_str());
-                if requested_monitor != Some(fullscreen_monitor) {
-                    Some(fullscreen_id)
+                    .map(|m| m.as_str())
+                    .or(fullscreen_monitor);
+                if requested_monitor == fullscreen_monitor {
+                    fullscreen_id
                 } else {
                     requested
                 }
@@ -570,5 +589,118 @@ mod tests {
 
         assert_eq!(state.last_input_surface_node_for_monitor("default"), Some(left));
         assert_eq!(state.last_input_surface_node_for_monitor("other"), Some(right));
+    }
+
+    #[test]
+    fn fullscreen_focus_override_stays_on_requested_monitor() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let fullscreen_left = state.field.spawn_surface(
+            "fullscreen-left",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        let right = state.field.spawn_surface(
+            "right",
+            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        state.assign_node_to_monitor(fullscreen_left, "left");
+        state.assign_node_to_monitor(right, "right");
+        state.fullscreen_state
+            .fullscreen_active_node
+            .insert("left".to_string(), fullscreen_left);
+        state.set_interaction_monitor("right");
+
+        assert_eq!(state.fullscreen_focus_override(Some(right)), Some(right));
+        assert_eq!(state.fullscreen_focus_override(None), None);
+    }
+
+    #[test]
+    fn fullscreen_focus_override_keeps_same_monitor_fullscreen() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let fullscreen_left = state.field.spawn_surface(
+            "fullscreen-left",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        let other_left = state.field.spawn_surface(
+            "other-left",
+            Vec2 { x: 500.0, y: 300.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        state.assign_node_to_monitor(fullscreen_left, "left");
+        state.assign_node_to_monitor(other_left, "left");
+        state.fullscreen_state
+            .fullscreen_active_node
+            .insert("left".to_string(), fullscreen_left);
+        state.set_interaction_monitor("left");
+
+        assert_eq!(
+            state.fullscreen_focus_override(Some(other_left)),
+            Some(fullscreen_left)
+        );
+        assert_eq!(state.fullscreen_focus_override(None), Some(fullscreen_left));
     }
 }
