@@ -55,8 +55,34 @@ pub enum NodeState {
     Core,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeRole {
+    NormalToplevel,
+    Dialog,
+    Popup,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeProtocolFamily {
+    XdgToplevel,
+    XdgPopup,
+    Xwayland,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeRelationInfo {
+    pub node_id: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeInfo {
+    /// Stable session-scoped node id. Halley does not recycle node ids during
+    /// a compositor run, so scripts can safely correlate parent/transient
+    /// relationships against this handle.
     pub id: u64,
     pub title: String,
     pub app_id: Option<String>,
@@ -66,6 +92,12 @@ pub struct NodeInfo {
     pub visible: bool,
     pub focused: bool,
     pub latest: bool,
+    pub role: NodeRole,
+    pub protocol_family: NodeProtocolFamily,
+    pub modal: bool,
+    pub parent: Option<NodeRelationInfo>,
+    pub transient_for: Option<NodeRelationInfo>,
+    pub child_popup_count: usize,
     pub pos_x: f32,
     pub pos_y: f32,
     pub width: f32,

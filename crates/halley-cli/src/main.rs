@@ -1,66 +1,166 @@
 use halley_ipc::{
-    CompositorRequest, DpmsCommand, IpcError, LogicalOutputInfo, MonitorFocusDirection,
-    MonitorFocusTarget, MonitorRequest, NodeInfo, NodeListResponse, NodeMoveDirection,
-    NodeRequest, NodeSelector, OutputInfo, OutputStatus, OutputsResponse, Request, Response,
-    TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget, send_request,
+    send_request, CompositorRequest, DpmsCommand, IpcError, LogicalOutputInfo,
+    MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, NodeInfo, NodeListResponse,
+    NodeMoveDirection, NodeProtocolFamily, NodeRelationInfo, NodeRequest, NodeRole, NodeSelector,
+    OutputInfo, OutputStatus, OutputsResponse, Request, Response, TrailEntryInfo,
+    TrailListResponse, TrailRequest, TrailTarget,
 };
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let request = match parse_request(&args) {
-        Ok(Some(request)) => request,
-        Ok(None) => {
-            print_help();
-            return;
-        }
-        Err(err) => exit_usage(err.as_str()),
-    };
-
-    match send_request(&request) {
-        Ok(response) => {
-            if let Err(err) = print_response(response) {
-                eprintln!("halleyctl failed: {err}");
+    match parse_request(&args) {
+        Ok(ParseOutcome::Request(request)) => match send_request(&request) {
+            Ok(response) => {
+                if let Err(err) = print_response(response) {
+                    eprintln!("halleyctl failed: {err}");
+                    std::process::exit(1);
+                }
+            }
+            Err(err) => {
+                eprintln!("halleyctl failed to talk to halley: {err}");
                 std::process::exit(1);
             }
-        }
-        Err(err) => {
-            eprintln!("halleyctl failed to talk to halley: {err}");
-            std::process::exit(1);
+        },
+        Ok(ParseOutcome::Help(topic)) => print_help(topic),
+        Err(err) => exit_usage(err),
+    }
+}
+
+enum ParseOutcome {
+    Request(Request),
+    Help(HelpTopic),
+}
+
+#[derive(Clone, Copy)]
+enum HelpTopic {
+    Top,
+    Comp,
+    CompDpms,
+    Node,
+    NodeList,
+    NodeInfo,
+    NodeFocus,
+    NodeMove,
+    NodeClose,
+    Trail,
+    TrailPrev,
+    TrailNext,
+    TrailList,
+    TrailGoto,
+    Monitor,
+    MonitorFocus,
+}
+
+struct UsageError {
+    message: String,
+    help: HelpTopic,
+}
+
+impl UsageError {
+    fn new(message: impl Into<String>, help: HelpTopic) -> Self {
+        Self {
+            message: message.into(),
+            help,
         }
     }
 }
 
-fn parse_request(args: &[String]) -> Result<Option<Request>, String> {
+fn parse_request(args: &[String]) -> Result<ParseOutcome, UsageError> {
     if args.is_empty() {
-        return Ok(None);
+        return Ok(ParseOutcome::Help(HelpTopic::Top));
     }
 
     match args[0].as_str() {
-        "help" | "--help" | "-h" => Ok(None),
-        "comp" => parse_comp_request(&args[1..]).map(Some),
-        "node" => parse_node_request(&args[1..]).map(Some),
-        "trail" => parse_trail_request(&args[1..]).map(Some),
-        "monitor" => parse_monitor_request(&args[1..]).map(Some),
-        "quit" => Ok(Some(Request::Compositor(CompositorRequest::Quit))),
-        "reload" => Ok(Some(Request::Compositor(CompositorRequest::Reload))),
-        "outputs" => Ok(Some(Request::Compositor(CompositorRequest::Outputs))),
-        "dpms" => parse_comp_dpms(&args[1..]).map(Some),
-        other => Err(format!("unknown command: {other}")),
+        "help" | "--help" | "-h" => Ok(ParseOutcome::Help(HelpTopic::Top)),
+        "comp" => parse_comp_request(&args[1..]),
+        "node" => parse_node_request(&args[1..]),
+        "trail" => parse_trail_request(&args[1..]),
+        "monitor" => parse_monitor_request(&args[1..]),
+        "quit" => parse_leaf_alias(
+            &args[1..],
+            HelpTopic::Comp,
+            Request::Compositor(CompositorRequest::Quit),
+        ),
+        "reload" => parse_leaf_alias(
+            &args[1..],
+            HelpTopic::Comp,
+            Request::Compositor(CompositorRequest::Reload),
+        ),
+        "outputs" => parse_leaf_alias(
+            &args[1..],
+            HelpTopic::Comp,
+            Request::Compositor(CompositorRequest::Outputs),
+        ),
+        "dpms" => parse_comp_dpms(&args[1..]),
+        other => Err(UsageError::new(
+            format!("unknown command: {other}"),
+            HelpTopic::Top,
+        )),
     }
 }
 
-fn parse_comp_request(args: &[String]) -> Result<Request, String> {
-    match args.first().map(|value| value.as_str()) {
-        Some("quit") => Ok(Request::Compositor(CompositorRequest::Quit)),
-        Some("reload") => Ok(Request::Compositor(CompositorRequest::Reload)),
-        Some("outputs") => Ok(Request::Compositor(CompositorRequest::Outputs)),
+fn parse_leaf_alias(
+    args: &[String],
+    help: HelpTopic,
+    request: Request,
+) -> Result<ParseOutcome, UsageError> {
+    if contains_help_flag(args) {
+        return Ok(ParseOutcome::Help(help));
+    }
+    if let Some(arg) = args.first() {
+        return Err(UsageError::new(format!("unexpected argument: {arg}"), help));
+    }
+    Ok(ParseOutcome::Request(request))
+}
+
+fn parse_comp_request(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    match args.first().map(String::as_str) {
+        None | Some("-h" | "--help") => Ok(ParseOutcome::Help(HelpTopic::Comp)),
+        Some("quit") => parse_leaf_command(
+            &args[1..],
+            HelpTopic::Comp,
+            Request::Compositor(CompositorRequest::Quit),
+        ),
+        Some("reload") => parse_leaf_command(
+            &args[1..],
+            HelpTopic::Comp,
+            Request::Compositor(CompositorRequest::Reload),
+        ),
+        Some("outputs") => parse_leaf_command(
+            &args[1..],
+            HelpTopic::Comp,
+            Request::Compositor(CompositorRequest::Outputs),
+        ),
         Some("dpms") => parse_comp_dpms(&args[1..]),
-        Some(other) => Err(format!("unknown comp command: {other}")),
-        None => Err("missing comp command".into()),
+        Some(other) => Err(UsageError::new(
+            format!("unknown comp command: {other}"),
+            HelpTopic::Comp,
+        )),
     }
 }
 
-fn parse_comp_dpms(args: &[String]) -> Result<Request, String> {
+fn parse_leaf_command(
+    args: &[String],
+    help: HelpTopic,
+    request: Request,
+) -> Result<ParseOutcome, UsageError> {
+    if args.is_empty() {
+        return Ok(ParseOutcome::Request(request));
+    }
+    if contains_help_flag(args) {
+        return Ok(ParseOutcome::Help(help));
+    }
+    Err(UsageError::new(
+        format!("unexpected argument: {}", args[0]),
+        help,
+    ))
+}
+
+fn parse_comp_dpms(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    if args.is_empty() || contains_help_flag(args) {
+        return Ok(ParseOutcome::Help(HelpTopic::CompDpms));
+    }
+
     let mut positionals = Vec::new();
     let mut output = None;
     let mut index = 0usize;
@@ -69,12 +169,18 @@ fn parse_comp_dpms(args: &[String]) -> Result<Request, String> {
             "-o" | "--output" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
-                    return Err("missing value for -o/--output".into());
+                    return Err(UsageError::new(
+                        "missing value for -o/--output",
+                        HelpTopic::CompDpms,
+                    ));
                 };
                 output = Some(value.clone());
             }
             other if other.starts_with('-') => {
-                return Err(format!("unknown option for comp dpms: {other}"));
+                return Err(UsageError::new(
+                    format!("unknown option for comp dpms: {other}"),
+                    HelpTopic::CompDpms,
+                ));
             }
             _ => positionals.push(args[index].clone()),
         }
@@ -82,44 +188,67 @@ fn parse_comp_dpms(args: &[String]) -> Result<Request, String> {
     }
 
     let Some(command) = positionals.first() else {
-        return Err("missing dpms command".into());
+        return Ok(ParseOutcome::Help(HelpTopic::CompDpms));
     };
+    if positionals.len() > 1 {
+        return Err(UsageError::new(
+            format!("unexpected argument: {}", positionals[1]),
+            HelpTopic::CompDpms,
+        ));
+    }
     let command = match command.as_str() {
         "off" => DpmsCommand::Off,
         "on" => DpmsCommand::On,
         "toggle" => DpmsCommand::Toggle,
-        other => return Err(format!("unknown dpms command: {other}")),
+        other => {
+            return Err(UsageError::new(
+                format!("unknown dpms command: {other}"),
+                HelpTopic::CompDpms,
+            ));
+        }
     };
 
-    Ok(Request::Compositor(CompositorRequest::Dpms { command, output }))
+    Ok(ParseOutcome::Request(Request::Compositor(
+        CompositorRequest::Dpms { command, output },
+    )))
 }
 
-fn parse_node_request(args: &[String]) -> Result<Request, String> {
-    match args.first().map(|value| value.as_str()) {
-        Some("list") => {
-            let output = parse_output_option(&args[1..])?;
-            Ok(Request::Node(NodeRequest::List { output }))
-        }
+fn parse_node_request(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    match args.first().map(String::as_str) {
+        None | Some("-h" | "--help") => Ok(ParseOutcome::Help(HelpTopic::Node)),
+        Some("list") => parse_node_list(&args[1..]),
         Some("info") => parse_node_selector_command(&args[1..], NodeSelectorCommand::Info),
         Some("focus") => parse_node_selector_command(&args[1..], NodeSelectorCommand::Focus),
         Some("close") => parse_node_selector_command(&args[1..], NodeSelectorCommand::Close),
         Some("move") => parse_node_move(&args[1..]),
-        Some(other) => Err(format!("unknown node command: {other}")),
-        None => Err("missing node command".into()),
+        Some(other) => Err(UsageError::new(
+            format!("unknown node command: {other}"),
+            HelpTopic::Node,
+        )),
     }
 }
 
-fn parse_node_move(args: &[String]) -> Result<Request, String> {
-    let Some(direction) = args.first() else {
-        return Err("missing node move direction".into());
-    };
-    let direction = parse_move_direction(direction)?;
-    let (selector, output, _json) = parse_selector_flags(&args[1..])?;
-    Ok(Request::Node(NodeRequest::Move {
+fn parse_node_list(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    if contains_help_flag(args) {
+        return Ok(ParseOutcome::Help(HelpTopic::NodeList));
+    }
+    let output = parse_output_option(args, HelpTopic::NodeList)?;
+    Ok(ParseOutcome::Request(Request::Node(NodeRequest::List {
+        output,
+    })))
+}
+
+fn parse_node_move(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    if args.is_empty() || contains_help_flag(args) {
+        return Ok(ParseOutcome::Help(HelpTopic::NodeMove));
+    }
+    let direction = parse_move_direction(&args[0])?;
+    let (selector, output, _json) = parse_selector_flags(&args[1..], HelpTopic::NodeMove)?;
+    Ok(ParseOutcome::Request(Request::Node(NodeRequest::Move {
         direction,
         selector,
         output,
-    }))
+    })))
 }
 
 #[derive(Clone, Copy)]
@@ -129,60 +258,110 @@ enum NodeSelectorCommand {
     Close,
 }
 
+impl NodeSelectorCommand {
+    fn help_topic(self) -> HelpTopic {
+        match self {
+            Self::Info => HelpTopic::NodeInfo,
+            Self::Focus => HelpTopic::NodeFocus,
+            Self::Close => HelpTopic::NodeClose,
+        }
+    }
+}
+
 fn parse_node_selector_command(
     args: &[String],
     command: NodeSelectorCommand,
-) -> Result<Request, String> {
-    let (selector, output, _json) = parse_selector_flags(args)?;
-    Ok(Request::Node(match command {
+) -> Result<ParseOutcome, UsageError> {
+    if contains_help_flag(args) {
+        return Ok(ParseOutcome::Help(command.help_topic()));
+    }
+    let (selector, output, _json) = parse_selector_flags(args, command.help_topic())?;
+    Ok(ParseOutcome::Request(Request::Node(match command {
         NodeSelectorCommand::Info => NodeRequest::Info { selector, output },
         NodeSelectorCommand::Focus => NodeRequest::Focus { selector, output },
         NodeSelectorCommand::Close => NodeRequest::Close { selector, output },
-    }))
+    })))
 }
 
-fn parse_trail_request(args: &[String]) -> Result<Request, String> {
-    match args.first().map(|value| value.as_str()) {
-        Some("prev") => Ok(Request::Trail(TrailRequest::Prev {
-            output: parse_output_option(&args[1..])?,
-        })),
-        Some("next") => Ok(Request::Trail(TrailRequest::Next {
-            output: parse_output_option(&args[1..])?,
-        })),
-        Some("list") => Ok(Request::Trail(TrailRequest::List {
-            output: parse_output_option(&args[1..])?,
-        })),
-        Some("goto") => {
-            let Some(target) = args.get(1) else {
-                return Err("missing trail goto target".into());
-            };
-            let output = parse_output_option(&args[2..])?;
-            Ok(Request::Trail(TrailRequest::Goto {
-                target: parse_trail_target(target.as_str())?,
-                output,
-            }))
-        }
-        Some(other) => Err(format!("unknown trail command: {other}")),
-        None => Err("missing trail command".into()),
+fn parse_trail_request(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    match args.first().map(String::as_str) {
+        None | Some("-h" | "--help") => Ok(ParseOutcome::Help(HelpTopic::Trail)),
+        Some("prev") => parse_trail_prev_next(&args[1..], HelpTopic::TrailPrev, true),
+        Some("next") => parse_trail_prev_next(&args[1..], HelpTopic::TrailNext, false),
+        Some("list") => parse_trail_list(&args[1..]),
+        Some("goto") => parse_trail_goto(&args[1..]),
+        Some(other) => Err(UsageError::new(
+            format!("unknown trail command: {other}"),
+            HelpTopic::Trail,
+        )),
     }
 }
 
-fn parse_monitor_request(args: &[String]) -> Result<Request, String> {
-    match args.first().map(|value| value.as_str()) {
-        Some("focus") => {
-            let Some(target) = args.get(1) else {
-                return Err("missing monitor focus target".into());
-            };
-            Ok(Request::Monitor(MonitorRequest::Focus(
-                parse_monitor_focus_target(target.as_str()),
-            )))
-        }
-        Some(other) => Err(format!("unknown monitor command: {other}")),
-        None => Err("missing monitor command".into()),
+fn parse_trail_prev_next(
+    args: &[String],
+    help: HelpTopic,
+    prev: bool,
+) -> Result<ParseOutcome, UsageError> {
+    if contains_help_flag(args) {
+        return Ok(ParseOutcome::Help(help));
+    }
+    let output = parse_output_option(args, help)?;
+    let request = if prev {
+        TrailRequest::Prev { output }
+    } else {
+        TrailRequest::Next { output }
+    };
+    Ok(ParseOutcome::Request(Request::Trail(request)))
+}
+
+fn parse_trail_list(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    if contains_help_flag(args) {
+        return Ok(ParseOutcome::Help(HelpTopic::TrailList));
+    }
+    Ok(ParseOutcome::Request(Request::Trail(TrailRequest::List {
+        output: parse_output_option(args, HelpTopic::TrailList)?,
+    })))
+}
+
+fn parse_trail_goto(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    if args.is_empty() || contains_help_flag(args) {
+        return Ok(ParseOutcome::Help(HelpTopic::TrailGoto));
+    }
+    let target = parse_trail_target(&args[0])?;
+    let output = parse_output_option(&args[1..], HelpTopic::TrailGoto)?;
+    Ok(ParseOutcome::Request(Request::Trail(TrailRequest::Goto {
+        target,
+        output,
+    })))
+}
+
+fn parse_monitor_request(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    match args.first().map(String::as_str) {
+        None | Some("-h" | "--help") => Ok(ParseOutcome::Help(HelpTopic::Monitor)),
+        Some("focus") => parse_monitor_focus(&args[1..]),
+        Some(other) => Err(UsageError::new(
+            format!("unknown monitor command: {other}"),
+            HelpTopic::Monitor,
+        )),
     }
 }
 
-fn parse_output_option(args: &[String]) -> Result<Option<String>, String> {
+fn parse_monitor_focus(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    if args.is_empty() || contains_help_flag(args) {
+        return Ok(ParseOutcome::Help(HelpTopic::MonitorFocus));
+    }
+    if args.len() > 1 {
+        return Err(UsageError::new(
+            format!("unexpected argument: {}", args[1]),
+            HelpTopic::MonitorFocus,
+        ));
+    }
+    Ok(ParseOutcome::Request(Request::Monitor(
+        MonitorRequest::Focus(parse_monitor_focus_target(&args[0])),
+    )))
+}
+
+fn parse_output_option(args: &[String], help: HelpTopic) -> Result<Option<String>, UsageError> {
     let mut output = None;
     let mut index = 0usize;
     while index < args.len() {
@@ -190,12 +369,17 @@ fn parse_output_option(args: &[String]) -> Result<Option<String>, String> {
             "-o" | "--output" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
-                    return Err("missing value for -o/--output".into());
+                    return Err(UsageError::new("missing value for -o/--output", help));
                 };
                 output = Some(value.clone());
             }
             "--json" => {}
-            other => return Err(format!("unexpected argument: {other}")),
+            other => {
+                return Err(UsageError::new(
+                    format!("unexpected argument: {other}"),
+                    help,
+                ));
+            }
         }
         index += 1;
     }
@@ -204,7 +388,8 @@ fn parse_output_option(args: &[String]) -> Result<Option<String>, String> {
 
 fn parse_selector_flags(
     args: &[String],
-) -> Result<(Option<NodeSelector>, Option<String>, bool), String> {
+    help: HelpTopic,
+) -> Result<(Option<NodeSelector>, Option<String>, bool), UsageError> {
     let mut selector = None;
     let mut output = None;
     let mut json = false;
@@ -214,15 +399,20 @@ fn parse_selector_flags(
             "-o" | "--output" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
-                    return Err("missing value for -o/--output".into());
+                    return Err(UsageError::new("missing value for -o/--output", help));
                 };
                 output = Some(value.clone());
             }
             "--json" => json = true,
-            other if other.starts_with('-') => return Err(format!("unknown option: {other}")),
+            other if other.starts_with('-') => {
+                return Err(UsageError::new(format!("unknown option: {other}"), help));
+            }
             other => {
                 if selector.is_some() {
-                    return Err(format!("unexpected extra selector argument: {other}"));
+                    return Err(UsageError::new(
+                        format!("unexpected extra selector argument: {other}"),
+                        help,
+                    ));
                 }
                 selector = Some(parse_node_selector(other)?);
             }
@@ -232,7 +422,7 @@ fn parse_selector_flags(
     Ok((selector, output, json))
 }
 
-fn parse_node_selector(text: &str) -> Result<NodeSelector, String> {
+fn parse_node_selector(text: &str) -> Result<NodeSelector, UsageError> {
     if text.eq_ignore_ascii_case("focused") {
         return Ok(NodeSelector::Focused);
     }
@@ -243,10 +433,9 @@ fn parse_node_selector(text: &str) -> Result<NodeSelector, String> {
         return Ok(NodeSelector::Id(id));
     }
     if let Some(value) = text.strip_prefix("id:") {
-        return value
-            .parse::<u64>()
-            .map(NodeSelector::Id)
-            .map_err(|_| format!("invalid node id selector: {text}"));
+        return value.parse::<u64>().map(NodeSelector::Id).map_err(|_| {
+            UsageError::new(format!("invalid node id selector: {text}"), HelpTopic::Node)
+        });
     }
     if let Some(value) = text.strip_prefix("title:") {
         return Ok(NodeSelector::Title(value.to_string()));
@@ -254,23 +443,29 @@ fn parse_node_selector(text: &str) -> Result<NodeSelector, String> {
     if let Some(value) = text.strip_prefix("app:") {
         return Ok(NodeSelector::App(value.to_string()));
     }
-    Err(format!("unknown node selector: {text}"))
+    Err(UsageError::new(
+        format!("unknown node selector: {text}"),
+        HelpTopic::Node,
+    ))
 }
 
-fn parse_trail_target(text: &str) -> Result<TrailTarget, String> {
+fn parse_trail_target(text: &str) -> Result<TrailTarget, UsageError> {
     if let Ok(index) = text.parse::<usize>() {
         return Ok(TrailTarget::Index(index));
     }
     Ok(TrailTarget::Selector(parse_node_selector(text)?))
 }
 
-fn parse_move_direction(text: &str) -> Result<NodeMoveDirection, String> {
+fn parse_move_direction(text: &str) -> Result<NodeMoveDirection, UsageError> {
     match text {
         "left" => Ok(NodeMoveDirection::Left),
         "right" => Ok(NodeMoveDirection::Right),
         "up" => Ok(NodeMoveDirection::Up),
         "down" => Ok(NodeMoveDirection::Down),
-        other => Err(format!("unknown move direction: {other}")),
+        other => Err(UsageError::new(
+            format!("unknown move direction: {other}"),
+            HelpTopic::NodeMove,
+        )),
     }
 }
 
@@ -284,30 +479,183 @@ fn parse_monitor_focus_target(text: &str) -> MonitorFocusTarget {
     }
 }
 
-fn exit_usage(message: &str) -> ! {
-    eprintln!("{message}");
-    print_help();
+fn contains_help_flag(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == "-h" || arg == "--help")
+}
+
+fn exit_usage(error: UsageError) -> ! {
+    eprintln!("{}", error.message);
+    eprintln!();
+    print_help(error.help);
     std::process::exit(2);
 }
 
-fn print_help() {
-    println!("halleyctl");
+fn print_help(topic: HelpTopic) {
+    match topic {
+        HelpTopic::Top => print_help_page(
+            "halleyctl",
+            &["halleyctl <command> [args]"],
+            &[
+                ("comp", "Compositor/runtime controls"),
+                ("node", "Node actions and inspection"),
+                ("trail", "Trail navigation and inspection"),
+                ("monitor", "Monitor-related actions"),
+            ],
+        ),
+        HelpTopic::Comp => print_help_page(
+            "halleyctl comp",
+            &[
+                "halleyctl comp quit",
+                "halleyctl comp reload",
+                "halleyctl comp outputs",
+                "halleyctl comp dpms off|on|toggle [-o OUTPUT]",
+            ],
+            &[
+                ("quit", "Ask the running Halley compositor to exit"),
+                (
+                    "reload",
+                    "Ask the running Halley compositor to reload config",
+                ),
+                ("outputs", "Print current output information"),
+                ("dpms", "Control output power state"),
+            ],
+        ),
+        HelpTopic::CompDpms => print_help_page(
+            "halleyctl comp dpms",
+            &["halleyctl comp dpms off|on|toggle [-o OUTPUT]"],
+            &[("off|on|toggle", "Set or toggle output power state")],
+        ),
+        HelpTopic::Node => print_help_page(
+            "halleyctl node",
+            &[
+                "halleyctl node list [-o OUTPUT] [--json]",
+                "halleyctl node info [SELECTOR] [-o OUTPUT] [--json]",
+                "halleyctl node focus [SELECTOR] [-o OUTPUT]",
+                "halleyctl node move left|right|up|down [SELECTOR] [-o OUTPUT]",
+                "halleyctl node close [SELECTOR] [-o OUTPUT]",
+            ],
+            &[
+                ("list", "List nodes"),
+                ("info", "Show information about a node"),
+                ("focus", "Focus a node by selector"),
+                ("move", "Move a node in a direction"),
+                ("close", "Close a node"),
+            ],
+        ),
+        HelpTopic::NodeList => print_help_page(
+            "halleyctl node list",
+            &["halleyctl node list [-o OUTPUT] [--json]"],
+            &[("list", "List nodes on the focused or selected output")],
+        ),
+        HelpTopic::NodeInfo => print_help_page(
+            "halleyctl node info",
+            &["halleyctl node info [SELECTOR] [-o OUTPUT] [--json]"],
+            &[(
+                "SELECTOR",
+                "Use focused, latest, id:<id>, title:<text>, or app:<app-id>",
+            )],
+        ),
+        HelpTopic::NodeFocus => print_help_page(
+            "halleyctl node focus",
+            &["halleyctl node focus [SELECTOR] [-o OUTPUT]"],
+            &[(
+                "SELECTOR",
+                "Use focused, latest, id:<id>, title:<text>, or app:<app-id>",
+            )],
+        ),
+        HelpTopic::NodeMove => print_help_page(
+            "halleyctl node move",
+            &["halleyctl node move left|right|up|down [SELECTOR] [-o OUTPUT]"],
+            &[
+                ("left|right|up|down", "Direction to move the node"),
+                (
+                    "SELECTOR",
+                    "Use focused, latest, id:<id>, title:<text>, or app:<app-id>",
+                ),
+            ],
+        ),
+        HelpTopic::NodeClose => print_help_page(
+            "halleyctl node close",
+            &["halleyctl node close [SELECTOR] [-o OUTPUT]"],
+            &[(
+                "SELECTOR",
+                "Use focused, latest, id:<id>, title:<text>, or app:<app-id>",
+            )],
+        ),
+        HelpTopic::Trail => print_help_page(
+            "halleyctl trail",
+            &[
+                "halleyctl trail prev [-o OUTPUT]",
+                "halleyctl trail next [-o OUTPUT]",
+                "halleyctl trail list [-o OUTPUT] [--json]",
+                "halleyctl trail goto <TARGET> [-o OUTPUT]",
+            ],
+            &[
+                ("prev", "Focus the previous trail entry"),
+                ("next", "Focus the next trail entry"),
+                ("list", "List trail entries"),
+                ("goto", "Focus a specific trail entry"),
+            ],
+        ),
+        HelpTopic::TrailPrev => print_help_page(
+            "halleyctl trail prev",
+            &["halleyctl trail prev [-o OUTPUT]"],
+            &[("prev", "Focus the previous trail entry")],
+        ),
+        HelpTopic::TrailNext => print_help_page(
+            "halleyctl trail next",
+            &["halleyctl trail next [-o OUTPUT]"],
+            &[("next", "Focus the next trail entry")],
+        ),
+        HelpTopic::TrailList => print_help_page(
+            "halleyctl trail list",
+            &["halleyctl trail list [-o OUTPUT] [--json]"],
+            &[(
+                "list",
+                "List trail entries on the focused or selected output",
+            )],
+        ),
+        HelpTopic::TrailGoto => print_help_page(
+            "halleyctl trail goto",
+            &["halleyctl trail goto <TARGET> [-o OUTPUT]"],
+            &[(
+                "TARGET",
+                "Use a trail index or the same selectors accepted by node commands",
+            )],
+        ),
+        HelpTopic::Monitor => print_help_page(
+            "halleyctl monitor",
+            &["halleyctl monitor focus <left|right|up|down|OUTPUT>"],
+            &[("focus", "Focus an adjacent monitor or a named output")],
+        ),
+        HelpTopic::MonitorFocus => print_help_page(
+            "halleyctl monitor focus",
+            &["halleyctl monitor focus <left|right|up|down|OUTPUT>"],
+            &[(
+                "left|right|up|down|OUTPUT",
+                "Direction or exact output name to focus",
+            )],
+        ),
+    }
+}
+
+fn print_help_page(title: &str, usage: &[&str], commands: &[(&str, &str)]) {
+    println!("{title}");
     println!();
     println!("Usage:");
-    println!("  halleyctl comp quit");
-    println!("  halleyctl comp reload");
-    println!("  halleyctl comp outputs");
-    println!("  halleyctl comp dpms off|on|toggle [-o OUTPUT]");
-    println!("  halleyctl node list [-o OUTPUT] [--json]");
-    println!("  halleyctl node info [SELECTOR] [-o OUTPUT] [--json]");
-    println!("  halleyctl node focus [SELECTOR] [-o OUTPUT]");
-    println!("  halleyctl node move left|right|up|down [SELECTOR] [-o OUTPUT]");
-    println!("  halleyctl node close [SELECTOR] [-o OUTPUT]");
-    println!("  halleyctl trail prev [-o OUTPUT]");
-    println!("  halleyctl trail next [-o OUTPUT]");
-    println!("  halleyctl trail list [-o OUTPUT] [--json]");
-    println!("  halleyctl trail goto <TARGET> [-o OUTPUT]");
-    println!("  halleyctl monitor focus <left|right|up|down|OUTPUT>");
+    for line in usage {
+        println!("  {line}");
+    }
+    if !commands.is_empty() {
+        println!();
+        println!("Commands:");
+        for (name, description) in commands {
+            println!("  {name:<9} {description}");
+        }
+    }
+    println!();
+    println!("Options:");
+    println!("  -h, --help  Show help");
 }
 
 fn print_response(response: Response) -> Result<(), String> {
@@ -388,7 +736,11 @@ fn print_output(output: &OutputInfo) {
     println!("  status: {}", format_status(output.status));
     println!(
         "  enabled: {}",
-        if output.enabled { "enabled" } else { "disabled" }
+        if output.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
     );
 
     if let Some(current_mode) = &output.current_mode {
@@ -481,10 +833,30 @@ fn print_node_fields(node: &NodeInfo, indent: usize) {
     if let Some(app_id) = &node.app_id {
         println!("{pad}app: {app_id}");
     }
+    println!("{pad}role: {}", format_node_role(node.role));
+    println!(
+        "{pad}protocol: {}",
+        format_node_protocol(node.protocol_family)
+    );
+    println!("{pad}modal: {}", node.modal);
+    print_node_relation("parent-node", node.parent.as_ref(), indent);
+    print_node_relation("transient-for", node.transient_for.as_ref(), indent);
+    if node.child_popup_count > 0 {
+        println!("{pad}child-popups: {}", node.child_popup_count);
+    }
     println!("{pad}focused: {}", node.focused);
     println!("{pad}latest: {}", node.latest);
     println!("{pad}pos: {:.0}, {:.0}", node.pos_x, node.pos_y);
     println!("{pad}size: {:.0} x {:.0}", node.width, node.height);
+}
+
+fn print_node_relation(label: &str, relation: Option<&NodeRelationInfo>, indent: usize) {
+    let pad = " ".repeat(indent);
+    match relation {
+        Some(NodeRelationInfo { node_id: Some(id) }) => println!("{pad}{label}: {id}"),
+        Some(NodeRelationInfo { node_id: None }) => println!("{pad}{label}: (unresolved)"),
+        None => println!("{pad}{label}: (none)"),
+    }
 }
 
 fn print_trail_list(list: &TrailListResponse) {
@@ -515,7 +887,10 @@ fn print_trail_entry(entry: &TrailEntryInfo) {
         println!("      app: {app_id}");
     }
     println!("      state: {}", format_node_state(&entry.node));
-    println!("      pos: {:.0}, {:.0}", entry.node.pos_x, entry.node.pos_y);
+    println!(
+        "      pos: {:.0}, {:.0}",
+        entry.node.pos_x, entry.node.pos_y
+    );
 }
 
 fn format_status(status: OutputStatus) -> &'static str {
@@ -532,5 +907,23 @@ fn format_node_state(node: &NodeInfo) -> &'static str {
         halley_ipc::NodeState::Drifting => "drifting",
         halley_ipc::NodeState::Node => "node",
         halley_ipc::NodeState::Core => "core",
+    }
+}
+
+fn format_node_role(role: NodeRole) -> &'static str {
+    match role {
+        NodeRole::NormalToplevel => "normal",
+        NodeRole::Dialog => "dialog",
+        NodeRole::Popup => "popup",
+        NodeRole::Unknown => "unknown",
+    }
+}
+
+fn format_node_protocol(protocol: NodeProtocolFamily) -> &'static str {
+    match protocol {
+        NodeProtocolFamily::XdgToplevel => "xdg-toplevel",
+        NodeProtocolFamily::XdgPopup => "xdg-popup",
+        NodeProtocolFamily::Xwayland => "xwayland",
+        NodeProtocolFamily::Unknown => "unknown",
     }
 }

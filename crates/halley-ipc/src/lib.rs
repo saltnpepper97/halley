@@ -13,8 +13,9 @@ pub use protocol::{
     TrailTarget,
 };
 pub use types::{
-    LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup, NodeState,
-    OutputInfo, OutputStatus, OutputsResponse, TrailEntryInfo, TrailListResponse,
+    LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup,
+    NodeProtocolFamily, NodeRelationInfo, NodeRole, NodeState, OutputInfo, OutputStatus,
+    OutputsResponse, TrailEntryInfo, TrailListResponse,
 };
 
 use std::env;

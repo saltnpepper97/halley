@@ -4,9 +4,14 @@ use std::time::Instant;
 use halley_core::field::{NodeId, NodeKind as FieldNodeKind, NodeState as FieldNodeState};
 use halley_ipc::{
     CompositorRequest, IpcError, MonitorFocusDirection, MonitorFocusTarget, MonitorRequest,
-    NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup, NodeRequest, NodeSelector, NodeState,
-    Request, Response, TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
+    NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo,
+    NodeRequest, NodeRole, NodeSelector, NodeState, Request, Response, TrailEntryInfo,
+    TrailListResponse, TrailRequest, TrailTarget,
 };
+use smithay::desktop::PopupManager;
+use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
+use smithay::wayland::compositor::with_states;
+use smithay::wayland::shell::xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData};
 
 use crate::interaction::actions::promote_node_level;
 use crate::state::Halley;
@@ -17,14 +22,14 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Node(request) => handle_node_request(st, request),
         Request::Trail(request) => handle_trail_request(st, request),
         Request::Monitor(request) => handle_monitor_request(st, request),
-        Request::Compositor(CompositorRequest::Outputs) => {
-            Response::Error(IpcError::Unsupported("outputs are handled by the ipc listener".into()))
-        }
+        Request::Compositor(CompositorRequest::Outputs) => Response::Error(IpcError::Unsupported(
+            "outputs are handled by the ipc listener".into(),
+        )),
         Request::Compositor(CompositorRequest::Quit)
         | Request::Compositor(CompositorRequest::Reload)
-        | Request::Compositor(CompositorRequest::Dpms { .. }) => {
-            Response::Error(IpcError::Unsupported("backend request not handled here".into()))
-        }
+        | Request::Compositor(CompositorRequest::Dpms { .. }) => Response::Error(
+            IpcError::Unsupported("backend request not handled here".into()),
+        ),
     }
 }
 
@@ -228,7 +233,10 @@ fn goto_trail_target(
 
 fn focus_node(st: &mut Halley, id: NodeId, now: Instant) -> Result<(), IpcError> {
     if !node_is_queryable_surface(st, id) {
-        return Err(IpcError::NotFound(format!("node {} is not available", id.as_u64())));
+        return Err(IpcError::NotFound(format!(
+            "node {} is not available",
+            id.as_u64()
+        )));
     }
     let node = st
         .field
@@ -349,7 +357,9 @@ fn resolve_default_node(st: &Halley, output: Option<&str>) -> Result<NodeId, Ipc
         .or_else(|_| {
             st.last_focused_surface_node_for_monitor(output)
                 .filter(|&id| node_is_queryable_surface(st, id))
-                .ok_or_else(|| IpcError::NotFound(format!("no last-focused node on output {output}")))
+                .ok_or_else(|| {
+                    IpcError::NotFound(format!("no last-focused node on output {output}"))
+                })
         })
         .or_else(|_| resolve_latest_node(st, Some(output)))
 }
@@ -385,11 +395,20 @@ where
         .collect();
     match candidates.as_slice() {
         [id] => Ok(*id),
-        [] => Err(IpcError::NotFound(format!("no node matched selector {label}"))),
+        [] => Err(IpcError::NotFound(format!(
+            "no node matched selector {label}"
+        ))),
         many => Err(IpcError::Ambiguous(format!(
             "selector {label} matched multiple nodes: {}",
             many.iter()
-                .map(|id| format!("{} ({})", id.as_u64(), st.field.node(*id).map(|n| n.label.as_str()).unwrap_or("unknown")))
+                .map(|id| format!(
+                    "{} ({})",
+                    id.as_u64(),
+                    st.field
+                        .node(*id)
+                        .map(|n| n.label.as_str())
+                        .unwrap_or("unknown")
+                ))
                 .collect::<Vec<_>>()
                 .join(", ")
         ))),
@@ -421,14 +440,12 @@ fn node_info(st: &Halley, id: NodeId) -> NodeInfo {
     let node = st.field.node(id).expect("node info requires live node");
     let size = current_surface_size_for_node(st, id).unwrap_or(node.intrinsic_size);
     let output = st.monitor_state.node_monitor.get(&id).cloned();
-    let latest = output
-        .as_deref()
-        .and_then(|output| {
-            surface_nodes_on_output(st, output)
-                .into_iter()
-                .max_by_key(|candidate| candidate.as_u64())
-        })
-        == Some(id);
+    let metadata = node_surface_metadata(st, id);
+    let latest = output.as_deref().and_then(|output| {
+        surface_nodes_on_output(st, output)
+            .into_iter()
+            .max_by_key(|candidate| candidate.as_u64())
+    }) == Some(id);
     NodeInfo {
         id: id.as_u64(),
         title: node.label.clone(),
@@ -447,6 +464,12 @@ fn node_info(st: &Halley, id: NodeId) -> NodeInfo {
         visible: st.field.is_visible(id),
         focused: st.focus_state.primary_interaction_focus == Some(id),
         latest,
+        role: metadata.role,
+        protocol_family: metadata.protocol_family,
+        modal: metadata.modal,
+        parent: metadata.parent,
+        transient_for: metadata.transient_for,
+        child_popup_count: metadata.child_popup_count,
         pos_x: node.pos.x,
         pos_y: node.pos.y,
         width: size.x,
@@ -454,14 +477,123 @@ fn node_info(st: &Halley, id: NodeId) -> NodeInfo {
     }
 }
 
+#[derive(Debug, Clone)]
+struct NodeSurfaceMetadata {
+    role: NodeRole,
+    protocol_family: NodeProtocolFamily,
+    modal: bool,
+    parent: Option<NodeRelationInfo>,
+    transient_for: Option<NodeRelationInfo>,
+    child_popup_count: usize,
+}
+
+fn node_surface_metadata(st: &Halley, id: NodeId) -> NodeSurfaceMetadata {
+    let Some(surface) = node_root_surface(st, id) else {
+        return NodeSurfaceMetadata {
+            role: NodeRole::Unknown,
+            protocol_family: NodeProtocolFamily::Unknown,
+            modal: false,
+            parent: None,
+            transient_for: None,
+            child_popup_count: 0,
+        };
+    };
+
+    let child_popup_count = PopupManager::popups_for_surface(&surface).count();
+    let xdg_toplevel = with_states(&surface, |states| {
+        states.data_map.get::<XdgToplevelSurfaceData>().map(|data| {
+            let guard = data.lock().expect("xdg toplevel data");
+            (guard.parent.clone(), guard.modal)
+        })
+    });
+    if let Some((parent_surface, modal)) = xdg_toplevel {
+        let relation = parent_surface
+            .as_ref()
+            .map(|surface| relation_for_surface(st, surface));
+        let role = if modal || relation.is_some() {
+            NodeRole::Dialog
+        } else {
+            NodeRole::NormalToplevel
+        };
+        return NodeSurfaceMetadata {
+            role,
+            protocol_family: NodeProtocolFamily::XdgToplevel,
+            modal,
+            parent: relation.clone(),
+            transient_for: relation,
+            child_popup_count,
+        };
+    }
+
+    let xdg_popup = with_states(&surface, |states| {
+        states
+            .data_map
+            .get::<XdgPopupSurfaceData>()
+            .map(|data| data.lock().expect("xdg popup data").parent.clone())
+    });
+    if let Some(parent_surface) = xdg_popup {
+        let relation = parent_surface
+            .as_ref()
+            .map(|surface| relation_for_surface(st, surface));
+        return NodeSurfaceMetadata {
+            role: NodeRole::Popup,
+            protocol_family: NodeProtocolFamily::XdgPopup,
+            modal: false,
+            parent: relation.clone(),
+            transient_for: relation,
+            child_popup_count,
+        };
+    }
+
+    NodeSurfaceMetadata {
+        role: NodeRole::Unknown,
+        protocol_family: NodeProtocolFamily::Unknown,
+        modal: false,
+        parent: None,
+        transient_for: None,
+        child_popup_count,
+    }
+}
+
+fn node_root_surface(st: &Halley, id: NodeId) -> Option<WlSurface> {
+    st.xdg_shell_state
+        .toplevel_surfaces()
+        .iter()
+        .find_map(|surface| {
+            let surface_id = surface.wl_surface().id();
+            (st.surface_to_node.get(&surface_id).copied() == Some(id))
+                .then(|| surface.wl_surface().clone())
+        })
+        .or_else(|| {
+            st.xdg_shell_state
+                .popup_surfaces()
+                .iter()
+                .find_map(|surface| {
+                    let surface_id = surface.wl_surface().id();
+                    (st.surface_to_node.get(&surface_id).copied() == Some(id))
+                        .then(|| surface.wl_surface().clone())
+                })
+        })
+}
+
+fn relation_for_surface(st: &Halley, surface: &WlSurface) -> NodeRelationInfo {
+    NodeRelationInfo {
+        node_id: st.surface_to_node.get(&surface.id()).map(|id| id.as_u64()),
+    }
+}
+
 fn node_is_queryable_surface(st: &Halley, id: NodeId) -> bool {
-    st.field.node(id).is_some_and(|node| {
-        st.field.is_visible(id) && node.kind == FieldNodeKind::Surface
-    })
+    st.field
+        .node(id)
+        .is_some_and(|node| st.field.is_visible(id) && node.kind == FieldNodeKind::Surface)
 }
 
 fn node_matches_output(st: &Halley, id: NodeId, output: &str) -> bool {
-    st.monitor_state.node_monitor.get(&id).map(|name| name.as_str()) == Some(output)
+    st.monitor_state
+        .node_monitor
+        .get(&id)
+        .map(|name| name.as_str())
+        == Some(output)
 }
 
 fn surface_nodes(st: &Halley, output: Option<&str>) -> Vec<NodeId> {
@@ -472,12 +604,17 @@ fn surface_nodes(st: &Halley, output: Option<&str>) -> Vec<NodeId> {
         .filter_map(|node| {
             (node.kind == FieldNodeKind::Surface
                 && st.field.is_visible(node.id)
-                && output.map(|output| node_matches_output(st, node.id, output)).unwrap_or(true))
+                && output
+                    .map(|output| node_matches_output(st, node.id, output))
+                    .unwrap_or(true))
             .then_some(node.id)
         })
         .collect();
     nodes.sort_by(|a, b| {
-        let output_cmp = match (st.monitor_state.node_monitor.get(a), st.monitor_state.node_monitor.get(b)) {
+        let output_cmp = match (
+            st.monitor_state.node_monitor.get(a),
+            st.monitor_state.node_monitor.get(b),
+        ) {
             (Some(a_output), Some(b_output)) => a_output.cmp(b_output),
             (Some(_), None) => Ordering::Less,
             (None, Some(_)) => Ordering::Greater,
@@ -517,13 +654,15 @@ fn resolve_monitor_focus_target(
 ) -> Result<String, IpcError> {
     match target {
         MonitorFocusTarget::Output(output) => Ok(validate_output(st, output)?.to_string()),
-        MonitorFocusTarget::Direction(direction) => adjacent_monitor(st, *direction).ok_or_else(|| {
-            IpcError::NotFound(format!(
-                "no {} output adjacent to {}",
-                monitor_direction_label(*direction),
-                st.focused_monitor()
-            ))
-        }),
+        MonitorFocusTarget::Direction(direction) => {
+            adjacent_monitor(st, *direction).ok_or_else(|| {
+                IpcError::NotFound(format!(
+                    "no {} output adjacent to {}",
+                    monitor_direction_label(*direction),
+                    st.focused_monitor()
+                ))
+            })
+        }
     }
 }
 
@@ -588,17 +727,23 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        let first = state
-            .field
-            .spawn_surface("first", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
-        let second = state
-            .field
-            .spawn_surface("second", Vec2 { x: 200.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
+        let first =
+            state
+                .field
+                .spawn_surface("first", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
+        let second = state.field.spawn_surface(
+            "second",
+            Vec2 { x: 200.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
         state.assign_node_to_current_monitor(first);
         state.assign_node_to_current_monitor(second);
         state.focus_state.primary_interaction_focus = None;
 
-        assert_eq!(resolve_node_selector(&state, None, None).unwrap().as_u64(), 2);
+        assert_eq!(
+            resolve_node_selector(&state, None, None).unwrap().as_u64(),
+            2
+        );
     }
 
     #[test]
@@ -608,16 +753,20 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        let first = state
-            .field
-            .spawn_surface("Kitty", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
-        let second = state
-            .field
-            .spawn_surface("Kitty scratch", Vec2 { x: 200.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
+        let first =
+            state
+                .field
+                .spawn_surface("Kitty", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
+        let second = state.field.spawn_surface(
+            "Kitty scratch",
+            Vec2 { x: 200.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
         state.assign_node_to_current_monitor(first);
         state.assign_node_to_current_monitor(second);
 
-        let result = resolve_node_selector(&state, Some(&NodeSelector::Title("kitty".into())), None);
+        let result =
+            resolve_node_selector(&state, Some(&NodeSelector::Title("kitty".into())), None);
         assert!(matches!(result, Err(IpcError::Ambiguous(_))));
     }
 
