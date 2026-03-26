@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::time::Instant;
 
+use smithay::wayland::compositor::{SurfaceAttributes, with_states};
 use smithay::{
     backend::renderer::{
         Color32F, Frame, Renderer, Texture,
@@ -300,10 +301,17 @@ fn collect_cursor_scene(
     if let (Some((sx, sy)), smithay::input::pointer::CursorImageStatus::Surface(surface)) =
         (cursor_screen, cursor_status.clone())
     {
+        let scale = with_states(&surface, |states| {
+            states
+                .cached_state
+                .get::<SurfaceAttributes>()
+                .current()
+                .buffer_scale as f64
+        });
         let (hotspot_x, hotspot_y) = cursor_surface_hotspot(&surface);
         let loc = (sx.round() as i32 - hotspot_x, sy.round() as i32 - hotspot_y);
         cursor_surface_elements =
-            render_elements_from_surface_tree(renderer, &surface, loc, 1.0, 1.0, Kind::Unspecified);
+            render_elements_from_surface_tree(renderer, &surface, loc, scale, 1.0, Kind::Unspecified);
     }
 
     CursorScene {

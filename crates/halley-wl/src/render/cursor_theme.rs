@@ -15,7 +15,7 @@ pub(crate) struct SoftwareCursorSprite {
     pub(crate) height: usize,
     pub(crate) hotspot_x: i32,
     pub(crate) hotspot_y: i32,
-    pub(crate) pixels_rgba: Vec<u8>,
+    pub(crate) pixels_bgra: Vec<u8>,
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ fn load_cursor_from_theme(
             height,
             hotspot_x: (image.xhot as i32).clamp(0, max_hotspot_x),
             hotspot_y: (image.yhot as i32).clamp(0, max_hotspot_y),
-            pixels_rgba: image.pixels_rgba.clone(),
+            pixels_bgra: image.pixels_rgba.clone(),
         }));
     }
     None

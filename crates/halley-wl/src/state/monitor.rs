@@ -11,6 +11,7 @@ use smithay::{
 };
 
 use crate::state::Halley;
+use crate::state::spawn::MonitorSpawnState;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MonitorSpace {
@@ -152,6 +153,18 @@ impl Halley {
         }
 
         self.monitor_state.monitors = monitors;
+        self.spawn_state.per_monitor = self
+            .monitor_state
+            .monitors
+            .iter()
+            .map(|(name, monitor)| {
+                let existing = self.spawn_state.per_monitor.get(name).cloned();
+                (
+                    name.clone(),
+                    existing.unwrap_or_else(|| MonitorSpawnState::new(monitor.viewport.center)),
+                )
+            })
+            .collect();
 
         if !self
             .monitor_state
@@ -227,9 +240,15 @@ impl Halley {
     }
 
     pub(crate) fn assign_node_to_current_monitor(&mut self, id: NodeId) {
+        let monitor = self.monitor_state.current_monitor.clone();
+        self.assign_node_to_monitor(id, monitor.as_str());
+    }
+
+    pub(crate) fn assign_node_to_monitor(&mut self, id: NodeId, monitor: &str) {
+        let _ = self.spawn_monitor_state_mut(monitor);
         self.monitor_state
             .node_monitor
-            .insert(id, self.monitor_state.current_monitor.clone());
+            .insert(id, monitor.to_string());
     }
 
     pub(crate) fn assign_layer_surface_to_monitor(&mut self, surface: &WlSurface, monitor: String) {

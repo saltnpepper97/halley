@@ -219,15 +219,14 @@ impl Halley {
             return id;
         }
 
-        self.spawn_state.spawn_cursor += 1;
         let size = Vec2 {
             x: size_px.0.max(64) as f32,
             y: size_px.1.max(64) as f32,
         };
-        let (pos, needs_pan) = self.pick_spawn_position(size);
+        let (monitor, pos, needs_pan) = self.pick_spawn_position(size);
 
         let id = self.field.spawn_surface(label.to_string(), pos, size);
-        self.assign_node_to_current_monitor(id);
+        self.assign_node_to_monitor(id, monitor.as_str());
         let _ = self
             .field
             .set_state(id, halley_core::field::NodeState::Active);

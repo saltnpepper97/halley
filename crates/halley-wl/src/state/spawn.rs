@@ -44,19 +44,63 @@ pub(crate) enum SpawnAnchorMode {
     View,
 }
 
-pub(crate) struct SpawnState {
-    pub pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
+#[derive(Clone, Debug)]
+pub(crate) struct MonitorSpawnState {
     pub(crate) spawn_cursor: u32,
     pub(crate) spawn_patch: Option<SpawnPatch>,
     pub(crate) spawn_anchor_mode: SpawnAnchorMode,
     pub(crate) spawn_view_anchor: Vec2,
     pub(crate) spawn_pan_start_center: Option<Vec2>,
     pub(crate) spawn_last_pan_ms: u64,
+}
+
+impl MonitorSpawnState {
+    pub(crate) fn new(view_anchor: Vec2) -> Self {
+        Self {
+            spawn_cursor: 0,
+            spawn_patch: None,
+            spawn_anchor_mode: SpawnAnchorMode::Focus,
+            spawn_view_anchor: view_anchor,
+            spawn_pan_start_center: None,
+            spawn_last_pan_ms: 0,
+        }
+    }
+}
+
+pub(crate) struct SpawnState {
+    pub pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
+    pub(crate) per_monitor: HashMap<String, MonitorSpawnState>,
     pub(crate) pending_spawn_pan_queue: VecDeque<PendingSpawnPan>,
     pub(crate) active_spawn_pan: Option<ActiveSpawnPan>,
 }
 
 impl Halley {
+    pub(crate) fn default_spawn_view_anchor_for_monitor(&self, monitor: &str) -> Vec2 {
+        self.monitor_state
+            .monitors
+            .get(monitor)
+            .map(|space| space.viewport.center)
+            .unwrap_or(self.viewport.center)
+    }
+
+    pub(crate) fn spawn_monitor_state(&self, monitor: &str) -> MonitorSpawnState {
+        self.spawn_state
+            .per_monitor
+            .get(monitor)
+            .cloned()
+            .unwrap_or_else(|| {
+                MonitorSpawnState::new(self.default_spawn_view_anchor_for_monitor(monitor))
+            })
+    }
+
+    pub(crate) fn spawn_monitor_state_mut(&mut self, monitor: &str) -> &mut MonitorSpawnState {
+        let view_anchor = self.default_spawn_view_anchor_for_monitor(monitor);
+        self.spawn_state
+            .per_monitor
+            .entry(monitor.to_string())
+            .or_insert_with(|| MonitorSpawnState::new(view_anchor))
+    }
+
     pub(crate) fn process_pending_spawn_activations(&mut self, now: Instant, now_ms: u64) {
         let due: Vec<NodeId> = self
             .spawn_state

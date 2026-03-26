@@ -181,9 +181,11 @@ impl Halley {
         self.interaction_state.viewport_pan_anim = None;
         let now_ms = self.now_ms(now);
         self.interaction_state.pan_dominant_until_ms = now_ms.saturating_add(220);
-        self.spawn_state.spawn_last_pan_ms = now_ms;
-        self.spawn_state.spawn_pan_start_center
-            .get_or_insert(self.viewport.center);
+        let current_monitor = self.monitor_state.current_monitor.clone();
+        let viewport_center = self.viewport.center;
+        let spawn = self.spawn_monitor_state_mut(current_monitor.as_str());
+        spawn.spawn_last_pan_ms = now_ms;
+        spawn.spawn_pan_start_center.get_or_insert(viewport_center);
         if self.tuning.restore_last_active_on_pan_return
             && self.focus_state.pan_restore_active_focus.is_none()
         {
@@ -203,11 +205,18 @@ impl Halley {
     }
 
     pub(crate) fn note_pan_viewport_change(&mut self, _now: Instant) {
-        if self.spawn_state.spawn_anchor_mode == crate::state::SpawnAnchorMode::View {
-            self.spawn_state.spawn_view_anchor = self.viewport.center;
+        let current_monitor = self.monitor_state.current_monitor.clone();
+        if self.spawn_monitor_state(current_monitor.as_str()).spawn_anchor_mode
+            == crate::state::SpawnAnchorMode::View
+        {
+            self.spawn_monitor_state_mut(current_monitor.as_str())
+                .spawn_view_anchor = self.viewport.center;
         }
         self.request_maintenance();
-        let Some(start_center) = self.spawn_state.spawn_pan_start_center else {
+        let Some(start_center) = self
+            .spawn_monitor_state(current_monitor.as_str())
+            .spawn_pan_start_center
+        else {
             return;
         };
 
@@ -231,11 +240,13 @@ impl Halley {
             return;
         }
 
-        self.spawn_state.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
-        self.spawn_state.spawn_view_anchor = self.viewport.center;
-        self.spawn_state.spawn_patch = None;
+        let viewport_center = self.viewport.center;
+        let spawn = self.spawn_monitor_state_mut(current_monitor.as_str());
+        spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
+        spawn.spawn_view_anchor = viewport_center;
+        spawn.spawn_patch = None;
+        spawn.spawn_pan_start_center = Some(viewport_center);
         self.focus_state.pan_restore_active_focus = None;
-        self.spawn_state.spawn_pan_start_center = Some(self.viewport.center);
     }
 
     pub fn set_pan_restore_focus_target(&mut self, id: NodeId) {

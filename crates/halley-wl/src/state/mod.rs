@@ -64,7 +64,9 @@ pub use client::ClientState;
 pub(crate) use interaction::ViewportPanAnim;
 pub(crate) use render::{NodeAppIconCacheEntry, NodeAppIconTexture};
 pub(crate) use fullscreen::{FullscreenMotion, FullscreenSessionEntry, FullscreenScaleAnim};
-pub(crate) use spawn::{SpawnPatch, PendingSpawnPan, ActiveSpawnPan, SpawnAnchorMode};
+pub(crate) use spawn::{
+    ActiveSpawnPan, MonitorSpawnState, PendingSpawnPan, SpawnAnchorMode, SpawnPatch,
+};
 
 pub struct Halley {
     pub display_handle: DisplayHandle,
@@ -141,7 +143,6 @@ impl Halley {
         tuning: RuntimeTuning,
     ) -> Self {
         let now = Instant::now();
-        let initial_view_anchor = tuning.viewport_center;
         let mut monitors = HashMap::new();
         for viewport in tuning
             .tty_viewports
@@ -344,12 +345,7 @@ impl Halley {
 
             spawn_state: SpawnState {
                 pending_spawn_activate_at_ms: HashMap::new(),
-                spawn_cursor: 0,
-                spawn_patch: None,
-                spawn_anchor_mode: SpawnAnchorMode::Focus,
-                spawn_view_anchor: initial_view_anchor,
-                spawn_pan_start_center: None,
-                spawn_last_pan_ms: 0,
+                per_monitor: HashMap::new(),
                 pending_spawn_pan_queue: VecDeque::new(),
                 active_spawn_pan: None,
             },
@@ -382,6 +378,17 @@ impl Halley {
             state_change_ms: out.tuning.dev_anim_state_change_ms,
             bounce: out.tuning.dev_anim_bounce,
         });
+        out.spawn_state.per_monitor = out
+            .monitor_state
+            .monitors
+            .iter()
+            .map(|(name, monitor)| {
+                (
+                    name.clone(),
+                    MonitorSpawnState::new(monitor.viewport.center),
+                )
+            })
+            .collect();
         let current_monitor = out.monitor_state.current_monitor.clone();
         let _ = out.load_monitor_state(current_monitor.as_str());
         out

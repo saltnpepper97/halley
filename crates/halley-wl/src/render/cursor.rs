@@ -53,24 +53,24 @@ pub(crate) fn draw_cursor_sprite<F: Frame>(
         let mut x = 0usize;
         while x < w {
             let base = (y * w + x) * 4;
-            let a = sprite.pixels_rgba[base + 3];
+            let a = sprite.pixels_bgra[base + 3];
             if a == 0 {
                 x += 1;
                 continue;
             }
 
-            let r = sprite.pixels_rgba[base];
-            let g = sprite.pixels_rgba[base + 1];
-            let b = sprite.pixels_rgba[base + 2];
+            let b = sprite.pixels_bgra[base];
+            let g = sprite.pixels_bgra[base + 1];
+            let r = sprite.pixels_bgra[base + 2];
 
             // Merge identical neighbouring pixels into a single rect call.
             let mut run_end = x + 1;
             while run_end < w {
                 let i = (y * w + run_end) * 4;
-                if sprite.pixels_rgba[i] != r
-                    || sprite.pixels_rgba[i + 1] != g
-                    || sprite.pixels_rgba[i + 2] != b
-                    || sprite.pixels_rgba[i + 3] != a
+                if sprite.pixels_bgra[i] != b
+                    || sprite.pixels_bgra[i + 1] != g
+                    || sprite.pixels_bgra[i + 2] != r
+                    || sprite.pixels_bgra[i + 3] != a
                 {
                     break;
                 }

@@ -38,11 +38,16 @@ impl Halley {
                     .interaction_focus_until_ms
                     .max(requested_until);
                 self.update_focus_tracking_for_surface(fid, now_ms);
-                self.spawn_state.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
-                self.spawn_state.spawn_pan_start_center = None;
-
                 if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
+                    let spawn = self.spawn_monitor_state_mut(monitor.as_str());
+                    spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
+                    spawn.spawn_pan_start_center = None;
                     self.focus_state.monitor_focus.insert(monitor, fid);
+                } else {
+                    let current_monitor = self.monitor_state.current_monitor.clone();
+                    let spawn = self.spawn_monitor_state_mut(current_monitor.as_str());
+                    spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
+                    spawn.spawn_pan_start_center = None;
                 }
 
                 self.reassert_wayland_keyboard_focus_if_drifted(id);
@@ -58,11 +63,16 @@ impl Halley {
         if let Some(fid) = id {
             self.focus_state.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
             self.update_focus_tracking_for_surface(fid, now_ms);
-            self.spawn_state.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
-            self.spawn_state.spawn_pan_start_center = None;
-
             if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
+                let spawn = self.spawn_monitor_state_mut(monitor.as_str());
+                spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
+                spawn.spawn_pan_start_center = None;
                 self.focus_state.monitor_focus.insert(monitor, fid);
+            } else {
+                let current_monitor = self.monitor_state.current_monitor.clone();
+                let spawn = self.spawn_monitor_state_mut(current_monitor.as_str());
+                spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
+                spawn.spawn_pan_start_center = None;
             }
         } else {
             self.focus_state.interaction_focus_until_ms = 0;
