@@ -837,6 +837,13 @@ pub(crate) fn handle_pointer_button_input(
         Instant::now(),
         ps.resize,
     );
+    if matches!(button_state, ButtonState::Pressed)
+        && let Some((surface, _)) = layer_focus.as_ref()
+    {
+        let monitor = st.layer_surface_monitor_name(surface);
+        st.spawn_state.pending_spawn_monitor = Some(monitor.clone());
+        info!("pending spawn monitor latched from layer press: {}", monitor);
+    }
     let world_now = screen_to_world(st, local_w, local_h, local_sx, local_sy);
     let frame = ButtonFrame {
         ws_w: local_w,
