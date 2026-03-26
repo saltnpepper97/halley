@@ -31,6 +31,15 @@ impl Halley {
         self.set_focused_monitor(monitor);
         self.spawn_state.pending_spawn_monitor = None;
         let _ = self.activate_monitor(monitor);
+        if let Some(id) = self.last_focused_surface_node_for_monitor(monitor) {
+            self.set_interaction_focus(Some(id), 30_000, now);
+            info!(
+                "monitor focus restored surface: monitor={} node_id={}",
+                monitor,
+                id.as_u64()
+            );
+            return;
+        }
         self.set_interaction_focus(None, 0, now);
         let view_center = self.view_center_for_monitor(monitor);
         let spawn = self.spawn_monitor_state_mut(monitor);

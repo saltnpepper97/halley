@@ -763,4 +763,99 @@ mod tests {
         assert_eq!(state.monitor_state.current_monitor, "right");
     }
 
+    #[test]
+    fn focus_monitor_view_restores_last_focused_surface_on_monitor() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let right = state.field.spawn_surface(
+            "right",
+            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        state.assign_node_to_monitor(right, "right");
+        state.set_interaction_focus(Some(right), 30_000, Instant::now());
+
+        state.focus_monitor_view("left", Instant::now());
+        assert_eq!(state.focus_state.primary_interaction_focus, None);
+
+        state.focus_monitor_view("right", Instant::now());
+
+        assert_eq!(state.focused_monitor(), "right");
+        assert_eq!(state.interaction_monitor(), "right");
+        assert_eq!(state.monitor_state.current_monitor, "right");
+        assert_eq!(state.focus_state.primary_interaction_focus, Some(right));
+    }
+
+    #[test]
+    fn focus_monitor_view_uses_bare_monitor_view_when_no_surface_exists() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        state.focus_monitor_view("right", Instant::now());
+
+        assert_eq!(state.focused_monitor(), "right");
+        assert_eq!(state.interaction_monitor(), "right");
+        assert_eq!(state.monitor_state.current_monitor, "right");
+        assert_eq!(state.focus_state.primary_interaction_focus, None);
+    }
+
 }
