@@ -8,11 +8,11 @@ use crate::state::Halley;
 use crate::wm::overlap::CollisionExtents;
 
 /// Spawn candidates are tried in a deterministic star pattern:
-/// center, then left, right, up, down for each ring.
+/// center, then right, left, up, down for each ring.
 fn spawn_cardinal_dirs() -> [Vec2; 4] {
     [
-        Vec2 { x: -1.0, y: 0.0 }, // left
         Vec2 { x: 1.0, y: 0.0 },  // right
+        Vec2 { x: -1.0, y: 0.0 }, // left
         Vec2 { x: 0.0, y: 1.0 },  // up
         Vec2 { x: 0.0, y: -1.0 }, // down
     ]
@@ -182,6 +182,12 @@ impl Halley {
         let viewport_center = self.viewport_center_for_monitor(target_monitor.as_str());
         let (focus_id, focus_pos) = self.current_spawn_focus(target_monitor.as_str());
         let use_view_patch = monitor_spawn.spawn_anchor_mode == crate::state::SpawnAnchorMode::View;
+        let patch_focus_continues = monitor_spawn.spawn_patch.as_ref().is_some_and(|patch| {
+            self.spawn_anchor_on_monitor(patch.anchor, target_monitor.as_str())
+                && focus_id.is_some()
+                && (patch.focus_pos.x - focus_pos.x).hypot(patch.focus_pos.y - focus_pos.y)
+                    <= self.spawn_star_step(size) + 1.0
+        });
 
         let anchor = if use_view_patch {
             monitor_spawn
@@ -201,6 +207,8 @@ impl Halley {
                 && same_focus_pos
                 && self.spawn_anchor_on_monitor(patch.anchor, target_monitor.as_str())
             {
+                patch.anchor
+            } else if patch_focus_continues {
                 patch.anchor
             } else {
                 focus_pos
@@ -383,7 +391,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn star_offsets_are_center_then_left_right_up_down() {
+    fn star_offsets_are_center_then_right_left_up_down() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
@@ -394,8 +402,8 @@ mod tests {
         assert_eq!(offsets[0], Vec2 { x: 0.0, y: 0.0 });
 
         let step = state.spawn_star_step(Vec2 { x: 100.0, y: 80.0 });
-        assert_eq!(offsets[1], Vec2 { x: -step, y: 0.0 });
-        assert_eq!(offsets[2], Vec2 { x: step, y: 0.0 });
+        assert_eq!(offsets[1], Vec2 { x: step, y: 0.0 });
+        assert_eq!(offsets[2], Vec2 { x: -step, y: 0.0 });
         assert_eq!(offsets[3], Vec2 { x: 0.0, y: step });
         assert_eq!(offsets[4], Vec2 { x: 0.0, y: -step });
     }
@@ -451,7 +459,7 @@ mod tests {
 
         let (_, pos, needs_pan) = state.pick_spawn_position(size);
         let step = state.spawn_star_step(size);
-        assert_eq!(pos, Vec2 { x: -step, y: 0.0 });
+        assert_eq!(pos, Vec2 { x: step, y: 0.0 });
         assert!(!needs_pan);
     }
 
@@ -556,7 +564,7 @@ mod tests {
             .spawn_surface("existing", Vec2 { x: 0.0, y: 0.0 }, size);
         let (_, pos, needs_pan) = state.pick_spawn_position(size);
         let step = state.spawn_star_step(size);
-        assert_eq!(pos, Vec2 { x: -step, y: 0.0 });
+        assert_eq!(pos, Vec2 { x: step, y: 0.0 });
         assert!(!needs_pan);
     }
 
@@ -587,7 +595,7 @@ mod tests {
         assert_eq!(
             second,
             Vec2 {
-                x: 1200.0 - step,
+                x: 1200.0 + step,
                 y: 0.0
             }
         );
@@ -644,7 +652,7 @@ mod tests {
         assert_eq!(
             pos,
             Vec2 {
-                x: 1200.0 - step,
+                x: 1200.0 + step,
                 y: 300.0,
             }
         );
@@ -717,10 +725,44 @@ mod tests {
         assert_eq!(
             second_left,
             Vec2 {
-                x: 400.0 - step,
+                x: 400.0 + step,
                 y: 300.0,
             }
         );
+    }
+
+    #[test]
+    fn focus_mode_keeps_monitor_local_patch_after_auto_focusing_new_spawn() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.viewport.size = Vec2 { x: 1600.0, y: 1200.0 };
+
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let anchor = state.field.spawn_surface("anchor", Vec2 { x: 0.0, y: 0.0 }, size);
+        let _ = state
+            .field
+            .set_state(anchor, halley_core::field::NodeState::Active);
+        state.assign_node_to_current_monitor(anchor);
+        state.focus_state.primary_interaction_focus = Some(anchor);
+        state.focus_state.last_surface_focus_ms.insert(anchor, 1);
+        state.focus_state
+            .monitor_focus
+            .insert(state.monitor_state.current_monitor.clone(), anchor);
+
+        let first = state.pick_spawn_position(size).1;
+        let first_id = state.field.spawn_surface("first", first, size);
+        state.assign_node_to_current_monitor(first_id);
+        state.set_interaction_focus(Some(first_id), 30_000, Instant::now());
+
+        let second = state.pick_spawn_position(size).1;
+        let step = state.spawn_star_step(size);
+
+        assert_eq!(first, Vec2 { x: step, y: 0.0 });
+        assert_eq!(second, Vec2 { x: -step, y: 0.0 });
     }
 
     #[test]
