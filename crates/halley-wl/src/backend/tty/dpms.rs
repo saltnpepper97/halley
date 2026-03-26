@@ -181,15 +181,23 @@ pub(crate) fn wake_tty_dpms_on_input(
 ) -> bool {
     let focused_monitor = st.focused_monitor().to_string();
     let output = target_output.unwrap_or(focused_monitor.as_str());
-    if tty_output_dpms_enabled(&dpms_enabled.borrow(), output) {
+    let current = dpms_enabled.borrow();
+
+    // Preserve the old "wake everything immediately" behavior when the
+    // entire tty layout is asleep. Per-output wake is still used when only
+    // some outputs are DPMS-disabled.
+    let wake_all = !any_tty_output_dpms_enabled(&current);
+    if !wake_all && tty_output_dpms_enabled(&current, output) {
         return false;
     }
+    drop(current);
+
     apply_tty_dpms_command(
         dev,
         active_modes,
         dpms_enabled,
         halley_ipc::DpmsCommand::On,
-        Some(output),
+        if wake_all { None } else { Some(output) },
         outputs,
         tuning,
         output_frame_pending,
