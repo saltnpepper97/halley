@@ -4,7 +4,7 @@ use std::process::Command;
 
 use eventline::{debug, info, warn};
 
-use super::utils::{key_matches, modifier_active};
+use super::utils::{key_matches, modifier_exact};
 use crate::interaction::actions::{move_latest_node_direction, toggle_focused_active_node_state};
 use crate::interaction::types::ModState;
 use crate::run::request_xwayland_start;
@@ -37,7 +37,7 @@ pub(crate) fn compositor_binding_action(
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
     for binding in &st.tuning.compositor_bindings {
-        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers) {
+        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             return Some(binding.action);
         }
     }
@@ -51,7 +51,7 @@ pub(crate) fn compositor_binding_action_active(
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
     for binding in &st.tuning.compositor_bindings {
-        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers)
+        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
         {
             return Some(binding.action);
         }
@@ -67,8 +67,19 @@ pub(crate) fn key_is_compositor_binding(
 ) -> bool {
     compositor_binding_action(st, key_code, mods).is_some()
         || st.tuning.launch_bindings.iter().any(|binding| {
-            input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers)
+            input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
         })
+}
+
+pub(crate) fn compositor_action_allows_repeat(action: CompositorBindingAction) -> bool {
+    matches!(
+        action,
+        CompositorBindingAction::MoveNode(_)
+            | CompositorBindingAction::TrailPrev
+            | CompositorBindingAction::TrailNext
+            | CompositorBindingAction::ZoomIn
+            | CompositorBindingAction::ZoomOut
+    )
 }
 
 pub(crate) fn apply_compositor_action_press(
@@ -157,7 +168,7 @@ pub(crate) fn apply_bound_key(
     }
 
     for binding in st.tuning.launch_bindings.clone() {
-        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers) {
+        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             // FIX: store the child so it's tracked for cleanup on WM exit,
             // rather than dropping it immediately (which orphaned the process).
             let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
@@ -185,7 +196,7 @@ pub(crate) fn apply_bound_pointer_input(
     }
 
     for binding in st.tuning.launch_bindings.clone() {
-        if input_matches_binding(key_code, binding.key) && modifier_active(mods, binding.modifiers)
+        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
         {
             let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
                 Some(child) => {
@@ -246,7 +257,8 @@ pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -
 
 #[cfg(test)]
 mod tests {
-    use super::input_matches_binding;
+    use super::{compositor_action_allows_repeat, input_matches_binding};
+    use halley_config::CompositorBindingAction;
     use halley_config::WHEEL_UP_CODE;
     use halley_config::keybinds::key_name_to_evdev;
 
@@ -265,5 +277,15 @@ mod tests {
         let return_xkb = key_name_to_evdev("return").expect("return") + 8;
         let j_evdev = key_name_to_evdev("j").expect("j");
         assert!(!input_matches_binding(return_xkb, j_evdev));
+    }
+
+    #[test]
+    fn repeat_policy_is_limited_to_safe_actions() {
+        assert!(compositor_action_allows_repeat(CompositorBindingAction::ZoomIn));
+        assert!(compositor_action_allows_repeat(CompositorBindingAction::TrailNext));
+        assert!(!compositor_action_allows_repeat(
+            CompositorBindingAction::CloseFocusedWindow
+        ));
+        assert!(!compositor_action_allows_repeat(CompositorBindingAction::ToggleState));
     }
 }

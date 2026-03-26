@@ -13,7 +13,7 @@ use super::utils::update_mod_state;
 use super::key_actions::{
     apply_bound_key, apply_bound_pointer_input, apply_compositor_action_press,
     apply_compositor_action_release, compositor_binding_action, compositor_binding_action_active,
-    key_is_compositor_binding,
+    compositor_action_allows_repeat, key_is_compositor_binding,
 };
 use super::pointer_focus::pointer_focus_for_screen;
 use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};
@@ -126,6 +126,7 @@ pub(crate) fn handle_keyboard_input(
     // toggle binding like toggle-state will collapse and then immediately
     // reopen on key repeat.
     let mut first_binding_press = false;
+    let mut repeat_binding_press = false;
 
     let intercept = if is_mod_key {
         false
@@ -133,6 +134,7 @@ pub(crate) fn handle_keyboard_input(
         if matched_binding {
             let mut ms = mod_state.borrow_mut();
             first_binding_press = ms.intercepted_keys.insert(code);
+            repeat_binding_press = !first_binding_press;
             if first_binding_press && let Some(action) = matched_action {
                 ms.intercepted_compositor_actions.insert(code, action);
             }
@@ -181,7 +183,9 @@ pub(crate) fn handle_keyboard_input(
     // and only on the first press (not repeats while held).
     if pressed
         && matched_binding
-        && first_binding_press
+        && ((first_binding_press)
+            || (repeat_binding_press
+                && matched_action.is_some_and(compositor_action_allows_repeat)))
         && apply_bound_key(st, code, &mods, config_path, wayland_display)
     {
         backend.request_redraw();

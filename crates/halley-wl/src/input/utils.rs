@@ -66,3 +66,97 @@ pub(crate) fn modifier_active(mods: &ModState, need: KeyModifiers) -> bool {
         && (!need.left_shift || mods.left_shift_down)
         && (!need.right_shift || mods.right_shift_down)
 }
+
+fn modifier_family_exact(
+    actual_left: bool,
+    actual_right: bool,
+    need_any: bool,
+    need_left: bool,
+    need_right: bool,
+) -> bool {
+    if need_left && !actual_left {
+        return false;
+    }
+    if need_right && !actual_right {
+        return false;
+    }
+    if need_any && !(actual_left || actual_right) {
+        return false;
+    }
+
+    let allow_left = need_any || need_left;
+    let allow_right = need_any || need_right;
+
+    (!actual_left || allow_left) && (!actual_right || allow_right)
+}
+
+pub(crate) fn modifier_exact(mods: &ModState, need: KeyModifiers) -> bool {
+    modifier_family_exact(
+        mods.left_super_down,
+        mods.right_super_down,
+        need.super_key,
+        need.left_super,
+        need.right_super,
+    ) && modifier_family_exact(
+        mods.left_alt_down,
+        mods.right_alt_down,
+        need.alt,
+        need.left_alt,
+        need.right_alt,
+    ) && modifier_family_exact(
+        mods.left_ctrl_down,
+        mods.right_ctrl_down,
+        need.ctrl,
+        need.left_ctrl,
+        need.right_ctrl,
+    ) && modifier_family_exact(
+        mods.left_shift_down,
+        mods.right_shift_down,
+        need.shift,
+        need.left_shift,
+        need.right_shift,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::modifier_exact;
+    use crate::interaction::types::ModState;
+    use halley_config::KeyModifiers;
+
+    #[test]
+    fn exact_modifier_matching_rejects_extra_shift() {
+        let mods = ModState {
+            left_super_down: true,
+            super_down: true,
+            left_shift_down: true,
+            shift_down: true,
+            ..ModState::default()
+        };
+
+        assert!(!modifier_exact(
+            &mods,
+            KeyModifiers {
+                super_key: true,
+                ..KeyModifiers::default()
+            }
+        ));
+    }
+
+    #[test]
+    fn exact_modifier_matching_still_allows_generic_sided_match() {
+        let mods = ModState {
+            left_alt_down: true,
+            alt_down: true,
+            ..ModState::default()
+        };
+
+        assert!(modifier_exact(
+            &mods,
+            KeyModifiers {
+                alt: true,
+                ..KeyModifiers::default()
+            }
+        ));
+    }
+}
