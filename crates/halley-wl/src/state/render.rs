@@ -75,13 +75,18 @@ pub(crate) enum NodeAppIconCacheEntry {
     Missing,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct PreviewHoverState {
+    pub(crate) node: Option<NodeId>,
+    pub(crate) mix: f32,
+}
+
 pub(crate) struct RenderState {
     pub animator: Animator,
 
     pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
     pub(crate) node_hover_mix: HashMap<NodeId, f32>,
-    pub(crate) node_preview_hover_node: Option<NodeId>,
-    pub(crate) node_preview_hover_mix: f32,
+    pub(crate) node_preview_hover: HashMap<String, PreviewHoverState>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
     pub(crate) node_label_program: Option<GlesTexProgram>,
@@ -121,6 +126,10 @@ impl Halley {
         self.render_state
             .node_hover_mix
             .retain(|id, _| alive.contains(id));
+        self.render_state.node_preview_hover.retain(|_, state| {
+            state.node = state.node.filter(|id| alive.contains(id));
+            state.node.is_some() || state.mix > 0.002
+        });
         self.prune_window_offscreen_cache(now);
     }
 
@@ -222,25 +231,31 @@ impl Halley {
         *mix
     }
 
-    pub fn node_preview_hover_anim(&mut self, hovered: Option<NodeId>) -> Option<(NodeId, f32)> {
-        if hovered.is_some() && hovered != self.render_state.node_preview_hover_node {
-            self.render_state.node_preview_hover_node = hovered;
-            self.render_state.node_preview_hover_mix = 0.0;
+    pub fn node_preview_hover_anim_for_monitor(
+        &mut self,
+        monitor: &str,
+        hovered: Option<NodeId>,
+    ) -> Option<(NodeId, f32)> {
+        let state = self
+            .render_state
+            .node_preview_hover
+            .entry(monitor.to_string())
+            .or_default();
+        if hovered.is_some() && hovered != state.node {
+            state.node = hovered;
+            state.mix = 0.0;
         }
         let target = if hovered.is_some() { 1.0 } else { 0.0 };
         let k = if target > 0.5 { 0.30 } else { 0.14 };
-        self.render_state.node_preview_hover_mix +=
-            (target - self.render_state.node_preview_hover_mix) * k;
-        if (self.render_state.node_preview_hover_mix - target).abs() < 0.002 {
-            self.render_state.node_preview_hover_mix = target;
+        state.mix += (target - state.mix) * k;
+        if (state.mix - target).abs() < 0.002 {
+            state.mix = target;
         }
-        if target <= 0.0 && self.render_state.node_preview_hover_mix <= 0.002 {
-            self.render_state.node_preview_hover_mix = 0.0;
-            self.render_state.node_preview_hover_node = None;
+        if target <= 0.0 && state.mix <= 0.002 {
+            state.mix = 0.0;
+            state.node = None;
         }
-        self.render_state
-            .node_preview_hover_node
-            .map(|id| (id, self.render_state.node_preview_hover_mix))
+        state.node.map(|id| (id, state.mix))
     }
 
     pub fn set_app_focused(&mut self, focused: bool) {

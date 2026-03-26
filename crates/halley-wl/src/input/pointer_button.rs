@@ -532,10 +532,14 @@ fn handle_left_press(
     frame: ButtonFrame,
 ) {
     let Some(hit) = hit else {
+        let now = Instant::now();
+        let monitor = st.monitor_state.current_monitor.clone();
+        st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
-        ps.pan_monitor = Some(st.monitor_state.current_monitor.clone());
+        ps.pan_monitor = Some(monitor);
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
         ps.last_title_click = None;
+        backend.request_redraw();
         return;
     };
     if frame.workspace_active {
@@ -617,9 +621,13 @@ fn handle_right_press(
     }
 
     let Some(hit) = hit else {
+        let now = Instant::now();
+        let monitor = st.monitor_state.current_monitor.clone();
+        st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
-        ps.pan_monitor = Some(st.monitor_state.current_monitor.clone());
+        ps.pan_monitor = Some(monitor);
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
+        backend.request_redraw();
         return;
     };
     let can_resize = st
@@ -645,10 +653,14 @@ fn handle_move_binding_press(
     }
 
     let Some(hit) = hit else {
+        let now = Instant::now();
+        let monitor = st.monitor_state.current_monitor.clone();
+        st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
-        ps.pan_monitor = Some(st.monitor_state.current_monitor.clone());
+        ps.pan_monitor = Some(monitor);
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
         ps.last_title_click = None;
+        backend.request_redraw();
         return;
     };
     let drag_target_ok = st.field.node(hit.node_id).is_some_and(|n| {
@@ -679,9 +691,13 @@ fn handle_resize_binding_press(
     }
 
     let Some(hit) = hit else {
+        let now = Instant::now();
+        let monitor = st.monitor_state.current_monitor.clone();
+        st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
-        ps.pan_monitor = Some(st.monitor_state.current_monitor.clone());
+        ps.pan_monitor = Some(monitor);
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
+        backend.request_redraw();
         return;
     };
     let can_resize = st

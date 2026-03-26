@@ -26,6 +26,18 @@ pub(crate) struct FocusState {
 }
 
 impl Halley {
+    pub(crate) fn focus_monitor_view(&mut self, monitor: &str, now: Instant) {
+        self.set_interaction_monitor(monitor);
+        let _ = self.activate_monitor(monitor);
+        self.set_interaction_focus(None, 0, now);
+        let view_center = self.view_center_for_monitor(monitor);
+        let spawn = self.spawn_monitor_state_mut(monitor);
+        spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
+        spawn.spawn_view_anchor = view_center;
+        spawn.spawn_patch = None;
+        spawn.spawn_pan_start_center = None;
+    }
+
     pub fn set_interaction_focus(&mut self, id: Option<NodeId>, hold_ms: u64, now: Instant) {
         let prev = self.focus_state.primary_interaction_focus;
         let now_ms = self.now_ms(now);

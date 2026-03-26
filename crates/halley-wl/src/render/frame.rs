@@ -15,7 +15,7 @@ use smithay::{
 };
 
 use crate::interaction::types::ResizeCtx;
-use crate::spatial::node_in_active_area;
+use crate::spatial::node_in_active_area_for_monitor;
 use crate::state::Halley;
 
 use super::ACTIVE_WINDOW_FRAME_PAD_PX;
@@ -206,6 +206,7 @@ fn collect_debug_frame_scene(
     preview_hover_node: Option<halley_core::field::NodeId>,
     now: Instant,
 ) -> SceneCollections {
+    let render_monitor = st.monitor_state.current_monitor.clone();
     let (
         layer_background_elements,
         layer_bottom_elements,
@@ -230,7 +231,7 @@ fn collect_debug_frame_scene(
 
     let hovered_preview_id = preview_hover_node.and_then(|id| {
         st.field.node(id).and_then(|n| {
-            (node_in_active_area(st, id)
+            (node_in_active_area_for_monitor(st, id, render_monitor.as_str())
                 && matches!(
                     n.state,
                     halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
@@ -242,6 +243,7 @@ fn collect_debug_frame_scene(
         renderer,
         st,
         size,
+        render_monitor.as_str(),
         &node_surface_map,
         hovered_preview_id,
         hover_node,

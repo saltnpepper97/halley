@@ -294,8 +294,7 @@ impl Halley {
 
                 node_app_icon_cache: HashMap::new(),
                 node_hover_mix: HashMap::new(),
-                node_preview_hover_node: None,
-                node_preview_hover_mix: 0.0,
+                node_preview_hover: HashMap::new(),
                 node_circle_texture: None,
                 node_squircle_program: None,
                 node_label_program: None,

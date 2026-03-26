@@ -1,4 +1,4 @@
-# Hally
+# Halley
 *Named after Halley's comet — periodic, precise, returning.*
 
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square)
@@ -7,15 +7,15 @@
 ![Build](https://img.shields.io/badge/build-passing-brightgreen?style=flat-square)
 ![Rust](https://img.shields.io/badge/language-Rust-orange?style=flat-square)
 
-Hally is a Wayland compositor that reimagines desktop workspaces.
+Halley is a Wayland compositor that reimagines desktop workspaces.
 
-> "Hally — Windows as nodes. Windows as clusters. Windows as your command center."
+> "Halley — Windows as nodes. Windows as clusters. Windows as your command center."
 
 ---
 
 ## The Comet
 
-Hally's design is inspired by Halley's comet — periodic, precise, and returning. Like a comet with a predictable orbit, Hally brings consistency and elegance to window management.
+Halley's design is inspired by Halley's comet — periodic, precise, and returning. Like a comet with a predictable orbit, Halley brings consistency and elegance to window management.
 
 ---
 
@@ -37,7 +37,7 @@ When a node sits outside the focus ring beyond a configurable threshold, it deca
 A keybind-driven action to move a grabbed window across monitors, traversing between Fields.
 
 ### Clusters
-Hally's answer to workspaces — contained layouts that exist outside the Field. See [Clusters](#clusters) below.
+Halley's answer to workspaces — contained layouts that exist outside the Field. See [Clusters](#clusters) below.
 
 ---
 
@@ -54,7 +54,7 @@ Hally's answer to workspaces — contained layouts that exist outside the Field.
 
 ## Clusters
 
-Clusters are Hally's answer to workspaces — contained layouts that exist outside the infinite Field. They are not auto-formed; you build them intentionally.
+Clusters are Halley's answer to workspaces — contained layouts that exist outside the infinite Field. They are not auto-formed; you build them intentionally.
 
 ### Creating a cluster
 

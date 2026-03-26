@@ -96,7 +96,16 @@ pub(crate) fn resolve_hover_targets_for_monitor(
     Option<halley_core::field::NodeId>,
 ) {
     let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
-    let hovered = if hover_blocked { None } else { ps.hover_node };
+    let hovered = if hover_blocked {
+        None
+    } else {
+        ps.hover_node.filter(|id| {
+            st.monitor_state
+                .node_monitor
+                .get(id)
+                .is_none_or(|node_monitor| node_monitor == monitor)
+        })
+    };
     let preview_ready = hovered.is_some_and(|id| {
         node_in_active_area_for_monitor(st, id, monitor)
             && ps.hover_started_at.is_some_and(|at| {

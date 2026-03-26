@@ -276,6 +276,7 @@ pub(crate) fn collect_hover_preview(
     renderer: &mut GlesRenderer,
     st: &mut Halley,
     size: Size<i32, Physical>,
+    monitor: &str,
     node_surface_map: &HashMap<
         halley_core::field::NodeId,
         smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -289,7 +290,9 @@ pub(crate) fn collect_hover_preview(
 ) {
     let _ = hover_node;
 
-    let Some((preview_id, preview_mix_raw)) = st.node_preview_hover_anim(hovered_preview_id) else {
+    let Some((preview_id, preview_mix_raw)) =
+        st.node_preview_hover_anim_for_monitor(monitor, hovered_preview_id)
+    else {
         return (None, Vec::new());
     };
     let Some(wl) = node_surface_map.get(&preview_id) else {

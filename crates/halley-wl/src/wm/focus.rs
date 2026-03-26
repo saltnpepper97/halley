@@ -487,27 +487,34 @@ impl Halley {
     }
 
     pub fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        if let Some(id) = self.focus_state.primary_interaction_focus {
-            let valid = self.field.node(id).is_some_and(|n| {
-                self.field.is_visible(id)
+        let primary = self.focus_state.primary_interaction_focus.and_then(|id| {
+            self.field.node(id).and_then(|n| {
+                (self.field.is_visible(id)
                     && n.kind == halley_core::field::NodeKind::Surface
-                    && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str()) == Some(monitor)
+                    && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
+                        == Some(monitor))
+                .then_some((id, u64::MAX))
+            })
+        });
+        let monitor_focus = self
+            .focus_state
+            .monitor_focus
+            .get(monitor)
+            .copied()
+            .and_then(|id| {
+                self.field.node(id).and_then(|n| {
+                    (self.field.is_visible(id)
+                        && n.kind == halley_core::field::NodeKind::Surface
+                        && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
+                            == Some(monitor))
+                    .then_some((id, self.focus_state.last_surface_focus_ms.get(&id).copied().unwrap_or(0)))
+                })
             });
-            if valid {
-                return Some(id);
-            }
-        }
-        if let Some(id) = self.focus_state.monitor_focus.get(monitor).copied() {
-            let valid = self.field.node(id).is_some_and(|n| {
-                self.field.is_visible(id)
-                    && n.kind == halley_core::field::NodeKind::Surface
-                    && self.monitor_state.node_monitor.get(&id).map(|m| m.as_str()) == Some(monitor)
-            });
-            if valid {
-                return Some(id);
-            }
-        }
-        self.focus_state
+        primary
+            .into_iter()
+            .chain(monitor_focus)
+            .chain(
+                self.focus_state
             .last_surface_focus_ms
             .iter()
             .filter_map(|(&id, &at)| {
@@ -518,7 +525,8 @@ impl Halley {
                             == Some(monitor))
                         .then_some((id, at))
                 })
-            })
+            }),
+            )
             .max_by_key(|(id, at)| (*at, id.as_u64()))
             .map(|(id, _)| id)
     }
@@ -703,4 +711,5 @@ mod tests {
         );
         assert_eq!(state.fullscreen_focus_override(None), Some(fullscreen_left));
     }
+
 }
