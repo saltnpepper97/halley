@@ -69,6 +69,7 @@ impl MonitorSpawnState {
 
 pub(crate) struct SpawnState {
     pub pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
+    pub(crate) pending_spawn_monitor: Option<String>,
     pub(crate) per_monitor: HashMap<String, MonitorSpawnState>,
     pub(crate) pending_spawn_pan_queue: VecDeque<PendingSpawnPan>,
     pub(crate) active_spawn_pan: Option<ActiveSpawnPan>,

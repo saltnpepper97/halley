@@ -649,6 +649,11 @@ impl XdgShellHandler for Halley {
             .get_pointer()
             .and_then(|ptr| ptr.current_focus())
             .is_some_and(|focused| focused.id() == key);
+        let focused_monitor = self
+            .surface_to_node
+            .get(&key)
+            .and_then(|id| self.monitor_state.node_monitor.get(id))
+            .cloned();
 
         if had_keyboard_focus || had_pointer_focus {
             info!(
@@ -656,6 +661,13 @@ impl XdgShellHandler for Halley {
                 had_keyboard_focus, had_pointer_focus
             );
             self.interaction_state.reset_input_state_requested = true;
+            if let Some(focused_monitor) = focused_monitor {
+                self.spawn_state.pending_spawn_monitor = Some(focused_monitor.clone());
+                info!(
+                    "pending spawn monitor latched from destroyed toplevel: {}",
+                    focused_monitor
+                );
+            }
         }
 
         if had_keyboard_focus {

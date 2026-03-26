@@ -274,7 +274,9 @@ impl Halley {
             self.render_state.zoom_last_observed_size.remove(&id);
             self.render_state.zoom_resize_static_streak.remove(&id);
             self.node_app_ids.remove(&id);
-            self.focus_state.focus_trail.forget_node(id);
+            for trail in self.focus_state.focus_trail.values_mut() {
+                trail.forget_node(id);
+            }
             self.workspace_state.last_active_size.remove(&id);
             self.render_state.bbox_loc.remove(&id);
             self.render_state.window_geometry.remove(&id);

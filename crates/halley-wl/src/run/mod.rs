@@ -6,6 +6,7 @@ use std::sync::mpsc;
 
 use halley_config::RuntimeTuning;
 
+use eventline::runtime::{set_console_level, set_file_level};
 use eventline::{FileSetup, LogLevel, LogPolicy, RunHeader, Setup, info, scope, warn};
 use once_cell::sync::OnceCell;
 
@@ -237,14 +238,25 @@ pub(crate) fn init_logging() -> Result<(), Box<dyn Error>> {
             }),
         };
 
+        let console_level = env::var("HALLEY_WL_LOG_CONSOLE_LEVEL")
+            .ok()
+            .and_then(|v| parse_log_level(v.as_str()))
+            .unwrap_or(level);
+        let file_level = env::var("HALLEY_WL_LOG_FILE_LEVEL")
+            .ok()
+            .and_then(|v| parse_log_level(v.as_str()))
+            .unwrap_or(level);
+
         if let Err(err) = pollster::block_on(eventline::setup(Setup {
             verbose: true,
-            level: Some(level),
+            level: Some(console_level),
             file,
         })) {
             warn!("failed to configure logging: {}", err);
         }
 
+        set_console_level(console_level);
+        set_file_level(file_level);
         eventline::enable_console_color(true);
         eventline::enable_console_duration(true);
 
@@ -302,4 +314,3 @@ fn expand_user_path(raw: &str) -> PathBuf {
     }
     PathBuf::from(raw)
 }
-

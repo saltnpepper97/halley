@@ -174,7 +174,7 @@ impl Halley {
         }
 
         if let Some(id) = self
-            .last_input_surface_node_for_monitor(self.interaction_monitor())
+            .last_input_surface_node_for_monitor(self.focused_monitor())
             .or_else(|| self.last_input_surface_node())
         {
             self.set_interaction_focus(Some(id), 30_000, Instant::now());

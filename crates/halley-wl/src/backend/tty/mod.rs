@@ -253,10 +253,18 @@ fn apply_tty_reload(
     st.apply_tuning(next);
     if reason != "rescan" {
         st.reconfigure_active_tty_monitors(&active_output_names(&rebuilt));
-        if let Some(main_output) = canonical_tty_main_output_name(&rebuilt, &st.tuning) {
-            if st.monitor_state.current_monitor != main_output {
-                let _ = st.activate_monitor(main_output.as_str());
-            }
+        let target_monitor = [
+            st.focused_monitor().to_string(),
+            st.interaction_monitor().to_string(),
+            st.monitor_state.current_monitor.clone(),
+        ]
+        .into_iter()
+        .find(|name| st.monitor_state.monitors.contains_key(name))
+        .or_else(|| canonical_tty_main_output_name(&rebuilt, &st.tuning));
+        if let Some(target_monitor) = target_monitor
+            && st.monitor_state.current_monitor != target_monitor
+        {
+            let _ = st.activate_monitor(target_monitor.as_str());
         }
     }
     crate::run::restore_live_camera_state(st, live_camera);
@@ -596,12 +604,20 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let config_path_for_timer = config_path.clone();
             let wayland_display_for_timer = sock_name.clone();
             state.reconfigure_active_tty_monitors(&active_output_names(&outputs.borrow()));
-            if let Some(main_output) =
+            let target_monitor = [
+                state.focused_monitor().to_string(),
+                state.interaction_monitor().to_string(),
+                state.monitor_state.current_monitor.clone(),
+            ]
+            .into_iter()
+            .find(|name| state.monitor_state.monitors.contains_key(name))
+            .or_else(|| {
                 canonical_tty_main_output_name(outputs.borrow().as_slice(), &state.tuning)
+            });
+            if let Some(target_monitor) = target_monitor
+                && state.monitor_state.current_monitor != target_monitor
             {
-                if state.monitor_state.current_monitor != main_output {
-                    let _ = state.activate_monitor(main_output.as_str());
-                }
+                let _ = state.activate_monitor(target_monitor.as_str());
             }
             let (layout_w, layout_h) = layout_size_for_outputs(&state.tuning, &outputs.borrow());
             let backend_handle = TtyBackendHandle::new(layout_w, layout_h);
@@ -739,7 +755,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 .borrow_mut()
                                 .insert(output_name.clone())
                             {
-                                info!("first drm vblank/frame-done observed for {}", output_name);
+                                debug!("first drm vblank/frame-done observed for {}", output_name);
                             }
                         }
 
@@ -769,7 +785,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                             if !recoverable_outputs.is_empty() {
                                 if !*warned_vblank_mismatch_for_notifier.borrow() {
-                                    warn!(
+                                    debug!(
                                         "drm vblank crtc mismatch (got={:?}); releasing pending outputs {:?} to keep scanout advancing",
                                         crtc, recoverable_outputs
                                     );
@@ -777,21 +793,21 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 }
                             } else if !pending_outputs.is_empty() {
                                 if !*warned_vblank_mismatch_for_notifier.borrow() {
-                                    warn!(
+                                    debug!(
                                         "drm vblank crtc mismatch (got={:?}); keeping pending outputs {:?} blocked until they receive a real matched vblank",
                                         crtc, pending_outputs
                                     );
                                     *warned_vblank_mismatch_for_notifier.borrow_mut() = true;
                                 }
                             } else if !*warned_vblank_mismatch_for_notifier.borrow() {
-                                warn!(
+                                debug!(
                                     "drm vblank crtc mismatch (got={:?}); no configured output matched",
                                     crtc
                                 );
                                 *warned_vblank_mismatch_for_notifier.borrow_mut() = true;
                             }
                         } else if *warned_vblank_mismatch_for_notifier.borrow() {
-                            info!(
+                            debug!(
                                 "drm vblank crtc routing recovered on {:?} for {:?}",
                                 crtc, matched_outputs
                             );

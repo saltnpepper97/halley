@@ -35,7 +35,7 @@ impl Halley {
             None => self
                 .fullscreen_state
                 .fullscreen_active_node
-                .get(self.interaction_monitor())
+                .get(self.focused_monitor())
                 .copied(),
             Some(requested_id) => {
                 let requested_monitor = self
@@ -649,6 +649,7 @@ mod tests {
             .fullscreen_active_node
             .insert("left".to_string(), fullscreen_left);
         state.set_interaction_monitor("right");
+        state.set_focused_monitor("right");
 
         assert_eq!(state.fullscreen_focus_override(Some(right)), Some(right));
         assert_eq!(state.fullscreen_focus_override(None), None);
@@ -704,12 +705,62 @@ mod tests {
             .fullscreen_active_node
             .insert("left".to_string(), fullscreen_left);
         state.set_interaction_monitor("left");
+        state.set_focused_monitor("left");
 
         assert_eq!(
             state.fullscreen_focus_override(Some(other_left)),
             Some(fullscreen_left)
         );
         assert_eq!(state.fullscreen_focus_override(None), Some(fullscreen_left));
+    }
+
+    #[test]
+    fn setting_interaction_focus_switches_current_monitor_to_focused_node_monitor() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let _ = state.activate_monitor("left");
+
+        let right = state.field.spawn_surface(
+            "right",
+            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        state.assign_node_to_monitor(right, "right");
+
+        state.set_interaction_focus(Some(right), 30_000, Instant::now());
+
+        assert_eq!(state.focused_monitor(), "right");
+        assert_eq!(state.interaction_monitor(), "right");
+        assert_eq!(state.monitor_state.current_monitor, "right");
     }
 
 }

@@ -1,15 +1,29 @@
 use super::*;
+use halley_core::trail::Trail;
 use halley_ipc::TrailDirection;
 
 impl Halley {
-    pub(crate) fn record_focus_trail_visit(&mut self, id: NodeId) {
-        if self.focus_state.focus_trail.cursor() == Some(id) {
-            return;
-        }
-        self.focus_state.focus_trail.record(id);
+    fn trail_for_monitor_mut(&mut self, monitor: &str) -> &mut halley_core::trail::Trail {
         self.focus_state
             .focus_trail
-            .truncate_to(self.tuning.trail_history_length);
+            .entry(monitor.to_string())
+            .or_insert_with(Trail::new)
+    }
+
+    pub(crate) fn record_focus_trail_visit(&mut self, id: NodeId) {
+        let monitor = self
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| self.focused_monitor().to_string());
+        let trail_history_length = self.tuning.trail_history_length;
+        let trail = self.trail_for_monitor_mut(monitor.as_str());
+        if trail.cursor() == Some(id) {
+            return;
+        }
+        trail.record(id);
+        trail.truncate_to(trail_history_length);
     }
 
     fn should_keep_trail_node(&self, id: NodeId) -> bool {
@@ -69,28 +83,39 @@ impl Halley {
         direction: TrailDirection,
         now: Instant,
     ) -> bool {
+        let monitor = self.focused_monitor().to_string();
+        let trail_wrap = self.tuning.trail_wrap;
         let current_focus = self.focus_state.primary_interaction_focus;
-        let mut remaining = self.focus_state.focus_trail.len().max(1);
+        let mut remaining = self
+            .focus_state
+            .focus_trail
+            .get(monitor.as_str())
+            .map(|trail| trail.len())
+            .unwrap_or(0)
+            .max(1);
         loop {
             if remaining == 0 {
                 return false;
             }
             remaining -= 1;
-            let next = match direction {
-                TrailDirection::Prev if self.tuning.trail_wrap => {
-                    self.focus_state.focus_trail.back_wrapping()
+            let next = {
+                let trail = self.trail_for_monitor_mut(monitor.as_str());
+                match direction {
+                    TrailDirection::Prev if trail_wrap => trail.back_wrapping(),
+                    TrailDirection::Prev => trail.back(),
+                    TrailDirection::Next if trail_wrap => trail.forward_wrapping(),
+                    TrailDirection::Next => trail.forward(),
                 }
-                TrailDirection::Prev => self.focus_state.focus_trail.back(),
-                TrailDirection::Next if self.tuning.trail_wrap => {
-                    self.focus_state.focus_trail.forward_wrapping()
-                }
-                TrailDirection::Next => self.focus_state.focus_trail.forward(),
             };
             let Some(id) = next else {
                 return false;
             };
             if !self.should_keep_trail_node(id) {
-                self.focus_state.focus_trail.forget_node(id);
+                self.trail_for_monitor_mut(monitor.as_str()).forget_node(id);
+                continue;
+            }
+            if self.monitor_state.node_monitor.get(&id).map(|m| m.as_str()) != Some(monitor.as_str()) {
+                self.trail_for_monitor_mut(monitor.as_str()).forget_node(id);
                 continue;
             }
             if Some(id) == current_focus {
@@ -124,6 +149,8 @@ mod tests {
             Vec2 { x: 640.0, y: 0.0 },
             Vec2 { x: 320.0, y: 240.0 },
         );
+        state.assign_node_to_current_monitor(first);
+        state.assign_node_to_current_monitor(second);
 
         state.set_interaction_focus(Some(first), 30_000, now);
         state.set_interaction_focus(Some(second), 30_000, now);
@@ -154,10 +181,12 @@ mod tests {
             Vec2 { x: 640.0, y: 0.0 },
             Vec2 { x: 320.0, y: 240.0 },
         );
+        state.assign_node_to_current_monitor(first);
+        state.assign_node_to_current_monitor(second);
 
-        state.focus_state.focus_trail.record(first);
-        state.focus_state.focus_trail.record(second);
-        state.focus_state.focus_trail.record(first);
+        state.trail_for_monitor_mut("default").record(first);
+        state.trail_for_monitor_mut("default").record(second);
+        state.trail_for_monitor_mut("default").record(first);
         state.focus_state.primary_interaction_focus = Some(first);
 
         assert!(state.navigate_window_trail(TrailDirection::Prev, now));

@@ -90,7 +90,6 @@ impl Halley {
     fn node_participates_in_overlap(&self, id: NodeId) -> bool {
         self.field.node(id).is_some_and(|n| {
             self.field.is_visible(id)
-                && self.node_visible_on_current_monitor(id)
                 && matches!(
                     n.state,
                     halley_core::field::NodeState::Active
@@ -120,6 +119,17 @@ impl Halley {
             a_ext.right + b_ext.left + gap
         } else {
             a_ext.left + b_ext.right + gap
+        }
+    }
+
+    #[inline]
+    fn nodes_share_overlap_group(&self, a: NodeId, b: NodeId) -> bool {
+        match (
+            self.monitor_state.node_monitor.get(&a),
+            self.monitor_state.node_monitor.get(&b),
+        ) {
+            (Some(a_monitor), Some(b_monitor)) => a_monitor == b_monitor,
+            _ => true,
         }
     }
 
@@ -175,12 +185,15 @@ impl Halley {
         let mut mover_pos = to;
 
         for _ in 0..24 {
-            let others: Vec<(NodeId, Vec2, CollisionExtents)> = self
+                let others: Vec<(NodeId, Vec2, CollisionExtents)> = self
                 .field
                 .nodes()
                 .iter()
                 .filter_map(|(&oid, other)| {
-                    if oid == id || !self.node_participates_in_overlap(oid) {
+                    if oid == id
+                        || !self.node_participates_in_overlap(oid)
+                        || !self.nodes_share_overlap_group(id, oid)
+                    {
                         return None;
                     }
                     Some((oid, other.pos, self.collision_extents_for_node(other)))
@@ -485,6 +498,9 @@ impl Halley {
                     let Some(nb) = self.field.node(b) else {
                         continue;
                     };
+                    if !self.nodes_share_overlap_group(a, b) {
+                        continue;
+                    }
 
                     let a_pinned =
                         na.pinned || self.interaction_state.resize_static_node == Some(a);
@@ -830,6 +846,68 @@ mod tests {
             state.field.node(b).expect("node b").pos,
             req_x,
             req_y
+        );
+    }
+
+    #[test]
+    fn overlap_resolution_is_not_limited_to_current_monitor() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let _ = state.activate_monitor("left");
+
+        let a = state.field.spawn_surface(
+            "right-a",
+            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        let b = state.field.spawn_surface(
+            "right-b",
+            Vec2 { x: 1200.0, y: 300.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        state.assign_node_to_monitor(a, "right");
+        state.assign_node_to_monitor(b, "right");
+        let _ = state
+            .field
+            .set_state(a, halley_core::field::NodeState::Node);
+        let _ = state
+            .field
+            .set_state(b, halley_core::field::NodeState::Node);
+
+        tick_overlap_frames(&mut state, 64);
+
+        assert!(
+            !nodes_overlap(&state, a, b),
+            "right-monitor overlap should resolve even while current monitor is left"
         );
     }
 

@@ -16,7 +16,7 @@ pub(crate) struct FocusState {
     pub(crate) monitor_focus: HashMap<String, NodeId>,
     pub(crate) interaction_focus_until_ms: u64,
     pub(crate) last_surface_focus_ms: HashMap<NodeId, u64>,
-    pub(crate) focus_trail: Trail,
+    pub(crate) focus_trail: HashMap<String, Trail>,
     pub(crate) suppress_trail_record_once: bool,
     pub(crate) pan_restore_active_focus: Option<NodeId>,
     pub(crate) app_focused: bool,
@@ -29,6 +29,7 @@ impl Halley {
     pub(crate) fn focus_monitor_view(&mut self, monitor: &str, now: Instant) {
         self.set_interaction_monitor(monitor);
         self.set_focused_monitor(monitor);
+        self.spawn_state.pending_spawn_monitor = None;
         let _ = self.activate_monitor(monitor);
         self.set_interaction_focus(None, 0, now);
         let view_center = self.view_center_for_monitor(monitor);
@@ -37,6 +38,12 @@ impl Halley {
         spawn.spawn_view_anchor = view_center;
         spawn.spawn_patch = None;
         spawn.spawn_pan_start_center = None;
+        info!(
+            "monitor view focus set: monitor={} interaction_monitor={} focused_monitor={}",
+            monitor,
+            self.interaction_monitor(),
+            self.focused_monitor()
+        );
     }
 
     pub fn set_interaction_focus(&mut self, id: Option<NodeId>, hold_ms: u64, now: Instant) {
@@ -54,6 +61,8 @@ impl Halley {
                 if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
                     self.set_interaction_monitor(monitor.as_str());
                     self.set_focused_monitor(monitor.as_str());
+                    self.spawn_state.pending_spawn_monitor = None;
+                    let _ = self.activate_monitor(monitor.as_str());
                     let spawn = self.spawn_monitor_state_mut(monitor.as_str());
                     spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
                     spawn.spawn_pan_start_center = None;
@@ -81,6 +90,8 @@ impl Halley {
             if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
                 self.set_interaction_monitor(monitor.as_str());
                 self.set_focused_monitor(monitor.as_str());
+                self.spawn_state.pending_spawn_monitor = None;
+                let _ = self.activate_monitor(monitor.as_str());
                 let spawn = self.spawn_monitor_state_mut(monitor.as_str());
                 spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
                 spawn.spawn_pan_start_center = None;

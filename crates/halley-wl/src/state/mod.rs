@@ -9,7 +9,6 @@ use halley_config::RuntimeTuning;
 use halley_core::cluster_policy::{ClusterFormationState, ClusterPolicy, tick_cluster_formation};
 use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2};
-use halley_core::trail::Trail;
 use halley_core::viewport::Viewport;
 
 use smithay::{
@@ -268,7 +267,7 @@ impl Halley {
             focus_state: FocusState {
                 interaction_focus_until_ms: 0,
                 last_surface_focus_ms: HashMap::new(),
-                focus_trail: Trail::new(),
+                focus_trail: HashMap::new(),
                 suppress_trail_record_once: false,
                 pan_restore_active_focus: None,
                 app_focused: true,
@@ -346,6 +345,7 @@ impl Halley {
 
             spawn_state: SpawnState {
                 pending_spawn_activate_at_ms: HashMap::new(),
+                pending_spawn_monitor: None,
                 per_monitor: HashMap::new(),
                 pending_spawn_pan_queue: VecDeque::new(),
                 active_spawn_pan: None,

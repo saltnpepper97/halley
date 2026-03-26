@@ -339,9 +339,8 @@ pub(crate) fn handle_pointer_motion_absolute(
             }
             if st.carry_surface_non_overlap(drag.node_id, to, edge_pan_active) {
                 if drag_allow_monitor_transfer {
-                    st.monitor_state
-                        .node_monitor
-                        .insert(drag.node_id, st.monitor_state.current_monitor.clone());
+                    let monitor = st.monitor_state.current_monitor.clone();
+                    st.assign_node_to_monitor(drag.node_id, monitor.as_str());
                 }
                 st.interaction_state
                     .physics_velocity

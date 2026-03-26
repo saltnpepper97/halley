@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::{LoopHandle, RegistrationToken};
-use eventline::{info, warn};
+use eventline::debug;
 
 use crate::state::Halley;
 
@@ -91,7 +91,7 @@ impl VBlankThrottle {
         };
         if should_report {
             self.last_report_at = Some(timestamp);
-            info!(
+            debug!(
                 "vblank pacing [{}]: samples={} throttled={} est_missed={} avg={:?} min={:?} max={:?} max_jitter={:?}",
                 self.output_name,
                 self.samples,
@@ -124,7 +124,7 @@ impl VBlankThrottle {
                 if passed.as_nanos() < min_interval_ns {
                     if !self.printed_warning {
                         self.printed_warning = true;
-                        warn!(
+                        debug!(
                             "output {} running faster than expected, throttling vblanks: expected refresh {:?}, got vblank after {:?}",
                             self.output_name, refresh, passed
                         );

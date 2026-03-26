@@ -18,7 +18,7 @@ use std::path::PathBuf;
 pub fn default_socket_path() -> io::Result<PathBuf> {
     let runtime_dir = env::var_os("XDG_RUNTIME_DIR")
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR is not set"))?;
-    Ok(PathBuf::from(runtime_dir).join("halley.sock"))
+    Ok(PathBuf::from(runtime_dir).join("halley").join("socket"))
 }
 
 pub fn send_request(req: &Request) -> Result<Response, CodecError> {
