@@ -1396,17 +1396,17 @@ mod tests {
     fn bearings_family_actions_parse_as_compositor_bindings() {
         let mut tuning = RuntimeTuning::default();
         let bindings = HashMap::from([
-            ("$mod+z".to_string(), "bearings-toggle".to_string()),
-            ("$mod+shift+z".to_string(), "bearings-show".to_string()),
+            ("$mod+z".to_string(), "bearings-show".to_string()),
+            ("$mod+shift+z".to_string(), "bearings-toggle".to_string()),
         ]);
 
         apply_explicit_keybind_overrides_map(&bindings, &mut tuning);
 
         assert!(tuning.compositor_bindings.iter().any(|binding| {
-            binding.action == CompositorBindingAction::Bearings(BearingsBindingAction::Toggle)
+            binding.action == CompositorBindingAction::Bearings(BearingsBindingAction::Show)
         }));
         assert!(tuning.compositor_bindings.iter().any(|binding| {
-            binding.action == CompositorBindingAction::Bearings(BearingsBindingAction::Show)
+            binding.action == CompositorBindingAction::Bearings(BearingsBindingAction::Toggle)
         }));
     }
 

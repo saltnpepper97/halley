@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use halley_core::bearings::{Bearing, bearings_for_visible_nodes};
-use halley_core::field::{NodeId, Vec2};
+use halley_core::field::NodeId;
 use smithay::{
     backend::renderer::{
         Color32F, Texture,
@@ -22,6 +22,7 @@ pub(crate) struct BearingChipLayout {
     pub(crate) icon_rect: Option<Rectangle<i32, Physical>>,
     pub(crate) label: String,
     pub(crate) distance_text: Option<String>,
+    pub(crate) distance_rect: Option<Rectangle<i32, Physical>>,
     pub(crate) distance_pos: Option<(i32, i32)>,
     pub(crate) alpha: f32,
 }
@@ -34,6 +35,8 @@ const LABEL_SCALE: i32 = 2;
 const META_SCALE: i32 = 1;
 const ICON_SIZE: i32 = 16;
 const DISTANCE_GAP: i32 = 4;
+const META_PAD_X: i32 = 7;
+const META_PAD_Y: i32 = 4;
 const MAX_LABEL_CHARS: usize = 24;
 const MIN_DISTANCE_ALPHA: f32 = 0.34;
 
@@ -78,11 +81,10 @@ pub(crate) fn collect_bearing_layouts(
         if st.monitor_state.node_monitor.get(&id).map(String::as_str) != Some(monitor) {
             continue;
         }
-        let delta = Vec2 {
-            x: node.pos.x - viewport.center.x,
-            y: node.pos.y - viewport.center.y,
-        };
-        let distance = (delta.x * delta.x + delta.y * delta.y).sqrt();
+        if st.node_intersects_viewport_on_monitor(monitor, id) {
+            continue;
+        }
+        let distance = offscreen_distance_from_view_edge(st, monitor, id).unwrap_or(0.0);
         groups[bearing_index(bearing)].push((id, distance));
     }
 
@@ -132,7 +134,7 @@ pub(crate) fn collect_bearing_layouts(
                 .then(|| format!("{:.0}px", distance.round()));
             let distance_h = distance_text
                 .as_ref()
-                .map(|text| bitmap_text_size(text, META_SCALE).1 + DISTANCE_GAP)
+                .map(|text| bitmap_text_size(text, META_SCALE).1 + META_PAD_Y * 2 + DISTANCE_GAP)
                 .unwrap_or(0);
             let stack_h = chip_h + distance_h + CHIP_GAP;
             let (chip_x, chip_y) =
@@ -143,13 +145,25 @@ pub(crate) fn collect_bearing_layouts(
                     (ICON_SIZE, ICON_SIZE).into(),
                 )
             });
-            let distance_pos = distance_text.as_ref().map(|text| {
+            let distance_rect = distance_text.as_ref().map(|text| {
                 let (distance_w, distance_h_px) = bitmap_text_size(text, META_SCALE);
-                (
-                    chip_x + ((chip_w - distance_w) / 2),
-                    chip_y - DISTANCE_GAP - distance_h_px,
+                let meta_w = distance_w + META_PAD_X * 2;
+                let meta_h = distance_h_px + META_PAD_Y * 2;
+                Rectangle::new(
+                    (chip_x + ((chip_w - meta_w) / 2), chip_y - DISTANCE_GAP - meta_h).into(),
+                    (meta_w, meta_h).into(),
                 )
             });
+            let distance_pos = distance_text
+                .as_ref()
+                .zip(distance_rect)
+                .map(|(text, rect)| {
+                    let (_, distance_h_px) = bitmap_text_size(text, META_SCALE);
+                    (
+                        rect.loc.x + META_PAD_X,
+                        rect.loc.y + (rect.size.h - distance_h_px) / 2,
+                    )
+                });
             let distance_fade = if st.tuning.bearings.fade_distance <= f32::EPSILON {
                 1.0
             } else {
@@ -162,6 +176,7 @@ pub(crate) fn collect_bearing_layouts(
                 icon_rect,
                 label,
                 distance_text,
+                distance_rect,
                 distance_pos,
                 alpha: (ui_mix * distance_fade).clamp(0.0, 1.0),
             });
@@ -207,7 +222,6 @@ pub(crate) fn draw_bearings(
             continue;
         }
 
-        let border = Color32F::new(0.22, 0.82, 0.92, 0.80 * layout.alpha);
         let fill = Color32F::new(0.92, 0.95, 0.98, 0.92 * layout.alpha);
         draw_shader_label(
             frame,
@@ -217,23 +231,38 @@ pub(crate) fn draw_bearings(
             layout.chip_rect.size.w,
             layout.chip_rect.size.h,
             11.0,
-            2.0,
+            0.0,
             layout.alpha,
-            border,
+            Color32F::new(0.92, 0.95, 0.98, 0.0),
             fill,
             damage,
         )?;
 
-        if let Some((distance_x, distance_y)) = layout.distance_pos
+        if let Some(distance_rect) = layout.distance_rect
+            && let Some((distance_x, distance_y)) = layout.distance_pos
             && let Some(distance_text) = layout.distance_text.as_ref()
         {
+            draw_shader_label(
+                frame,
+                st,
+                distance_rect.loc.x,
+                distance_rect.loc.y,
+                distance_rect.size.w,
+                distance_rect.size.h,
+                8.0,
+                0.0,
+                layout.alpha,
+                Color32F::new(0.10, 0.14, 0.18, 0.0),
+                Color32F::new(0.10, 0.14, 0.18, 0.84 * layout.alpha),
+                damage,
+            )?;
             draw_bitmap_text(
                 frame,
                 distance_x,
                 distance_y,
                 distance_text,
                 META_SCALE,
-                Color32F::new(0.78, 0.88, 0.96, layout.alpha * 0.95),
+                Color32F::new(0.86, 0.92, 0.98, layout.alpha * 0.96),
                 damage,
             )?;
         }
@@ -325,6 +354,38 @@ fn bearing_label(st: &Halley, node_id: NodeId, title: &str) -> String {
         format!("Node {}", node_id.as_u64())
     };
     truncate_label(base.as_str())
+}
+
+fn offscreen_distance_from_view_edge(st: &Halley, monitor: &str, node_id: NodeId) -> Option<f32> {
+    let node = st.field.node(node_id)?;
+    let ext = st.spawn_obstacle_extents_for_node(node);
+    let viewport = st.viewport_for_monitor(monitor);
+    let min_x = viewport.center.x - viewport.size.x * 0.5;
+    let max_x = viewport.center.x + viewport.size.x * 0.5;
+    let min_y = viewport.center.y - viewport.size.y * 0.5;
+    let max_y = viewport.center.y + viewport.size.y * 0.5;
+
+    let node_min_x = node.pos.x - ext.left;
+    let node_max_x = node.pos.x + ext.right;
+    let node_min_y = node.pos.y - ext.top;
+    let node_max_y = node.pos.y + ext.bottom;
+
+    let overflow_x = if node_max_x <= min_x {
+        min_x - node_max_x
+    } else if node_min_x >= max_x {
+        node_min_x - max_x
+    } else {
+        0.0
+    };
+    let overflow_y = if node_max_y <= min_y {
+        min_y - node_max_y
+    } else if node_min_y >= max_y {
+        node_min_y - max_y
+    } else {
+        0.0
+    };
+
+    Some((overflow_x * overflow_x + overflow_y * overflow_y).sqrt())
 }
 
 fn truncate_label(label: &str) -> String {

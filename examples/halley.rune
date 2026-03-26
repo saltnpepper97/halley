@@ -140,8 +140,8 @@ keybinds:
   "$var.mod+shift+l" "monitor-focus right"
 
   # bearings
-  "$var.mod+z" "bearings-toggle"
-  "$var.mod+shift+z" "bearings-show"
+  "$var.mod+z" "bearings-show"
+  "$var.mod+shift+z" "bearings-toggle"
 
   "$var.mod+shift+," "trail-prev"
   "$var.mod+shift+." "trail-next"

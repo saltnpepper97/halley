@@ -426,6 +426,14 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
         CompositorBinding {
             modifiers: modifier,
             key: key("z"),
+            action: CompositorBindingAction::Bearings(BearingsBindingAction::Show),
+        },
+        CompositorBinding {
+            modifiers: KeyModifiers {
+                shift: true,
+                ..modifier
+            },
+            key: key("z"),
             action: CompositorBindingAction::Bearings(BearingsBindingAction::Toggle),
         },
         CompositorBinding {

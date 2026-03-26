@@ -174,10 +174,15 @@ pub(crate) fn apply_compositor_action_press(
 }
 
 pub(crate) fn apply_compositor_action_release(
-    _st: &mut Halley,
-    _action: CompositorBindingAction,
+    st: &mut Halley,
+    action: CompositorBindingAction,
 ) -> bool {
-    false
+    match action {
+        CompositorBindingAction::Bearings(BearingsBindingAction::Show) => {
+            st.set_bearings_visible(false)
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn apply_bound_key(
