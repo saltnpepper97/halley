@@ -257,6 +257,7 @@ impl Halley {
             monitor_state: MonitorState {
                 outputs: HashMap::new(),
                 current_monitor: current_monitor.clone(),
+                interaction_monitor: current_monitor.clone(),
                 monitors,
                 node_monitor: HashMap::new(),
                 layer_surface_monitor: HashMap::new(),

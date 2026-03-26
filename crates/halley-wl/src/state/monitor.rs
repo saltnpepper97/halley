@@ -28,6 +28,7 @@ pub(crate) struct MonitorSpace {
 pub(crate) struct MonitorState {
     pub(crate) outputs: HashMap<String, Output>,
     pub(crate) current_monitor: String,
+    pub(crate) interaction_monitor: String,
     pub(crate) monitors: HashMap<String, MonitorSpace>,
     pub(crate) node_monitor: HashMap<NodeId, String>,
     pub(crate) layer_surface_monitor: HashMap<ObjectId, String>,
@@ -80,6 +81,24 @@ impl Halley {
         }
         self.sync_current_monitor_state();
         self.load_monitor_state(name)
+    }
+
+    pub(crate) fn interaction_monitor(&self) -> &str {
+        if self
+            .monitor_state
+            .monitors
+            .contains_key(&self.monitor_state.interaction_monitor)
+        {
+            self.monitor_state.interaction_monitor.as_str()
+        } else {
+            self.monitor_state.current_monitor.as_str()
+        }
+    }
+
+    pub(crate) fn set_interaction_monitor(&mut self, name: &str) {
+        if self.monitor_state.monitors.contains_key(name) {
+            self.monitor_state.interaction_monitor = name.to_string();
+        }
     }
 
     pub(crate) fn reconfigure_active_tty_monitors(&mut self, active_outputs: &[String]) {
@@ -174,6 +193,14 @@ impl Halley {
             self.monitor_state.current_monitor =
                 preferred_monitor_name(&self.monitor_state.monitors)
                     .unwrap_or_else(|| "default".to_string());
+        }
+
+        if !self
+            .monitor_state
+            .monitors
+            .contains_key(&self.monitor_state.interaction_monitor)
+        {
+            self.monitor_state.interaction_monitor = self.monitor_state.current_monitor.clone();
         }
 
         let current = self.monitor_state.current_monitor.clone();

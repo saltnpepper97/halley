@@ -485,6 +485,7 @@ fn restore_fullscreen_click_focus(
         .or_else(|| entry.map(|e| e.viewport_center))
         .unwrap_or(fallback_center);
 
+    st.set_interaction_monitor(monitor_name.as_str());
     let _ = st.activate_monitor(monitor_name.as_str());
     if let Some(space) = st.monitor_state.monitors.get_mut(monitor_name.as_str()) {
         let one_x_zoom = halley_core::field::Vec2 {
@@ -763,8 +764,9 @@ pub(crate) fn handle_pointer_button_input(
         })
         .unwrap_or_else(|| {
             st.monitor_for_screen(sx, sy)
-                .unwrap_or_else(|| st.monitor_state.current_monitor.clone())
+                .unwrap_or_else(|| st.interaction_monitor().to_string())
         });
+    st.set_interaction_monitor(target_monitor.as_str());
     let _ = st.activate_monitor(target_monitor.as_str());
     let (local_w, local_h, local_sx, local_sy) =
         st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);

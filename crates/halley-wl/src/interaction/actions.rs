@@ -48,7 +48,7 @@ pub(crate) fn promote_node_level(
 }
 
 pub(crate) fn latest_surface_node(st: &Halley) -> Option<halley_core::field::NodeId> {
-    st.last_input_surface_node_for_monitor(st.monitor_state.current_monitor.as_str())
+    st.last_input_surface_node_for_monitor(st.interaction_monitor())
         .or_else(|| st.last_input_surface_node())
         .or_else(|| {
         st.surface_to_node
@@ -112,7 +112,7 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
     let now = Instant::now();
 
     let Some(id) = st
-        .last_focused_surface_node_for_monitor(st.monitor_state.current_monitor.as_str())
+        .last_focused_surface_node_for_monitor(st.interaction_monitor())
         .or_else(|| st.last_focused_surface_node())
     else {
         return false;

@@ -187,9 +187,10 @@ pub(crate) fn handle_pointer_motion_absolute(
             owner
         } else {
             st.monitor_for_screen(effective_sx, effective_sy)
-                .unwrap_or_else(|| st.monitor_state.current_monitor.clone())
+                .unwrap_or_else(|| st.interaction_monitor().to_string())
         }
     };
+    st.set_interaction_monitor(target_monitor.as_str());
     let _ = st.activate_monitor(target_monitor.as_str());
     let (local_w, local_h, local_sx, local_sy) =
         st.local_screen_in_monitor(target_monitor.as_str(), effective_sx, effective_sy);

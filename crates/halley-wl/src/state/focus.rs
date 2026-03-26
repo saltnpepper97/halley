@@ -39,6 +39,7 @@ impl Halley {
                     .max(requested_until);
                 self.update_focus_tracking_for_surface(fid, now_ms);
                 if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
+                    self.set_interaction_monitor(monitor.as_str());
                     let spawn = self.spawn_monitor_state_mut(monitor.as_str());
                     spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
                     spawn.spawn_pan_start_center = None;
@@ -64,6 +65,7 @@ impl Halley {
             self.focus_state.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
             self.update_focus_tracking_for_surface(fid, now_ms);
             if let Some(monitor) = self.monitor_state.node_monitor.get(&fid).cloned() {
+                self.set_interaction_monitor(monitor.as_str());
                 let spawn = self.spawn_monitor_state_mut(monitor.as_str());
                 spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::Focus;
                 spawn.spawn_pan_start_center = None;

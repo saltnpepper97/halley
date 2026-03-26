@@ -34,7 +34,7 @@ impl Halley {
     }
 
     fn resolve_spawn_target_monitor(&self) -> String {
-        let fallback = self.monitor_state.current_monitor.clone();
+        let fallback = self.interaction_monitor().to_string();
         if self
             .spawn_monitor_state(fallback.as_str())
             .spawn_anchor_mode
@@ -687,6 +687,7 @@ mod tests {
         let step = state.spawn_star_step(size);
 
         let _ = state.activate_monitor("left");
+        state.set_interaction_monitor("left");
         {
             let spawn = state.spawn_monitor_state_mut("left");
             spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
@@ -697,6 +698,7 @@ mod tests {
         state.assign_node_to_monitor(left_id, "left");
 
         let _ = state.activate_monitor("right");
+        state.set_interaction_monitor("right");
         {
             let spawn = state.spawn_monitor_state_mut("right");
             spawn.spawn_anchor_mode = crate::state::SpawnAnchorMode::View;
@@ -707,6 +709,7 @@ mod tests {
         state.assign_node_to_monitor(right_id, "right");
 
         let _ = state.activate_monitor("left");
+        state.set_interaction_monitor("left");
         let second_left = state.pick_spawn_position(size).1;
 
         assert_eq!(first_left, Vec2 { x: 400.0, y: 300.0 });
