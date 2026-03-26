@@ -24,6 +24,18 @@ pub(crate) struct LayerPlacement {
 }
 
 impl Halley {
+    fn restore_focus_after_layer_surface_close_for_monitor(&mut self, monitor: &str, now: Instant) {
+        // Preserve any pending spawn target so launchers like fuzzel can close
+        // before their chosen toplevel maps without losing monitor affinity.
+        let pending_spawn_monitor = self.spawn_state.pending_spawn_monitor.clone();
+        if let Some(id) = self.last_focused_surface_node_for_monitor(monitor) {
+            self.set_interaction_focus(Some(id), 30_000, now);
+        } else {
+            self.set_interaction_focus(None, 0, now);
+        }
+        self.spawn_state.pending_spawn_monitor = pending_spawn_monitor;
+    }
+
     fn apply_layer_surface_focus(
         &mut self,
         surface: &WlSurface,
@@ -159,6 +171,7 @@ impl Halley {
     }
 
     pub(crate) fn remove_layer_surface(&mut self, surface: &LayerSurface) {
+        let removed_monitor = self.layer_surface_monitor_name(surface.wl_surface());
         let removed_focused_layer =
             self.monitor_state.layer_keyboard_focus == Some(surface.wl_surface().id());
         self.monitor_state
@@ -179,17 +192,10 @@ impl Halley {
             return;
         }
 
-        if self.spawn_state.pending_spawn_monitor.is_some() {
-            self.set_interaction_focus(None, 0, Instant::now());
-            return;
-        }
-
-        if let Some(id) = self
-            .last_input_surface_node_for_monitor(self.focused_monitor())
-            .or_else(|| self.last_input_surface_node())
-        {
-            self.set_interaction_focus(Some(id), 30_000, Instant::now());
-        }
+        self.restore_focus_after_layer_surface_close_for_monitor(
+            removed_monitor.as_str(),
+            Instant::now(),
+        );
     }
 
     pub(crate) fn layer_output_size(&self) -> Size<i32, Logical> {
@@ -355,6 +361,95 @@ impl Halley {
             );
             self.update_selection_focus_from_surface(Some(&desired_focus));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use halley_core::field::Vec2;
+
+    use super::Halley;
+
+    #[test]
+    fn closing_layer_surface_restores_surface_focus_without_clearing_pending_spawn_monitor() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let id = state
+            .field
+            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 120.0, y: 90.0 });
+        state.assign_node_to_current_monitor(id);
+        state.set_interaction_focus(Some(id), 30_000, Instant::now());
+
+        state.focus_state.primary_interaction_focus = None;
+        state.focus_state.interaction_focus_until_ms = 0;
+        state.spawn_state.pending_spawn_monitor = Some("default".to_string());
+
+        state.restore_focus_after_layer_surface_close_for_monitor("default", Instant::now());
+
+        assert_eq!(state.focus_state.primary_interaction_focus, Some(id));
+        assert_eq!(
+            state.spawn_state.pending_spawn_monitor.as_deref(),
+            Some("default")
+        );
+    }
+
+    #[test]
+    fn closing_layer_surface_does_not_refocus_surface_from_another_monitor() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 2560,
+                height: 1440,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 2560,
+                offset_y: 0,
+                width: 1920,
+                height: 1200,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let right_id = state
+            .field
+            .spawn_surface("right", Vec2 { x: 3200.0, y: 300.0 }, Vec2 { x: 120.0, y: 90.0 });
+        state.assign_node_to_monitor(right_id, "right");
+        state.set_interaction_focus(Some(right_id), 30_000, Instant::now());
+
+        state.focus_state.primary_interaction_focus = None;
+        state.focus_state.interaction_focus_until_ms = 0;
+        state.spawn_state.pending_spawn_monitor = Some("left".to_string());
+
+        state.restore_focus_after_layer_surface_close_for_monitor("left", Instant::now());
+
+        assert_eq!(state.focus_state.primary_interaction_focus, None);
+        assert_eq!(
+            state.spawn_state.pending_spawn_monitor.as_deref(),
+            Some("left")
+        );
     }
 }
 
