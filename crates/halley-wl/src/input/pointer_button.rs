@@ -668,6 +668,19 @@ fn handle_left_press(
         return;
     };
     if frame.workspace_active {
+        let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);
+        if drag_binding_active && drag_target_ok && !hit.is_core {
+            begin_drag(
+                st,
+                ps,
+                backend,
+                hit,
+                frame,
+                frame.world_now,
+                allow_monitor_transfer,
+            );
+            return;
+        }
         handle_workspace_left_press(st, ps, backend, hit);
         return;
     }
@@ -776,12 +789,11 @@ fn handle_right_press(
     hit: Option<HitNode>,
     frame: ButtonFrame,
 ) {
-    if frame.workspace_active {
-        clear_pointer_activity(st, ps);
-        return;
-    }
-
     let Some(hit) = hit else {
+        if frame.workspace_active {
+            clear_pointer_activity(st, ps);
+            return;
+        }
         let now = Instant::now();
         let monitor = st
             .monitor_for_screen(frame.global_sx, frame.global_sy)
@@ -811,12 +823,11 @@ fn handle_move_binding_press(
     frame: ButtonFrame,
     allow_monitor_transfer: bool,
 ) {
-    if frame.workspace_active {
-        clear_pointer_activity(st, ps);
-        return;
-    }
-
     let Some(hit) = hit else {
+        if frame.workspace_active {
+            clear_pointer_activity(st, ps);
+            return;
+        }
         let now = Instant::now();
         let monitor = st
             .monitor_for_screen(frame.global_sx, frame.global_sy)
@@ -888,23 +899,41 @@ fn handle_button_release(
     backend: &dyn BackendView,
     button_code: u32,
     action: Option<PointerBindingAction>,
-    _world_now: halley_core::field::Vec2,
+    world_now: halley_core::field::Vec2,
 ) {
     match action {
         Some(PointerBindingAction::MoveWindow | PointerBindingAction::FieldJump) => {
             if let Some(d) = ps.drag {
                 let now = Instant::now();
+                let now_ms = st.now_ms(now);
+                let drag_monitor = st
+                    .input
+                    .interaction_state
+                    .active_drag
+                    .as_ref()
+                    .map(|drag| drag.pointer_monitor.clone())
+                    .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
                 st.clear_grabbed_edge_pan_state();
                 st.input.interaction_state.active_drag = None;
                 let joined = st.commit_ready_cluster_join_for_node(d.node_id, now);
                 if !joined {
+                    let moved_in_cluster = if d.started_active {
+                        st.move_active_cluster_member_to_drop_tile(
+                            drag_monitor.as_str(),
+                            d.node_id,
+                            world_now,
+                            now_ms,
+                        )
+                    } else {
+                        false
+                    };
                     if d.started_active {
                         st.finalize_mouse_drag_state(
                             d.node_id,
                             halley_core::field::Vec2 { x: 0.0, y: 0.0 },
                             now,
                         );
-                    } else {
+                    } else if !moved_in_cluster {
                         st.update_carry_state_preview(d.node_id, now);
                     }
                 } else {
@@ -930,17 +959,35 @@ fn handle_button_release(
                 && let Some(d) = ps.drag
             {
                 let now = Instant::now();
+                let now_ms = st.now_ms(now);
+                let drag_monitor = st
+                    .input
+                    .interaction_state
+                    .active_drag
+                    .as_ref()
+                    .map(|drag| drag.pointer_monitor.clone())
+                    .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
                 st.clear_grabbed_edge_pan_state();
                 st.input.interaction_state.active_drag = None;
                 let joined = st.commit_ready_cluster_join_for_node(d.node_id, now);
                 if !joined {
+                    let moved_in_cluster = if d.started_active {
+                        st.move_active_cluster_member_to_drop_tile(
+                            drag_monitor.as_str(),
+                            d.node_id,
+                            world_now,
+                            now_ms,
+                        )
+                    } else {
+                        false
+                    };
                     if d.started_active {
                         st.finalize_mouse_drag_state(
                             d.node_id,
                             halley_core::field::Vec2 { x: 0.0, y: 0.0 },
                             now,
                         );
-                    } else {
+                    } else if !moved_in_cluster {
                         st.update_carry_state_preview(d.node_id, now);
                     }
                 } else {
@@ -1028,7 +1075,21 @@ pub(crate) fn handle_pointer_button_input(
         world_now,
         workspace_active: st.has_active_cluster_workspace(),
     };
-    if st.cluster_mode_active() {
+    let mods = mod_state.borrow().clone();
+    let cluster_pointer_action = match button_state {
+        ButtonState::Pressed => matching_pointer_binding(st, &mods, button_code),
+        ButtonState::Released => ps.intercepted_buttons.get(&button_code).copied(),
+    };
+    let cluster_pointer_passthrough = matches!(
+        cluster_pointer_action,
+        Some(
+            PointerBindingAction::MoveWindow
+                | PointerBindingAction::FieldJump
+                | PointerBindingAction::ResizeWindow
+        )
+    ) || ps.drag.is_some()
+        || ps.resize.is_some();
+    if st.cluster_mode_active() && !cluster_pointer_passthrough {
         ps.world = world_now;
         match button_state {
             ButtonState::Pressed if left => {
@@ -1148,7 +1209,6 @@ pub(crate) fn handle_pointer_button_input(
         backend.request_redraw();
         return;
     }
-    let mods = mod_state.borrow().clone();
     let intercepted_binding = match button_state {
         ButtonState::Pressed => {
             if let Some(action) = compositor_binding_action_active(st, button_code, &mods) {
@@ -1271,6 +1331,34 @@ pub(crate) fn handle_pointer_button_input(
                 let now = Instant::now();
                 st.input.interaction_state.cluster_overflow_drag_preview = None;
                 st.set_cursor_override_icon(None);
+                let now_ms = st.now_ms(now);
+                let strip_slot = if overflow_drag.monitor == target_monitor {
+                    cluster_overflow_strip_slot_at(
+                        &crate::overlay::OverlayView::from_halley(st),
+                        target_monitor.as_str(),
+                        local_sx,
+                        local_sy,
+                        now_ms,
+                    )
+                } else {
+                    None
+                };
+                if let Some(target_slot) = strip_slot {
+                    let reordered = st.reorder_cluster_overflow_member(
+                        overflow_drag.monitor.as_str(),
+                        overflow_drag.cluster_id,
+                        overflow_drag.member_id,
+                        target_slot,
+                        now_ms,
+                    );
+                    if reordered {
+                        backend.request_redraw();
+                    } else {
+                        st.reveal_cluster_overflow_for_monitor(overflow_drag.monitor.as_str(), now_ms);
+                        backend.request_redraw();
+                    }
+                    return;
+                }
                 let release_hit =
                     pick_hit_node_at(st, local_w, local_h, local_sx, local_sy, now, ps.resize);
                 if overflow_drag.monitor == target_monitor
@@ -1290,30 +1378,8 @@ pub(crate) fn handle_pointer_button_input(
                     }
                     return;
                 }
-                let now_ms = st.now_ms(now);
-                if overflow_drag.monitor == target_monitor
-                    && let Some(target_slot) = cluster_overflow_strip_slot_at(
-                        &crate::overlay::OverlayView::from_halley(st),
-                        target_monitor.as_str(),
-                        local_sx,
-                        local_sy,
-                        now_ms,
-                    )
-                {
-                    let reordered = st.reorder_cluster_overflow_member(
-                        overflow_drag.monitor.as_str(),
-                        overflow_drag.cluster_id,
-                        overflow_drag.member_id,
-                        target_slot,
-                        now_ms,
-                    );
-                    if reordered {
-                        backend.request_redraw();
-                    }
-                } else {
-                    st.reveal_cluster_overflow_for_monitor(overflow_drag.monitor.as_str(), now_ms);
-                    backend.request_redraw();
-                }
+                st.reveal_cluster_overflow_for_monitor(overflow_drag.monitor.as_str(), now_ms);
+                backend.request_redraw();
                 return;
             }
             if intercepted_binding {

@@ -226,7 +226,12 @@ impl Halley {
         desired_center: Vec2,
     ) -> Option<(Vec2, ClusterId, f32)> {
         let node = self.model.field.node(node_id)?;
-        let mover_ext = if node.kind == halley_core::field::NodeKind::Surface {
+        let mover_ext = if node.kind == halley_core::field::NodeKind::Surface
+            && matches!(
+                node.state,
+                halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting
+            )
+        {
             self.surface_window_collision_extents(node)
         } else {
             self.collision_extents_for_node(node)

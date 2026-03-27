@@ -70,11 +70,7 @@ pub(crate) fn cluster_overflow_icon_hit_test(
 
     let strip = Rectangle::<i32, Physical>::new(
         (rect.x.round() as i32, rect.y.round() as i32).into(),
-        (
-            (rect.w.round() as i32).max(48),
-            (rect.h.round() as i32).max(80),
-        )
-            .into(),
+        ((rect.w.round() as i32).max(48), (rect.h.round() as i32).max(1)).into(),
     );
     let visible_slots = ((strip.size.h - OVERFLOW_ICON_PAD * 2 + OVERFLOW_ICON_GAP)
         / (OVERFLOW_ICON_SIZE + OVERFLOW_ICON_GAP))
@@ -121,11 +117,7 @@ pub(crate) fn cluster_overflow_strip_slot_at(
     }
     let strip = Rectangle::<i32, Physical>::new(
         (rect.x.round() as i32, rect.y.round() as i32).into(),
-        (
-            (rect.w.round() as i32).max(48),
-            (rect.h.round() as i32).max(80),
-        )
-            .into(),
+        ((rect.w.round() as i32).max(48), (rect.h.round() as i32).max(1)).into(),
     );
     if sx < strip.loc.x as f32
         || sx > (strip.loc.x + strip.size.w) as f32
@@ -162,11 +154,7 @@ pub(crate) fn draw_cluster_overflow_strip(
 
     let strip = Rectangle::<i32, Physical>::new(
         (rect.x.round() as i32, rect.y.round() as i32).into(),
-        (
-            (rect.w.round() as i32).max(48),
-            (rect.h.round() as i32).max(80),
-        )
-            .into(),
+        ((rect.w.round() as i32).max(48), (rect.h.round() as i32).max(1)).into(),
     );
     draw_overlay_chip(
         frame,

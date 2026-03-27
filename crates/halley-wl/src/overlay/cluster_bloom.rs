@@ -300,6 +300,9 @@ fn draw_cluster_join_affordance(
     if candidate.monitor != monitor {
         return Ok(());
     }
+    if !candidate.ready {
+        return Ok(());
+    }
     let Some(cluster) = overlay.field.cluster(candidate.cluster_id) else {
         return Ok(());
     };

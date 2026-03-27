@@ -961,6 +961,66 @@ impl Halley {
         true
     }
 
+    pub(crate) fn move_active_cluster_member_to_drop_tile(
+        &mut self,
+        monitor: &str,
+        member: NodeId,
+        world_pos: Vec2,
+        now_ms: u64,
+    ) -> bool {
+        let Some(cid) = self.active_cluster_workspace_for_monitor(monitor) else {
+            return false;
+        };
+        let Some(cluster) = self.model.field.cluster(cid) else {
+            return false;
+        };
+        if !cluster.visible_members().contains(&member) {
+            return false;
+        }
+        let Some(target_member) = self
+            .cluster_read_controller()
+            .plan_active_cluster_layout(monitor)
+            .and_then(|plan| {
+                plan.tiles
+                    .into_iter()
+                    .find(|tile| {
+                        world_pos.x >= tile.rect.x
+                            && world_pos.x <= tile.rect.x + tile.rect.w
+                            && world_pos.y >= tile.rect.y
+                            && world_pos.y <= tile.rect.y + tile.rect.h
+                    })
+                    .map(|tile| tile.node_id)
+            })
+        else {
+            return false;
+        };
+        if target_member == member {
+            return false;
+        }
+
+        let members = cluster.members().to_vec();
+        let Some(from_index) = members.iter().position(|&id| id == member) else {
+            return false;
+        };
+        let Some(target_index) = members.iter().position(|&id| id == target_member) else {
+            return false;
+        };
+
+        let mut reordered = members;
+        let moved = reordered.remove(from_index);
+        reordered.insert(target_index.min(reordered.len()), moved);
+        if self
+            .model
+            .field
+            .reorder_cluster_members(cid, reordered)
+            .is_err()
+        {
+            return false;
+        }
+        self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
+        true
+    }
+
     pub fn collapse_active_cluster_workspace(&mut self, now: Instant) -> bool {
         let monitor = self.model.monitor_state.current_monitor.clone();
         self.exit_cluster_workspace_for_monitor(monitor.as_str(), now)
@@ -1278,6 +1338,11 @@ impl Halley {
             return;
         };
         let members = cluster.members().to_vec();
+        let dragged_member = self
+            .input
+            .interaction_state
+            .drag_authority_node
+            .filter(|id| members.contains(id));
         if self
             .model
             .fullscreen_state
@@ -1309,6 +1374,9 @@ impl Halley {
         }
         for placement in plan.tiles {
             let nid = placement.node_id;
+            if Some(nid) == dragged_member {
+                continue;
+            }
             let rect = placement.rect;
             if let Some(cluster) = self.model.field.cluster_mut(cid)
                 && let Some(node) = cluster.workspace_member_mut(nid)

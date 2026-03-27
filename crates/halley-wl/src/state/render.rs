@@ -508,7 +508,19 @@ impl Halley {
         self.tick_viewport_pan_animation(now_ms);
         self.tick_pending_spawn_pan(now, now_ms);
         self.tick_active_drag(now);
+        self.tick_cluster_join_candidate_ready(now_ms);
         self.tick_camera_smoothing(now);
+    }
+
+    fn tick_cluster_join_candidate_ready(&mut self, now_ms: u64) {
+        let dwell_ms = self.runtime.tuning.cluster_dwell_ms;
+        let Some(candidate) = self.input.interaction_state.cluster_join_candidate.as_mut() else {
+            return;
+        };
+        if candidate.ready {
+            return;
+        }
+        candidate.ready = now_ms.saturating_sub(candidate.started_at_ms) >= dwell_ms;
     }
 
     pub(crate) fn tick_active_drag(&mut self, now: Instant) {
@@ -640,7 +652,7 @@ impl Halley {
                     .unwrap_or(post_pan_desired_to);
             }
             let drag_monitor = active_drag.pointer_monitor.clone();
-            self.input.interaction_state.active_drag = Some(active_drag);
+            self.input.interaction_state.active_drag = Some(active_drag.clone());
             let to = self
                 .dragged_node_cluster_core_clamp(drag_monitor.as_str(), node_id, to)
                 .and_then(|(clamped, cid, _)| {
@@ -654,7 +666,17 @@ impl Halley {
             self.clear_grabbed_edge_pan_state();
             return;
         };
-        if moved {
+        let live_reordered = if self.model.field.is_active_cluster_member(node_id) {
+            self.move_active_cluster_member_to_drop_tile(
+                active_drag.pointer_monitor.as_str(),
+                node_id,
+                pointer_world,
+                self.now_ms(now),
+            )
+        } else {
+            false
+        };
+        if moved || live_reordered {
             self.request_maintenance();
         }
     }
