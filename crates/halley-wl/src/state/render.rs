@@ -95,8 +95,8 @@ pub(crate) struct RenderState {
     pub(crate) bearings_visible: bool,
     pub(crate) bearings_mix: HashMap<String, f32>,
     pub(crate) cluster_bloom_mix: HashMap<String, ClusterBloomAnimState>,
-    pub(crate) overlay_banner: Option<OverlayBannerState>,
-    pub(crate) overlay_toast: Option<OverlayToastState>,
+    pub(crate) overlay_banner: HashMap<String, OverlayBannerState>,
+    pub(crate) overlay_toast: HashMap<String, OverlayToastState>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
     pub(crate) node_circle_program: Option<GlesTexProgram>,
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
@@ -384,12 +384,13 @@ impl Halley {
         self.model.focus_state.app_focused = focused;
     }
 
-    pub fn set_persistent_mode_banner(&mut self, title: &str, subtitle: Option<&str>) {
+    pub fn set_persistent_mode_banner(&mut self, monitor: &str, title: &str, subtitle: Option<&str>) {
         let state = self
             .ui
             .render_state
             .overlay_banner
-            .get_or_insert_with(|| OverlayBannerState {
+            .entry(monitor.to_string())
+            .or_insert_with(|| OverlayBannerState {
                 title: String::new(),
                 subtitle: None,
                 visible: false,
@@ -400,14 +401,17 @@ impl Halley {
         state.visible = true;
     }
 
-    pub fn clear_persistent_mode_banner(&mut self) {
-        if let Some(state) = self.ui.render_state.overlay_banner.as_mut() {
+    pub fn clear_persistent_mode_banner(&mut self, monitor: &str) {
+        if let Some(state) = self.ui.render_state.overlay_banner.get_mut(monitor) {
             state.visible = false;
         }
     }
 
-    pub(crate) fn persistent_mode_banner_snapshot(&mut self) -> Option<OverlayBannerSnapshot> {
-        let state = self.ui.render_state.overlay_banner.as_mut()?;
+    pub(crate) fn persistent_mode_banner_snapshot(
+        &mut self,
+        monitor: &str,
+    ) -> Option<OverlayBannerSnapshot> {
+        let state = self.ui.render_state.overlay_banner.get_mut(monitor)?;
         let target = if state.visible { 1.0 } else { 0.0 };
         let k = if target > 0.5 { 0.26 } else { 0.18 };
         state.mix += (target - state.mix) * k;
@@ -415,7 +419,7 @@ impl Halley {
             state.mix = target;
         }
         if target <= 0.0 && state.mix <= 0.01 {
-            self.ui.render_state.overlay_banner = None;
+            self.ui.render_state.overlay_banner.remove(monitor);
             return None;
         }
         Some(OverlayBannerSnapshot {
@@ -425,13 +429,20 @@ impl Halley {
         })
     }
 
-    pub fn show_overlay_toast(&mut self, message: &str, duration_ms: u64, now: Instant) {
+    pub fn show_overlay_toast(
+        &mut self,
+        monitor: &str,
+        message: &str,
+        duration_ms: u64,
+        now: Instant,
+    ) {
         let now_ms = self.now_ms(now);
         let toast = self
             .ui
             .render_state
             .overlay_toast
-            .get_or_insert_with(Default::default);
+            .entry(monitor.to_string())
+            .or_default();
         toast.message = Some(message.to_string());
         toast.visible_until_ms = now_ms.saturating_add(duration_ms.max(1));
         if toast.mix < 0.12 {
@@ -439,9 +450,13 @@ impl Halley {
         }
     }
 
-    pub(crate) fn overlay_toast_snapshot(&mut self, now: Instant) -> Option<OverlayToastSnapshot> {
+    pub(crate) fn overlay_toast_snapshot(
+        &mut self,
+        monitor: &str,
+        now: Instant,
+    ) -> Option<OverlayToastSnapshot> {
         let now_ms = self.now_ms(now);
-        let toast = self.ui.render_state.overlay_toast.as_mut()?;
+        let toast = self.ui.render_state.overlay_toast.get_mut(monitor)?;
         let target = if toast.message.is_some() && now_ms < toast.visible_until_ms {
             1.0
         } else {
@@ -453,7 +468,7 @@ impl Halley {
             toast.mix = target;
         }
         if target <= 0.0 && toast.mix <= 0.01 {
-            self.ui.render_state.overlay_toast = None;
+            self.ui.render_state.overlay_toast.remove(monitor);
             return None;
         }
         Some(OverlayToastSnapshot {

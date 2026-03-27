@@ -216,6 +216,16 @@ impl<'a> ClusterReadController<'a> {
 }
 
 impl<'a> ClusterMutationController<'a> {
+    fn cluster_mode_selected_nodes_for_monitor_mut(
+        &mut self,
+        monitor: &str,
+    ) -> &mut std::collections::HashSet<NodeId> {
+        self.cluster_state
+            .cluster_mode_selected_nodes
+            .entry(monitor.to_string())
+            .or_default()
+    }
+
     fn open_cluster_bloom_for_monitor(&mut self, monitor: &str, cid: ClusterId) -> bool {
         let Some(cluster) = self.field.cluster(cid) else {
             return false;
@@ -245,26 +255,38 @@ impl<'a> ClusterMutationController<'a> {
         true
     }
 
-    fn enter_cluster_mode(&mut self) -> bool {
-        if self.cluster_state.cluster_mode_active {
+    fn enter_cluster_mode(&mut self, monitor: &str) -> bool {
+        if self
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .contains_key(monitor)
+        {
             return true;
         }
-        self.cluster_state.cluster_mode_active = true;
-        self.cluster_state.cluster_mode_selected_nodes.clear();
+        self.cluster_state
+            .cluster_mode_selected_nodes
+            .insert(monitor.to_string(), std::collections::HashSet::new());
         true
     }
 
-    fn exit_cluster_mode(&mut self) -> bool {
-        if !self.cluster_state.cluster_mode_active {
+    fn exit_cluster_mode(&mut self, monitor: &str) -> bool {
+        if !self
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .contains_key(monitor)
+        {
             return false;
         }
-        self.cluster_state.cluster_mode_active = false;
-        self.cluster_state.cluster_mode_selected_nodes.clear();
+        self.cluster_state.cluster_mode_selected_nodes.remove(monitor);
         true
     }
 
-    fn toggle_cluster_mode_selection(&mut self, node_id: NodeId) -> bool {
-        if !self.cluster_state.cluster_mode_active {
+    fn toggle_cluster_mode_selection(&mut self, monitor: &str, node_id: NodeId) -> bool {
+        if !self
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .contains_key(monitor)
+        {
             return false;
         }
         let Some(node) = self.field.node(node_id) else {
@@ -277,12 +299,10 @@ impl<'a> ClusterMutationController<'a> {
             return false;
         }
         if !self
-            .cluster_state
-            .cluster_mode_selected_nodes
+            .cluster_mode_selected_nodes_for_monitor_mut(monitor)
             .insert(node_id)
         {
-            self.cluster_state
-                .cluster_mode_selected_nodes
+            self.cluster_mode_selected_nodes_for_monitor_mut(monitor)
                 .remove(&node_id);
         }
         true
@@ -725,14 +745,35 @@ impl Halley {
     }
 
     pub fn cluster_mode_active(&self) -> bool {
-        self.model.cluster_state.cluster_mode_active
+        self.cluster_mode_active_for_monitor(self.model.monitor_state.current_monitor.as_str())
+    }
+
+    pub fn cluster_mode_active_for_monitor(&self, monitor: &str) -> bool {
+        self.model
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .contains_key(monitor)
     }
 
     pub fn enter_cluster_mode(&mut self) -> bool {
-        if !self.cluster_mutation_controller().enter_cluster_mode() {
+        let monitor = self.model.monitor_state.current_monitor.clone();
+        if self.active_cluster_workspace_for_monitor(monitor.as_str()).is_some() {
+            self.show_overlay_toast(
+                monitor.as_str(),
+                "Cluster mode is unavailable while inside a cluster workspace",
+                3200,
+                Instant::now(),
+            );
+            return false;
+        }
+        if !self
+            .cluster_mutation_controller()
+            .enter_cluster_mode(monitor.as_str())
+        {
             return false;
         }
         self.set_persistent_mode_banner(
+            monitor.as_str(),
             "Cluster mode",
             Some("Select windows • Enter to create • Esc to cancel"),
         );
@@ -740,16 +781,21 @@ impl Halley {
     }
 
     pub fn exit_cluster_mode(&mut self) -> bool {
-        if !self.cluster_mutation_controller().exit_cluster_mode() {
+        let monitor = self.model.monitor_state.current_monitor.clone();
+        if !self
+            .cluster_mutation_controller()
+            .exit_cluster_mode(monitor.as_str())
+        {
             return false;
         }
-        self.clear_persistent_mode_banner();
+        self.clear_persistent_mode_banner(monitor.as_str());
         true
     }
 
     pub fn toggle_cluster_mode_selection(&mut self, node_id: NodeId) -> bool {
+        let monitor = self.model.monitor_state.current_monitor.clone();
         self.cluster_mutation_controller()
-            .toggle_cluster_mode_selection(node_id)
+            .toggle_cluster_mode_selection(monitor.as_str(), node_id)
     }
 
     fn order_cluster_creation_members(&self, members: Vec<NodeId>) -> Vec<NodeId> {
@@ -790,28 +836,36 @@ impl Halley {
     }
 
     pub fn confirm_cluster_mode(&mut self, now: Instant) -> bool {
-        if !self.model.cluster_state.cluster_mode_active {
-            return false;
-        }
-        if self
+        let monitor = self.model.monitor_state.current_monitor.clone();
+        let Some(selected_nodes) = self
             .model
             .cluster_state
             .cluster_mode_selected_nodes
-            .is_empty()
-        {
-            self.show_overlay_toast("No nodes selected; no cluster formed", 2200, now);
+            .get(monitor.as_str())
+        else {
+            return false;
+        };
+        if selected_nodes.is_empty() {
+            self.show_overlay_toast(
+                monitor.as_str(),
+                "No nodes selected; no cluster formed",
+                2200,
+                now,
+            );
             return false;
         }
 
-        let members = self
-            .model
-            .cluster_state
-            .cluster_mode_selected_nodes
+        let members = selected_nodes
             .iter()
             .copied()
             .collect::<Vec<_>>();
         if members.len() == 1 {
-            self.show_overlay_toast("Clusters require at least two windows", 5000, now);
+            self.show_overlay_toast(
+                monitor.as_str(),
+                "Clusters require at least two windows",
+                5000,
+                now,
+            );
             return false;
         }
         let members = self.order_cluster_creation_members(members);

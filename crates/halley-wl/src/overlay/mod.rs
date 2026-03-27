@@ -251,7 +251,13 @@ pub(crate) fn draw_cluster_selection_markers(
     screen_h: i32,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    for &node_id in &overlay.cluster_state.cluster_mode_selected_nodes {
+    let selected = overlay
+        .cluster_state
+        .cluster_mode_selected_nodes
+        .get(overlay.monitor_state.current_monitor.as_str())
+        .into_iter()
+        .flat_map(|nodes| nodes.iter());
+    for &node_id in selected {
         let Some(node) = overlay.field.node(node_id) else {
             continue;
         };

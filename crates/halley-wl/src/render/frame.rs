@@ -493,10 +493,11 @@ fn draw_debug_frame_scene(
         )?;
     }
 
-    if let Some(banner) = st.persistent_mode_banner_snapshot() {
+    let overlay_monitor = st.model.monitor_state.current_monitor.clone();
+    if let Some(banner) = st.persistent_mode_banner_snapshot(overlay_monitor.as_str()) {
         draw_persistent_banner(frame, &st.ui.render_state, prepared.damage, &banner)?;
     }
-    if let Some(toast) = st.overlay_toast_snapshot(prepared.now) {
+    if let Some(toast) = st.overlay_toast_snapshot(overlay_monitor.as_str(), prepared.now) {
         draw_toast(
             frame,
             &st.ui.render_state,
