@@ -9,8 +9,8 @@ use halley_core::viewport::{FocusRing, Viewport};
 
 use super::{
     BearingsBindingAction, CompositorBinding, CompositorBindingAction, DirectionalAction,
-    KeyModifiers, Keybinds, LaunchBinding, NodeBindingAction, PointerBinding,
-    PointerBindingAction, TrailBindingAction,
+    KeyModifiers, Keybinds, LaunchBinding, NodeBindingAction, PointerBinding, PointerBindingAction,
+    TrailBindingAction,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

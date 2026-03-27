@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use halley_core::cluster::ClusterId;
 use halley_core::cluster_policy::ClusterFormationState;
-use halley_core::field::NodeId;
+use halley_core::field::{NodeId, Vec2};
 use halley_core::tiling::Rect;
 use halley_core::viewport::Viewport;
 
@@ -14,6 +14,7 @@ pub(crate) struct ClusterState {
     pub(crate) cluster_mode_selected_nodes: HashSet<NodeId>,
     pub(crate) workspace_hidden_nodes: HashMap<String, Vec<NodeId>>,
     pub(crate) workspace_prev_viewports: HashMap<String, Viewport>,
+    pub(crate) workspace_core_positions: HashMap<String, Vec2>,
     pub(crate) cluster_overflow_members: HashMap<String, Vec<NodeId>>,
     pub(crate) cluster_overflow_rects: HashMap<String, Rect>,
     pub(crate) cluster_overflow_visible_until_ms: HashMap<String, u64>,

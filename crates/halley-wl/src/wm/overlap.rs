@@ -2,10 +2,10 @@ use super::*;
 use crate::animation::{ease_in_out_cubic, proxy_anim_scale};
 use crate::render::ACTIVE_WINDOW_FRAME_PAD_PX;
 use crate::render::preview_proxy_size;
+use crate::state::{InteractionState, MonitorState, RenderState, WorkspaceState};
 use halley_core::viewport::Viewport;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
-use crate::state::{InteractionState, MonitorState, RenderState, WorkspaceState};
 
 const CONTACT_SLOP: f32 = 0.5;
 const CONTACT_SKIN: f32 = 1.5;
@@ -125,6 +125,9 @@ impl<'a> OverlapReadContext<'a> {
 
     #[inline]
     fn node_participates_in_overlap(&self, id: NodeId) -> bool {
+        if !self.field.participates_in_field_dynamics(id) {
+            return false;
+        }
         self.field.node(id).is_some_and(|n| {
             self.field.is_visible(id)
                 && matches!(
@@ -263,7 +266,8 @@ impl<'a> OverlapReadContext<'a> {
         &self,
         n: &halley_core::field::Node,
     ) -> CollisionExtents {
-        let basis = self.workspace_state
+        let basis = self
+            .workspace_state
             .last_active_size
             .get(&n.id)
             .copied()
@@ -276,12 +280,14 @@ impl<'a> OverlapReadContext<'a> {
             .unwrap_or(n.intrinsic_size);
         let bbox_w = n.intrinsic_size.x.max(1.0);
         let bbox_h = n.intrinsic_size.y.max(1.0);
-        let (bbox_lx, bbox_ly) = self.render_state
+        let (bbox_lx, bbox_ly) = self
+            .render_state
             .bbox_loc
             .get(&n.id)
             .copied()
             .unwrap_or((0.0, 0.0));
-        let (geo_lx, geo_ly, geo_w, geo_h) = self.render_state
+        let (geo_lx, geo_ly, geo_w, geo_h) = self
+            .render_state
             .window_geometry
             .get(&n.id)
             .copied()
@@ -308,7 +314,6 @@ impl<'a> OverlapReadContext<'a> {
         debug_assert!(n.kind == halley_core::field::NodeKind::Surface);
         self.surface_window_collision_extents(n)
     }
-
 }
 
 impl Halley {
@@ -387,7 +392,9 @@ impl Halley {
         clamp_only: bool,
     ) -> bool {
         let carry_direct = |this: &mut Self, id: NodeId, to: Vec2| {
-            if this.model.field
+            if this
+                .model
+                .field
                 .node(id)
                 .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
             {
@@ -419,7 +426,9 @@ impl Halley {
         let mut mover_pos = to;
 
         for _ in 0..24 {
-            let others: Vec<(NodeId, Vec2, CollisionExtents)> = self.model.field
+            let others: Vec<(NodeId, Vec2, CollisionExtents)> = self
+                .model
+                .field
                 .nodes()
                 .iter()
                 .filter_map(|(&oid, other)| {
@@ -473,7 +482,9 @@ impl Halley {
             }
         }
 
-        if self.model.field
+        if self
+            .model
+            .field
             .node(id)
             .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
         {
@@ -487,7 +498,8 @@ impl Halley {
         &self,
         n: &halley_core::field::Node,
     ) -> CollisionExtents {
-        self.overlap_read_context().surface_window_collision_extents(n)
+        self.overlap_read_context()
+            .surface_window_collision_extents(n)
     }
 
     pub(crate) fn spawn_obstacle_extents_for_node(
@@ -495,7 +507,8 @@ impl Halley {
         n: &halley_core::field::Node,
     ) -> CollisionExtents {
         if n.kind == halley_core::field::NodeKind::Surface {
-            self.overlap_read_context().spawn_obstacle_extents_for_node(n)
+            self.overlap_read_context()
+                .spawn_obstacle_extents_for_node(n)
         } else {
             self.collision_extents_for_node(n)
         }
@@ -508,13 +521,17 @@ impl Halley {
         let anim = self.anim_style_for(n.id, n.state.clone(), Instant::now());
         match n.state {
             halley_core::field::NodeState::Active => {
-                let basis = self.model.workspace_state
+                let basis = self
+                    .model
+                    .workspace_state
                     .last_active_size
                     .get(&n.id)
                     .copied()
                     .unwrap_or(n.intrinsic_size);
                 let s = OverlapReadContext::active_collision_scale(anim.scale, basis.x, basis.y);
-                let ext = self.overlap_read_context().surface_window_collision_extents(n);
+                let ext = self
+                    .overlap_read_context()
+                    .surface_window_collision_extents(n);
 
                 CollisionExtents {
                     left: ext.left * s,
@@ -523,18 +540,16 @@ impl Halley {
                     bottom: ext.bottom * s,
                 }
             }
-            halley_core::field::NodeState::Node => {
-                self.overlap_read_context()
-                    .node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
-            }
-            halley_core::field::NodeState::Core => {
-                self.overlap_read_context()
-                    .node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
-            }
+            halley_core::field::NodeState::Node => self
+                .overlap_read_context()
+                .node_collision_extents(n.intrinsic_size, &n.label, anim.scale),
+            halley_core::field::NodeState::Core => self
+                .overlap_read_context()
+                .node_collision_extents(n.intrinsic_size, &n.label, anim.scale),
             halley_core::field::NodeState::Drifting => CollisionExtents::symmetric(n.footprint),
         }
     }
-    
+
     pub(super) fn collision_size_for_node(&self, n: &halley_core::field::Node) -> Vec2 {
         self.collision_extents_for_node(n).size()
     }
@@ -556,7 +571,9 @@ impl Halley {
             return;
         }
 
-        let mut ids: Vec<NodeId> = self.model.field
+        let mut ids: Vec<NodeId> = self
+            .model
+            .field
             .nodes()
             .keys()
             .copied()
@@ -592,7 +609,8 @@ impl Halley {
             let vel = if self.input.interaction_state.drag_authority_node == Some(id) {
                 self.input.interaction_state.drag_authority_velocity
             } else {
-                self.input.interaction_state
+                self.input
+                    .interaction_state
                     .physics_velocity
                     .get(&id)
                     .copied()
@@ -797,7 +815,10 @@ impl Halley {
             if vel.x.abs() < PHYSICS_REST_EPSILON && vel.y.abs() < PHYSICS_REST_EPSILON {
                 self.input.interaction_state.physics_velocity.remove(&id);
             } else {
-                self.input.interaction_state.physics_velocity.insert(id, vel);
+                self.input
+                    .interaction_state
+                    .physics_velocity
+                    .insert(id, vel);
             }
         }
     }
@@ -883,7 +904,9 @@ mod tests {
                 y: 900.0,
             },
         );
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(id, halley_core::field::NodeState::Node);
 
         let node = state.model.field.node(id).expect("node");
@@ -925,7 +948,9 @@ mod tests {
                 y: 900.0,
             },
         );
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(id, halley_core::field::NodeState::Node);
 
         let node = state.model.field.node(id).expect("node");
@@ -959,12 +984,18 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 320.0, y: 220.0 },
         );
-        let b =
-            state.model.field
-                .spawn_surface("beta", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 320.0, y: 220.0 });
-        let _ = state.model.field
+        let b = state.model.field.spawn_surface(
+            "beta",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        let _ = state
+            .model
+            .field
             .set_state(a, halley_core::field::NodeState::Node);
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(b, halley_core::field::NodeState::Node);
 
         tick_overlap_frames(&mut state, 64);
@@ -1034,9 +1065,13 @@ mod tests {
         );
         state.assign_node_to_monitor(a, "right");
         state.assign_node_to_monitor(b, "right");
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(a, halley_core::field::NodeState::Node);
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(b, halley_core::field::NodeState::Node);
 
         tick_overlap_frames(&mut state, 64);
@@ -1073,7 +1108,9 @@ mod tests {
             Vec2 { x: 600.0, y: 0.0 },
             Vec2 { x: 320.0, y: 220.0 },
         );
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(node, halley_core::field::NodeState::Node);
 
         state.set_drag_authority_node(Some(node));
@@ -1125,7 +1162,11 @@ mod tests {
             Vec2 { x: 20.0, y: 0.0 },
             Vec2 { x: 200.0, y: 140.0 },
         );
-        let cid = state.model.field.create_cluster(vec![a, b]).expect("cluster");
+        let cid = state
+            .model
+            .field
+            .create_cluster(vec![a, b])
+            .expect("cluster");
         let core = state.model.field.collapse_cluster(cid).expect("core");
 
         let core_before = state.model.field.node(core).expect("core before").pos;
@@ -1141,9 +1182,6 @@ mod tests {
         let a_after = state.model.field.node(a).expect("a after");
         let b_after = state.model.field.node(b).expect("b after");
 
-        let core_dx = core_after.pos.x - core_before.x;
-        let core_dy = core_after.pos.y - core_before.y;
-
         assert_eq!(
             dragged_after.pos,
             Vec2 { x: 0.0, y: 0.0 },
@@ -1154,20 +1192,12 @@ mod tests {
             "collapsed core did not yield under physics"
         );
         assert_eq!(
-            a_after.pos,
-            Vec2 {
-                x: a_before.x + core_dx,
-                y: a_before.y + core_dy,
-            },
-            "cluster member a did not follow passive core movement"
+            a_after.pos, a_before,
+            "collapsed cluster members should not be repositioned by field physics"
         );
         assert_eq!(
-            b_after.pos,
-            Vec2 {
-                x: b_before.x + core_dx,
-                y: b_before.y + core_dy,
-            },
-            "cluster member b did not follow passive core movement"
+            b_after.pos, b_before,
+            "collapsed cluster members should not be repositioned by field physics"
         );
     }
 
@@ -1216,12 +1246,18 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 320.0, y: 220.0 },
         );
-        let b =
-            state.model.field
-                .spawn_surface("beta", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 320.0, y: 220.0 });
-        let _ = state.model.field
+        let b = state.model.field.spawn_surface(
+            "beta",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        let _ = state
+            .model
+            .field
             .set_state(a, halley_core::field::NodeState::Node);
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(b, halley_core::field::NodeState::Node);
 
         tick_overlap_frames(&mut state, 64);
@@ -1259,10 +1295,14 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 420.0, y: 280.0 },
         );
-        let node =
-            state.model.field
-                .spawn_surface("node", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 300.0, y: 200.0 });
-        let _ = state.model.field
+        let node = state.model.field.spawn_surface(
+            "node",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 300.0, y: 200.0 },
+        );
+        let _ = state
+            .model
+            .field
             .set_state(node, halley_core::field::NodeState::Node);
 
         tick_overlap_frames(&mut state, 96);
@@ -1295,12 +1335,16 @@ mod tests {
             y: 1200.0,
         };
 
-        let a =
-            state.model.field
-                .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
-        let b =
-            state.model.field
-                .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
 
         tick_overlap_frames(&mut state, 128);
 
@@ -1324,21 +1368,29 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let a =
-            state.model.field
-                .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
-        let b =
-            state.model.field
-                .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
 
         for _ in 0..12 {
             state.resolve_surface_overlap();
-            let vel_a = state.input.interaction_state
+            let vel_a = state
+                .input
+                .interaction_state
                 .physics_velocity
                 .get(&a)
                 .copied()
                 .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
-            let vel_b = state.input.interaction_state
+            let vel_b = state
+                .input
+                .interaction_state
                 .physics_velocity
                 .get(&b)
                 .copied()
@@ -1383,7 +1435,9 @@ mod tests {
             };
             let _ = state.carry_surface_non_overlap(dragged, to, false);
             state.resolve_surface_overlap();
-            let vel = state.input.interaction_state
+            let vel = state
+                .input
+                .interaction_state
                 .physics_velocity
                 .get(&passive)
                 .copied()
@@ -1408,13 +1462,19 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 420.0, y: 280.0 },
         );
-        state.input.interaction_state
+        state
+            .input
+            .interaction_state
             .physics_velocity
             .insert(id, Vec2 { x: 480.0, y: 120.0 });
         state.finalize_mouse_drag_state(id, Vec2 { x: 0.0, y: 0.0 }, Instant::now());
 
         assert!(
-            !state.input.interaction_state.physics_velocity.contains_key(&id),
+            !state
+                .input
+                .interaction_state
+                .physics_velocity
+                .contains_key(&id),
             "grabbed window should not retain momentum after release"
         );
     }
@@ -1427,26 +1487,36 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let a =
-            state.model.field
-                .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
-        let b =
-            state.model.field
-                .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
         let ea = state.collision_extents_for_node(state.model.field.node(a).expect("a"));
         let eb = state.collision_extents_for_node(state.model.field.node(b).expect("b"));
         let req_x = state.required_sep_x(0.0, ea, 1.0, eb, state.non_overlap_gap_world());
         let _ = state.model.field.carry(b, Vec2 { x: req_x, y: 0.0 });
-        state.input.interaction_state
+        state
+            .input
+            .interaction_state
             .physics_velocity
             .insert(a, Vec2 { x: 320.0, y: 0.0 });
-        state.input.interaction_state
+        state
+            .input
+            .interaction_state
             .physics_velocity
             .insert(b, Vec2 { x: 0.0, y: 0.0 });
 
         state.resolve_surface_overlap();
 
-        let vb = state.input.interaction_state
+        let vb = state
+            .input
+            .interaction_state
             .physics_velocity
             .get(&b)
             .copied()
@@ -1475,8 +1545,10 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 420.0, y: 280.0 },
         );
-        let ea = state.collision_extents_for_node(state.model.field.node(dragged).expect("dragged"));
-        let eb = state.collision_extents_for_node(state.model.field.node(passive).expect("passive"));
+        let ea =
+            state.collision_extents_for_node(state.model.field.node(dragged).expect("dragged"));
+        let eb =
+            state.collision_extents_for_node(state.model.field.node(passive).expect("passive"));
         let req_x = state.required_sep_x(0.0, ea, 1.0, eb, state.non_overlap_gap_world());
         let _ = state.model.field.carry(
             passive,
@@ -1491,7 +1563,9 @@ mod tests {
 
         state.resolve_surface_overlap();
 
-        let passive_velocity = state.input.interaction_state
+        let passive_velocity = state
+            .input
+            .interaction_state
             .physics_velocity
             .get(&passive)
             .copied()
@@ -1501,7 +1575,9 @@ mod tests {
             "passive window should receive physics from a grabbed kinematic collider: {passive_velocity:?}"
         );
         assert!(
-            !state.input.interaction_state
+            !state
+                .input
+                .interaction_state
                 .physics_velocity
                 .contains_key(&dragged),
             "grabbed window should not retain physics momentum"
@@ -1516,23 +1592,31 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let a =
-            state.model.field
-                .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
-        let b =
-            state.model.field
-                .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
 
         tick_overlap_frames(&mut state, 12);
         let _ = state.carry_surface_non_overlap(b, Vec2 { x: 700.0, y: 0.0 }, false);
         tick_overlap_frames(&mut state, 24);
 
-        let va = state.input.interaction_state
+        let va = state
+            .input
+            .interaction_state
             .physics_velocity
             .get(&a)
             .copied()
             .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
-        let vb = state.input.interaction_state
+        let vb = state
+            .input
+            .interaction_state
             .physics_velocity
             .get(&b)
             .copied()

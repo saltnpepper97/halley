@@ -15,10 +15,10 @@ mod window;
 
 pub(crate) const ACTIVE_WINDOW_FRAME_PAD_PX: i32 = 3;
 
+pub(crate) use bearings::bearing_hit_test;
 pub(crate) use frame::{draw_debug_frame, draw_debug_frame_to_target};
 pub(crate) use utils::preview_proxy_size;
 pub(crate) use utils::{node_marker_metrics, world_to_screen};
-pub(crate) use bearings::bearing_hit_test;
 
 #[derive(Clone, Copy, Debug)]
 pub struct DebugPalette {

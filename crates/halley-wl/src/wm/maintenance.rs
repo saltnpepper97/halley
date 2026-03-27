@@ -8,7 +8,8 @@ impl Halley {
     const ACTIVE_RING_OUTSIDE_DECAY_FRAC: f32 = 0.98;
 
     fn focus_ring_center_for_node(&self, id: NodeId) -> Vec2 {
-        self.model.monitor_state
+        self.model
+            .monitor_state
             .node_monitor
             .get(&id)
             .and_then(|monitor| self.model.monitor_state.monitors.get(monitor))
@@ -17,7 +18,8 @@ impl Halley {
     }
 
     fn focus_ring_for_node(&self, id: NodeId) -> FocusRing {
-        self.model.monitor_state
+        self.model
+            .monitor_state
             .node_monitor
             .get(&id)
             .map(|monitor| self.runtime.tuning.focus_ring_for_output(monitor.as_str()))
@@ -88,11 +90,14 @@ impl Halley {
         let companion = self.companion_surface_node(now_ms);
         let preferred_surface = self.last_input_surface_node();
 
-        let active_ids: Vec<NodeId> = self.model.field
+        let active_ids: Vec<NodeId> = self
+            .model
+            .field
             .nodes()
             .iter()
             .filter_map(|(&id, n)| {
-                (self.model.field.is_visible(id)
+                (self.model.field.participates_in_field_activity(id)
+                    && self.model.field.is_visible(id)
                     && n.kind == halley_core::field::NodeKind::Surface
                     && n.state == halley_core::field::NodeState::Active)
                     .then_some(id)
@@ -124,7 +129,8 @@ impl Halley {
                 })
                 .or_else(|| {
                     active_ids.iter().copied().max_by_key(|id| {
-                        self.model.focus_state
+                        self.model
+                            .focus_state
                             .last_surface_focus_ms
                             .get(id)
                             .copied()
@@ -150,7 +156,9 @@ impl Halley {
                     let companion_rank = u8::from(companion == Some(*id));
                     let inside_rank =
                         u8::from(!self.surface_is_definitively_outside_focus_ring(*id));
-                    let latest_focus = self.model.focus_state
+                    let latest_focus = self
+                        .model
+                        .focus_state
                         .last_surface_focus_ms
                         .get(id)
                         .copied()
@@ -192,7 +200,10 @@ impl Halley {
         let Some(n) = self.model.field.node(id) else {
             return;
         };
-        if !self.model.field.is_visible(id) || n.kind != halley_core::field::NodeKind::Surface {
+        if !self.model.field.participates_in_field_activity(id)
+            || !self.model.field.is_visible(id)
+            || n.kind != halley_core::field::NodeKind::Surface
+        {
             return;
         }
 
@@ -218,7 +229,9 @@ impl Halley {
             inactive_delay_ms
         };
 
-        let last_focus_ms = self.model.focus_state
+        let last_focus_ms = self
+            .model
+            .focus_state
             .last_surface_focus_ms
             .get(&id)
             .copied()
@@ -236,7 +249,9 @@ impl Halley {
             || self.input.interaction_state.resize_active == Some(id)
             || self.is_recently_resized_node(id, now_ms)
             || self.model.carry_state.carry_zone_hint.contains_key(&id)
-            || self.model.workspace_state
+            || self
+                .model
+                .workspace_state
                 .active_transition_until_ms
                 .contains_key(&id)
     }
@@ -245,7 +260,10 @@ impl Halley {
         let Some(n) = self.model.field.node(id) else {
             return false;
         };
-        if n.kind != halley_core::field::NodeKind::Surface || !self.model.field.is_visible(id) {
+        if !self.model.field.participates_in_field_activity(id)
+            || n.kind != halley_core::field::NodeKind::Surface
+            || !self.model.field.is_visible(id)
+        {
             return false;
         }
 
@@ -289,10 +307,14 @@ mod tests {
             Vec2 { x: 145.0, y: 0.0 },
             Vec2 { x: 100.0, y: 100.0 },
         );
-        state.model.workspace_state
+        state
+            .model
+            .workspace_state
             .last_active_size
             .insert(id, Vec2 { x: 100.0, y: 100.0 });
-        state.ui.render_state
+        state
+            .ui
+            .render_state
             .window_geometry
             .insert(id, (-50.0, -50.0, 100.0, 100.0));
         state.ui.render_state.bbox_loc.insert(id, (0.0, 0.0));
@@ -315,10 +337,14 @@ mod tests {
             Vec2 { x: 260.0, y: 0.0 },
             Vec2 { x: 100.0, y: 100.0 },
         );
-        state.model.workspace_state
+        state
+            .model
+            .workspace_state
             .last_active_size
             .insert(id, Vec2 { x: 100.0, y: 100.0 });
-        state.ui.render_state
+        state
+            .ui
+            .render_state
             .window_geometry
             .insert(id, (-50.0, -50.0, 100.0, 100.0));
         state.ui.render_state.bbox_loc.insert(id, (0.0, 0.0));

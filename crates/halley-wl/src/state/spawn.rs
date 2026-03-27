@@ -77,7 +77,8 @@ pub(crate) struct SpawnState {
 
 impl Halley {
     pub(crate) fn default_spawn_view_anchor_for_monitor(&self, monitor: &str) -> Vec2 {
-        self.model.monitor_state
+        self.model
+            .monitor_state
             .monitors
             .get(monitor)
             .map(|space| space.viewport.center)
@@ -85,7 +86,8 @@ impl Halley {
     }
 
     pub(crate) fn spawn_monitor_state(&self, monitor: &str) -> MonitorSpawnState {
-        self.model.spawn_state
+        self.model
+            .spawn_state
             .per_monitor
             .get(monitor)
             .cloned()
@@ -96,21 +98,27 @@ impl Halley {
 
     pub(crate) fn spawn_monitor_state_mut(&mut self, monitor: &str) -> &mut MonitorSpawnState {
         let view_anchor = self.default_spawn_view_anchor_for_monitor(monitor);
-        self.model.spawn_state
+        self.model
+            .spawn_state
             .per_monitor
             .entry(monitor.to_string())
             .or_insert_with(|| MonitorSpawnState::new(view_anchor))
     }
 
     pub(crate) fn process_pending_spawn_activations(&mut self, now: Instant, now_ms: u64) {
-        let due: Vec<NodeId> = self.model.spawn_state
+        let due: Vec<NodeId> = self
+            .model
+            .spawn_state
             .pending_spawn_activate_at_ms
             .iter()
             .filter_map(|(&id, &at)| (now_ms >= at).then_some(id))
             .collect();
 
         for id in due {
-            self.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
+            self.model
+                .spawn_state
+                .pending_spawn_activate_at_ms
+                .remove(&id);
             if !self.model.field.is_visible(id) {
                 continue;
             }
@@ -123,7 +131,9 @@ impl Halley {
             if self.preserve_collapsed_surface(id) {
                 continue;
             }
-            let node_monitor = self.model.monitor_state
+            let node_monitor = self
+                .model
+                .monitor_state
                 .node_monitor
                 .get(&id)
                 .cloned()
@@ -133,7 +143,8 @@ impl Halley {
                 .is_some();
             let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
             if let Some((_, _, w, h)) = self.ui.render_state.window_geometry.get(&id) {
-                self.model.workspace_state
+                self.model
+                    .workspace_state
                     .last_active_size
                     .insert(id, Vec2 { x: *w, y: *h });
             }

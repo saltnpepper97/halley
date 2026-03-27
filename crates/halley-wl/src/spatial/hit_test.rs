@@ -19,7 +19,10 @@ pub(crate) fn pick_hit_node_at(
     let mut active: Vec<HitNode> = Vec::new();
     let mut node_dot: Vec<HitNode> = Vec::new();
 
-    for (&id, n) in st.model.field.nodes() {
+    for id in st.model.field.node_ids_all() {
+        let Some(n) = st.model.field.node(id) else {
+            continue;
+        };
         if !st.model.field.is_visible(id) || !st.node_visible_on_current_monitor(id) {
             continue;
         }
@@ -108,7 +111,9 @@ pub(crate) fn node_in_active_area_for_monitor(
     let Some(n) = st.model.field.node(node_id) else {
         return false;
     };
-    if st.model.monitor_state
+    if st
+        .model
+        .monitor_state
         .node_monitor
         .get(&node_id)
         .is_some_and(|owner| owner != monitor)

@@ -4,7 +4,6 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use halley_config::RuntimeTuning;
-use halley_core::cluster::ActiveLayoutMode;
 use halley_core::decay::DecayLevel;
 use halley_core::field::{Field, NodeId, Vec2, Visibility};
 use halley_core::viewport::{FocusRing, FocusZone};

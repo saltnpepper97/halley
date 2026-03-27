@@ -63,8 +63,8 @@ mod workspace;
 pub use client::ClientState;
 pub(crate) use fullscreen::{FullscreenMotion, FullscreenScaleAnim, FullscreenSessionEntry};
 pub(crate) use interaction::{
-    ActiveDragState, BloomPullPreview, ClusterJoinCandidate, PendingCoreClick,
-    PendingCorePress, ViewportPanAnim,
+    ActiveDragState, BloomPullPreview, ClusterJoinCandidate, PendingCoreClick, PendingCorePress,
+    ViewportPanAnim,
 };
 pub(crate) use render::{NodeAppIconCacheEntry, NodeAppIconTexture};
 pub(crate) use spawn::{
@@ -274,76 +274,77 @@ impl Halley {
 
             model: ModelState {
                 carry_state: CarryState {
-                carry_zone_hint: HashMap::new(),
-                carry_zone_last_change_ms: HashMap::new(),
-                carry_zone_pending: HashMap::new(),
-                carry_zone_pending_since_ms: HashMap::new(),
-                carry_activation_anim_armed: HashSet::new(),
-                carry_direct_nodes: HashSet::new(),
-                carry_state_hold: HashMap::new(),
-            },
+                    carry_zone_hint: HashMap::new(),
+                    carry_zone_last_change_ms: HashMap::new(),
+                    carry_zone_pending: HashMap::new(),
+                    carry_zone_pending_since_ms: HashMap::new(),
+                    carry_activation_anim_armed: HashSet::new(),
+                    carry_direct_nodes: HashSet::new(),
+                    carry_state_hold: HashMap::new(),
+                },
 
                 monitor_state: MonitorState {
-                outputs: HashMap::new(),
-                current_monitor: current_monitor.clone(),
-                interaction_monitor: current_monitor.clone(),
-                focused_monitor: current_monitor.clone(),
-                monitors,
-                node_monitor: HashMap::new(),
-                layer_surface_monitor: HashMap::new(),
-                layer_keyboard_focus: None,
-            },
+                    outputs: HashMap::new(),
+                    current_monitor: current_monitor.clone(),
+                    interaction_monitor: current_monitor.clone(),
+                    focused_monitor: current_monitor.clone(),
+                    monitors,
+                    node_monitor: HashMap::new(),
+                    layer_surface_monitor: HashMap::new(),
+                    layer_keyboard_focus: None,
+                },
 
                 focus_state: FocusState {
-                interaction_focus_until_ms: 0,
-                last_surface_focus_ms: HashMap::new(),
-                focus_trail: HashMap::new(),
-                blocked_monitor_focus_restore: HashSet::new(),
-                suppress_trail_record_once: false,
-                pan_restore_active_focus: None,
-                app_focused: true,
-                monitor_focus: HashMap::new(),
-                primary_interaction_focus: None,
-                focus_ring_preview_until_ms: HashMap::new(),
-                recent_top_node: None,
-                recent_top_until: None,
-            },
+                    interaction_focus_until_ms: 0,
+                    last_surface_focus_ms: HashMap::new(),
+                    focus_trail: HashMap::new(),
+                    blocked_monitor_focus_restore: HashSet::new(),
+                    suppress_trail_record_once: false,
+                    pan_restore_active_focus: None,
+                    app_focused: true,
+                    monitor_focus: HashMap::new(),
+                    primary_interaction_focus: None,
+                    focus_ring_preview_until_ms: HashMap::new(),
+                    recent_top_node: None,
+                    recent_top_until: None,
+                },
 
                 cluster_state: ClusterState {
-                cluster_form_state: ClusterFormationState::default(),
-                active_cluster_workspaces: HashMap::new(),
-                cluster_bloom_open: HashMap::new(),
-                cluster_mode_active: false,
-                cluster_mode_selected_nodes: HashSet::new(),
-                workspace_hidden_nodes: HashMap::new(),
-                workspace_prev_viewports: HashMap::new(),
-                cluster_overflow_members: HashMap::new(),
-                cluster_overflow_rects: HashMap::new(),
-                cluster_overflow_visible_until_ms: HashMap::new(),
-            },
+                    cluster_form_state: ClusterFormationState::default(),
+                    active_cluster_workspaces: HashMap::new(),
+                    cluster_bloom_open: HashMap::new(),
+                    cluster_mode_active: false,
+                    cluster_mode_selected_nodes: HashSet::new(),
+                    workspace_hidden_nodes: HashMap::new(),
+                    workspace_prev_viewports: HashMap::new(),
+                    workspace_core_positions: HashMap::new(),
+                    cluster_overflow_members: HashMap::new(),
+                    cluster_overflow_rects: HashMap::new(),
+                    cluster_overflow_visible_until_ms: HashMap::new(),
+                },
 
                 workspace_state: WorkspaceState {
-                last_active_size: HashMap::new(),
-                manual_collapsed_nodes: HashSet::new(),
-                active_transition_until_ms: HashMap::new(),
-                primary_promote_cooldown_until_ms: HashMap::new(),
-            },
+                    last_active_size: HashMap::new(),
+                    manual_collapsed_nodes: HashSet::new(),
+                    active_transition_until_ms: HashMap::new(),
+                    primary_promote_cooldown_until_ms: HashMap::new(),
+                },
 
                 fullscreen_state: FullscreenState {
-                fullscreen_active_node: HashMap::new(),
-                fullscreen_suspended_node: HashMap::new(),
-                fullscreen_restore: HashMap::new(),
-                fullscreen_motion: HashMap::new(),
-                fullscreen_scale_anim: HashMap::new(),
-            },
+                    fullscreen_active_node: HashMap::new(),
+                    fullscreen_suspended_node: HashMap::new(),
+                    fullscreen_restore: HashMap::new(),
+                    fullscreen_motion: HashMap::new(),
+                    fullscreen_scale_anim: HashMap::new(),
+                },
 
                 spawn_state: SpawnState {
-                pending_spawn_activate_at_ms: HashMap::new(),
-                pending_spawn_monitor: None,
-                per_monitor: HashMap::new(),
-                pending_spawn_pan_queue: VecDeque::new(),
-                active_spawn_pan: None,
-            },
+                    pending_spawn_activate_at_ms: HashMap::new(),
+                    pending_spawn_monitor: None,
+                    per_monitor: HashMap::new(),
+                    pending_spawn_pan_queue: VecDeque::new(),
+                    active_spawn_pan: None,
+                },
 
                 field: Field::new(),
                 viewport: primary_viewport,
@@ -356,68 +357,68 @@ impl Halley {
 
             ui: UiState {
                 render_state: RenderState {
-                animator: Animator::new(now),
+                    animator: Animator::new(now),
 
-                node_app_icon_cache: HashMap::new(),
-                node_hover_mix: HashMap::new(),
-                node_preview_hover: HashMap::new(),
-                bearings_visible: false,
-                bearings_mix: HashMap::new(),
-                cluster_bloom_mix: HashMap::new(),
-                overlay_banner: None,
-                overlay_toast: None,
-                node_circle_texture: None,
-                node_circle_program: None,
-                node_squircle_program: None,
-                node_label_program: None,
+                    node_app_icon_cache: HashMap::new(),
+                    node_hover_mix: HashMap::new(),
+                    node_preview_hover: HashMap::new(),
+                    bearings_visible: false,
+                    bearings_mix: HashMap::new(),
+                    cluster_bloom_mix: HashMap::new(),
+                    overlay_banner: None,
+                    overlay_toast: None,
+                    node_circle_texture: None,
+                    node_circle_program: None,
+                    node_squircle_program: None,
+                    node_label_program: None,
 
-                zoom_nominal_size: HashMap::new(),
-                zoom_resize_fallback: HashSet::new(),
-                zoom_resize_reject_streak: HashMap::new(),
-                zoom_last_observed_size: HashMap::new(),
-                zoom_resize_static_streak: HashMap::new(),
+                    zoom_nominal_size: HashMap::new(),
+                    zoom_resize_fallback: HashSet::new(),
+                    zoom_resize_reject_streak: HashMap::new(),
+                    zoom_last_observed_size: HashMap::new(),
+                    zoom_resize_static_streak: HashMap::new(),
 
-                render_last_tick: now,
+                    render_last_tick: now,
 
-                bbox_loc: HashMap::new(),
-                window_geometry: HashMap::new(),
-                window_offscreen_cache: HashMap::new(),
-            },
+                    bbox_loc: HashMap::new(),
+                    window_geometry: HashMap::new(),
+                    window_offscreen_cache: HashMap::new(),
+                },
             },
 
             input: InputState {
                 interaction_state: InteractionState {
-                reset_input_state_requested: false,
-                pending_pointer_screen_hint: None,
-                suppress_layer_shell_configure: false,
-                dpms_just_woke: false,
+                    reset_input_state_requested: false,
+                    pending_pointer_screen_hint: None,
+                    suppress_layer_shell_configure: false,
+                    dpms_just_woke: false,
 
-                resize_active: None,
-                resize_static_node: None,
-                resize_static_lock_pos: None,
-                resize_static_until_ms: 0,
-                drag_authority_node: None,
-                drag_authority_velocity: Vec2 { x: 0.0, y: 0.0 },
+                    resize_active: None,
+                    resize_static_node: None,
+                    resize_static_lock_pos: None,
+                    resize_static_until_ms: 0,
+                    drag_authority_node: None,
+                    drag_authority_velocity: Vec2 { x: 0.0, y: 0.0 },
 
-                suspend_overlap_resolve: false,
-                suspend_state_checks: false,
+                    suspend_overlap_resolve: false,
+                    suspend_state_checks: false,
 
-                physics_velocity: HashMap::new(),
-                physics_last_tick: now,
+                    physics_velocity: HashMap::new(),
+                    physics_last_tick: now,
 
-                smoothed_render_pos: HashMap::new(),
-                viewport_pan_anim: None,
-                pan_dominant_until_ms: 0,
-                active_drag: None,
-                cluster_join_candidate: None,
-                bloom_pull_preview: None,
-                pending_core_press: None,
-                pending_core_click: None,
-                grabbed_edge_pan_active: false,
-                grabbed_edge_pan_direction: Vec2 { x: 0.0, y: 0.0 },
-                grabbed_edge_pan_pressure: Vec2 { x: 0.0, y: 0.0 },
-                grabbed_edge_pan_monitor: None,
-            },
+                    smoothed_render_pos: HashMap::new(),
+                    viewport_pan_anim: None,
+                    pan_dominant_until_ms: 0,
+                    active_drag: None,
+                    cluster_join_candidate: None,
+                    bloom_pull_preview: None,
+                    pending_core_press: None,
+                    pending_core_click: None,
+                    grabbed_edge_pan_active: false,
+                    grabbed_edge_pan_direction: Vec2 { x: 0.0, y: 0.0 },
+                    grabbed_edge_pan_pressure: Vec2 { x: 0.0, y: 0.0 },
+                    grabbed_edge_pan_monitor: None,
+                },
             },
 
             runtime: RuntimeState {
@@ -486,10 +487,10 @@ impl Halley {
                         &feedback,
                     )
             }
-            None => self.platform.dmabuf_state.create_global::<Halley>(
-                &self.platform.display_handle,
-                formats.iter().copied(),
-            ),
+            None => self
+                .platform
+                .dmabuf_state
+                .create_global::<Halley>(&self.platform.display_handle, formats.iter().copied()),
         };
 
         self.platform.dmabuf_importer = Some(importer);
@@ -555,7 +556,9 @@ impl Halley {
         {
             consider(self.input.interaction_state.resize_static_until_ms);
         }
-        if let Some(at_ms) = self.model.spawn_state
+        if let Some(at_ms) = self
+            .model
+            .spawn_state
             .pending_spawn_activate_at_ms
             .values()
             .copied()
@@ -564,7 +567,9 @@ impl Halley {
         {
             consider(at_ms);
         }
-        if let Some(at_ms) = self.model.workspace_state
+        if let Some(at_ms) = self
+            .model
+            .workspace_state
             .active_transition_until_ms
             .values()
             .copied()
@@ -573,7 +578,9 @@ impl Halley {
         {
             consider(at_ms);
         }
-        if let Some(at_ms) = self.model.workspace_state
+        if let Some(at_ms) = self
+            .model
+            .workspace_state
             .primary_promote_cooldown_until_ms
             .values()
             .copied()
@@ -582,7 +589,9 @@ impl Halley {
         {
             consider(at_ms);
         }
-        if let Some(deadline_ms) = self.input.interaction_state
+        if let Some(deadline_ms) = self
+            .input
+            .interaction_state
             .pending_core_click
             .as_ref()
             .map(|pending| pending.deadline_ms)
@@ -594,7 +603,8 @@ impl Halley {
             consider(
                 now_ms.saturating_add(
                     self.runtime.tuning.debug_dump_every_ms.saturating_sub(
-                        now.duration_since(self.runtime.last_debug_dump_at).as_millis() as u64,
+                        now.duration_since(self.runtime.last_debug_dump_at)
+                            .as_millis() as u64,
                     ),
                 ),
             );
@@ -637,9 +647,11 @@ impl Halley {
                 let _ = self.open_cluster_bloom_for_monitor(pending.monitor.as_str(), cid);
             }
         }
-        self.cleanup_empty_clusters();
         if self.has_any_active_cluster_workspace() {
-            let active_monitors = self.model.cluster_state.active_cluster_workspaces
+            let active_monitors = self
+                .model
+                .cluster_state
+                .active_cluster_workspaces
                 .keys()
                 .cloned()
                 .collect::<Vec<_>>();
@@ -664,40 +676,52 @@ impl Halley {
         {
             self.reassert_layer_surface_keyboard_focus_if_drifted();
         }
-        self.model.workspace_state
+        self.model
+            .workspace_state
             .active_transition_until_ms
             .retain(|_, &mut until| until > now_ms);
-        self.model.workspace_state
+        self.model
+            .workspace_state
             .primary_promote_cooldown_until_ms
             .retain(|_, &mut until| until > now_ms);
-        let alive_ids: HashSet<NodeId> = self.model.field.nodes().keys().copied().collect();
-        self.model.carry_state
+        let alive_ids: HashSet<NodeId> = self.model.field.node_ids_all().into_iter().collect();
+        self.model
+            .carry_state
             .carry_zone_hint
             .retain(|id, _| alive_ids.contains(id));
-        self.model.carry_state
+        self.model
+            .carry_state
             .carry_zone_last_change_ms
             .retain(|id, _| alive_ids.contains(id));
-        self.model.carry_state
+        self.model
+            .carry_state
             .carry_zone_pending
             .retain(|id, _| alive_ids.contains(id));
-        self.model.carry_state
+        self.model
+            .carry_state
             .carry_zone_pending_since_ms
             .retain(|id, _| alive_ids.contains(id));
-        self.model.carry_state
+        self.model
+            .carry_state
             .carry_activation_anim_armed
             .retain(|id| alive_ids.contains(id));
-        self.model.carry_state
+        self.model
+            .carry_state
             .carry_state_hold
             .retain(|id, _| alive_ids.contains(id));
-        self.model.focus_state
+        self.model
+            .focus_state
             .last_surface_focus_ms
             .retain(|id, _| alive_ids.contains(id));
-        self.model.workspace_state
+        self.model
+            .workspace_state
             .manual_collapsed_nodes
             .retain(|id| alive_ids.contains(id));
 
         self.process_pending_spawn_activations(now, now_ms);
-        let resize_settling = self.input.interaction_state
+        let resize_settling = self
+            .input
+            .interaction_state
             .resize_static_node
             .is_some_and(|_| now_ms < self.input.interaction_state.resize_static_until_ms);
         if resize_settling
@@ -710,7 +734,9 @@ impl Halley {
         {
             let _ = self.model.field.carry(id, lock_pos);
         }
-        if self.input.interaction_state
+        if self
+            .input
+            .interaction_state
             .resize_static_node
             .is_some_and(|_| now_ms >= self.input.interaction_state.resize_static_until_ms)
         {
@@ -750,10 +776,15 @@ impl Halley {
             self.resolve_surface_overlap();
         }
         self.restore_pan_return_active_focus(now);
-        self.ui.render_state.animator.observe_field(&self.model.field, now);
+        self.ui
+            .render_state
+            .animator
+            .observe_field(&self.model.field, now);
 
         if self.runtime.tuning.debug_tick_dump
-            && now.duration_since(self.runtime.last_debug_dump_at).as_millis() as u64
+            && now
+                .duration_since(self.runtime.last_debug_dump_at)
+                .as_millis() as u64
                 >= self.runtime.tuning.debug_dump_every_ms
         {
             self.debug_dump();

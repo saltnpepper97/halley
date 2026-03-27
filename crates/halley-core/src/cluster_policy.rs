@@ -87,7 +87,7 @@ pub fn tick_cluster_formation(
     // Exclude nodes already belonging to any cluster.
     let mut already_clustered: HashSet<NodeId> = HashSet::new();
     for c in field.clusters_iter() {
-        for &m in &c.members {
+        for &m in c.members() {
             already_clustered.insert(m);
         }
         if let Some(core) = c.core {
@@ -100,6 +100,7 @@ pub fn tick_cluster_formation(
         .nodes()
         .keys()
         .copied()
+        .filter(|&id| field.participates_in_field_view(id))
         .filter(|&id| field.is_visible(id))
         .filter(|&id| !already_clustered.contains(&id))
         .filter(|&id| field.node(id).is_some_and(|n| n.kind == NodeKind::Surface))
@@ -194,7 +195,7 @@ pub fn tick_cluster_formation(
         // Only form a cluster if large enough.
         if comp.len() >= policy.min_members {
             // Attempt to create the cluster.
-            if let Some(cid) = field.create_cluster(comp.clone()) {
+            if let Ok(cid) = field.create_cluster(comp.clone()) {
                 created.push(cid);
 
                 // Clear any pair timers involving these nodes to avoid instant re-cluster.

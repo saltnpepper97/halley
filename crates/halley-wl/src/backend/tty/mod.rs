@@ -525,7 +525,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             }
             state.set_app_focused(true);
             state.platform.seat.add_pointer();
-            if state.platform.seat
+            if state
+                .platform
+                .seat
                 .add_keyboard(Default::default(), 200, 30)
                 .is_err()
             {
@@ -615,13 +617,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             ]
             .into_iter()
             .find(|name| state.model.monitor_state.monitors.contains_key(name))
-            .or_else(|| canonical_tty_main_output_name(outputs.borrow().as_slice(), &state.runtime.tuning));
+            .or_else(|| {
+                canonical_tty_main_output_name(outputs.borrow().as_slice(), &state.runtime.tuning)
+            });
             if let Some(target_monitor) = target_monitor
                 && state.model.monitor_state.current_monitor != target_monitor
             {
                 let _ = state.activate_monitor(target_monitor.as_str());
             }
-            let (layout_w, layout_h) = layout_size_for_outputs(&state.runtime.tuning, &outputs.borrow());
+            let (layout_w, layout_h) =
+                layout_size_for_outputs(&state.runtime.tuning, &outputs.borrow());
             let backend_handle = TtyBackendHandle::new(layout_w, layout_h);
             for name in output_advertise_order(outputs.borrow().as_slice(), &state.runtime.tuning) {
                 if let Some(output) = outputs
@@ -641,7 +646,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 // monitors the combined-layout centre falls on the boundary
                 // between them, which makes the cursor appear stuck at the
                 // edge of the main display on startup.
-                let (start_sx, start_sy) = state.model.monitor_state
+                let (start_sx, start_sy) = state
+                    .model
+                    .monitor_state
                     .monitors
                     .get(&state.model.monitor_state.current_monitor)
                     .map(|m| {

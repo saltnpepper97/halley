@@ -1,9 +1,9 @@
 use halley_ipc::{
-    send_request, BearingsRequest, CompositorRequest, DpmsCommand, IpcError, LogicalOutputInfo,
+    BearingsRequest, CompositorRequest, DpmsCommand, IpcError, LogicalOutputInfo,
     MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, NodeInfo, NodeListResponse,
     NodeMoveDirection, NodeProtocolFamily, NodeRelationInfo, NodeRequest, NodeRole, NodeSelector,
     OutputInfo, OutputStatus, OutputsResponse, Request, Response, TrailEntryInfo,
-    TrailListResponse, TrailRequest, TrailTarget,
+    TrailListResponse, TrailRequest, TrailTarget, send_request,
 };
 
 fn main() {
@@ -769,10 +769,7 @@ fn print_response(response: Response) -> Result<(), String> {
             }
         }
         Response::BearingsStatus(status) => {
-            println!(
-                "{}",
-                if status.visible { "visible" } else { "hidden" }
-            );
+            println!("{}", if status.visible { "visible" } else { "hidden" });
             Ok(())
         }
         Response::Error(err) => Err(format_ipc_error(&err)),

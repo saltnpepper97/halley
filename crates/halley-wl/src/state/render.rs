@@ -9,8 +9,8 @@ use smithay::wayland::compositor::{
 };
 
 use crate::overlay::{
-    ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot,
-    OverlayBannerState, OverlayToastSnapshot, OverlayToastState,
+    ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot, OverlayBannerState,
+    OverlayToastSnapshot, OverlayToastState,
 };
 
 use super::*;
@@ -121,20 +121,26 @@ impl Halley {
     }
 
     pub(crate) fn take_pointer_screen_hint_request(&mut self) -> Option<(f32, f32)> {
-        self.input.interaction_state.pending_pointer_screen_hint.take()
+        self.input
+            .interaction_state
+            .pending_pointer_screen_hint
+            .take()
     }
 
     pub fn begin_render_frame(&mut self, now: Instant) {
         self.ui.render_state.render_last_tick = now;
         self.platform.popup_manager.cleanup();
-        let alive: HashSet<NodeId> = self.model.field.nodes().keys().copied().collect();
-        self.input.interaction_state
+        let alive: HashSet<NodeId> = self.model.field.node_ids_all().into_iter().collect();
+        self.input
+            .interaction_state
             .physics_velocity
             .retain(|id, _| alive.contains(id));
-        self.input.interaction_state
+        self.input
+            .interaction_state
             .smoothed_render_pos
             .retain(|id, _| alive.contains(id));
-        self.ui.render_state
+        self.ui
+            .render_state
             .node_hover_mix
             .retain(|id, _| alive.contains(id));
         self.ui.render_state.node_preview_hover.retain(|_, state| {
@@ -144,7 +150,8 @@ impl Halley {
         self.ui.render_state.bearings_mix.retain(|monitor, mix| {
             self.model.monitor_state.monitors.contains_key(monitor) || *mix > 0.002
         });
-        self.ui.render_state
+        self.ui
+            .render_state
             .cluster_bloom_mix
             .retain(|monitor, state| {
                 self.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
@@ -170,7 +177,8 @@ impl Halley {
             || (self.input.interaction_state.resize_static_node == Some(id)
                 && now_ms < self.input.interaction_state.resize_static_until_ms)
         {
-            self.input.interaction_state
+            self.input
+                .interaction_state
                 .smoothed_render_pos
                 .insert(id, logical);
             return logical;
@@ -180,7 +188,8 @@ impl Halley {
             || self.companion_surface_node(now_ms) == Some(id)
             || self.is_recently_interacted_surface(id, now_ms)
         {
-            self.input.interaction_state
+            self.input
+                .interaction_state
                 .smoothed_render_pos
                 .insert(id, logical);
             return logical;
@@ -197,7 +206,9 @@ impl Halley {
             max_step = (max_step * boost).clamp(6.0, 420.0);
         }
 
-        let cur = self.input.interaction_state
+        let cur = self
+            .input
+            .interaction_state
             .smoothed_render_pos
             .entry(id)
             .or_insert(logical);
@@ -232,7 +243,8 @@ impl Halley {
         {
             return logical;
         }
-        self.input.interaction_state
+        self.input
+            .interaction_state
             .smoothed_render_pos
             .get(&id)
             .copied()
@@ -241,7 +253,12 @@ impl Halley {
 
     pub fn node_label_hover_mix(&mut self, id: NodeId, hovered: bool) -> f32 {
         let target = if hovered { 1.0 } else { 0.0 };
-        let mix = self.ui.render_state.node_hover_mix.entry(id).or_insert(target);
+        let mix = self
+            .ui
+            .render_state
+            .node_hover_mix
+            .entry(id)
+            .or_insert(target);
         let k = if hovered { 0.06 } else { 0.10 };
         *mix += (target - *mix) * k;
         if (*mix - target).abs() < 0.01 {
@@ -255,7 +272,9 @@ impl Halley {
         monitor: &str,
         hovered: Option<NodeId>,
     ) -> Option<(NodeId, f32)> {
-        let state = self.ui.render_state
+        let state = self
+            .ui
+            .render_state
             .node_preview_hover
             .entry(monitor.to_string())
             .or_default();
@@ -300,7 +319,9 @@ impl Halley {
         } else {
             0.0
         };
-        let mix = self.ui.render_state
+        let mix = self
+            .ui
+            .render_state
             .bearings_mix
             .entry(monitor.to_string())
             .or_insert(target);
@@ -322,10 +343,15 @@ impl Halley {
         &mut self,
         monitor: &str,
     ) -> Option<ClusterBloomAnimSnapshot> {
-        let target_cluster = self.model.cluster_state.cluster_bloom_open
+        let target_cluster = self
+            .model
+            .cluster_state
+            .cluster_bloom_open
             .get(monitor)
             .copied();
-        let state = self.ui.render_state
+        let state = self
+            .ui
+            .render_state
             .cluster_bloom_mix
             .entry(monitor.to_string())
             .or_default();
@@ -359,7 +385,9 @@ impl Halley {
     }
 
     pub fn set_persistent_mode_banner(&mut self, title: &str, subtitle: Option<&str>) {
-        let state = self.ui.render_state
+        let state = self
+            .ui
+            .render_state
             .overlay_banner
             .get_or_insert_with(|| OverlayBannerState {
                 title: String::new(),
@@ -399,7 +427,9 @@ impl Halley {
 
     pub fn show_overlay_toast(&mut self, message: &str, duration_ms: u64, now: Instant) {
         let now_ms = self.now_ms(now);
-        let toast = self.ui.render_state
+        let toast = self
+            .ui
+            .render_state
             .overlay_toast
             .get_or_insert_with(Default::default);
         toast.message = Some(message.to_string());
@@ -436,7 +466,10 @@ impl Halley {
         if !self.runtime.tuning.physics_enabled {
             return;
         }
-        self.ui.render_state.animator.observe_field(&self.model.field, now);
+        self.ui
+            .render_state
+            .animator
+            .observe_field(&self.model.field, now);
     }
 
     pub fn tick_frame_effects(&mut self, now: Instant) {
@@ -485,8 +518,9 @@ impl Halley {
                     desired_to,
                 )
                 .and_then(|(clamped, cid, _)| {
-                    (self.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
-                        .then_some(clamped)
+                    (self.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str())
+                        == Some(cid))
+                    .then_some(clamped)
                 })
                 .unwrap_or(desired_to);
             self.carry_surface_non_overlap(node_id, to, false)
@@ -499,8 +533,9 @@ impl Halley {
                     desired_to,
                 )
                 .and_then(|(clamped, cid, _)| {
-                    (self.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
-                        .then_some(clamped)
+                    (self.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str())
+                        == Some(cid))
+                    .then_some(clamped)
                 })
                 .unwrap_or(desired_to);
             self.carry_surface_non_overlap(node_id, to, false)
@@ -623,7 +658,9 @@ impl Halley {
         height: i32,
         now: Instant,
     ) -> &mut WindowOffscreenCache {
-        let cache = self.ui.render_state
+        let cache = self
+            .ui
+            .render_state
             .window_offscreen_cache
             .entry(node_id)
             .or_default();
@@ -641,7 +678,12 @@ impl Halley {
     }
 
     pub(crate) fn mark_window_offscreen_dirty(&mut self, node_id: NodeId) {
-        if let Some(cache) = self.ui.render_state.window_offscreen_cache.get_mut(&node_id) {
+        if let Some(cache) = self
+            .ui
+            .render_state
+            .window_offscreen_cache
+            .get_mut(&node_id)
+        {
             cache.mark_dirty();
         }
     }
@@ -651,8 +693,9 @@ impl Halley {
     }
 
     pub(crate) fn prune_window_offscreen_cache(&mut self, now: Instant) {
-        let alive: HashSet<NodeId> = self.model.field.nodes().keys().copied().collect();
-        self.ui.render_state
+        let alive: HashSet<NodeId> = self.model.field.node_ids_all().into_iter().collect();
+        self.ui
+            .render_state
             .window_offscreen_cache
             .retain(|id, cache| {
                 alive.contains(id)

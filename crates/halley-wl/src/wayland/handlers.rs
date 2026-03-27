@@ -64,14 +64,26 @@ fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i3
 }
 
 fn initial_toplevel_size(st: &Halley, toplevel: &ToplevelSurface) -> InitialToplevelSize {
-    let predicted_monitor = st.model.spawn_state
+    let predicted_monitor = st
+        .model
+        .spawn_state
         .pending_spawn_monitor
         .as_ref()
-        .filter(|monitor| st.model.monitor_state.monitors.contains_key(monitor.as_str()))
+        .filter(|monitor| {
+            st.model
+                .monitor_state
+                .monitors
+                .contains_key(monitor.as_str())
+        })
         .cloned()
         .unwrap_or_else(|| {
             let focused = st.focused_monitor().to_string();
-            if st.model.monitor_state.monitors.contains_key(focused.as_str()) {
+            if st
+                .model
+                .monitor_state
+                .monitors
+                .contains_key(focused.as_str())
+            {
                 focused
             } else {
                 st.interaction_monitor().to_string()
@@ -174,7 +186,8 @@ impl SeatHandler for Halley {
             let focused_monitor: Option<String> = focused_id.as_ref().and_then(|fid| {
                 let node_id = self.model.surface_to_node.get(fid).copied()?;
                 Some(
-                    self.model.monitor_state
+                    self.model
+                        .monitor_state
                         .node_monitor
                         .get(&node_id)
                         .cloned()
@@ -182,7 +195,9 @@ impl SeatHandler for Halley {
                 )
             });
 
-            let to_suspend: Vec<NodeId> = self.model.fullscreen_state
+            let to_suspend: Vec<NodeId> = self
+                .model
+                .fullscreen_state
                 .fullscreen_active_node
                 .iter()
                 .filter_map(|(monitor, &fullscreen_id)| {
@@ -193,11 +208,17 @@ impl SeatHandler for Halley {
                     if !same_monitor {
                         return None;
                     }
-                    let fullscreen_surface_id = self.platform.xdg_shell_state
+                    let fullscreen_surface_id = self
+                        .platform
+                        .xdg_shell_state
                         .toplevel_surfaces()
                         .iter()
                         .find_map(|top| {
-                            (self.model.surface_to_node.get(&top.wl_surface().id()).copied()
+                            (self
+                                .model
+                                .surface_to_node
+                                .get(&top.wl_surface().id())
+                                .copied()
                                 == Some(fullscreen_id))
                             .then(|| top.wl_surface().id())
                         });
@@ -371,7 +392,8 @@ impl Halley {
         &self,
         state: &mut smithay::wayland::shell::xdg::ToplevelState,
     ) {
-        let tiled = self.runtime.tuning.no_csd && !state.states.contains(xdg_toplevel::State::Fullscreen);
+        let tiled =
+            self.runtime.tuning.no_csd && !state.states.contains(xdg_toplevel::State::Fullscreen);
         for edge in [
             xdg_toplevel::State::TiledTop,
             xdg_toplevel::State::TiledBottom,
@@ -509,7 +531,9 @@ impl Halley {
         let Some(node_id) = self.model.surface_to_node.get(&surface.id()).copied() else {
             return;
         };
-        let monitor = self.model.monitor_state
+        let monitor = self
+            .model
+            .monitor_state
             .node_monitor
             .get(&node_id)
             .cloned()
@@ -700,17 +724,23 @@ impl XdgShellHandler for Halley {
         let wl = toplevel.wl_surface().clone();
         let id = self.ensure_node_for_surface(&wl, "toplevel", initial_size.node_size);
         let now = Instant::now();
-        let _ = self.model.field.touch(id, self.now_ms(now));
-        self.reveal_new_toplevel_node(id, is_transient, now);
         let node_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
-        let handled_by_active_cluster = self.model.field
+        let handled_by_active_cluster = self
+            .model
+            .field
             .cluster_id_for_member_public(id)
             .zip(node_monitor.as_deref())
-            .is_some_and(|(cid, monitor)| self.active_cluster_workspace_for_monitor(monitor) == Some(cid));
+            .is_some_and(|(cid, monitor)| {
+                self.active_cluster_workspace_for_monitor(monitor) == Some(cid)
+            });
+        if !handled_by_active_cluster {
+            let _ = self.model.field.touch(id, self.now_ms(now));
+        }
+        self.reveal_new_toplevel_node(id, is_transient, now);
         if !handled_by_active_cluster {
             self.resolve_surface_overlap();
+            self.request_maintenance();
         }
-        self.request_maintenance();
     }
 
     fn app_id_changed(&mut self, surface: ToplevelSurface) {
@@ -722,7 +752,9 @@ impl XdgShellHandler for Halley {
     }
 
     fn new_popup(&mut self, popup: PopupSurface, positioner: PositionerState) {
-        let _ = self.platform.popup_manager
+        let _ = self
+            .platform
+            .popup_manager
             .track_popup(PopupKind::from(popup.clone()));
         constrain_layer_popup(self, &popup, positioner);
         let _ = popup.send_configure();
@@ -765,8 +797,12 @@ impl XdgShellHandler for Halley {
     fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, serial: Serial) {
         let popup = PopupKind::from(surface);
         if let Ok(root) = find_popup_root_surface(&popup) {
-            let _ = self.platform.popup_manager
-                .grab_popup::<Self>(root, popup, &self.platform.seat, serial);
+            let _ = self.platform.popup_manager.grab_popup::<Self>(
+                root,
+                popup,
+                &self.platform.seat,
+                serial,
+            );
         }
     }
 
@@ -788,15 +824,21 @@ impl XdgShellHandler for Halley {
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         let key = surface.wl_surface().id();
         let closing_id = self.model.surface_to_node.get(&key).copied();
-        let had_keyboard_focus = self.platform.seat
+        let had_keyboard_focus = self
+            .platform
+            .seat
             .get_keyboard()
             .and_then(|kb| kb.current_focus())
             .is_some_and(|focused| focused.id() == key);
-        let had_pointer_focus = self.platform.seat
+        let had_pointer_focus = self
+            .platform
+            .seat
             .get_pointer()
             .and_then(|ptr| ptr.current_focus())
             .is_some_and(|focused| focused.id() == key);
-        let focused_monitor = self.model.surface_to_node
+        let focused_monitor = self
+            .model
+            .surface_to_node
             .get(&key)
             .and_then(|id| self.model.monitor_state.node_monitor.get(id))
             .cloned();
@@ -826,8 +868,12 @@ impl XdgShellHandler for Halley {
                 (closing_id, focused_monitor.as_deref())
         {
             let now = Instant::now();
-            if self.active_cluster_workspace_for_monitor(focused_monitor).is_some() {
-                if let Some(previous) = self.previous_window_from_trail_on_close(focused_monitor, closing_id)
+            if self
+                .active_cluster_workspace_for_monitor(focused_monitor)
+                .is_some()
+            {
+                if let Some(previous) =
+                    self.previous_window_from_trail_on_close(focused_monitor, closing_id)
                 {
                     self.set_interaction_focus(Some(previous), 30_000, now);
                 } else if let Some(fallback) = self
@@ -854,7 +900,8 @@ impl XdgShellHandler for Halley {
             && !self.runtime.tuning.close_restore_focus
             && let Some(focused_monitor) = focused_monitor.as_deref()
         {
-            self.model.focus_state
+            self.model
+                .focus_state
                 .blocked_monitor_focus_restore
                 .insert(focused_monitor.to_string());
         }

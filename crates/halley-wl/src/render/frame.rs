@@ -261,11 +261,19 @@ fn collect_debug_frame_scene(
         now,
     );
 
-    let render_nodes = st.model.field
+    let render_nodes = st
+        .model
+        .field
         .nodes()
-        .iter()
-        .filter_map(|(&id, node)| {
-            if !st.model.field.is_visible(id) || !st.node_visible_on_current_monitor(id) {
+        .keys()
+        .copied()
+        .into_iter()
+        .filter_map(|id| {
+            let node = st.model.field.node(id)?;
+            if !st.model.field.participates_in_field_view(id)
+                || !st.model.field.is_visible(id)
+                || !st.node_visible_on_current_monitor(id)
+            {
                 return None;
             }
             Some(NodeSnapshot {

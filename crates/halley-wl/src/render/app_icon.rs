@@ -66,14 +66,16 @@ fn ensure_app_icon_resource(
     }
 
     let Some(icon_path) = resolve_app_icon_path(app_id) else {
-        st.ui.render_state
+        st.ui
+            .render_state
             .node_app_icon_cache
             .insert(app_id.to_string(), NodeAppIconCacheEntry::Missing);
         return Ok(());
     };
 
     let Some(raster) = load_icon_raster(&icon_path) else {
-        st.ui.render_state
+        st.ui
+            .render_state
             .node_app_icon_cache
             .insert(app_id.to_string(), NodeAppIconCacheEntry::Missing);
         return Ok(());
@@ -94,7 +96,8 @@ fn ensure_app_icon_resource(
         }),
         Err(_) => NodeAppIconCacheEntry::Missing,
     };
-    st.ui.render_state
+    st.ui
+        .render_state
         .node_app_icon_cache
         .insert(app_id.to_string(), entry);
     Ok(())
@@ -104,7 +107,8 @@ pub(crate) fn node_app_icon_entry<'a>(
     st: &'a Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<&'a NodeAppIconCacheEntry> {
-    st.model.node_app_ids
+    st.model
+        .node_app_ids
         .get(&node_id)
         .and_then(|app_id| st.ui.render_state.node_app_icon_cache.get(app_id))
 }

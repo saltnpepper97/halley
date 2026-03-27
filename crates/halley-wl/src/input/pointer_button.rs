@@ -16,12 +16,12 @@ use crate::interaction::types::{
     BloomDragCtx, DragAxisMode, DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState,
     ResizeCtx, TitleClickCtx,
 };
-use crate::state::{PendingCoreClick, PendingCorePress};
 use crate::overlay::bloom_token_hit_test;
 use crate::render::bearing_hit_test;
 use crate::render::world_to_screen;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
 use crate::state::{ActiveDragState, Halley};
+use crate::state::{PendingCoreClick, PendingCorePress};
 use crate::surface_ops::{
     current_surface_size_for_node, request_toplevel_resize_mode, window_geometry_for_node,
 };
@@ -141,7 +141,8 @@ fn matching_pointer_binding(
         .count() as u32
     }
 
-    st.runtime.tuning
+    st.runtime
+        .tuning
         .pointer_bindings
         .iter()
         .filter(|binding| binding.button == button_code && modifier_active(mods, binding.modifiers))
@@ -182,7 +183,9 @@ fn collapse_bloom_for_core_if_open(st: &mut Halley, node_id: halley_core::field:
     let Some(cid) = st.model.field.cluster_id_for_core_public(node_id) else {
         return false;
     };
-    let monitor = st.model.monitor_state
+    let monitor = st
+        .model
+        .monitor_state
         .node_monitor
         .get(&node_id)
         .cloned()
@@ -211,7 +214,9 @@ pub(super) fn begin_drag(
 ) {
     st.input.interaction_state.pending_core_press = None;
     st.input.interaction_state.pending_core_click = None;
-    let drag_monitor = st.model.monitor_state
+    let drag_monitor = st
+        .model
+        .monitor_state
         .node_monitor
         .get(&hit.node_id)
         .cloned()
@@ -249,8 +254,12 @@ pub(super) fn begin_drag(
     ps.drag = Some(drag_ctx);
     let _ = st.model.field.set_pinned(hit.node_id, false);
     st.assign_node_to_monitor(hit.node_id, drag_monitor.as_str());
-    st.input.interaction_state.physics_velocity.remove(&hit.node_id);
-    st.input.interaction_state.drag_authority_velocity = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+    st.input
+        .interaction_state
+        .physics_velocity
+        .remove(&hit.node_id);
+    st.input.interaction_state.drag_authority_velocity =
+        halley_core::field::Vec2 { x: 0.0, y: 0.0 };
     st.clear_grabbed_edge_pan_state();
     st.input.interaction_state.active_drag = Some(ActiveDragState {
         node_id: hit.node_id,
@@ -334,7 +343,8 @@ fn begin_resize(
     ps.panning = false;
     ps.pan_monitor = None;
     ps.move_anim.clear();
-    st.input.interaction_state
+    st.input
+        .interaction_state
         .physics_velocity
         .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     st.begin_resize_interaction(hit.node_id, Instant::now());
@@ -421,7 +431,8 @@ fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &dyn Backend
     let now = Instant::now();
     ps.move_anim.clear();
     st.set_drag_authority_node(None);
-    st.input.interaction_state
+    st.input
+        .interaction_state
         .physics_velocity
         .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     if st.runtime.tuning.debug_tick_dump {
@@ -480,7 +491,10 @@ fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &dyn Backend
         n.intrinsic_size.x = final_bbox_w;
         n.intrinsic_size.y = final_bbox_h;
     }
-    let _ = st.model.field.sync_active_footprint_to_intrinsic(resize.node_id);
+    let _ = st
+        .model
+        .field
+        .sync_active_footprint_to_intrinsic(resize.node_id);
     st.set_last_active_size_now(
         resize.node_id,
         halley_core::field::Vec2 {
@@ -552,16 +566,22 @@ fn restore_fullscreen_click_focus(
         .or_else(|| st.model.monitor_state.node_monitor.get(&node_id).cloned())
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
 
-    let entry = st.model.fullscreen_state
+    let entry = st
+        .model
+        .fullscreen_state
         .fullscreen_restore
         .get(&node_id)
         .copied();
-    let fallback_center = st.model.monitor_state
+    let fallback_center = st
+        .model
+        .monitor_state
         .monitors
         .get(monitor_name.as_str())
         .map(|space| space.viewport.center)
         .unwrap_or(st.model.viewport.center);
-    let target_center = st.model.field
+    let target_center = st
+        .model
+        .field
         .node(node_id)
         .map(|node| node.pos)
         .or_else(|| entry.map(|e| e.viewport_center))
@@ -569,7 +589,12 @@ fn restore_fullscreen_click_focus(
 
     st.set_interaction_monitor(monitor_name.as_str());
     let _ = st.activate_monitor(monitor_name.as_str());
-    if let Some(space) = st.model.monitor_state.monitors.get_mut(monitor_name.as_str()) {
+    if let Some(space) = st
+        .model
+        .monitor_state
+        .monitors
+        .get_mut(monitor_name.as_str())
+    {
         let one_x_zoom = halley_core::field::Vec2 {
             x: space.width as f32,
             y: space.height as f32,
@@ -581,7 +606,9 @@ fn restore_fullscreen_click_focus(
         space.camera_target_view_size = one_x_zoom;
     }
     if st.model.monitor_state.current_monitor == monitor_name {
-        let one_x_zoom = st.model.monitor_state
+        let one_x_zoom = st
+            .model
+            .monitor_state
             .monitors
             .get(monitor_name.as_str())
             .map(|space| halley_core::field::Vec2 {
@@ -636,7 +663,9 @@ fn handle_left_press(
         st.set_interaction_focus(Some(hit.node_id), 700, now);
         let was_bloom_open = collapse_bloom_for_core_if_open(st, hit.node_id);
         let now_ms = st.now_ms(now);
-        if st.input.interaction_state
+        if st
+            .input
+            .interaction_state
             .pending_core_click
             .as_ref()
             .is_some_and(|pending| {
@@ -668,7 +697,8 @@ fn handle_left_press(
 
     if !drag_binding_active
         && st.model.field.node(hit.node_id).is_some_and(|n| {
-            n.kind == halley_core::field::NodeKind::Surface && st.model.field.is_visible(hit.node_id)
+            n.kind == halley_core::field::NodeKind::Surface
+                && st.model.field.is_visible(hit.node_id)
         })
     {
         st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
@@ -676,7 +706,9 @@ fn handle_left_press(
 
     let mut handled_node_click = false;
     if !drag_binding_active && !hit.on_titlebar && !hit.is_core {
-        let is_node = st.model.field
+        let is_node = st
+            .model
+            .field
             .node(hit.node_id)
             .is_some_and(|n| n.state == halley_core::field::NodeState::Node);
         if is_node {
@@ -747,7 +779,9 @@ fn handle_right_press(
         backend.request_redraw();
         return;
     };
-    let can_resize = st.model.field
+    let can_resize = st
+        .model
+        .field
         .node(hit.node_id)
         .is_some_and(|n| n.state == halley_core::field::NodeState::Active);
     if resize_binding_active && can_resize {
@@ -822,7 +856,9 @@ fn handle_resize_binding_press(
         backend.request_redraw();
         return;
     };
-    let can_resize = st.model.field
+    let can_resize = st
+        .model
+        .field
         .node(hit.node_id)
         .is_some_and(|n| n.state == halley_core::field::NodeState::Active);
     if can_resize {
@@ -849,7 +885,11 @@ fn handle_button_release(
                 let joined = st.commit_ready_cluster_join_for_node(d.node_id, now);
                 if !joined {
                     if d.started_active {
-                        st.finalize_mouse_drag_state(d.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 }, now);
+                        st.finalize_mouse_drag_state(
+                            d.node_id,
+                            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+                            now,
+                        );
                     } else {
                         st.update_carry_state_preview(d.node_id, now);
                     }
@@ -881,7 +921,11 @@ fn handle_button_release(
                 let joined = st.commit_ready_cluster_join_for_node(d.node_id, now);
                 if !joined {
                     if d.started_active {
-                        st.finalize_mouse_drag_state(d.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 }, now);
+                        st.finalize_mouse_drag_state(
+                            d.node_id,
+                            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+                            now,
+                        );
                     } else {
                         st.update_carry_state_preview(d.node_id, now);
                     }
@@ -922,7 +966,8 @@ pub(crate) fn handle_pointer_button_input(
         .and_then(|surface| {
             let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
             Some(
-                st.model.monitor_state
+                st.model
+                    .monitor_state
                     .node_monitor
                     .get(&node_id)
                     .cloned()

@@ -65,10 +65,7 @@ impl<'a> OverlayView<'a> {
                 .is_some_and(|name| name == &self.monitor_state.current_monitor)
     }
 
-    pub(crate) fn node_app_icon_entry(
-        &self,
-        node_id: NodeId,
-    ) -> Option<&'a NodeAppIconCacheEntry> {
+    pub(crate) fn node_app_icon_entry(&self, node_id: NodeId) -> Option<&'a NodeAppIconCacheEntry> {
         self.node_app_ids
             .get(&node_id)
             .and_then(|app_id| self.render_state.node_app_icon_cache.get(app_id))

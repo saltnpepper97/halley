@@ -17,7 +17,9 @@ pub(crate) struct CarryState {
 
 impl Halley {
     pub(crate) fn enforce_carry_zone_states(&mut self) {
-        let tracked: Vec<(NodeId, FocusZone)> = self.model.carry_state
+        let tracked: Vec<(NodeId, FocusZone)> = self
+            .model
+            .carry_state
             .carry_zone_hint
             .iter()
             .map(|(&id, &z)| (id, z))

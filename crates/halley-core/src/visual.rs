@@ -78,7 +78,7 @@ fn make_visual(field: &Field, id: NodeId, params: VisualParams) -> NodeVisual {
         field
             .cluster_id_for_core_public(id)
             .and_then(|cid| field.cluster(cid))
-            .map(|c| c.members.len())
+            .map(|c| c.members().len())
     } else {
         None
     };
@@ -136,6 +136,9 @@ pub fn build_visuals(field: &Field, _vp: &Viewport, params: VisualParams) -> Vec
     let mut out = Vec::new();
 
     for (&id, _) in field.nodes().iter() {
+        if !field.participates_in_field_view(id) {
+            continue;
+        }
         if !field.is_visible(id) {
             continue;
         }
@@ -160,6 +163,9 @@ pub fn build_visuals_in_view(
     let mut out = Vec::new();
 
     for (&id, _) in field.nodes().iter() {
+        if !field.participates_in_field_view(id) {
+            continue;
+        }
         if !field.is_visible(id) {
             continue;
         }

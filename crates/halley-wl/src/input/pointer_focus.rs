@@ -54,15 +54,18 @@ fn popup_focus_for_screen(
     Point<f64, Logical>,
 )> {
     let recent_top_node = st.recent_top_node_active(now);
-    let mut toplevels: Vec<_> = st.platform.xdg_shell_state
+    let mut toplevels: Vec<_> = st
+        .platform
+        .xdg_shell_state
         .toplevel_surfaces()
         .iter()
         .filter_map(|top| {
             let wl = top.wl_surface().clone();
             let node_id = st.model.surface_to_node.get(&wl.id()).copied()?;
             let node = st.model.field.node(node_id)?;
-            (node.state == halley_core::field::NodeState::Active && st.model.field.is_visible(node_id))
-                .then_some((node_id, top, wl, node.intrinsic_size))
+            (node.state == halley_core::field::NodeState::Active
+                && st.model.field.is_visible(node_id))
+            .then_some((node_id, top, wl, node.intrinsic_size))
         })
         .collect();
 
@@ -88,7 +91,9 @@ fn popup_focus_for_screen(
         };
         let scale = xform.scale.max(0.001);
 
-        let parent_geo = st.ui.render_state
+        let parent_geo = st
+            .ui
+            .render_state
             .window_geometry
             .get(&node_id)
             .map(|&(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
@@ -160,7 +165,13 @@ fn fullscreen_hit_blocks_non_overlay_layers(
     let node_monitor = st
         .fullscreen_monitor_for_node(hit.node_id)
         .map(str::to_owned)
-        .or_else(|| st.model.monitor_state.node_monitor.get(&hit.node_id).cloned())
+        .or_else(|| {
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&hit.node_id)
+                .cloned()
+        })
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
 
     pointer_monitor == node_monitor

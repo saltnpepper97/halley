@@ -45,7 +45,11 @@ impl Halley {
         self.has_active_cluster_workspace()
             || self.cluster_mode_active()
             || self.input.interaction_state.grabbed_edge_pan_active
-            || self.input.interaction_state.grabbed_edge_pan_monitor.is_some()
+            || self
+                .input
+                .interaction_state
+                .grabbed_edge_pan_monitor
+                .is_some()
             || self.input.interaction_state.grabbed_edge_pan_pressure.x > 0.01
             || self.input.interaction_state.grabbed_edge_pan_pressure.y > 0.01
     }

@@ -218,7 +218,9 @@ impl Halley {
         let mut max_push = 0.0f32;
 
         for _ in 0..12 {
-            let cores = self.model.field
+            let cores = self
+                .model
+                .field
                 .clusters_iter()
                 .filter(|cluster| {
                     cluster.is_collapsed()
@@ -228,7 +230,9 @@ impl Halley {
                 .filter_map(|cluster| {
                     let core_id = cluster.core?;
                     let core = self.model.field.node(core_id)?;
-                    let core_monitor = self.model.monitor_state
+                    let core_monitor = self
+                        .model
+                        .monitor_state
                         .node_monitor
                         .get(&core_id)
                         .map(String::as_str)

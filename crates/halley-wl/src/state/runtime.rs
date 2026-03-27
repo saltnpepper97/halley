@@ -22,7 +22,8 @@ impl Halley {
 
     pub(crate) fn companion_surface_node(&self, now_ms: u64) -> Option<NodeId> {
         let focused = self.model.focus_state.primary_interaction_focus;
-        self.model.focus_state
+        self.model
+            .focus_state
             .last_surface_focus_ms
             .iter()
             .filter_map(|(&id, &at)| {
@@ -33,7 +34,8 @@ impl Halley {
                     return None;
                 }
                 self.model.field.node(id).and_then(|n| {
-                    (self.model.field.is_visible(id) && n.kind == halley_core::field::NodeKind::Surface)
+                    (self.model.field.is_visible(id)
+                        && n.kind == halley_core::field::NodeKind::Surface)
                         .then_some((id, at))
                 })
             })
@@ -42,7 +44,8 @@ impl Halley {
     }
 
     pub(crate) fn is_recently_interacted_surface(&self, id: NodeId, now_ms: u64) -> bool {
-        self.model.focus_state
+        self.model
+            .focus_state
             .last_surface_focus_ms
             .get(&id)
             .is_some_and(|&at| now_ms.saturating_sub(at) <= Self::RECENT_INTERACTION_PROTECT_MS)
@@ -52,7 +55,8 @@ impl Halley {
         if !self.runtime.tuning.physics_enabled {
             return;
         }
-        self.model.workspace_state
+        self.model
+            .workspace_state
             .active_transition_until_ms
             .insert(id, self.now_ms(now).saturating_add(duration_ms.max(1)));
         self.request_maintenance();
@@ -69,7 +73,12 @@ impl Halley {
         {
             return 0.0;
         }
-        let Some(&until) = self.model.workspace_state.active_transition_until_ms.get(&id) else {
+        let Some(&until) = self
+            .model
+            .workspace_state
+            .active_transition_until_ms
+            .get(&id)
+        else {
             return 0.0;
         };
         if now_ms >= until {
@@ -87,7 +96,11 @@ impl Halley {
     pub(crate) fn debug_dump(&self) {}
 
     pub fn build_debug_scene_snapshot(&self) -> DebugScene {
-        build_debug_scene(&self.model.field, &self.model.viewport, self.active_focus_ring())
+        build_debug_scene(
+            &self.model.field,
+            &self.model.viewport,
+            self.active_focus_ring(),
+        )
     }
 
     pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
@@ -96,12 +109,15 @@ impl Halley {
         let prev_no_csd = self.runtime.tuning.no_csd;
         let prev_physics_enabled = self.runtime.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
-        let previous_output_names: std::collections::HashSet<String> = self.model.monitor_state
+        let previous_output_names: std::collections::HashSet<String> = self
+            .model
+            .monitor_state
             .monitors
             .keys()
             .cloned()
             .chain(
-                self.runtime.tuning
+                self.runtime
+                    .tuning
                     .tty_viewports
                     .iter()
                     .map(|v| v.connector.clone()),
@@ -134,7 +150,10 @@ impl Halley {
         });
 
         if prev_physics_enabled && !tuning.physics_enabled {
-            self.model.workspace_state.active_transition_until_ms.clear();
+            self.model
+                .workspace_state
+                .active_transition_until_ms
+                .clear();
             self.input.interaction_state.drag_authority_node = None;
             self.input.interaction_state.physics_velocity.clear();
             self.input.interaction_state.smoothed_render_pos.clear();
@@ -150,7 +169,10 @@ impl Halley {
         let now = Instant::now();
         let now_ms = self.now_ms(now);
         for output_name in next_output_names {
-            if self.runtime.tuning.focus_ring_for_output(output_name.as_str())
+            if self
+                .runtime
+                .tuning
+                .focus_ring_for_output(output_name.as_str())
                 != tuning.focus_ring_for_output(output_name.as_str())
             {
                 self.model.focus_state.focus_ring_preview_until_ms.insert(
@@ -198,11 +220,15 @@ impl Halley {
         state: halley_core::field::NodeState,
         now: Instant,
     ) -> Option<std::time::Duration> {
-        self.ui.render_state.animator.track_elapsed_for(id, state, now)
+        self.ui
+            .render_state
+            .animator
+            .track_elapsed_for(id, state, now)
     }
 
     pub fn active_focus_ring(&self) -> halley_core::viewport::FocusRing {
-        self.runtime.tuning
+        self.runtime
+            .tuning
             .focus_ring_for_output(self.model.monitor_state.current_monitor.as_str())
     }
 
@@ -211,7 +237,8 @@ impl Halley {
     }
 
     pub fn view_center_for_monitor(&self, monitor: &str) -> Vec2 {
-        self.model.monitor_state
+        self.model
+            .monitor_state
             .monitors
             .get(monitor)
             .map(|space| space.viewport.center)
@@ -219,7 +246,8 @@ impl Halley {
     }
 
     pub fn should_draw_focus_ring_preview(&self, now: Instant) -> bool {
-        self.model.focus_state
+        self.model
+            .focus_state
             .focus_ring_preview_until_ms
             .get(self.model.monitor_state.current_monitor.as_str())
             .is_some_and(|&until_ms| self.now_ms(now) < until_ms)

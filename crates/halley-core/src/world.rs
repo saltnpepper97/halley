@@ -169,14 +169,14 @@ impl World {
                 return false;
             }
 
-            for m in &cluster.members {
+            for m in cluster.members() {
                 match from.node(*m) {
                     Some(n) if !n.pinned => {}
                     _ => return false,
                 }
             }
 
-            (cid, cluster.members.clone(), core_node.pos)
+            (cid, cluster.members().to_vec(), core_node.pos)
         };
 
         // Compute mapping delta

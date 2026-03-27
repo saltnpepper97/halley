@@ -109,9 +109,7 @@ pub(crate) fn handle_keyboard_input(
 
     let cluster_escape = key_name_to_evdev("escape").map(|code| code + 8);
     let cluster_return = key_name_to_evdev("return").map(|code| code + 8);
-    if st.cluster_mode_active()
-        && (Some(code) == cluster_escape || Some(code) == cluster_return)
-    {
+    if st.cluster_mode_active() && (Some(code) == cluster_escape || Some(code) == cluster_return) {
         if let Some(keyboard) = st.platform.seat.get_keyboard() {
             let serial = SERIAL_COUNTER.next_serial();
             keyboard.input::<(), _>(
@@ -166,15 +164,17 @@ pub(crate) fn handle_keyboard_input(
         && !st.keyboard_focus_is_layer_surface()
         && let Some(fid) = st.last_input_surface_node_for_monitor(st.focused_monitor())
     {
-        let open_monitors = st.model.cluster_state
+        let open_monitors = st
+            .model
+            .cluster_state
             .cluster_bloom_open
             .keys()
             .cloned()
             .collect::<Vec<_>>();
         for monitor in open_monitors {
-            let open_core = st.cluster_bloom_for_monitor(monitor.as_str()).and_then(|cid| {
-                st.model.field.cluster(cid).and_then(|cluster| cluster.core)
-            });
+            let open_core = st
+                .cluster_bloom_for_monitor(monitor.as_str())
+                .and_then(|cid| st.model.field.cluster(cid).and_then(|cluster| cluster.core));
             if open_core != Some(fid) {
                 let _ = st.close_cluster_bloom_for_monitor(monitor.as_str());
             }

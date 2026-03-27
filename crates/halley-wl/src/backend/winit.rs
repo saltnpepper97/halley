@@ -203,7 +203,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let _signal = ev.get_signal();
             let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
             state.platform.seat.add_pointer();
-            if state.platform.seat
+            if state
+                .platform
+                .seat
                 .add_keyboard(Default::default(), 200, 30)
                 .is_err()
             {
@@ -508,7 +510,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 })?;
 
             let initial_frame_interval = frame_interval_for_refresh_hz(
-                state.runtime.tuning
+                state
+                    .runtime
+                    .tuning
                     .tty_viewports
                     .first()
                     .and_then(|vp| vp.refresh_rate),

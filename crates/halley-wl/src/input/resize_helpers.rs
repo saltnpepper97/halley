@@ -334,13 +334,17 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let p = n.pos;
             let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
 
-            let bbox_lx = st.ui.render_state
+            let bbox_lx = st
+                .ui
+                .render_state
                 .bbox_loc
                 .get(&node_id)
                 .copied()
                 .unwrap_or((0.0, 0.0))
                 .0;
-            let bbox_ly = st.ui.render_state
+            let bbox_ly = st
+                .ui
+                .render_state
                 .bbox_loc
                 .get(&node_id)
                 .copied()
@@ -349,7 +353,9 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let bbox_w = n.intrinsic_size.x.max(1.0);
             let bbox_h = n.intrinsic_size.y.max(1.0);
             let local_bbox = (bbox_lx, bbox_ly, bbox_w, bbox_h);
-            let (gx, gy, gw, gh) = st.ui.render_state
+            let (gx, gy, gw, gh) = st
+                .ui
+                .render_state
                 .window_geometry
                 .get(&node_id)
                 .copied()
@@ -387,7 +393,9 @@ pub(crate) fn active_resize_geometry_screen(
     let frame_top = rz.preview_top_px;
     let frame_right = rz.preview_right_px;
     let frame_bottom = rz.preview_bottom_px;
-    let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) = st.ui.render_state
+    let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) = st
+        .ui
+        .render_state
         .window_geometry
         .get(&node_id)
         .copied()

@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use halley_core::cluster::ClusterId;
 use halley_config::CompositorBindingAction;
 use halley_config::PointerBindingAction;
+use halley_core::cluster::ClusterId;
 
 #[derive(Default, Clone)]
 pub(crate) struct ModState {

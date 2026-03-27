@@ -28,7 +28,9 @@ pub(crate) struct FocusState {
 
 impl Halley {
     pub(crate) fn focus_monitor_view(&mut self, monitor: &str, now: Instant) {
-        let open_monitors = self.model.cluster_state
+        let open_monitors = self
+            .model
+            .cluster_state
             .cluster_bloom_open
             .keys()
             .cloned()
@@ -42,7 +44,9 @@ impl Halley {
         self.set_focused_monitor(monitor);
         self.model.spawn_state.pending_spawn_monitor = None;
         let _ = self.activate_monitor(monitor);
-        if !self.model.focus_state
+        if !self
+            .model
+            .focus_state
             .blocked_monitor_focus_restore
             .contains(monitor)
             && let Some(id) = self.last_focused_surface_node_for_monitor(monitor)
@@ -77,12 +81,15 @@ impl Halley {
         if prev == id {
             if let Some(fid) = id {
                 let requested_until = now_ms.saturating_add(hold_ms.max(1));
-                self.model.focus_state.interaction_focus_until_ms = self.model.focus_state
+                self.model.focus_state.interaction_focus_until_ms = self
+                    .model
+                    .focus_state
                     .interaction_focus_until_ms
                     .max(requested_until);
                 self.update_focus_tracking_for_surface(fid, now_ms);
                 if let Some(monitor) = self.model.monitor_state.node_monitor.get(&fid).cloned() {
-                    self.model.focus_state
+                    self.model
+                        .focus_state
                         .blocked_monitor_focus_restore
                         .remove(&monitor);
                     self.set_interaction_monitor(monitor.as_str());
@@ -111,10 +118,13 @@ impl Halley {
 
         self.model.focus_state.primary_interaction_focus = id;
         if let Some(fid) = id {
-            self.model.focus_state.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
+            self.model.focus_state.interaction_focus_until_ms =
+                now_ms.saturating_add(hold_ms.max(1));
             self.update_focus_tracking_for_surface(fid, now_ms);
             if let Some(monitor) = self.model.monitor_state.node_monitor.get(&fid).cloned() {
-                let open_monitors = self.model.cluster_state
+                let open_monitors = self
+                    .model
+                    .cluster_state
                     .cluster_bloom_open
                     .keys()
                     .cloned()
@@ -124,7 +134,8 @@ impl Halley {
                         let _ = self.close_cluster_bloom_for_monitor(open_monitor.as_str());
                     }
                 }
-                self.model.focus_state
+                self.model
+                    .focus_state
                     .blocked_monitor_focus_restore
                     .remove(&monitor);
                 self.set_interaction_monitor(monitor.as_str());
@@ -183,7 +194,9 @@ impl Halley {
             return;
         }
 
-        let target_monitor = self.model.monitor_state
+        let target_monitor = self
+            .model
+            .monitor_state
             .node_monitor
             .get(&id)
             .cloned()
@@ -238,7 +251,8 @@ impl Halley {
 
     #[allow(dead_code)]
     pub(crate) fn set_monitor_focus(&mut self, monitor: &str, id: NodeId) {
-        self.model.focus_state
+        self.model
+            .focus_state
             .monitor_focus
             .insert(monitor.to_string(), id);
     }
@@ -249,7 +263,9 @@ impl Halley {
     }
 
     pub fn recent_top_node_active(&mut self, now: Instant) -> Option<NodeId> {
-        if self.model.focus_state
+        if self
+            .model
+            .focus_state
             .recent_top_until
             .is_some_and(|until| now >= until)
         {

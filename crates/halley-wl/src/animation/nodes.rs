@@ -71,7 +71,10 @@ impl Animator {
     }
 
     pub fn observe_field(&mut self, field: &Field, now: Instant) {
-        for (&id, n) in field.nodes() {
+        for id in field.node_ids_all() {
+            let Some(n) = field.node(id) else {
+                continue;
+            };
             let target = base_style(n.state.clone());
             match self.tracks.get_mut(&id) {
                 Some(track) => {

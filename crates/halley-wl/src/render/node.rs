@@ -276,7 +276,8 @@ fn node_fill_color(st: &Halley, hovered: bool) -> Color32F {
 }
 
 fn node_icon_glyph(st: &Halley, id: halley_core::field::NodeId, fallback: &str) -> Option<char> {
-    st.model.node_app_ids
+    st.model
+        .node_app_ids
         .get(&id)
         .map(String::as_str)
         .unwrap_or(fallback)
@@ -316,7 +317,9 @@ pub(crate) fn collect_hover_preview(
     let Some(wl) = node_surface_map.get(&preview_id) else {
         return (None, Vec::new());
     };
-    let Some((node_state, node_pos, label_len)) = st.model.field
+    let Some((node_state, node_pos, label_len)) = st
+        .model
+        .field
         .node(preview_id)
         .map(|n| (n.state.clone(), n.pos, n.label.len()))
     else {
@@ -460,9 +463,8 @@ pub(crate) fn draw_node_markers(
         let proxy_radius = if is_core {
             render_radius.max(dot_half)
         } else {
-            let diameter =
-                node_render_diameter_px(st, intrinsic_size, node_label.len(), anim.scale).round()
-                    as i32;
+            let diameter = node_render_diameter_px(st, intrinsic_size, node_label.len(), anim.scale)
+                .round() as i32;
             (diameter / 2).max(dot_half)
         };
         let round_shape = if is_core {
@@ -535,7 +537,8 @@ pub(crate) fn draw_node_markers(
                 && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
                     st.ui.render_state.node_app_icon_cache.get(app_id)
             {
-                let side = ((render_radius * 2) as f32 * st.runtime.tuning.node_icon_size).round() as i32;
+                let side =
+                    ((render_radius * 2) as f32 * st.runtime.tuning.node_icon_size).round() as i32;
                 let side = side.clamp(16, 42);
                 let dest = Rectangle::<i32, Physical>::new(
                     (sx - side / 2, sy - side / 2).into(),

@@ -24,7 +24,9 @@ impl Halley {
 
     #[inline]
     fn zone_eval_footprint_for(&self, id: NodeId, fallback: Vec2) -> Vec2 {
-        if self.model.field
+        if self
+            .model
+            .field
             .node(id)
             .is_some_and(|n| n.state == halley_core::field::NodeState::Active)
         {
@@ -105,11 +107,15 @@ impl Halley {
         };
 
         let now_ms = self.now_ms(Instant::now());
-        self.model.carry_state
+        self.model
+            .carry_state
             .carry_zone_last_change_ms
             .insert(id, now_ms);
         self.model.carry_state.carry_zone_pending.remove(&id);
-        self.model.carry_state.carry_zone_pending_since_ms.remove(&id);
+        self.model
+            .carry_state
+            .carry_zone_pending_since_ms
+            .remove(&id);
         self.model.carry_state.carry_zone_hint.insert(id, zone);
         zone
     }
@@ -138,18 +144,26 @@ impl Halley {
         let _ = self.model.field.set_pinned(id, false);
 
         if let Some(n) = self.model.field.node(id) {
-            self.model.carry_state
+            self.model
+                .carry_state
                 .carry_state_hold
                 .insert(id, n.state.clone());
             let fp = self.collision_size_for_node(n);
             let z = self.zone_for_pos_with_hysteresis(id, n.pos, fp);
             self.model.carry_state.carry_zone_hint.insert(id, z);
-            self.model.carry_state
+            self.model
+                .carry_state
                 .carry_zone_last_change_ms
                 .insert(id, self.now_ms(Instant::now()));
             self.model.carry_state.carry_zone_pending.remove(&id);
-            self.model.carry_state.carry_zone_pending_since_ms.remove(&id);
-            self.model.carry_state.carry_activation_anim_armed.insert(id);
+            self.model
+                .carry_state
+                .carry_zone_pending_since_ms
+                .remove(&id);
+            self.model
+                .carry_state
+                .carry_activation_anim_armed
+                .insert(id);
         }
         self.request_maintenance();
     }
@@ -162,8 +176,14 @@ impl Halley {
         self.model.carry_state.carry_zone_hint.remove(&id);
         self.model.carry_state.carry_zone_last_change_ms.remove(&id);
         self.model.carry_state.carry_zone_pending.remove(&id);
-        self.model.carry_state.carry_zone_pending_since_ms.remove(&id);
-        self.model.carry_state.carry_activation_anim_armed.remove(&id);
+        self.model
+            .carry_state
+            .carry_zone_pending_since_ms
+            .remove(&id);
+        self.model
+            .carry_state
+            .carry_activation_anim_armed
+            .remove(&id);
         self.model.carry_state.carry_state_hold.remove(&id);
         self.input.interaction_state.suspend_overlap_resolve = false;
         self.input.interaction_state.suspend_state_checks = false;
@@ -201,18 +221,25 @@ impl Halley {
             },
         };
         let _ = self.model.field.set_decay_level(id, target);
-        let is_active = self.model.field
+        let is_active = self
+            .model
+            .field
             .node(id)
             .is_some_and(|nn| nn.state == halley_core::field::NodeState::Active);
         if is_active {
             if let Some(nn) = self.model.field.node(id) {
-                self.model.workspace_state
+                self.model
+                    .workspace_state
                     .last_active_size
                     .insert(id, nn.intrinsic_size);
             }
             if !was_active
                 && self.active_transition_alpha(id, now) <= 0.01
-                && self.model.carry_state.carry_activation_anim_armed.remove(&id)
+                && self
+                    .model
+                    .carry_state
+                    .carry_activation_anim_armed
+                    .remove(&id)
             {
                 self.mark_active_transition(id, now, 360);
             }

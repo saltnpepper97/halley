@@ -1,5 +1,5 @@
-mod state;
 mod cluster_bloom;
+mod state;
 mod view;
 
 use std::error::Error;
@@ -20,8 +20,8 @@ pub(crate) use cluster_bloom::{
     bloom_token_hit_test, draw_cluster_bloom, ensure_cluster_bloom_icon_resources,
 };
 pub(crate) use state::{
-    ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot,
-    OverlayBannerState, OverlayToastSnapshot, OverlayToastState,
+    ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot, OverlayBannerState,
+    OverlayToastSnapshot, OverlayToastState,
 };
 pub(crate) use view::OverlayView;
 
@@ -60,7 +60,11 @@ pub(crate) fn draw_cluster_overflow_strip(
 
     let strip = Rectangle::<i32, Physical>::new(
         (rect.x.round() as i32, rect.y.round() as i32).into(),
-        ((rect.w.round() as i32).max(48), (rect.h.round() as i32).max(80)).into(),
+        (
+            (rect.w.round() as i32).max(48),
+            (rect.h.round() as i32).max(80),
+        )
+            .into(),
     );
     draw_overlay_chip(
         frame,
@@ -79,7 +83,9 @@ pub(crate) fn draw_cluster_overflow_strip(
         let icon_rect = Rectangle::<i32, Physical>::new(
             (
                 strip.loc.x + (strip.size.w - OVERFLOW_ICON_SIZE) / 2,
-                strip.loc.y + OVERFLOW_ICON_PAD + index as i32 * (OVERFLOW_ICON_SIZE + OVERFLOW_ICON_GAP),
+                strip.loc.y
+                    + OVERFLOW_ICON_PAD
+                    + index as i32 * (OVERFLOW_ICON_SIZE + OVERFLOW_ICON_GAP),
             )
                 .into(),
             (OVERFLOW_ICON_SIZE, OVERFLOW_ICON_SIZE).into(),
@@ -97,11 +103,7 @@ pub(crate) fn draw_cluster_overflow_strip(
             overlay.node_app_icon_entry(node_id)
         {
             let icon_dest = Rectangle::<i32, Physical>::new(
-                (
-                    icon_rect.loc.x + 4,
-                    icon_rect.loc.y + 4,
-                )
-                    .into(),
+                (icon_rect.loc.x + 4, icon_rect.loc.y + 4).into(),
                 (OVERFLOW_ICON_SIZE - 8, OVERFLOW_ICON_SIZE - 8).into(),
             );
             let icon_src = Rectangle::<f64, Buffer>::new(
@@ -219,10 +221,7 @@ pub(crate) fn draw_toast(
     let rect_h: i32 = (text_h + TOAST_PAD_Y * 2).max(28);
     let rect_x: i32 = ((screen_w - rect_w) / 2).max(BANNER_EDGE_PAD);
     let rect_y: i32 = ((screen_h - rect_h) / 2).max(BANNER_EDGE_PAD);
-    let rect = Rectangle::<i32, Physical>::new(
-        (rect_x, rect_y).into(),
-        (rect_w, rect_h).into(),
-    );
+    let rect = Rectangle::<i32, Physical>::new((rect_x, rect_y).into(), (rect_w, rect_h).into());
 
     draw_overlay_chip(
         frame,

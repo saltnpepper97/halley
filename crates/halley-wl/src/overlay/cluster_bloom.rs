@@ -43,7 +43,12 @@ pub(crate) fn cluster_bloom_layouts(
     screen_h: i32,
     monitor: &str,
 ) -> Vec<BloomTokenLayout> {
-    let Some(cid) = overlay.cluster_state.cluster_bloom_open.get(monitor).copied() else {
+    let Some(cid) = overlay
+        .cluster_state
+        .cluster_bloom_open
+        .get(monitor)
+        .copied()
+    else {
         return Vec::new();
     };
     cluster_bloom_layouts_for_cluster(
@@ -88,7 +93,7 @@ fn cluster_bloom_layouts_for_cluster(
 
     let (core_sx, core_sy) =
         overlay.world_to_screen(screen_w.max(1), screen_h.max(1), core.pos.x, core.pos.y);
-    let mut members = cluster.members.clone();
+    let mut members = cluster.members().to_vec();
     members.sort_by_key(|id| id.as_u64());
     let count = members.len().max(1);
     let token_radius = 24;
@@ -254,7 +259,12 @@ fn draw_bloom_token(
         .node_app_ids
         .get(&layout.member_id)
         .map(String::as_str)
-        .or_else(|| overlay.field.node(layout.member_id).map(|n| n.label.as_str()))
+        .or_else(|| {
+            overlay
+                .field
+                .node(layout.member_id)
+                .map(|n| n.label.as_str())
+        })
         .unwrap_or("?");
     let glyph = fallback
         .chars()

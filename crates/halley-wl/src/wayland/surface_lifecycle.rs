@@ -13,14 +13,25 @@ use crate::state::Halley;
 
 impl Halley {
     fn predicted_spawn_target_monitor(&self) -> String {
-        self.model.spawn_state
+        self.model
+            .spawn_state
             .pending_spawn_monitor
             .as_ref()
-            .filter(|monitor| self.model.monitor_state.monitors.contains_key(monitor.as_str()))
+            .filter(|monitor| {
+                self.model
+                    .monitor_state
+                    .monitors
+                    .contains_key(monitor.as_str())
+            })
             .cloned()
             .unwrap_or_else(|| {
                 let focused = self.focused_monitor().to_string();
-                if self.model.monitor_state.monitors.contains_key(focused.as_str()) {
+                if self
+                    .model
+                    .monitor_state
+                    .monitors
+                    .contains_key(focused.as_str())
+                {
                     focused
                 } else {
                     self.interaction_monitor().to_string()
@@ -125,7 +136,8 @@ impl Halley {
         let key = Self::surface_key(surface);
         let root_surface = Self::surface_tree_root(surface);
         let root_key = Self::surface_key(&root_surface);
-        self.runtime.surface_activity
+        self.runtime
+            .surface_activity
             .entry(key.clone())
             .or_insert_with(|| CommitActivity::new(now))
             .on_commit(now);
@@ -148,7 +160,8 @@ impl Halley {
             use smithay::wayland::shell::xdg::SurfaceCachedState;
 
             let bbox = bbox_from_surface_tree(&root_surface, (0, 0));
-            self.ui.render_state
+            self.ui
+                .render_state
                 .bbox_loc
                 .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
 
@@ -197,13 +210,16 @@ impl Halley {
                         node.footprint = new_size;
                     }
                 }
-                self.model.workspace_state
+                self.model
+                    .workspace_state
                     .last_active_size
                     .insert(node_id, new_size);
                 self.request_maintenance();
                 if self.input.interaction_state.resize_static_node != Some(node_id) {
                     let node_monitor = self.model.monitor_state.node_monitor.get(&node_id).cloned();
-                    let active_cluster = self.model.field
+                    let active_cluster = self
+                        .model
+                        .field
                         .cluster_id_for_member_public(node_id)
                         .zip(node_monitor.as_deref())
                         .is_some_and(|(cid, monitor)| {
@@ -240,32 +256,42 @@ impl Halley {
             y: size_px.1.max(64) as f32,
         };
         let predicted_monitor = self.predicted_spawn_target_monitor();
-        let (monitor, pos, needs_pan) = if let Some(cid) =
-            self.active_cluster_workspace_for_monitor(predicted_monitor.as_str())
-        {
-            let pos = self
-                .cluster_spawn_position_for_new_member(predicted_monitor.as_str(), cid)
-                .unwrap_or_else(|| self.view_center_for_monitor(predicted_monitor.as_str()));
-            (predicted_monitor, pos, false)
+        let active_cluster = self.active_cluster_workspace_for_monitor(predicted_monitor.as_str());
+        let (monitor, id, needs_pan, spawned_in_active_cluster) = if let Some(cid) = active_cluster {
+            match self
+                .model
+                .field
+                .spawn_surface_in_active_cluster(cid, label.to_string(), size)
+            {
+                Ok(id) => (predicted_monitor, id, false, true),
+                Err(_) => {
+                    let (monitor, pos, needs_pan) = self.pick_spawn_position(size);
+                    let id = self.model.field.spawn_surface(label.to_string(), pos, size);
+                    (monitor, id, needs_pan, false)
+                }
+            }
         } else {
-            self.pick_spawn_position(size)
+            let (monitor, pos, needs_pan) = self.pick_spawn_position(size);
+            let id = self.model.field.spawn_surface(label.to_string(), pos, size);
+            (monitor, id, needs_pan, false)
         };
-
-        let id = self.model.field.spawn_surface(label.to_string(), pos, size);
         self.assign_node_to_monitor(id, monitor.as_str());
-        let _ = self.model.field
+        let _ = self
+            .model
+            .field
             .set_state(id, halley_core::field::NodeState::Active);
-        let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
+        if !spawned_in_active_cluster {
+            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
+        }
 
         self.model.surface_to_node.insert(key, id);
         self.ui.render_state.zoom_nominal_size.insert(id, size);
         self.model.workspace_state.last_active_size.insert(id, size);
         let now = Instant::now();
-        let joined_active_cluster = self
-            .active_cluster_workspace_for_monitor(monitor.as_str())
-            .is_some_and(|cid| self.absorb_node_into_cluster(cid, id, now));
+        let joined_active_cluster = spawned_in_active_cluster;
         if self.runtime.tuning.dev_anim_enabled {
-            self.ui.render_state
+            self.ui
+                .render_state
                 .animator
                 .observe_field(&self.model.field, now);
         }
@@ -280,7 +306,9 @@ impl Halley {
         for output in self.model.monitor_state.outputs.values() {
             output.leave(surface);
         }
-        let pointer_focused_surface = self.platform.seat
+        let pointer_focused_surface = self
+            .platform
+            .seat
             .get_pointer()
             .and_then(|pointer| pointer.current_focus());
         if pointer_focused_surface
@@ -308,9 +336,16 @@ impl Halley {
             self.model.workspace_state.last_active_size.remove(&id);
             self.ui.render_state.bbox_loc.remove(&id);
             self.ui.render_state.window_geometry.remove(&id);
-            self.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
-            self.model.workspace_state.active_transition_until_ms.remove(&id);
-            self.model.workspace_state
+            self.model
+                .spawn_state
+                .pending_spawn_activate_at_ms
+                .remove(&id);
+            self.model
+                .workspace_state
+                .active_transition_until_ms
+                .remove(&id);
+            self.model
+                .workspace_state
                 .primary_promote_cooldown_until_ms
                 .remove(&id);
             self.model.focus_state.last_surface_focus_ms.remove(&id);
@@ -318,8 +353,14 @@ impl Halley {
             self.model.carry_state.carry_zone_hint.remove(&id);
             self.model.carry_state.carry_zone_last_change_ms.remove(&id);
             self.model.carry_state.carry_zone_pending.remove(&id);
-            self.model.carry_state.carry_zone_pending_since_ms.remove(&id);
-            self.model.carry_state.carry_activation_anim_armed.remove(&id);
+            self.model
+                .carry_state
+                .carry_zone_pending_since_ms
+                .remove(&id);
+            self.model
+                .carry_state
+                .carry_activation_anim_armed
+                .remove(&id);
             if self.input.interaction_state.resize_active == Some(id) {
                 self.input.interaction_state.resize_active = None;
             }
@@ -335,7 +376,7 @@ impl Halley {
             self.model.focus_state.suppress_trail_record_once = false;
             self.input.interaction_state.smoothed_render_pos.remove(&id);
             self.clear_window_offscreen_cache_for(id);
-            let _ = self.model.field.remove(id);
+            let _ = self.remove_node_from_field(id, self.now_ms(Instant::now()));
         }
         self.request_maintenance();
     }

@@ -59,6 +59,7 @@ pub fn bearings_for_visible_nodes(field: &Field, vp: &Viewport) -> Vec<(NodeId, 
         .nodes()
         .keys()
         .copied()
+        .filter(|&id| field.participates_in_field_view(id))
         .filter(|&id| field.is_visible(id))
         .filter_map(|id| {
             let n = field.node(id)?;
@@ -79,6 +80,9 @@ pub fn bearings_for_anchors(field: &Field, vp: &Viewport) -> Vec<(NodeId, Bearin
         .nodes()
         .iter()
         .filter_map(|(&id, n)| {
+            if !field.participates_in_field_view(id) {
+                return None;
+            }
             if !field.is_visible(id) {
                 return None;
             }

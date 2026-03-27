@@ -21,7 +21,9 @@ pub(crate) fn promote_node_level(
         return false;
     }
     let target_pos = n.pos;
-    let target_monitor = st.model.monitor_state
+    let target_monitor = st
+        .model
+        .monitor_state
         .node_monitor
         .get(&node_id)
         .cloned()
@@ -33,7 +35,10 @@ pub(crate) fn promote_node_level(
 
     if in_focus_ring {
         // This is a deliberate promote, not a stale auto-resurrect.
-        st.model.workspace_state.manual_collapsed_nodes.remove(&node_id);
+        st.model
+            .workspace_state
+            .manual_collapsed_nodes
+            .remove(&node_id);
 
         let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
         st.mark_active_transition(node_id, now, 360);
@@ -62,7 +67,9 @@ pub(crate) fn activate_collapsed_node_from_click(
         return false;
     }
 
-    let target_monitor = st.model.monitor_state
+    let target_monitor = st
+        .model
+        .monitor_state
         .node_monitor
         .get(&node_id)
         .cloned()
@@ -77,7 +84,10 @@ pub(crate) fn activate_collapsed_node_from_click(
         return promote_node_level(st, node_id, now);
     }
 
-    st.model.workspace_state.manual_collapsed_nodes.remove(&node_id);
+    st.model
+        .workspace_state
+        .manual_collapsed_nodes
+        .remove(&node_id);
     let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
     st.mark_active_transition(node_id, now, 360);
     st.set_interaction_focus(Some(node_id), 30_000, now);
@@ -112,7 +122,9 @@ pub(crate) fn focus_or_reveal_surface_node(
         return false;
     }
 
-    let target_monitor = st.model.monitor_state
+    let target_monitor = st
+        .model
+        .monitor_state
         .node_monitor
         .get(&node_id)
         .cloned()
@@ -139,7 +151,8 @@ pub(crate) fn latest_surface_node(st: &Halley) -> Option<halley_core::field::Nod
     st.last_input_surface_node_for_monitor(st.focused_monitor())
         .or_else(|| st.last_input_surface_node())
         .or_else(|| {
-            st.model.surface_to_node
+            st.model
+                .surface_to_node
                 .values()
                 .copied()
                 .max_by_key(|id| id.as_u64())
@@ -211,12 +224,27 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
         return false;
     }
 
+    if let Some(cid) = st.model.field.cluster_id_for_member_public(id) {
+        let monitor = st.focused_monitor().to_string();
+        if st.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(cid) {
+            return st.collapse_active_cluster_workspace(now);
+        }
+    }
+
     match n.state {
         halley_core::field::NodeState::Active => {
-            let _ = st.model.field.set_state(id, halley_core::field::NodeState::Node);
-            let _ = st.model.field
+            let _ = st
+                .model
+                .field
+                .set_state(id, halley_core::field::NodeState::Node);
+            let _ = st
+                .model
+                .field
                 .set_decay_level(id, halley_core::decay::DecayLevel::Cold);
-            st.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
+            st.model
+                .spawn_state
+                .pending_spawn_activate_at_ms
+                .remove(&id);
             st.model.workspace_state.manual_collapsed_nodes.insert(id);
 
             st.set_interaction_focus(None, 0, now);
@@ -226,9 +254,14 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
 
         halley_core::field::NodeState::Node => {
             st.model.workspace_state.manual_collapsed_nodes.remove(&id);
-            let _ = st.model.field
+            let _ = st
+                .model
+                .field
                 .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
-            st.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
+            st.model
+                .spawn_state
+                .pending_spawn_activate_at_ms
+                .remove(&id);
             st.mark_active_transition(id, now, 360);
 
             st.set_interaction_focus(Some(id), 30_000, now);

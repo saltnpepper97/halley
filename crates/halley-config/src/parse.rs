@@ -8,9 +8,9 @@ use super::{
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
 use crate::layout::FocusRingConfig;
 use crate::layout::{
-    ClusterBloomDirection,
-    ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode, PanToNewMode,
-    ViewportOutputConfig, ViewportVrrMode, default_compositor_bindings, default_pointer_bindings,
+    ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
+    ClusterBloomDirection, PanToNewMode, ViewportOutputConfig, ViewportVrrMode,
+    default_compositor_bindings, default_pointer_bindings,
 };
 use crate::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, RuntimeTuning};
 
@@ -563,12 +563,22 @@ fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.tile_gaps_inner_px = pick_f32(
         cfg,
-        &["tile.gaps-inner", "tile.gaps_inner", "tile.gap-inner", "tile.gap_inner"],
+        &[
+            "tile.gaps-inner",
+            "tile.gaps_inner",
+            "tile.gap-inner",
+            "tile.gap_inner",
+        ],
         out.tile_gaps_inner_px,
     );
     out.tile_gaps_outer_px = pick_f32(
         cfg,
-        &["tile.gaps-outer", "tile.gaps_outer", "tile.gap-outer", "tile.gap_outer"],
+        &[
+            "tile.gaps-outer",
+            "tile.gaps_outer",
+            "tile.gap-outer",
+            "tile.gap_outer",
+        ],
         out.tile_gaps_outer_px,
     );
 }
@@ -1363,10 +1373,9 @@ mod tests {
     use super::apply_explicit_keybind_overrides_map;
     use crate::{
         BearingsBindingAction, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-        ClusterBloomDirection,
-        CloseRestorePanMode, CompositorBindingAction, DirectionalAction, MonitorBindingAction,
-        MonitorBindingTarget, NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy,
-        PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
+        CloseRestorePanMode, ClusterBloomDirection, CompositorBindingAction, DirectionalAction,
+        MonitorBindingAction, MonitorBindingTarget, NodeBackgroundColorMode, NodeBindingAction,
+        NodeDisplayPolicy, PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
         keybinds::key_name_to_evdev,
     };
 

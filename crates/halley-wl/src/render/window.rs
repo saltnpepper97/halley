@@ -180,7 +180,9 @@ pub(crate) fn collect_active_surfaces(
         ))
     });
 
-    let mut wl_surfaces: Vec<_> = st.platform.xdg_shell_state
+    let mut wl_surfaces: Vec<_> = st
+        .platform
+        .xdg_shell_state
         .toplevel_surfaces()
         .iter()
         .filter_map(|t| {
@@ -341,7 +343,9 @@ pub(crate) fn collect_active_surfaces(
             if cache_miss {
                 match render_surface_tree_to_texture(renderer, &wl, 1.0) {
                     Ok(offscreen) => {
-                        let cache = st.ui.render_state
+                        let cache = st
+                            .ui
+                            .render_state
                             .window_offscreen_cache
                             .get_mut(&node_id)
                             .expect("offscreen cache should exist after ensure");

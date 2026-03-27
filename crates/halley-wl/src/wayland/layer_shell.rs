@@ -94,7 +94,8 @@ impl Halley {
     }
 
     pub(crate) fn layer_surface_monitor_name(&self, surface: &WlSurface) -> String {
-        self.model.monitor_state
+        self.model
+            .monitor_state
             .layer_surface_monitor
             .get(&surface.id())
             .cloned()
@@ -109,7 +110,8 @@ impl Halley {
         namespace: String,
     ) {
         let assigned_monitor = if let Some(requested_output) = output.as_ref() {
-            self.model.monitor_state
+            self.model
+                .monitor_state
                 .outputs
                 .iter()
                 .find_map(|(name, output)| output.owns(requested_output).then_some(name.clone()))
@@ -154,7 +156,9 @@ impl Halley {
             return;
         }
 
-        let Some(interactivity) = self.platform.wlr_layer_shell_state
+        let Some(interactivity) = self
+            .platform
+            .wlr_layer_shell_state
             .layer_surfaces()
             .find_map(|layer| {
                 (layer.wl_surface().id() == surface.id())
@@ -173,7 +177,8 @@ impl Halley {
         let removed_monitor = self.layer_surface_monitor_name(surface.wl_surface());
         let removed_focused_layer =
             self.model.monitor_state.layer_keyboard_focus == Some(surface.wl_surface().id());
-        self.model.monitor_state
+        self.model
+            .monitor_state
             .layer_surface_monitor
             .remove(&surface.wl_surface().id());
         if removed_focused_layer {
@@ -202,7 +207,8 @@ impl Halley {
     }
 
     pub(crate) fn layer_output_size_for_monitor(&self, monitor_name: &str) -> Size<i32, Logical> {
-        self.model.monitor_state
+        self.model
+            .monitor_state
             .monitors
             .get(monitor_name)
             .map(|monitor| (monitor.width as i32, monitor.height as i32).into())
@@ -225,7 +231,9 @@ impl Halley {
     }
 
     pub(crate) fn configure_layer_shell_surfaces(&mut self, _output_size: Size<i32, Logical>) {
-        for monitor_name in self.model.monitor_state
+        for monitor_name in self
+            .model
+            .monitor_state
             .monitors
             .keys()
             .cloned()
@@ -286,7 +294,9 @@ impl Halley {
     }
 
     fn layer_shell_surfaces_sorted(&self) -> Vec<LayerSurface> {
-        let mut surfaces: Vec<_> = self.platform.wlr_layer_shell_state
+        let mut surfaces: Vec<_> = self
+            .platform
+            .wlr_layer_shell_state
             .layer_surfaces()
             .filter(|surface| surface.alive())
             .collect();
@@ -308,7 +318,8 @@ impl Halley {
 
     fn layer_focus_surface(&self) -> Option<WlSurface> {
         let focus_id = self.model.monitor_state.layer_keyboard_focus.clone()?;
-        self.platform.wlr_layer_shell_state
+        self.platform
+            .wlr_layer_shell_state
             .layer_surfaces()
             .find_map(|layer| {
                 (layer.wl_surface().id() == focus_id).then(|| layer.wl_surface().clone())
@@ -316,7 +327,9 @@ impl Halley {
     }
 
     pub(crate) fn focus_layer_surface(&mut self, surface: &WlSurface) -> bool {
-        let Some(interactivity) = self.platform.wlr_layer_shell_state
+        let Some(interactivity) = self
+            .platform
+            .wlr_layer_shell_state
             .layer_surfaces()
             .find_map(|layer| {
                 (layer.wl_surface().id() == surface.id())
@@ -329,7 +342,8 @@ impl Halley {
     }
 
     pub(crate) fn is_layer_surface(&self, surface: &WlSurface) -> bool {
-        self.platform.wlr_layer_shell_state
+        self.platform
+            .wlr_layer_shell_state
             .layer_surfaces()
             .any(|layer| layer.wl_surface().id() == surface.id())
     }

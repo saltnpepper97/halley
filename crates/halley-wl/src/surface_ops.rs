@@ -107,10 +107,13 @@ pub(crate) fn current_surface_size_for_node(
             y: bbox.size.h.max(1) as f32,
         });
     }
-    st.model.field.node(node_id).map(|node| halley_core::field::Vec2 {
-        x: node.intrinsic_size.x.max(1.0),
-        y: node.intrinsic_size.y.max(1.0),
-    })
+    st.model
+        .field
+        .node(node_id)
+        .map(|node| halley_core::field::Vec2 {
+            x: node.intrinsic_size.x.max(1.0),
+            y: node.intrinsic_size.y.max(1.0),
+        })
 }
 
 pub(crate) fn window_geometry_for_node(
@@ -153,7 +156,9 @@ pub(crate) fn window_geometry_for_node(
         ));
     }
     st.model.field.node(node_id).map(|node| {
-        let (bbox_lx, bbox_ly) = st.ui.render_state
+        let (bbox_lx, bbox_ly) = st
+            .ui
+            .render_state
             .bbox_loc
             .get(&node_id)
             .copied()

@@ -144,7 +144,13 @@ pub(crate) fn ensure_bearing_icon_resources(
         .filter_map(|(id, _)| {
             let node = st.model.field.node(id)?;
             (node.kind == halley_core::field::NodeKind::Surface
-                && st.model.monitor_state.node_monitor.get(&id).map(String::as_str) == Some(monitor)
+                && st
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&id)
+                    .map(String::as_str)
+                    == Some(monitor)
                 && !node_intersects_bearings_view(st, monitor, id))
             .then_some(id)
         })
@@ -172,7 +178,14 @@ pub(crate) fn collect_bearing_layouts(
         if node.kind != halley_core::field::NodeKind::Surface {
             continue;
         }
-        if st.model.monitor_state.node_monitor.get(&id).map(String::as_str) != Some(monitor) {
+        if st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .map(String::as_str)
+            != Some(monitor)
+        {
             continue;
         }
         if node_intersects_bearings_view(st, monitor, id) {
@@ -183,7 +196,9 @@ pub(crate) fn collect_bearing_layouts(
         let distance = offscreen_distance_from_monitor_edge(st, monitor, id).unwrap_or(0.0);
         let label = bearing_label(st, id, node.label.as_str());
         let projected = projected_anchor_for_lane(st, monitor, id, lane, screen_w, screen_h);
-        let distance_text = st.runtime.tuning
+        let distance_text = st
+            .runtime
+            .tuning
             .bearings
             .show_distance
             .then(|| format!("{:.0}px", distance.round()));
@@ -235,7 +250,9 @@ pub(crate) fn bearing_hit_test(
     sx: f32,
     sy: f32,
 ) -> Option<NodeId> {
-    let ui_mix = st.ui.render_state
+    let ui_mix = st
+        .ui
+        .render_state
         .bearings_mix
         .get(monitor)
         .copied()
@@ -370,15 +387,20 @@ fn finalize_group(st: &Halley, members: Vec<BearingCandidate>, ui_mix: f32) -> B
                 .then(a.node_id.as_u64().cmp(&b.node_id.as_u64()))
         })
         .expect("bearing group should not be empty");
-    let projected =
-        members.iter().map(|candidate| candidate.projected).sum::<f32>() / member_count as f32;
+    let projected = members
+        .iter()
+        .map(|candidate| candidate.projected)
+        .sum::<f32>()
+        / member_count as f32;
     let label = if member_count == 1 {
         nearest.label.clone()
     } else {
         format!("{member_count} nodes")
     };
     let distance = nearest.distance;
-    let distance_text = st.runtime.tuning
+    let distance_text = st
+        .runtime
+        .tuning
         .bearings
         .show_distance
         .then(|| format!("{:.0}px", distance.round()));
@@ -442,8 +464,8 @@ fn layout_lane_groups(
     for index in (0..centers.len().saturating_sub(1)).rev() {
         let (_, max_center) = lane_center_bounds(lane, groups[index].size, screen_w, screen_h);
         centers[index] = centers[index].min(max_center);
-        let max_prev =
-            centers[index + 1] - crowding_threshold(lane, groups[index].size, groups[index + 1].size);
+        let max_prev = centers[index + 1]
+            - crowding_threshold(lane, groups[index].size, groups[index + 1].size);
         if centers[index] > max_prev {
             centers[index] = max_prev;
         }
@@ -475,7 +497,9 @@ fn build_layout_from_group(
     let total_h = group.size.total_height();
     let total_top = (center.round() as i32) - total_h / 2;
     let chip_y_vertical = total_top + group.size.distance_block_h;
-    let distance_text = st.runtime.tuning
+    let distance_text = st
+        .runtime
+        .tuning
         .bearings
         .show_distance
         .then(|| format!("{:.0}px", group.distance.round()));
@@ -513,13 +537,16 @@ fn build_layout_from_group(
             (group.size.distance_rect_w, group.size.distance_rect_h).into(),
         )
     });
-    let distance_pos = distance_text.as_ref().zip(distance_rect).map(|(text, rect)| {
-        let (_, text_h) = bitmap_text_size(text, META_SCALE);
-        (
-            rect.loc.x + META_PAD_X,
-            rect.loc.y + (rect.size.h - text_h) / 2,
-        )
-    });
+    let distance_pos = distance_text
+        .as_ref()
+        .zip(distance_rect)
+        .map(|(text, rect)| {
+            let (_, text_h) = bitmap_text_size(text, META_SCALE);
+            (
+                rect.loc.x + META_PAD_X,
+                rect.loc.y + (rect.size.h - text_h) / 2,
+            )
+        });
 
     BearingChipLayout {
         node_id: group.node_id,
@@ -535,7 +562,11 @@ fn build_layout_from_group(
 
 fn bearing_size(label: &str, show_icon: bool, distance_text: Option<&str>) -> BearingSize {
     let (label_w, label_h) = bitmap_text_size(label, LABEL_SCALE);
-    let icon_gap = if show_icon { ICON_SIZE + ICON_TEXT_GAP } else { 0 };
+    let icon_gap = if show_icon {
+        ICON_SIZE + ICON_TEXT_GAP
+    } else {
+        0
+    };
     let chip_w = (CHIP_PAD_X * 2 + icon_gap + label_w).max(44);
     let chip_h = (CHIP_PAD_Y * 2 + label_h.max(if show_icon { ICON_SIZE } else { 0 })).max(24);
     let (distance_rect_w, distance_rect_h, distance_block_h) = distance_text
@@ -569,10 +600,16 @@ fn lane_center_bounds(
 ) -> (f32, f32) {
     if lane.uses_horizontal_axis() {
         let half = size.chip_w as f32 * 0.5;
-        (EDGE_PAD as f32 + half, screen_w as f32 - EDGE_PAD as f32 - half)
+        (
+            EDGE_PAD as f32 + half,
+            screen_w as f32 - EDGE_PAD as f32 - half,
+        )
     } else {
         let half = size.total_height() as f32 * 0.5;
-        (EDGE_PAD as f32 + half, screen_h as f32 - EDGE_PAD as f32 - half)
+        (
+            EDGE_PAD as f32 + half,
+            screen_h as f32 - EDGE_PAD as f32 - half,
+        )
     }
 }
 
@@ -585,7 +622,8 @@ fn monitor_view_center_size(st: &Halley, monitor: &str) -> (Vec2, Vec2) {
     if st.model.monitor_state.current_monitor == monitor {
         (st.model.viewport.center, st.model.zoom_ref_size)
     } else {
-        st.model.monitor_state
+        st.model
+            .monitor_state
             .monitors
             .get(monitor)
             .map(|space| (space.viewport.center, space.zoom_ref_size))

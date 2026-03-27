@@ -1,6 +1,6 @@
 use super::*;
-use crate::state::{ClusterState, FocusState, FullscreenState, MonitorState};
 use crate::state::ViewportPanAnim;
+use crate::state::{ClusterState, FocusState, FullscreenState, MonitorState};
 use eventline::info;
 use halley_config::CloseRestorePanMode;
 use halley_core::viewport::FocusZone;
@@ -53,7 +53,8 @@ impl<'a> FocusReadContext<'a> {
 
     fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
         match requested {
-            None => self.fullscreen_state
+            None => self
+                .fullscreen_state
                 .fullscreen_active_node
                 .get(self.focused_monitor)
                 .copied(),
@@ -65,7 +66,8 @@ impl<'a> FocusReadContext<'a> {
                 let Some(requested_monitor) = requested_monitor else {
                     return requested;
                 };
-                let fullscreen_id = self.fullscreen_state
+                let fullscreen_id = self
+                    .fullscreen_state
                     .fullscreen_active_node
                     .get(requested_monitor.as_str())
                     .copied();
@@ -80,7 +82,8 @@ impl<'a> FocusReadContext<'a> {
                 if fullscreen_id == Some(requested_id) {
                     return requested;
                 }
-                let requested_monitor = self.monitor_state
+                let requested_monitor = self
+                    .monitor_state
                     .node_monitor
                     .get(&requested_id)
                     .map(String::as_str)
@@ -113,7 +116,12 @@ impl<'a> FocusReadContext<'a> {
         }
     }
 
-    fn surface_is_sufficiently_visible_on_monitor(&self, st: &Halley, monitor: &str, id: NodeId) -> bool {
+    fn surface_is_sufficiently_visible_on_monitor(
+        &self,
+        st: &Halley,
+        monitor: &str,
+        id: NodeId,
+    ) -> bool {
         let Some(node) = self.field.node(id) else {
             return false;
         };
@@ -178,8 +186,17 @@ impl<'a> FocusReadContext<'a> {
         Some(target)
     }
 
-    fn close_restore_pan_plan(&self, st: &Halley, monitor: &str, id: NodeId) -> CloseRestorePanPlan {
-        if self.cluster_state.active_cluster_workspaces.contains_key(monitor) {
+    fn close_restore_pan_plan(
+        &self,
+        st: &Halley,
+        monitor: &str,
+        id: NodeId,
+    ) -> CloseRestorePanPlan {
+        if self
+            .cluster_state
+            .active_cluster_workspaces
+            .contains_key(monitor)
+        {
             return CloseRestorePanPlan::None;
         }
         if !self.tuning.close_restore_focus {
@@ -214,7 +231,10 @@ impl<'a> FocusReadContext<'a> {
         self.focus_state
             .last_surface_focus_ms
             .iter()
-            .filter_map(|(&id, &at)| self.surface_node_matches(id, true, false, None).then_some((id, at)))
+            .filter_map(|(&id, &at)| {
+                self.surface_node_matches(id, true, false, None)
+                    .then_some((id, at))
+            })
             .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
             .map(|(id, _)| id)
     }
@@ -228,7 +248,10 @@ impl<'a> FocusReadContext<'a> {
         self.focus_state
             .last_surface_focus_ms
             .iter()
-            .filter_map(|(&id, &at)| self.surface_node_matches(id, true, true, None).then_some((id, at)))
+            .filter_map(|(&id, &at)| {
+                self.surface_node_matches(id, true, true, None)
+                    .then_some((id, at))
+            })
             .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
             .map(|(id, _)| id)
     }
@@ -259,7 +282,10 @@ impl<'a> FocusReadContext<'a> {
         self.focus_state
             .last_surface_focus_ms
             .iter()
-            .filter_map(|(&id, &at)| self.surface_node_matches(id, true, true, None).then_some((id, at)))
+            .filter_map(|(&id, &at)| {
+                self.surface_node_matches(id, true, true, None)
+                    .then_some((id, at))
+            })
             .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
             .map(|(id, _)| id)
     }
@@ -269,27 +295,34 @@ impl<'a> FocusReadContext<'a> {
             self.surface_node_matches(id, true, true, Some(monitor))
                 .then_some((id, u64::MAX))
         });
-        let monitor_focus = self.focus_state
+        let monitor_focus = self
+            .focus_state
             .monitor_focus
             .get(monitor)
             .copied()
             .and_then(|id| {
-                self.surface_node_matches(id, true, true, Some(monitor)).then_some((
-                    id,
-                    self.focus_state
-                        .last_surface_focus_ms
-                        .get(&id)
-                        .copied()
-                        .unwrap_or(0),
-                ))
+                self.surface_node_matches(id, true, true, Some(monitor))
+                    .then_some((
+                        id,
+                        self.focus_state
+                            .last_surface_focus_ms
+                            .get(&id)
+                            .copied()
+                            .unwrap_or(0),
+                    ))
             });
         primary
             .into_iter()
             .chain(monitor_focus)
-            .chain(self.focus_state.last_surface_focus_ms.iter().filter_map(|(&id, &at)| {
-                self.surface_node_matches(id, true, true, Some(monitor))
-                    .then_some((id, at))
-            }))
+            .chain(
+                self.focus_state
+                    .last_surface_focus_ms
+                    .iter()
+                    .filter_map(|(&id, &at)| {
+                        self.surface_node_matches(id, true, true, Some(monitor))
+                            .then_some((id, at))
+                    }),
+            )
             .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
             .map(|(id, _)| id)
     }
@@ -326,24 +359,39 @@ impl Halley {
 
     pub(crate) fn update_selection_focus_from_surface(&self, surface: Option<&WlSurface>) {
         let client = surface.and_then(|wl| wl.client());
-        set_data_device_focus(&self.platform.display_handle, &self.platform.seat, client.clone());
+        set_data_device_focus(
+            &self.platform.display_handle,
+            &self.platform.seat,
+            client.clone(),
+        );
         set_primary_focus(&self.platform.display_handle, &self.platform.seat, client);
     }
 
     fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
-        self.focus_read_context().fullscreen_focus_override(requested)
+        self.focus_read_context()
+            .fullscreen_focus_override(requested)
     }
 
     pub fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
         let focus_id = self.fullscreen_focus_override(id).or(id);
         if let Some(fid) = focus_id
-            && self.model.fullscreen_state
+            && self
+                .model
+                .fullscreen_state
                 .fullscreen_suspended_node
                 .values()
                 .any(|&nid| nid == fid)
         {
-            if let Some(entry) = self.model.fullscreen_state.fullscreen_restore.get(&fid).copied() {
-                let target_monitor = self.model.monitor_state
+            if let Some(entry) = self
+                .model
+                .fullscreen_state
+                .fullscreen_restore
+                .get(&fid)
+                .copied()
+            {
+                let target_monitor = self
+                    .model
+                    .monitor_state
                     .node_monitor
                     .get(&fid)
                     .cloned()
@@ -393,7 +441,8 @@ impl Halley {
             let node_id = self.model.surface_to_node.get(&key).copied();
 
             let activated = node_id.is_some_and(|nid| {
-                self.model.monitor_state
+                self.model
+                    .monitor_state
                     .node_monitor
                     .get(&nid)
                     .and_then(|monitor| self.model.focus_state.monitor_focus.get(monitor))
@@ -420,17 +469,25 @@ impl Halley {
     }
 
     pub fn update_focus_tracking_for_surface(&mut self, fid: NodeId, now_ms: u64) {
-        let Some(node_state) = self.model.field
+        let Some(node_state) = self
+            .model
+            .field
             .node(fid)
             .map(|n| (n.kind.clone(), n.state.clone()))
         else {
             return;
         };
-        if node_state.0 != halley_core::field::NodeKind::Surface || !self.model.field.is_visible(fid) {
+        if node_state.0 != halley_core::field::NodeKind::Surface
+            || !self.model.field.participates_in_field_activity(fid)
+            || !self.model.field.is_visible(fid)
+        {
             return;
         }
 
-        self.model.focus_state.last_surface_focus_ms.insert(fid, now_ms);
+        self.model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(fid, now_ms);
         if self.model.focus_state.suppress_trail_record_once {
             self.model.focus_state.suppress_trail_record_once = false;
         } else {
@@ -458,7 +515,8 @@ impl Halley {
         if self.runtime.tuning.restore_last_active_on_pan_return
             && self.model.focus_state.pan_restore_active_focus.is_none()
         {
-            self.model.focus_state.pan_restore_active_focus = self.last_focused_active_surface_node();
+            self.model.focus_state.pan_restore_active_focus =
+                self.last_focused_active_surface_node();
         }
         self.input.interaction_state.suspend_overlap_resolve = false;
         self.input.interaction_state.suspend_state_checks = false;
@@ -466,11 +524,13 @@ impl Halley {
     }
 
     fn spawn_view_handoff_pan_distance(&self) -> f32 {
-        self.model.viewport.size.x.min(self.model.viewport.size.y) * Self::SPAWN_VIEW_HANDOFF_PAN_RATIO
+        self.model.viewport.size.x.min(self.model.viewport.size.y)
+            * Self::SPAWN_VIEW_HANDOFF_PAN_RATIO
     }
 
     fn spawn_view_handoff_focus_distance(&self) -> f32 {
-        self.model.viewport.size.x.hypot(self.model.viewport.size.y) * Self::SPAWN_VIEW_HANDOFF_FOCUS_RATIO
+        self.model.viewport.size.x.hypot(self.model.viewport.size.y)
+            * Self::SPAWN_VIEW_HANDOFF_FOCUS_RATIO
     }
 
     pub(crate) fn note_pan_viewport_change(&mut self, _now: Instant) {
@@ -603,7 +663,10 @@ impl Halley {
         id: NodeId,
         now: Instant,
     ) -> bool {
-        match self.focus_read_context().close_restore_pan_plan(self, monitor, id) {
+        match self
+            .focus_read_context()
+            .close_restore_pan_plan(self, monitor, id)
+        {
             CloseRestorePanPlan::None => false,
             CloseRestorePanPlan::PanTo(target) => self.animate_viewport_center_to(target, now),
         }
@@ -617,14 +680,20 @@ impl Halley {
         self.input.interaction_state.resize_active = Some(id);
         self.input.interaction_state.resize_static_node = Some(id);
         self.input.interaction_state.resize_static_lock_pos = None;
-        self.input.interaction_state.resize_static_until_ms = self.now_ms(now).saturating_add(60_000);
+        self.input.interaction_state.resize_static_until_ms =
+            self.now_ms(now).saturating_add(60_000);
         self.input.interaction_state.suspend_overlap_resolve = true;
         self.input.interaction_state.suspend_state_checks = true;
         self.set_interaction_focus(Some(id), 60_000, now);
         let now_ms = self.now_ms(now);
-        let _ = self.model.field.touch(id, now_ms);
-        let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-        self.model.workspace_state.manual_collapsed_nodes.remove(&id);
+        if self.model.field.participates_in_field_activity(id) {
+            let _ = self.model.field.touch(id, now_ms);
+            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
+        }
+        self.model
+            .workspace_state
+            .manual_collapsed_nodes
+            .remove(&id);
         self.request_maintenance();
     }
 
@@ -632,8 +701,10 @@ impl Halley {
         let ended = self.input.interaction_state.resize_active.take();
         if let Some(id) = ended {
             self.input.interaction_state.resize_static_node = Some(id);
-            self.input.interaction_state.resize_static_lock_pos = self.model.field.node(id).map(|n| n.pos);
-            self.input.interaction_state.resize_static_until_ms = self.now_ms(now).saturating_add(120);
+            self.input.interaction_state.resize_static_lock_pos =
+                self.model.field.node(id).map(|n| n.pos);
+            self.input.interaction_state.resize_static_until_ms =
+                self.now_ms(now).saturating_add(120);
             self.set_interaction_focus(Some(id), 30_000, now);
         } else {
             self.input.interaction_state.resize_static_lock_pos = None;
@@ -676,16 +747,26 @@ impl Halley {
 
     pub fn toggle_last_focused_surface_node(&mut self, now: Instant) -> Option<NodeId> {
         let id = self
-            .last_focused_surface_node_for_monitor(self.model.monitor_state.current_monitor.as_str())
+            .last_focused_surface_node_for_monitor(
+                self.model.monitor_state.current_monitor.as_str(),
+            )
             .or_else(|| self.last_focused_surface_node())?;
 
         let state = self.model.field.node(id)?.state.clone();
         match state {
             halley_core::field::NodeState::Active => {
-                let _ = self.model.field
+                if !self.model.field.participates_in_field_activity(id) {
+                    return None;
+                }
+                let _ = self
+                    .model
+                    .field
                     .set_state(id, halley_core::field::NodeState::Node);
                 let _ = self.model.field.set_decay_level(id, DecayLevel::Cold);
-                self.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
+                self.model
+                    .spawn_state
+                    .pending_spawn_activate_at_ms
+                    .remove(&id);
                 self.model.workspace_state.manual_collapsed_nodes.insert(id);
 
                 self.set_interaction_focus(None, 0, now);
@@ -694,9 +775,18 @@ impl Halley {
                 Some(id)
             }
             halley_core::field::NodeState::Node => {
-                self.model.workspace_state.manual_collapsed_nodes.remove(&id);
+                if !self.model.field.participates_in_field_activity(id) {
+                    return None;
+                }
+                self.model
+                    .workspace_state
+                    .manual_collapsed_nodes
+                    .remove(&id);
                 let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-                self.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
+                self.model
+                    .spawn_state
+                    .pending_spawn_activate_at_ms
+                    .remove(&id);
 
                 self.set_interaction_focus(Some(id), 30_000, now);
                 self.request_maintenance();
@@ -732,12 +822,24 @@ mod tests {
         state.assign_node_to_monitor(left, "default");
         state.assign_node_to_monitor(right, "other");
         state.model.focus_state.primary_interaction_focus = Some(right);
-        state.model.focus_state.last_surface_focus_ms.insert(left, 1);
-        state.model.focus_state.last_surface_focus_ms.insert(right, 2);
-        state.model.focus_state
+        state
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(left, 1);
+        state
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(right, 2);
+        state
+            .model
+            .focus_state
             .monitor_focus
             .insert("default".to_string(), left);
-        state.model.focus_state
+        state
+            .model
+            .focus_state
             .monitor_focus
             .insert("other".to_string(), right);
 
@@ -800,7 +902,9 @@ mod tests {
         );
         state.assign_node_to_monitor(fullscreen_left, "left");
         state.assign_node_to_monitor(right, "right");
-        state.model.fullscreen_state
+        state
+            .model
+            .fullscreen_state
             .fullscreen_active_node
             .insert("left".to_string(), fullscreen_left);
         state.set_interaction_monitor("right");
@@ -856,7 +960,9 @@ mod tests {
         );
         state.assign_node_to_monitor(fullscreen_left, "left");
         state.assign_node_to_monitor(other_left, "left");
-        state.model.fullscreen_state
+        state
+            .model
+            .fullscreen_state
             .fullscreen_active_node
             .insert("left".to_string(), fullscreen_left);
         state.set_interaction_monitor("left");
@@ -974,7 +1080,10 @@ mod tests {
         assert_eq!(state.focused_monitor(), "right");
         assert_eq!(state.interaction_monitor(), "right");
         assert_eq!(state.model.monitor_state.current_monitor, "right");
-        assert_eq!(state.model.focus_state.primary_interaction_focus, Some(right));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(right)
+        );
     }
 
     #[test]
@@ -1046,10 +1155,14 @@ mod tests {
             Vec2 { x: 100.0, y: 80.0 },
         );
         state.assign_node_to_monitor(right, "right");
-        state.model.focus_state
+        state
+            .model
+            .focus_state
             .monitor_focus
             .insert("right".to_string(), right);
-        state.model.focus_state
+        state
+            .model
+            .focus_state
             .blocked_monitor_focus_restore
             .insert("right".to_string());
 

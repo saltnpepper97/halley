@@ -70,29 +70,12 @@ impl<'a> SpawnReadContext<'a> {
                 .then_some((id, u64::MAX))
             })
         });
-        let monitor_focus = self.focus_state.monitor_focus.get(monitor).copied().and_then(|id| {
-            self.field.node(id).and_then(|n| {
-                (self.field.is_visible(id)
-                    && n.kind == halley_core::field::NodeKind::Surface
-                    && self
-                        .monitor_state
-                        .node_monitor
-                        .get(&id)
-                        .is_some_and(|m| m == monitor))
-                .then_some((
-                    id,
-                    self.focus_state
-                        .last_surface_focus_ms
-                        .get(&id)
-                        .copied()
-                        .unwrap_or(0),
-                ))
-            })
-        });
-        primary
-            .into_iter()
-            .chain(monitor_focus)
-            .chain(self.focus_state.last_surface_focus_ms.iter().filter_map(|(&id, &at)| {
+        let monitor_focus = self
+            .focus_state
+            .monitor_focus
+            .get(monitor)
+            .copied()
+            .and_then(|id| {
                 self.field.node(id).and_then(|n| {
                     (self.field.is_visible(id)
                         && n.kind == halley_core::field::NodeKind::Surface
@@ -101,9 +84,36 @@ impl<'a> SpawnReadContext<'a> {
                             .node_monitor
                             .get(&id)
                             .is_some_and(|m| m == monitor))
-                    .then_some((id, at))
+                    .then_some((
+                        id,
+                        self.focus_state
+                            .last_surface_focus_ms
+                            .get(&id)
+                            .copied()
+                            .unwrap_or(0),
+                    ))
                 })
-            }))
+            });
+        primary
+            .into_iter()
+            .chain(monitor_focus)
+            .chain(
+                self.focus_state
+                    .last_surface_focus_ms
+                    .iter()
+                    .filter_map(|(&id, &at)| {
+                        self.field.node(id).and_then(|n| {
+                            (self.field.is_visible(id)
+                                && n.kind == halley_core::field::NodeKind::Surface
+                                && self
+                                    .monitor_state
+                                    .node_monitor
+                                    .get(&id)
+                                    .is_some_and(|m| m == monitor))
+                            .then_some((id, at))
+                        })
+                    }),
+            )
             .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
             .map(|(id, _)| id)
     }
@@ -130,7 +140,12 @@ impl<'a> SpawnReadContext<'a> {
             .unwrap_or_else(|| MonitorSpawnState::new(self.viewport_center_for_monitor(monitor)))
     }
 
-    fn viewport_fully_contains_surface_on_monitor(&self, st: &Halley, monitor: &str, id: NodeId) -> bool {
+    fn viewport_fully_contains_surface_on_monitor(
+        &self,
+        st: &Halley,
+        monitor: &str,
+        id: NodeId,
+    ) -> bool {
         let Some(node) = self.field.node(id) else {
             return false;
         };
@@ -181,7 +196,10 @@ impl<'a> SpawnReadContext<'a> {
             .get(&id)
             .cloned()
             .unwrap_or_else(|| self.focused_monitor.to_string());
-        if st.active_cluster_workspace_for_monitor(monitor.as_str()).is_some() {
+        if st
+            .active_cluster_workspace_for_monitor(monitor.as_str())
+            .is_some()
+        {
             return RevealNewToplevelPlan::ActivateNow;
         }
         let target_center = match self.pan_to_new {
@@ -221,7 +239,8 @@ impl Halley {
     }
 
     fn viewport_center_for_monitor(&self, monitor: &str) -> Vec2 {
-        self.spawn_read_context().viewport_center_for_monitor(monitor)
+        self.spawn_read_context()
+            .viewport_center_for_monitor(monitor)
     }
 
     fn resolve_spawn_target_monitor(&self) -> String {
@@ -320,7 +339,9 @@ impl Halley {
             {
                 return false;
             }
-            if self.model.monitor_state
+            if self
+                .model
+                .monitor_state
                 .node_monitor
                 .get(&other.id)
                 .is_some_and(|other_monitor| other_monitor != monitor)
@@ -349,7 +370,9 @@ impl Halley {
 
     fn pick_cluster_growth_dir(&self, monitor: &str, center: Vec2) -> Vec2 {
         let dirs = spawn_cardinal_dirs();
-        let local = self.model.monitor_state
+        let local = self
+            .model
+            .monitor_state
             .monitors
             .get(monitor)
             .map(|monitor| Vec2 {
@@ -384,7 +407,9 @@ impl Halley {
 
     /// Returns `(monitor, position, needs_pan)`.
     pub(super) fn pick_spawn_position(&mut self, size: Vec2) -> (String, Vec2, bool) {
-        let target_monitor = self.model.spawn_state
+        let target_monitor = self
+            .model
+            .spawn_state
             .pending_spawn_monitor
             .take()
             .filter(|monitor| self.model.monitor_state.monitors.contains_key(monitor))
@@ -493,7 +518,9 @@ impl Halley {
     }
 
     pub(crate) fn queue_spawn_pan_to_node(&mut self, id: NodeId, now: Instant) {
-        let monitor = self.model.monitor_state
+        let monitor = self
+            .model
+            .monitor_state
             .node_monitor
             .get(&id)
             .cloned()
@@ -508,8 +535,12 @@ impl Halley {
             return;
         };
         let _ = self.model.field.set_detached(id, true);
-        self.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
-        self.model.spawn_state
+        self.model
+            .spawn_state
+            .pending_spawn_activate_at_ms
+            .remove(&id);
+        self.model
+            .spawn_state
             .pending_spawn_pan_queue
             .push_back(crate::state::PendingSpawnPan {
                 node_id: id,
@@ -571,9 +602,13 @@ impl Halley {
         }
 
         let _ = self.model.field.set_detached(active.node_id, false);
-        let _ = self.model.field.set_decay_level(active.node_id, DecayLevel::Hot);
+        let _ = self
+            .model
+            .field
+            .set_decay_level(active.node_id, DecayLevel::Hot);
         if let Some(node) = self.model.field.node(active.node_id) {
-            self.model.workspace_state
+            self.model
+                .workspace_state
                 .last_active_size
                 .insert(active.node_id, node.intrinsic_size);
         }
@@ -600,16 +635,24 @@ impl Halley {
                 self.record_focus_trail_visit(id);
                 self.model.focus_state.suppress_trail_record_once = true;
                 self.set_interaction_focus(Some(id), 30_000, now);
-                self.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
+                self.model
+                    .spawn_state
+                    .pending_spawn_activate_at_ms
+                    .remove(&id);
                 self.mark_active_transition(id, now, 620);
             }
             RevealNewToplevelPlan::QueuePan { target_center } => {
                 let _ = self.model.field.set_detached(id, true);
-                self.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
                 self.model
                     .spawn_state
-                    .pending_spawn_pan_queue
-                    .push_back(crate::state::PendingSpawnPan { node_id: id, target_center });
+                    .pending_spawn_activate_at_ms
+                    .remove(&id);
+                self.model.spawn_state.pending_spawn_pan_queue.push_back(
+                    crate::state::PendingSpawnPan {
+                        node_id: id,
+                        target_center,
+                    },
+                );
                 self.maybe_start_pending_spawn_pan(now);
             }
         }
@@ -671,11 +714,19 @@ mod tests {
         };
 
         let size = Vec2 { x: 100.0, y: 80.0 };
-        let first = state.model.field
+        let first = state
+            .model
+            .field
             .spawn_surface("first", Vec2 { x: 0.0, y: 0.0 }, size);
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(first, halley_core::field::NodeState::Active);
-        state.model.focus_state.last_surface_focus_ms.insert(first, 1);
+        state
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(first, 1);
         state.model.focus_state.primary_interaction_focus = Some(first);
         state.assign_node_to_current_monitor(first);
         let current_monitor = state.model.monitor_state.current_monitor.clone();
@@ -710,10 +761,16 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 100.0, y: 80.0 },
         );
-        state.model.focus_state.last_surface_focus_ms.insert(focused, 1);
+        state
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(focused, 1);
         state.model.focus_state.primary_interaction_focus = Some(focused);
         state.assign_node_to_current_monitor(focused);
-        state.model.focus_state
+        state
+            .model
+            .focus_state
             .monitor_focus
             .insert(state.model.monitor_state.current_monitor.clone(), focused);
 
@@ -738,9 +795,15 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 100.0, y: 80.0 },
         );
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(focused, halley_core::field::NodeState::Active);
-        state.model.focus_state.last_surface_focus_ms.insert(focused, 1);
+        state
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(focused, 1);
         state.model.focus_state.primary_interaction_focus = Some(focused);
         state.assign_node_to_current_monitor(focused);
         {
@@ -771,12 +834,20 @@ mod tests {
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 120.0, y: 90.0 },
         );
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(focused, halley_core::field::NodeState::Active);
-        state.model.focus_state.last_surface_focus_ms.insert(focused, 1);
+        state
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(focused, 1);
         state.model.focus_state.primary_interaction_focus = Some(focused);
         state.assign_node_to_current_monitor(focused);
-        state.model.focus_state
+        state
+            .model
+            .focus_state
             .monitor_focus
             .insert(state.model.monitor_state.current_monitor.clone(), focused);
         let current_monitor = state.model.monitor_state.current_monitor.clone();
@@ -789,7 +860,9 @@ mod tests {
         );
 
         let size = Vec2 { x: 120.0, y: 90.0 };
-        let existing = state.model.field
+        let existing = state
+            .model
+            .field
             .spawn_surface("existing", Vec2 { x: 143.0, y: 0.0 }, size);
         state.assign_node_to_current_monitor(existing);
         let (_, pos, needs_pan) = state.pick_spawn_position(size);
@@ -936,11 +1009,21 @@ mod tests {
         );
         state.assign_node_to_monitor(stale, "right");
         state.assign_node_to_monitor(latest, "right");
-        state.model.focus_state
+        state
+            .model
+            .focus_state
             .monitor_focus
             .insert("right".to_string(), stale);
-        state.model.focus_state.last_surface_focus_ms.insert(stale, 1);
-        state.model.focus_state.last_surface_focus_ms.insert(latest, 2);
+        state
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(stale, 1);
+        state
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(latest, 2);
         state.set_interaction_monitor("right");
         state.set_focused_monitor("right");
 
@@ -1012,7 +1095,10 @@ mod tests {
             };
         }
         let first_right = state.pick_spawn_position(size).1;
-        let right_id = state.model.field.spawn_surface("right-1", first_right, size);
+        let right_id = state
+            .model
+            .field
+            .spawn_surface("right-1", first_right, size);
         state.assign_node_to_monitor(right_id, "right");
 
         let _ = state.activate_monitor("left");
@@ -1051,14 +1137,24 @@ mod tests {
         };
 
         let size = Vec2 { x: 120.0, y: 90.0 };
-        let anchor = state.model.field
+        let anchor = state
+            .model
+            .field
             .spawn_surface("anchor", Vec2 { x: 0.0, y: 0.0 }, size);
-        let _ = state.model.field
+        let _ = state
+            .model
+            .field
             .set_state(anchor, halley_core::field::NodeState::Active);
         state.assign_node_to_current_monitor(anchor);
         state.model.focus_state.primary_interaction_focus = Some(anchor);
-        state.model.focus_state.last_surface_focus_ms.insert(anchor, 1);
-        state.model.focus_state
+        state
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(anchor, 1);
+        state
+            .model
+            .focus_state
             .monitor_focus
             .insert(state.model.monitor_state.current_monitor.clone(), anchor);
 
@@ -1240,7 +1336,11 @@ mod tests {
         );
         state.assign_node_to_monitor(left, "left");
         state.model.focus_state.primary_interaction_focus = Some(left);
-        state.model.focus_state.last_surface_focus_ms.insert(left, 1);
+        state
+            .model
+            .focus_state
+            .last_surface_focus_ms
+            .insert(left, 1);
 
         state.focus_monitor_view("right", Instant::now());
 
@@ -1384,7 +1484,9 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
 
         let size = Vec2 { x: 120.0, y: 90.0 };
-        let focused = state.model.field
+        let focused = state
+            .model
+            .field
             .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
         state.assign_node_to_current_monitor(focused);
         state.set_interaction_focus(Some(focused), 30_000, Instant::now());
@@ -1426,9 +1528,11 @@ mod tests {
             y: 1200.0,
         };
 
-        let id =
-            state.model.field
-                .spawn_surface("new", Vec2 { x: 920.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
+        let id = state.model.field.spawn_surface(
+            "new",
+            Vec2 { x: 920.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
 
         state.reveal_new_toplevel_node(id, false, Instant::now());
 
@@ -1460,7 +1564,11 @@ mod tests {
         state.reveal_new_toplevel_node(id, false, Instant::now());
 
         assert_eq!(
-            state.model.spawn_state.active_spawn_pan.map(|pan| pan.node_id),
+            state
+                .model
+                .spawn_state
+                .active_spawn_pan
+                .map(|pan| pan.node_id),
             Some(id)
         );
     }
@@ -1484,7 +1592,11 @@ mod tests {
         state.reveal_new_toplevel_node(id, false, Instant::now());
 
         assert_eq!(
-            state.model.spawn_state.active_spawn_pan.map(|pan| pan.node_id),
+            state
+                .model
+                .spawn_state
+                .active_spawn_pan
+                .map(|pan| pan.node_id),
             Some(id)
         );
     }
