@@ -64,15 +64,14 @@ fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i3
 }
 
 fn initial_toplevel_size(st: &Halley, toplevel: &ToplevelSurface) -> InitialToplevelSize {
-    let predicted_monitor = st
-        .spawn_state
+    let predicted_monitor = st.model.spawn_state
         .pending_spawn_monitor
         .as_ref()
-        .filter(|monitor| st.monitor_state.monitors.contains_key(monitor.as_str()))
+        .filter(|monitor| st.model.monitor_state.monitors.contains_key(monitor.as_str()))
         .cloned()
         .unwrap_or_else(|| {
             let focused = st.focused_monitor().to_string();
-            if st.monitor_state.monitors.contains_key(focused.as_str()) {
+            if st.model.monitor_state.monitors.contains_key(focused.as_str()) {
                 focused
             } else {
                 st.interaction_monitor().to_string()
@@ -92,8 +91,8 @@ fn initial_toplevel_size(st: &Halley, toplevel: &ToplevelSurface) -> InitialTopl
     let detected = detected_initial_toplevel_size(toplevel);
     let node_size = detected.unwrap_or_else(|| {
         (
-            (st.viewport.size.x * 0.46).round() as i32,
-            (st.viewport.size.y * 0.42).round() as i32,
+            (st.model.viewport.size.x * 0.46).round() as i32,
+            (st.model.viewport.size.y * 0.42).round() as i32,
         )
     });
     let configure_size = None;
@@ -161,7 +160,7 @@ impl SeatHandler for Halley {
     type TouchFocus = WlSurface;
 
     fn seat_state(&mut self) -> &mut SeatState<Self> {
-        &mut self.seat_state
+        &mut self.platform.seat_state
     }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
@@ -173,18 +172,17 @@ impl SeatHandler for Halley {
 
             // Which monitor is the newly-focused surface on?
             let focused_monitor: Option<String> = focused_id.as_ref().and_then(|fid| {
-                let node_id = self.surface_to_node.get(fid).copied()?;
+                let node_id = self.model.surface_to_node.get(fid).copied()?;
                 Some(
-                    self.monitor_state
+                    self.model.monitor_state
                         .node_monitor
                         .get(&node_id)
                         .cloned()
-                        .unwrap_or_else(|| self.monitor_state.current_monitor.clone()),
+                        .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone()),
                 )
             });
 
-            let to_suspend: Vec<NodeId> = self
-                .fullscreen_state
+            let to_suspend: Vec<NodeId> = self.model.fullscreen_state
                 .fullscreen_active_node
                 .iter()
                 .filter_map(|(monitor, &fullscreen_id)| {
@@ -195,12 +193,11 @@ impl SeatHandler for Halley {
                     if !same_monitor {
                         return None;
                     }
-                    let fullscreen_surface_id = self
-                        .xdg_shell_state
+                    let fullscreen_surface_id = self.platform.xdg_shell_state
                         .toplevel_surfaces()
                         .iter()
                         .find_map(|top| {
-                            (self.surface_to_node.get(&top.wl_surface().id()).copied()
+                            (self.model.surface_to_node.get(&top.wl_surface().id()).copied()
                                 == Some(fullscreen_id))
                             .then(|| top.wl_surface().id())
                         });
@@ -221,12 +218,12 @@ impl SeatHandler for Halley {
         );
 
         let client = client_for_surface(focused);
-        set_data_device_focus(&self.display_handle, seat, client.clone());
-        set_primary_focus(&self.display_handle, seat, client);
+        set_data_device_focus(&self.platform.display_handle, seat, client.clone());
+        set_primary_focus(&self.platform.display_handle, seat, client);
     }
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
-        self.cursor_image_status = image;
+        self.platform.cursor_image_status = image;
     }
 }
 
@@ -242,13 +239,13 @@ impl SelectionHandler for Halley {
 
 impl IdleNotifierHandler for Halley {
     fn idle_notifier_state(&mut self) -> &mut IdleNotifierState<Self> {
-        &mut self.idle_notifier_state
+        &mut self.platform.idle_notifier_state
     }
 }
 
 impl DataDeviceHandler for Halley {
     fn data_device_state(&self) -> &DataDeviceState {
-        &self.data_device_state
+        &self.platform.data_device_state
     }
 }
 
@@ -262,7 +259,7 @@ delegate_data_device!(Halley);
 
 impl CompositorHandler for Halley {
     fn compositor_state(&mut self) -> &mut CompositorState {
-        &mut self.compositor_state
+        &mut self.platform.compositor_state
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
@@ -275,7 +272,7 @@ impl CompositorHandler for Halley {
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
         self.install_drm_syncobj_blocker(surface);
-        self.popup_manager.commit(surface);
+        self.platform.popup_manager.commit(surface);
         self.note_commit(surface, Instant::now());
     }
 }
@@ -285,7 +282,7 @@ delegate_viewporter!(Halley);
 
 impl ShmHandler for Halley {
     fn shm_state(&self) -> &ShmState {
-        &self.shm_state
+        &self.platform.shm_state
     }
 }
 
@@ -301,16 +298,16 @@ delegate_shm!(Halley);
 
 impl DmabufHandler for Halley {
     fn dmabuf_state(&mut self) -> &mut smithay::wayland::dmabuf::DmabufState {
-        &mut self.dmabuf_state
+        &mut self.platform.dmabuf_state
     }
 
     fn dmabuf_imported(&mut self, global: &DmabufGlobal, dmabuf: Dmabuf, notifier: ImportNotifier) {
-        if self.dmabuf_global != Some(*global) {
+        if self.platform.dmabuf_global != Some(*global) {
             notifier.failed();
             return;
         }
 
-        let Some(importer) = self.dmabuf_importer.as_ref() else {
+        let Some(importer) = self.platform.dmabuf_importer.as_ref() else {
             notifier.failed();
             return;
         };
@@ -333,7 +330,7 @@ impl DmabufHandler for Halley {
 
 impl DrmSyncobjHandler for Halley {
     fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> {
-        self.drm_syncobj_state.as_mut()
+        self.platform.drm_syncobj_state.as_mut()
     }
 }
 
@@ -363,7 +360,7 @@ impl PointerConstraintsHandler for Halley {
 
 impl Halley {
     fn preferred_xdg_decoration_mode(&self) -> XdgDecorationMode {
-        if self.tuning.no_csd {
+        if self.runtime.tuning.no_csd {
             XdgDecorationMode::ServerSide
         } else {
             XdgDecorationMode::ClientSide
@@ -374,7 +371,7 @@ impl Halley {
         &self,
         state: &mut smithay::wayland::shell::xdg::ToplevelState,
     ) {
-        let tiled = self.tuning.no_csd && !state.states.contains(xdg_toplevel::State::Fullscreen);
+        let tiled = self.runtime.tuning.no_csd && !state.states.contains(xdg_toplevel::State::Fullscreen);
         for edge in [
             xdg_toplevel::State::TiledTop,
             xdg_toplevel::State::TiledBottom,
@@ -391,7 +388,7 @@ impl Halley {
 
     pub(crate) fn refresh_xdg_decoration_mode(&mut self) {
         let mode = self.preferred_xdg_decoration_mode();
-        for toplevel in self.xdg_shell_state.toplevel_surfaces() {
+        for toplevel in self.platform.xdg_shell_state.toplevel_surfaces() {
             toplevel.with_pending_state(|state| {
                 state.decoration_mode = Some(mode);
                 self.apply_toplevel_tiled_hint(state);
@@ -401,7 +398,7 @@ impl Halley {
     }
 
     fn install_drm_syncobj_blocker(&mut self, surface: &WlSurface) {
-        if self.drm_syncobj_state.is_none() {
+        if self.platform.drm_syncobj_state.is_none() {
             return;
         }
 
@@ -430,7 +427,7 @@ impl Halley {
         acquire_point: DrmSyncPoint,
         blocker_state: SyncobjCommitBlockerState,
     ) {
-        let pending_surfaces = self.pending_drm_syncobj_surfaces.clone();
+        let pending_surfaces = self.runtime.pending_drm_syncobj_surfaces.clone();
         std::thread::spawn(move || {
             let state = if acquire_point.wait(i64::MAX).is_ok() {
                 SyncobjCommitBlockerStatus::Released
@@ -445,11 +442,11 @@ impl Halley {
     }
 
     pub(crate) fn drain_drm_syncobj_blockers(&mut self) {
-        let surface_ids = match self.pending_drm_syncobj_surfaces.lock() {
+        let surface_ids = match self.runtime.pending_drm_syncobj_surfaces.lock() {
             Ok(mut pending) => std::mem::take(&mut *pending),
             Err(_) => return,
         };
-        let dh = self.display_handle.clone();
+        let dh = self.platform.display_handle.clone();
 
         for surface_id in surface_ids {
             let Ok(client) = dh.get_client(surface_id) else {
@@ -463,7 +460,7 @@ impl Halley {
     }
 
     pub(crate) fn activate_pointer_constraint_for_surface(&mut self, surface: &WlSurface) {
-        let Some(pointer) = self.seat.get_pointer() else {
+        let Some(pointer) = self.platform.seat.get_pointer() else {
             return;
         };
         with_pointer_constraint(surface, &pointer, |constraint| {
@@ -476,7 +473,7 @@ impl Halley {
     }
 
     pub(crate) fn clear_pointer_focus(&mut self) {
-        let Some(pointer) = self.seat.get_pointer() else {
+        let Some(pointer) = self.platform.seat.get_pointer() else {
             return;
         };
         if pointer.is_grabbed() {
@@ -496,7 +493,7 @@ impl Halley {
     }
 
     pub(crate) fn clear_keyboard_focus(&mut self) {
-        let Some(keyboard) = self.seat.get_keyboard() else {
+        let Some(keyboard) = self.platform.seat.get_keyboard() else {
             return;
         };
         keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial());
@@ -509,15 +506,14 @@ impl Halley {
         pointer: &PointerHandle<Self>,
         location: smithay::utils::Point<f64, smithay::utils::Logical>,
     ) {
-        let Some(node_id) = self.surface_to_node.get(&surface.id()).copied() else {
+        let Some(node_id) = self.model.surface_to_node.get(&surface.id()).copied() else {
             return;
         };
-        let monitor = self
-            .monitor_state
+        let monitor = self.model.monitor_state
             .node_monitor
             .get(&node_id)
             .cloned()
-            .unwrap_or_else(|| self.monitor_state.current_monitor.clone());
+            .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
         let (ws_w, ws_h, _, _) = self.local_screen_in_monitor(monitor.as_str(), 0.0, 0.0);
         let previous_monitor = self.begin_temporary_render_monitor(monitor.as_str());
         let Some(xform) = active_node_surface_transform_screen_details(
@@ -536,7 +532,7 @@ impl Halley {
             (xform.origin_x + location.x as f32 * xform.scale).clamp(0.0, (ws_w.max(1) - 1) as f32);
         let sy =
             (xform.origin_y + location.y as f32 * xform.scale).clamp(0.0, (ws_h.max(1) - 1) as f32);
-        self.interaction_state.pending_pointer_screen_hint = Some((sx, sy));
+        self.input.interaction_state.pending_pointer_screen_hint = Some((sx, sy));
 
         let cam_scale = self.camera_render_scale().max(0.001) as f64;
         let focus_origin = smithay::utils::Point::<f64, smithay::utils::Logical>::from((
@@ -557,7 +553,7 @@ impl Halley {
     }
 
     pub(crate) fn release_active_pointer_constraint(&mut self) -> bool {
-        let Some(pointer) = self.seat.get_pointer() else {
+        let Some(pointer) = self.platform.seat.get_pointer() else {
             return false;
         };
         let Some(surface) = pointer.current_focus() else {
@@ -574,13 +570,13 @@ impl Halley {
         });
         if released {
             self.clear_pointer_focus();
-            self.interaction_state.reset_input_state_requested = true;
+            self.input.interaction_state.reset_input_state_requested = true;
         }
         released
     }
 
     pub(crate) fn active_locked_pointer_surface(&self) -> Option<WlSurface> {
-        let pointer = self.seat.get_pointer()?;
+        let pointer = self.platform.seat.get_pointer()?;
         let surface = pointer.current_focus()?;
         let locked = with_pointer_constraint(&surface, &pointer, |constraint| {
             matches!(constraint.as_deref(), Some(PointerConstraint::Locked(_)))
@@ -677,7 +673,7 @@ delegate_xdg_decoration!(Halley);
 
 impl XdgShellHandler for Halley {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
-        &mut self.xdg_shell_state
+        &mut self.platform.xdg_shell_state
     }
 
     fn new_toplevel(&mut self, toplevel: ToplevelSurface) {
@@ -704,11 +700,10 @@ impl XdgShellHandler for Halley {
         let wl = toplevel.wl_surface().clone();
         let id = self.ensure_node_for_surface(&wl, "toplevel", initial_size.node_size);
         let now = Instant::now();
-        let _ = self.field.touch(id, self.now_ms(now));
+        let _ = self.model.field.touch(id, self.now_ms(now));
         self.reveal_new_toplevel_node(id, is_transient, now);
-        let node_monitor = self.monitor_state.node_monitor.get(&id).cloned();
-        let handled_by_active_cluster = self
-            .field
+        let node_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
+        let handled_by_active_cluster = self.model.field
             .cluster_id_for_member_public(id)
             .zip(node_monitor.as_deref())
             .is_some_and(|(cid, monitor)| self.active_cluster_workspace_for_monitor(monitor) == Some(cid));
@@ -727,8 +722,7 @@ impl XdgShellHandler for Halley {
     }
 
     fn new_popup(&mut self, popup: PopupSurface, positioner: PositionerState) {
-        let _ = self
-            .popup_manager
+        let _ = self.platform.popup_manager
             .track_popup(PopupKind::from(popup.clone()));
         constrain_layer_popup(self, &popup, positioner);
         let _ = popup.send_configure();
@@ -752,7 +746,7 @@ impl XdgShellHandler for Halley {
 
     fn fullscreen_request(&mut self, surface: ToplevelSurface, output: Option<WlOutput>) {
         let key = surface.wl_surface().id();
-        let Some(node_id) = self.surface_to_node.get(&key).copied() else {
+        let Some(node_id) = self.model.surface_to_node.get(&key).copied() else {
             surface.send_configure();
             return;
         };
@@ -761,7 +755,7 @@ impl XdgShellHandler for Halley {
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
         let key = surface.wl_surface().id();
-        let Some(node_id) = self.surface_to_node.get(&key).copied() else {
+        let Some(node_id) = self.model.surface_to_node.get(&key).copied() else {
             surface.send_configure();
             return;
         };
@@ -771,9 +765,8 @@ impl XdgShellHandler for Halley {
     fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, serial: Serial) {
         let popup = PopupKind::from(surface);
         if let Ok(root) = find_popup_root_surface(&popup) {
-            let _ = self
-                .popup_manager
-                .grab_popup::<Self>(root, popup, &self.seat, serial);
+            let _ = self.platform.popup_manager
+                .grab_popup::<Self>(root, popup, &self.platform.seat, serial);
         }
     }
 
@@ -789,26 +782,23 @@ impl XdgShellHandler for Halley {
     }
 
     fn popup_destroyed(&mut self, _surface: PopupSurface) {
-        self.popup_manager.cleanup();
+        self.platform.popup_manager.cleanup();
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         let key = surface.wl_surface().id();
-        let closing_id = self.surface_to_node.get(&key).copied();
-        let had_keyboard_focus = self
-            .seat
+        let closing_id = self.model.surface_to_node.get(&key).copied();
+        let had_keyboard_focus = self.platform.seat
             .get_keyboard()
             .and_then(|kb| kb.current_focus())
             .is_some_and(|focused| focused.id() == key);
-        let had_pointer_focus = self
-            .seat
+        let had_pointer_focus = self.platform.seat
             .get_pointer()
             .and_then(|ptr| ptr.current_focus())
             .is_some_and(|focused| focused.id() == key);
-        let focused_monitor = self
-            .surface_to_node
+        let focused_monitor = self.model.surface_to_node
             .get(&key)
-            .and_then(|id| self.monitor_state.node_monitor.get(id))
+            .and_then(|id| self.model.monitor_state.node_monitor.get(id))
             .cloned();
 
         if had_keyboard_focus || had_pointer_focus {
@@ -816,9 +806,9 @@ impl XdgShellHandler for Halley {
                 "toplevel_destroyed with active focus (keyboard={} pointer={}); scheduling input state reset",
                 had_keyboard_focus, had_pointer_focus
             );
-            self.interaction_state.reset_input_state_requested = true;
+            self.input.interaction_state.reset_input_state_requested = true;
             if let Some(ref focused_monitor) = focused_monitor {
-                self.spawn_state.pending_spawn_monitor = Some(focused_monitor.clone());
+                self.model.spawn_state.pending_spawn_monitor = Some(focused_monitor.clone());
                 info!(
                     "pending spawn monitor latched from destroyed toplevel: {}",
                     focused_monitor
@@ -831,7 +821,7 @@ impl XdgShellHandler for Halley {
         }
 
         if had_keyboard_focus
-            && self.tuning.close_restore_focus
+            && self.runtime.tuning.close_restore_focus
             && let (Some(closing_id), Some(focused_monitor)) =
                 (closing_id, focused_monitor.as_deref())
         {
@@ -861,10 +851,10 @@ impl XdgShellHandler for Halley {
                 let _ = self.restore_focus_to_node_after_close(focused_monitor, fallback, now);
             }
         } else if had_keyboard_focus
-            && !self.tuning.close_restore_focus
+            && !self.runtime.tuning.close_restore_focus
             && let Some(focused_monitor) = focused_monitor.as_deref()
         {
-            self.focus_state
+            self.model.focus_state
                 .blocked_monitor_focus_restore
                 .insert(focused_monitor.to_string());
         }
@@ -881,7 +871,7 @@ delegate_xdg_shell!(Halley);
 
 impl WlrLayerShellHandler for Halley {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {
-        &mut self.wlr_layer_shell_state
+        &mut self.platform.wlr_layer_shell_state
     }
 
     fn new_layer_surface(
@@ -909,7 +899,7 @@ delegate_output!(Halley);
 
 impl PrimarySelectionHandler for Halley {
     fn primary_selection_state(&self) -> &PrimarySelectionState {
-        &self.primary_selection_state
+        &self.platform.primary_selection_state
     }
 }
 
@@ -917,7 +907,7 @@ delegate_primary_selection!(Halley);
 
 impl DataControlHandler for Halley {
     fn data_control_state(&self) -> &DataControlState {
-        &self.data_control_state
+        &self.platform.data_control_state
     }
 }
 

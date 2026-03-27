@@ -17,18 +17,17 @@ pub(crate) struct CarryState {
 
 impl Halley {
     pub(crate) fn enforce_carry_zone_states(&mut self) {
-        let tracked: Vec<(NodeId, FocusZone)> = self
-            .carry_state
+        let tracked: Vec<(NodeId, FocusZone)> = self.model.carry_state
             .carry_zone_hint
             .iter()
             .map(|(&id, &z)| (id, z))
             .collect();
 
         for (id, zone) in tracked {
-            if !self.field.is_visible(id) {
+            if !self.model.field.is_visible(id) {
                 continue;
             }
-            let Some(n) = self.field.node(id) else {
+            let Some(n) = self.model.field.node(id) else {
                 continue;
             };
             if n.kind != halley_core::field::NodeKind::Surface {
@@ -38,7 +37,7 @@ impl Halley {
                 continue;
             }
 
-            let held_state = self.carry_state.carry_state_hold.get(&id);
+            let held_state = self.model.carry_state.carry_state_hold.get(&id);
             let target = match zone {
                 _ if matches!(held_state, Some(halley_core::field::NodeState::Active)) => {
                     DecayLevel::Hot
@@ -56,7 +55,7 @@ impl Halley {
                 FocusZone::Inside => DecayLevel::Cold,
                 FocusZone::Outside => DecayLevel::Cold,
             };
-            let _ = self.field.set_decay_level(id, target);
+            let _ = self.model.field.set_decay_level(id, target);
         }
     }
 }

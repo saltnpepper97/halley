@@ -48,7 +48,7 @@ where
     I: IntoIterator<Item = halley_core::field::NodeId>,
 {
     for node_id in node_ids {
-        let Some(app_id) = st.node_app_ids.get(&node_id).cloned() else {
+        let Some(app_id) = st.model.node_app_ids.get(&node_id).cloned() else {
             continue;
         };
         ensure_app_icon_resource(renderer, st, &app_id)?;
@@ -61,19 +61,19 @@ fn ensure_app_icon_resource(
     st: &mut Halley,
     app_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if st.render_state.node_app_icon_cache.contains_key(app_id) {
+    if st.ui.render_state.node_app_icon_cache.contains_key(app_id) {
         return Ok(());
     }
 
     let Some(icon_path) = resolve_app_icon_path(app_id) else {
-        st.render_state
+        st.ui.render_state
             .node_app_icon_cache
             .insert(app_id.to_string(), NodeAppIconCacheEntry::Missing);
         return Ok(());
     };
 
     let Some(raster) = load_icon_raster(&icon_path) else {
-        st.render_state
+        st.ui.render_state
             .node_app_icon_cache
             .insert(app_id.to_string(), NodeAppIconCacheEntry::Missing);
         return Ok(());
@@ -94,7 +94,7 @@ fn ensure_app_icon_resource(
         }),
         Err(_) => NodeAppIconCacheEntry::Missing,
     };
-    st.render_state
+    st.ui.render_state
         .node_app_icon_cache
         .insert(app_id.to_string(), entry);
     Ok(())
@@ -104,9 +104,9 @@ pub(crate) fn node_app_icon_entry<'a>(
     st: &'a Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<&'a NodeAppIconCacheEntry> {
-    st.node_app_ids
+    st.model.node_app_ids
         .get(&node_id)
-        .and_then(|app_id| st.render_state.node_app_icon_cache.get(app_id))
+        .and_then(|app_id| st.ui.render_state.node_app_icon_cache.get(app_id))
 }
 
 fn resolve_app_icon_path(app_id: &str) -> Option<PathBuf> {

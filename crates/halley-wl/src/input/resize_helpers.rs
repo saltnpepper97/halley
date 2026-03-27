@@ -278,7 +278,7 @@ pub(crate) fn active_node_screen_rect(
     // Mirror the render path exactly: center on local_geo, derive geometry_rect.
     let xform = active_node_surface_transform_screen_details(st, w, h, node_id, now, None)?;
     let local_geo = active_node_visual_local_rect(st, node_id).or_else(|| {
-        st.field.node(node_id).map(|n| {
+        st.model.field.node(node_id).map(|n| {
             (
                 0.0,
                 0.0,
@@ -306,7 +306,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
     now: Instant,
     resize_preview: Option<ResizeCtx>,
 ) -> Option<ActiveNodeSurfaceTransformScreen> {
-    let n = st.field.node(node_id)?;
+    let n = st.model.field.node(node_id)?;
     if n.state != halley_core::field::NodeState::Active {
         return None;
     }
@@ -334,15 +334,13 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let p = n.pos;
             let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
 
-            let bbox_lx = st
-                .render_state
+            let bbox_lx = st.ui.render_state
                 .bbox_loc
                 .get(&node_id)
                 .copied()
                 .unwrap_or((0.0, 0.0))
                 .0;
-            let bbox_ly = st
-                .render_state
+            let bbox_ly = st.ui.render_state
                 .bbox_loc
                 .get(&node_id)
                 .copied()
@@ -351,8 +349,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let bbox_w = n.intrinsic_size.x.max(1.0);
             let bbox_h = n.intrinsic_size.y.max(1.0);
             let local_bbox = (bbox_lx, bbox_ly, bbox_w, bbox_h);
-            let (gx, gy, gw, gh) = st
-                .render_state
+            let (gx, gy, gw, gh) = st.ui.render_state
                 .window_geometry
                 .get(&node_id)
                 .copied()
@@ -390,8 +387,7 @@ pub(crate) fn active_resize_geometry_screen(
     let frame_top = rz.preview_top_px;
     let frame_right = rz.preview_right_px;
     let frame_bottom = rz.preview_bottom_px;
-    let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) = st
-        .render_state
+    let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) = st.ui.render_state
         .window_geometry
         .get(&node_id)
         .copied()
@@ -425,14 +421,14 @@ fn active_node_visual_local_rect(
     st: &Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<(f32, f32, f32, f32)> {
-    if let Some(&(x, y, w, h)) = st.render_state.window_geometry.get(&node_id) {
+    if let Some(&(x, y, w, h)) = st.ui.render_state.window_geometry.get(&node_id) {
         return Some((x, y, w.max(1.0), h.max(1.0)));
     }
 
-    for top in st.xdg_shell_state.toplevel_surfaces() {
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface();
         let key = wl.id();
-        if st.surface_to_node.get(&key).copied() != Some(node_id) {
+        if st.model.surface_to_node.get(&key).copied() != Some(node_id) {
             continue;
         }
 

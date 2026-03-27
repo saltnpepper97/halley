@@ -100,7 +100,7 @@ pub(crate) fn resolve_hover_targets_for_monitor(
         None
     } else {
         ps.hover_node.filter(|id| {
-            st.monitor_state
+            st.model.monitor_state
                 .node_monitor
                 .get(id)
                 .is_none_or(|node_monitor| node_monitor == monitor)

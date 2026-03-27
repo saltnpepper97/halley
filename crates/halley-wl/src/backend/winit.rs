@@ -91,7 +91,7 @@ fn apply_winit_reload(
             refresh: 0,
         },
     );
-    let reload_commands = st.tuning.autostart_on_reload.clone();
+    let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     info!(
         "{}: reloaded config from {} with viewport {}x{}",
@@ -202,9 +202,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mut ev: EventLoop<Halley> = EventLoop::try_new()?;
             let _signal = ev.get_signal();
             let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
-            state.seat.add_pointer();
-            if state
-                .seat
+            state.platform.seat.add_pointer();
+            if state.platform.seat
                 .add_keyboard(Default::default(), 200, 30)
                 .is_err()
             {
@@ -226,7 +225,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     y: ws.h.max(1) as f32,
                 };
                 state.apply_tuning(fresh);
-                state.zoom_ref_size = halley_core::field::Vec2 {
+                state.model.zoom_ref_size = halley_core::field::Vec2 {
                     x: ws.w.max(1) as f32,
                     y: ws.h.max(1) as f32,
                 };
@@ -239,9 +238,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     },
                 );
             }
-            let autostart_once = state.tuning.autostart_once.clone();
+            let autostart_once = state.runtime.tuning.autostart_once.clone();
             run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
-            apply_host_cursor(&backend, &state.cursor_image_status);
+            apply_host_cursor(&backend, &state.platform.cursor_image_status);
             let backend_for_winit = backend.clone();
             let backend_for_timer = backend.clone();
             let backend_for_cursor_timer = backend.clone();
@@ -321,7 +320,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                     WinitEvent::Resized { size, .. } => {
                         debug!("winit event: {:?}", event);
-                        st.zoom_ref_size = halley_core::field::Vec2 {
+                        st.model.zoom_ref_size = halley_core::field::Vec2 {
                             x: size.w.max(1) as f32,
                             y: size.h.max(1) as f32,
                         };
@@ -509,8 +508,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 })?;
 
             let initial_frame_interval = frame_interval_for_refresh_hz(
-                state
-                    .tuning
+                state.runtime.tuning
                     .tty_viewports
                     .first()
                     .and_then(|vp| vp.refresh_rate),
@@ -537,7 +535,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 let now = Instant::now();
                 st.drain_drm_syncobj_blockers();
 
-                st.spawned_children.retain_mut(|child| {
+                st.runtime.spawned_children.retain_mut(|child| {
                     match child.try_wait() {
                         Ok(Some(status)) => {
                             debug!("reaped child pid={} status={}", child.id(), status);
@@ -561,7 +559,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         if let Some(next) =
                             RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                         {
-                            if crate::run::viewport_section_changed(&st.tuning, &next) {
+                            if crate::run::viewport_section_changed(&st.runtime.tuning, &next) {
                                 apply_winit_reload(
                                     &backend_for_timer,
                                     st,
@@ -571,7 +569,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                     "ipc",
                                 );
                             } else {
-                                let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                                let next = crate::run::preserve_viewport_section(&st.runtime.tuning, next);
                                 crate::run::apply_reloaded_tuning(
                                     st,
                                     next,
@@ -586,7 +584,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 config_path_for_timer.as_str()
                             );
                         }
-                        info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                        info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
                         halley_ipc::Response::Reloaded
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
@@ -650,7 +648,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     if let Some(next) =
                         RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                     {
-                        if crate::run::viewport_section_changed(&st.tuning, &next) {
+                        if crate::run::viewport_section_changed(&st.runtime.tuning, &next) {
                             apply_winit_reload(
                                 &backend_for_timer,
                                 st,
@@ -660,7 +658,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 "watch",
                             );
                         } else {
-                            let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                            let next = crate::run::preserve_viewport_section(&st.runtime.tuning, next);
                             crate::run::apply_reloaded_tuning(
                                 st,
                                 next,
@@ -678,11 +676,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 if reloaded {
-                    info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                    info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
                 }
 
-                if st.tuning.debug_tick_dump {
-                    for (sid, act) in st.surface_activity.iter_mut() {
+                if st.runtime.tuning.debug_tick_dump {
+                    for (sid, act) in st.runtime.surface_activity.iter_mut() {
                         if let Some((new_state, cps)) = act.tick(now, true) {
                             match new_state {
                                 VisualState::Active => {
@@ -708,7 +706,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 .resize_trace_last_at
                                 .is_none_or(|at| now.duration_since(at).as_millis() as u64 >= 120);
                             if due {
-                                if let Some(n) = st.field.node(id) {
+                                if let Some(n) = st.model.field.node(id) {
                                     let surf = current_surface_size_for_node(st, id);
                                     info!(
                                         "resize-trace id={} pos=({:.1},{:.1}) intrinsic=({:.1},{:.1}) surface={:?} state={:?}",
@@ -729,10 +727,10 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                 }
 
-                apply_host_cursor(&backend_for_cursor_timer, &st.cursor_image_status);
+                apply_host_cursor(&backend_for_cursor_timer, &st.platform.cursor_image_status);
                 backend_handle_for_timer.request_redraw();
                 TimeoutAction::ToDuration(frame_interval_for_refresh_hz(
-                    st.tuning
+                    st.runtime.tuning
                         .tty_viewports
                         .first()
                         .and_then(|vp| vp.refresh_rate),

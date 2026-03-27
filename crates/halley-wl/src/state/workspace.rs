@@ -13,8 +13,8 @@ pub(crate) struct WorkspaceState {
 
 impl Halley {
     pub(crate) fn preserve_collapsed_surface(&self, id: NodeId) -> bool {
-        self.workspace_state.manual_collapsed_nodes.contains(&id)
-            || self.field.node(id).is_some_and(|n| {
+        self.model.workspace_state.manual_collapsed_nodes.contains(&id)
+            || self.model.field.node(id).is_some_and(|n| {
                 n.kind == halley_core::field::NodeKind::Surface
                     && n.state == halley_core::field::NodeState::Node
             })

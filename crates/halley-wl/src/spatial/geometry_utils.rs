@@ -14,7 +14,7 @@ pub(crate) fn screen_to_world(
     let ny = 0.5 - (sy / h);
 
     halley_core::field::Vec2 {
-        x: st.viewport.center.x + nx * view.x.max(1.0),
-        y: st.viewport.center.y + ny * view.y.max(1.0),
+        x: st.model.viewport.center.x + nx * view.x.max(1.0),
+        y: st.model.viewport.center.y + ny * view.y.max(1.0),
     }
 }

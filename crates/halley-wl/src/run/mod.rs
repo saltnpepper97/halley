@@ -55,7 +55,7 @@ pub(crate) fn request_xwayland_start() {
 }
 
 /// Spawns autostart commands and pushes the resulting Child handles into
-/// `st.spawned_children` so they are tracked for cleanup on exit.
+/// `st.runtime.spawned_children` so they are tracked for cleanup on exit.
 pub(crate) fn run_autostart_commands(
     st: &mut Halley,
     commands: &[String],
@@ -68,29 +68,29 @@ pub(crate) fn run_autostart_commands(
             continue;
         }
         if let Some(child) = spawn_command(command, wayland_display, label) {
-            st.spawned_children.push(child);
+            st.runtime.spawned_children.push(child);
         }
     }
 }
 
 pub(crate) fn capture_live_camera_state(st: &mut Halley) -> LiveCameraState {
     LiveCameraState {
-        viewport: st.viewport,
-        zoom_ref_size: st.zoom_ref_size,
-        camera_target_center: st.camera_target_center,
-        camera_target_view_size: st.camera_target_view_size,
-        viewport_pan_anim: st.interaction_state.viewport_pan_anim.take(),
+        viewport: st.model.viewport,
+        zoom_ref_size: st.model.zoom_ref_size,
+        camera_target_center: st.model.camera_target_center,
+        camera_target_view_size: st.model.camera_target_view_size,
+        viewport_pan_anim: st.input.interaction_state.viewport_pan_anim.take(),
     }
 }
 
 pub(crate) fn restore_live_camera_state(st: &mut Halley, state: LiveCameraState) {
-    st.viewport = state.viewport;
-    st.zoom_ref_size = state.zoom_ref_size;
-    st.camera_target_center = state.camera_target_center;
-    st.camera_target_view_size = state.camera_target_view_size;
-    st.interaction_state.viewport_pan_anim = state.viewport_pan_anim;
-    st.tuning.viewport_center = st.viewport.center;
-    st.tuning.viewport_size = st.viewport.size;
+    st.model.viewport = state.viewport;
+    st.model.zoom_ref_size = state.zoom_ref_size;
+    st.model.camera_target_center = state.camera_target_center;
+    st.model.camera_target_view_size = state.camera_target_view_size;
+    st.input.interaction_state.viewport_pan_anim = state.viewport_pan_anim;
+    st.runtime.tuning.viewport_center = st.model.viewport.center;
+    st.runtime.tuning.viewport_size = st.model.viewport.size;
 }
 
 pub(crate) fn apply_reloaded_tuning(
@@ -104,7 +104,7 @@ pub(crate) fn apply_reloaded_tuning(
     st.apply_tuning(next);
     restore_live_camera_state(st, live_camera);
     // Clone to avoid borrow conflict when passing st mutably below.
-    let reload_commands = st.tuning.autostart_on_reload.clone();
+    let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     info!("{reason}: reloaded config from {}", config_path);
 }

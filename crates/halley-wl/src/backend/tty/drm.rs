@@ -618,7 +618,7 @@ pub(crate) fn queue_tty_drm_frame(
 ) -> Result<(), Box<dyn Error>> {
     use crate::render::draw_debug_frame_to_target;
     let previous_monitor = st.begin_temporary_render_monitor(output_name);
-    let previous_layer_configure = st.interaction_state.suppress_layer_shell_configure;
+    let previous_layer_configure = st.input.interaction_state.suppress_layer_shell_configure;
 
     let mut compositor = compositor.borrow_mut();
     let mut renderer_ref = renderer.borrow_mut();
@@ -638,7 +638,7 @@ pub(crate) fn queue_tty_drm_frame(
         Some((local_sx, local_sy))
     });
 
-    st.interaction_state.suppress_layer_shell_configure = previous_monitor.is_some();
+    st.input.interaction_state.suppress_layer_shell_configure = previous_monitor.is_some();
 
     let mut texture: GlesTexture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
         &mut *renderer_ref,
@@ -706,7 +706,7 @@ pub(crate) fn queue_tty_drm_frame(
         })?;
     }
 
-    st.interaction_state.suppress_layer_shell_configure = previous_layer_configure;
+    st.input.interaction_state.suppress_layer_shell_configure = previous_layer_configure;
     st.end_temporary_render_monitor(previous_monitor);
     Ok(())
 }

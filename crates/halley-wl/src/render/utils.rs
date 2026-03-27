@@ -62,8 +62,8 @@ pub(crate) fn world_to_screen(st: &Halley, w: i32, h: i32, x: f32, y: f32) -> (i
     let vw = view.x.max(1.0);
     let vh = view.y.max(1.0);
 
-    let nx = ((x - st.viewport.center.x) / vw) + 0.5;
-    let ny = 0.5 - ((y - st.viewport.center.y) / vh);
+    let nx = ((x - st.model.viewport.center.x) / vw) + 0.5;
+    let ny = 0.5 - ((y - st.model.viewport.center.y) / vh);
 
     let sx = (nx * w as f32).round() as i32;
     let sy = (ny * h as f32).round() as i32;
@@ -312,7 +312,7 @@ pub(crate) fn sync_node_size_from_surface(
     let now_ms = st.now_ms(Instant::now());
     let resize_static_active = st.resize_static_active_for(node_id, now_ms);
 
-    let Some(node) = st.field.node_mut(node_id) else {
+    let Some(node) = st.model.field.node_mut(node_id) else {
         return bbox;
     };
 
@@ -341,7 +341,7 @@ pub(crate) fn snapshot_surface_geometry(
 ) -> Rectangle<i32, Logical> {
     let bbox = bbox_from_surface_tree(wl, (0, 0));
 
-    st.render_state
+    st.ui.render_state
         .bbox_loc
         .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
     let geometry = with_states(wl, |states| {
@@ -352,7 +352,7 @@ pub(crate) fn snapshot_surface_geometry(
             .geometry
     });
     if let Some(g) = geometry {
-        st.render_state.window_geometry.insert(
+        st.ui.render_state.window_geometry.insert(
             node_id,
             (
                 g.loc.x as f32,
@@ -362,7 +362,7 @@ pub(crate) fn snapshot_surface_geometry(
             ),
         );
     } else {
-        st.render_state.window_geometry.insert(
+        st.ui.render_state.window_geometry.insert(
             node_id,
             (
                 bbox.loc.x as f32,

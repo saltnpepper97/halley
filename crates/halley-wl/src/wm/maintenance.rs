@@ -8,19 +8,19 @@ impl Halley {
     const ACTIVE_RING_OUTSIDE_DECAY_FRAC: f32 = 0.98;
 
     fn focus_ring_center_for_node(&self, id: NodeId) -> Vec2 {
-        self.monitor_state
+        self.model.monitor_state
             .node_monitor
             .get(&id)
-            .and_then(|monitor| self.monitor_state.monitors.get(monitor))
+            .and_then(|monitor| self.model.monitor_state.monitors.get(monitor))
             .map(|monitor| monitor.viewport.center)
-            .unwrap_or(self.viewport.center)
+            .unwrap_or(self.model.viewport.center)
     }
 
     fn focus_ring_for_node(&self, id: NodeId) -> FocusRing {
-        self.monitor_state
+        self.model.monitor_state
             .node_monitor
             .get(&id)
-            .map(|monitor| self.tuning.focus_ring_for_output(monitor.as_str()))
+            .map(|monitor| self.runtime.tuning.focus_ring_for_output(monitor.as_str()))
             .unwrap_or_else(|| self.active_focus_ring())
     }
 
@@ -63,7 +63,7 @@ impl Halley {
     }
 
     fn surface_ring_coverage(&self, id: NodeId) -> (f32, f32) {
-        let Some(node) = self.field.node(id) else {
+        let Some(node) = self.model.field.node(id) else {
             return (0.0, 1.0);
         };
         let focus_center = self.focus_ring_center_for_node(id);
@@ -84,16 +84,15 @@ impl Halley {
 
     pub(crate) fn enforce_single_primary_active_unit(&mut self) {
         let now_ms = self.now_ms(Instant::now());
-        let active_windows_allowed = self.tuning.active_windows_allowed.max(1);
+        let active_windows_allowed = self.runtime.tuning.active_windows_allowed.max(1);
         let companion = self.companion_surface_node(now_ms);
         let preferred_surface = self.last_input_surface_node();
 
-        let active_ids: Vec<NodeId> = self
-            .field
+        let active_ids: Vec<NodeId> = self.model.field
             .nodes()
             .iter()
             .filter_map(|(&id, n)| {
-                (self.field.is_visible(id)
+                (self.model.field.is_visible(id)
                     && n.kind == halley_core::field::NodeKind::Surface
                     && n.state == halley_core::field::NodeState::Active)
                     .then_some(id)
@@ -102,7 +101,7 @@ impl Halley {
 
         let mut active_ids_by_monitor: HashMap<Option<String>, Vec<NodeId>> = HashMap::new();
         for id in active_ids {
-            let monitor = self.monitor_state.node_monitor.get(&id).cloned();
+            let monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
             active_ids_by_monitor.entry(monitor).or_default().push(id);
         }
 
@@ -117,15 +116,15 @@ impl Halley {
                 .iter()
                 .copied()
                 .find(|&id| {
-                    let monitor = self.monitor_state.node_monitor.get(&id);
+                    let monitor = self.model.monitor_state.node_monitor.get(&id);
                     monitor
-                        .and_then(|m| self.focus_state.monitor_focus.get(m))
+                        .and_then(|m| self.model.focus_state.monitor_focus.get(m))
                         .copied()
                         == Some(id)
                 })
                 .or_else(|| {
                     active_ids.iter().copied().max_by_key(|id| {
-                        self.focus_state
+                        self.model.focus_state
                             .last_surface_focus_ms
                             .get(id)
                             .copied()
@@ -142,17 +141,16 @@ impl Halley {
                 ranked.sort_by_key(|id| {
                     let preferred_rank = u8::from(preferred_surface == Some(*id));
                     let focus_rank = u8::from({
-                        let monitor = self.monitor_state.node_monitor.get(id);
+                        let monitor = self.model.monitor_state.node_monitor.get(id);
                         monitor
-                            .and_then(|m| self.focus_state.monitor_focus.get(m))
+                            .and_then(|m| self.model.focus_state.monitor_focus.get(m))
                             .copied()
                             == Some(*id)
                     });
                     let companion_rank = u8::from(companion == Some(*id));
                     let inside_rank =
                         u8::from(!self.surface_is_definitively_outside_focus_ring(*id));
-                    let latest_focus = self
-                        .focus_state
+                    let latest_focus = self.model.focus_state
                         .last_surface_focus_ms
                         .get(id)
                         .copied()
@@ -179,7 +177,7 @@ impl Halley {
                 if keep_set.contains(&id) {
                     continue;
                 }
-                let _ = self.field.set_decay_level(id, DecayLevel::Cold);
+                let _ = self.model.field.set_decay_level(id, DecayLevel::Cold);
             }
         }
     }
@@ -191,10 +189,10 @@ impl Halley {
         active_delay_ms: u64,
         inactive_delay_ms: u64,
     ) {
-        let Some(n) = self.field.node(id) else {
+        let Some(n) = self.model.field.node(id) else {
             return;
         };
-        if !self.field.is_visible(id) || n.kind != halley_core::field::NodeKind::Surface {
+        if !self.model.field.is_visible(id) || n.kind != halley_core::field::NodeKind::Surface {
             return;
         }
 
@@ -203,64 +201,62 @@ impl Halley {
         }
 
         if self.is_hard_decay_protected(id, now_ms) {
-            let _ = self.field.set_decay_level(id, DecayLevel::Hot);
+            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
             return;
         }
 
         let outside_ring = self.surface_is_definitively_outside_focus_ring(id);
         if !outside_ring {
-            let _ = self.field.set_decay_level(id, DecayLevel::Hot);
+            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
             return;
         }
 
-        let is_primary = self.focus_state.primary_interaction_focus == Some(id);
+        let is_primary = self.model.focus_state.primary_interaction_focus == Some(id);
         let delay_ms = if is_primary {
             active_delay_ms
         } else {
             inactive_delay_ms
         };
 
-        let last_focus_ms = self
-            .focus_state
+        let last_focus_ms = self.model.focus_state
             .last_surface_focus_ms
             .get(&id)
             .copied()
             .unwrap_or(0);
 
         if now_ms.saturating_sub(last_focus_ms) >= delay_ms {
-            let _ = self.field.set_decay_level(id, DecayLevel::Cold);
+            let _ = self.model.field.set_decay_level(id, DecayLevel::Cold);
         } else {
-            let _ = self.field.set_decay_level(id, DecayLevel::Hot);
+            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
         }
     }
 
     fn is_hard_decay_protected(&self, id: NodeId, now_ms: u64) -> bool {
-        self.focus_state.primary_interaction_focus == Some(id)
-            || self.interaction_state.resize_active == Some(id)
+        self.model.focus_state.primary_interaction_focus == Some(id)
+            || self.input.interaction_state.resize_active == Some(id)
             || self.is_recently_resized_node(id, now_ms)
-            || self.carry_state.carry_zone_hint.contains_key(&id)
-            || self
-                .workspace_state
+            || self.model.carry_state.carry_zone_hint.contains_key(&id)
+            || self.model.workspace_state
                 .active_transition_until_ms
                 .contains_key(&id)
     }
 
     pub fn surface_intersects_viewport(&self, id: NodeId) -> bool {
-        let Some(n) = self.field.node(id) else {
+        let Some(n) = self.model.field.node(id) else {
             return false;
         };
-        if n.kind != halley_core::field::NodeKind::Surface || !self.field.is_visible(id) {
+        if n.kind != halley_core::field::NodeKind::Surface || !self.model.field.is_visible(id) {
             return false;
         }
 
         let ext = self.collision_extents_for_node(n);
-        let half_vw = self.viewport.size.x * 0.5;
-        let half_vh = self.viewport.size.y * 0.5;
+        let half_vw = self.model.viewport.size.x * 0.5;
+        let half_vh = self.model.viewport.size.y * 0.5;
 
-        let view_left = self.viewport.center.x - half_vw;
-        let view_right = self.viewport.center.x + half_vw;
-        let view_top = self.viewport.center.y - half_vh;
-        let view_bottom = self.viewport.center.y + half_vh;
+        let view_left = self.model.viewport.center.x - half_vw;
+        let view_right = self.model.viewport.center.x + half_vw;
+        let view_top = self.model.viewport.center.y - half_vh;
+        let view_bottom = self.model.viewport.center.y + half_vh;
 
         let node_left = n.pos.x - ext.left;
         let node_right = n.pos.x + ext.right;
@@ -288,20 +284,18 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let id = state.field.spawn_surface(
+        let id = state.model.field.spawn_surface(
             "edge-overlap",
             Vec2 { x: 145.0, y: 0.0 },
             Vec2 { x: 100.0, y: 100.0 },
         );
-        state
-            .workspace_state
+        state.model.workspace_state
             .last_active_size
             .insert(id, Vec2 { x: 100.0, y: 100.0 });
-        state
-            .render_state
+        state.ui.render_state
             .window_geometry
             .insert(id, (-50.0, -50.0, 100.0, 100.0));
-        state.render_state.bbox_loc.insert(id, (0.0, 0.0));
+        state.ui.render_state.bbox_loc.insert(id, (0.0, 0.0));
 
         assert!(!state.surface_is_definitively_outside_focus_ring(id));
     }
@@ -316,20 +310,18 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let id = state.field.spawn_surface(
+        let id = state.model.field.spawn_surface(
             "outside",
             Vec2 { x: 260.0, y: 0.0 },
             Vec2 { x: 100.0, y: 100.0 },
         );
-        state
-            .workspace_state
+        state.model.workspace_state
             .last_active_size
             .insert(id, Vec2 { x: 100.0, y: 100.0 });
-        state
-            .render_state
+        state.ui.render_state
             .window_geometry
             .insert(id, (-50.0, -50.0, 100.0, 100.0));
-        state.render_state.bbox_loc.insert(id, (0.0, 0.0));
+        state.ui.render_state.bbox_loc.insert(id, (0.0, 0.0));
 
         assert!(state.surface_is_definitively_outside_focus_ring(id));
     }

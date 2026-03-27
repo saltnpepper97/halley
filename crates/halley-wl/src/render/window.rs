@@ -180,14 +180,13 @@ pub(crate) fn collect_active_surfaces(
         ))
     });
 
-    let mut wl_surfaces: Vec<_> = st
-        .xdg_shell_state
+    let mut wl_surfaces: Vec<_> = st.platform.xdg_shell_state
         .toplevel_surfaces()
         .iter()
         .filter_map(|t| {
             let wl = t.wl_surface().clone();
             let key = wl.id();
-            let node_id = st.surface_to_node.get(&key).copied()?;
+            let node_id = st.model.surface_to_node.get(&key).copied()?;
             node_surface_map.insert(node_id, wl.clone());
             Some((node_id, wl))
         })
@@ -202,11 +201,11 @@ pub(crate) fn collect_active_surfaces(
             sync_node_size_from_surface(st, node_id, &wl)
         };
 
-        let Some(node) = st.field.node(node_id) else {
+        let Some(node) = st.model.field.node(node_id) else {
             continue;
         };
         if node.state != halley_core::field::NodeState::Active
-            || !st.field.is_visible(node_id)
+            || !st.model.field.is_visible(node_id)
             || !st.node_visible_on_current_monitor(node_id)
         {
             continue;
@@ -284,7 +283,7 @@ pub(crate) fn collect_active_surfaces(
             render_scale
         };
 
-        if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {
+        if st.runtime.tuning.dev_enabled && st.runtime.tuning.dev_show_geometry_overlay {
             let (nx0, ny0, nw, nh) = geometry_rect;
             overlay_rects.push((nx0, ny0, nw, nh, Color32F::new(0.15, 0.85, 0.85, 0.95)));
             overlay_rects.push((nx0, ny0, nw, nh, Color32F::new(0.95, 0.25, 0.85, 0.95)));
@@ -309,7 +308,7 @@ pub(crate) fn collect_active_surfaces(
             y: border_y,
             w: border_w,
             h: border_h,
-            focused: st.focus_state.primary_interaction_focus == Some(node_id),
+            focused: st.model.focus_state.primary_interaction_focus == Some(node_id),
         };
         if draw_top_this_node {
             resized_border_rects.push(border_rect);
@@ -342,8 +341,7 @@ pub(crate) fn collect_active_surfaces(
             if cache_miss {
                 match render_surface_tree_to_texture(renderer, &wl, 1.0) {
                     Ok(offscreen) => {
-                        let cache = st
-                            .render_state
+                        let cache = st.ui.render_state
                             .window_offscreen_cache
                             .get_mut(&node_id)
                             .expect("offscreen cache should exist after ensure");
@@ -382,11 +380,11 @@ pub(crate) fn collect_active_surfaces(
                 }
             }
 
-            if let Some(cache) = st.render_state.window_offscreen_cache.get_mut(&node_id) {
+            if let Some(cache) = st.ui.render_state.window_offscreen_cache.get_mut(&node_id) {
                 cache.touch(now);
             }
 
-            match st.render_state.window_offscreen_cache.get(&node_id) {
+            match st.ui.render_state.window_offscreen_cache.get(&node_id) {
                 Some(cache) => {
                     let Some(texture) = cache.texture.as_ref() else {
                         continue;

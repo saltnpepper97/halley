@@ -1,12 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
 
 use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
 use smithay::wayland::compositor::{
     SurfaceAttributes, TraversalAction, with_surface_tree_downward,
+};
+
+use crate::overlay::{
+    ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot,
+    OverlayBannerState, OverlayToastSnapshot, OverlayToastState,
 };
 
 use super::*;
@@ -82,47 +86,6 @@ pub(crate) struct PreviewHoverState {
     pub(crate) mix: f32,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct OverlayBannerState {
-    pub(crate) title: String,
-    pub(crate) subtitle: Option<String>,
-    pub(crate) visible: bool,
-    pub(crate) mix: f32,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct OverlayBannerSnapshot {
-    pub(crate) title: String,
-    pub(crate) subtitle: Option<String>,
-    pub(crate) mix: f32,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) struct OverlayToastState {
-    pub(crate) message: Option<String>,
-    pub(crate) visible_until_ms: u64,
-    pub(crate) mix: f32,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct OverlayToastSnapshot {
-    pub(crate) message: String,
-    pub(crate) mix: f32,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct ClusterBloomAnimState {
-    pub(crate) cluster_id: Option<ClusterId>,
-    pub(crate) visible: bool,
-    pub(crate) mix: f32,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ClusterBloomAnimSnapshot {
-    pub(crate) cluster_id: ClusterId,
-    pub(crate) mix: f32,
-}
-
 pub(crate) struct RenderState {
     pub animator: Animator,
 
@@ -154,37 +117,37 @@ pub(crate) struct RenderState {
 
 impl Halley {
     pub(crate) fn take_input_state_reset_request(&mut self) -> bool {
-        std::mem::take(&mut self.interaction_state.reset_input_state_requested)
+        std::mem::take(&mut self.input.interaction_state.reset_input_state_requested)
     }
 
     pub(crate) fn take_pointer_screen_hint_request(&mut self) -> Option<(f32, f32)> {
-        self.interaction_state.pending_pointer_screen_hint.take()
+        self.input.interaction_state.pending_pointer_screen_hint.take()
     }
 
     pub fn begin_render_frame(&mut self, now: Instant) {
-        self.render_state.render_last_tick = now;
-        self.popup_manager.cleanup();
-        let alive: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
-        self.interaction_state
+        self.ui.render_state.render_last_tick = now;
+        self.platform.popup_manager.cleanup();
+        let alive: HashSet<NodeId> = self.model.field.nodes().keys().copied().collect();
+        self.input.interaction_state
             .physics_velocity
             .retain(|id, _| alive.contains(id));
-        self.interaction_state
+        self.input.interaction_state
             .smoothed_render_pos
             .retain(|id, _| alive.contains(id));
-        self.render_state
+        self.ui.render_state
             .node_hover_mix
             .retain(|id, _| alive.contains(id));
-        self.render_state.node_preview_hover.retain(|_, state| {
+        self.ui.render_state.node_preview_hover.retain(|_, state| {
             state.node = state.node.filter(|id| alive.contains(id));
             state.node.is_some() || state.mix > 0.002
         });
-        self.render_state.bearings_mix.retain(|monitor, mix| {
-            self.monitor_state.monitors.contains_key(monitor) || *mix > 0.002
+        self.ui.render_state.bearings_mix.retain(|monitor, mix| {
+            self.model.monitor_state.monitors.contains_key(monitor) || *mix > 0.002
         });
-        self.render_state
+        self.ui.render_state
             .cluster_bloom_mix
             .retain(|monitor, state| {
-                self.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
+                self.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
             });
         self.prune_window_offscreen_cache(now);
     }
@@ -194,48 +157,47 @@ impl Halley {
         node_id: halley_core::field::NodeId,
         now_ms: u64,
     ) -> bool {
-        self.interaction_state.resize_static_node == Some(node_id)
-            && now_ms < self.interaction_state.resize_static_until_ms
+        self.input.interaction_state.resize_static_node == Some(node_id)
+            && now_ms < self.input.interaction_state.resize_static_until_ms
     }
 
     pub fn smoothed_render_pos(&mut self, id: NodeId, logical: Vec2, now: Instant) -> Vec2 {
-        if !self.tuning.physics_enabled {
+        if !self.runtime.tuning.physics_enabled {
             return logical;
         }
         let now_ms = self.now_ms(now);
-        if self.interaction_state.resize_active == Some(id)
-            || (self.interaction_state.resize_static_node == Some(id)
-                && now_ms < self.interaction_state.resize_static_until_ms)
+        if self.input.interaction_state.resize_active == Some(id)
+            || (self.input.interaction_state.resize_static_node == Some(id)
+                && now_ms < self.input.interaction_state.resize_static_until_ms)
         {
-            self.interaction_state
+            self.input.interaction_state
                 .smoothed_render_pos
                 .insert(id, logical);
             return logical;
         }
-        if self.focus_state.primary_interaction_focus == Some(id)
-            || self.interaction_state.drag_authority_node == Some(id)
+        if self.model.focus_state.primary_interaction_focus == Some(id)
+            || self.input.interaction_state.drag_authority_node == Some(id)
             || self.companion_surface_node(now_ms) == Some(id)
             || self.is_recently_interacted_surface(id, now_ms)
         {
-            self.interaction_state
+            self.input.interaction_state
                 .smoothed_render_pos
                 .insert(id, logical);
             return logical;
         }
         let dt = now
-            .saturating_duration_since(self.render_state.render_last_tick)
+            .saturating_duration_since(self.ui.render_state.render_last_tick)
             .as_secs_f32()
             .clamp(1.0 / 240.0, 1.0 / 20.0);
         let mut alpha = (dt * 18.0).clamp(0.10, 0.42);
         let mut max_step = (dt * 1800.0).clamp(6.0, 70.0);
-        if self.carry_state.carry_zone_hint.contains_key(&id) {
-            let boost = self.tuning.drag_smoothing_boost.clamp(0.1, 20.0);
+        if self.model.carry_state.carry_zone_hint.contains_key(&id) {
+            let boost = self.runtime.tuning.drag_smoothing_boost.clamp(0.1, 20.0);
             alpha = (alpha * boost).clamp(0.10, 1.0);
             max_step = (max_step * boost).clamp(6.0, 420.0);
         }
 
-        let cur = self
-            .interaction_state
+        let cur = self.input.interaction_state
             .smoothed_render_pos
             .entry(id)
             .or_insert(logical);
@@ -257,20 +219,20 @@ impl Halley {
     }
 
     pub fn smoothed_render_pos_read(&self, id: NodeId, logical: Vec2, now: Instant) -> Vec2 {
-        if !self.tuning.physics_enabled {
+        if !self.runtime.tuning.physics_enabled {
             return logical;
         }
         let now_ms = self.now_ms(now);
-        if self.interaction_state.resize_active == Some(id)
-            || (self.interaction_state.resize_static_node == Some(id)
-                && now_ms < self.interaction_state.resize_static_until_ms)
-            || self.focus_state.primary_interaction_focus == Some(id)
+        if self.input.interaction_state.resize_active == Some(id)
+            || (self.input.interaction_state.resize_static_node == Some(id)
+                && now_ms < self.input.interaction_state.resize_static_until_ms)
+            || self.model.focus_state.primary_interaction_focus == Some(id)
             || self.companion_surface_node(now_ms) == Some(id)
             || self.is_recently_interacted_surface(id, now_ms)
         {
             return logical;
         }
-        self.interaction_state
+        self.input.interaction_state
             .smoothed_render_pos
             .get(&id)
             .copied()
@@ -279,7 +241,7 @@ impl Halley {
 
     pub fn node_label_hover_mix(&mut self, id: NodeId, hovered: bool) -> f32 {
         let target = if hovered { 1.0 } else { 0.0 };
-        let mix = self.render_state.node_hover_mix.entry(id).or_insert(target);
+        let mix = self.ui.render_state.node_hover_mix.entry(id).or_insert(target);
         let k = if hovered { 0.06 } else { 0.10 };
         *mix += (target - *mix) * k;
         if (*mix - target).abs() < 0.01 {
@@ -293,8 +255,7 @@ impl Halley {
         monitor: &str,
         hovered: Option<NodeId>,
     ) -> Option<(NodeId, f32)> {
-        let state = self
-            .render_state
+        let state = self.ui.render_state
             .node_preview_hover
             .entry(monitor.to_string())
             .or_default();
@@ -316,31 +277,30 @@ impl Halley {
     }
 
     pub fn bearings_visible(&self) -> bool {
-        self.render_state.bearings_visible
+        self.ui.render_state.bearings_visible
     }
 
     pub fn set_bearings_visible(&mut self, visible: bool) -> bool {
-        if self.render_state.bearings_visible == visible {
+        if self.ui.render_state.bearings_visible == visible {
             return false;
         }
-        self.render_state.bearings_visible = visible;
+        self.ui.render_state.bearings_visible = visible;
         true
     }
 
     pub fn toggle_bearings_visible(&mut self) -> bool {
-        let next = !self.render_state.bearings_visible;
+        let next = !self.ui.render_state.bearings_visible;
         self.set_bearings_visible(next);
         next
     }
 
     pub fn bearings_mix_for_monitor(&mut self, monitor: &str) -> f32 {
-        let target = if self.render_state.bearings_visible {
+        let target = if self.ui.render_state.bearings_visible {
             1.0
         } else {
             0.0
         };
-        let mix = self
-            .render_state
+        let mix = self.ui.render_state
             .bearings_mix
             .entry(monitor.to_string())
             .or_insert(target);
@@ -362,12 +322,10 @@ impl Halley {
         &mut self,
         monitor: &str,
     ) -> Option<ClusterBloomAnimSnapshot> {
-        let target_cluster = self
-            .cluster_state.cluster_bloom_open
+        let target_cluster = self.model.cluster_state.cluster_bloom_open
             .get(monitor)
             .copied();
-        let state = self
-            .render_state
+        let state = self.ui.render_state
             .cluster_bloom_mix
             .entry(monitor.to_string())
             .or_default();
@@ -397,12 +355,11 @@ impl Halley {
     }
 
     pub fn set_app_focused(&mut self, focused: bool) {
-        self.focus_state.app_focused = focused;
+        self.model.focus_state.app_focused = focused;
     }
 
     pub fn set_persistent_mode_banner(&mut self, title: &str, subtitle: Option<&str>) {
-        let state = self
-            .render_state
+        let state = self.ui.render_state
             .overlay_banner
             .get_or_insert_with(|| OverlayBannerState {
                 title: String::new(),
@@ -416,13 +373,13 @@ impl Halley {
     }
 
     pub fn clear_persistent_mode_banner(&mut self) {
-        if let Some(state) = self.render_state.overlay_banner.as_mut() {
+        if let Some(state) = self.ui.render_state.overlay_banner.as_mut() {
             state.visible = false;
         }
     }
 
     pub(crate) fn persistent_mode_banner_snapshot(&mut self) -> Option<OverlayBannerSnapshot> {
-        let state = self.render_state.overlay_banner.as_mut()?;
+        let state = self.ui.render_state.overlay_banner.as_mut()?;
         let target = if state.visible { 1.0 } else { 0.0 };
         let k = if target > 0.5 { 0.26 } else { 0.18 };
         state.mix += (target - state.mix) * k;
@@ -430,7 +387,7 @@ impl Halley {
             state.mix = target;
         }
         if target <= 0.0 && state.mix <= 0.01 {
-            self.render_state.overlay_banner = None;
+            self.ui.render_state.overlay_banner = None;
             return None;
         }
         Some(OverlayBannerSnapshot {
@@ -442,8 +399,7 @@ impl Halley {
 
     pub fn show_overlay_toast(&mut self, message: &str, duration_ms: u64, now: Instant) {
         let now_ms = self.now_ms(now);
-        let toast = self
-            .render_state
+        let toast = self.ui.render_state
             .overlay_toast
             .get_or_insert_with(Default::default);
         toast.message = Some(message.to_string());
@@ -455,7 +411,7 @@ impl Halley {
 
     pub(crate) fn overlay_toast_snapshot(&mut self, now: Instant) -> Option<OverlayToastSnapshot> {
         let now_ms = self.now_ms(now);
-        let toast = self.render_state.overlay_toast.as_mut()?;
+        let toast = self.ui.render_state.overlay_toast.as_mut()?;
         let target = if toast.message.is_some() && now_ms < toast.visible_until_ms {
             1.0
         } else {
@@ -467,7 +423,7 @@ impl Halley {
             toast.mix = target;
         }
         if target <= 0.0 && toast.mix <= 0.01 {
-            self.render_state.overlay_toast = None;
+            self.ui.render_state.overlay_toast = None;
             return None;
         }
         Some(OverlayToastSnapshot {
@@ -477,10 +433,10 @@ impl Halley {
     }
 
     pub fn tick_animator_frame(&mut self, now: Instant) {
-        if !self.tuning.physics_enabled {
+        if !self.runtime.tuning.physics_enabled {
             return;
         }
-        self.render_state.animator.observe_field(&self.field, now);
+        self.ui.render_state.animator.observe_field(&self.model.field, now);
     }
 
     pub fn tick_frame_effects(&mut self, now: Instant) {
@@ -492,24 +448,24 @@ impl Halley {
     }
 
     pub(crate) fn tick_active_drag(&mut self, now: Instant) {
-        let Some(mut active_drag) = self.interaction_state.active_drag.clone() else {
-            self.interaction_state.grabbed_edge_pan_active = false;
-            self.interaction_state.grabbed_edge_pan_direction =
+        let Some(mut active_drag) = self.input.interaction_state.active_drag.clone() else {
+            self.input.interaction_state.grabbed_edge_pan_active = false;
+            self.input.interaction_state.grabbed_edge_pan_direction =
                 halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-            self.interaction_state.grabbed_edge_pan_monitor = None;
+            self.input.interaction_state.grabbed_edge_pan_monitor = None;
             return;
         };
 
-        let Some(node_id) = self.interaction_state.drag_authority_node else {
-            self.interaction_state.active_drag = None;
+        let Some(node_id) = self.input.interaction_state.drag_authority_node else {
+            self.input.interaction_state.active_drag = None;
             return;
         };
         if node_id != active_drag.node_id {
-            self.interaction_state.active_drag = None;
-            self.interaction_state.grabbed_edge_pan_active = false;
-            self.interaction_state.grabbed_edge_pan_direction =
+            self.input.interaction_state.active_drag = None;
+            self.input.interaction_state.grabbed_edge_pan_active = false;
+            self.input.interaction_state.grabbed_edge_pan_direction =
                 halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-            self.interaction_state.grabbed_edge_pan_monitor = None;
+            self.input.interaction_state.grabbed_edge_pan_monitor = None;
             return;
         }
 
@@ -526,10 +482,10 @@ impl Halley {
         };
 
         let moved = if active_drag.allow_monitor_transfer {
-            self.interaction_state.grabbed_edge_pan_active = false;
-            self.interaction_state.grabbed_edge_pan_direction =
+            self.input.interaction_state.grabbed_edge_pan_active = false;
+            self.input.interaction_state.grabbed_edge_pan_direction =
                 halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-            self.interaction_state.grabbed_edge_pan_monitor = None;
+            self.input.interaction_state.grabbed_edge_pan_monitor = None;
             self.assign_node_to_monitor(node_id, active_drag.pointer_monitor.as_str());
             let clamped_to = self
                 .dragged_node_cluster_core_clamp(
@@ -541,10 +497,10 @@ impl Halley {
                 .unwrap_or(desired_to);
             self.carry_surface_non_overlap(node_id, clamped_to, false)
         } else if !active_drag.edge_pan_eligible {
-            self.interaction_state.grabbed_edge_pan_active = false;
-            self.interaction_state.grabbed_edge_pan_direction =
+            self.input.interaction_state.grabbed_edge_pan_active = false;
+            self.input.interaction_state.grabbed_edge_pan_direction =
                 halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-            self.interaction_state.grabbed_edge_pan_monitor = None;
+            self.input.interaction_state.grabbed_edge_pan_monitor = None;
             let clamped_to = self
                 .dragged_node_cluster_core_clamp(
                     active_drag.pointer_monitor.as_str(),
@@ -579,15 +535,15 @@ impl Halley {
                 y: active_drag.edge_pan_y.sign(),
             };
             let edge_pan_active = direction.x != 0.0 || direction.y != 0.0;
-            self.interaction_state.grabbed_edge_pan_active = edge_pan_active;
-            self.interaction_state.grabbed_edge_pan_direction = direction;
-            self.interaction_state.grabbed_edge_pan_monitor =
+            self.input.interaction_state.grabbed_edge_pan_active = edge_pan_active;
+            self.input.interaction_state.grabbed_edge_pan_direction = direction;
+            self.input.interaction_state.grabbed_edge_pan_monitor =
                 edge_pan_active.then(|| active_drag.pointer_monitor.clone());
 
             let mut to = clamped_center;
             if edge_pan_active {
                 let dt = now
-                    .saturating_duration_since(self.render_state.render_last_tick)
+                    .saturating_duration_since(self.ui.render_state.render_last_tick)
                     .as_secs_f32()
                     .clamp(1.0 / 240.0, 1.0 / 30.0);
                 const DRAG_EDGE_PAN_SPEED: f32 = 720.0;
@@ -597,12 +553,12 @@ impl Halley {
                 };
                 self.note_pan_activity(now);
                 self.pan_camera_target(pan_delta);
-                self.viewport.center = self.camera_target_center;
-                self.tuning.viewport_center = self.viewport.center;
+                self.model.viewport.center = self.model.camera_target_center;
+                self.runtime.tuning.viewport_center = self.model.viewport.center;
                 self.sync_current_monitor_state();
                 self.note_pan_viewport_change(now);
 
-                if let Some(current_pos) = self.field.node(node_id).map(|n| n.pos) {
+                if let Some(current_pos) = self.model.field.node(node_id).map(|n| n.pos) {
                     if direction.x != 0.0 {
                         to.x = current_pos.x + pan_delta.x;
                     }
@@ -613,18 +569,18 @@ impl Halley {
             }
 
             let drag_monitor = active_drag.pointer_monitor.clone();
-            self.interaction_state.active_drag = Some(active_drag);
+            self.input.interaction_state.active_drag = Some(active_drag);
             let clamped_to = self
                 .dragged_node_cluster_core_clamp(drag_monitor.as_str(), node_id, to)
                 .map(|(clamped, _, _)| clamped)
                 .unwrap_or(to);
             self.carry_surface_non_overlap(node_id, clamped_to, false)
         } else {
-            self.interaction_state.active_drag = None;
-            self.interaction_state.grabbed_edge_pan_active = false;
-            self.interaction_state.grabbed_edge_pan_direction =
+            self.input.interaction_state.active_drag = None;
+            self.input.interaction_state.grabbed_edge_pan_active = false;
+            self.input.interaction_state.grabbed_edge_pan_direction =
                 halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-            self.interaction_state.grabbed_edge_pan_monitor = None;
+            self.input.interaction_state.grabbed_edge_pan_monitor = None;
             return;
         };
         if moved {
@@ -633,8 +589,8 @@ impl Halley {
     }
 
     pub fn tick_live_overlap(&mut self) {
-        if self.interaction_state.suspend_state_checks
-            || self.interaction_state.resize_active.is_some()
+        if self.input.interaction_state.suspend_state_checks
+            || self.input.interaction_state.resize_active.is_some()
         {
             return;
         }
@@ -642,15 +598,15 @@ impl Halley {
     }
 
     pub fn send_frame_callbacks(&mut self, now: Instant) {
-        let elapsed_ms = now.duration_since(self.started_at).as_millis();
+        let elapsed_ms = now.duration_since(self.runtime.started_at).as_millis();
         let time_ms = elapsed_ms.min(u32::MAX as u128) as u32;
-        for layer in self.wlr_layer_shell_state.layer_surfaces() {
+        for layer in self.platform.wlr_layer_shell_state.layer_surfaces() {
             send_frames_surface_tree(layer.wl_surface(), time_ms);
         }
-        for top in self.xdg_shell_state.toplevel_surfaces() {
+        for top in self.platform.xdg_shell_state.toplevel_surfaces() {
             send_frames_surface_tree(top.wl_surface(), time_ms);
         }
-        for popup in self.xdg_shell_state.popup_surfaces() {
+        for popup in self.platform.xdg_shell_state.popup_surfaces() {
             send_frames_surface_tree(popup.wl_surface(), time_ms);
         }
     }
@@ -662,8 +618,7 @@ impl Halley {
         height: i32,
         now: Instant,
     ) -> &mut WindowOffscreenCache {
-        let cache = self
-            .render_state
+        let cache = self.ui.render_state
             .window_offscreen_cache
             .entry(node_id)
             .or_default();
@@ -681,18 +636,18 @@ impl Halley {
     }
 
     pub(crate) fn mark_window_offscreen_dirty(&mut self, node_id: NodeId) {
-        if let Some(cache) = self.render_state.window_offscreen_cache.get_mut(&node_id) {
+        if let Some(cache) = self.ui.render_state.window_offscreen_cache.get_mut(&node_id) {
             cache.mark_dirty();
         }
     }
 
     pub(crate) fn clear_window_offscreen_cache_for(&mut self, node_id: NodeId) {
-        self.render_state.window_offscreen_cache.remove(&node_id);
+        self.ui.render_state.window_offscreen_cache.remove(&node_id);
     }
 
     pub(crate) fn prune_window_offscreen_cache(&mut self, now: Instant) {
-        let alive: HashSet<NodeId> = self.field.nodes().keys().copied().collect();
-        self.render_state
+        let alive: HashSet<NodeId> = self.model.field.nodes().keys().copied().collect();
+        self.ui.render_state
             .window_offscreen_cache
             .retain(|id, cache| {
                 alive.contains(id)

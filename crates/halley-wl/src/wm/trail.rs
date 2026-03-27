@@ -5,20 +5,19 @@ use halley_ipc::TrailDirection;
 
 impl Halley {
     fn trail_for_monitor_mut(&mut self, monitor: &str) -> &mut halley_core::trail::Trail {
-        self.focus_state
+        self.model.focus_state
             .focus_trail
             .entry(monitor.to_string())
             .or_insert_with(Trail::new)
     }
 
     pub(crate) fn record_focus_trail_visit(&mut self, id: NodeId) {
-        let monitor = self
-            .monitor_state
+        let monitor = self.model.monitor_state
             .node_monitor
             .get(&id)
             .cloned()
             .unwrap_or_else(|| self.focused_monitor().to_string());
-        let trail_history_length = self.tuning.trail_history_length;
+        let trail_history_length = self.runtime.tuning.trail_history_length;
         let trail = self.trail_for_monitor_mut(monitor.as_str());
         if trail.cursor() == Some(id) {
             return;
@@ -28,8 +27,8 @@ impl Halley {
     }
 
     fn should_keep_trail_node(&self, id: NodeId) -> bool {
-        self.field.node(id).is_some_and(|n| {
-            self.field.is_visible(id)
+        self.model.field.node(id).is_some_and(|n| {
+            self.model.field.is_visible(id)
                 && n.kind == halley_core::field::NodeKind::Surface
                 && matches!(
                     n.state,
@@ -39,18 +38,17 @@ impl Halley {
     }
 
     fn select_trail_target(&mut self, id: NodeId, now: Instant) -> bool {
-        let Some(node) = self.field.node(id).cloned() else {
+        let Some(node) = self.model.field.node(id).cloned() else {
             return false;
         };
         if !self.should_keep_trail_node(id) {
             return false;
         }
 
-        self.focus_state.suppress_trail_record_once = true;
+        self.model.focus_state.suppress_trail_record_once = true;
         let moved = match node.state {
             halley_core::field::NodeState::Active => {
-                let restoring_suspended_fullscreen = self
-                    .fullscreen_state
+                let restoring_suspended_fullscreen = self.model.fullscreen_state
                     .fullscreen_suspended_node
                     .values()
                     .any(|&nid| nid == id);
@@ -68,10 +66,10 @@ impl Halley {
         };
 
         if !moved {
-            self.focus_state.suppress_trail_record_once = false;
+            self.model.focus_state.suppress_trail_record_once = false;
         }
 
-        if !moved && self.field.node(id).is_some() {
+        if !moved && self.model.field.node(id).is_some() {
             self.request_maintenance();
             return true;
         }
@@ -85,10 +83,9 @@ impl Halley {
         now: Instant,
     ) -> bool {
         let monitor = self.focused_monitor().to_string();
-        let trail_wrap = self.tuning.trail_wrap;
-        let current_focus = self.focus_state.primary_interaction_focus;
-        let mut remaining = self
-            .focus_state
+        let trail_wrap = self.runtime.tuning.trail_wrap;
+        let current_focus = self.model.focus_state.primary_interaction_focus;
+        let mut remaining = self.model.focus_state
             .focus_trail
             .get(monitor.as_str())
             .map(|trail| trail.len())
@@ -115,7 +112,7 @@ impl Halley {
                 self.trail_for_monitor_mut(monitor.as_str()).forget_node(id);
                 continue;
             }
-            if self.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
+            if self.model.monitor_state.node_monitor.get(&id).map(|m| m.as_str())
                 != Some(monitor.as_str())
             {
                 self.trail_for_monitor_mut(monitor.as_str()).forget_node(id);
@@ -133,8 +130,7 @@ impl Halley {
         monitor: &str,
         closing_id: NodeId,
     ) -> Option<NodeId> {
-        let mut remaining = self
-            .focus_state
+        let mut remaining = self.model.focus_state
             .focus_trail
             .get(monitor)
             .map(|trail| trail.len())
@@ -165,7 +161,7 @@ impl Halley {
                 self.trail_for_monitor_mut(monitor).forget_node(id);
                 continue;
             }
-            if self.monitor_state.node_monitor.get(&id).map(|m| m.as_str()) != Some(monitor) {
+            if self.model.monitor_state.node_monitor.get(&id).map(|m| m.as_str()) != Some(monitor) {
                 self.trail_for_monitor_mut(monitor).forget_node(id);
                 continue;
             }
@@ -179,14 +175,14 @@ impl Halley {
         id: NodeId,
         now: Instant,
     ) -> bool {
-        let Some(node) = self.field.node(id).cloned() else {
+        let Some(node) = self.model.field.node(id).cloned() else {
             return false;
         };
         if !self.should_keep_trail_node(id) {
             return false;
         }
 
-        self.focus_state.suppress_trail_record_once = true;
+        self.model.focus_state.suppress_trail_record_once = true;
         let cluster_local = self.active_cluster_workspace_for_monitor(monitor).is_some();
         let restored = match node.state {
             halley_core::field::NodeState::Active => {
@@ -197,9 +193,9 @@ impl Halley {
                 true
             }
             halley_core::field::NodeState::Node => {
-                self.workspace_state.manual_collapsed_nodes.remove(&id);
-                let _ = self.field.set_decay_level(id, DecayLevel::Hot);
-                self.spawn_state.pending_spawn_activate_at_ms.remove(&id);
+                self.model.workspace_state.manual_collapsed_nodes.remove(&id);
+                let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
+                self.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
                 self.mark_active_transition(id, now, 360);
                 self.set_interaction_focus(Some(id), 30_000, now);
                 if !cluster_local {
@@ -211,7 +207,7 @@ impl Halley {
         };
 
         if !restored {
-            self.focus_state.suppress_trail_record_once = false;
+            self.model.focus_state.suppress_trail_record_once = false;
         }
 
         restored
@@ -231,12 +227,12 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
         let now = Instant::now();
 
-        let first = state.field.spawn_surface(
+        let first = state.model.field.spawn_surface(
             "first",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 320.0, y: 240.0 },
         );
-        let second = state.field.spawn_surface(
+        let second = state.model.field.spawn_surface(
             "second",
             Vec2 { x: 640.0, y: 0.0 },
             Vec2 { x: 320.0, y: 240.0 },
@@ -248,10 +244,10 @@ mod tests {
         state.set_interaction_focus(Some(second), 30_000, now);
 
         assert!(state.navigate_window_trail(TrailDirection::Prev, now));
-        assert_eq!(state.focus_state.primary_interaction_focus, Some(first));
+        assert_eq!(state.model.focus_state.primary_interaction_focus, Some(first));
 
         assert!(state.navigate_window_trail(TrailDirection::Next, now));
-        assert_eq!(state.focus_state.primary_interaction_focus, Some(second));
+        assert_eq!(state.model.focus_state.primary_interaction_focus, Some(second));
     }
 
     #[test]
@@ -263,12 +259,12 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
         let now = Instant::now();
 
-        let first = state.field.spawn_surface(
+        let first = state.model.field.spawn_surface(
             "first",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 320.0, y: 240.0 },
         );
-        let second = state.field.spawn_surface(
+        let second = state.model.field.spawn_surface(
             "second",
             Vec2 { x: 640.0, y: 0.0 },
             Vec2 { x: 320.0, y: 240.0 },
@@ -279,10 +275,10 @@ mod tests {
         state.trail_for_monitor_mut("default").record(first);
         state.trail_for_monitor_mut("default").record(second);
         state.trail_for_monitor_mut("default").record(first);
-        state.focus_state.primary_interaction_focus = Some(first);
+        state.model.focus_state.primary_interaction_focus = Some(first);
 
         assert!(state.navigate_window_trail(TrailDirection::Prev, now));
-        assert_eq!(state.focus_state.primary_interaction_focus, Some(second));
+        assert_eq!(state.model.focus_state.primary_interaction_focus, Some(second));
     }
 
     #[test]
@@ -294,12 +290,12 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
         let now = Instant::now();
 
-        let first = state.field.spawn_surface(
+        let first = state.model.field.spawn_surface(
             "first",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 320.0, y: 240.0 },
         );
-        let second = state.field.spawn_surface(
+        let second = state.model.field.spawn_surface(
             "second",
             Vec2 { x: 640.0, y: 0.0 },
             Vec2 { x: 320.0, y: 240.0 },
@@ -313,6 +309,6 @@ mod tests {
         let previous = state.previous_window_from_trail_on_close("default", second);
         assert_eq!(previous, Some(first));
         assert!(state.restore_focus_to_node_after_close("default", first, now));
-        assert_eq!(state.focus_state.primary_interaction_focus, Some(first));
+        assert_eq!(state.model.focus_state.primary_interaction_focus, Some(first));
     }
 }

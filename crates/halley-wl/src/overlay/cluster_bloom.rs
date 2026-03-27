@@ -9,9 +9,10 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
-use crate::render::app_icon::{ensure_app_icon_resources_for_node_ids, node_app_icon_entry};
-use crate::render::utils::{bitmap_text_size, draw_bitmap_text, world_to_screen};
-use crate::state::{ClusterBloomAnimSnapshot, Halley};
+use crate::overlay::{ClusterBloomAnimSnapshot, OverlayView};
+use crate::render::app_icon::ensure_app_icon_resources_for_node_ids;
+use crate::render::utils::{bitmap_text_size, draw_bitmap_text};
+use crate::state::Halley;
 
 #[derive(Clone, Copy)]
 pub(crate) struct BloomTokenLayout {
@@ -29,23 +30,24 @@ pub(crate) fn ensure_cluster_bloom_icon_resources(
     st: &mut Halley,
     monitor: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let ids = cluster_bloom_layouts(st, 1, 1, monitor)
+    let overlay = OverlayView::from_halley(st);
+    let ids = cluster_bloom_layouts(&overlay, 1, 1, monitor)
         .into_iter()
         .map(|layout| layout.member_id);
     ensure_app_icon_resources_for_node_ids(renderer, st, ids)
 }
 
 pub(crate) fn cluster_bloom_layouts(
-    st: &Halley,
+    overlay: &OverlayView<'_>,
     screen_w: i32,
     screen_h: i32,
     monitor: &str,
 ) -> Vec<BloomTokenLayout> {
-    let Some(cid) = st.cluster_state.cluster_bloom_open.get(monitor).copied() else {
+    let Some(cid) = overlay.cluster_state.cluster_bloom_open.get(monitor).copied() else {
         return Vec::new();
     };
     cluster_bloom_layouts_for_cluster(
-        st,
+        overlay,
         screen_w,
         screen_h,
         ClusterBloomAnimSnapshot {
@@ -57,16 +59,21 @@ pub(crate) fn cluster_bloom_layouts(
 }
 
 fn cluster_bloom_layouts_for_cluster(
-    st: &Halley,
+    overlay: &OverlayView<'_>,
     screen_w: i32,
     screen_h: i32,
     snapshot: ClusterBloomAnimSnapshot,
     monitor: &str,
 ) -> Vec<BloomTokenLayout> {
-    if st.active_cluster_workspace_for_monitor(monitor).is_some() {
+    if overlay
+        .cluster_state
+        .active_cluster_workspaces
+        .get(monitor)
+        .is_some()
+    {
         return Vec::new();
     }
-    let Some(cluster) = st.field.cluster(snapshot.cluster_id) else {
+    let Some(cluster) = overlay.field.cluster(snapshot.cluster_id) else {
         return Vec::new();
     };
     if !cluster.is_collapsed() {
@@ -75,12 +82,12 @@ fn cluster_bloom_layouts_for_cluster(
     let Some(core_id) = cluster.core else {
         return Vec::new();
     };
-    let Some(core) = st.field.node(core_id) else {
+    let Some(core) = overlay.field.node(core_id) else {
         return Vec::new();
     };
 
     let (core_sx, core_sy) =
-        world_to_screen(st, screen_w.max(1), screen_h.max(1), core.pos.x, core.pos.y);
+        overlay.world_to_screen(screen_w.max(1), screen_h.max(1), core.pos.x, core.pos.y);
     let mut members = cluster.members.clone();
     members.sort_by_key(|id| id.as_u64());
     let count = members.len().max(1);
@@ -92,7 +99,7 @@ fn cluster_bloom_layouts_for_cluster(
     let min_chord = token_diameter + 18.0;
     let bloom_radius = (min_chord / (2.0 * (angle_step * 0.5).sin()).max(0.20)).max(84.0)
         + (count as f32 - 1.0).min(5.0) * 3.0;
-    let direction = match st.tuning.cluster_bloom_direction {
+    let direction = match overlay.tuning.cluster_bloom_direction {
         halley_config::ClusterBloomDirection::Clockwise => 1.0,
         halley_config::ClusterBloomDirection::CounterClockwise => -1.0,
     };
@@ -129,7 +136,8 @@ pub(crate) fn bloom_token_hit_test(
     sx: f32,
     sy: f32,
 ) -> Option<BloomTokenLayout> {
-    cluster_bloom_layouts(st, screen_w, screen_h, monitor)
+    let overlay = OverlayView::from_halley(st);
+    cluster_bloom_layouts(&overlay, screen_w, screen_h, monitor)
         .into_iter()
         .find(|layout| {
             let dx = sx - layout.center_sx as f32;
@@ -147,20 +155,23 @@ pub(crate) fn draw_cluster_bloom(
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
     let Some(snapshot) = st.cluster_bloom_snapshot_for_monitor(monitor) else {
-        draw_cluster_join_affordance(frame, st, screen_w, screen_h, monitor, damage)?;
+        let overlay = OverlayView::from_halley(st);
+        draw_cluster_join_affordance(frame, &overlay, screen_w, screen_h, monitor, damage)?;
         return Ok(());
     };
+    let overlay = OverlayView::from_halley(st);
     let bloom_alpha = snapshot.mix.clamp(0.0, 1.0);
-    for layout in cluster_bloom_layouts_for_cluster(st, screen_w, screen_h, snapshot, monitor) {
-        draw_bloom_token(frame, st, &layout, bloom_alpha, damage)?;
+    for layout in cluster_bloom_layouts_for_cluster(&overlay, screen_w, screen_h, snapshot, monitor)
+    {
+        draw_bloom_token(frame, &overlay, &layout, bloom_alpha, damage)?;
     }
-    draw_cluster_join_affordance(frame, st, screen_w, screen_h, monitor, damage)?;
+    draw_cluster_join_affordance(frame, &overlay, screen_w, screen_h, monitor, damage)?;
     Ok(())
 }
 
 fn draw_bloom_token(
     frame: &mut GlesFrame<'_, '_>,
-    st: &Halley,
+    overlay: &OverlayView<'_>,
     layout: &BloomTokenLayout,
     alpha: f32,
     damage: Rectangle<i32, Physical>,
@@ -168,7 +179,7 @@ fn draw_bloom_token(
     if alpha <= 0.01 {
         return Ok(());
     }
-    let pull_mix = st
+    let pull_mix = overlay
         .interaction_state
         .bloom_pull_preview
         .as_ref()
@@ -177,10 +188,10 @@ fn draw_bloom_token(
         })
         .map(|preview| preview.mix)
         .unwrap_or(0.0);
-    let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = overlay.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.render_state.node_circle_program.as_ref() else {
+    let Some(program) = overlay.render_state.node_circle_program.as_ref() else {
         return Ok(());
     };
     let radius = (layout.token_radius as f32 + 5.0 * pull_mix)
@@ -191,9 +202,10 @@ fn draw_bloom_token(
         (layout.center_sx - radius, layout.center_sy - radius).into(),
         (diameter, diameter).into(),
     );
+    let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
     let src = Rectangle::<f64, Buffer>::new(
         (0.0, 0.0).into(),
-        (texture.size().w as f64, texture.size().h as f64).into(),
+        (tex_size.w as f64, tex_size.h as f64).into(),
     );
     let uniforms = [
         Uniform::new("node_color", (0.12f32, 0.16f32, 0.20f32, 0.0f32)),
@@ -211,9 +223,9 @@ fn draw_bloom_token(
         &uniforms,
     )?;
 
-    if st.tuning.cluster_show_icons
+    if overlay.tuning.cluster_show_icons
         && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
-            node_app_icon_entry(st, layout.member_id)
+            overlay.node_app_icon_entry(layout.member_id)
     {
         let side = (diameter as f32 * 0.64).round() as i32;
         let icon_dest = Rectangle::<i32, Physical>::new(
@@ -238,11 +250,11 @@ fn draw_bloom_token(
         return Ok(());
     }
 
-    let fallback = st
+    let fallback = overlay
         .node_app_ids
         .get(&layout.member_id)
         .map(String::as_str)
-        .or_else(|| st.field.node(layout.member_id).map(|n| n.label.as_str()))
+        .or_else(|| overlay.field.node(layout.member_id).map(|n| n.label.as_str()))
         .unwrap_or("?");
     let glyph = fallback
         .chars()
@@ -266,42 +278,43 @@ fn draw_bloom_token(
 
 fn draw_cluster_join_affordance(
     frame: &mut GlesFrame<'_, '_>,
-    st: &Halley,
+    overlay: &OverlayView<'_>,
     screen_w: i32,
     screen_h: i32,
     monitor: &str,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(candidate) = st.interaction_state.cluster_join_candidate.as_ref() else {
+    let Some(candidate) = overlay.interaction_state.cluster_join_candidate.as_ref() else {
         return Ok(());
     };
     if candidate.monitor != monitor {
         return Ok(());
     }
-    let Some(cluster) = st.field.cluster(candidate.cluster_id) else {
+    let Some(cluster) = overlay.field.cluster(candidate.cluster_id) else {
         return Ok(());
     };
     let Some(core_id) = cluster.core else {
         return Ok(());
     };
-    let Some(core) = st.field.node(core_id) else {
+    let Some(core) = overlay.field.node(core_id) else {
         return Ok(());
     };
-    let (sx, sy) = world_to_screen(st, screen_w, screen_h, core.pos.x, core.pos.y);
+    let (sx, sy) = overlay.world_to_screen(screen_w, screen_h, core.pos.x, core.pos.y);
     let radius = 30;
     let rect = Rectangle::<i32, Physical>::new(
         (sx - radius, sy - radius).into(),
         (radius * 2, radius * 2).into(),
     );
-    let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = overlay.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.render_state.node_circle_program.as_ref() else {
+    let Some(program) = overlay.render_state.node_circle_program.as_ref() else {
         return Ok(());
     };
+    let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
     let src = Rectangle::<f64, Buffer>::new(
         (0.0, 0.0).into(),
-        (texture.size().w as f64, texture.size().h as f64).into(),
+        (tex_size.w as f64, tex_size.h as f64).into(),
     );
     let uniforms = [
         Uniform::new("node_color", (0.17f32, 0.77f32, 0.70f32, 0.08f32)),

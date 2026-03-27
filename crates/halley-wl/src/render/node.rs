@@ -47,10 +47,10 @@ pub(crate) fn ensure_node_circle_resources(
     renderer: &mut GlesRenderer,
     st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
-    if st.render_state.node_circle_texture.is_none() {
+    if st.ui.render_state.node_circle_texture.is_none() {
         const TEX_SIZE: usize = 4;
         let pixel = vec![255u8; TEX_SIZE * TEX_SIZE * 4];
-        st.render_state.node_circle_texture = Some(renderer.import_memory(
+        st.ui.render_state.node_circle_texture = Some(renderer.import_memory(
             &pixel,
             Fourcc::Abgr8888,
             (TEX_SIZE as i32, TEX_SIZE as i32).into(),
@@ -58,8 +58,8 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.render_state.node_squircle_program.is_none() {
-        st.render_state.node_squircle_program = Some(renderer.compile_custom_texture_shader(
+    if st.ui.render_state.node_squircle_program.is_none() {
+        st.ui.render_state.node_squircle_program = Some(renderer.compile_custom_texture_shader(
             NODE_SQUIRCLE_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
@@ -68,8 +68,8 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.render_state.node_circle_program.is_none() {
-        st.render_state.node_circle_program = Some(renderer.compile_custom_texture_shader(
+    if st.ui.render_state.node_circle_program.is_none() {
+        st.ui.render_state.node_circle_program = Some(renderer.compile_custom_texture_shader(
             NODE_CIRCLE_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
@@ -78,8 +78,8 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.render_state.node_label_program.is_none() {
-        st.render_state.node_label_program = Some(renderer.compile_custom_texture_shader(
+    if st.ui.render_state.node_label_program.is_none() {
+        st.ui.render_state.node_label_program = Some(renderer.compile_custom_texture_shader(
             NODE_LABEL_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
@@ -106,12 +106,12 @@ fn draw_shader_circle(
     fill_color: Color32F,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
     let program = match round_shape {
-        NodeRoundShape::Circle => st.render_state.node_circle_program.as_ref(),
-        NodeRoundShape::Squircle => st.render_state.node_squircle_program.as_ref(),
+        NodeRoundShape::Circle => st.ui.render_state.node_circle_program.as_ref(),
+        NodeRoundShape::Squircle => st.ui.render_state.node_squircle_program.as_ref(),
     };
     let Some(program) = program else {
         return Ok(());
@@ -184,10 +184,10 @@ fn draw_shader_label(
     fill_color: Color32F,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.render_state.node_label_program.as_ref() else {
+    let Some(program) = st.ui.render_state.node_label_program.as_ref() else {
         return Ok(());
     };
 
@@ -248,9 +248,9 @@ fn window_inactive_border_color() -> Color32F {
 
 fn node_ring_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
     let mode = if hovered {
-        st.tuning.node_border_color_hover
+        st.runtime.tuning.node_border_color_hover
     } else {
-        st.tuning.node_border_color_inactive
+        st.runtime.tuning.node_border_color_inactive
     };
     let base = match mode {
         NodeBorderColorMode::UseWindowActive => window_active_border_color(),
@@ -260,7 +260,7 @@ fn node_ring_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
 }
 
 fn node_fill_color(st: &Halley, hovered: bool) -> Color32F {
-    match st.tuning.node_background_color {
+    match st.runtime.tuning.node_background_color {
         NodeBackgroundColorMode::Auto | NodeBackgroundColorMode::Theme => {
             let ring = node_ring_color(st, hovered, 1.0);
             let base = (0.94, 0.96, 0.985);
@@ -276,7 +276,7 @@ fn node_fill_color(st: &Halley, hovered: bool) -> Color32F {
 }
 
 fn node_icon_glyph(st: &Halley, id: halley_core::field::NodeId, fallback: &str) -> Option<char> {
-    st.node_app_ids
+    st.model.node_app_ids
         .get(&id)
         .map(String::as_str)
         .unwrap_or(fallback)
@@ -316,8 +316,7 @@ pub(crate) fn collect_hover_preview(
     let Some(wl) = node_surface_map.get(&preview_id) else {
         return (None, Vec::new());
     };
-    let Some((node_state, node_pos, label_len)) = st
-        .field
+    let Some((node_state, node_pos, label_len)) = st.model.field
         .node(preview_id)
         .map(|n| (n.state.clone(), n.pos, n.label.len()))
     else {
@@ -512,7 +511,7 @@ pub(crate) fn draw_node_markers(
             )?;
         }
 
-        let show_icon = match st.tuning.node_show_app_icons {
+        let show_icon = match st.runtime.tuning.node_show_app_icons {
             NodeDisplayPolicy::Off => false,
             NodeDisplayPolicy::Hover => hovered,
             NodeDisplayPolicy::Always => true,
@@ -521,11 +520,11 @@ pub(crate) fn draw_node_markers(
             let icon_alpha = (dot_alpha * icon_mix).clamp(0.0, 1.0);
             let mut drew_real_icon = false;
             if icon_alpha > 0.01
-                && let Some(app_id) = st.node_app_ids.get(&id)
+                && let Some(app_id) = st.model.node_app_ids.get(&id)
                 && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
-                    st.render_state.node_app_icon_cache.get(app_id)
+                    st.ui.render_state.node_app_icon_cache.get(app_id)
             {
-                let side = ((render_radius * 2) as f32 * st.tuning.node_icon_size).round() as i32;
+                let side = ((render_radius * 2) as f32 * st.runtime.tuning.node_icon_size).round() as i32;
                 let side = side.clamp(16, 42);
                 let dest = Rectangle::<i32, Physical>::new(
                     (sx - side / 2, sy - side / 2).into(),
@@ -582,7 +581,7 @@ pub(crate) fn draw_node_hover_labels(
     damage: Rectangle<i32, Physical>,
     now: Instant,
 ) -> Result<(), Box<dyn Error>> {
-    if st.tuning.node_show_labels == NodeDisplayPolicy::Off {
+    if st.runtime.tuning.node_show_labels == NodeDisplayPolicy::Off {
         return Ok(());
     }
 
@@ -602,7 +601,7 @@ pub(crate) fn draw_node_hover_labels(
             continue;
         }
 
-        let hover_mix = match st.tuning.node_show_labels {
+        let hover_mix = match st.runtime.tuning.node_show_labels {
             NodeDisplayPolicy::Off => 0.0,
             NodeDisplayPolicy::Hover => {
                 st.node_label_hover_mix(node.id, hover_node == Some(node.id))

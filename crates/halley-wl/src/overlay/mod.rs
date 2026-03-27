@@ -1,4 +1,6 @@
+mod state;
 mod cluster_bloom;
+mod view;
 
 use std::error::Error;
 
@@ -10,14 +12,18 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
-use crate::render::app_icon::node_app_icon_entry;
-use crate::state::{Halley, OverlayBannerSnapshot, OverlayToastSnapshot};
+use crate::state::RenderState;
 
-use crate::render::utils::{bitmap_text_size, draw_bitmap_text, world_to_screen};
+use crate::render::utils::{bitmap_text_size, draw_bitmap_text};
 
 pub(crate) use cluster_bloom::{
     bloom_token_hit_test, draw_cluster_bloom, ensure_cluster_bloom_icon_resources,
 };
+pub(crate) use state::{
+    ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot,
+    OverlayBannerState, OverlayToastSnapshot, OverlayToastState,
+};
+pub(crate) use view::OverlayView;
 
 const BANNER_PAD_X: i32 = 14;
 const BANNER_PAD_Y: i32 = 10;
@@ -36,18 +42,18 @@ const OVERFLOW_ICON_GAP: i32 = 8;
 
 pub(crate) fn draw_cluster_overflow_strip(
     frame: &mut GlesFrame<'_, '_>,
-    st: &Halley,
+    overlay: &OverlayView<'_>,
     monitor: &str,
     damage: Rectangle<i32, Physical>,
     now_ms: u64,
 ) -> Result<(), Box<dyn Error>> {
-    if !st.cluster_overflow_visible_for_monitor(monitor, now_ms) {
+    if !overlay.cluster_overflow_visible_for_monitor(monitor, now_ms) {
         return Ok(());
     }
-    let Some(rect) = st.cluster_overflow_rect_for_monitor(monitor) else {
+    let Some(rect) = overlay.cluster_overflow_rect_for_monitor(monitor) else {
         return Ok(());
     };
-    let overflow = st.cluster_overflow_member_ids_for_monitor(monitor);
+    let overflow = overlay.cluster_overflow_member_ids_for_monitor(monitor);
     if overflow.is_empty() {
         return Ok(());
     }
@@ -58,7 +64,7 @@ pub(crate) fn draw_cluster_overflow_strip(
     );
     draw_overlay_chip(
         frame,
-        st,
+        overlay.render_state,
         strip,
         18.0,
         Color32F::new(0.10, 0.14, 0.18, 0.92),
@@ -69,7 +75,7 @@ pub(crate) fn draw_cluster_overflow_strip(
     let visible_slots = ((strip.size.h - OVERFLOW_ICON_PAD * 2 + OVERFLOW_ICON_GAP)
         / (OVERFLOW_ICON_SIZE + OVERFLOW_ICON_GAP))
         .max(1) as usize;
-    for (index, node_id) in overflow.into_iter().take(visible_slots).enumerate() {
+    for (index, node_id) in overflow.iter().copied().take(visible_slots).enumerate() {
         let icon_rect = Rectangle::<i32, Physical>::new(
             (
                 strip.loc.x + (strip.size.w - OVERFLOW_ICON_SIZE) / 2,
@@ -80,14 +86,16 @@ pub(crate) fn draw_cluster_overflow_strip(
         );
         draw_overlay_chip(
             frame,
-            st,
+            overlay.render_state,
             icon_rect,
             12.0,
             Color32F::new(0.93, 0.96, 0.99, 0.12),
             damage,
             1.0,
         )?;
-        if let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) = node_app_icon_entry(st, node_id) {
+        if let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
+            overlay.node_app_icon_entry(node_id)
+        {
             let icon_dest = Rectangle::<i32, Physical>::new(
                 (
                     icon_rect.loc.x + 4,
@@ -114,11 +122,11 @@ pub(crate) fn draw_cluster_overflow_strip(
             continue;
         }
 
-        let fallback = st
+        let fallback = overlay
             .node_app_ids
             .get(&node_id)
             .map(String::as_str)
-            .or_else(|| st.field.node(node_id).map(|n| n.label.as_str()))
+            .or_else(|| overlay.field.node(node_id).map(|n| n.label.as_str()))
             .unwrap_or("?");
         let glyph = fallback
             .chars()
@@ -143,7 +151,7 @@ pub(crate) fn draw_cluster_overflow_strip(
 
 pub(crate) fn draw_persistent_banner(
     frame: &mut GlesFrame<'_, '_>,
-    st: &Halley,
+    render_state: &RenderState,
     damage: Rectangle<i32, Physical>,
     banner: &OverlayBannerSnapshot,
 ) -> Result<(), Box<dyn Error>> {
@@ -168,7 +176,7 @@ pub(crate) fn draw_persistent_banner(
 
     draw_overlay_chip(
         frame,
-        st,
+        render_state,
         rect,
         14.0,
         Color32F::new(0.95, 0.97, 0.99, 0.94 * banner.mix),
@@ -200,7 +208,7 @@ pub(crate) fn draw_persistent_banner(
 
 pub(crate) fn draw_toast(
     frame: &mut GlesFrame<'_, '_>,
-    st: &Halley,
+    render_state: &RenderState,
     screen_w: i32,
     screen_h: i32,
     damage: Rectangle<i32, Physical>,
@@ -218,7 +226,7 @@ pub(crate) fn draw_toast(
 
     draw_overlay_chip(
         frame,
-        st,
+        render_state,
         rect,
         12.0,
         Color32F::new(0.12, 0.16, 0.20, 0.92 * toast.mix),
@@ -239,26 +247,26 @@ pub(crate) fn draw_toast(
 
 pub(crate) fn draw_cluster_selection_markers(
     frame: &mut GlesFrame<'_, '_>,
-    st: &Halley,
+    overlay: &OverlayView<'_>,
     screen_w: i32,
     screen_h: i32,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    for &node_id in &st.cluster_state.cluster_mode_selected_nodes {
-        let Some(node) = st.field.node(node_id) else {
+    for &node_id in &overlay.cluster_state.cluster_mode_selected_nodes {
+        let Some(node) = overlay.field.node(node_id) else {
             continue;
         };
-        if !st.field.is_visible(node_id) || !st.node_visible_on_current_monitor(node_id) {
+        if !overlay.field.is_visible(node_id) || !overlay.node_visible_on_current_monitor(node_id) {
             continue;
         }
-        let (sx, sy) = world_to_screen(st, screen_w, screen_h, node.pos.x, node.pos.y);
+        let (sx, sy) = overlay.world_to_screen(screen_w, screen_h, node.pos.x, node.pos.y);
         let rect = Rectangle::<i32, Physical>::new(
             ((sx - SELECT_MARKER_W / 2), (sy - SELECT_MARKER_H / 2)).into(),
             (SELECT_MARKER_W, SELECT_MARKER_H).into(),
         );
         draw_overlay_chip(
             frame,
-            st,
+            overlay.render_state,
             rect,
             9.0,
             Color32F::new(0.10, 0.62, 0.58, 0.92),
@@ -281,22 +289,23 @@ pub(crate) fn draw_cluster_selection_markers(
 
 fn draw_overlay_chip(
     frame: &mut GlesFrame<'_, '_>,
-    st: &Halley,
+    render_state: &RenderState,
     rect: Rectangle<i32, Physical>,
     corner_radius: f32,
     fill_color: Color32F,
     damage: Rectangle<i32, Physical>,
     alpha: f32,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.render_state.node_label_program.as_ref() else {
+    let Some(program) = render_state.node_label_program.as_ref() else {
         return Ok(());
     };
+    let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
     let src = Rectangle::<f64, Buffer>::new(
         (0.0, 0.0).into(),
-        (texture.size().w as f64, texture.size().h as f64).into(),
+        (tex_size.w as f64, tex_size.h as f64).into(),
     );
     let uniforms = [
         Uniform::new("node_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),

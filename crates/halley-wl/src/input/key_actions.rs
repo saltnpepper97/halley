@@ -39,7 +39,7 @@ pub(crate) fn compositor_binding_action(
     key_code: u32,
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
-    for binding in &st.tuning.compositor_bindings {
+    for binding in &st.runtime.tuning.compositor_bindings {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             return Some(binding.action.clone());
         }
@@ -53,7 +53,7 @@ pub(crate) fn compositor_binding_action_active(
     key_code: u32,
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
-    for binding in &st.tuning.compositor_bindings {
+    for binding in &st.runtime.tuning.compositor_bindings {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             return Some(binding.action.clone());
         }
@@ -64,7 +64,7 @@ pub(crate) fn compositor_binding_action_active(
 
 pub(crate) fn key_is_compositor_binding(st: &Halley, key_code: u32, mods: &ModState) -> bool {
     compositor_binding_action(st, key_code, mods).is_some()
-        || st.tuning.launch_bindings.iter().any(|binding| {
+        || st.runtime.tuning.launch_bindings.iter().any(|binding| {
             input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers)
         })
 }
@@ -98,7 +98,7 @@ pub(crate) fn apply_compositor_action_press(
                 info!("manual config reload from {}", config_path);
                 info!(
                     "resolved keybinds: {}",
-                    st.tuning.keybinds_resolved_summary()
+                    st.runtime.tuning.keybinds_resolved_summary()
                 );
             } else {
                 warn!(
@@ -219,13 +219,13 @@ pub(crate) fn apply_bound_key(
         };
     }
 
-    for binding in st.tuning.launch_bindings.clone() {
+    for binding in st.runtime.tuning.launch_bindings.clone() {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             // FIX: store the child so it's tracked for cleanup on WM exit,
             // rather than dropping it immediately (which orphaned the process).
             let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
                 Some(child) => {
-                    st.spawned_children.push(child);
+                    st.runtime.spawned_children.push(child);
                     true
                 }
                 None => false,
@@ -247,11 +247,11 @@ pub(crate) fn apply_bound_pointer_input(
         return apply_compositor_action_press(st, action, config_path, wayland_display);
     }
 
-    for binding in st.tuning.launch_bindings.clone() {
+    for binding in st.runtime.tuning.launch_bindings.clone() {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
                 Some(child) => {
-                    st.spawned_children.push(child);
+                    st.runtime.spawned_children.push(child);
                     true
                 }
                 None => false,

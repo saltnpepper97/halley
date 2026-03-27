@@ -19,8 +19,8 @@ pub(crate) fn pick_hit_node_at(
     let mut active: Vec<HitNode> = Vec::new();
     let mut node_dot: Vec<HitNode> = Vec::new();
 
-    for (&id, n) in st.field.nodes() {
-        if !st.field.is_visible(id) || !st.node_visible_on_current_monitor(id) {
+    for (&id, n) in st.model.field.nodes() {
+        if !st.model.field.is_visible(id) || !st.node_visible_on_current_monitor(id) {
             continue;
         }
         if !matches!(
@@ -97,7 +97,7 @@ pub(crate) fn pick_hit_node_at(
 }
 
 pub(crate) fn node_in_active_area(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
-    node_in_active_area_for_monitor(st, node_id, st.monitor_state.current_monitor.as_str())
+    node_in_active_area_for_monitor(st, node_id, st.model.monitor_state.current_monitor.as_str())
 }
 
 pub(crate) fn node_in_active_area_for_monitor(
@@ -105,11 +105,10 @@ pub(crate) fn node_in_active_area_for_monitor(
     node_id: halley_core::field::NodeId,
     monitor: &str,
 ) -> bool {
-    let Some(n) = st.field.node(node_id) else {
+    let Some(n) = st.model.field.node(node_id) else {
         return false;
     };
-    if st
-        .monitor_state
+    if st.model.monitor_state
         .node_monitor
         .get(&node_id)
         .is_some_and(|owner| owner != monitor)

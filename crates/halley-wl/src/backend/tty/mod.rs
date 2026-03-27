@@ -258,13 +258,13 @@ fn apply_tty_reload(
         let target_monitor = [
             st.focused_monitor().to_string(),
             st.interaction_monitor().to_string(),
-            st.monitor_state.current_monitor.clone(),
+            st.model.monitor_state.current_monitor.clone(),
         ]
         .into_iter()
-        .find(|name| st.monitor_state.monitors.contains_key(name))
-        .or_else(|| canonical_tty_main_output_name(&rebuilt, &st.tuning));
+        .find(|name| st.model.monitor_state.monitors.contains_key(name))
+        .or_else(|| canonical_tty_main_output_name(&rebuilt, &st.runtime.tuning));
         if let Some(target_monitor) = target_monitor
-            && st.monitor_state.current_monitor != target_monitor
+            && st.model.monitor_state.current_monitor != target_monitor
         {
             let _ = st.activate_monitor(target_monitor.as_str());
         }
@@ -288,7 +288,7 @@ fn apply_tty_reload(
         }
     }
 
-    for name in output_advertise_order(outputs.borrow().as_slice(), &st.tuning) {
+    for name in output_advertise_order(outputs.borrow().as_slice(), &st.runtime.tuning) {
         if let Some(mode) = next_modes.get(name.as_str()) {
             st.advertise_output(name.as_str(), (*mode).into());
         }
@@ -298,11 +298,11 @@ fn apply_tty_reload(
         &dev.borrow(),
         &active_modes.borrow(),
         &dpms_enabled.borrow(),
-        &st.tuning,
+        &st.runtime.tuning,
     );
 
     if reason != "rescan" {
-        let reload_commands = st.tuning.autostart_on_reload.clone();
+        let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
         run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     }
 
@@ -516,7 +516,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 Rc::new(TtyDmabufImportBackend::new(drm_probe.renderer.clone()));
             state.configure_dmabuf_importer_for_fd(dmabuf_importer, drm_probe.dev.device_fd());
             if smithay::wayland::drm_syncobj::supports_syncobj_eventfd(drm_probe.dev.device_fd()) {
-                state.drm_syncobj_state = Some(
+                state.platform.drm_syncobj_state = Some(
                     smithay::wayland::drm_syncobj::DrmSyncobjState::new::<Halley>(
                         &dh,
                         drm_probe.dev.device_fd().clone(),
@@ -524,15 +524,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 );
             }
             state.set_app_focused(true);
-            state.seat.add_pointer();
-            if state
-                .seat
+            state.platform.seat.add_pointer();
+            if state.platform.seat
                 .add_keyboard(Default::default(), 200, 30)
                 .is_err()
             {
                 warn!("failed to initialize wl_seat keyboard");
             }
-            let autostart_once = state.tuning.autostart_once.clone();
+            let autostart_once = state.runtime.tuning.autostart_once.clone();
             run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
 
             let mut dh_for_clients = dh.clone();
@@ -612,19 +611,19 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let target_monitor = [
                 state.focused_monitor().to_string(),
                 state.interaction_monitor().to_string(),
-                state.monitor_state.current_monitor.clone(),
+                state.model.monitor_state.current_monitor.clone(),
             ]
             .into_iter()
-            .find(|name| state.monitor_state.monitors.contains_key(name))
-            .or_else(|| canonical_tty_main_output_name(outputs.borrow().as_slice(), &state.tuning));
+            .find(|name| state.model.monitor_state.monitors.contains_key(name))
+            .or_else(|| canonical_tty_main_output_name(outputs.borrow().as_slice(), &state.runtime.tuning));
             if let Some(target_monitor) = target_monitor
-                && state.monitor_state.current_monitor != target_monitor
+                && state.model.monitor_state.current_monitor != target_monitor
             {
                 let _ = state.activate_monitor(target_monitor.as_str());
             }
-            let (layout_w, layout_h) = layout_size_for_outputs(&state.tuning, &outputs.borrow());
+            let (layout_w, layout_h) = layout_size_for_outputs(&state.runtime.tuning, &outputs.borrow());
             let backend_handle = TtyBackendHandle::new(layout_w, layout_h);
-            for name in output_advertise_order(outputs.borrow().as_slice(), &state.tuning) {
+            for name in output_advertise_order(outputs.borrow().as_slice(), &state.runtime.tuning) {
                 if let Some(output) = outputs
                     .borrow()
                     .iter()
@@ -642,10 +641,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 // monitors the combined-layout centre falls on the boundary
                 // between them, which makes the cursor appear stuck at the
                 // edge of the main display on startup.
-                let (start_sx, start_sy) = state
-                    .monitor_state
+                let (start_sx, start_sy) = state.model.monitor_state
                     .monitors
-                    .get(&state.monitor_state.current_monitor)
+                    .get(&state.model.monitor_state.current_monitor)
                     .map(|m| {
                         (
                             m.offset_x as f32 + m.width as f32 * 0.5,
@@ -840,7 +838,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             ev.handle()
                 .insert_source(libinput_backend, move |event, _, st| match event {
                     InputEvent::Keyboard { event } => {
-                        let tuning = st.tuning.clone();
+                        let tuning = st.runtime.tuning.clone();
                         let wake_output = st.focused_monitor().to_string();
                         wake_tty_dpms_on_input(
                             &dev_for_input,
@@ -881,13 +879,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         // layout dimensions here would stretch [0,1] across all
                         // monitors and lock the pointer to only the leftmost one.
                         let (mon_w, mon_h, mon_ox, mon_oy) = primary_tty_monitor_dims(
-                            st.monitor_state.current_monitor.as_str(),
-                            &st.tuning,
+                            st.model.monitor_state.current_monitor.as_str(),
+                            &st.runtime.tuning,
                             outputs_for_input.borrow().as_slice(),
                         );
                         let sx = mon_ox as f32 + event.x_transformed(mon_w) as f32;
                         let sy = mon_oy as f32 + event.y_transformed(mon_h) as f32;
-                        let tuning = st.tuning.clone();
+                        let tuning = st.runtime.tuning.clone();
                         let wake_output = st.monitor_for_screen(sx, sy);
                         wake_tty_dpms_on_input(
                             &dev_for_input,
@@ -925,7 +923,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerMotion { event } => {
-                        let tuning = st.tuning.clone();
+                        let tuning = st.runtime.tuning.clone();
                         let (last_sx, last_sy) = pointer_state_for_input.borrow().screen;
                         let sx = last_sx + event.delta_x() as f32;
                         let sy = last_sy + event.delta_y() as f32;
@@ -967,7 +965,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerButton { event } => {
-                        let tuning = st.tuning.clone();
+                        let tuning = st.runtime.tuning.clone();
                         let (sx, sy) = pointer_state_for_input.borrow().screen;
                         let wake_output = st.monitor_for_screen(sx, sy);
                         wake_tty_dpms_on_input(
@@ -999,7 +997,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     InputEvent::PointerAxis { event } => {
-                        let tuning = st.tuning.clone();
+                        let tuning = st.runtime.tuning.clone();
                         let (sx, sy) = pointer_state_for_input.borrow().screen;
                         let wake_output = st.monitor_for_screen(sx, sy);
                         wake_tty_dpms_on_input(
@@ -1072,7 +1070,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 let now = Instant::now();
                 st.drain_drm_syncobj_blockers();
 
-                st.spawned_children.retain_mut(|child| {
+                st.runtime.spawned_children.retain_mut(|child| {
                     match child.try_wait() {
                         Ok(Some(status)) => {
                             debug!("reaped child pid={} status={}", child.id(), status);
@@ -1096,7 +1094,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         if let Some(next) =
                             RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                         {
-                            if crate::run::viewport_section_changed(&st.tuning, &next) {
+                            if crate::run::viewport_section_changed(&st.runtime.tuning, &next) {
                                 apply_tty_reload(
                                     &dev_for_timer,
                                     &gbm_for_timer,
@@ -1117,7 +1115,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     card_path.as_path(),
                                 );
                             } else {
-                                let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                                let next = crate::run::preserve_viewport_section(&st.runtime.tuning, next);
                                 crate::run::apply_reloaded_tuning(
                                     st,
                                     next,
@@ -1132,14 +1130,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 config_path_for_timer.as_str()
                             );
                         }
-                        info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                        info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
                         halley_ipc::Response::Reloaded
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
                         command,
                         output,
                     }) => {
-                        let tuning = st.tuning.clone();
+                        let tuning = st.runtime.tuning.clone();
                         let changed = apply_tty_dpms_command(
                             &dev_for_timer,
                             &active_modes_for_timer,
@@ -1206,7 +1204,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     if let Some(next) =
                         RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                     {
-                        if crate::run::viewport_section_changed(&st.tuning, &next) {
+                        if crate::run::viewport_section_changed(&st.runtime.tuning, &next) {
                             apply_tty_reload(
                                 &dev_for_timer,
                                 &gbm_for_timer,
@@ -1227,7 +1225,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     card_path.as_path(),
                                 );
                             } else {
-                                let next = crate::run::preserve_viewport_section(&st.tuning, next);
+                                let next = crate::run::preserve_viewport_section(&st.runtime.tuning, next);
                                 crate::run::apply_reloaded_tuning(
                                     st,
                                 next,
@@ -1252,7 +1250,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         Some(now + Duration::from_millis(OUTPUT_RESCAN_POLL_MS));
                     let maybe_signature = {
                         let mut dev = dev_for_timer.borrow_mut();
-                        selected_tty_scanout_signature(&mut dev, &st.tuning)
+                        selected_tty_scanout_signature(&mut dev, &st.runtime.tuning)
                     };
                     match maybe_signature {
                         Ok(next_signature) => {
@@ -1273,7 +1271,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 {
                     *pending_output_rescan_at_for_timer.borrow_mut() = None;
                 if any_tty_output_dpms_enabled(&dpms_enabled_for_timer.borrow()) {
-                    let next = st.tuning.clone();
+                    let next = st.runtime.tuning.clone();
                     apply_tty_reload(
                         &dev_for_timer,
                         &gbm_for_timer,
@@ -1301,7 +1299,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                 }
                 if reloaded {
-                    info!("resolved keybinds: {}", st.tuning.keybinds_resolved_summary());
+                    info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
                 }
 
                 let ps = pointer_state_for_timer.borrow();
@@ -1313,7 +1311,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     // surfaces and flush frame callbacks so wallpaper clients
                     // re-present before we queue the first scanout frame.
                     if !dpms_just_woke_outputs_for_timer.borrow().is_empty() {
-                        st.interaction_state.dpms_just_woke = false;
+                        st.input.interaction_state.dpms_just_woke = false;
                         dpms_just_woke_outputs_for_timer.borrow_mut().clear();
                         st.configure_layer_shell_surfaces((1, 1).into());
                         st.send_frame_callbacks(now);
@@ -1321,8 +1319,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                     st.send_frame_callbacks(now);
 
-                    let cursor_image = st.cursor_image_status.clone();
-                    let previous_monitor = st.monitor_state.current_monitor.clone();
+                    let cursor_image = st.platform.cursor_image_status.clone();
+                    let previous_monitor = st.model.monitor_state.current_monitor.clone();
 
                     let outputs_ref = outputs_for_timer.borrow();
                     let mut render_order: Vec<_> = outputs_ref.iter().collect();

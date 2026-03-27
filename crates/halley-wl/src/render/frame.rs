@@ -16,7 +16,7 @@ use smithay::{
 
 use crate::interaction::types::ResizeCtx;
 use crate::overlay::{
-    draw_cluster_bloom, draw_cluster_overflow_strip, draw_cluster_selection_markers,
+    OverlayView, draw_cluster_bloom, draw_cluster_overflow_strip, draw_cluster_selection_markers,
     draw_persistent_banner, draw_toast, ensure_cluster_bloom_icon_resources,
 };
 use crate::spatial::node_in_active_area_for_monitor;
@@ -167,7 +167,7 @@ pub(crate) fn draw_debug_frame_to_target(
         prepared.now,
     );
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
-    let current_monitor = st.monitor_state.current_monitor.clone();
+    let current_monitor = st.model.monitor_state.current_monitor.clone();
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
@@ -197,7 +197,7 @@ fn prepare_debug_frame_state(
     size: smithay::utils::Size<i32, Physical>,
 ) -> PreparedFrameState {
     let now = Instant::now();
-    if !st.interaction_state.suppress_layer_shell_configure {
+    if !st.input.interaction_state.suppress_layer_shell_configure {
         st.configure_layer_shell_surfaces((size.w, size.h).into());
     }
 
@@ -216,7 +216,7 @@ fn collect_debug_frame_scene(
     preview_hover_node: Option<halley_core::field::NodeId>,
     now: Instant,
 ) -> SceneCollections {
-    let render_monitor = st.monitor_state.current_monitor.clone();
+    let render_monitor = st.model.monitor_state.current_monitor.clone();
     let bearings_mix = st.bearings_mix_for_monitor(render_monitor.as_str());
     let (
         layer_background_elements,
@@ -241,7 +241,7 @@ fn collect_debug_frame_scene(
     ) = collect_active_surfaces(renderer, st, size, resize_preview, now);
 
     let hovered_preview_id = preview_hover_node.and_then(|id| {
-        st.field.node(id).and_then(|n| {
+        st.model.field.node(id).and_then(|n| {
             (node_in_active_area_for_monitor(st, id, render_monitor.as_str())
                 && matches!(
                     n.state,
@@ -261,12 +261,11 @@ fn collect_debug_frame_scene(
         now,
     );
 
-    let render_nodes = st
-        .field
+    let render_nodes = st.model.field
         .nodes()
         .iter()
         .filter_map(|(&id, node)| {
-            if !st.field.is_visible(id) || !st.node_visible_on_current_monitor(id) {
+            if !st.model.field.is_visible(id) || !st.node_visible_on_current_monitor(id) {
                 return None;
             }
             Some(NodeSnapshot {
@@ -434,7 +433,7 @@ fn draw_debug_frame_scene(
     if !scene.bearing_layouts.is_empty() {
         draw_bearings(frame, st, prepared.damage, &scene.bearing_layouts)?;
     }
-    let bloom_monitor = st.monitor_state.current_monitor.clone();
+    let bloom_monitor = st.model.monitor_state.current_monitor.clone();
     draw_cluster_bloom(
         frame,
         st,
@@ -443,16 +442,17 @@ fn draw_debug_frame_scene(
         bloom_monitor.as_str(),
         prepared.damage,
     )?;
+    let overlay = OverlayView::from_halley(st);
     draw_cluster_overflow_strip(
         frame,
-        st,
+        &overlay,
         bloom_monitor.as_str(),
         prepared.damage,
         st.now_ms(prepared.now),
     )?;
 
     if st.cluster_mode_active() {
-        draw_cluster_selection_markers(frame, st, size.w, size.h, prepared.damage)?;
+        draw_cluster_selection_markers(frame, &overlay, size.w, size.h, prepared.damage)?;
     }
 
     draw_node_hover_labels(
@@ -467,11 +467,11 @@ fn draw_debug_frame_scene(
 
     if st.should_draw_focus_ring_preview(prepared.now) {
         let focus_ring = st.active_focus_ring();
-        let ring_world_cx = st.viewport.center.x + focus_ring.offset_x;
-        let ring_world_cy = st.viewport.center.y + focus_ring.offset_y;
+        let ring_world_cx = st.model.viewport.center.x + focus_ring.offset_x;
+        let ring_world_cy = st.model.viewport.center.y + focus_ring.offset_y;
         let (ring_sx, ring_sy) = world_to_screen(st, size.w, size.h, ring_world_cx, ring_world_cy);
-        let base_px_per_world_x = size.w as f32 / st.viewport.size.x.max(1.0);
-        let base_px_per_world_y = size.h as f32 / st.viewport.size.y.max(1.0);
+        let base_px_per_world_x = size.w as f32 / st.model.viewport.size.x.max(1.0);
+        let base_px_per_world_y = size.h as f32 / st.model.viewport.size.y.max(1.0);
         let screen_rx = focus_ring.radius_x * base_px_per_world_x;
         let screen_ry = focus_ring.radius_y * base_px_per_world_y;
         draw_ring(
@@ -486,10 +486,17 @@ fn draw_debug_frame_scene(
     }
 
     if let Some(banner) = st.persistent_mode_banner_snapshot() {
-        draw_persistent_banner(frame, st, prepared.damage, &banner)?;
+        draw_persistent_banner(frame, &st.ui.render_state, prepared.damage, &banner)?;
     }
     if let Some(toast) = st.overlay_toast_snapshot(prepared.now) {
-        draw_toast(frame, st, size.w, size.h, prepared.damage, &toast)?;
+        draw_toast(
+            frame,
+            &st.ui.render_state,
+            size.w,
+            size.h,
+            prepared.damage,
+            &toast,
+        )?;
     }
 
     Ok(())
@@ -629,7 +636,7 @@ fn draw_geometry_overlays<F>(
 where
     F: Frame,
 {
-    if st.tuning.dev_enabled && st.tuning.dev_show_geometry_overlay {
+    if st.runtime.tuning.dev_enabled && st.runtime.tuning.dev_show_geometry_overlay {
         for &(x, y, w, h, color) in &scene.overlay_rects {
             draw_clamped_outline_rect(frame, (x, y, w, h), 2, color, damage, size)?;
         }

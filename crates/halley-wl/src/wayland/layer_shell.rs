@@ -27,13 +27,13 @@ impl Halley {
     fn restore_focus_after_layer_surface_close_for_monitor(&mut self, monitor: &str, now: Instant) {
         // Preserve any pending spawn target so launchers like fuzzel can close
         // before their chosen toplevel maps without losing monitor affinity.
-        let pending_spawn_monitor = self.spawn_state.pending_spawn_monitor.clone();
+        let pending_spawn_monitor = self.model.spawn_state.pending_spawn_monitor.clone();
         if let Some(id) = self.last_focused_surface_node_for_monitor(monitor) {
             self.set_interaction_focus(Some(id), 30_000, now);
         } else {
             self.set_interaction_focus(None, 0, now);
         }
-        self.spawn_state.pending_spawn_monitor = pending_spawn_monitor;
+        self.model.spawn_state.pending_spawn_monitor = pending_spawn_monitor;
     }
 
     fn apply_layer_surface_focus(
@@ -48,12 +48,12 @@ impl Halley {
         let monitor = self.layer_surface_monitor_name(surface);
         self.set_interaction_monitor(monitor.as_str());
         self.set_focused_monitor(monitor.as_str());
-        self.spawn_state.pending_spawn_monitor = Some(monitor.clone());
+        self.model.spawn_state.pending_spawn_monitor = Some(monitor.clone());
         let _ = self.activate_monitor(monitor.as_str());
 
-        self.focus_state.primary_interaction_focus = None;
-        self.focus_state.interaction_focus_until_ms = 0;
-        self.monitor_state.layer_keyboard_focus = Some(surface.id());
+        self.model.focus_state.primary_interaction_focus = None;
+        self.model.focus_state.interaction_focus_until_ms = 0;
+        self.model.monitor_state.layer_keyboard_focus = Some(surface.id());
         if self
             .active_locked_pointer_surface()
             .is_some_and(|locked_surface| locked_surface.id() != surface.id())
@@ -61,12 +61,12 @@ impl Halley {
             self.release_active_pointer_constraint();
         }
 
-        if let Some(keyboard) = self.seat.get_keyboard() {
+        if let Some(keyboard) = self.platform.seat.get_keyboard() {
             keyboard.set_focus(self, Some(surface.clone()), SERIAL_COUNTER.next_serial());
         }
         self.update_selection_focus_from_surface(Some(surface));
 
-        for top in self.xdg_shell_state.toplevel_surfaces() {
+        for top in self.platform.xdg_shell_state.toplevel_surfaces() {
             let changed = top.with_pending_state(|state| {
                 let was_active = state.states.contains(
                     smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Activated,
@@ -94,11 +94,11 @@ impl Halley {
     }
 
     pub(crate) fn layer_surface_monitor_name(&self, surface: &WlSurface) -> String {
-        self.monitor_state
+        self.model.monitor_state
             .layer_surface_monitor
             .get(&surface.id())
             .cloned()
-            .unwrap_or_else(|| self.monitor_state.current_monitor.clone())
+            .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone())
     }
 
     pub(crate) fn register_layer_surface(
@@ -109,13 +109,13 @@ impl Halley {
         namespace: String,
     ) {
         let assigned_monitor = if let Some(requested_output) = output.as_ref() {
-            self.monitor_state
+            self.model.monitor_state
                 .outputs
                 .iter()
                 .find_map(|(name, output)| output.owns(requested_output).then_some(name.clone()))
-                .unwrap_or_else(|| self.monitor_state.current_monitor.clone())
+                .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone())
         } else {
-            self.monitor_state.current_monitor.clone()
+            self.model.monitor_state.current_monitor.clone()
         };
 
         let size = self.layer_output_size_for_monitor(&assigned_monitor);
@@ -127,12 +127,12 @@ impl Halley {
         self.assign_layer_surface_to_monitor(surface.wl_surface(), assigned_monitor.clone());
 
         if let Some(requested_output) = output.as_ref() {
-            for output in self.monitor_state.outputs.values() {
+            for output in self.model.monitor_state.outputs.values() {
                 if output.owns(requested_output) {
                     output.enter(surface.wl_surface());
                 }
             }
-        } else if let Some(output) = self.monitor_state.outputs.get(&assigned_monitor) {
+        } else if let Some(output) = self.model.monitor_state.outputs.get(&assigned_monitor) {
             output.enter(surface.wl_surface());
         }
 
@@ -150,12 +150,11 @@ impl Halley {
     /// the client has committed its desired `keyboard_interactivity`, so the
     /// cached state is still the default `None` at that point.
     pub(crate) fn maybe_grant_layer_surface_focus_on_commit(&mut self, surface: &WlSurface) {
-        if self.monitor_state.layer_keyboard_focus == Some(surface.id()) {
+        if self.model.monitor_state.layer_keyboard_focus == Some(surface.id()) {
             return;
         }
 
-        let Some(interactivity) = self
-            .wlr_layer_shell_state
+        let Some(interactivity) = self.platform.wlr_layer_shell_state
             .layer_surfaces()
             .find_map(|layer| {
                 (layer.wl_surface().id() == surface.id())
@@ -173,14 +172,14 @@ impl Halley {
     pub(crate) fn remove_layer_surface(&mut self, surface: &LayerSurface) {
         let removed_monitor = self.layer_surface_monitor_name(surface.wl_surface());
         let removed_focused_layer =
-            self.monitor_state.layer_keyboard_focus == Some(surface.wl_surface().id());
-        self.monitor_state
+            self.model.monitor_state.layer_keyboard_focus == Some(surface.wl_surface().id());
+        self.model.monitor_state
             .layer_surface_monitor
             .remove(&surface.wl_surface().id());
         if removed_focused_layer {
-            self.monitor_state.layer_keyboard_focus = None;
+            self.model.monitor_state.layer_keyboard_focus = None;
         }
-        for output in self.monitor_state.outputs.values() {
+        for output in self.model.monitor_state.outputs.values() {
             output.leave(surface.wl_surface());
         }
         if !removed_focused_layer {
@@ -199,18 +198,18 @@ impl Halley {
     }
 
     pub(crate) fn layer_output_size(&self) -> Size<i32, Logical> {
-        self.layer_output_size_for_monitor(&self.monitor_state.current_monitor)
+        self.layer_output_size_for_monitor(&self.model.monitor_state.current_monitor)
     }
 
     pub(crate) fn layer_output_size_for_monitor(&self, monitor_name: &str) -> Size<i32, Logical> {
-        self.monitor_state
+        self.model.monitor_state
             .monitors
             .get(monitor_name)
             .map(|monitor| (monitor.width as i32, monitor.height as i32).into())
             .unwrap_or_else(|| {
                 (
-                    self.zoom_ref_size.x.round().max(1.0) as i32,
-                    self.zoom_ref_size.y.round().max(1.0) as i32,
+                    self.model.zoom_ref_size.x.round().max(1.0) as i32,
+                    self.model.zoom_ref_size.y.round().max(1.0) as i32,
                 )
                     .into()
             })
@@ -226,8 +225,7 @@ impl Halley {
     }
 
     pub(crate) fn configure_layer_shell_surfaces(&mut self, _output_size: Size<i32, Logical>) {
-        for monitor_name in self
-            .monitor_state
+        for monitor_name in self.model.monitor_state
             .monitors
             .keys()
             .cloned()
@@ -258,7 +256,7 @@ impl Halley {
         &self,
         _output_size: Size<i32, Logical>,
     ) -> Vec<LayerPlacement> {
-        let monitor_name = self.monitor_state.current_monitor.clone();
+        let monitor_name = self.model.monitor_state.current_monitor.clone();
         self.layer_shell_placements_for_monitor(&monitor_name)
     }
 
@@ -288,8 +286,7 @@ impl Halley {
     }
 
     fn layer_shell_surfaces_sorted(&self) -> Vec<LayerSurface> {
-        let mut surfaces: Vec<_> = self
-            .wlr_layer_shell_state
+        let mut surfaces: Vec<_> = self.platform.wlr_layer_shell_state
             .layer_surfaces()
             .filter(|surface| surface.alive())
             .collect();
@@ -298,10 +295,10 @@ impl Halley {
     }
 
     pub(crate) fn keyboard_focus_is_layer_surface(&self) -> bool {
-        if self.monitor_state.layer_keyboard_focus.is_some() {
+        if self.model.monitor_state.layer_keyboard_focus.is_some() {
             return true;
         }
-        let Some(keyboard) = self.seat.get_keyboard() else {
+        let Some(keyboard) = self.platform.seat.get_keyboard() else {
             return false;
         };
         keyboard
@@ -310,8 +307,8 @@ impl Halley {
     }
 
     fn layer_focus_surface(&self) -> Option<WlSurface> {
-        let focus_id = self.monitor_state.layer_keyboard_focus.clone()?;
-        self.wlr_layer_shell_state
+        let focus_id = self.model.monitor_state.layer_keyboard_focus.clone()?;
+        self.platform.wlr_layer_shell_state
             .layer_surfaces()
             .find_map(|layer| {
                 (layer.wl_surface().id() == focus_id).then(|| layer.wl_surface().clone())
@@ -319,8 +316,7 @@ impl Halley {
     }
 
     pub(crate) fn focus_layer_surface(&mut self, surface: &WlSurface) -> bool {
-        let Some(interactivity) = self
-            .wlr_layer_shell_state
+        let Some(interactivity) = self.platform.wlr_layer_shell_state
             .layer_surfaces()
             .find_map(|layer| {
                 (layer.wl_surface().id() == surface.id())
@@ -333,18 +329,18 @@ impl Halley {
     }
 
     pub(crate) fn is_layer_surface(&self, surface: &WlSurface) -> bool {
-        self.wlr_layer_shell_state
+        self.platform.wlr_layer_shell_state
             .layer_surfaces()
             .any(|layer| layer.wl_surface().id() == surface.id())
     }
 
     pub(crate) fn reassert_layer_surface_keyboard_focus_if_drifted(&mut self) {
         let Some(desired_focus) = self.layer_focus_surface() else {
-            self.monitor_state.layer_keyboard_focus = None;
+            self.model.monitor_state.layer_keyboard_focus = None;
             return;
         };
 
-        let Some(keyboard) = self.seat.get_keyboard() else {
+        let Some(keyboard) = self.platform.seat.get_keyboard() else {
             return;
         };
 
@@ -380,7 +376,7 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let id = state.field.spawn_surface(
+        let id = state.model.field.spawn_surface(
             "focused",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 120.0, y: 90.0 },
@@ -388,15 +384,15 @@ mod tests {
         state.assign_node_to_current_monitor(id);
         state.set_interaction_focus(Some(id), 30_000, Instant::now());
 
-        state.focus_state.primary_interaction_focus = None;
-        state.focus_state.interaction_focus_until_ms = 0;
-        state.spawn_state.pending_spawn_monitor = Some("default".to_string());
+        state.model.focus_state.primary_interaction_focus = None;
+        state.model.focus_state.interaction_focus_until_ms = 0;
+        state.model.spawn_state.pending_spawn_monitor = Some("default".to_string());
 
         state.restore_focus_after_layer_surface_close_for_monitor("default", Instant::now());
 
-        assert_eq!(state.focus_state.primary_interaction_focus, Some(id));
+        assert_eq!(state.model.focus_state.primary_interaction_focus, Some(id));
         assert_eq!(
-            state.spawn_state.pending_spawn_monitor.as_deref(),
+            state.model.spawn_state.pending_spawn_monitor.as_deref(),
             Some("default")
         );
     }
@@ -435,7 +431,7 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let right_id = state.field.spawn_surface(
+        let right_id = state.model.field.spawn_surface(
             "right",
             Vec2 {
                 x: 3200.0,
@@ -446,15 +442,15 @@ mod tests {
         state.assign_node_to_monitor(right_id, "right");
         state.set_interaction_focus(Some(right_id), 30_000, Instant::now());
 
-        state.focus_state.primary_interaction_focus = None;
-        state.focus_state.interaction_focus_until_ms = 0;
-        state.spawn_state.pending_spawn_monitor = Some("left".to_string());
+        state.model.focus_state.primary_interaction_focus = None;
+        state.model.focus_state.interaction_focus_until_ms = 0;
+        state.model.spawn_state.pending_spawn_monitor = Some("left".to_string());
 
         state.restore_focus_after_layer_surface_close_for_monitor("left", Instant::now());
 
-        assert_eq!(state.focus_state.primary_interaction_focus, None);
+        assert_eq!(state.model.focus_state.primary_interaction_focus, None);
         assert_eq!(
-            state.spawn_state.pending_spawn_monitor.as_deref(),
+            state.model.spawn_state.pending_spawn_monitor.as_deref(),
             Some("left")
         );
     }

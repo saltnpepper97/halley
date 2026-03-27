@@ -185,7 +185,7 @@ fn list_nodes(st: &Halley, output: Option<&str>) -> Result<NodeListResponse, Ipc
 fn list_trail(st: &mut Halley, output: Option<&str>) -> Result<TrailListResponse, IpcError> {
     let output = resolve_output_context(st, output)?;
     let snapshot = {
-        let trail = st.focus_state.focus_trail.get(output.as_str());
+        let trail = st.model.focus_state.focus_trail.get(output.as_str());
         let entries = trail.map(|trail| trail.entries()).unwrap_or_default();
         let cursor_index = trail.and_then(|trail| trail.cursor_index());
         (entries, cursor_index)
@@ -194,7 +194,7 @@ fn list_trail(st: &mut Halley, output: Option<&str>) -> Result<TrailListResponse
     let mut entries = Vec::new();
     for (index, id) in snapshot.0.into_iter().enumerate() {
         if !node_matches_output(st, id, output.as_str()) || !node_is_queryable_surface(st, id) {
-            if let Some(trail) = st.focus_state.focus_trail.get_mut(output.as_str()) {
+            if let Some(trail) = st.model.focus_state.focus_trail.get_mut(output.as_str()) {
                 trail.forget_node(id);
             }
             continue;
@@ -222,8 +222,7 @@ fn goto_trail_target(
     let output = resolve_output_context(st, output)?;
     focus_output_if_needed(st, output.as_str(), now);
     let node_id = match target {
-        TrailTarget::Index(index) => st
-            .focus_state
+        TrailTarget::Index(index) => st.model.focus_state
             .focus_trail
             .get_mut(output.as_str())
             .and_then(|trail| trail.seek_to_index(index))
@@ -235,8 +234,7 @@ fn goto_trail_target(
             })?,
         TrailTarget::Selector(selector) => {
             let node_id = resolve_node_selector(st, Some(&selector), Some(output.as_str()))?;
-            let found = st
-                .focus_state
+            let found = st.model.focus_state
                 .focus_trail
                 .get_mut(output.as_str())
                 .is_some_and(|trail| trail.seek_to_node(node_id));
@@ -260,13 +258,11 @@ fn focus_node(st: &mut Halley, id: NodeId, now: Instant) -> Result<(), IpcError>
             id.as_u64()
         )));
     }
-    let node = st
-        .field
+    let node = st.model.field
         .node(id)
         .cloned()
         .ok_or_else(|| IpcError::NotFound(format!("node {} is not available", id.as_u64())))?;
-    let output = st
-        .monitor_state
+    let output = st.model.monitor_state
         .node_monitor
         .get(&id)
         .cloned()
@@ -300,8 +296,7 @@ fn move_node_direction(
     id: NodeId,
     direction: halley_ipc::NodeMoveDirection,
 ) -> Result<(), IpcError> {
-    let node = st
-        .field
+    let node = st.model.field
         .node(id)
         .cloned()
         .ok_or_else(|| IpcError::NotFound(format!("node {} not found", id.as_u64())))?;
@@ -316,7 +311,7 @@ fn move_node_direction(
         x: node.pos.x + dx,
         y: node.pos.y + dy,
     };
-    let _ = st.field.set_pinned(id, false);
+    let _ = st.model.field.set_pinned(id, false);
     st.begin_carry_state_tracking(id);
     let moved = st.carry_surface_non_overlap(id, to, false);
     if moved {
@@ -355,7 +350,7 @@ fn resolve_node_selector(
             requested_output.as_deref(),
             &format!("title:{text}"),
             |node_id| {
-                st.field
+                st.model.field
                     .node(node_id)
                     .is_some_and(|node| contains_case_insensitive(node.label.as_str(), text))
             },
@@ -365,7 +360,7 @@ fn resolve_node_selector(
             requested_output.as_deref(),
             &format!("app:{text}"),
             |node_id| {
-                st.node_app_ids
+                st.model.node_app_ids
                     .get(&node_id)
                     .is_some_and(|app_id| contains_case_insensitive(app_id.as_str(), text))
             },
@@ -388,7 +383,7 @@ fn resolve_default_node(st: &Halley, output: Option<&str>) -> Result<NodeId, Ipc
 
 fn resolve_focused_node(st: &Halley, output: Option<&str>) -> Result<NodeId, IpcError> {
     let output = output.unwrap_or_else(|| st.focused_monitor());
-    st.focus_state
+    st.model.focus_state
         .primary_interaction_focus
         .filter(|&id| node_matches_output(st, id, output) && node_is_queryable_surface(st, id))
         .ok_or_else(|| IpcError::NotFound(format!("no focused node on output {output}")))
@@ -426,7 +421,7 @@ where
                 .map(|id| format!(
                     "{} ({})",
                     id.as_u64(),
-                    st.field
+                    st.model.field
                         .node(*id)
                         .map(|n| n.label.as_str())
                         .unwrap_or("unknown")
@@ -445,7 +440,7 @@ fn resolve_output_context(st: &Halley, output: Option<&str>) -> Result<String, I
 }
 
 fn validate_output<'a>(st: &'a Halley, output: &'a str) -> Result<&'a str, IpcError> {
-    st.monitor_state
+    st.model.monitor_state
         .monitors
         .contains_key(output)
         .then_some(output)
@@ -459,9 +454,9 @@ fn focus_output_if_needed(st: &mut Halley, output: &str, now: Instant) {
 }
 
 fn node_info(st: &Halley, id: NodeId) -> NodeInfo {
-    let node = st.field.node(id).expect("node info requires live node");
+    let node = st.model.field.node(id).expect("node info requires live node");
     let size = current_surface_size_for_node(st, id).unwrap_or(node.intrinsic_size);
-    let output = st.monitor_state.node_monitor.get(&id).cloned();
+    let output = st.model.monitor_state.node_monitor.get(&id).cloned();
     let metadata = node_surface_metadata(st, id);
     let latest = output.as_deref().and_then(|output| {
         surface_nodes_on_output(st, output)
@@ -471,7 +466,7 @@ fn node_info(st: &Halley, id: NodeId) -> NodeInfo {
     NodeInfo {
         id: id.as_u64(),
         title: node.label.clone(),
-        app_id: st.node_app_ids.get(&id).cloned(),
+        app_id: st.model.node_app_ids.get(&id).cloned(),
         output,
         kind: match node.kind {
             FieldNodeKind::Surface => NodeKind::Surface,
@@ -483,8 +478,8 @@ fn node_info(st: &Halley, id: NodeId) -> NodeInfo {
             FieldNodeState::Node => NodeState::Node,
             FieldNodeState::Core => NodeState::Core,
         },
-        visible: st.field.is_visible(id),
-        focused: st.focus_state.primary_interaction_focus == Some(id),
+        visible: st.model.field.is_visible(id),
+        focused: st.model.focus_state.primary_interaction_focus == Some(id),
         latest,
         role: metadata.role,
         protocol_family: metadata.protocol_family,
@@ -578,21 +573,21 @@ fn node_surface_metadata(st: &Halley, id: NodeId) -> NodeSurfaceMetadata {
 }
 
 fn node_root_surface(st: &Halley, id: NodeId) -> Option<WlSurface> {
-    st.xdg_shell_state
+    st.platform.xdg_shell_state
         .toplevel_surfaces()
         .iter()
         .find_map(|surface| {
             let surface_id = surface.wl_surface().id();
-            (st.surface_to_node.get(&surface_id).copied() == Some(id))
+            (st.model.surface_to_node.get(&surface_id).copied() == Some(id))
                 .then(|| surface.wl_surface().clone())
         })
         .or_else(|| {
-            st.xdg_shell_state
+            st.platform.xdg_shell_state
                 .popup_surfaces()
                 .iter()
                 .find_map(|surface| {
                     let surface_id = surface.wl_surface().id();
-                    (st.surface_to_node.get(&surface_id).copied() == Some(id))
+                    (st.model.surface_to_node.get(&surface_id).copied() == Some(id))
                         .then(|| surface.wl_surface().clone())
                 })
         })
@@ -600,18 +595,18 @@ fn node_root_surface(st: &Halley, id: NodeId) -> Option<WlSurface> {
 
 fn relation_for_surface(st: &Halley, surface: &WlSurface) -> NodeRelationInfo {
     NodeRelationInfo {
-        node_id: st.surface_to_node.get(&surface.id()).map(|id| id.as_u64()),
+        node_id: st.model.surface_to_node.get(&surface.id()).map(|id| id.as_u64()),
     }
 }
 
 fn node_is_queryable_surface(st: &Halley, id: NodeId) -> bool {
-    st.field
+    st.model.field
         .node(id)
-        .is_some_and(|node| st.field.is_visible(id) && node.kind == FieldNodeKind::Surface)
+        .is_some_and(|node| st.model.field.is_visible(id) && node.kind == FieldNodeKind::Surface)
 }
 
 fn node_matches_output(st: &Halley, id: NodeId, output: &str) -> bool {
-    st.monitor_state
+    st.model.monitor_state
         .node_monitor
         .get(&id)
         .map(|name| name.as_str())
@@ -619,13 +614,12 @@ fn node_matches_output(st: &Halley, id: NodeId, output: &str) -> bool {
 }
 
 fn surface_nodes(st: &Halley, output: Option<&str>) -> Vec<NodeId> {
-    let mut nodes: Vec<NodeId> = st
-        .field
+    let mut nodes: Vec<NodeId> = st.model.field
         .nodes()
         .values()
         .filter_map(|node| {
             (node.kind == FieldNodeKind::Surface
-                && st.field.is_visible(node.id)
+                && st.model.field.is_visible(node.id)
                 && output
                     .map(|output| node_matches_output(st, node.id, output))
                     .unwrap_or(true))
@@ -634,8 +628,8 @@ fn surface_nodes(st: &Halley, output: Option<&str>) -> Vec<NodeId> {
         .collect();
     nodes.sort_by(|a, b| {
         let output_cmp = match (
-            st.monitor_state.node_monitor.get(a),
-            st.monitor_state.node_monitor.get(b),
+            st.model.monitor_state.node_monitor.get(a),
+            st.model.monitor_state.node_monitor.get(b),
         ) {
             (Some(a_output), Some(b_output)) => a_output.cmp(b_output),
             (Some(_), None) => Ordering::Less,
@@ -652,10 +646,10 @@ fn surface_nodes_on_output(st: &Halley, output: &str) -> Vec<NodeId> {
 }
 
 fn sorted_outputs(st: &Halley) -> Vec<String> {
-    let mut outputs: Vec<_> = st.monitor_state.monitors.keys().cloned().collect();
+    let mut outputs: Vec<_> = st.model.monitor_state.monitors.keys().cloned().collect();
     outputs.sort_by(|a, b| {
-        let am = st.monitor_state.monitors.get(a).expect("monitor");
-        let bm = st.monitor_state.monitors.get(b).expect("monitor");
+        let am = st.model.monitor_state.monitors.get(a).expect("monitor");
+        let bm = st.model.monitor_state.monitors.get(b).expect("monitor");
         am.offset_x
             .cmp(&bm.offset_x)
             .then(am.offset_y.cmp(&bm.offset_y))
@@ -690,14 +684,13 @@ fn resolve_monitor_focus_target(
 
 fn adjacent_monitor(st: &Halley, direction: MonitorFocusDirection) -> Option<String> {
     let current_name = st.focused_monitor();
-    let current = st.monitor_state.monitors.get(current_name)?;
+    let current = st.model.monitor_state.monitors.get(current_name)?;
     let current_center = (
         current.offset_x as f32 + current.width as f32 * 0.5,
         current.offset_y as f32 + current.height as f32 * 0.5,
     );
 
-    let mut candidates: Vec<(String, f32, f32)> = st
-        .monitor_state
+    let mut candidates: Vec<(String, f32, f32)> = st.model.monitor_state
         .monitors
         .iter()
         .filter_map(|(name, monitor)| {
@@ -750,17 +743,16 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
         let first =
-            state
-                .field
+            state.model.field
                 .spawn_surface("first", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
-        let second = state.field.spawn_surface(
+        let second = state.model.field.spawn_surface(
             "second",
             Vec2 { x: 200.0, y: 0.0 },
             Vec2 { x: 100.0, y: 80.0 },
         );
         state.assign_node_to_current_monitor(first);
         state.assign_node_to_current_monitor(second);
-        state.focus_state.primary_interaction_focus = None;
+        state.model.focus_state.primary_interaction_focus = None;
 
         assert_eq!(
             resolve_node_selector(&state, None, None).unwrap().as_u64(),
@@ -776,10 +768,9 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
         let first =
-            state
-                .field
+            state.model.field
                 .spawn_surface("Kitty", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 100.0, y: 80.0 });
-        let second = state.field.spawn_surface(
+        let second = state.model.field.spawn_surface(
             "Kitty scratch",
             Vec2 { x: 200.0, y: 0.0 },
             Vec2 { x: 100.0, y: 80.0 },

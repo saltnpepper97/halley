@@ -139,12 +139,12 @@ pub(crate) fn ensure_bearing_icon_resources(
     monitor: &str,
 ) -> Result<(), Box<dyn Error>> {
     let viewport = bearings_viewport_for_monitor(st, monitor);
-    let node_ids = bearings_for_visible_nodes(&st.field, &viewport)
+    let node_ids = bearings_for_visible_nodes(&st.model.field, &viewport)
         .into_iter()
         .filter_map(|(id, _)| {
-            let node = st.field.node(id)?;
+            let node = st.model.field.node(id)?;
             (node.kind == halley_core::field::NodeKind::Surface
-                && st.monitor_state.node_monitor.get(&id).map(String::as_str) == Some(monitor)
+                && st.model.monitor_state.node_monitor.get(&id).map(String::as_str) == Some(monitor)
                 && !node_intersects_bearings_view(st, monitor, id))
             .then_some(id)
         })
@@ -165,14 +165,14 @@ pub(crate) fn collect_bearing_layouts(
 
     let viewport = bearings_viewport_for_monitor(st, monitor);
     let mut candidates = Vec::new();
-    for (id, bearing) in bearings_for_visible_nodes(&st.field, &viewport) {
-        let Some(node) = st.field.node(id) else {
+    for (id, bearing) in bearings_for_visible_nodes(&st.model.field, &viewport) {
+        let Some(node) = st.model.field.node(id) else {
             continue;
         };
         if node.kind != halley_core::field::NodeKind::Surface {
             continue;
         }
-        if st.monitor_state.node_monitor.get(&id).map(String::as_str) != Some(monitor) {
+        if st.model.monitor_state.node_monitor.get(&id).map(String::as_str) != Some(monitor) {
             continue;
         }
         if node_intersects_bearings_view(st, monitor, id) {
@@ -183,14 +183,13 @@ pub(crate) fn collect_bearing_layouts(
         let distance = offscreen_distance_from_monitor_edge(st, monitor, id).unwrap_or(0.0);
         let label = bearing_label(st, id, node.label.as_str());
         let projected = projected_anchor_for_lane(st, monitor, id, lane, screen_w, screen_h);
-        let distance_text = st
-            .tuning
+        let distance_text = st.runtime.tuning
             .bearings
             .show_distance
             .then(|| format!("{:.0}px", distance.round()));
         let size = bearing_size(
             label.as_str(),
-            st.tuning.bearings.show_icons,
+            st.runtime.tuning.bearings.show_icons,
             distance_text.as_deref(),
         );
 
@@ -236,8 +235,7 @@ pub(crate) fn bearing_hit_test(
     sx: f32,
     sy: f32,
 ) -> Option<NodeId> {
-    let ui_mix = st
-        .render_state
+    let ui_mix = st.ui.render_state
         .bearings_mix
         .get(monitor)
         .copied()
@@ -380,20 +378,19 @@ fn finalize_group(st: &Halley, members: Vec<BearingCandidate>, ui_mix: f32) -> B
         format!("{member_count} nodes")
     };
     let distance = nearest.distance;
-    let distance_text = st
-        .tuning
+    let distance_text = st.runtime.tuning
         .bearings
         .show_distance
         .then(|| format!("{:.0}px", distance.round()));
     let size = bearing_size(
         label.as_str(),
-        member_count == 1 && st.tuning.bearings.show_icons,
+        member_count == 1 && st.runtime.tuning.bearings.show_icons,
         distance_text.as_deref(),
     );
-    let distance_fade = if st.tuning.bearings.fade_distance <= f32::EPSILON {
+    let distance_fade = if st.runtime.tuning.bearings.fade_distance <= f32::EPSILON {
         1.0
     } else {
-        let t = (distance / st.tuning.bearings.fade_distance).clamp(0.0, 1.0);
+        let t = (distance / st.runtime.tuning.bearings.fade_distance).clamp(0.0, 1.0);
         MIN_DISTANCE_ALPHA + (1.0 - t) * (1.0 - MIN_DISTANCE_ALPHA)
     };
 
@@ -478,8 +475,7 @@ fn build_layout_from_group(
     let total_h = group.size.total_height();
     let total_top = (center.round() as i32) - total_h / 2;
     let chip_y_vertical = total_top + group.size.distance_block_h;
-    let distance_text = st
-        .tuning
+    let distance_text = st.runtime.tuning
         .bearings
         .show_distance
         .then(|| format!("{:.0}px", group.distance.round()));
@@ -586,19 +582,19 @@ fn bearings_viewport_for_monitor(st: &Halley, monitor: &str) -> Viewport {
 }
 
 fn monitor_view_center_size(st: &Halley, monitor: &str) -> (Vec2, Vec2) {
-    if st.monitor_state.current_monitor == monitor {
-        (st.viewport.center, st.zoom_ref_size)
+    if st.model.monitor_state.current_monitor == monitor {
+        (st.model.viewport.center, st.model.zoom_ref_size)
     } else {
-        st.monitor_state
+        st.model.monitor_state
             .monitors
             .get(monitor)
             .map(|space| (space.viewport.center, space.zoom_ref_size))
-            .unwrap_or((st.viewport.center, st.zoom_ref_size))
+            .unwrap_or((st.model.viewport.center, st.model.zoom_ref_size))
     }
 }
 
 fn node_intersects_bearings_view(st: &Halley, monitor: &str, node_id: NodeId) -> bool {
-    let Some(node) = st.field.node(node_id) else {
+    let Some(node) = st.model.field.node(node_id) else {
         return false;
     };
     let ext = bearings_collision_extents(st, node);
@@ -624,7 +620,7 @@ fn projected_anchor_for_lane(
     screen_w: i32,
     screen_h: i32,
 ) -> f32 {
-    let Some(node) = st.field.node(node_id) else {
+    let Some(node) = st.model.field.node(node_id) else {
         return if lane.uses_horizontal_axis() {
             screen_w as f32 * 0.5
         } else {
@@ -669,7 +665,7 @@ fn projected_anchor_for_lane(
 fn bearing_label(st: &Halley, node_id: NodeId, title: &str) -> String {
     let base = if !title.trim().is_empty() {
         title.trim().to_string()
-    } else if let Some(app_id) = st.node_app_ids.get(&node_id) {
+    } else if let Some(app_id) = st.model.node_app_ids.get(&node_id) {
         app_id.clone()
     } else {
         format!("Node {}", node_id.as_u64())
@@ -682,7 +678,7 @@ fn offscreen_distance_from_monitor_edge(
     monitor: &str,
     node_id: NodeId,
 ) -> Option<f32> {
-    let node = st.field.node(node_id)?;
+    let node = st.model.field.node(node_id)?;
     let ext = bearings_collision_extents(st, node);
     let (center, size) = monitor_view_center_size(st, monitor);
     let min_x = center.x - size.x * 0.5;
@@ -805,10 +801,10 @@ fn draw_shader_label(
     fill_color: Color32F,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.render_state.node_label_program.as_ref() else {
+    let Some(program) = st.ui.render_state.node_label_program.as_ref() else {
         return Ok(());
     };
 

@@ -21,10 +21,10 @@ pub(crate) fn request_close_node_toplevel(
     st: &mut Halley,
     node_id: halley_core::field::NodeId,
 ) -> bool {
-    for top in st.xdg_shell_state.toplevel_surfaces() {
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface();
         let key = wl.id();
-        if st.surface_to_node.get(&key).copied() != Some(node_id) {
+        if st.model.surface_to_node.get(&key).copied() != Some(node_id) {
             continue;
         }
         top.send_close();
@@ -43,10 +43,10 @@ pub(crate) fn request_toplevel_resize_mode(
 ) {
     let width = width.max(96);
     let height = height.max(72);
-    for top in st.xdg_shell_state.toplevel_surfaces() {
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface();
         let key = wl.id();
-        if st.surface_to_node.get(&key).copied() != Some(node_id) {
+        if st.model.surface_to_node.get(&key).copied() != Some(node_id) {
             continue;
         }
         top.with_pending_state(|s| {
@@ -70,16 +70,16 @@ pub(crate) fn current_surface_size_for_node(
     st: &Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<halley_core::field::Vec2> {
-    if let Some(&(_, _, w, h)) = st.render_state.window_geometry.get(&node_id) {
+    if let Some(&(_, _, w, h)) = st.ui.render_state.window_geometry.get(&node_id) {
         return Some(halley_core::field::Vec2 {
             x: w.max(1.0),
             y: h.max(1.0),
         });
     }
-    for top in st.xdg_shell_state.toplevel_surfaces() {
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface();
         let key = wl.id();
-        if st.surface_to_node.get(&key).copied() != Some(node_id) {
+        if st.model.surface_to_node.get(&key).copied() != Some(node_id) {
             continue;
         }
         let geo = with_states(wl, |states| {
@@ -107,7 +107,7 @@ pub(crate) fn current_surface_size_for_node(
             y: bbox.size.h.max(1) as f32,
         });
     }
-    st.field.node(node_id).map(|node| halley_core::field::Vec2 {
+    st.model.field.node(node_id).map(|node| halley_core::field::Vec2 {
         x: node.intrinsic_size.x.max(1.0),
         y: node.intrinsic_size.y.max(1.0),
     })
@@ -117,13 +117,13 @@ pub(crate) fn window_geometry_for_node(
     st: &Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<(f32, f32, f32, f32)> {
-    if let Some(&geo) = st.render_state.window_geometry.get(&node_id) {
+    if let Some(&geo) = st.ui.render_state.window_geometry.get(&node_id) {
         return Some(geo);
     }
-    for top in st.xdg_shell_state.toplevel_surfaces() {
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface();
         let key = wl.id();
-        if st.surface_to_node.get(&key).copied() != Some(node_id) {
+        if st.model.surface_to_node.get(&key).copied() != Some(node_id) {
             continue;
         }
         let geo = with_states(wl, |states| {
@@ -152,9 +152,8 @@ pub(crate) fn window_geometry_for_node(
             bbox.size.h as f32,
         ));
     }
-    st.field.node(node_id).map(|node| {
-        let (bbox_lx, bbox_ly) = st
-            .render_state
+    st.model.field.node(node_id).map(|node| {
+        let (bbox_lx, bbox_ly) = st.ui.render_state
             .bbox_loc
             .get(&node_id)
             .copied()

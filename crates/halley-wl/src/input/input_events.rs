@@ -112,7 +112,7 @@ pub(crate) fn handle_keyboard_input(
     if st.cluster_mode_active()
         && (Some(code) == cluster_escape || Some(code) == cluster_return)
     {
-        if let Some(keyboard) = st.seat.get_keyboard() {
+        if let Some(keyboard) = st.platform.seat.get_keyboard() {
             let serial = SERIAL_COUNTER.next_serial();
             keyboard.input::<(), _>(
                 st,
@@ -227,7 +227,7 @@ pub(crate) fn handle_keyboard_input(
         intercepted
     };
 
-    if let Some(keyboard) = st.seat.get_keyboard() {
+    if let Some(keyboard) = st.platform.seat.get_keyboard() {
         let serial = SERIAL_COUNTER.next_serial();
         let key_state = if pressed {
             KeyState::Pressed
@@ -331,7 +331,7 @@ pub(crate) fn handle_pointer_axis_input(
     pointer_state.borrow_mut().world = world_now;
     let now = Instant::now();
     let resize_preview = pointer_state.borrow().resize;
-    if let Some(pointer) = st.seat.get_pointer() {
+    if let Some(pointer) = st.platform.seat.get_pointer() {
         if pointer.current_focus().is_none()
             && let Some(focus) =
                 pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)

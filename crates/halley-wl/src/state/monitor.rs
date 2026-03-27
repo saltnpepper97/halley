@@ -52,40 +52,39 @@ fn preferred_monitor_name(monitors: &HashMap<String, MonitorSpace>) -> Option<St
 
 impl Halley {
     pub(crate) fn load_monitor_state(&mut self, name: &str) -> bool {
-        let Some(space) = self.monitor_state.monitors.get(name).cloned() else {
+        let Some(space) = self.model.monitor_state.monitors.get(name).cloned() else {
             return false;
         };
-        self.monitor_state.current_monitor = name.to_string();
-        self.viewport = space.viewport;
-        self.zoom_ref_size = space.zoom_ref_size;
-        self.camera_target_center = space.camera_target_center;
-        self.camera_target_view_size = space.camera_target_view_size;
+        self.model.monitor_state.current_monitor = name.to_string();
+        self.model.viewport = space.viewport;
+        self.model.zoom_ref_size = space.zoom_ref_size;
+        self.model.camera_target_center = space.camera_target_center;
+        self.model.camera_target_view_size = space.camera_target_view_size;
         true
     }
 
     pub(crate) fn sync_current_monitor_state(&mut self) {
-        if let Some(space) = self
-            .monitor_state
+        if let Some(space) = self.model.monitor_state
             .monitors
-            .get_mut(&self.monitor_state.current_monitor)
+            .get_mut(&self.model.monitor_state.current_monitor)
         {
-            space.viewport = self.viewport;
-            space.zoom_ref_size = self.zoom_ref_size;
-            space.camera_target_center = self.camera_target_center;
-            space.camera_target_view_size = self.camera_target_view_size;
+            space.viewport = self.model.viewport;
+            space.zoom_ref_size = self.model.zoom_ref_size;
+            space.camera_target_center = self.model.camera_target_center;
+            space.camera_target_view_size = self.model.camera_target_view_size;
         }
     }
 
     pub(crate) fn activate_monitor(&mut self, name: &str) -> bool {
-        if self.monitor_state.current_monitor == name {
-            return self.monitor_state.monitors.contains_key(name);
+        if self.model.monitor_state.current_monitor == name {
+            return self.model.monitor_state.monitors.contains_key(name);
         }
         self.sync_current_monitor_state();
         self.load_monitor_state(name)
     }
 
     pub(crate) fn begin_temporary_render_monitor(&mut self, name: &str) -> Option<String> {
-        let previous = self.monitor_state.current_monitor.clone();
+        let previous = self.model.monitor_state.current_monitor.clone();
         if previous != name && self.activate_monitor(name) {
             Some(previous)
         } else {
@@ -100,49 +99,46 @@ impl Halley {
     }
 
     pub(crate) fn interaction_monitor(&self) -> &str {
-        if self
-            .monitor_state
+        if self.model.monitor_state
             .monitors
-            .contains_key(&self.monitor_state.interaction_monitor)
+            .contains_key(&self.model.monitor_state.interaction_monitor)
         {
-            self.monitor_state.interaction_monitor.as_str()
+            self.model.monitor_state.interaction_monitor.as_str()
         } else {
-            self.monitor_state.current_monitor.as_str()
+            self.model.monitor_state.current_monitor.as_str()
         }
     }
 
     pub(crate) fn focused_monitor(&self) -> &str {
-        if self
-            .monitor_state
+        if self.model.monitor_state
             .monitors
-            .contains_key(&self.monitor_state.focused_monitor)
+            .contains_key(&self.model.monitor_state.focused_monitor)
         {
-            self.monitor_state.focused_monitor.as_str()
+            self.model.monitor_state.focused_monitor.as_str()
         } else {
             self.interaction_monitor()
         }
     }
 
     pub(crate) fn set_interaction_monitor(&mut self, name: &str) {
-        if self.monitor_state.monitors.contains_key(name) {
-            self.monitor_state.interaction_monitor = name.to_string();
+        if self.model.monitor_state.monitors.contains_key(name) {
+            self.model.monitor_state.interaction_monitor = name.to_string();
         }
     }
 
     pub(crate) fn set_focused_monitor(&mut self, name: &str) {
-        if self.monitor_state.monitors.contains_key(name) {
-            self.monitor_state.focused_monitor = name.to_string();
+        if self.model.monitor_state.monitors.contains_key(name) {
+            self.model.monitor_state.focused_monitor = name.to_string();
         }
     }
 
     pub(crate) fn reconfigure_active_tty_monitors(&mut self, active_outputs: &[String]) {
         self.sync_current_monitor_state();
 
-        let previous = self.monitor_state.monitors.clone();
+        let previous = self.model.monitor_state.monitors.clone();
         let mut monitors = HashMap::new();
 
-        for viewport in self
-            .tuning
+        for viewport in self.runtime.tuning
             .tty_viewports
             .iter()
             .filter(|viewport| viewport.enabled)
@@ -189,29 +185,28 @@ impl Halley {
         }
 
         if monitors.is_empty() {
-            let view = self.tuning.viewport();
+            let view = self.runtime.tuning.viewport();
             monitors.insert(
                 "default".to_string(),
                 MonitorSpace {
                     offset_x: 0,
                     offset_y: 0,
-                    width: self.tuning.viewport_size.x.max(1.0).round() as i32,
-                    height: self.tuning.viewport_size.y.max(1.0).round() as i32,
+                    width: self.runtime.tuning.viewport_size.x.max(1.0).round() as i32,
+                    height: self.runtime.tuning.viewport_size.y.max(1.0).round() as i32,
                     viewport: view,
-                    zoom_ref_size: self.tuning.viewport_size,
-                    camera_target_center: self.tuning.viewport_center,
-                    camera_target_view_size: self.tuning.viewport_size,
+                    zoom_ref_size: self.runtime.tuning.viewport_size,
+                    camera_target_center: self.runtime.tuning.viewport_center,
+                    camera_target_view_size: self.runtime.tuning.viewport_size,
                 },
             );
         }
 
-        self.monitor_state.monitors = monitors;
-        self.spawn_state.per_monitor = self
-            .monitor_state
+        self.model.monitor_state.monitors = monitors;
+        self.model.spawn_state.per_monitor = self.model.monitor_state
             .monitors
             .iter()
             .map(|(name, monitor)| {
-                let existing = self.spawn_state.per_monitor.get(name).cloned();
+                let existing = self.model.spawn_state.per_monitor.get(name).cloned();
                 (
                     name.clone(),
                     existing.unwrap_or_else(|| MonitorSpawnState::new(monitor.viewport.center)),
@@ -219,38 +214,35 @@ impl Halley {
             })
             .collect();
 
-        if !self
-            .monitor_state
+        if !self.model.monitor_state
             .monitors
-            .contains_key(&self.monitor_state.current_monitor)
+            .contains_key(&self.model.monitor_state.current_monitor)
         {
-            self.monitor_state.current_monitor =
-                preferred_monitor_name(&self.monitor_state.monitors)
+            self.model.monitor_state.current_monitor =
+                preferred_monitor_name(&self.model.monitor_state.monitors)
                     .unwrap_or_else(|| "default".to_string());
         }
 
-        if !self
-            .monitor_state
+        if !self.model.monitor_state
             .monitors
-            .contains_key(&self.monitor_state.interaction_monitor)
+            .contains_key(&self.model.monitor_state.interaction_monitor)
         {
-            self.monitor_state.interaction_monitor = self.monitor_state.current_monitor.clone();
+            self.model.monitor_state.interaction_monitor = self.model.monitor_state.current_monitor.clone();
         }
-        if !self
-            .monitor_state
+        if !self.model.monitor_state
             .monitors
-            .contains_key(&self.monitor_state.focused_monitor)
+            .contains_key(&self.model.monitor_state.focused_monitor)
         {
-            self.monitor_state.focused_monitor = self.monitor_state.interaction_monitor.clone();
+            self.model.monitor_state.focused_monitor = self.model.monitor_state.interaction_monitor.clone();
         }
 
-        let current = self.monitor_state.current_monitor.clone();
+        let current = self.model.monitor_state.current_monitor.clone();
         let _ = self.load_monitor_state(current.as_str());
     }
 
     pub(crate) fn monitor_for_screen(&self, sx: f32, sy: f32) -> Option<String> {
         let mut best: Option<(&String, i64)> = None;
-        for (name, monitor) in &self.monitor_state.monitors {
+        for (name, monitor) in &self.model.monitor_state.monitors {
             let inside = sx >= monitor.offset_x as f32
                 && sx < (monitor.offset_x + monitor.width) as f32
                 && sy >= monitor.offset_y as f32
@@ -286,7 +278,7 @@ impl Halley {
         sx: f32,
         sy: f32,
     ) -> (i32, i32, f32, f32) {
-        if let Some(monitor) = self.monitor_state.monitors.get(name) {
+        if let Some(monitor) = self.model.monitor_state.monitors.get(name) {
             (
                 monitor.width,
                 monitor.height,
@@ -294,40 +286,39 @@ impl Halley {
                 sy - monitor.offset_y as f32,
             )
         } else {
-            let w = self.tuning.viewport_size.x.max(1.0).round() as i32;
-            let h = self.tuning.viewport_size.y.max(1.0).round() as i32;
+            let w = self.runtime.tuning.viewport_size.x.max(1.0).round() as i32;
+            let h = self.runtime.tuning.viewport_size.y.max(1.0).round() as i32;
             (w, h, sx, sy)
         }
     }
 
     pub(crate) fn node_visible_on_current_monitor(&self, id: NodeId) -> bool {
-        self.monitor_state
+        self.model.monitor_state
             .node_monitor
             .get(&id)
-            .is_none_or(|monitor| monitor == &self.monitor_state.current_monitor)
+            .is_none_or(|monitor| monitor == &self.model.monitor_state.current_monitor)
     }
 
     pub(crate) fn assign_node_to_current_monitor(&mut self, id: NodeId) {
-        let monitor = self.monitor_state.current_monitor.clone();
+        let monitor = self.model.monitor_state.current_monitor.clone();
         self.assign_node_to_monitor(id, monitor.as_str());
     }
 
     pub(crate) fn assign_node_to_monitor(&mut self, id: NodeId, monitor: &str) {
         let _ = self.spawn_monitor_state_mut(monitor);
-        self.monitor_state
+        self.model.monitor_state
             .node_monitor
             .insert(id, monitor.to_string());
     }
 
     pub(crate) fn assign_layer_surface_to_monitor(&mut self, surface: &WlSurface, monitor: String) {
-        self.monitor_state
+        self.model.monitor_state
             .layer_surface_monitor
             .insert(surface.id(), monitor);
     }
 
     pub(crate) fn output_transform_for(&self, name: &str) -> Transform {
-        let degrees = self
-            .tuning
+        let degrees = self.runtime.tuning
             .tty_viewports
             .iter()
             .find(|viewport| viewport.connector == name)
@@ -343,14 +334,12 @@ impl Halley {
 
     pub(crate) fn advertise_output(&mut self, name: &str, mode: OutputMode) {
         let transform = self.output_transform_for(name);
-        let location = self
-            .monitor_state
+        let location = self.model.monitor_state
             .monitors
             .get(name)
             .map(|monitor| (monitor.offset_x, monitor.offset_y).into())
             .unwrap_or_else(|| (0, 0).into());
-        let output = self
-            .monitor_state
+        let output = self.model.monitor_state
             .outputs
             .entry(name.to_string())
             .or_insert_with(|| {
@@ -363,7 +352,7 @@ impl Halley {
                         model: name.to_string(),
                     },
                 );
-                let _ = output.create_global::<Halley>(&self.display_handle);
+                let _ = output.create_global::<Halley>(&self.platform.display_handle);
                 output
             });
         output.add_mode(mode);
@@ -380,19 +369,17 @@ impl Halley {
         const STALE_SURFACE_GRACE_MS: u64 = 1500;
         let now = Instant::now();
 
-        let alive: HashSet<ObjectId> = self
-            .xdg_shell_state
+        let alive: HashSet<ObjectId> = self.platform.xdg_shell_state
             .toplevel_surfaces()
             .iter()
             .map(|t| t.wl_surface().id())
             .collect();
 
-        let stale: Vec<ObjectId> = self
-            .surface_to_node
+        let stale: Vec<ObjectId> = self.model.surface_to_node
             .keys()
             .filter(|k| !alive.contains(*k))
             .filter(|k| {
-                let Some(activity) = self.surface_activity.get(*k) else {
+                let Some(activity) = self.runtime.surface_activity.get(*k) else {
                     return true;
                 };
                 now.duration_since(activity.last_commit_at()).as_millis() as u64
@@ -402,61 +389,60 @@ impl Halley {
             .collect();
 
         for key in stale {
-            self.surface_activity.remove(&key);
-            if let Some(id) = self.surface_to_node.remove(&key) {
-                if self.focus_state.pan_restore_active_focus == Some(id) {
-                    self.focus_state.pan_restore_active_focus = None;
+            self.runtime.surface_activity.remove(&key);
+            if let Some(id) = self.model.surface_to_node.remove(&key) {
+                if self.model.focus_state.pan_restore_active_focus == Some(id) {
+                    self.model.focus_state.pan_restore_active_focus = None;
                 }
-                self.workspace_state.manual_collapsed_nodes.remove(&id);
-                self.render_state.zoom_nominal_size.remove(&id);
-                self.render_state.zoom_resize_fallback.remove(&id);
-                self.render_state.zoom_resize_reject_streak.remove(&id);
-                self.render_state.zoom_last_observed_size.remove(&id);
-                self.render_state.zoom_resize_static_streak.remove(&id);
-                self.node_app_ids.remove(&id);
-                self.workspace_state.last_active_size.remove(&id);
-                self.render_state.bbox_loc.remove(&id);
-                self.render_state.window_geometry.remove(&id);
-                self.spawn_state.pending_spawn_activate_at_ms.remove(&id);
-                self.workspace_state.active_transition_until_ms.remove(&id);
-                self.workspace_state
+                self.model.workspace_state.manual_collapsed_nodes.remove(&id);
+                self.ui.render_state.zoom_nominal_size.remove(&id);
+                self.ui.render_state.zoom_resize_fallback.remove(&id);
+                self.ui.render_state.zoom_resize_reject_streak.remove(&id);
+                self.ui.render_state.zoom_last_observed_size.remove(&id);
+                self.ui.render_state.zoom_resize_static_streak.remove(&id);
+                self.model.node_app_ids.remove(&id);
+                self.model.workspace_state.last_active_size.remove(&id);
+                self.ui.render_state.bbox_loc.remove(&id);
+                self.ui.render_state.window_geometry.remove(&id);
+                self.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
+                self.model.workspace_state.active_transition_until_ms.remove(&id);
+                self.model.workspace_state
                     .primary_promote_cooldown_until_ms
                     .remove(&id);
-                self.focus_state.last_surface_focus_ms.remove(&id);
-                self.carry_state.carry_zone_hint.remove(&id);
-                self.carry_state.carry_zone_last_change_ms.remove(&id);
-                self.carry_state.carry_zone_pending.remove(&id);
-                self.carry_state.carry_zone_pending_since_ms.remove(&id);
-                self.carry_state.carry_activation_anim_armed.remove(&id);
-                self.carry_state.carry_state_hold.remove(&id);
-                if self.interaction_state.resize_active == Some(id) {
-                    self.interaction_state.resize_active = None;
+                self.model.focus_state.last_surface_focus_ms.remove(&id);
+                self.model.carry_state.carry_zone_hint.remove(&id);
+                self.model.carry_state.carry_zone_last_change_ms.remove(&id);
+                self.model.carry_state.carry_zone_pending.remove(&id);
+                self.model.carry_state.carry_zone_pending_since_ms.remove(&id);
+                self.model.carry_state.carry_activation_anim_armed.remove(&id);
+                self.model.carry_state.carry_state_hold.remove(&id);
+                if self.input.interaction_state.resize_active == Some(id) {
+                    self.input.interaction_state.resize_active = None;
                 }
-                if self.interaction_state.resize_static_node == Some(id) {
-                    self.interaction_state.resize_static_node = None;
-                    self.interaction_state.resize_static_lock_pos = None;
-                    self.interaction_state.resize_static_until_ms = 0;
+                if self.input.interaction_state.resize_static_node == Some(id) {
+                    self.input.interaction_state.resize_static_node = None;
+                    self.input.interaction_state.resize_static_lock_pos = None;
+                    self.input.interaction_state.resize_static_until_ms = 0;
                 }
-                if self.focus_state.primary_interaction_focus == Some(id) {
-                    self.focus_state.primary_interaction_focus = None;
-                    self.focus_state.interaction_focus_until_ms = 0;
+                if self.model.focus_state.primary_interaction_focus == Some(id) {
+                    self.model.focus_state.primary_interaction_focus = None;
+                    self.model.focus_state.interaction_focus_until_ms = 0;
                 }
-                let stale_monitors: Vec<String> = self
-                    .focus_state
+                let stale_monitors: Vec<String> = self.model.focus_state
                     .monitor_focus
                     .iter()
                     .filter_map(|(monitor, &focused)| (focused == id).then_some(monitor.clone()))
                     .collect();
 
                 for monitor in stale_monitors {
-                    self.focus_state.monitor_focus.remove(&monitor);
+                    self.model.focus_state.monitor_focus.remove(&monitor);
                 }
-                self.interaction_state.smoothed_render_pos.remove(&id);
-                let _ = self.field.remove(id);
+                self.input.interaction_state.smoothed_render_pos.remove(&id);
+                let _ = self.model.field.remove(id);
             }
         }
 
-        self.surface_activity.retain(|k, _| alive.contains(k));
+        self.runtime.surface_activity.retain(|k, _| alive.contains(k));
     }
 }
 

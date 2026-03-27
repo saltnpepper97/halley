@@ -93,16 +93,16 @@ impl Halley {
         monitor_name: &str,
         node_id: NodeId,
     ) -> Option<bool> {
-        let node = self.field.node(node_id)?;
-        let monitor = self.monitor_state.monitors.get(monitor_name)?;
+        let node = self.model.field.node(node_id)?;
+        let monitor = self.model.monitor_state.monitors.get(monitor_name)?;
         let ext = if node.kind == halley_core::field::NodeKind::Surface {
             self.surface_window_collision_extents(node)
         } else {
             self.collision_extents_for_node(node)
         };
 
-        let (view_center, view_size) = if self.monitor_state.current_monitor == monitor_name {
-            (self.viewport.center, self.zoom_ref_size)
+        let (view_center, view_size) = if self.model.monitor_state.current_monitor == monitor_name {
+            (self.model.viewport.center, self.model.zoom_ref_size)
         } else {
             (monitor.viewport.center, monitor.zoom_ref_size)
         };
@@ -129,16 +129,16 @@ impl Halley {
         const EDGE_PAN_EXIT_MARGIN: f32 = 64.0;
         const EDGE_CONTACT_INSET: f32 = 0.75;
 
-        let node = self.field.node(node_id)?;
-        let monitor = self.monitor_state.monitors.get(monitor_name)?;
+        let node = self.model.field.node(node_id)?;
+        let monitor = self.model.monitor_state.monitors.get(monitor_name)?;
         let ext = if node.kind == halley_core::field::NodeKind::Surface {
             self.surface_window_collision_extents(node)
         } else {
             self.collision_extents_for_node(node)
         };
 
-        let (view_center, view_size) = if self.monitor_state.current_monitor == monitor_name {
-            (self.viewport.center, self.zoom_ref_size)
+        let (view_center, view_size) = if self.model.monitor_state.current_monitor == monitor_name {
+            (self.model.viewport.center, self.model.zoom_ref_size)
         } else {
             (monitor.viewport.center, monitor.zoom_ref_size)
         };
@@ -191,7 +191,7 @@ impl Halley {
         node_id: NodeId,
         desired_center: Vec2,
     ) -> Option<(Vec2, ClusterId, f32)> {
-        let node = self.field.node(node_id)?;
+        let node = self.model.field.node(node_id)?;
         let mover_ext = if node.kind == halley_core::field::NodeKind::Surface {
             self.surface_window_collision_extents(node)
         } else {
@@ -203,8 +203,7 @@ impl Halley {
         let mut max_push = 0.0f32;
 
         for _ in 0..12 {
-            let cores = self
-                .field
+            let cores = self.model.field
                 .clusters_iter()
                 .filter(|cluster| {
                     cluster.is_collapsed()
@@ -213,9 +212,8 @@ impl Halley {
                 })
                 .filter_map(|cluster| {
                     let core_id = cluster.core?;
-                    let core = self.field.node(core_id)?;
-                    let core_monitor = self
-                        .monitor_state
+                    let core = self.model.field.node(core_id)?;
+                    let core_monitor = self.model.monitor_state
                         .node_monitor
                         .get(&core_id)
                         .map(String::as_str)
@@ -273,10 +271,10 @@ impl Halley {
     }
 
     pub(crate) fn enforce_pan_dominant_zone_states(&mut self, now_ms: u64) {
-        let active_outside_ring_delay_ms = self.tuning.active_outside_ring_delay_ms;
-        let inactive_outside_ring_delay_ms = self.tuning.inactive_outside_ring_delay_ms;
+        let active_outside_ring_delay_ms = self.runtime.tuning.active_outside_ring_delay_ms;
+        let inactive_outside_ring_delay_ms = self.runtime.tuning.inactive_outside_ring_delay_ms;
 
-        let ids: Vec<NodeId> = self.field.nodes().keys().copied().collect();
+        let ids: Vec<NodeId> = self.model.field.nodes().keys().copied().collect();
 
         for id in ids {
             self.apply_single_surface_decay_policy(

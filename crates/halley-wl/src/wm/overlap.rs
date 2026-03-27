@@ -1,8 +1,11 @@
 use super::*;
+use crate::animation::{ease_in_out_cubic, proxy_anim_scale};
 use crate::render::ACTIVE_WINDOW_FRAME_PAD_PX;
-use crate::render::node_render_diameter_px;
+use crate::render::preview_proxy_size;
+use halley_core::viewport::Viewport;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
+use crate::state::{InteractionState, MonitorState, RenderState, WorkspaceState};
 
 const CONTACT_SLOP: f32 = 0.5;
 const CONTACT_SKIN: f32 = 1.5;
@@ -18,6 +21,29 @@ const MAX_CONTACT_IMPULSE: f32 = 380.0;
 const MAX_POSITION_CORRECTION: f32 = 48.0;
 const POSITION_SOLVER_ITERS: usize = 6;
 const PHYSICS_REST_EPSILON: f32 = 4.0;
+
+#[inline]
+fn node_render_diameter_px_for_viewport(
+    viewport: Viewport,
+    intrinsic_size: Vec2,
+    _label_len: usize,
+    anim_scale: f32,
+) -> f32 {
+    const PROXY_TO_MARKER_START: f32 = 0.50;
+    const PROXY_TO_MARKER_END: f32 = 0.20;
+
+    let marker_mix_lin = ((PROXY_TO_MARKER_START - anim_scale)
+        / (PROXY_TO_MARKER_START - PROXY_TO_MARKER_END))
+        .clamp(0.0, 1.0);
+    let marker_mix = ease_in_out_cubic(marker_mix_lin);
+
+    let marker_diameter = ((17.0f32 * 1.5).round().max(1.0)) * 2.0;
+    let (pw, ph) = preview_proxy_size(intrinsic_size.x, intrinsic_size.y);
+    let _ = viewport;
+    let proxy_diameter = pw.min(ph) * proxy_anim_scale(anim_scale);
+
+    (proxy_diameter + (marker_diameter - proxy_diameter) * marker_mix).max(marker_diameter)
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CollisionExtents {
@@ -47,7 +73,18 @@ impl CollisionExtents {
     }
 }
 
-impl Halley {
+struct OverlapReadContext<'a> {
+    field: &'a Field,
+    monitor_state: &'a MonitorState,
+    interaction_state: &'a InteractionState,
+    render_state: &'a RenderState,
+    workspace_state: &'a WorkspaceState,
+    tuning: &'a RuntimeTuning,
+    viewport: Viewport,
+    camera_render_scale: f32,
+}
+
+impl<'a> OverlapReadContext<'a> {
     #[inline]
     fn clamp_speed(v: Vec2, max_speed: f32) -> Vec2 {
         let speed_sq = v.x * v.x + v.y * v.y;
@@ -149,6 +186,200 @@ impl Halley {
         }
     }
 
+    fn preview_collision_size(real_w: f32, real_h: f32) -> Vec2 {
+        let w = real_w.max(1.0);
+        let h = real_h.max(1.0);
+        let aspect = w / h;
+        let base_h = 160.0f32;
+        let mut out_w = base_h * aspect;
+        let mut out_h = base_h;
+
+        if out_w < 180.0 {
+            out_w = 180.0;
+            out_h = out_w / aspect.max(0.1);
+        }
+        if out_w > 360.0 {
+            out_w = 360.0;
+            out_h = out_w / aspect.max(0.1);
+        }
+
+        out_h = out_h.clamp(100.0, 220.0);
+        Vec2 { x: out_w, y: out_h }
+    }
+
+    #[inline]
+    fn active_collision_scale(anim_scale: f32, real_w: f32, real_h: f32) -> f32 {
+        let base = Self::preview_collision_size(real_w, real_h);
+        let start = (base.x / real_w.max(1.0))
+            .min(base.y / real_h.max(1.0))
+            .clamp(0.24, 1.0);
+        let t = ((anim_scale - 0.30) / (1.0 - 0.30)).clamp(0.0, 1.0);
+        let e = t * t * (3.0 - 2.0 * t);
+
+        let mut out = start + (1.0 - start) * e;
+        if anim_scale > 1.0 {
+            out += (anim_scale - 1.0) * 0.30;
+        }
+
+        out.clamp(0.24, 1.08)
+    }
+
+    pub(crate) fn node_collision_extents_stable(
+        &self,
+        intrinsic_size: Vec2,
+        label: &str,
+        anim_scale: f32,
+    ) -> CollisionExtents {
+        let diameter_px = node_render_diameter_px_for_viewport(
+            self.viewport,
+            intrinsic_size,
+            label.len(),
+            anim_scale,
+        );
+        let radius_px = (diameter_px * 0.5).round().max(1.0);
+
+        CollisionExtents::symmetric(Vec2 {
+            x: radius_px * 2.0,
+            y: radius_px * 2.0,
+        })
+    }
+
+    pub(crate) fn node_collision_extents(
+        &self,
+        intrinsic_size: Vec2,
+        label: &str,
+        anim_scale: f32,
+    ) -> CollisionExtents {
+        let stable = self.node_collision_extents_stable(intrinsic_size, label, anim_scale);
+        let cam_scale = self.camera_render_scale.max(0.01);
+
+        CollisionExtents::symmetric(Vec2 {
+            x: stable.size().x / cam_scale,
+            y: stable.size().y / cam_scale,
+        })
+    }
+
+    pub(crate) fn surface_window_collision_extents(
+        &self,
+        n: &halley_core::field::Node,
+    ) -> CollisionExtents {
+        let basis = self.workspace_state
+            .last_active_size
+            .get(&n.id)
+            .copied()
+            .or_else(|| {
+                self.render_state
+                    .window_geometry
+                    .get(&n.id)
+                    .map(|(_, _, w, h)| Vec2 { x: *w, y: *h })
+            })
+            .unwrap_or(n.intrinsic_size);
+        let bbox_w = n.intrinsic_size.x.max(1.0);
+        let bbox_h = n.intrinsic_size.y.max(1.0);
+        let (bbox_lx, bbox_ly) = self.render_state
+            .bbox_loc
+            .get(&n.id)
+            .copied()
+            .unwrap_or((0.0, 0.0));
+        let (geo_lx, geo_ly, geo_w, geo_h) = self.render_state
+            .window_geometry
+            .get(&n.id)
+            .copied()
+            .unwrap_or((bbox_lx, bbox_ly, bbox_w, bbox_h));
+
+        let left = (bbox_w * 0.5 + bbox_lx - geo_lx).max(16.0);
+        let right = (geo_lx + geo_w - bbox_lx - bbox_w * 0.5).max(16.0);
+        let top = (bbox_h * 0.5 + bbox_ly - geo_ly).max(16.0);
+        let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
+        let frame_pad = ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32;
+
+        CollisionExtents {
+            left: left * basis.x.max(1.0) / bbox_w + frame_pad,
+            right: right * basis.x.max(1.0) / bbox_w + frame_pad,
+            top: top * basis.y.max(1.0) / bbox_h + frame_pad,
+            bottom: bottom * basis.y.max(1.0) / bbox_h + frame_pad,
+        }
+    }
+
+    pub(crate) fn spawn_obstacle_extents_for_node(
+        &self,
+        n: &halley_core::field::Node,
+    ) -> CollisionExtents {
+        debug_assert!(n.kind == halley_core::field::NodeKind::Surface);
+        self.surface_window_collision_extents(n)
+    }
+
+}
+
+impl Halley {
+    fn overlap_read_context(&self) -> OverlapReadContext<'_> {
+        OverlapReadContext {
+            field: &self.model.field,
+            monitor_state: &self.model.monitor_state,
+            interaction_state: &self.input.interaction_state,
+            render_state: &self.ui.render_state,
+            workspace_state: &self.model.workspace_state,
+            tuning: &self.runtime.tuning,
+            viewport: self.model.viewport,
+            camera_render_scale: self.camera_render_scale(),
+        }
+    }
+
+    #[inline]
+    fn clamp_speed(v: Vec2, max_speed: f32) -> Vec2 {
+        OverlapReadContext::clamp_speed(v, max_speed)
+    }
+
+    #[inline]
+    fn physics_damping_per_sec(&self) -> f32 {
+        self.overlap_read_context().physics_damping_per_sec()
+    }
+
+    #[inline]
+    fn physics_inv_mass(&self, id: NodeId, pinned: bool) -> f32 {
+        self.overlap_read_context().physics_inv_mass(id, pinned)
+    }
+
+    #[inline]
+    fn node_participates_in_overlap(&self, id: NodeId) -> bool {
+        self.overlap_read_context().node_participates_in_overlap(id)
+    }
+
+    pub(crate) fn non_overlap_gap_world(&self) -> f32 {
+        self.overlap_read_context().non_overlap_gap_world()
+    }
+
+    #[inline]
+    pub(crate) fn required_sep_x(
+        &self,
+        a_pos_x: f32,
+        a_ext: CollisionExtents,
+        b_pos_x: f32,
+        b_ext: CollisionExtents,
+        gap: f32,
+    ) -> f32 {
+        self.overlap_read_context()
+            .required_sep_x(a_pos_x, a_ext, b_pos_x, b_ext, gap)
+    }
+
+    #[inline]
+    fn nodes_share_overlap_group(&self, a: NodeId, b: NodeId) -> bool {
+        self.overlap_read_context().nodes_share_overlap_group(a, b)
+    }
+
+    #[inline]
+    pub(crate) fn required_sep_y(
+        &self,
+        a_pos_y: f32,
+        a_ext: CollisionExtents,
+        b_pos_y: f32,
+        b_ext: CollisionExtents,
+        gap: f32,
+    ) -> f32 {
+        self.overlap_read_context()
+            .required_sep_y(a_pos_y, a_ext, b_pos_y, b_ext, gap)
+    }
+
     pub(crate) fn carry_surface_non_overlap(
         &mut self,
         id: NodeId,
@@ -156,38 +387,30 @@ impl Halley {
         clamp_only: bool,
     ) -> bool {
         let carry_direct = |this: &mut Self, id: NodeId, to: Vec2| {
-            if this
-                .field
+            if this.model.field
                 .node(id)
                 .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
             {
-                this.field.carry_cluster_by_core(id, to)
+                this.model.field.carry_cluster_by_core(id, to)
             } else {
-                this.field.carry(id, to)
+                this.model.field.carry(id, to)
             }
         };
-        let moved = if !self.tuning.physics_enabled {
+        let moved = if !self.runtime.tuning.physics_enabled {
             self.carry_surface_no_overlap_static(id, to)
         } else if clamp_only
-            || self.interaction_state.suspend_overlap_resolve
-            || self.interaction_state.suspend_state_checks
+            || self.input.interaction_state.suspend_overlap_resolve
+            || self.input.interaction_state.suspend_state_checks
         {
             self.carry_surface_no_overlap_static(id, to)
         } else {
             carry_direct(self, id, to)
         };
-        // Do NOT call monitor_for_screen(node.pos) here. node.pos is world
-        // space; monitor_for_screen expects screen pixels. Calling it here
-        // overwrites node_monitor with a garbage monitor name on every drag
-        // tick, defeating the monitor-locked drag clamp in pointer_motion.rs.
-        // node_monitor is set authoritatively at drag-begin via
-        // assign_node_to_current_monitor, and updated explicitly on a monitor
-        // transfer. It must not be silently mutated by the physics tick.
         moved
     }
 
     fn carry_surface_no_overlap_static(&mut self, id: NodeId, to: Vec2) -> bool {
-        let Some(n) = self.field.node(id) else {
+        let Some(n) = self.model.field.node(id) else {
             return false;
         };
 
@@ -196,8 +419,7 @@ impl Halley {
         let mut mover_pos = to;
 
         for _ in 0..24 {
-            let others: Vec<(NodeId, Vec2, CollisionExtents)> = self
-                .field
+            let others: Vec<(NodeId, Vec2, CollisionExtents)> = self.model.field
                 .nodes()
                 .iter()
                 .filter_map(|(&oid, other)| {
@@ -251,128 +473,21 @@ impl Halley {
             }
         }
 
-        if self
-            .field
+        if self.model.field
             .node(id)
             .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
         {
-            self.field.carry_cluster_by_core(id, mover_pos)
+            self.model.field.carry_cluster_by_core(id, mover_pos)
         } else {
-            self.field.carry(id, mover_pos)
+            self.model.field.carry(id, mover_pos)
         }
-    }
-
-    fn preview_collision_size(real_w: f32, real_h: f32) -> Vec2 {
-        let w = real_w.max(1.0);
-        let h = real_h.max(1.0);
-        let aspect = w / h;
-        let base_h = 160.0f32;
-        let mut out_w = base_h * aspect;
-        let mut out_h = base_h;
-
-        if out_w < 180.0 {
-            out_w = 180.0;
-            out_h = out_w / aspect.max(0.1);
-        }
-        if out_w > 360.0 {
-            out_w = 360.0;
-            out_h = out_w / aspect.max(0.1);
-        }
-
-        out_h = out_h.clamp(100.0, 220.0);
-        Vec2 { x: out_w, y: out_h }
-    }
-
-    #[inline]
-    fn active_collision_scale(anim_scale: f32, real_w: f32, real_h: f32) -> f32 {
-        let base = Self::preview_collision_size(real_w, real_h);
-        let start = (base.x / real_w.max(1.0))
-            .min(base.y / real_h.max(1.0))
-            .clamp(0.24, 1.0);
-        let t = ((anim_scale - 0.30) / (1.0 - 0.30)).clamp(0.0, 1.0);
-        let e = t * t * (3.0 - 2.0 * t);
-
-        let mut out = start + (1.0 - start) * e;
-        if anim_scale > 1.0 {
-            out += (anim_scale - 1.0) * 0.30;
-        }
-
-        out.clamp(0.24, 1.08)
-    }
-
-    fn node_collision_extents_stable(
-        &self,
-        intrinsic_size: Vec2,
-        label: &str,
-        anim_scale: f32,
-    ) -> CollisionExtents {
-        let diameter_px = node_render_diameter_px(self, intrinsic_size, label.len(), anim_scale);
-        let radius_px = (diameter_px * 0.5).round().max(1.0);
-
-        CollisionExtents::symmetric(Vec2 {
-            x: radius_px * 2.0,
-            y: radius_px * 2.0,
-        })
-    }
-
-    fn node_collision_extents(
-        &self,
-        intrinsic_size: Vec2,
-        label: &str,
-        anim_scale: f32,
-    ) -> CollisionExtents {
-        let stable = self.node_collision_extents_stable(intrinsic_size, label, anim_scale);
-        let cam_scale = self.camera_render_scale().max(0.01);
-
-        CollisionExtents::symmetric(Vec2 {
-            x: stable.size().x / cam_scale,
-            y: stable.size().y / cam_scale,
-        })
     }
 
     pub(crate) fn surface_window_collision_extents(
         &self,
         n: &halley_core::field::Node,
     ) -> CollisionExtents {
-        let basis = self
-            .workspace_state
-            .last_active_size
-            .get(&n.id)
-            .copied()
-            .or_else(|| {
-                self.render_state
-                    .window_geometry
-                    .get(&n.id)
-                    .map(|(_, _, w, h)| Vec2 { x: *w, y: *h })
-            })
-            .unwrap_or(n.intrinsic_size);
-        let bbox_w = n.intrinsic_size.x.max(1.0);
-        let bbox_h = n.intrinsic_size.y.max(1.0);
-        let (bbox_lx, bbox_ly) = self
-            .render_state
-            .bbox_loc
-            .get(&n.id)
-            .copied()
-            .unwrap_or((0.0, 0.0));
-        let (geo_lx, geo_ly, geo_w, geo_h) = self
-            .render_state
-            .window_geometry
-            .get(&n.id)
-            .copied()
-            .unwrap_or((bbox_lx, bbox_ly, bbox_w, bbox_h));
-
-        let left = (bbox_w * 0.5 + bbox_lx - geo_lx).max(16.0);
-        let right = (geo_lx + geo_w - bbox_lx - bbox_w * 0.5).max(16.0);
-        let top = (bbox_h * 0.5 + bbox_ly - geo_ly).max(16.0);
-        let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
-        let frame_pad = ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32;
-
-        CollisionExtents {
-            left: left * basis.x.max(1.0) / bbox_w + frame_pad,
-            right: right * basis.x.max(1.0) / bbox_w + frame_pad,
-            top: top * basis.y.max(1.0) / bbox_h + frame_pad,
-            bottom: bottom * basis.y.max(1.0) / bbox_h + frame_pad,
-        }
+        self.overlap_read_context().surface_window_collision_extents(n)
     }
 
     pub(crate) fn spawn_obstacle_extents_for_node(
@@ -380,7 +495,7 @@ impl Halley {
         n: &halley_core::field::Node,
     ) -> CollisionExtents {
         if n.kind == halley_core::field::NodeKind::Surface {
-            self.surface_window_collision_extents(n)
+            self.overlap_read_context().spawn_obstacle_extents_for_node(n)
         } else {
             self.collision_extents_for_node(n)
         }
@@ -390,19 +505,16 @@ impl Halley {
         &self,
         n: &halley_core::field::Node,
     ) -> CollisionExtents {
-        let now = Instant::now();
-        let anim = self.anim_style_for(n.id, n.state.clone(), now);
-
+        let anim = self.anim_style_for(n.id, n.state.clone(), Instant::now());
         match n.state {
             halley_core::field::NodeState::Active => {
-                let basis = self
-                    .workspace_state
+                let basis = self.model.workspace_state
                     .last_active_size
                     .get(&n.id)
                     .copied()
                     .unwrap_or(n.intrinsic_size);
-                let s = Self::active_collision_scale(anim.scale, basis.x, basis.y);
-                let ext = self.surface_window_collision_extents(n);
+                let s = OverlapReadContext::active_collision_scale(anim.scale, basis.x, basis.y);
+                let ext = self.overlap_read_context().surface_window_collision_extents(n);
 
                 CollisionExtents {
                     left: ext.left * s,
@@ -412,15 +524,17 @@ impl Halley {
                 }
             }
             halley_core::field::NodeState::Node => {
-                self.node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
+                self.overlap_read_context()
+                    .node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
             }
             halley_core::field::NodeState::Core => {
-                self.node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
+                self.overlap_read_context()
+                    .node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
             }
             halley_core::field::NodeState::Drifting => CollisionExtents::symmetric(n.footprint),
         }
     }
-
+    
     pub(super) fn collision_size_for_node(&self, n: &halley_core::field::Node) -> Vec2 {
         self.collision_extents_for_node(n).size()
     }
@@ -435,15 +549,14 @@ impl Halley {
     }
 
     pub(crate) fn resolve_surface_overlap(&mut self) {
-        if !self.tuning.physics_enabled {
+        if !self.runtime.tuning.physics_enabled {
             return;
         }
-        if self.interaction_state.suspend_overlap_resolve {
+        if self.input.interaction_state.suspend_overlap_resolve {
             return;
         }
 
-        let mut ids: Vec<NodeId> = self
-            .field
+        let mut ids: Vec<NodeId> = self.model.field
             .nodes()
             .keys()
             .copied()
@@ -458,10 +571,10 @@ impl Halley {
 
         let now = Instant::now();
         let dt = now
-            .saturating_duration_since(self.interaction_state.physics_last_tick)
+            .saturating_duration_since(self.input.interaction_state.physics_last_tick)
             .as_secs_f32()
             .clamp(1.0 / 240.0, 1.0 / 30.0);
-        self.interaction_state.physics_last_tick = now;
+        self.input.interaction_state.physics_last_tick = now;
 
         let gap = self.non_overlap_gap_world();
         let damping_per_sec = self.physics_damping_per_sec();
@@ -472,14 +585,14 @@ impl Halley {
             std::collections::HashMap::new();
 
         for &id in &ids {
-            let Some(node) = self.field.node(id) else {
+            let Some(node) = self.model.field.node(id) else {
                 continue;
             };
             positions.insert(id, node.pos);
-            let vel = if self.interaction_state.drag_authority_node == Some(id) {
-                self.interaction_state.drag_authority_velocity
+            let vel = if self.input.interaction_state.drag_authority_node == Some(id) {
+                self.input.interaction_state.drag_authority_velocity
             } else {
-                self.interaction_state
+                self.input.interaction_state
                     .physics_velocity
                     .get(&id)
                     .copied()
@@ -489,10 +602,10 @@ impl Halley {
         }
 
         for &id in &ids {
-            let Some(node) = self.field.node(id) else {
+            let Some(node) = self.model.field.node(id) else {
                 continue;
             };
-            let pinned = node.pinned || self.interaction_state.resize_static_node == Some(id);
+            let pinned = node.pinned || self.input.interaction_state.resize_static_node == Some(id);
             if self.physics_inv_mass(id, pinned) <= 0.0 {
                 continue;
             }
@@ -510,10 +623,10 @@ impl Halley {
                     let a = ids[i];
                     let b = ids[j];
 
-                    let Some(na) = self.field.node(a) else {
+                    let Some(na) = self.model.field.node(a) else {
                         continue;
                     };
-                    let Some(nb) = self.field.node(b) else {
+                    let Some(nb) = self.model.field.node(b) else {
                         continue;
                     };
                     if !self.nodes_share_overlap_group(a, b) {
@@ -521,9 +634,9 @@ impl Halley {
                     }
 
                     let a_pinned =
-                        na.pinned || self.interaction_state.resize_static_node == Some(a);
+                        na.pinned || self.input.interaction_state.resize_static_node == Some(a);
                     let b_pinned =
-                        nb.pinned || self.interaction_state.resize_static_node == Some(b);
+                        nb.pinned || self.input.interaction_state.resize_static_node == Some(b);
                     let inv_mass_a = self.physics_inv_mass(a, a_pinned);
                     let inv_mass_b = self.physics_inv_mass(b, b_pinned);
                     if inv_mass_a <= 0.0 && inv_mass_b <= 0.0 {
@@ -656,15 +769,15 @@ impl Halley {
         }
 
         for id in ids {
-            let Some(node) = self.field.node(id) else {
+            let Some(node) = self.model.field.node(id) else {
                 continue;
             };
-            let pinned = node.pinned || self.interaction_state.resize_static_node == Some(id);
+            let pinned = node.pinned || self.input.interaction_state.resize_static_node == Some(id);
             // Don't write physics position back to the grabbed window —
             // carry_surface_non_overlap owns its position each frame.
-            if self.interaction_state.drag_authority_node != Some(id) {
+            if self.input.interaction_state.drag_authority_node != Some(id) {
                 if let Some(pos) = positions.get(&id).copied() {
-                    let _ = self.field.carry(id, pos);
+                    let _ = self.model.field.carry(id, pos);
                 }
             }
             if self.physics_inv_mass(id, pinned) <= 0.0 {
@@ -678,9 +791,9 @@ impl Halley {
                 MAX_PHYSICS_SPEED,
             );
             if vel.x.abs() < PHYSICS_REST_EPSILON && vel.y.abs() < PHYSICS_REST_EPSILON {
-                self.interaction_state.physics_velocity.remove(&id);
+                self.input.interaction_state.physics_velocity.remove(&id);
             } else {
-                self.interaction_state.physics_velocity.insert(id, vel);
+                self.input.interaction_state.physics_velocity.insert(id, vel);
             }
         }
     }
@@ -690,11 +803,11 @@ impl Halley {
         let height = height.max(72);
         let focused_node = self.last_input_surface_node();
 
-        for top in self.xdg_shell_state.toplevel_surfaces() {
+        for top in self.platform.xdg_shell_state.toplevel_surfaces() {
             let wl = top.wl_surface();
             let key = wl.id();
 
-            if self.surface_to_node.get(&key).copied() != Some(node_id) {
+            if self.model.surface_to_node.get(&key).copied() != Some(node_id) {
                 continue;
             }
 
@@ -716,10 +829,11 @@ impl Halley {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::utils::node_render_diameter_px;
 
     fn overlap_metrics(state: &Halley, a: NodeId, b: NodeId) -> (f32, f32, f32, f32) {
-        let na = state.field.node(a).expect("node a");
-        let nb = state.field.node(b).expect("node b");
+        let na = state.model.field.node(a).expect("node a");
+        let nb = state.model.field.node(b).expect("node b");
         let ea = state.collision_extents_for_node(na);
         let eb = state.collision_extents_for_node(nb);
         let gap = state.non_overlap_gap_world();
@@ -748,16 +862,16 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.viewport.size = Vec2 {
+        state.model.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
-        state.zoom_ref_size = Vec2 {
+        state.model.zoom_ref_size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
 
-        let id = state.field.spawn_surface(
+        let id = state.model.field.spawn_surface(
             "collapsed-firefox",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 {
@@ -765,11 +879,10 @@ mod tests {
                 y: 900.0,
             },
         );
-        let _ = state
-            .field
+        let _ = state.model.field
             .set_state(id, halley_core::field::NodeState::Node);
 
-        let node = state.field.node(id).expect("node");
+        let node = state.model.field.node(id).expect("node");
         let ext = state.collision_extents_for_node(node);
 
         assert!(
@@ -791,16 +904,16 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.viewport.size = Vec2 {
+        state.model.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
-        state.zoom_ref_size = Vec2 {
+        state.model.zoom_ref_size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
 
-        let id = state.field.spawn_surface(
+        let id = state.model.field.spawn_surface(
             "collapsed-firefox",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 {
@@ -808,11 +921,10 @@ mod tests {
                 y: 900.0,
             },
         );
-        let _ = state
-            .field
+        let _ = state.model.field
             .set_state(id, halley_core::field::NodeState::Node);
 
-        let node = state.field.node(id).expect("node");
+        let node = state.model.field.node(id).expect("node");
         let ext = state.collision_extents_for_node(node);
         let anim = state.anim_style_for(id, node.state.clone(), Instant::now());
         let expected =
@@ -829,29 +941,26 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.viewport.size = Vec2 {
+        state.model.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
-        state.zoom_ref_size = Vec2 {
+        state.model.zoom_ref_size = Vec2 {
             x: 3200.0,
             y: 2400.0,
         };
 
-        let a = state.field.spawn_surface(
+        let a = state.model.field.spawn_surface(
             "alpha",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 320.0, y: 220.0 },
         );
         let b =
-            state
-                .field
+            state.model.field
                 .spawn_surface("beta", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 320.0, y: 220.0 });
-        let _ = state
-            .field
+        let _ = state.model.field
             .set_state(a, halley_core::field::NodeState::Node);
-        let _ = state
-            .field
+        let _ = state.model.field
             .set_state(b, halley_core::field::NodeState::Node);
 
         tick_overlap_frames(&mut state, 64);
@@ -861,8 +970,8 @@ mod tests {
         assert!(
             dx >= req_x || dy >= req_y,
             "collapsed nodes still overlap after zoomed-out settle: a={:?} b={:?} req=({}, {})",
-            state.field.node(a).expect("node a").pos,
-            state.field.node(b).expect("node b").pos,
+            state.model.field.node(a).expect("node a").pos,
+            state.model.field.node(b).expect("node b").pos,
             req_x,
             req_y
         );
@@ -903,7 +1012,7 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
         let _ = state.activate_monitor("left");
 
-        let a = state.field.spawn_surface(
+        let a = state.model.field.spawn_surface(
             "right-a",
             Vec2 {
                 x: 1200.0,
@@ -911,7 +1020,7 @@ mod tests {
             },
             Vec2 { x: 320.0, y: 220.0 },
         );
-        let b = state.field.spawn_surface(
+        let b = state.model.field.spawn_surface(
             "right-b",
             Vec2 {
                 x: 1200.0,
@@ -921,11 +1030,9 @@ mod tests {
         );
         state.assign_node_to_monitor(a, "right");
         state.assign_node_to_monitor(b, "right");
-        let _ = state
-            .field
+        let _ = state.model.field
             .set_state(a, halley_core::field::NodeState::Node);
-        let _ = state
-            .field
+        let _ = state.model.field
             .set_state(b, halley_core::field::NodeState::Node);
 
         tick_overlap_frames(&mut state, 64);
@@ -943,35 +1050,34 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.viewport.size = Vec2 {
+        state.model.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
-        state.zoom_ref_size = Vec2 {
+        state.model.zoom_ref_size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
 
-        let active = state.field.spawn_surface(
+        let active = state.model.field.spawn_surface(
             "active",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 400.0, y: 260.0 },
         );
-        let node = state.field.spawn_surface(
+        let node = state.model.field.spawn_surface(
             "collapsed",
             Vec2 { x: 600.0, y: 0.0 },
             Vec2 { x: 320.0, y: 220.0 },
         );
-        let _ = state
-            .field
+        let _ = state.model.field
             .set_state(node, halley_core::field::NodeState::Node);
 
         state.set_drag_authority_node(Some(node));
         assert!(state.carry_surface_non_overlap(node, Vec2 { x: 0.0, y: 0.0 }, false));
         state.resolve_surface_overlap();
 
-        let active_node = state.field.node(active).expect("active surface");
-        let collapsed_node = state.field.node(node).expect("collapsed node");
+        let active_node = state.model.field.node(active).expect("active surface");
+        let collapsed_node = state.model.field.node(node).expect("collapsed node");
 
         assert!(
             collapsed_node.pos == Vec2 { x: 0.0, y: 0.0 },
@@ -992,12 +1098,12 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let id = state.field.spawn_surface(
+        let id = state.model.field.spawn_surface(
             "active",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 400.0, y: 260.0 },
         );
-        let node = state.field.node(id).expect("active node");
+        let node = state.model.field.node(id).expect("active node");
         let ext = state.surface_window_collision_extents(node);
         let expected_half_w = node.intrinsic_size.x * 0.5 + ACTIVE_WINDOW_FRAME_PAD_PX as f32;
         let expected_half_h = node.intrinsic_size.y * 0.5 + ACTIVE_WINDOW_FRAME_PAD_PX as f32;
@@ -1015,29 +1121,26 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.viewport.size = Vec2 {
+        state.model.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
-        state.zoom_ref_size = Vec2 {
+        state.model.zoom_ref_size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
 
-        let a = state.field.spawn_surface(
+        let a = state.model.field.spawn_surface(
             "alpha",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 320.0, y: 220.0 },
         );
         let b =
-            state
-                .field
+            state.model.field
                 .spawn_surface("beta", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 320.0, y: 220.0 });
-        let _ = state
-            .field
+        let _ = state.model.field
             .set_state(a, halley_core::field::NodeState::Node);
-        let _ = state
-            .field
+        let _ = state.model.field
             .set_state(b, halley_core::field::NodeState::Node);
 
         tick_overlap_frames(&mut state, 64);
@@ -1047,8 +1150,8 @@ mod tests {
         assert!(
             dx >= req_x || dy >= req_y,
             "collapsed nodes still overlap after settle: a={:?} b={:?} req=({}, {})",
-            state.field.node(a).expect("node a").pos,
-            state.field.node(b).expect("node b").pos,
+            state.model.field.node(a).expect("node a").pos,
+            state.model.field.node(b).expect("node b").pos,
             req_x,
             req_y
         );
@@ -1061,26 +1164,24 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.viewport.size = Vec2 {
+        state.model.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
-        state.zoom_ref_size = Vec2 {
+        state.model.zoom_ref_size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
 
-        let active = state.field.spawn_surface(
+        let active = state.model.field.spawn_surface(
             "active",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 420.0, y: 280.0 },
         );
         let node =
-            state
-                .field
+            state.model.field
                 .spawn_surface("node", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 300.0, y: 200.0 });
-        let _ = state
-            .field
+        let _ = state.model.field
             .set_state(node, halley_core::field::NodeState::Node);
 
         tick_overlap_frames(&mut state, 96);
@@ -1090,8 +1191,8 @@ mod tests {
         assert!(
             dx >= req_x || dy >= req_y,
             "active surface and node still overlap after settle: active={:?} node={:?} req=({}, {})",
-            state.field.node(active).expect("active").pos,
-            state.field.node(node).expect("node").pos,
+            state.model.field.node(active).expect("active").pos,
+            state.model.field.node(node).expect("node").pos,
             req_x,
             req_y
         );
@@ -1104,22 +1205,20 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.viewport.size = Vec2 {
+        state.model.viewport.size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
-        state.zoom_ref_size = Vec2 {
+        state.model.zoom_ref_size = Vec2 {
             x: 1600.0,
             y: 1200.0,
         };
 
         let a =
-            state
-                .field
+            state.model.field
                 .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
         let b =
-            state
-                .field
+            state.model.field
                 .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
 
         tick_overlap_frames(&mut state, 128);
@@ -1129,8 +1228,8 @@ mod tests {
         assert!(
             dx >= req_x || dy >= req_y,
             "active surfaces still overlap after settle: a={:?} b={:?} req=({}, {})",
-            state.field.node(a).expect("a").pos,
-            state.field.node(b).expect("b").pos,
+            state.model.field.node(a).expect("a").pos,
+            state.model.field.node(b).expect("b").pos,
             req_x,
             req_y
         );
@@ -1145,24 +1244,20 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
 
         let a =
-            state
-                .field
+            state.model.field
                 .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
         let b =
-            state
-                .field
+            state.model.field
                 .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
 
         for _ in 0..12 {
             state.resolve_surface_overlap();
-            let vel_a = state
-                .interaction_state
+            let vel_a = state.input.interaction_state
                 .physics_velocity
                 .get(&a)
                 .copied()
                 .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
-            let vel_b = state
-                .interaction_state
+            let vel_b = state.input.interaction_state
                 .physics_velocity
                 .get(&b)
                 .copied()
@@ -1185,12 +1280,12 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let passive = state.field.spawn_surface(
+        let passive = state.model.field.spawn_surface(
             "passive",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 420.0, y: 280.0 },
         );
-        let dragged = state.field.spawn_surface(
+        let dragged = state.model.field.spawn_surface(
             "dragged",
             Vec2 {
                 x: -420.0,
@@ -1207,8 +1302,7 @@ mod tests {
             };
             let _ = state.carry_surface_non_overlap(dragged, to, false);
             state.resolve_surface_overlap();
-            let vel = state
-                .interaction_state
+            let vel = state.input.interaction_state
                 .physics_velocity
                 .get(&passive)
                 .copied()
@@ -1228,19 +1322,18 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let id = state.field.spawn_surface(
+        let id = state.model.field.spawn_surface(
             "release",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 420.0, y: 280.0 },
         );
-        state
-            .interaction_state
+        state.input.interaction_state
             .physics_velocity
             .insert(id, Vec2 { x: 480.0, y: 120.0 });
         state.finalize_mouse_drag_state(id, Vec2 { x: 0.0, y: 0.0 }, Instant::now());
 
         assert!(
-            !state.interaction_state.physics_velocity.contains_key(&id),
+            !state.input.interaction_state.physics_velocity.contains_key(&id),
             "grabbed window should not retain momentum after release"
         );
     }
@@ -1254,30 +1347,25 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
 
         let a =
-            state
-                .field
+            state.model.field
                 .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
         let b =
-            state
-                .field
+            state.model.field
                 .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
-        let ea = state.collision_extents_for_node(state.field.node(a).expect("a"));
-        let eb = state.collision_extents_for_node(state.field.node(b).expect("b"));
+        let ea = state.collision_extents_for_node(state.model.field.node(a).expect("a"));
+        let eb = state.collision_extents_for_node(state.model.field.node(b).expect("b"));
         let req_x = state.required_sep_x(0.0, ea, 1.0, eb, state.non_overlap_gap_world());
-        let _ = state.field.carry(b, Vec2 { x: req_x, y: 0.0 });
-        state
-            .interaction_state
+        let _ = state.model.field.carry(b, Vec2 { x: req_x, y: 0.0 });
+        state.input.interaction_state
             .physics_velocity
             .insert(a, Vec2 { x: 320.0, y: 0.0 });
-        state
-            .interaction_state
+        state.input.interaction_state
             .physics_velocity
             .insert(b, Vec2 { x: 0.0, y: 0.0 });
 
         state.resolve_surface_overlap();
 
-        let vb = state
-            .interaction_state
+        let vb = state.input.interaction_state
             .physics_velocity
             .get(&b)
             .copied()
@@ -1296,20 +1384,20 @@ mod tests {
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
 
-        let dragged = state.field.spawn_surface(
+        let dragged = state.model.field.spawn_surface(
             "dragged",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 420.0, y: 280.0 },
         );
-        let passive = state.field.spawn_surface(
+        let passive = state.model.field.spawn_surface(
             "passive",
             Vec2 { x: 0.0, y: 0.0 },
             Vec2 { x: 420.0, y: 280.0 },
         );
-        let ea = state.collision_extents_for_node(state.field.node(dragged).expect("dragged"));
-        let eb = state.collision_extents_for_node(state.field.node(passive).expect("passive"));
+        let ea = state.collision_extents_for_node(state.model.field.node(dragged).expect("dragged"));
+        let eb = state.collision_extents_for_node(state.model.field.node(passive).expect("passive"));
         let req_x = state.required_sep_x(0.0, ea, 1.0, eb, state.non_overlap_gap_world());
-        let _ = state.field.carry(
+        let _ = state.model.field.carry(
             passive,
             Vec2 {
                 x: req_x - 1.0,
@@ -1318,12 +1406,11 @@ mod tests {
         );
 
         state.set_drag_authority_node(Some(dragged));
-        state.interaction_state.drag_authority_velocity = Vec2 { x: 420.0, y: 0.0 };
+        state.input.interaction_state.drag_authority_velocity = Vec2 { x: 420.0, y: 0.0 };
 
         state.resolve_surface_overlap();
 
-        let passive_velocity = state
-            .interaction_state
+        let passive_velocity = state.input.interaction_state
             .physics_velocity
             .get(&passive)
             .copied()
@@ -1333,8 +1420,7 @@ mod tests {
             "passive window should receive physics from a grabbed kinematic collider: {passive_velocity:?}"
         );
         assert!(
-            !state
-                .interaction_state
+            !state.input.interaction_state
                 .physics_velocity
                 .contains_key(&dragged),
             "grabbed window should not retain physics momentum"
@@ -1350,26 +1436,22 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
 
         let a =
-            state
-                .field
+            state.model.field
                 .spawn_surface("a", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
         let b =
-            state
-                .field
+            state.model.field
                 .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
 
         tick_overlap_frames(&mut state, 12);
         let _ = state.carry_surface_non_overlap(b, Vec2 { x: 700.0, y: 0.0 }, false);
         tick_overlap_frames(&mut state, 24);
 
-        let va = state
-            .interaction_state
+        let va = state.input.interaction_state
             .physics_velocity
             .get(&a)
             .copied()
             .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
-        let vb = state
-            .interaction_state
+        let vb = state.input.interaction_state
             .physics_velocity
             .get(&b)
             .copied()
