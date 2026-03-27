@@ -156,7 +156,7 @@ fn base_style(state: NodeState) -> AnimStyle {
             alpha: 1.0,
         },
         NodeState::Core => AnimStyle {
-            scale: 1.0,
+            scale: 0.30,
             alpha: 1.0,
         },
         _ => AnimStyle::default(),

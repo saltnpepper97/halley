@@ -160,11 +160,25 @@ pub(crate) fn handle_keyboard_input(
     // Compositor bindings like toggle-state should not first re-focus / re-heat
     // the surface they are about to collapse.
     if pressed
+        && !is_mod_key
         && !matched_binding
         && !cluster_blocks_key
         && !st.keyboard_focus_is_layer_surface()
         && let Some(fid) = st.last_input_surface_node_for_monitor(st.focused_monitor())
     {
+        let open_monitors = st.model.cluster_state
+            .cluster_bloom_open
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for monitor in open_monitors {
+            let open_core = st.cluster_bloom_for_monitor(monitor.as_str()).and_then(|cid| {
+                st.model.field.cluster(cid).and_then(|cluster| cluster.core)
+            });
+            if open_core != Some(fid) {
+                let _ = st.close_cluster_bloom_for_monitor(monitor.as_str());
+            }
+        }
         st.set_interaction_focus(Some(fid), 30_000, Instant::now());
     }
 

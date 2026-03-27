@@ -449,10 +449,7 @@ impl Halley {
 
     pub(crate) fn tick_active_drag(&mut self, now: Instant) {
         let Some(mut active_drag) = self.input.interaction_state.active_drag.clone() else {
-            self.input.interaction_state.grabbed_edge_pan_active = false;
-            self.input.interaction_state.grabbed_edge_pan_direction =
-                halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-            self.input.interaction_state.grabbed_edge_pan_monitor = None;
+            self.clear_grabbed_edge_pan_state();
             return;
         };
 
@@ -462,10 +459,7 @@ impl Halley {
         };
         if node_id != active_drag.node_id {
             self.input.interaction_state.active_drag = None;
-            self.input.interaction_state.grabbed_edge_pan_active = false;
-            self.input.interaction_state.grabbed_edge_pan_direction =
-                halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-            self.input.interaction_state.grabbed_edge_pan_monitor = None;
+            self.clear_grabbed_edge_pan_state();
             return;
         }
 
@@ -482,34 +476,34 @@ impl Halley {
         };
 
         let moved = if active_drag.allow_monitor_transfer {
-            self.input.interaction_state.grabbed_edge_pan_active = false;
-            self.input.interaction_state.grabbed_edge_pan_direction =
-                halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-            self.input.interaction_state.grabbed_edge_pan_monitor = None;
+            self.clear_grabbed_edge_pan_state();
             self.assign_node_to_monitor(node_id, active_drag.pointer_monitor.as_str());
-            let clamped_to = self
+            let to = self
                 .dragged_node_cluster_core_clamp(
                     active_drag.pointer_monitor.as_str(),
                     node_id,
                     desired_to,
                 )
-                .map(|(clamped, _, _)| clamped)
+                .and_then(|(clamped, cid, _)| {
+                    (self.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
+                        .then_some(clamped)
+                })
                 .unwrap_or(desired_to);
-            self.carry_surface_non_overlap(node_id, clamped_to, false)
+            self.carry_surface_non_overlap(node_id, to, false)
         } else if !active_drag.edge_pan_eligible {
-            self.input.interaction_state.grabbed_edge_pan_active = false;
-            self.input.interaction_state.grabbed_edge_pan_direction =
-                halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-            self.input.interaction_state.grabbed_edge_pan_monitor = None;
-            let clamped_to = self
+            self.clear_grabbed_edge_pan_state();
+            let to = self
                 .dragged_node_cluster_core_clamp(
                     active_drag.pointer_monitor.as_str(),
                     node_id,
                     desired_to,
                 )
-                .map(|(clamped, _, _)| clamped)
+                .and_then(|(clamped, cid, _)| {
+                    (self.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
+                        .then_some(clamped)
+                })
                 .unwrap_or(desired_to);
-            self.carry_surface_non_overlap(node_id, clamped_to, false)
+            self.carry_surface_non_overlap(node_id, to, false)
         } else if let Some((clamped_center, edge_contact)) = self.dragged_node_edge_pan_clamp(
             active_drag.pointer_monitor.as_str(),
             node_id,
@@ -558,29 +552,40 @@ impl Halley {
                 self.sync_current_monitor_state();
                 self.note_pan_viewport_change(now);
 
-                if let Some(current_pos) = self.model.field.node(node_id).map(|n| n.pos) {
-                    if direction.x != 0.0 {
-                        to.x = current_pos.x + pan_delta.x;
-                    }
-                    if direction.y != 0.0 {
-                        to.y = current_pos.y + pan_delta.y;
-                    }
-                }
+                let post_pan_pointer_world = crate::spatial::screen_to_world(
+                    self,
+                    active_drag.pointer_workspace_size.0,
+                    active_drag.pointer_workspace_size.1,
+                    active_drag.pointer_screen_local.0,
+                    active_drag.pointer_screen_local.1,
+                );
+                let post_pan_desired_to = halley_core::field::Vec2 {
+                    x: post_pan_pointer_world.x - active_drag.current_offset.x,
+                    y: post_pan_pointer_world.y - active_drag.current_offset.y,
+                };
+                to = self
+                    .dragged_node_edge_pan_clamp(
+                        active_drag.pointer_monitor.as_str(),
+                        node_id,
+                        post_pan_desired_to,
+                        direction,
+                    )
+                    .map(|(clamped, _)| clamped)
+                    .unwrap_or(post_pan_desired_to);
             }
-
             let drag_monitor = active_drag.pointer_monitor.clone();
             self.input.interaction_state.active_drag = Some(active_drag);
-            let clamped_to = self
+            let to = self
                 .dragged_node_cluster_core_clamp(drag_monitor.as_str(), node_id, to)
-                .map(|(clamped, _, _)| clamped)
+                .and_then(|(clamped, cid, _)| {
+                    (self.cluster_bloom_for_monitor(drag_monitor.as_str()) == Some(cid))
+                        .then_some(clamped)
+                })
                 .unwrap_or(to);
-            self.carry_surface_non_overlap(node_id, clamped_to, false)
+            self.carry_surface_non_overlap(node_id, to, false)
         } else {
             self.input.interaction_state.active_drag = None;
-            self.input.interaction_state.grabbed_edge_pan_active = false;
-            self.input.interaction_state.grabbed_edge_pan_direction =
-                halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-            self.input.interaction_state.grabbed_edge_pan_monitor = None;
+            self.clear_grabbed_edge_pan_state();
             return;
         };
         if moved {

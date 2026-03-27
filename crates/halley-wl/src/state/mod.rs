@@ -415,6 +415,7 @@ impl Halley {
                 pending_core_click: None,
                 grabbed_edge_pan_active: false,
                 grabbed_edge_pan_direction: Vec2 { x: 0.0, y: 0.0 },
+                grabbed_edge_pan_pressure: Vec2 { x: 0.0, y: 0.0 },
                 grabbed_edge_pan_monitor: None,
             },
             },
@@ -630,7 +631,9 @@ impl Halley {
             && now_ms >= pending.deadline_ms
         {
             self.input.interaction_state.pending_core_click = None;
-            if let Some(cid) = self.model.field.cluster_id_for_core_public(pending.node_id) {
+            if pending.reopen_bloom_on_timeout
+                && let Some(cid) = self.model.field.cluster_id_for_core_public(pending.node_id)
+            {
                 let _ = self.open_cluster_bloom_for_monitor(pending.monitor.as_str(), cid);
             }
         }

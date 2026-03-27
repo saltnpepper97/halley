@@ -169,9 +169,7 @@ fn clear_pointer_activity(st: &mut Halley, ps: &mut PointerState) {
         st.set_drag_authority_node(None);
         st.end_carry_state_tracking(drag.node_id);
     }
-    st.input.interaction_state.grabbed_edge_pan_active = false;
-    st.input.interaction_state.grabbed_edge_pan_direction = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-    st.input.interaction_state.grabbed_edge_pan_monitor = None;
+    st.clear_grabbed_edge_pan_state();
     st.input.interaction_state.active_drag = None;
     st.input.interaction_state.pending_core_press = None;
     ps.drag = None;
@@ -253,9 +251,7 @@ pub(super) fn begin_drag(
     st.assign_node_to_monitor(hit.node_id, drag_monitor.as_str());
     st.input.interaction_state.physics_velocity.remove(&hit.node_id);
     st.input.interaction_state.drag_authority_velocity = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-    st.input.interaction_state.grabbed_edge_pan_active = false;
-    st.input.interaction_state.grabbed_edge_pan_direction = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-    st.input.interaction_state.grabbed_edge_pan_monitor = None;
+    st.clear_grabbed_edge_pan_state();
     st.input.interaction_state.active_drag = Some(ActiveDragState {
         node_id: hit.node_id,
         allow_monitor_transfer,
@@ -269,7 +265,9 @@ pub(super) fn begin_drag(
     });
     st.set_drag_authority_node(Some(hit.node_id));
     st.begin_carry_state_tracking(hit.node_id);
-    st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
+    if !hit.is_core {
+        st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
+    }
     if edge_pan_eligible {
         let to = halley_core::field::Vec2 {
             x: world_now.x - drag_ctx.current_offset.x,
@@ -619,6 +617,7 @@ fn handle_left_press(
         let monitor = st
             .monitor_for_screen(frame.global_sx, frame.global_sy)
             .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        let _ = st.close_cluster_bloom_for_monitor(monitor.as_str());
         st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
@@ -635,11 +634,7 @@ fn handle_left_press(
     if !drag_binding_active && hit.is_core {
         let now = Instant::now();
         st.set_interaction_focus(Some(hit.node_id), 700, now);
-        if collapse_bloom_for_core_if_open(st, hit.node_id) {
-            ps.last_title_click = None;
-            backend.request_redraw();
-            return;
-        }
+        let was_bloom_open = collapse_bloom_for_core_if_open(st, hit.node_id);
         let now_ms = st.now_ms(now);
         if st.input.interaction_state
             .pending_core_click
@@ -659,6 +654,7 @@ fn handle_left_press(
                 monitor: st.model.monitor_state.current_monitor.clone(),
                 press_global_sx: frame.global_sx,
                 press_global_sy: frame.global_sy,
+                reopen_bloom_on_timeout: !was_bloom_open,
             });
         }
         backend.request_redraw();
@@ -842,18 +838,20 @@ fn handle_button_release(
     backend: &dyn BackendView,
     button_code: u32,
     action: Option<PointerBindingAction>,
-    world_now: halley_core::field::Vec2,
+    _world_now: halley_core::field::Vec2,
 ) {
     match action {
         Some(PointerBindingAction::MoveWindow | PointerBindingAction::FieldJump) => {
             if let Some(d) = ps.drag {
                 let now = Instant::now();
+                st.clear_grabbed_edge_pan_state();
+                st.input.interaction_state.active_drag = None;
                 let joined = st.commit_ready_cluster_join_for_node(d.node_id, now);
                 if !joined {
                     if d.started_active {
-                        st.finalize_mouse_drag_state(d.node_id, world_now, now);
+                        st.finalize_mouse_drag_state(d.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 }, now);
                     } else {
-                        st.update_carry_state_preview_at(d.node_id, world_now, now);
+                        st.update_carry_state_preview(d.node_id, now);
                     }
                 } else {
                     st.input.interaction_state.cluster_join_candidate = None;
@@ -878,12 +876,14 @@ fn handle_button_release(
                 && let Some(d) = ps.drag
             {
                 let now = Instant::now();
+                st.clear_grabbed_edge_pan_state();
+                st.input.interaction_state.active_drag = None;
                 let joined = st.commit_ready_cluster_join_for_node(d.node_id, now);
                 if !joined {
                     if d.started_active {
-                        st.finalize_mouse_drag_state(d.node_id, world_now, now);
+                        st.finalize_mouse_drag_state(d.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 }, now);
                     } else {
-                        st.update_carry_state_preview_at(d.node_id, world_now, now);
+                        st.update_carry_state_preview(d.node_id, now);
                     }
                 } else {
                     st.input.interaction_state.cluster_join_candidate = None;
@@ -1168,7 +1168,8 @@ pub(crate) fn handle_pointer_button_input(
                 st.input.interaction_state.pending_core_click = Some(PendingCoreClick {
                     node_id: pending_press.node_id,
                     monitor: pending_press.monitor,
-                    deadline_ms: st.now_ms(now).saturating_add(250),
+                    deadline_ms: st.now_ms(now).saturating_add(180),
+                    reopen_bloom_on_timeout: pending_press.reopen_bloom_on_timeout,
                 });
                 st.request_maintenance();
                 backend.request_redraw();

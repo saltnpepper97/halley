@@ -50,6 +50,7 @@ pub(crate) struct PendingCorePress {
     pub(crate) monitor: String,
     pub(crate) press_global_sx: f32,
     pub(crate) press_global_sy: f32,
+    pub(crate) reopen_bloom_on_timeout: bool,
 }
 
 #[derive(Clone)]
@@ -57,6 +58,7 @@ pub(crate) struct PendingCoreClick {
     pub(crate) node_id: NodeId,
     pub(crate) monitor: String,
     pub(crate) deadline_ms: u64,
+    pub(crate) reopen_bloom_on_timeout: bool,
 }
 
 pub(crate) struct InteractionState {
@@ -84,10 +86,19 @@ pub(crate) struct InteractionState {
     pub(crate) pending_core_click: Option<PendingCoreClick>,
     pub(crate) grabbed_edge_pan_active: bool,
     pub(crate) grabbed_edge_pan_direction: Vec2,
+    pub(crate) grabbed_edge_pan_pressure: Vec2,
     pub(crate) grabbed_edge_pan_monitor: Option<String>,
 }
 
 impl Halley {
+    #[inline]
+    pub(crate) fn clear_grabbed_edge_pan_state(&mut self) {
+        self.input.interaction_state.grabbed_edge_pan_active = false;
+        self.input.interaction_state.grabbed_edge_pan_direction = Vec2 { x: 0.0, y: 0.0 };
+        self.input.interaction_state.grabbed_edge_pan_pressure = Vec2 { x: 0.0, y: 0.0 };
+        self.input.interaction_state.grabbed_edge_pan_monitor = None;
+    }
+
     pub(crate) fn node_fully_visible_on_monitor(
         &self,
         monitor_name: &str,
@@ -95,14 +106,16 @@ impl Halley {
     ) -> Option<bool> {
         let node = self.model.field.node(node_id)?;
         let monitor = self.model.monitor_state.monitors.get(monitor_name)?;
-        let ext = if node.kind == halley_core::field::NodeKind::Surface {
+        let ext = if node.kind == halley_core::field::NodeKind::Surface
+            && node.state == halley_core::field::NodeState::Active
+        {
             self.surface_window_collision_extents(node)
         } else {
             self.collision_extents_for_node(node)
         };
 
         let (view_center, view_size) = if self.model.monitor_state.current_monitor == monitor_name {
-            (self.model.viewport.center, self.model.zoom_ref_size)
+            (self.model.viewport.center, self.camera_view_size())
         } else {
             (monitor.viewport.center, monitor.zoom_ref_size)
         };
@@ -126,19 +139,21 @@ impl Halley {
         desired_center: Vec2,
         previous_contact: Vec2,
     ) -> Option<(Vec2, Vec2)> {
-        const EDGE_PAN_EXIT_MARGIN: f32 = 64.0;
+        const EDGE_PAN_EXIT_MARGIN: f32 = 24.0;
         const EDGE_CONTACT_INSET: f32 = 0.75;
 
         let node = self.model.field.node(node_id)?;
         let monitor = self.model.monitor_state.monitors.get(monitor_name)?;
-        let ext = if node.kind == halley_core::field::NodeKind::Surface {
+        let ext = if node.kind == halley_core::field::NodeKind::Surface
+            && node.state == halley_core::field::NodeState::Active
+        {
             self.surface_window_collision_extents(node)
         } else {
             self.collision_extents_for_node(node)
         };
 
         let (view_center, view_size) = if self.model.monitor_state.current_monitor == monitor_name {
-            (self.model.viewport.center, self.model.zoom_ref_size)
+            (self.model.viewport.center, self.camera_view_size())
         } else {
             (monitor.viewport.center, monitor.zoom_ref_size)
         };

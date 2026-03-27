@@ -777,7 +777,11 @@ impl Halley {
             // carry_surface_non_overlap owns its position each frame.
             if self.input.interaction_state.drag_authority_node != Some(id) {
                 if let Some(pos) = positions.get(&id).copied() {
-                    let _ = self.model.field.carry(id, pos);
+                    let _ = if node.kind == halley_core::field::NodeKind::Core {
+                        self.model.field.carry_cluster_by_core(id, pos)
+                    } else {
+                        self.model.field.carry(id, pos)
+                    };
                 }
             }
             if self.physics_inv_mass(id, pinned) <= 0.0 {
@@ -1087,6 +1091,83 @@ mod tests {
         assert!(
             active_node.pos != Vec2 { x: 0.0, y: 0.0 },
             "passive neighbor did not yield while dragged window remained authoritative"
+        );
+    }
+
+    #[test]
+    fn dragged_window_pushes_collapsed_core_and_members_follow() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        state.model.zoom_ref_size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+
+        let dragged = state.model.field.spawn_surface(
+            "dragged",
+            Vec2 { x: 400.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 20.0, y: 0.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        let cid = state.model.field.create_cluster(vec![a, b]).expect("cluster");
+        let core = state.model.field.collapse_cluster(cid).expect("core");
+
+        let core_before = state.model.field.node(core).expect("core before").pos;
+        let a_before = state.model.field.node(a).expect("a before").pos;
+        let b_before = state.model.field.node(b).expect("b before").pos;
+
+        state.set_drag_authority_node(Some(dragged));
+        assert!(state.carry_surface_non_overlap(dragged, Vec2 { x: 0.0, y: 0.0 }, false));
+        state.resolve_surface_overlap();
+
+        let dragged_after = state.model.field.node(dragged).expect("dragged after");
+        let core_after = state.model.field.node(core).expect("core after");
+        let a_after = state.model.field.node(a).expect("a after");
+        let b_after = state.model.field.node(b).expect("b after");
+
+        let core_dx = core_after.pos.x - core_before.x;
+        let core_dy = core_after.pos.y - core_before.y;
+
+        assert_eq!(
+            dragged_after.pos,
+            Vec2 { x: 0.0, y: 0.0 },
+            "dragged window should stay authoritative"
+        );
+        assert!(
+            core_after.pos != core_before,
+            "collapsed core did not yield under physics"
+        );
+        assert_eq!(
+            a_after.pos,
+            Vec2 {
+                x: a_before.x + core_dx,
+                y: a_before.y + core_dy,
+            },
+            "cluster member a did not follow passive core movement"
+        );
+        assert_eq!(
+            b_after.pos,
+            Vec2 {
+                x: b_before.x + core_dx,
+                y: b_before.y + core_dy,
+            },
+            "cluster member b did not follow passive core movement"
         );
     }
 

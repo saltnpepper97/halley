@@ -467,9 +467,11 @@ pub(crate) fn handle_pointer_motion_absolute(
                         y: next_drag.edge_pan_y.sign(),
                     },
                 ) {
-                    const EDGE_PAN_PRESSURE_THRESHOLD: f32 = 28.0;
-                    const EDGE_PAN_PRESSURE_DECAY_PER_SEC: f32 = 120.0;
-                    const EDGE_PAN_RELEASE_DISTANCE: f32 = 42.0;
+                    const EDGE_PAN_PRESSURE_THRESHOLD: f32 = 56.0;
+                    const EDGE_PAN_PRESSURE_DECAY_PER_SEC: f32 = 44.0;
+                    const EDGE_PAN_PRESSURE_BUILD_PER_SEC: f32 = 86.0;
+                    const EDGE_PAN_PRESSURE_DEPTH_NORM: f32 = 18.0;
+                    const EDGE_PAN_RELEASE_DISTANCE: f32 = 24.0;
 
                     next_drag.edge_pan_pressure.x = (next_drag.edge_pan_pressure.x
                         - EDGE_PAN_PRESSURE_DECAY_PER_SEC * dt)
@@ -479,17 +481,25 @@ pub(crate) fn handle_pointer_motion_absolute(
                         .max(0.0);
 
                     if edge_contact.x < 0.0 {
-                        next_drag.edge_pan_pressure.x += (clamped_center.x - desired_to.x).max(0.0);
+                        let depth = (clamped_center.x - desired_to.x).max(0.0);
+                        let build = (depth / EDGE_PAN_PRESSURE_DEPTH_NORM).clamp(0.0, 1.25);
+                        next_drag.edge_pan_pressure.x += EDGE_PAN_PRESSURE_BUILD_PER_SEC * build * dt;
                     } else if edge_contact.x > 0.0 {
-                        next_drag.edge_pan_pressure.x += (desired_to.x - clamped_center.x).max(0.0);
+                        let depth = (desired_to.x - clamped_center.x).max(0.0);
+                        let build = (depth / EDGE_PAN_PRESSURE_DEPTH_NORM).clamp(0.0, 1.25);
+                        next_drag.edge_pan_pressure.x += EDGE_PAN_PRESSURE_BUILD_PER_SEC * build * dt;
                     } else {
                         next_drag.edge_pan_pressure.x = 0.0;
                     }
 
                     if edge_contact.y < 0.0 {
-                        next_drag.edge_pan_pressure.y += (clamped_center.y - desired_to.y).max(0.0);
+                        let depth = (clamped_center.y - desired_to.y).max(0.0);
+                        let build = (depth / EDGE_PAN_PRESSURE_DEPTH_NORM).clamp(0.0, 1.25);
+                        next_drag.edge_pan_pressure.y += EDGE_PAN_PRESSURE_BUILD_PER_SEC * build * dt;
                     } else if edge_contact.y > 0.0 {
-                        next_drag.edge_pan_pressure.y += (desired_to.y - clamped_center.y).max(0.0);
+                        let depth = (desired_to.y - clamped_center.y).max(0.0);
+                        let build = (depth / EDGE_PAN_PRESSURE_DEPTH_NORM).clamp(0.0, 1.25);
+                        next_drag.edge_pan_pressure.y += EDGE_PAN_PRESSURE_BUILD_PER_SEC * build * dt;
                     } else {
                         next_drag.edge_pan_pressure.y = 0.0;
                     }
@@ -565,14 +575,26 @@ pub(crate) fn handle_pointer_motion_absolute(
                     };
                     let edge_pan_active =
                         edge_pan_direction.x != 0.0 || edge_pan_direction.y != 0.0;
+                    let indicator_direction = if edge_pan_active {
+                        edge_pan_direction
+                    } else {
+                        edge_contact
+                    };
 
                     st.input.interaction_state.grabbed_edge_pan_active = edge_pan_active;
-                    st.input.interaction_state.grabbed_edge_pan_direction = edge_pan_direction;
-                    st.input.interaction_state.grabbed_edge_pan_monitor =
-                        edge_pan_active.then(|| owner_monitor.clone());
+                    st.input.interaction_state.grabbed_edge_pan_direction = indicator_direction;
+                    st.input.interaction_state.grabbed_edge_pan_pressure =
+                        next_drag.edge_pan_pressure;
+                    st.input.interaction_state.grabbed_edge_pan_monitor = ((indicator_direction.x != 0.0
+                        || indicator_direction.y != 0.0)
+                        && (next_drag.edge_pan_pressure.x > 0.0
+                            || next_drag.edge_pan_pressure.y > 0.0))
+                        .then(|| owner_monitor.clone());
                 } else {
                     st.input.interaction_state.grabbed_edge_pan_active = false;
                     st.input.interaction_state.grabbed_edge_pan_direction =
+                        halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+                    st.input.interaction_state.grabbed_edge_pan_pressure =
                         halley_core::field::Vec2 { x: 0.0, y: 0.0 };
                     st.input.interaction_state.grabbed_edge_pan_monitor = None;
                     next_drag.edge_pan_x = DragAxisMode::Free;
@@ -582,6 +604,8 @@ pub(crate) fn handle_pointer_motion_absolute(
             } else {
                 st.input.interaction_state.grabbed_edge_pan_active = false;
                 st.input.interaction_state.grabbed_edge_pan_direction =
+                    halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+                st.input.interaction_state.grabbed_edge_pan_pressure =
                     halley_core::field::Vec2 { x: 0.0, y: 0.0 };
                 st.input.interaction_state.grabbed_edge_pan_monitor = None;
                 next_drag.edge_pan_x = DragAxisMode::Free;

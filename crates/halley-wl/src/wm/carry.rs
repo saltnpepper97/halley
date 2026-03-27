@@ -8,9 +8,7 @@ impl Halley {
         if id.is_none() {
             self.input.interaction_state.drag_authority_velocity = Vec2 { x: 0.0, y: 0.0 };
             self.input.interaction_state.active_drag = None;
-            self.input.interaction_state.grabbed_edge_pan_active = false;
-            self.input.interaction_state.grabbed_edge_pan_direction = Vec2 { x: 0.0, y: 0.0 };
-            self.input.interaction_state.grabbed_edge_pan_monitor = None;
+            self.clear_grabbed_edge_pan_state();
         }
     }
 

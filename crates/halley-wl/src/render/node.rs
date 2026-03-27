@@ -435,8 +435,10 @@ pub(crate) fn draw_node_markers(
         };
         let (sx, sy) = world_to_screen(st, size.w, size.h, p.x, p.y);
         let hovered = hover_node == Some(id);
+        let focused = st.model.focus_state.primary_interaction_focus == Some(id);
+        let highlighted = hovered || focused;
         let is_core = *node_state == halley_core::field::NodeState::Core;
-        let hover_mix = ease_in_out_cubic(st.node_label_hover_mix(id, hovered));
+        let hover_mix = ease_in_out_cubic(st.node_label_hover_mix(id, highlighted));
         let border_mix = ease_in_out_cubic(((0.304 - anim.scale) / 0.004).clamp(0.0, 1.0));
         let icon_mix = st
             .anim_track_elapsed_for(id, node_state.clone(), now)
@@ -449,8 +451,9 @@ pub(crate) fn draw_node_markers(
             .unwrap_or(0.0);
 
         let (dot_half, _, _, _) = node_marker_metrics(st, node_label.len(), anim.scale);
+        let core_border_px = 5.0f32;
         let render_radius = if is_core {
-            (dot_half as f32 * 1.68).round() as i32
+            ((dot_half as f32 * 1.68) + core_border_px).round() as i32
         } else {
             (dot_half as f32 * 1.5).round() as i32
         };
@@ -489,14 +492,22 @@ pub(crate) fn draw_node_markers(
             continue;
         }
 
-        if border_mix > 0.01 {
-            // border_frac = 3px border expressed as a fraction of the radius
-            let border_frac = (3.0 / render_radius as f32).clamp(0.01, 0.5);
+        let ring_mix = if is_core {
+            dot_alpha.max(border_mix)
+        } else {
+            border_mix
+        };
+        if ring_mix > 0.01 {
+            let border_frac = if is_core {
+                (core_border_px / render_radius as f32).clamp(0.04, 0.5)
+            } else {
+                (3.0 / render_radius as f32).clamp(0.01, 0.5)
+            };
             let nc = node_ring_color(st, hover_mix > 0.02, 1.0);
             // node_color.rgb = border ring colour; .a = border_px / radius
             // fill_color.rgb  = node fill colour (inner fill + outer halo)
             let node_color = Color32F::new(nc.r(), nc.g(), nc.b(), border_frac);
-            let fill_color = node_fill_color(st, hovered);
+            let fill_color = node_fill_color(st, highlighted);
             draw_shader_circle(
                 frame,
                 st,
@@ -504,7 +515,7 @@ pub(crate) fn draw_node_markers(
                 sy,
                 render_radius,
                 round_shape,
-                border_mix,
+                ring_mix,
                 node_color,
                 fill_color,
                 damage,
@@ -513,7 +524,7 @@ pub(crate) fn draw_node_markers(
 
         let show_icon = match st.runtime.tuning.node_show_app_icons {
             NodeDisplayPolicy::Off => false,
-            NodeDisplayPolicy::Hover => hovered,
+            NodeDisplayPolicy::Hover => highlighted,
             NodeDisplayPolicy::Always => true,
         };
         if show_icon {

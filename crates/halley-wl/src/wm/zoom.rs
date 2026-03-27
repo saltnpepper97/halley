@@ -40,6 +40,16 @@ impl Halley {
         }
     }
 
+    #[inline]
+    pub(crate) fn zoom_blocked_by_interaction(&self) -> bool {
+        self.has_active_cluster_workspace()
+            || self.cluster_mode_active()
+            || self.input.interaction_state.grabbed_edge_pan_active
+            || self.input.interaction_state.grabbed_edge_pan_monitor.is_some()
+            || self.input.interaction_state.grabbed_edge_pan_pressure.x > 0.01
+            || self.input.interaction_state.grabbed_edge_pan_pressure.y > 0.01
+    }
+
     pub(crate) fn update_zoom_live_surface_sizes(&mut self) {
         self.ui.render_state.zoom_resize_fallback.clear();
         self.ui.render_state.zoom_resize_reject_streak.clear();
@@ -48,6 +58,9 @@ impl Halley {
     }
 
     pub(crate) fn zoom_by_steps(&mut self, steps: f32) {
+        if self.zoom_blocked_by_interaction() {
+            return;
+        }
         let steps = steps.clamp(-4.0, 4.0);
         if steps.abs() < f32::EPSILON {
             return;
@@ -61,6 +74,9 @@ impl Halley {
     }
 
     pub(crate) fn reset_zoom(&mut self) {
+        if self.zoom_blocked_by_interaction() {
+            return;
+        }
         self.set_camera_target_view_size(self.model.viewport.size);
     }
 

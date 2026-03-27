@@ -28,6 +28,16 @@ pub(crate) struct FocusState {
 
 impl Halley {
     pub(crate) fn focus_monitor_view(&mut self, monitor: &str, now: Instant) {
+        let open_monitors = self.model.cluster_state
+            .cluster_bloom_open
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for open_monitor in open_monitors {
+            if open_monitor != monitor {
+                let _ = self.close_cluster_bloom_for_monitor(open_monitor.as_str());
+            }
+        }
         self.set_interaction_monitor(monitor);
         self.set_focused_monitor(monitor);
         self.model.spawn_state.pending_spawn_monitor = None;
@@ -104,6 +114,16 @@ impl Halley {
             self.model.focus_state.interaction_focus_until_ms = now_ms.saturating_add(hold_ms.max(1));
             self.update_focus_tracking_for_surface(fid, now_ms);
             if let Some(monitor) = self.model.monitor_state.node_monitor.get(&fid).cloned() {
+                let open_monitors = self.model.cluster_state
+                    .cluster_bloom_open
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for open_monitor in open_monitors {
+                    if open_monitor != monitor {
+                        let _ = self.close_cluster_bloom_for_monitor(open_monitor.as_str());
+                    }
+                }
                 self.model.focus_state
                     .blocked_monitor_focus_restore
                     .remove(&monitor);

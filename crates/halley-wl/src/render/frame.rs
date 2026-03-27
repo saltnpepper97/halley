@@ -498,7 +498,6 @@ fn draw_debug_frame_scene(
             &toast,
         )?;
     }
-
     Ok(())
 }
 

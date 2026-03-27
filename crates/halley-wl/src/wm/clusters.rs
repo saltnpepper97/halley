@@ -25,6 +25,7 @@ struct EnterClusterWorkspacePlan {
 struct ExitClusterWorkspacePlan {
     cid: ClusterId,
     core_id: Option<NodeId>,
+    core_pos: Option<Vec2>,
     hidden_ids: Vec<NodeId>,
 }
 
@@ -255,9 +256,11 @@ impl<'a> ClusterReadController<'a> {
             .cloned()
             .unwrap_or_default();
         let core_id = self.field.cluster(cid).and_then(|c| c.core);
+        let core_pos = core_id.and_then(|id| self.field.node(id).map(|node| node.pos));
         Some(ExitClusterWorkspacePlan {
             cid,
             core_id,
+            core_pos,
             hidden_ids,
         })
     }
@@ -601,13 +604,29 @@ impl Halley {
         cid: halley_core::cluster::ClusterId,
     ) -> bool {
         let _ = self.sync_cluster_core_monitor(cid, Some(monitor));
-        self.cluster_mutation_controller()
-            .open_cluster_bloom_for_monitor(monitor, cid)
+        let opened = self
+            .cluster_mutation_controller()
+            .open_cluster_bloom_for_monitor(monitor, cid);
+        if opened
+            && let Some(core_id) = self.model.field.cluster(cid).and_then(|cluster| cluster.core)
+        {
+            self.set_interaction_focus(Some(core_id), 30_000, Instant::now());
+        }
+        opened
     }
 
     pub fn close_cluster_bloom_for_monitor(&mut self, monitor: &str) -> bool {
-        self.cluster_mutation_controller()
-            .close_cluster_bloom_for_monitor(monitor)
+        let closed = self
+            .cluster_mutation_controller()
+            .close_cluster_bloom_for_monitor(monitor);
+        if closed {
+            let now = Instant::now();
+            let restore = self
+                .last_focused_surface_node_for_monitor(monitor)
+                .or_else(|| self.last_focused_surface_node());
+            self.set_interaction_focus(restore, 30_000, now);
+        }
+        closed
     }
 
     pub fn detach_member_from_cluster(
@@ -950,6 +969,9 @@ impl Halley {
         }
         let core = self.model.field.collapse_cluster(plan.cid).or(plan.core_id);
         if let Some(core_id) = core {
+            if let Some(core_pos) = plan.core_pos {
+                let _ = self.model.field.carry(core_id, core_pos);
+            }
             let _ = self.model.field.set_detached(core_id, false);
             self.assign_node_to_monitor(core_id, monitor);
             let _ = self.model.field.touch(core_id, self.now_ms(now));

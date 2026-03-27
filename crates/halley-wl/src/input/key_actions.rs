@@ -166,14 +166,23 @@ pub(crate) fn apply_compositor_action_press(
             true
         }
         CompositorBindingAction::ZoomIn => {
+            if st.zoom_blocked_by_interaction() {
+                return false;
+            }
             st.zoom_by_steps(1.0);
             true
         }
         CompositorBindingAction::ZoomOut => {
+            if st.zoom_blocked_by_interaction() {
+                return false;
+            }
             st.zoom_by_steps(-1.0);
             true
         }
         CompositorBindingAction::ZoomReset => {
+            if st.zoom_blocked_by_interaction() {
+                return false;
+            }
             st.reset_zoom();
             true
         }
