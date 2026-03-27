@@ -2,6 +2,8 @@ use crate::field::{Node, NodeId};
 use crate::tiling::{MasterStackLayout, Rect, layout_master_stack};
 use std::collections::HashMap;
 
+pub const CLUSTER_VISIBLE_CAPACITY: usize = 4;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ClusterId(u64);
 
@@ -79,6 +81,19 @@ impl Cluster {
         &self.members[1..]
     }
 
+    pub fn visible_members(&self) -> &[NodeId] {
+        let end = self.members.len().min(CLUSTER_VISIBLE_CAPACITY);
+        &self.members[..end]
+    }
+
+    pub fn overflow_members(&self) -> &[NodeId] {
+        if self.members.len() <= CLUSTER_VISIBLE_CAPACITY {
+            &[]
+        } else {
+            &self.members[CLUSTER_VISIBLE_CAPACITY..]
+        }
+    }
+
     pub fn core_node(&self) -> Option<NodeId> {
         self.core
     }
@@ -110,7 +125,7 @@ impl Cluster {
     }
 
     pub fn workspace_layout(&self, bounds: Rect) -> MasterStackLayout {
-        layout_master_stack(bounds, self.members())
+        layout_master_stack(bounds, self.visible_members())
     }
 
     pub(crate) fn add_member(&mut self, member: NodeId) -> bool {
@@ -185,6 +200,26 @@ impl Cluster {
         }
         self.members.remove(index);
         self.members.insert(0, member);
+        true
+    }
+
+    pub(crate) fn swap_overflow_member_with_visible(
+        &mut self,
+        overflow_member: NodeId,
+        visible_member: NodeId,
+    ) -> bool {
+        let Some(overflow_index) = self.members.iter().position(|&id| id == overflow_member) else {
+            return false;
+        };
+        let Some(visible_index) = self.members.iter().position(|&id| id == visible_member) else {
+            return false;
+        };
+        if overflow_index < CLUSTER_VISIBLE_CAPACITY || visible_index >= CLUSTER_VISIBLE_CAPACITY {
+            return false;
+        }
+
+        self.members[overflow_index] = visible_member;
+        self.members[visible_index] = overflow_member;
         true
     }
 }

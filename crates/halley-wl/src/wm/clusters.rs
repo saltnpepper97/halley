@@ -1,8 +1,7 @@
 use super::*;
 use crate::state::{ClusterState, InteractionState, MonitorState};
-use halley_core::cluster::{ClusterId, ClusterRemoveMemberOutcome};
+use halley_core::cluster::{CLUSTER_VISIBLE_CAPACITY, ClusterId, ClusterRemoveMemberOutcome};
 use halley_core::field::RemoveNodeClusterEffect;
-use halley_core::tiling::layout_master_stack;
 
 struct ClusterReadController<'a> {
     field: &'a Field,
@@ -42,6 +41,12 @@ struct ClusterLayoutPlan {
 }
 
 impl<'a> ClusterReadController<'a> {
+    const OVERFLOW_STRIP_PAD_PX: f32 = 18.0;
+    const OVERFLOW_STRIP_W_PX: f32 = 56.0;
+    const OVERFLOW_ICON_PAD_PX: f32 = 8.0;
+    const OVERFLOW_ICON_SIZE_PX: f32 = 40.0;
+    const OVERFLOW_ICON_GAP_PX: f32 = 8.0;
+
     fn cluster_bloom_for_monitor(&self, monitor: &str) -> Option<ClusterId> {
         self.cluster_state.cluster_bloom_open.get(monitor).copied()
     }
@@ -115,17 +120,45 @@ impl<'a> ClusterReadController<'a> {
     ) -> Option<halley_core::tiling::Rect> {
         let cluster = self.field.cluster(cid)?;
         let tile_rect = self.opened_cluster_world_rect_for_monitor(monitor)?;
-        let mut ordered_members = cluster.members().to_vec();
-        ordered_members.push(NodeId::new(u64::MAX));
         let tile_inset = (self.tuning.tile_gaps_inner_px * 0.5
             + crate::render::ACTIVE_WINDOW_FRAME_PAD_PX as f32)
             .clamp(4.0, 28.0);
-        layout_master_stack(tile_rect, &ordered_members)
+        let layout = cluster.workspace_layout(tile_rect);
+        if cluster.members().len() >= CLUSTER_VISIBLE_CAPACITY {
+            return layout
+                .tiles
+                .iter()
+                .find(|tile| tile.id == cluster.members()[CLUSTER_VISIBLE_CAPACITY - 1])
+                .map(|tile| tile.rect.inset(tile_inset));
+        }
+        layout
             .tiles
             .into_iter()
             .map(|tile| tile.rect)
             .last()
             .map(|rect| rect.inset(tile_inset))
+    }
+
+    fn overflow_strip_rect_for_monitor(
+        &self,
+        monitor: &str,
+        overflow_len: usize,
+    ) -> Option<halley_core::tiling::Rect> {
+        if overflow_len == 0 {
+            return None;
+        }
+        let space = self.monitor_state.monitors.get(monitor)?;
+        let visible_slots = overflow_len.min(6) as f32;
+        let height = Self::OVERFLOW_ICON_PAD_PX * 2.0
+            + visible_slots * Self::OVERFLOW_ICON_SIZE_PX
+            + (visible_slots - 1.0).max(0.0) * Self::OVERFLOW_ICON_GAP_PX;
+        Some(halley_core::tiling::Rect {
+            x: (space.width as f32 - Self::OVERFLOW_STRIP_W_PX - Self::OVERFLOW_STRIP_PAD_PX)
+                .max(0.0),
+            y: ((space.height as f32 - height) * 0.5).max(Self::OVERFLOW_STRIP_PAD_PX),
+            w: Self::OVERFLOW_STRIP_W_PX,
+            h: height,
+        })
     }
 
     fn plan_enter_cluster_workspace(
@@ -365,6 +398,7 @@ impl<'a> ClusterMutationController<'a> {
 
 impl Halley {
     pub(crate) const CLUSTER_OVERFLOW_REVEAL_EDGE_PX: f32 = 28.0;
+    const CLUSTER_OVERFLOW_REVEAL_MS: u64 = 2200;
 
     fn cluster_read_controller(&self) -> ClusterReadController<'_> {
         ClusterReadController {
@@ -459,6 +493,18 @@ impl Halley {
             self.model
                 .cluster_state
                 .workspace_core_positions
+                .remove(monitor.as_str());
+            self.model
+                .cluster_state
+                .cluster_overflow_members
+                .remove(monitor.as_str());
+            self.model
+                .cluster_state
+                .cluster_overflow_rects
+                .remove(monitor.as_str());
+            self.model
+                .cluster_state
+                .cluster_overflow_visible_until_ms
                 .remove(monitor.as_str());
             self.restore_cluster_workspace_monitor(monitor.as_str());
         }
@@ -653,6 +699,12 @@ impl Halley {
         node_id: NodeId,
         now: Instant,
     ) -> bool {
+        let previous_overflow_len = self
+            .model
+            .field
+            .cluster(cid)
+            .map(|cluster| cluster.overflow_members().len())
+            .unwrap_or(0);
         if !self
             .cluster_mutation_controller()
             .absorb_node_into_cluster(cid, node_id)
@@ -665,10 +717,17 @@ impl Halley {
                 if let Some(node) = self.model.field.node_mut(node_id) {
                     node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, false);
                 }
-                self.layout_active_cluster_workspace_for_monitor(
-                    cluster_monitor.as_str(),
-                    self.now_ms(now),
-                );
+                let now_ms = self.now_ms(now);
+                self.layout_active_cluster_workspace_for_monitor(cluster_monitor.as_str(), now_ms);
+                let overflow_len = self
+                    .model
+                    .field
+                    .cluster(cid)
+                    .map(|cluster| cluster.overflow_members().len())
+                    .unwrap_or(0);
+                if overflow_len > previous_overflow_len {
+                    self.reveal_cluster_overflow_for_monitor(cluster_monitor.as_str(), now_ms);
+                }
             }
         }
         if let Some(core_id) = self
@@ -708,18 +767,89 @@ impl Halley {
             .copied()
     }
 
-    pub(crate) fn reveal_cluster_overflow_for_monitor(&mut self, _monitor: &str, _now_ms: u64) {
+    fn refresh_cluster_overflow_for_monitor(&mut self, monitor: &str, now_ms: u64, reveal: bool) {
+        let Some(cid) = self.active_cluster_workspace_for_monitor(monitor) else {
+            self.model
+                .cluster_state
+                .cluster_overflow_members
+                .remove(monitor);
+            self.model.cluster_state.cluster_overflow_rects.remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_overflow_visible_until_ms
+                .remove(monitor);
+            return;
+        };
+        let Some(cluster) = self.model.field.cluster(cid) else {
+            self.model
+                .cluster_state
+                .cluster_overflow_members
+                .remove(monitor);
+            self.model.cluster_state.cluster_overflow_rects.remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_overflow_visible_until_ms
+                .remove(monitor);
+            return;
+        };
+        let overflow = cluster.overflow_members().to_vec();
+        if overflow.is_empty() {
+            self.model
+                .cluster_state
+                .cluster_overflow_members
+                .remove(monitor);
+            self.model.cluster_state.cluster_overflow_rects.remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_overflow_visible_until_ms
+                .remove(monitor);
+            return;
+        }
+
+        self.model
+            .cluster_state
+            .cluster_overflow_members
+            .insert(monitor.to_string(), overflow.clone());
+        if let Some(rect) = self
+            .cluster_read_controller()
+            .overflow_strip_rect_for_monitor(monitor, overflow.len())
+        {
+            self.model
+                .cluster_state
+                .cluster_overflow_rects
+                .insert(monitor.to_string(), rect);
+        }
+        if reveal {
+            self.model
+                .cluster_state
+                .cluster_overflow_visible_until_ms
+                .insert(
+                    monitor.to_string(),
+                    now_ms.saturating_add(Self::CLUSTER_OVERFLOW_REVEAL_MS),
+                );
+        }
     }
 
-    pub(crate) fn hide_cluster_overflow_for_monitor(&mut self, _monitor: &str) {
+    pub(crate) fn reveal_cluster_overflow_for_monitor(&mut self, monitor: &str, now_ms: u64) {
+        self.refresh_cluster_overflow_for_monitor(monitor, now_ms, true);
+    }
+
+    pub(crate) fn hide_cluster_overflow_for_monitor(&mut self, monitor: &str) {
+        self.model
+            .cluster_state
+            .cluster_overflow_visible_until_ms
+            .remove(monitor);
     }
 
     pub(crate) fn cluster_overflow_rect_for_monitor(
         &self,
         monitor: &str,
     ) -> Option<halley_core::tiling::Rect> {
-        let _ = monitor;
-        None
+        self.model
+            .cluster_state
+            .cluster_overflow_rects
+            .get(monitor)
+            .copied()
     }
 
     pub(crate) fn cluster_spawn_rect_for_new_member(
@@ -737,6 +867,29 @@ impl Halley {
             .cluster_state
             .active_cluster_workspaces
             .is_empty()
+    }
+
+    pub(crate) fn swap_cluster_overflow_member_with_visible(
+        &mut self,
+        monitor: &str,
+        cid: ClusterId,
+        overflow_member: NodeId,
+        visible_member: NodeId,
+        now_ms: u64,
+    ) -> bool {
+        if self.active_cluster_workspace_for_monitor(monitor) != Some(cid) {
+            return false;
+        }
+        if !self
+            .model
+            .field
+            .swap_cluster_overflow_member_with_visible(cid, overflow_member, visible_member)
+        {
+            return false;
+        }
+        self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
+        self.reveal_cluster_overflow_for_monitor(monitor, now_ms);
+        true
     }
 
     pub fn collapse_active_cluster_workspace(&mut self, now: Instant) -> bool {
@@ -760,7 +913,7 @@ impl Halley {
         if self.active_cluster_workspace_for_monitor(monitor.as_str()).is_some() {
             self.show_overlay_toast(
                 monitor.as_str(),
-                "Cluster mode is unavailable while inside a cluster workspace",
+                "Cluster mode unavailable\nExit the workspace first",
                 3200,
                 Instant::now(),
             );
@@ -848,7 +1001,7 @@ impl Halley {
         if selected_nodes.is_empty() {
             self.show_overlay_toast(
                 monitor.as_str(),
-                "No nodes selected; no cluster formed",
+                "No selections\nSelect at least two windows",
                 2200,
                 now,
             );
@@ -862,7 +1015,7 @@ impl Halley {
         if members.len() == 1 {
             self.show_overlay_toast(
                 monitor.as_str(),
-                "Clusters require at least two windows",
+                "Not enough selections\nSelect at least two windows",
                 5000,
                 now,
             );
@@ -970,7 +1123,9 @@ impl Halley {
             .insert(monitor.to_string(), cid);
         self.model.cluster_state.cluster_bloom_open.remove(monitor);
         self.set_interaction_focus(None, 0, now);
-        self.layout_active_cluster_workspace_for_monitor(monitor, self.now_ms(now));
+        let now_ms = self.now_ms(now);
+        self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
+        self.refresh_cluster_overflow_for_monitor(monitor, now_ms, false);
         true
     }
 
@@ -1008,13 +1163,22 @@ impl Halley {
             .cluster_state
             .active_cluster_workspaces
             .remove(monitor);
+        self.model
+            .cluster_state
+            .cluster_overflow_members
+            .remove(monitor);
+        self.model.cluster_state.cluster_overflow_rects.remove(monitor);
+        self.model
+            .cluster_state
+            .cluster_overflow_visible_until_ms
+            .remove(monitor);
         true
     }
 
     pub(crate) fn layout_active_cluster_workspace_for_monitor(
         &mut self,
         monitor: &str,
-        _now_ms: u64,
+        now_ms: u64,
     ) {
         let Some(cid) = self.active_cluster_workspace_for_monitor(monitor) else {
             return;
@@ -1042,6 +1206,20 @@ impl Halley {
         else {
             return;
         };
+        let visible_members = plan
+            .tiles
+            .iter()
+            .map(|tile| tile.node_id)
+            .collect::<std::collections::HashSet<_>>();
+        for member_id in &members {
+            if let Some(cluster) = self.model.field.cluster_mut(cid)
+                && let Some(node) = cluster.workspace_member_mut(*member_id)
+            {
+                let visible = visible_members.contains(member_id);
+                node.visibility.set(Visibility::DETACHED, !visible);
+                node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, !visible);
+            }
+        }
         for placement in plan.tiles {
             let nid = placement.node_id;
             let rect = placement.rect;
@@ -1068,6 +1246,6 @@ impl Halley {
             );
             self.request_toplevel_resize(nid, rect.w.round() as i32, rect.h.round() as i32);
         }
-
+        self.refresh_cluster_overflow_for_monitor(monitor, now_ms, false);
     }
 }

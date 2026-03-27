@@ -257,6 +257,14 @@ impl Halley {
         };
         let predicted_monitor = self.predicted_spawn_target_monitor();
         let active_cluster = self.active_cluster_workspace_for_monitor(predicted_monitor.as_str());
+        let previous_overflow_len = active_cluster
+            .and_then(|cid| {
+                self.model
+                    .field
+                    .cluster(cid)
+                    .map(|cluster| cluster.overflow_members().len())
+            })
+            .unwrap_or(0);
         let (monitor, id, needs_pan, spawned_in_active_cluster) = if let Some(cid) = active_cluster {
             match self
                 .model
@@ -297,6 +305,17 @@ impl Halley {
         }
         if needs_pan && !joined_active_cluster {
             self.queue_spawn_pan_to_node(id, now);
+        }
+        if let Some(cid) = active_cluster.filter(|_| joined_active_cluster) {
+            let overflow_len = self
+                .model
+                .field
+                .cluster(cid)
+                .map(|cluster| cluster.overflow_members().len())
+                .unwrap_or(0);
+            if overflow_len > previous_overflow_len {
+                self.reveal_cluster_overflow_for_monitor(monitor.as_str(), self.now_ms(now));
+            }
         }
         self.refresh_node_identity_for_surface(surface, label);
         id

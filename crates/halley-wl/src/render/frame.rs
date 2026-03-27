@@ -17,7 +17,7 @@ use smithay::{
 use crate::interaction::types::ResizeCtx;
 use crate::overlay::{
     OverlayView, draw_cluster_bloom, draw_cluster_overflow_strip, draw_cluster_selection_markers,
-    draw_persistent_banner, draw_toast, ensure_cluster_bloom_icon_resources,
+    draw_monitor_hud, ensure_cluster_bloom_icon_resources,
 };
 use crate::spatial::node_in_active_area_for_monitor;
 use crate::state::Halley;
@@ -493,20 +493,7 @@ fn draw_debug_frame_scene(
         )?;
     }
 
-    let overlay_monitor = st.model.monitor_state.current_monitor.clone();
-    if let Some(banner) = st.persistent_mode_banner_snapshot(overlay_monitor.as_str()) {
-        draw_persistent_banner(frame, &st.ui.render_state, prepared.damage, &banner)?;
-    }
-    if let Some(toast) = st.overlay_toast_snapshot(overlay_monitor.as_str(), prepared.now) {
-        draw_toast(
-            frame,
-            &st.ui.render_state,
-            size.w,
-            size.h,
-            prepared.damage,
-            &toast,
-        )?;
-    }
+    draw_monitor_hud(frame, st, size.w, size.h, prepared.damage, prepared.now)?;
     Ok(())
 }
 

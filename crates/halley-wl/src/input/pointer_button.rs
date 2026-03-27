@@ -13,10 +13,10 @@ use crate::interaction::actions::{
     activate_collapsed_node_from_click, focus_or_reveal_surface_node,
 };
 use crate::interaction::types::{
-    BloomDragCtx, DragAxisMode, DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, PointerState,
-    ResizeCtx, TitleClickCtx,
+    BloomDragCtx, DragAxisMode, DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS,
+    OverflowDragCtx, PointerState, ResizeCtx, TitleClickCtx,
 };
-use crate::overlay::bloom_token_hit_test;
+use crate::overlay::{bloom_token_hit_test, cluster_overflow_icon_hit_test};
 use crate::render::bearing_hit_test;
 use crate::render::world_to_screen;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
@@ -174,6 +174,7 @@ fn clear_pointer_activity(st: &mut Halley, ps: &mut PointerState) {
     st.input.interaction_state.active_drag = None;
     st.input.interaction_state.pending_core_press = None;
     ps.drag = None;
+    ps.overflow_drag = None;
     ps.resize = None;
     ps.panning = false;
     ps.pan_monitor = None;
@@ -1106,6 +1107,27 @@ pub(crate) fn handle_pointer_button_input(
         backend.request_redraw();
         return;
     }
+    if matches!(button_state, ButtonState::Pressed)
+        && left
+        && frame.workspace_active
+        && let Some(cid) = st.active_cluster_workspace_for_monitor(target_monitor.as_str())
+        && let Some(member_id) = cluster_overflow_icon_hit_test(
+            &crate::overlay::OverlayView::from_halley(st),
+            target_monitor.as_str(),
+            local_sx,
+            local_sy,
+            st.now_ms(Instant::now()),
+        )
+    {
+        ps.overflow_drag = Some(OverflowDragCtx {
+            cluster_id: cid,
+            member_id,
+            monitor: target_monitor.clone(),
+        });
+        ps.last_title_click = None;
+        backend.request_redraw();
+        return;
+    }
     let mods = mod_state.borrow().clone();
     let intercepted_binding = match button_state {
         ButtonState::Pressed => {
@@ -1223,6 +1245,37 @@ pub(crate) fn handle_pointer_button_input(
             if left && ps.bloom_drag.take().is_some() {
                 st.input.interaction_state.bloom_pull_preview = None;
                 backend.request_redraw();
+                return;
+            }
+            if left
+                && let Some(overflow_drag) = ps.overflow_drag.take()
+            {
+                let now = Instant::now();
+                let release_hit = pick_hit_node_at(
+                    st,
+                    local_w,
+                    local_h,
+                    local_sx,
+                    local_sy,
+                    now,
+                    ps.resize,
+                );
+                if overflow_drag.monitor == target_monitor
+                    && let Some(hit) = release_hit
+                    && let Some(cluster) = st.model.field.cluster(overflow_drag.cluster_id)
+                    && cluster.visible_members().contains(&hit.node_id)
+                {
+                    let swapped = st.swap_cluster_overflow_member_with_visible(
+                        overflow_drag.monitor.as_str(),
+                        overflow_drag.cluster_id,
+                        overflow_drag.member_id,
+                        hit.node_id,
+                        st.now_ms(now),
+                    );
+                    if swapped {
+                        backend.request_redraw();
+                    }
+                }
                 return;
             }
             if intercepted_binding {

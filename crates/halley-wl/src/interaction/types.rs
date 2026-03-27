@@ -147,6 +147,13 @@ pub(crate) struct BloomDragCtx {
     pub(crate) core_screen: (f32, f32),
 }
 
+#[derive(Clone)]
+pub(crate) struct OverflowDragCtx {
+    pub(crate) cluster_id: ClusterId,
+    pub(crate) member_id: halley_core::field::NodeId,
+    pub(crate) monitor: String,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct HitNode {
     pub(crate) node_id: halley_core::field::NodeId,
@@ -174,6 +181,7 @@ pub(crate) struct PointerState {
     pub(crate) resize: Option<ResizeCtx>,
     pub(crate) move_anim: HashMap<halley_core::field::NodeId, NodeMoveAnim>,
     pub(crate) bloom_drag: Option<BloomDragCtx>,
+    pub(crate) overflow_drag: Option<OverflowDragCtx>,
     pub(crate) last_title_click: Option<TitleClickCtx>,
     pub(crate) panning: bool,
     pub(crate) pan_monitor: Option<String>,
@@ -198,6 +206,7 @@ impl Default for PointerState {
             resize: None,
             move_anim: HashMap::new(),
             bloom_drag: None,
+            overflow_drag: None,
             last_title_click: None,
             panning: false,
             pan_monitor: None,

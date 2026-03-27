@@ -13,6 +13,7 @@ use smithay::{
 };
 
 use crate::state::RenderState;
+use crate::state::Halley;
 
 use crate::render::utils::{bitmap_text_size, draw_bitmap_text};
 
@@ -34,11 +35,64 @@ const BANNER_META_SCALE: i32 = 1;
 const TOAST_PAD_X: i32 = 14;
 const TOAST_PAD_Y: i32 = 10;
 const TOAST_SCALE: i32 = 2;
+const TOAST_META_SCALE: i32 = 1;
 const SELECT_MARKER_W: i32 = 34;
 const SELECT_MARKER_H: i32 = 20;
 const OVERFLOW_ICON_PAD: i32 = 8;
 const OVERFLOW_ICON_SIZE: i32 = 40;
 const OVERFLOW_ICON_GAP: i32 = 8;
+
+pub(crate) fn cluster_overflow_icon_hit_test(
+    overlay: &OverlayView<'_>,
+    monitor: &str,
+    sx: f32,
+    sy: f32,
+    now_ms: u64,
+) -> Option<halley_core::field::NodeId> {
+    if !overlay.cluster_overflow_visible_for_monitor(monitor, now_ms) {
+        return None;
+    }
+    let rect = overlay.cluster_overflow_rect_for_monitor(monitor)?;
+    let overflow = overlay.cluster_overflow_member_ids_for_monitor(monitor);
+    if overflow.is_empty() {
+        return None;
+    }
+
+    let strip = Rectangle::<i32, Physical>::new(
+        (rect.x.round() as i32, rect.y.round() as i32).into(),
+        (
+            (rect.w.round() as i32).max(48),
+            (rect.h.round() as i32).max(80),
+        )
+            .into(),
+    );
+    let visible_slots = ((strip.size.h - OVERFLOW_ICON_PAD * 2 + OVERFLOW_ICON_GAP)
+        / (OVERFLOW_ICON_SIZE + OVERFLOW_ICON_GAP))
+        .max(1) as usize;
+
+    overflow
+        .iter()
+        .copied()
+        .take(visible_slots)
+        .enumerate()
+        .find_map(|(index, node_id)| {
+            let icon_rect = Rectangle::<i32, Physical>::new(
+                (
+                    strip.loc.x + (strip.size.w - OVERFLOW_ICON_SIZE) / 2,
+                    strip.loc.y
+                        + OVERFLOW_ICON_PAD
+                        + index as i32 * (OVERFLOW_ICON_SIZE + OVERFLOW_ICON_GAP),
+                )
+                    .into(),
+                (OVERFLOW_ICON_SIZE, OVERFLOW_ICON_SIZE).into(),
+            );
+            ((sx.round() as i32) >= icon_rect.loc.x
+                && (sx.round() as i32) <= icon_rect.loc.x + icon_rect.size.w
+                && (sy.round() as i32) >= icon_rect.loc.y
+                && (sy.round() as i32) <= icon_rect.loc.y + icon_rect.size.h)
+                .then_some(node_id)
+        })
+}
 
 pub(crate) fn draw_cluster_overflow_strip(
     frame: &mut GlesFrame<'_, '_>,
@@ -216,9 +270,20 @@ pub(crate) fn draw_toast(
     damage: Rectangle<i32, Physical>,
     toast: &OverlayToastSnapshot,
 ) -> Result<(), Box<dyn Error>> {
-    let (text_w, text_h) = bitmap_text_size(toast.message.as_str(), TOAST_SCALE);
-    let rect_w: i32 = (text_w + TOAST_PAD_X * 2).max(120);
-    let rect_h: i32 = (text_h + TOAST_PAD_Y * 2).max(28);
+    let mut lines = toast.message.lines();
+    let title = lines.next().unwrap_or_default();
+    let body = lines.collect::<Vec<_>>().join(" ");
+    let body = (!body.is_empty()).then_some(body);
+    let (title_w, title_h) = bitmap_text_size(title, TOAST_SCALE);
+    let (body_w, body_h) = body
+        .as_ref()
+        .map(|text| bitmap_text_size(text.as_str(), TOAST_META_SCALE))
+        .unwrap_or((0, 0));
+    let rect_w: i32 = (title_w.max(body_w) + TOAST_PAD_X * 2).max(180);
+    let rect_h: i32 = (TOAST_PAD_Y * 2
+        + title_h
+        + if body.is_some() { BANNER_GAP + body_h } else { 0 })
+        .max(32);
     let rect_x: i32 = ((screen_w - rect_w) / 2).max(BANNER_EDGE_PAD);
     let rect_y: i32 = ((screen_h - rect_h) / 2).max(BANNER_EDGE_PAD);
     let rect = Rectangle::<i32, Physical>::new((rect_x, rect_y).into(), (rect_w, rect_h).into());
@@ -227,20 +292,49 @@ pub(crate) fn draw_toast(
         frame,
         render_state,
         rect,
-        12.0,
-        Color32F::new(0.12, 0.16, 0.20, 0.92 * toast.mix),
+        14.0,
+        Color32F::new(0.95, 0.97, 0.99, 0.94 * toast.mix),
         damage,
         toast.mix,
     )?;
     draw_bitmap_text(
         frame,
         rect.loc.x + TOAST_PAD_X,
-        rect.loc.y + (rect.size.h - text_h) / 2,
-        toast.message.as_str(),
+        rect.loc.y + TOAST_PAD_Y,
+        title,
         TOAST_SCALE,
-        Color32F::new(0.92, 0.96, 0.99, toast.mix),
+        Color32F::new(0.06, 0.08, 0.10, toast.mix),
         damage,
     )?;
+    if let Some(body) = body.as_ref() {
+        draw_bitmap_text(
+            frame,
+            rect.loc.x + TOAST_PAD_X,
+            rect.loc.y + TOAST_PAD_Y + title_h + BANNER_GAP,
+            body.as_str(),
+            TOAST_META_SCALE,
+            Color32F::new(0.27, 0.32, 0.37, toast.mix * 0.96),
+            damage,
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn draw_monitor_hud(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &mut Halley,
+    screen_w: i32,
+    screen_h: i32,
+    damage: Rectangle<i32, Physical>,
+    now: std::time::Instant,
+) -> Result<(), Box<dyn Error>> {
+    let overlay_monitor = st.model.monitor_state.current_monitor.clone();
+    if let Some(banner) = st.persistent_mode_banner_snapshot(overlay_monitor.as_str()) {
+        draw_persistent_banner(frame, &st.ui.render_state, damage, &banner)?;
+    }
+    if let Some(toast) = st.overlay_toast_snapshot(overlay_monitor.as_str(), now) {
+        draw_toast(frame, &st.ui.render_state, screen_w, screen_h, damage, &toast)?;
+    }
     Ok(())
 }
 

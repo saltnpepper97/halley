@@ -749,6 +749,18 @@ impl Field {
         Ok(())
     }
 
+    pub fn swap_cluster_overflow_member_with_visible(
+        &mut self,
+        id: ClusterId,
+        overflow_member: NodeId,
+        visible_member: NodeId,
+    ) -> bool {
+        let Some(cluster) = self.clusters.get_mut(&id) else {
+            return false;
+        };
+        cluster.swap_overflow_member_with_visible(overflow_member, visible_member)
+    }
+
     pub fn dissolve_cluster(&mut self, id: ClusterId) -> bool {
         self.finish_dissolve_cluster(id)
     }
@@ -1424,6 +1436,65 @@ mod tests {
         assert_eq!(node.state, NodeState::Node);
         assert_eq!(node.pos, Vec2 { x: 400.0, y: 300.0 });
         assert!(f.bounds(a).is_some());
+    }
+
+    #[test]
+    fn cluster_workspace_layout_only_tiles_first_four_members() {
+        let mut f = Field::new();
+        let members = (0..6)
+            .map(|index| {
+                f.spawn_surface(
+                    format!("N{}", index),
+                    Vec2 {
+                        x: index as f32 * 10.0,
+                        y: 0.0,
+                    },
+                    Vec2 { x: 10.0, y: 10.0 },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let cid = f.create_cluster(members.clone()).unwrap();
+        let cluster = f.cluster(cid).unwrap();
+        let layout = cluster.workspace_layout(crate::tiling::Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 1000.0,
+            h: 600.0,
+        });
+
+        assert_eq!(cluster.visible_members(), &members[..4]);
+        assert_eq!(cluster.overflow_members(), &members[4..]);
+        assert_eq!(layout.tiles.len(), 4);
+        assert!(layout.tiles.iter().all(|tile| members[..4].contains(&tile.id)));
+    }
+
+    #[test]
+    fn swapping_overflow_member_with_visible_preserves_queue_order() {
+        let mut f = Field::new();
+        let members = (0..6)
+            .map(|index| {
+                f.spawn_surface(
+                    format!("N{}", index),
+                    Vec2 {
+                        x: index as f32 * 10.0,
+                        y: 0.0,
+                    },
+                    Vec2 { x: 10.0, y: 10.0 },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let cid = f.create_cluster(members.clone()).unwrap();
+        assert!(f.swap_cluster_overflow_member_with_visible(cid, members[4], members[2]));
+
+        let cluster = f.cluster(cid).unwrap();
+        assert_eq!(
+            cluster.members(),
+            &[members[0], members[1], members[4], members[3], members[2], members[5]]
+        );
+        assert_eq!(cluster.visible_members(), &[members[0], members[1], members[4], members[3]]);
+        assert_eq!(cluster.overflow_members(), &[members[2], members[5]]);
     }
 
     #[test]
