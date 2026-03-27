@@ -242,7 +242,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             }
             let autostart_once = state.runtime.tuning.autostart_once.clone();
             run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
-            apply_host_cursor(&backend, &state.platform.cursor_image_status);
+            apply_host_cursor(&backend, &state.effective_cursor_image_status());
             let backend_for_winit = backend.clone();
             let backend_for_timer = backend.clone();
             let backend_for_cursor_timer = backend.clone();
@@ -731,7 +731,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                 }
 
-                apply_host_cursor(&backend_for_cursor_timer, &st.platform.cursor_image_status);
+                apply_host_cursor(&backend_for_cursor_timer, &st.effective_cursor_image_status());
                 backend_handle_for_timer.request_redraw();
                 TimeoutAction::ToDuration(frame_interval_for_refresh_hz(
                     st.runtime.tuning

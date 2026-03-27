@@ -56,6 +56,17 @@ impl<'a> OverlayView<'a> {
             .unwrap_or(&[])
     }
 
+    pub(crate) fn cluster_overflow_drag_preview_for_monitor(
+        &self,
+        monitor: &str,
+    ) -> Option<(NodeId, (f32, f32))> {
+        self.interaction_state
+            .cluster_overflow_drag_preview
+            .as_ref()
+            .filter(|preview| preview.monitor == monitor)
+            .map(|preview| (preview.member_id, preview.screen_local))
+    }
+
     pub(crate) fn node_visible_on_current_monitor(&self, node_id: NodeId) -> bool {
         self.field.is_visible(node_id)
             && self

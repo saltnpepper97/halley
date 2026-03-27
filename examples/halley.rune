@@ -108,6 +108,7 @@ end
 tile:
   gaps-inner 20
   gaps-outer 20
+  queue-show-icons true
 end
 
 physics:

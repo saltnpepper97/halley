@@ -761,6 +761,18 @@ impl Field {
         cluster.swap_overflow_member_with_visible(overflow_member, visible_member)
     }
 
+    pub fn reorder_cluster_overflow_member(
+        &mut self,
+        id: ClusterId,
+        member: NodeId,
+        target_overflow_index: usize,
+    ) -> bool {
+        let Some(cluster) = self.clusters.get_mut(&id) else {
+            return false;
+        };
+        cluster.reorder_overflow_member(member, target_overflow_index)
+    }
+
     pub fn dissolve_cluster(&mut self, id: ClusterId) -> bool {
         self.finish_dissolve_cluster(id)
     }
@@ -1495,6 +1507,30 @@ mod tests {
         );
         assert_eq!(cluster.visible_members(), &[members[0], members[1], members[4], members[3]]);
         assert_eq!(cluster.overflow_members(), &[members[2], members[5]]);
+    }
+
+    #[test]
+    fn reordering_overflow_members_updates_queue_order_only() {
+        let mut f = Field::new();
+        let members = (0..7)
+            .map(|index| {
+                f.spawn_surface(
+                    format!("N{}", index),
+                    Vec2 {
+                        x: index as f32 * 10.0,
+                        y: 0.0,
+                    },
+                    Vec2 { x: 10.0, y: 10.0 },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let cid = f.create_cluster(members.clone()).unwrap();
+        assert!(f.reorder_cluster_overflow_member(cid, members[6], 0));
+
+        let cluster = f.cluster(cid).unwrap();
+        assert_eq!(cluster.visible_members(), &members[..4]);
+        assert_eq!(cluster.overflow_members(), &[members[6], members[4], members[5]]);
     }
 
     #[test]

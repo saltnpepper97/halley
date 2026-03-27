@@ -6,6 +6,7 @@ use halley_core::field::{NodeId, Vec2};
 
 use crate::interaction::types::DragAxisMode;
 use crate::state::Halley;
+use smithay::input::pointer::CursorIcon;
 
 pub(crate) struct ViewportPanAnim {
     pub(crate) start_ms: u64,
@@ -42,6 +43,21 @@ pub(crate) struct BloomPullPreview {
     pub(crate) cluster_id: ClusterId,
     pub(crate) member_id: NodeId,
     pub(crate) mix: f32,
+}
+
+#[derive(Clone)]
+pub(crate) struct ClusterOverflowDragPreview {
+    pub(crate) member_id: NodeId,
+    pub(crate) monitor: String,
+    pub(crate) screen_local: (f32, f32),
+}
+
+#[derive(Clone)]
+pub(crate) struct OverlayHoverTarget {
+    pub(crate) node_id: NodeId,
+    pub(crate) monitor: String,
+    pub(crate) screen_anchor: (i32, i32),
+    pub(crate) prefer_left: bool,
 }
 
 #[derive(Clone)]
@@ -82,12 +98,15 @@ pub(crate) struct InteractionState {
     pub(crate) active_drag: Option<ActiveDragState>,
     pub(crate) cluster_join_candidate: Option<ClusterJoinCandidate>,
     pub(crate) bloom_pull_preview: Option<BloomPullPreview>,
+    pub(crate) cluster_overflow_drag_preview: Option<ClusterOverflowDragPreview>,
+    pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
     pub(crate) pending_core_press: Option<PendingCorePress>,
     pub(crate) pending_core_click: Option<PendingCoreClick>,
     pub(crate) grabbed_edge_pan_active: bool,
     pub(crate) grabbed_edge_pan_direction: Vec2,
     pub(crate) grabbed_edge_pan_pressure: Vec2,
     pub(crate) grabbed_edge_pan_monitor: Option<String>,
+    pub(crate) cursor_override_icon: Option<CursorIcon>,
 }
 
 impl Halley {

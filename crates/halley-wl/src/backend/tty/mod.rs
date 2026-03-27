@@ -1326,7 +1326,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                     st.send_frame_callbacks(now);
 
-                    let cursor_image = st.platform.cursor_image_status.clone();
+                    let cursor_image = st.effective_cursor_image_status();
                     let previous_monitor = st.model.monitor_state.current_monitor.clone();
 
                     let outputs_ref = outputs_for_timer.borrow();

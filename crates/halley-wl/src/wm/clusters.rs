@@ -506,6 +506,16 @@ impl Halley {
                 .cluster_state
                 .cluster_overflow_visible_until_ms
                 .remove(monitor.as_str());
+            if self
+                .input
+                .interaction_state
+                .cluster_overflow_drag_preview
+                .as_ref()
+                .is_some_and(|preview| preview.monitor == *monitor)
+            {
+                self.input.interaction_state.cluster_overflow_drag_preview = None;
+                self.set_cursor_override_icon(None);
+            }
             self.restore_cluster_workspace_monitor(monitor.as_str());
         }
         self.model
@@ -892,6 +902,28 @@ impl Halley {
         true
     }
 
+    pub(crate) fn reorder_cluster_overflow_member(
+        &mut self,
+        monitor: &str,
+        cid: ClusterId,
+        member: NodeId,
+        target_overflow_index: usize,
+        now_ms: u64,
+    ) -> bool {
+        if self.active_cluster_workspace_for_monitor(monitor) != Some(cid) {
+            return false;
+        }
+        if !self
+            .model
+            .field
+            .reorder_cluster_overflow_member(cid, member, target_overflow_index)
+        {
+            return false;
+        }
+        self.refresh_cluster_overflow_for_monitor(monitor, now_ms, true);
+        true
+    }
+
     pub fn collapse_active_cluster_workspace(&mut self, now: Instant) -> bool {
         let monitor = self.model.monitor_state.current_monitor.clone();
         self.exit_cluster_workspace_for_monitor(monitor.as_str(), now)
@@ -1172,6 +1204,16 @@ impl Halley {
             .cluster_state
             .cluster_overflow_visible_until_ms
             .remove(monitor);
+        if self
+            .input
+            .interaction_state
+            .cluster_overflow_drag_preview
+            .as_ref()
+            .is_some_and(|preview| preview.monitor == monitor)
+        {
+            self.input.interaction_state.cluster_overflow_drag_preview = None;
+            self.set_cursor_override_icon(None);
+        }
         true
     }
 

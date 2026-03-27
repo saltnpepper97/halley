@@ -581,6 +581,16 @@ fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.tile_gaps_outer_px,
     );
+    out.tile_queue_show_icons = pick_bool(
+        cfg,
+        &[
+            "tile.queue-show-icons",
+            "tile.queue_show_icons",
+            "tile.show-queue-icons",
+            "tile.show_queue_icons",
+        ],
+        out.tile_queue_show_icons,
+    );
 }
 
 fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -1919,6 +1929,30 @@ end
 
         assert_eq!(tuning.tile_gaps_inner_px, 18.0);
         assert_eq!(tuning.tile_gaps_outer_px, 26.0);
+    }
+
+    #[test]
+    fn tile_queue_icon_setting_parses_from_tile_section() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-tile-queue-icons-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+tile:
+  queue-show-icons false
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert!(!tuning.tile_queue_show_icons);
     }
 
     #[test]

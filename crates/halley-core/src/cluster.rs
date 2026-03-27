@@ -222,6 +222,30 @@ impl Cluster {
         self.members[visible_index] = overflow_member;
         true
     }
+
+    pub(crate) fn reorder_overflow_member(
+        &mut self,
+        member: NodeId,
+        target_overflow_index: usize,
+    ) -> bool {
+        let Some(member_index) = self.members.iter().position(|&id| id == member) else {
+            return false;
+        };
+        if member_index < CLUSTER_VISIBLE_CAPACITY {
+            return false;
+        }
+
+        let overflow_len = self.members.len().saturating_sub(CLUSTER_VISIBLE_CAPACITY);
+        if overflow_len <= 1 {
+            return true;
+        }
+
+        let member = self.members.remove(member_index);
+        let clamped_index = target_overflow_index.min(overflow_len - 1);
+        let insert_index = (CLUSTER_VISIBLE_CAPACITY + clamped_index).min(self.members.len());
+        self.members.insert(insert_index, member);
+        true
+    }
 }
 
 fn has_duplicates(members: &[NodeId]) -> bool {

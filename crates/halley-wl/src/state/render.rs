@@ -116,6 +116,12 @@ pub(crate) struct RenderState {
 }
 
 impl Halley {
+    pub(crate) fn monitor_overlay_requires_full_repaint(&self, monitor: &str) -> bool {
+        self.cluster_mode_active_for_monitor(monitor)
+            || self.ui.render_state.overlay_banner.contains_key(monitor)
+            || self.ui.render_state.overlay_toast.contains_key(monitor)
+    }
+
     pub(crate) fn take_input_state_reset_request(&mut self) -> bool {
         std::mem::take(&mut self.input.interaction_state.reset_input_state_requested)
     }
@@ -413,12 +419,12 @@ impl Halley {
     ) -> Option<OverlayBannerSnapshot> {
         let state = self.ui.render_state.overlay_banner.get_mut(monitor)?;
         let target = if state.visible { 1.0 } else { 0.0 };
-        let k = if target > 0.5 { 0.26 } else { 0.18 };
+        let k = if target > 0.5 { 0.36 } else { 0.24 };
         state.mix += (target - state.mix) * k;
-        if (state.mix - target).abs() < 0.01 {
+        if (state.mix - target).abs() < 0.015 {
             state.mix = target;
         }
-        if target <= 0.0 && state.mix <= 0.01 {
+        if target <= 0.0 && state.mix <= 0.015 {
             self.ui.render_state.overlay_banner.remove(monitor);
             return None;
         }
@@ -462,12 +468,12 @@ impl Halley {
         } else {
             0.0
         };
-        let k = if target > 0.5 { 0.30 } else { 0.18 };
+        let k = if target > 0.5 { 0.40 } else { 0.26 };
         toast.mix += (target - toast.mix) * k;
-        if (toast.mix - target).abs() < 0.01 {
+        if (toast.mix - target).abs() < 0.015 {
             toast.mix = target;
         }
-        if target <= 0.0 && toast.mix <= 0.01 {
+        if target <= 0.0 && toast.mix <= 0.015 {
             self.ui.render_state.overlay_toast.remove(monitor);
             return None;
         }

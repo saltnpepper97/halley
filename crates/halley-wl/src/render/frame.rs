@@ -17,13 +17,13 @@ use smithay::{
 use crate::interaction::types::ResizeCtx;
 use crate::overlay::{
     OverlayView, draw_cluster_bloom, draw_cluster_overflow_strip, draw_cluster_selection_markers,
-    draw_monitor_hud, ensure_cluster_bloom_icon_resources,
+    draw_monitor_hud, draw_overlay_hover_label, ensure_cluster_bloom_icon_resources,
 };
 use crate::spatial::node_in_active_area_for_monitor;
 use crate::state::Halley;
 
 use super::ACTIVE_WINDOW_FRAME_PAD_PX;
-use super::app_icon::ensure_node_app_icon_resources;
+use super::app_icon::{ensure_app_icon_resources_for_node_ids, ensure_node_app_icon_resources};
 use super::bearings::BearingChipLayout;
 use super::bearings::{collect_bearing_layouts, draw_bearings, ensure_bearing_icon_resources};
 use super::cursor::{cursor_surface_hotspot, draw_cursor_sprite};
@@ -168,6 +168,23 @@ pub(crate) fn draw_debug_frame_to_target(
     );
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
     let current_monitor = st.model.monitor_state.current_monitor.clone();
+    let overflow_ids = st
+        .model
+        .cluster_state
+        .cluster_overflow_members
+        .get(current_monitor.as_str())
+        .into_iter()
+        .flat_map(|ids| ids.iter().copied())
+        .chain(
+            st.input
+                .interaction_state
+                .cluster_overflow_drag_preview
+                .as_ref()
+                .filter(|preview| preview.monitor == current_monitor)
+                .map(|preview| preview.member_id),
+        )
+        .collect::<Vec<_>>();
+    ensure_app_icon_resources_for_node_ids(renderer, st, overflow_ids.into_iter())?;
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
@@ -250,6 +267,21 @@ fn collect_debug_frame_scene(
             .then_some(id)
         })
     });
+    let overlay_hover_preview = st
+        .input
+        .interaction_state
+        .overlay_hover_target
+        .as_ref()
+        .filter(|target| {
+            target.monitor == render_monitor
+                && preview_hover_node == Some(target.node_id)
+                && st
+                    .input
+                    .interaction_state
+                    .cluster_overflow_drag_preview
+                    .is_none()
+        })
+        .map(|target| (target.node_id, target.screen_anchor, target.prefer_left));
     let (hover_preview_rect, hover_preview_elements) = collect_hover_preview(
         renderer,
         st,
@@ -257,6 +289,7 @@ fn collect_debug_frame_scene(
         render_monitor.as_str(),
         &node_surface_map,
         hovered_preview_id,
+        overlay_hover_preview,
         hover_node,
         now,
     );
@@ -423,20 +456,6 @@ fn draw_debug_frame_scene(
     }
 
     draw_geometry_overlays(frame, st, size, prepared.damage, scene)?;
-    draw_hover_preview(frame, prepared.damage, scene)?;
-
-    if !scene.layer_top_elements.is_empty() {
-        let _ = draw_render_elements(frame, 1.0, &scene.layer_top_elements, &[prepared.damage]);
-    }
-
-    if !scene.layer_overlay_elements.is_empty() {
-        let _ = draw_render_elements(
-            frame,
-            1.0,
-            &scene.layer_overlay_elements,
-            &[prepared.damage],
-        );
-    }
 
     if !scene.bearing_layouts.is_empty() {
         draw_bearings(frame, st, prepared.damage, &scene.bearing_layouts)?;
@@ -458,11 +477,15 @@ fn draw_debug_frame_scene(
         prepared.damage,
         st.now_ms(prepared.now),
     )?;
+    drop(overlay);
+    draw_overlay_hover_label(frame, st, size.w, size.h, prepared.damage)?;
 
     if st.cluster_mode_active() {
+        let overlay = OverlayView::from_halley(st);
         draw_cluster_selection_markers(frame, &overlay, size.w, size.h, prepared.damage)?;
     }
 
+    draw_hover_preview(frame, prepared.damage, scene)?;
     draw_node_hover_labels(
         frame,
         st,
@@ -472,6 +495,19 @@ fn draw_debug_frame_scene(
         prepared.damage,
         prepared.now,
     )?;
+
+    if !scene.layer_top_elements.is_empty() {
+        let _ = draw_render_elements(frame, 1.0, &scene.layer_top_elements, &[prepared.damage]);
+    }
+
+    if !scene.layer_overlay_elements.is_empty() {
+        let _ = draw_render_elements(
+            frame,
+            1.0,
+            &scene.layer_overlay_elements,
+            &[prepared.damage],
+        );
+    }
 
     if st.should_draw_focus_ring_preview(prepared.now) {
         let focus_ring = st.active_focus_ring();

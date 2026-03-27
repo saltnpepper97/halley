@@ -72,12 +72,21 @@ pub(crate) fn resolve_hover_targets(
     Option<halley_core::field::NodeId>,
 ) {
     let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
-    let hovered = if hover_blocked { None } else { ps.hover_node };
+    let overlay_hover = st
+        .input
+        .interaction_state
+        .overlay_hover_target
+        .as_ref()
+        .map(|target| target.node_id);
+    let hovered = if hover_blocked {
+        None
+    } else {
+        overlay_hover.or(ps.hover_node)
+    };
     let preview_ready = hovered.is_some_and(|id| {
-        node_in_active_area(st, id)
-            && ps.hover_started_at.is_some_and(|at| {
-                now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
-            })
+        ps.hover_started_at.is_some_and(|at| {
+            now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
+        }) && (overlay_hover == Some(id) || node_in_active_area(st, id))
     });
     if preview_ready {
         (None, hovered)
@@ -96,22 +105,30 @@ pub(crate) fn resolve_hover_targets_for_monitor(
     Option<halley_core::field::NodeId>,
 ) {
     let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
+    let overlay_hover = st
+        .input
+        .interaction_state
+        .overlay_hover_target
+        .as_ref()
+        .filter(|target| target.monitor == monitor)
+        .map(|target| target.node_id);
     let hovered = if hover_blocked {
         None
     } else {
-        ps.hover_node.filter(|id| {
-            st.model
-                .monitor_state
-                .node_monitor
-                .get(id)
-                .is_none_or(|node_monitor| node_monitor == monitor)
+        overlay_hover.or_else(|| {
+            ps.hover_node.filter(|id| {
+                st.model
+                    .monitor_state
+                    .node_monitor
+                    .get(id)
+                    .is_none_or(|node_monitor| node_monitor == monitor)
+            })
         })
     };
     let preview_ready = hovered.is_some_and(|id| {
-        node_in_active_area_for_monitor(st, id, monitor)
-            && ps.hover_started_at.is_some_and(|at| {
-                now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
-            })
+        ps.hover_started_at.is_some_and(|at| {
+            now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS
+        }) && (overlay_hover == Some(id) || node_in_active_area_for_monitor(st, id, monitor))
     });
     if preview_ready {
         (None, hovered)

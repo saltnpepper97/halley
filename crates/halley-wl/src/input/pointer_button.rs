@@ -16,7 +16,9 @@ use crate::interaction::types::{
     BloomDragCtx, DragAxisMode, DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS,
     OverflowDragCtx, PointerState, ResizeCtx, TitleClickCtx,
 };
-use crate::overlay::{bloom_token_hit_test, cluster_overflow_icon_hit_test};
+use crate::overlay::{
+    bloom_token_hit_test, cluster_overflow_icon_hit_test, cluster_overflow_strip_slot_at,
+};
 use crate::render::bearing_hit_test;
 use crate::render::world_to_screen;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
@@ -173,6 +175,8 @@ fn clear_pointer_activity(st: &mut Halley, ps: &mut PointerState) {
     st.clear_grabbed_edge_pan_state();
     st.input.interaction_state.active_drag = None;
     st.input.interaction_state.pending_core_press = None;
+    st.input.interaction_state.cluster_overflow_drag_preview = None;
+    st.set_cursor_override_icon(None);
     ps.drag = None;
     ps.overflow_drag = None;
     ps.resize = None;
@@ -1111,7 +1115,7 @@ pub(crate) fn handle_pointer_button_input(
         && left
         && frame.workspace_active
         && let Some(cid) = st.active_cluster_workspace_for_monitor(target_monitor.as_str())
-        && let Some(member_id) = cluster_overflow_icon_hit_test(
+        && let Some(hit) = cluster_overflow_icon_hit_test(
             &crate::overlay::OverlayView::from_halley(st),
             target_monitor.as_str(),
             local_sx,
@@ -1121,9 +1125,16 @@ pub(crate) fn handle_pointer_button_input(
     {
         ps.overflow_drag = Some(OverflowDragCtx {
             cluster_id: cid,
-            member_id,
+            member_id: hit.member_id,
             monitor: target_monitor.clone(),
         });
+        st.input.interaction_state.cluster_overflow_drag_preview =
+            Some(crate::state::ClusterOverflowDragPreview {
+                member_id: hit.member_id,
+                monitor: target_monitor.clone(),
+                screen_local: (local_sx, local_sy),
+            });
+        st.set_cursor_override_icon(Some(smithay::input::pointer::CursorIcon::Grabbing));
         ps.last_title_click = None;
         backend.request_redraw();
         return;
@@ -1251,6 +1262,8 @@ pub(crate) fn handle_pointer_button_input(
                 && let Some(overflow_drag) = ps.overflow_drag.take()
             {
                 let now = Instant::now();
+                st.input.interaction_state.cluster_overflow_drag_preview = None;
+                st.set_cursor_override_icon(None);
                 let release_hit = pick_hit_node_at(
                     st,
                     local_w,
@@ -1275,6 +1288,31 @@ pub(crate) fn handle_pointer_button_input(
                     if swapped {
                         backend.request_redraw();
                     }
+                    return;
+                }
+                let now_ms = st.now_ms(now);
+                if overflow_drag.monitor == target_monitor
+                    && let Some(target_slot) = cluster_overflow_strip_slot_at(
+                        &crate::overlay::OverlayView::from_halley(st),
+                        target_monitor.as_str(),
+                        local_sx,
+                        local_sy,
+                        now_ms,
+                    )
+                {
+                    let reordered = st.reorder_cluster_overflow_member(
+                        overflow_drag.monitor.as_str(),
+                        overflow_drag.cluster_id,
+                        overflow_drag.member_id,
+                        target_slot,
+                        now_ms,
+                    );
+                    if reordered {
+                        backend.request_redraw();
+                    }
+                } else {
+                    st.reveal_cluster_overflow_for_monitor(overflow_drag.monitor.as_str(), now_ms);
+                    backend.request_redraw();
                 }
                 return;
             }

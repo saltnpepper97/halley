@@ -301,6 +301,7 @@ pub(crate) fn collect_hover_preview(
         smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     >,
     hovered_preview_id: Option<halley_core::field::NodeId>,
+    overlay_hover_preview: Option<(halley_core::field::NodeId, (i32, i32), bool)>,
     hover_node: Option<halley_core::field::NodeId>,
     now: Instant,
 ) -> (
@@ -309,8 +310,11 @@ pub(crate) fn collect_hover_preview(
 ) {
     let _ = hover_node;
 
+    let preview_target = overlay_hover_preview
+        .map(|preview| preview.0)
+        .or(hovered_preview_id);
     let Some((preview_id, preview_mix_raw)) =
-        st.node_preview_hover_anim_for_monitor(monitor, hovered_preview_id)
+        st.node_preview_hover_anim_for_monitor(monitor, preview_target)
     else {
         return (None, Vec::new());
     };
@@ -326,10 +330,15 @@ pub(crate) fn collect_hover_preview(
         return (None, Vec::new());
     };
 
-    if !matches!(
-        node_state,
-        halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
-    ) {
+    let overlay_anchor = overlay_hover_preview
+        .filter(|preview| preview.0 == preview_id)
+        .map(|preview| (preview.1, preview.2));
+    if overlay_anchor.is_none()
+        && !matches!(
+            node_state,
+            halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+        )
+    {
         return (None, Vec::new());
     }
 
@@ -347,17 +356,25 @@ pub(crate) fn collect_hover_preview(
         / (PROXY_TO_MARKER_START - PROXY_TO_MARKER_END))
         .clamp(0.0, 1.0);
     let marker_mix = ease_in_out_cubic(marker_mix_lin);
-
-    let p = node_pos;
-    let _ = marker_mix;
-    let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
-
-    let (dot_half, _, _, _) = node_marker_metrics(st, label_len, anim.scale);
-    let render_pad = 8;
-    let (bx, by, bw, bh) = node_marker_bounds(cx, cy, dot_half, 0, 0, dot_half * 2, render_pad);
-
     let mut preview_size_base = ((size.w.min(size.h) as f32) * 0.30).round() as i32;
     preview_size_base = preview_size_base.clamp(220, 360);
+
+    let clamp_to_viewport = overlay_anchor.is_none();
+    let (bx, by, bw, bh) = if let Some(((anchor_x, anchor_y), prefer_left)) = overlay_anchor {
+        let side = preview_size_base.clamp(220, 360);
+        let _ = prefer_left;
+        let preview_x = anchor_x - side / 2;
+        let preview_y = anchor_y - side / 2;
+        (preview_x, preview_y, side, side)
+    } else {
+        let p = node_pos;
+        let _ = marker_mix;
+        let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
+        let (dot_half, _, _, _) = node_marker_metrics(st, label_len, anim.scale);
+        let render_pad = 8;
+        node_marker_bounds(cx, cy, dot_half, 0, 0, dot_half * 2, render_pad)
+    };
+
     let inset = 10i32;
     let source_side = bbox.size.w.max(bbox.size.h).max(1);
     let base_side = (source_side + inset * 2).clamp(120, preview_size_base);
@@ -369,8 +386,10 @@ pub(crate) fn collect_hover_preview(
     let anchor_cy = by + (bh / 2);
     let mut preview_x = anchor_cx - (preview_size / 2);
     let mut preview_y = anchor_cy - (preview_size / 2);
-    preview_x = preview_x.clamp(10, (size.w - preview_size - 10).max(10));
-    preview_y = preview_y.clamp(10, (size.h - preview_size - 10).max(10));
+    if clamp_to_viewport {
+        preview_x = preview_x.clamp(10, (size.w - preview_size - 10).max(10));
+        preview_y = preview_y.clamp(10, (size.h - preview_size - 10).max(10));
+    }
 
     let sx = preview_x + inset - bbox.loc.x;
     let sy = preview_y + inset - bbox.loc.y;

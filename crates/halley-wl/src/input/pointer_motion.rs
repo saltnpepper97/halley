@@ -234,9 +234,15 @@ pub(crate) fn handle_pointer_motion_absolute(
         let ps = pointer_state.borrow();
         ps.bloom_drag.as_ref().map(|drag| drag.monitor.clone())
     };
+    let locked_overflow_monitor = {
+        let ps = pointer_state.borrow();
+        ps.overflow_drag.as_ref().map(|drag| drag.monitor.clone())
+    };
     let (effective_sx, effective_sy) = if let Some(owner) = locked_resize_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
     } else if let Some(owner) = locked_bloom_monitor.as_deref() {
+        clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
+    } else if let Some(owner) = locked_overflow_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
     } else if let Some(owner) = locked_drag_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
@@ -262,6 +268,8 @@ pub(crate) fn handle_pointer_motion_absolute(
     let target_monitor = {
         if st.has_active_cluster_workspace() {
             st.model.monitor_state.current_monitor.clone()
+        } else if let Some(owner) = locked_overflow_monitor {
+            owner
         } else if let Some(owner) = locked_bloom_monitor {
             owner
         } else if let Some(owner) = locked_surface_monitor {
@@ -418,6 +426,31 @@ pub(crate) fn handle_pointer_motion_absolute(
     if st.has_active_cluster_workspace() {
         let monitor = st.model.monitor_state.current_monitor.clone();
         let now_ms = st.now_ms(now);
+        if let Some(overflow_drag) = ps.overflow_drag.clone() {
+            st.input.interaction_state.cluster_overflow_drag_preview =
+                Some(crate::state::ClusterOverflowDragPreview {
+                    member_id: overflow_drag.member_id,
+                    monitor: monitor.clone(),
+                    screen_local: (local_sx, local_sy),
+                });
+            st.set_cursor_override_icon(Some(smithay::input::pointer::CursorIcon::Grabbing));
+            st.reveal_cluster_overflow_for_monitor(monitor.as_str(), now_ms);
+            st.input.interaction_state.overlay_hover_target = None;
+            ps.hover_started_at = None;
+            ps.hover_node = None;
+            st.set_drag_authority_node(None);
+            ps.drag = None;
+            ps.resize = None;
+            backend.request_redraw();
+            return;
+        }
+        let queue_hover = crate::overlay::cluster_overflow_icon_hit_test(
+            &crate::overlay::OverlayView::from_halley(st),
+            monitor.as_str(),
+            local_sx,
+            local_sy,
+            now_ms,
+        );
         if local_sx >= local_w as f32 - Halley::CLUSTER_OVERFLOW_REVEAL_EDGE_PX {
             st.reveal_cluster_overflow_for_monitor(monitor.as_str(), now_ms);
         } else if let Some(rect) = st.cluster_overflow_rect_for_monitor(monitor.as_str()) {
@@ -429,12 +462,37 @@ pub(crate) fn handle_pointer_motion_absolute(
                 st.reveal_cluster_overflow_for_monitor(monitor.as_str(), now_ms);
             }
         }
-        ps.hover_node = None;
+        st.set_cursor_override_icon(
+            queue_hover
+                .map(|_| smithay::input::pointer::CursorIcon::Pointer)
+                .or(None),
+        );
+        let next_hover = queue_hover.map(|hit| hit.member_id);
+        if next_hover != ps.hover_node {
+            ps.hover_started_at = next_hover.map(|_| now);
+        } else if next_hover.is_none() {
+            ps.hover_started_at = None;
+        }
+        ps.hover_node = next_hover;
+        st.input.interaction_state.overlay_hover_target = next_hover.map(|node_id| {
+            crate::state::OverlayHoverTarget {
+                node_id,
+                monitor: monitor.clone(),
+                screen_anchor: (local_sx.round() as i32, local_sy.round() as i32),
+                prefer_left: true,
+            }
+        });
         st.set_drag_authority_node(None);
         ps.drag = None;
         ps.resize = None;
+        if queue_hover.is_some() {
+            backend.request_redraw();
+        }
         return;
     }
+    st.input.interaction_state.cluster_overflow_drag_preview = None;
+    st.input.interaction_state.overlay_hover_target = None;
+    st.set_cursor_override_icon(None);
 
     if let Some(drag) = ps.drag {
         if ps.resize.is_some() || !drag_mod_ok {
@@ -851,7 +909,34 @@ pub(crate) fn handle_pointer_motion_absolute(
         backend.request_redraw();
     }
 
-    let next_hover = if ps.drag.is_none() && ps.resize.is_none() && !ps.panning {
+    let bloom_hover = if ps.drag.is_none() && ps.resize.is_none() && !ps.panning {
+        crate::overlay::bloom_token_hit_test(
+            st,
+            local_w,
+            local_h,
+            target_monitor.as_str(),
+            local_sx,
+            local_sy,
+        )
+        .map(|layout| {
+            (
+                layout.member_id,
+                crate::state::OverlayHoverTarget {
+                    node_id: layout.member_id,
+                    monitor: target_monitor.clone(),
+                    screen_anchor: (layout.center_sx, layout.center_sy),
+                    prefer_left: false,
+                },
+            )
+        })
+    } else {
+        None
+    };
+
+    let next_hover = if let Some((node_id, target)) = bloom_hover {
+        st.input.interaction_state.overlay_hover_target = Some(target);
+        Some(node_id)
+    } else if ps.drag.is_none() && ps.resize.is_none() && !ps.panning {
         pick_hit_node_at(
             st,
             local_w,

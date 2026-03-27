@@ -638,6 +638,8 @@ pub(crate) fn queue_tty_drm_frame(
         Some((local_sx, local_sy))
     });
 
+    let force_overlay_full_repaint = st.monitor_overlay_requires_full_repaint(output_name);
+
     st.input.interaction_state.suppress_layer_shell_configure = previous_monitor.is_some();
 
     let mut texture: GlesTexture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
@@ -689,6 +691,9 @@ pub(crate) fn queue_tty_drm_frame(
     );
 
     let elements = [element];
+    if force_overlay_full_repaint {
+        compositor.reset_buffers();
+    }
     let render_res = compositor
         .render_frame(
             &mut *renderer_ref,

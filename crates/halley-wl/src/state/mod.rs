@@ -63,8 +63,8 @@ mod workspace;
 pub use client::ClientState;
 pub(crate) use fullscreen::{FullscreenMotion, FullscreenScaleAnim, FullscreenSessionEntry};
 pub(crate) use interaction::{
-    ActiveDragState, BloomPullPreview, ClusterJoinCandidate, PendingCoreClick, PendingCorePress,
-    ViewportPanAnim,
+    ActiveDragState, BloomPullPreview, ClusterJoinCandidate, ClusterOverflowDragPreview,
+    OverlayHoverTarget, PendingCoreClick, PendingCorePress, ViewportPanAnim,
 };
 pub(crate) use render::{NodeAppIconCacheEntry, NodeAppIconTexture};
 pub(crate) use spawn::{
@@ -143,6 +143,23 @@ pub struct Halley {
     pub(crate) ui: UiState,
     pub(crate) input: InputState,
     pub(crate) runtime: RuntimeState,
+}
+
+impl Halley {
+    pub(crate) fn set_cursor_override_icon(
+        &mut self,
+        icon: Option<smithay::input::pointer::CursorIcon>,
+    ) {
+        self.input.interaction_state.cursor_override_icon = icon;
+    }
+
+    pub(crate) fn effective_cursor_image_status(&self) -> smithay::input::pointer::CursorImageStatus {
+        self.input
+            .interaction_state
+            .cursor_override_icon
+            .map(smithay::input::pointer::CursorImageStatus::Named)
+            .unwrap_or_else(|| self.platform.cursor_image_status.clone())
+    }
 }
 
 fn preferred_monitor_name(monitors: &HashMap<String, MonitorSpace>) -> Option<String> {
@@ -411,12 +428,15 @@ impl Halley {
                     active_drag: None,
                     cluster_join_candidate: None,
                     bloom_pull_preview: None,
+                    cluster_overflow_drag_preview: None,
+                    overlay_hover_target: None,
                     pending_core_press: None,
                     pending_core_click: None,
                     grabbed_edge_pan_active: false,
                     grabbed_edge_pan_direction: Vec2 { x: 0.0, y: 0.0 },
                     grabbed_edge_pan_pressure: Vec2 { x: 0.0, y: 0.0 },
                     grabbed_edge_pan_monitor: None,
+                    cursor_override_icon: None,
                 },
             },
 
