@@ -106,7 +106,7 @@ impl Halley {
     pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
         let prev_runtime_viewport = self.model.viewport;
         let prev_config_viewport = self.runtime.tuning.viewport();
-        let prev_no_csd = self.runtime.tuning.no_csd;
+        let prev_effective_no_csd = self.runtime.tuning.effective_no_csd();
         let prev_physics_enabled = self.runtime.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
         let previous_output_names: std::collections::HashSet<String> = self
@@ -183,7 +183,7 @@ impl Halley {
         }
 
         self.runtime.tuning = tuning;
-        if prev_no_csd != self.runtime.tuning.no_csd {
+        if prev_effective_no_csd != self.runtime.tuning.effective_no_csd() {
             self.refresh_xdg_decoration_mode();
         }
         self.request_maintenance();

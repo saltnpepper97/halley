@@ -5,7 +5,7 @@ use halley_config::PanToNewMode;
 use halley_core::decay::DecayLevel;
 use halley_core::field::{NodeId, Vec2};
 
-use crate::render::ACTIVE_WINDOW_FRAME_PAD_PX;
+use crate::render::active_window_frame_pad_px;
 use crate::state::{FocusState, Halley, MonitorSpawnState, MonitorState, SpawnState};
 use crate::wm::overlap::CollisionExtents;
 
@@ -291,11 +291,15 @@ impl Halley {
     }
 
     fn spawn_star_step_x(&self, size: Vec2) -> f32 {
-        size.x + (ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32 * 2.0) + self.non_overlap_gap_world()
+        size.x
+            + (active_window_frame_pad_px(&self.runtime.tuning) as f32 * 2.0)
+            + self.non_overlap_gap_world()
     }
 
     fn spawn_star_step_y(&self, size: Vec2) -> f32 {
-        size.y + (ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32 * 2.0) + self.non_overlap_gap_world()
+        size.y
+            + (active_window_frame_pad_px(&self.runtime.tuning) as f32 * 2.0)
+            + self.non_overlap_gap_world()
     }
 
     #[cfg(test)]

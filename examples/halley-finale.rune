@@ -319,6 +319,8 @@ keybinds:
   "$var.mod+l" "move_right"
   "$var.mod+k" "move_up"
   "$var.mod+j" "move_down"
+  
+  # trails
   "$var.mod+shift+," "trail-prev"
   "$var.mod+shift+." "trail-next"
 
@@ -328,6 +330,8 @@ keybinds:
 
   "$var.mod+leftmouse" "move-window"
   "$var.mod+rightmouse" "resize-window"
+  
+  # traversal
   "$var.mod+shift+leftmouse" "field-jump"
 
   # media

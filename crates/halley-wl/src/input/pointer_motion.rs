@@ -474,14 +474,13 @@ pub(crate) fn handle_pointer_motion_absolute(
             ps.hover_started_at = None;
         }
         ps.hover_node = next_hover;
-        st.input.interaction_state.overlay_hover_target = next_hover.map(|node_id| {
-            crate::state::OverlayHoverTarget {
+        st.input.interaction_state.overlay_hover_target =
+            next_hover.map(|node_id| crate::state::OverlayHoverTarget {
                 node_id,
                 monitor: monitor.clone(),
                 screen_anchor: (local_sx.round() as i32, local_sy.round() as i32),
                 prefer_left: true,
-            }
-        });
+            });
         st.set_drag_authority_node(None);
         ps.drag = None;
         ps.resize = None;

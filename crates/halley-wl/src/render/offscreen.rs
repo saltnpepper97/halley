@@ -4,10 +4,10 @@ use smithay::{
         renderer::{
             Bind, Color32F, Frame, Offscreen, Renderer,
             element::{
-                Kind,
+                Kind, render_elements,
                 surface::{WaylandSurfaceRenderElement, render_elements_from_surface_tree},
             },
-            gles::{GlesError, GlesRenderer, GlesTexture},
+            gles::{GlesError, GlesRenderer, GlesTexProgram, GlesTexture},
             utils::draw_render_elements,
         },
     },
@@ -16,7 +16,14 @@ use smithay::{
     utils::{Logical, Physical, Rectangle, Size, Transform},
 };
 
+use super::clipped_surface::ClippedSurfaceRenderElement;
+
 type SurfaceElement = WaylandSurfaceRenderElement<GlesRenderer>;
+render_elements! {
+    OffscreenElement<=GlesRenderer>;
+    Surface=SurfaceElement,
+    Clipped=ClippedSurfaceRenderElement,
+}
 
 #[derive(Debug)]
 pub(crate) enum OffscreenSurfaceError {
@@ -51,6 +58,7 @@ pub(crate) fn render_surface_tree_to_texture(
     renderer: &mut GlesRenderer,
     wl: &WlSurface,
     alpha: f32,
+    clip_to_geometry: Option<(Rectangle<i32, Logical>, f32, GlesTexProgram)>,
 ) -> Result<OffscreenSurfaceTexture, OffscreenSurfaceError> {
     let bbox = bbox_from_surface_tree(wl, (0, 0));
     if bbox.size.w <= 0 || bbox.size.h <= 0 {
@@ -68,6 +76,22 @@ pub(crate) fn render_surface_tree_to_texture(
         alpha.clamp(0.0, 1.0),
         Kind::Unspecified,
     );
+    let geo_rect = clip_to_geometry.as_ref().map(|(geo_rect, _, _)| {
+        Rectangle::<i32, Physical>::new(
+            ((geo_rect.loc.x - bbox.loc.x), (geo_rect.loc.y - bbox.loc.y)).into(),
+            (geo_rect.size.w, geo_rect.size.h).into(),
+        )
+    });
+    let elements: Vec<OffscreenElement> = elements
+        .into_iter()
+        .map(|elem| {
+            if let (Some((_, radius, program)), Some(geo_rect)) = (&clip_to_geometry, geo_rect) {
+                ClippedSurfaceRenderElement::new(elem, program.clone(), geo_rect, *radius).into()
+            } else {
+                elem.into()
+            }
+        })
+        .collect();
 
     let mut texture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
         renderer,

@@ -107,7 +107,12 @@ pub fn layout_master_stack(container: Rect, members: &[NodeId]) -> MasterStackLa
         next_y += height;
     }
 
-    tiles.sort_by_key(|tile| members.iter().position(|member| *member == tile.id).unwrap_or(usize::MAX));
+    tiles.sort_by_key(|tile| {
+        members
+            .iter()
+            .position(|member| *member == tile.id)
+            .unwrap_or(usize::MAX)
+    });
 
     MasterStackLayout { tiles }
 }
@@ -211,7 +216,12 @@ mod tests {
         );
 
         assert_eq!(layout.tiles.len(), members.len());
-        assert!(layout.tiles.iter().all(|tile| tile.rect.w >= 0.0 && tile.rect.h >= 0.0));
+        assert!(
+            layout
+                .tiles
+                .iter()
+                .all(|tile| tile.rect.w >= 0.0 && tile.rect.h >= 0.0)
+        );
         assert!(layout.tiles.iter().all(|tile| members.contains(&tile.id)));
     }
 }

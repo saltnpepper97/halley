@@ -117,6 +117,14 @@ physics:
 end
 
 decorations:
+  border-size 3
+  border-radius 6
+  border-colour-focused "#fd5e53"
+  border-colour-unfocused "#333333"
+  resize-using-border true
+
+  # Rounded borders force server-side decorations so clients like GTK/Firefox
+  # do not draw their own square CSD frame inside the compositor-rounded shape.
   no-csd true
 end
 

@@ -116,7 +116,8 @@ impl Cluster {
 
     pub fn enter_active(&mut self) {
         self.mode = ClusterMode::Active;
-        self.active_workspace.get_or_insert_with(ActiveWorkspace::default);
+        self.active_workspace
+            .get_or_insert_with(ActiveWorkspace::default);
     }
 
     pub fn exit_active(&mut self) {

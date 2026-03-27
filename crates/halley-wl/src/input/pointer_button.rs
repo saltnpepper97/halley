@@ -13,14 +13,14 @@ use crate::interaction::actions::{
     activate_collapsed_node_from_click, focus_or_reveal_surface_node,
 };
 use crate::interaction::types::{
-    BloomDragCtx, DragAxisMode, DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS,
-    OverflowDragCtx, PointerState, ResizeCtx, TitleClickCtx,
+    BloomDragCtx, DragAxisMode, DragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, OverflowDragCtx,
+    PointerState, ResizeCtx, TitleClickCtx,
 };
 use crate::overlay::{
     bloom_token_hit_test, cluster_overflow_icon_hit_test, cluster_overflow_strip_slot_at,
 };
-use crate::render::bearing_hit_test;
 use crate::render::world_to_screen;
+use crate::render::{active_window_frame_pad_px, bearing_hit_test};
 use crate::spatial::{pick_hit_node_at, screen_to_world};
 use crate::state::{ActiveDragState, Halley};
 use crate::state::{PendingCoreClick, PendingCorePress};
@@ -34,7 +34,8 @@ use super::key_actions::{
 };
 use super::pointer_focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
 use super::resize_helpers::{
-    active_node_screen_rect, handle_from_press_position, weights_from_handle,
+    active_node_screen_rect, handle_from_press_position, pick_resize_handle_from_screen,
+    press_is_near_edge, weights_from_handle,
 };
 use super::utils::modifier_active;
 
@@ -336,7 +337,15 @@ fn begin_resize(
     // Commit the handle immediately from where the pointer is in the window.
     // 3×3 grid: outer thirds = edges/corners, centre = nearest edge.
     // Pressing near top-left and dragging any direction pulls that corner.
-    let handle = handle_from_press_position(rect, (frame.sx, frame.sy));
+    let border_slop = active_window_frame_pad_px(&st.runtime.tuning) as f32;
+    let handle = if st.runtime.tuning.resize_using_border
+        && border_slop > 0.0
+        && press_is_near_edge(rect, (frame.sx, frame.sy), border_slop)
+    {
+        pick_resize_handle_from_screen(rect, (frame.sx, frame.sy), border_slop)
+    } else {
+        handle_from_press_position(rect, (frame.sx, frame.sy))
+    };
     let (h_weight_left, h_weight_right, v_weight_top, v_weight_bottom) =
         weights_from_handle(handle);
 
@@ -1258,21 +1267,12 @@ pub(crate) fn handle_pointer_button_input(
                 backend.request_redraw();
                 return;
             }
-            if left
-                && let Some(overflow_drag) = ps.overflow_drag.take()
-            {
+            if left && let Some(overflow_drag) = ps.overflow_drag.take() {
                 let now = Instant::now();
                 st.input.interaction_state.cluster_overflow_drag_preview = None;
                 st.set_cursor_override_icon(None);
-                let release_hit = pick_hit_node_at(
-                    st,
-                    local_w,
-                    local_h,
-                    local_sx,
-                    local_sy,
-                    now,
-                    ps.resize,
-                );
+                let release_hit =
+                    pick_hit_node_at(st, local_w, local_h, local_sx, local_sy, now, ps.resize);
                 if overflow_drag.monitor == target_monitor
                     && let Some(hit) = release_hit
                     && let Some(cluster) = st.model.field.cluster(overflow_drag.cluster_id)

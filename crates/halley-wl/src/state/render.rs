@@ -101,6 +101,11 @@ pub(crate) struct RenderState {
     pub(crate) node_circle_program: Option<GlesTexProgram>,
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
     pub(crate) node_label_program: Option<GlesTexProgram>,
+    pub(crate) node_label_program_failed: bool,
+    pub(crate) window_texture_program: Option<GlesTexProgram>,
+    pub(crate) window_texture_program_failed: bool,
+    pub(crate) surface_clip_program: Option<GlesTexProgram>,
+    pub(crate) surface_clip_program_failed: bool,
 
     pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_fallback: HashSet<NodeId>,
@@ -390,7 +395,12 @@ impl Halley {
         self.model.focus_state.app_focused = focused;
     }
 
-    pub fn set_persistent_mode_banner(&mut self, monitor: &str, title: &str, subtitle: Option<&str>) {
+    pub fn set_persistent_mode_banner(
+        &mut self,
+        monitor: &str,
+        title: &str,
+        subtitle: Option<&str>,
+    ) {
         let state = self
             .ui
             .render_state
@@ -691,6 +701,8 @@ impl Halley {
 
         if !cache.matches_size(width, height) {
             cache.set_size(width, height);
+            cache.texture = None;
+            cache.bbox = None;
             cache.mark_dirty();
         }
 

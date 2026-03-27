@@ -7,7 +7,9 @@ use smithay::{
         Color32F, Frame, Renderer, Texture,
         element::Kind,
         element::surface::render_elements_from_surface_tree,
-        gles::{GlesFrame, GlesRenderer, GlesTarget, GlesTexProgram},
+        gles::{
+            GlesFrame, GlesRenderer, GlesTarget, GlesTexProgram, Uniform, UniformName, UniformType,
+        },
         utils::draw_render_elements,
     },
     backend::winit::WinitGraphicsBackend,
@@ -22,13 +24,13 @@ use crate::overlay::{
 use crate::spatial::node_in_active_area_for_monitor;
 use crate::state::Halley;
 
-use super::ACTIVE_WINDOW_FRAME_PAD_PX;
 use super::app_icon::{ensure_app_icon_resources_for_node_ids, ensure_node_app_icon_resources};
 use super::bearings::BearingChipLayout;
 use super::bearings::{collect_bearing_layouts, draw_bearings, ensure_bearing_icon_resources};
 use super::cursor::{cursor_surface_hotspot, draw_cursor_sprite};
 use super::cursor_theme::themed_cursor_sprite_with_fallback;
 use super::layer_shell::collect_layer_surfaces;
+use super::log_rounded_shader_failure;
 use super::node::{
     NodeSnapshot, collect_hover_preview, draw_node_hover_labels, draw_node_markers,
     ensure_node_circle_resources,
@@ -40,6 +42,66 @@ type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
 type CroppedSurfaceElement =
     smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>;
+
+const WINDOW_TEXTURE_SHADER: &str = include_str!("shaders/window_rounded_texture.frag");
+const SURFACE_CLIP_SHADER: &str = include_str!("shaders/surface_clipped_texture.frag");
+
+fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mut Halley) {
+    if st.ui.render_state.window_texture_program.is_some()
+        || st.ui.render_state.window_texture_program_failed
+    {
+        return;
+    }
+
+    match renderer.compile_custom_texture_shader(
+        WINDOW_TEXTURE_SHADER,
+        &[
+            UniformName::new("rect_size", UniformType::_2f),
+            UniformName::new("corner_radius", UniformType::_1f),
+            UniformName::new("border_px", UniformType::_1f),
+            UniformName::new("border_color", UniformType::_4f),
+            UniformName::new("content_alpha_scale", UniformType::_1f),
+        ],
+    ) {
+        Ok(program) => st.ui.render_state.window_texture_program = Some(program),
+        Err(err) => {
+            st.ui.render_state.window_texture_program_failed = true;
+            log_rounded_shader_failure(
+                "render/shaders/window_rounded_texture.frag",
+                "window-content-clip",
+                &err,
+            );
+        }
+    }
+}
+
+fn ensure_surface_clip_program(renderer: &mut GlesRenderer, st: &mut Halley) {
+    if st.ui.render_state.surface_clip_program.is_some()
+        || st.ui.render_state.surface_clip_program_failed
+    {
+        return;
+    }
+
+    match renderer.compile_custom_texture_shader(
+        SURFACE_CLIP_SHADER,
+        &[
+            UniformName::new("geo_size", UniformType::_2f),
+            UniformName::new("elem_size", UniformType::_2f),
+            UniformName::new("elem_offset", UniformType::_2f),
+            UniformName::new("corner_radius", UniformType::_1f),
+        ],
+    ) {
+        Ok(program) => st.ui.render_state.surface_clip_program = Some(program),
+        Err(err) => {
+            st.ui.render_state.surface_clip_program_failed = true;
+            log_rounded_shader_failure(
+                "render/shaders/surface_clipped_texture.frag",
+                "window-surface-clip",
+                &err,
+            );
+        }
+    }
+}
 
 struct PreparedFrameState {
     damage: Rectangle<i32, Physical>,
@@ -155,6 +217,8 @@ pub(crate) fn draw_debug_frame_to_target(
     frame_transform: Transform,
 ) -> Result<(), Box<dyn Error>> {
     ensure_node_circle_resources(renderer, st)?;
+    ensure_window_texture_program(renderer, st);
+    ensure_surface_clip_program(renderer, st);
 
     let prepared = prepare_debug_frame_state(st, size);
     let scene = collect_debug_frame_scene(
@@ -188,21 +252,10 @@ pub(crate) fn draw_debug_frame_to_target(
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
-    let offscreen_cleanup_program = renderer
-        .compile_custom_texture_shader(include_str!("shaders/offscreen_cleanup.frag"), &[])?;
-
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
 
-    draw_debug_frame_scene(
-        &mut frame,
-        st,
-        size,
-        &prepared,
-        &scene,
-        hover_node,
-        &offscreen_cleanup_program,
-    )?;
+    draw_debug_frame_scene(&mut frame, st, size, &prepared, &scene, hover_node)?;
     draw_cursor_layer(&mut frame, prepared.damage, cursor_screen, &cursor)?;
 
     let _ = frame.finish()?;
@@ -389,7 +442,6 @@ fn draw_debug_frame_scene(
     prepared: &PreparedFrameState,
     scene: &SceneCollections,
     hover_node: Option<halley_core::field::NodeId>,
-    offscreen_cleanup_program: &GlesTexProgram,
 ) -> Result<(), Box<dyn Error>> {
     if !scene.layer_background_elements.is_empty() {
         let _ = draw_render_elements(
@@ -414,7 +466,7 @@ fn draw_debug_frame_scene(
         prepared.now,
     )?;
 
-    draw_window_backgrounds(frame, size, prepared.damage, &scene.border_rects)?;
+    draw_window_borders(frame, size, prepared.damage, &scene.border_rects, st)?;
 
     if !scene.active_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
@@ -424,10 +476,16 @@ fn draw_debug_frame_scene(
         frame,
         prepared.damage,
         &scene.offscreen_textures,
-        offscreen_cleanup_program,
+        st.ui.render_state.window_texture_program.as_ref(),
     )?;
     draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
-    draw_window_backgrounds(frame, size, prepared.damage, &scene.resized_border_rects)?;
+    draw_window_borders(
+        frame,
+        size,
+        prepared.damage,
+        &scene.resized_border_rects,
+        st,
+    )?;
 
     if !scene.resized_active_elements.is_empty() {
         let _ = draw_render_elements(
@@ -442,13 +500,13 @@ fn draw_debug_frame_scene(
         frame,
         prepared.damage,
         &scene.resized_offscreen_textures,
-        offscreen_cleanup_program,
+        st.ui.render_state.window_texture_program.as_ref(),
     )?;
     draw_offscreen_textures(
         frame,
         prepared.damage,
         &scene.popup_offscreen_textures,
-        offscreen_cleanup_program,
+        st.ui.render_state.window_texture_program.as_ref(),
     )?;
 
     if !scene.popup_elements.is_empty() {
@@ -537,7 +595,7 @@ fn draw_offscreen_textures(
     frame: &mut GlesFrame<'_, '_>,
     damage: Rectangle<i32, Physical>,
     offscreen_textures: &[OffscreenNodeTexture],
-    offscreen_cleanup_program: &GlesTexProgram,
+    window_texture_program: Option<&GlesTexProgram>,
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
     for tex in offscreen_textures {
         let tex_size = tex.texture.size();
@@ -572,6 +630,14 @@ fn draw_offscreen_textures(
             visible.size,
         );
 
+        let uniforms = [
+            Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
+            Uniform::new("corner_radius", tex.corner_radius.max(0.0)),
+            Uniform::new("border_px", 0.0f32),
+            Uniform::new("border_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+            Uniform::new("content_alpha_scale", 1.0f32),
+        ];
+
         frame.render_texture_from_to(
             &tex.texture,
             src,
@@ -580,8 +646,142 @@ fn draw_offscreen_textures(
             &[],
             Transform::Normal,
             tex.alpha,
-            Some(offscreen_cleanup_program),
-            &[],
+            window_texture_program,
+            if window_texture_program.is_some() {
+                &uniforms
+            } else {
+                &[]
+            },
+        )?;
+    }
+
+    Ok(())
+}
+
+fn draw_window_borders(
+    frame: &mut GlesFrame<'_, '_>,
+    size: smithay::utils::Size<i32, Physical>,
+    damage: Rectangle<i32, Physical>,
+    border_rects: &[ActiveBorderRect],
+    st: &Halley,
+) -> Result<(), Box<dyn Error>> {
+    let border_texture = st.ui.render_state.node_circle_texture.as_ref();
+    let border_program = st.ui.render_state.node_label_program.as_ref();
+    let window_program = st.ui.render_state.window_texture_program.as_ref();
+    let framebuffer = Rectangle::<i32, Physical>::from_size(size);
+
+    for rect in border_rects {
+        let border_px = rect.border_px.max(0.0).round() as i32;
+        if border_px <= 0 || rect.alpha <= 0.0 {
+            continue;
+        }
+
+        let dst = Rectangle::<i32, Physical>::new(
+            (rect.x - border_px, rect.y - border_px).into(),
+            (
+                (rect.w + border_px * 2).max(1),
+                (rect.h + border_px * 2).max(1),
+            )
+                .into(),
+        );
+        let Some(visible) = dst
+            .intersection(framebuffer)
+            .and_then(|r| r.intersection(damage))
+        else {
+            continue;
+        };
+        let local_damage = Rectangle::<i32, Physical>::new(
+            (visible.loc.x - dst.loc.x, visible.loc.y - dst.loc.y).into(),
+            visible.size,
+        );
+
+        if rect.corner_radius > 0.0 {
+            if let (Some(texture), Some(program)) = (border_texture, border_program) {
+                let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
+                let src = Rectangle::<f64, Buffer>::new(
+                    (0.0, 0.0).into(),
+                    (tex_size.w as f64, tex_size.h as f64).into(),
+                );
+                let uniforms = [
+                    Uniform::new(
+                        "node_color",
+                        (
+                            rect.border_color.r(),
+                            rect.border_color.g(),
+                            rect.border_color.b(),
+                            rect.border_color.a(),
+                        ),
+                    ),
+                    Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+                    Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
+                    Uniform::new("corner_radius", rect.corner_radius),
+                    Uniform::new("border_px", rect.border_px),
+                ];
+
+                frame.render_texture_from_to(
+                    texture,
+                    src,
+                    dst,
+                    &[local_damage],
+                    &[],
+                    Transform::Normal,
+                    rect.alpha.clamp(0.0, 1.0),
+                    Some(program),
+                    &uniforms,
+                )?;
+                continue;
+            }
+
+            if let (Some(texture), Some(program)) = (border_texture, window_program) {
+                let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
+                let src = Rectangle::<f64, Buffer>::new(
+                    (0.0, 0.0).into(),
+                    (tex_size.w as f64, tex_size.h as f64).into(),
+                );
+                let uniforms = [
+                    Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
+                    Uniform::new("corner_radius", rect.corner_radius),
+                    Uniform::new("border_px", rect.border_px),
+                    Uniform::new(
+                        "border_color",
+                        (
+                            rect.border_color.r(),
+                            rect.border_color.g(),
+                            rect.border_color.b(),
+                            rect.border_color.a(),
+                        ),
+                    ),
+                    Uniform::new("content_alpha_scale", 0.0f32),
+                ];
+
+                frame.render_texture_from_to(
+                    texture,
+                    src,
+                    dst,
+                    &[local_damage],
+                    &[],
+                    Transform::Normal,
+                    rect.alpha.clamp(0.0, 1.0),
+                    Some(program),
+                    &uniforms,
+                )?;
+                continue;
+            }
+        }
+
+        draw_rect(
+            frame,
+            visible.loc.x,
+            visible.loc.y,
+            visible.size.w,
+            visible.size.h,
+            Color32F::new(
+                rect.border_color.r(),
+                rect.border_color.g(),
+                rect.border_color.b(),
+                rect.border_color.a() * rect.alpha.clamp(0.0, 1.0),
+            ),
+            damage,
         )?;
     }
 
@@ -617,43 +817,6 @@ where
         )?;
     }
 
-    Ok(())
-}
-
-fn draw_window_backgrounds<F>(
-    frame: &mut F,
-    size: smithay::utils::Size<i32, Physical>,
-    damage: Rectangle<i32, Physical>,
-    border_rects: &[ActiveBorderRect],
-) -> Result<(), F::Error>
-where
-    F: Frame,
-    F::Error: std::error::Error + 'static,
-{
-    let bw = ACTIVE_WINDOW_FRAME_PAD_PX;
-    let fb = Rectangle::<i32, Physical>::from_size(size);
-    for rect in border_rects {
-        let color = if rect.focused {
-            Color32F::new(0.22, 0.82, 0.92, 1.0)
-        } else {
-            Color32F::new(0.28, 0.30, 0.35, 1.0)
-        };
-        let bg = Rectangle::<i32, Physical>::new(
-            (rect.x - bw, rect.y - bw).into(),
-            ((rect.w + bw * 2).max(1), (rect.h + bw * 2).max(1)).into(),
-        );
-        if let Some(visible) = bg.intersection(fb) {
-            draw_rect(
-                frame,
-                visible.loc.x,
-                visible.loc.y,
-                visible.size.w,
-                visible.size.h,
-                color,
-                damage,
-            )?;
-        }
-    }
     Ok(())
 }
 

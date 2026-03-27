@@ -1,6 +1,6 @@
 use super::*;
 use crate::animation::{ease_in_out_cubic, proxy_anim_scale};
-use crate::render::ACTIVE_WINDOW_FRAME_PAD_PX;
+use crate::render::active_window_frame_pad_px;
 use crate::render::preview_proxy_size;
 use crate::state::{InteractionState, MonitorState, RenderState, WorkspaceState};
 use halley_core::viewport::Viewport;
@@ -297,7 +297,7 @@ impl<'a> OverlapReadContext<'a> {
         let right = (geo_lx + geo_w - bbox_lx - bbox_w * 0.5).max(16.0);
         let top = (bbox_h * 0.5 + bbox_ly - geo_ly).max(16.0);
         let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
-        let frame_pad = ACTIVE_WINDOW_FRAME_PAD_PX.max(0) as f32;
+        let frame_pad = active_window_frame_pad_px(self.tuning) as f32;
 
         CollisionExtents {
             left: left * basis.x.max(1.0) / bbox_w + frame_pad,
@@ -1216,8 +1216,10 @@ mod tests {
         );
         let node = state.model.field.node(id).expect("active node");
         let ext = state.surface_window_collision_extents(node);
-        let expected_half_w = node.intrinsic_size.x * 0.5 + ACTIVE_WINDOW_FRAME_PAD_PX as f32;
-        let expected_half_h = node.intrinsic_size.y * 0.5 + ACTIVE_WINDOW_FRAME_PAD_PX as f32;
+        let expected_half_w =
+            node.intrinsic_size.x * 0.5 + active_window_frame_pad_px(&state.runtime.tuning) as f32;
+        let expected_half_h =
+            node.intrinsic_size.y * 0.5 + active_window_frame_pad_px(&state.runtime.tuning) as f32;
 
         assert_eq!(ext.left, expected_half_w);
         assert_eq!(ext.right, expected_half_w);

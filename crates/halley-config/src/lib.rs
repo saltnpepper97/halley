@@ -10,6 +10,6 @@ pub use keybinds::{
 };
 pub use layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    ClusterBloomDirection, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    PanToNewMode, RuntimeTuning, ViewportOutputConfig, ViewportVrrMode,
+    ClusterBloomDirection, DecorationBorderColor, NodeBackgroundColorMode, NodeBorderColorMode,
+    NodeDisplayPolicy, PanToNewMode, RuntimeTuning, ViewportOutputConfig, ViewportVrrMode,
 };

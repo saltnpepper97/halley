@@ -33,6 +33,13 @@ pub enum NodeBackgroundColorMode {
     Fixed { r: f32, g: f32, b: f32 },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DecorationBorderColor {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PanToNewMode {
     Never,
@@ -108,6 +115,11 @@ pub struct RuntimeTuning {
     pub node_background_color: NodeBackgroundColorMode,
     pub node_border_color_hover: NodeBorderColorMode,
     pub node_border_color_inactive: NodeBorderColorMode,
+    pub border_size_px: i32,
+    pub border_radius_px: i32,
+    pub border_color_focused: DecorationBorderColor,
+    pub border_color_unfocused: DecorationBorderColor,
+    pub resize_using_border: bool,
     pub click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode,
     pub click_collapsed_pan: ClickCollapsedPanMode,
     pub bearings: BearingsConfig,
@@ -218,6 +230,19 @@ impl Default for RuntimeTuning {
             node_background_color: NodeBackgroundColorMode::Auto,
             node_border_color_hover: NodeBorderColorMode::UseWindowActive,
             node_border_color_inactive: NodeBorderColorMode::UseWindowInactive,
+            border_size_px: 3,
+            border_radius_px: 0,
+            border_color_focused: DecorationBorderColor {
+                r: 0.22,
+                g: 0.82,
+                b: 0.92,
+            },
+            border_color_unfocused: DecorationBorderColor {
+                r: 0.28,
+                g: 0.30,
+                b: 0.35,
+            },
+            resize_using_border: false,
             click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode::Activate,
             click_collapsed_pan: ClickCollapsedPanMode::IfOffscreen,
             bearings: BearingsConfig {
@@ -279,6 +304,10 @@ impl Default for RuntimeTuning {
 }
 
 impl RuntimeTuning {
+    pub fn effective_no_csd(&self) -> bool {
+        self.no_csd || self.border_radius_px > 0
+    }
+
     pub fn config_path() -> String {
         match env::var("HALLEY_WL_CONFIG") {
             Ok(path) => absolutize_path(&path).to_string_lossy().to_string(),
@@ -332,6 +361,8 @@ impl RuntimeTuning {
         self.primary_hot_inner_frac = self.primary_hot_inner_frac.clamp(0.1, 1.0);
         self.primary_to_node_ms = self.primary_to_node_ms.clamp(250, 7_200_000);
         self.node_icon_size = self.node_icon_size.clamp(0.35, 0.95);
+        self.border_size_px = self.border_size_px.clamp(0, 64);
+        self.border_radius_px = self.border_radius_px.clamp(0, 256);
         self.bearings.fade_distance = self.bearings.fade_distance.clamp(120.0, 100_000.0);
 
         self.dev_zoom_decay_min_frac = self.dev_zoom_decay_min_frac.clamp(0.005, 0.5);

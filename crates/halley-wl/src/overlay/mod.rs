@@ -12,8 +12,8 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
-use crate::state::RenderState;
 use crate::state::Halley;
+use crate::state::RenderState;
 
 use crate::render::utils::{bitmap_text_size, draw_bitmap_text};
 
@@ -209,7 +209,7 @@ pub(crate) fn draw_cluster_overflow_strip(
         )?;
         if overlay.tuning.tile_queue_show_icons
             && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
-            overlay.node_app_icon_entry(node_id)
+                overlay.node_app_icon_entry(node_id)
         {
             let icon_dest = Rectangle::<i32, Physical>::new(
                 (icon_rect.loc.x + 4, icon_rect.loc.y + 4).into(),
@@ -406,8 +406,12 @@ pub(crate) fn draw_toast(
     let rect_w: i32 = (title_w.max(body_w) + TOAST_PAD_X * 2).max(180);
     let rect_h: i32 = (TOAST_PAD_Y * 2
         + title_h
-        + if body.is_some() { BANNER_GAP + body_h } else { 0 })
-        .max(32);
+        + if body.is_some() {
+            BANNER_GAP + body_h
+        } else {
+            0
+        })
+    .max(32);
     let rect_x: i32 = ((screen_w - rect_w) / 2).max(BANNER_EDGE_PAD);
     let rect_y: i32 = ((screen_h - rect_h) / 2).max(BANNER_EDGE_PAD);
     let rect = Rectangle::<i32, Physical>::new((rect_x, rect_y).into(), (rect_w, rect_h).into());
@@ -457,7 +461,14 @@ pub(crate) fn draw_monitor_hud(
         draw_persistent_banner(frame, &st.ui.render_state, damage, &banner)?;
     }
     if let Some(toast) = st.overlay_toast_snapshot(overlay_monitor.as_str(), now) {
-        draw_toast(frame, &st.ui.render_state, screen_w, screen_h, damage, &toast)?;
+        draw_toast(
+            frame,
+            &st.ui.render_state,
+            screen_w,
+            screen_h,
+            damage,
+            &toast,
+        )?;
     }
     Ok(())
 }
@@ -514,17 +525,23 @@ pub(crate) fn draw_overlay_hover_label(
     let label_w = (text_w + 24).clamp(96, 240);
     let label_h = (text_h + 18).clamp(28, 44);
     let side_gap = 18;
-    let prefer_left =
-        target.prefer_left || target.screen_anchor.0 + side_gap + label_w + BANNER_EDGE_PAD > screen_w;
+    let prefer_left = target.prefer_left
+        || target.screen_anchor.0 + side_gap + label_w + BANNER_EDGE_PAD > screen_w;
     let label_x = if prefer_left {
         target.screen_anchor.0 - side_gap - label_w
     } else {
         target.screen_anchor.0 + side_gap
     }
-    .clamp(BANNER_EDGE_PAD, (screen_w - label_w - BANNER_EDGE_PAD).max(BANNER_EDGE_PAD));
-    let label_y = (target.screen_anchor.1 - label_h / 2)
-        .clamp(BANNER_EDGE_PAD, (screen_h - label_h - BANNER_EDGE_PAD).max(BANNER_EDGE_PAD));
-    let rect = Rectangle::<i32, Physical>::new((label_x, label_y).into(), (label_w, label_h).into());
+    .clamp(
+        BANNER_EDGE_PAD,
+        (screen_w - label_w - BANNER_EDGE_PAD).max(BANNER_EDGE_PAD),
+    );
+    let label_y = (target.screen_anchor.1 - label_h / 2).clamp(
+        BANNER_EDGE_PAD,
+        (screen_h - label_h - BANNER_EDGE_PAD).max(BANNER_EDGE_PAD),
+    );
+    let rect =
+        Rectangle::<i32, Physical>::new((label_x, label_y).into(), (label_w, label_h).into());
 
     draw_overlay_chip(
         frame,

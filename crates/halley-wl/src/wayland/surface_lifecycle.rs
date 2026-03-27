@@ -265,7 +265,8 @@ impl Halley {
                     .map(|cluster| cluster.overflow_members().len())
             })
             .unwrap_or(0);
-        let (monitor, id, needs_pan, spawned_in_active_cluster) = if let Some(cid) = active_cluster {
+        let (monitor, id, needs_pan, spawned_in_active_cluster) = if let Some(cid) = active_cluster
+        {
             match self
                 .model
                 .field

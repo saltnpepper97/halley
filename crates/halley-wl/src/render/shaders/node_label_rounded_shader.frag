@@ -1,4 +1,4 @@
-precision mediump float;
+precision highp float;
 //_DEFINES
 
 varying vec2 v_coords;
@@ -10,26 +10,32 @@ uniform vec2 rect_size;
 uniform float corner_radius;
 uniform float border_px;
 
+float rounded_rect_sdf(vec2 p, vec2 size, float radius) {
+    vec2 half_size = size * 0.5;
+    vec2 q = abs(p) - (half_size - vec2(radius));
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+float sdf_alpha(float dist) {
+    float aa = 0.75;
+    return 1.0 - smoothstep(-aa, aa, dist);
+}
+
 void main() {
     vec2 size = max(rect_size, vec2(1.0));
     float radius = min(corner_radius, min(size.x, size.y) * 0.5);
 
     vec2 p = v_coords * size - size * 0.5;
-    vec2 half_extents = size * 0.5 - vec2(radius);
-    vec2 q = abs(p) - half_extents;
+    float dist = rounded_rect_sdf(p, size, radius);
+    float outer_alpha = sdf_alpha(dist);
+    if (outer_alpha <= 0.0) { discard; }
 
-    float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
-    if (dist > 0.0) { discard; }
-
-    float inner_radius = max(radius - border_px, 0.0);
-    vec2 inner_half_extents = max(half_extents - vec2(border_px), vec2(0.0));
-    vec2 inner_q = abs(p) - inner_half_extents;
-
-    float inner_dist =
-        length(max(inner_q, 0.0)) + min(max(inner_q.x, inner_q.y), 0.0) - inner_radius;
-
-    float in_border = 1.0 - step(0.0, inner_dist);
-    in_border = 1.0 - in_border;
+    float inner_border = clamp(border_px, 0.0, min(size.x, size.y) * 0.5);
+    vec2 inner_size = max(size - vec2(inner_border * 2.0), vec2(1.0));
+    float inner_radius = max(radius - inner_border, 0.0);
+    float inner_dist = rounded_rect_sdf(p, inner_size, inner_radius);
+    float inner_alpha = border_px > 0.0 ? sdf_alpha(inner_dist) : outer_alpha;
+    float border_alpha = max(outer_alpha - inner_alpha, 0.0);
 
     vec2 norm_p = vec2(
         size.x > 0.0 ? p.x / (size.x * 0.5) : 0.0,
@@ -56,9 +62,8 @@ void main() {
         border_light
     );
 
-    vec3 color = mix(shaded_fill, shaded_border, in_border);
-    float edge_aa = 1.0 - smoothstep(-1.0, 0.0, dist);
-    float final_alpha = alpha * edge_aa;
+    vec3 color = shaded_fill * inner_alpha + shaded_border * border_alpha;
+    float final_alpha = alpha * max(inner_alpha, border_alpha);
 
     gl_FragColor = vec4(color * final_alpha, final_alpha);
 }

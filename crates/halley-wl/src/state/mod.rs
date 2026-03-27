@@ -153,7 +153,9 @@ impl Halley {
         self.input.interaction_state.cursor_override_icon = icon;
     }
 
-    pub(crate) fn effective_cursor_image_status(&self) -> smithay::input::pointer::CursorImageStatus {
+    pub(crate) fn effective_cursor_image_status(
+        &self,
+    ) -> smithay::input::pointer::CursorImageStatus {
         self.input
             .interaction_state
             .cursor_override_icon
@@ -387,6 +389,11 @@ impl Halley {
                     node_circle_program: None,
                     node_squircle_program: None,
                     node_label_program: None,
+                    node_label_program_failed: false,
+                    window_texture_program: None,
+                    window_texture_program_failed: false,
+                    surface_clip_program: None,
+                    surface_clip_program_failed: false,
 
                     zoom_nominal_size: HashMap::new(),
                     zoom_resize_fallback: HashSet::new(),

@@ -381,7 +381,7 @@ impl PointerConstraintsHandler for Halley {
 
 impl Halley {
     fn preferred_xdg_decoration_mode(&self) -> XdgDecorationMode {
-        if self.runtime.tuning.no_csd {
+        if self.runtime.tuning.effective_no_csd() {
             XdgDecorationMode::ServerSide
         } else {
             XdgDecorationMode::ClientSide
@@ -392,8 +392,8 @@ impl Halley {
         &self,
         state: &mut smithay::wayland::shell::xdg::ToplevelState,
     ) {
-        let tiled =
-            self.runtime.tuning.no_csd && !state.states.contains(xdg_toplevel::State::Fullscreen);
+        let tiled = self.runtime.tuning.effective_no_csd()
+            && !state.states.contains(xdg_toplevel::State::Fullscreen);
         for edge in [
             xdg_toplevel::State::TiledTop,
             xdg_toplevel::State::TiledBottom,

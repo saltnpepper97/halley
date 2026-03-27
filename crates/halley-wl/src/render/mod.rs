@@ -1,9 +1,11 @@
 use glam::{Vec2, Vec4};
+use halley_config::RuntimeTuning;
 use halley_core::field::Field;
 use halley_core::viewport::{FocusRing, FocusZone, Viewport};
 
 pub(crate) mod app_icon;
 mod bearings;
+mod clipped_surface;
 mod cursor;
 mod cursor_theme;
 mod frame;
@@ -13,7 +15,27 @@ mod offscreen;
 pub(crate) mod utils;
 mod window;
 
-pub(crate) const ACTIVE_WINDOW_FRAME_PAD_PX: i32 = 3;
+pub(crate) fn active_window_frame_pad_px(tuning: &RuntimeTuning) -> i32 {
+    tuning.border_size_px.max(0)
+}
+
+pub(crate) fn log_rounded_shader_failure(
+    shader_name: &str,
+    role: &str,
+    err: &dyn std::fmt::Display,
+) {
+    eventline::error!(
+        "rounded rendering disabled: role={} shader={} renderer_info=unavailable error={}",
+        role,
+        shader_name,
+        err
+    );
+    eventline::warn!(
+        "rounded shader fallback active: role={} shader={} strict_env=HALLEY_WL_DEBUG_STRICT_ROUNDED",
+        role,
+        shader_name
+    );
+}
 
 pub(crate) use bearings::bearing_hit_test;
 pub(crate) use frame::{draw_debug_frame, draw_debug_frame_to_target};

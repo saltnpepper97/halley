@@ -18,6 +18,7 @@ use smithay::{
 use crate::state::Halley;
 use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy};
 
+use super::log_rounded_shader_failure;
 use super::utils::{
     bitmap_text_size, draw_bitmap_text, node_marker_bounds, node_marker_metrics,
     node_render_diameter_px, world_to_screen,
@@ -78,8 +79,10 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.ui.render_state.node_label_program.is_none() {
-        st.ui.render_state.node_label_program = Some(renderer.compile_custom_texture_shader(
+    if st.ui.render_state.node_label_program.is_none()
+        && !st.ui.render_state.node_label_program_failed
+    {
+        match renderer.compile_custom_texture_shader(
             NODE_LABEL_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
@@ -88,7 +91,17 @@ pub(crate) fn ensure_node_circle_resources(
                 UniformName::new("corner_radius", UniformType::_1f),
                 UniformName::new("border_px", UniformType::_1f),
             ],
-        )?);
+        ) {
+            Ok(program) => st.ui.render_state.node_label_program = Some(program),
+            Err(err) => {
+                st.ui.render_state.node_label_program_failed = true;
+                log_rounded_shader_failure(
+                    "render/shaders/node_label_rounded_shader.frag",
+                    "border-mask",
+                    &err,
+                );
+            }
+        }
     }
 
     Ok(())
@@ -238,12 +251,14 @@ fn draw_shader_label(
     Ok(())
 }
 
-fn window_active_border_color() -> Color32F {
-    Color32F::new(0.22, 0.82, 0.92, 1.0)
+fn window_active_border_color(st: &Halley) -> Color32F {
+    let color = st.runtime.tuning.border_color_focused;
+    Color32F::new(color.r, color.g, color.b, 1.0)
 }
 
-fn window_inactive_border_color() -> Color32F {
-    Color32F::new(0.28, 0.30, 0.35, 1.0)
+fn window_inactive_border_color(st: &Halley) -> Color32F {
+    let color = st.runtime.tuning.border_color_unfocused;
+    Color32F::new(color.r, color.g, color.b, 1.0)
 }
 
 fn node_ring_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
@@ -253,8 +268,8 @@ fn node_ring_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
         st.runtime.tuning.node_border_color_inactive
     };
     let base = match mode {
-        NodeBorderColorMode::UseWindowActive => window_active_border_color(),
-        NodeBorderColorMode::UseWindowInactive => window_inactive_border_color(),
+        NodeBorderColorMode::UseWindowActive => window_active_border_color(st),
+        NodeBorderColorMode::UseWindowInactive => window_inactive_border_color(st),
     };
     Color32F::new(base.r(), base.g(), base.b(), alpha)
 }

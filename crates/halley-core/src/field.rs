@@ -190,12 +190,7 @@ pub enum RemoveNodeClusterEffect {
 }
 
 impl Field {
-    fn make_surface_node(
-        id: NodeId,
-        label: String,
-        pos: Vec2,
-        size: Vec2,
-    ) -> Node {
+    fn make_surface_node(id: NodeId, label: String, pos: Vec2, size: Vec2) -> Node {
         Node {
             id,
             kind: NodeKind::Surface,
@@ -308,7 +303,10 @@ impl Field {
             };
             if cluster_len <= 2 {
                 self.finish_dissolve_cluster(cid);
-                return Some((removed, Some(RemoveNodeClusterEffect::DissolvedCluster(cid))));
+                return Some((
+                    removed,
+                    Some(RemoveNodeClusterEffect::DissolvedCluster(cid)),
+                ));
             }
 
             let cluster = self.clusters.get_mut(&cid)?;
@@ -318,7 +316,9 @@ impl Field {
 
         if let Some(cid) = self.cluster_id_for_core_public(id) {
             let removed = self.nodes.remove(&id)?;
-            let was_collapsed = self.cluster(cid).is_some_and(|cluster| cluster.is_collapsed());
+            let was_collapsed = self
+                .cluster(cid)
+                .is_some_and(|cluster| cluster.is_collapsed());
             if was_collapsed {
                 let _ = self.expand_cluster(cid);
             }
@@ -605,7 +605,10 @@ impl Field {
             self.nodes.insert(member, node);
             return false;
         };
-        if !cluster.is_active() || !cluster.contains(member) || !cluster.insert_workspace_member(node) {
+        if !cluster.is_active()
+            || !cluster.contains(member)
+            || !cluster.insert_workspace_member(node)
+        {
             if let Some(node) = cluster.remove_workspace_member(member) {
                 self.nodes.insert(member, node);
             }
@@ -644,7 +647,10 @@ impl Field {
         self.clusters.insert(cluster.id, cluster);
     }
 
-    pub fn create_cluster(&mut self, members: Vec<NodeId>) -> Result<ClusterId, ClusterCreateError> {
+    pub fn create_cluster(
+        &mut self,
+        members: Vec<NodeId>,
+    ) -> Result<ClusterId, ClusterCreateError> {
         if members.len() < 2 {
             return Err(ClusterCreateError::TooFewMembers);
         }
@@ -782,7 +788,11 @@ impl Field {
             let Some(cluster) = self.clusters.get(&id) else {
                 return false;
             };
-            (cluster.members().to_vec(), cluster.core, cluster.is_active())
+            (
+                cluster.members().to_vec(),
+                cluster.core,
+                cluster.is_active(),
+            )
         };
         if already_active {
             return true;
@@ -1125,14 +1135,21 @@ mod tests {
         assert!(f.is_visible(core));
 
         let view = Rect {
-            min: Vec2 { x: -100.0, y: -100.0 },
+            min: Vec2 {
+                x: -100.0,
+                y: -100.0,
+            },
             max: Vec2 { x: 100.0, y: 100.0 },
         };
 
         assert!(f.in_view(view).contains(&core));
         assert!(f.in_view_all(view).contains(&core));
         assert!(f.visuals_visible().iter().any(|visual| visual.id == core));
-        assert!(f.visuals_in_view(view).iter().any(|visual| visual.id == core));
+        assert!(
+            f.visuals_in_view(view)
+                .iter()
+                .any(|visual| visual.id == core)
+        );
         assert!(!f.in_view(view).contains(&a));
         assert!(!f.in_view(view).contains(&b));
         assert!(!f.is_visible(a));
@@ -1478,7 +1495,12 @@ mod tests {
         assert_eq!(cluster.visible_members(), &members[..4]);
         assert_eq!(cluster.overflow_members(), &members[4..]);
         assert_eq!(layout.tiles.len(), 4);
-        assert!(layout.tiles.iter().all(|tile| members[..4].contains(&tile.id)));
+        assert!(
+            layout
+                .tiles
+                .iter()
+                .all(|tile| members[..4].contains(&tile.id))
+        );
     }
 
     #[test]
@@ -1503,9 +1525,14 @@ mod tests {
         let cluster = f.cluster(cid).unwrap();
         assert_eq!(
             cluster.members(),
-            &[members[0], members[1], members[4], members[3], members[2], members[5]]
+            &[
+                members[0], members[1], members[4], members[3], members[2], members[5]
+            ]
         );
-        assert_eq!(cluster.visible_members(), &[members[0], members[1], members[4], members[3]]);
+        assert_eq!(
+            cluster.visible_members(),
+            &[members[0], members[1], members[4], members[3]]
+        );
         assert_eq!(cluster.overflow_members(), &[members[2], members[5]]);
     }
 
@@ -1530,7 +1557,10 @@ mod tests {
 
         let cluster = f.cluster(cid).unwrap();
         assert_eq!(cluster.visible_members(), &members[..4]);
-        assert_eq!(cluster.overflow_members(), &[members[6], members[4], members[5]]);
+        assert_eq!(
+            cluster.overflow_members(),
+            &[members[6], members[4], members[5]]
+        );
     }
 
     #[test]

@@ -12,7 +12,10 @@ use crate::layout::{
     ClusterBloomDirection, PanToNewMode, ViewportOutputConfig, ViewportVrrMode,
     default_compositor_bindings, default_pointer_bindings,
 };
-use crate::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, RuntimeTuning};
+use crate::{
+    DecorationBorderColor, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
+    RuntimeTuning,
+};
 
 use rune_cfg::RuneConfig;
 
@@ -653,6 +656,64 @@ fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 }
 
 fn load_decorations_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.border_size_px = pick_i32(
+        cfg,
+        &[
+            "decoration.border-size",
+            "decoration.border_size",
+            "decorations.border-size",
+            "decorations.border_size",
+        ],
+        out.border_size_px,
+    );
+    out.border_radius_px = pick_i32(
+        cfg,
+        &[
+            "decoration.border-radius",
+            "decoration.border_radius",
+            "decorations.border-radius",
+            "decorations.border_radius",
+        ],
+        out.border_radius_px,
+    );
+    out.border_color_focused = pick_decoration_border_color(
+        cfg,
+        &[
+            "decoration.border-colour-focused",
+            "decoration.border_colour_focused",
+            "decoration.border-color-focused",
+            "decoration.border_color_focused",
+            "decorations.border-colour-focused",
+            "decorations.border_colour_focused",
+            "decorations.border-color-focused",
+            "decorations.border_color_focused",
+        ],
+        out.border_color_focused,
+    );
+    out.border_color_unfocused = pick_decoration_border_color(
+        cfg,
+        &[
+            "decoration.border-colour-unfocused",
+            "decoration.border_colour_unfocused",
+            "decoration.border-color-unfocused",
+            "decoration.border_color_unfocused",
+            "decorations.border-colour-unfocused",
+            "decorations.border_colour_unfocused",
+            "decorations.border-color-unfocused",
+            "decorations.border_color_unfocused",
+        ],
+        out.border_color_unfocused,
+    );
+    out.resize_using_border = pick_bool(
+        cfg,
+        &[
+            "decoration.resize-using-border",
+            "decoration.resize_using_border",
+            "decorations.resize-using-border",
+            "decorations.resize_using_border",
+        ],
+        out.resize_using_border,
+    );
     if let Some(no_csd) = pick_optional_bool(
         cfg,
         &[
@@ -1080,6 +1141,19 @@ fn pick_node_background_color_mode(
             .map(|(r, g, b)| NodeBackgroundColorMode::Fixed { r, g, b })
             .unwrap_or(default),
     }
+}
+
+fn pick_decoration_border_color(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: DecorationBorderColor,
+) -> DecorationBorderColor {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    parse_hex_rgb(raw.trim().trim_matches('"'))
+        .map(|(r, g, b)| DecorationBorderColor { r, g, b })
+        .unwrap_or(default)
 }
 
 fn parse_hex_rgb(value: &str) -> Option<(f32, f32, f32)> {
@@ -2006,5 +2080,41 @@ end
         let _ = fs::remove_file(&path);
 
         assert!(tuning.no_csd);
+    }
+
+    #[test]
+    fn decorations_border_settings_parse_from_plural_section() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-decorations-border-{unique}.rune"));
+        fs::write(
+            &path,
+            r##"
+decorations:
+  border-size 3
+  border-radius 6
+  border-colour-focused "#fd5e53"
+  border-colour-unfocused "#333333"
+  resize-using-border true
+end
+"##,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.border_size_px, 3);
+        assert_eq!(tuning.border_radius_px, 6);
+        assert_eq!(tuning.border_color_focused.r, 253.0 / 255.0);
+        assert_eq!(tuning.border_color_focused.g, 94.0 / 255.0);
+        assert_eq!(tuning.border_color_focused.b, 83.0 / 255.0);
+        assert_eq!(tuning.border_color_unfocused.r, 51.0 / 255.0);
+        assert_eq!(tuning.border_color_unfocused.g, 51.0 / 255.0);
+        assert_eq!(tuning.border_color_unfocused.b, 51.0 / 255.0);
+        assert!(tuning.resize_using_border);
     }
 }

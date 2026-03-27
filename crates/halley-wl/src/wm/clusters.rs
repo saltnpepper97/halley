@@ -1,4 +1,5 @@
 use super::*;
+use crate::render::active_window_frame_pad_px;
 use crate::state::{ClusterState, InteractionState, MonitorState};
 use halley_core::cluster::{CLUSTER_VISIBLE_CAPACITY, ClusterId, ClusterRemoveMemberOutcome};
 use halley_core::field::RemoveNodeClusterEffect;
@@ -121,7 +122,7 @@ impl<'a> ClusterReadController<'a> {
         let cluster = self.field.cluster(cid)?;
         let tile_rect = self.opened_cluster_world_rect_for_monitor(monitor)?;
         let tile_inset = (self.tuning.tile_gaps_inner_px * 0.5
-            + crate::render::ACTIVE_WINDOW_FRAME_PAD_PX as f32)
+            + active_window_frame_pad_px(self.tuning) as f32)
             .clamp(4.0, 28.0);
         let layout = cluster.workspace_layout(tile_rect);
         if cluster.members().len() >= CLUSTER_VISIBLE_CAPACITY {
@@ -233,7 +234,7 @@ impl<'a> ClusterReadController<'a> {
         let cluster = self.field.cluster(cid)?;
         let world_rect = self.opened_cluster_world_rect_for_monitor(monitor)?;
         let tile_inset = (self.tuning.tile_gaps_inner_px * 0.5
-            + crate::render::ACTIVE_WINDOW_FRAME_PAD_PX as f32)
+            + active_window_frame_pad_px(self.tuning) as f32)
             .clamp(4.0, 28.0);
         let tiles = cluster
             .workspace_layout(world_rect)
@@ -310,7 +311,9 @@ impl<'a> ClusterMutationController<'a> {
         {
             return false;
         }
-        self.cluster_state.cluster_mode_selected_nodes.remove(monitor);
+        self.cluster_state
+            .cluster_mode_selected_nodes
+            .remove(monitor);
         true
     }
 
@@ -348,7 +351,10 @@ impl<'a> ClusterMutationController<'a> {
         world_pos: Vec2,
         now_ms: u64,
     ) -> Option<ClusterRemoveMemberOutcome> {
-        let was_active = self.field.cluster(cid).is_some_and(|cluster| cluster.is_active());
+        let was_active = self
+            .field
+            .cluster(cid)
+            .is_some_and(|cluster| cluster.is_active());
         let outcome = self.field.remove_member_from_cluster(cid, member_id)?;
         if matches!(outcome, ClusterRemoveMemberOutcome::Removed) && was_active {
             let _ = self
@@ -368,12 +374,18 @@ impl<'a> ClusterMutationController<'a> {
     }
 
     fn absorb_node_into_cluster(&mut self, cid: ClusterId, node_id: NodeId) -> bool {
-        let active_workspace = self.field.cluster(cid).is_some_and(|cluster| cluster.is_active());
+        let active_workspace = self
+            .field
+            .cluster(cid)
+            .is_some_and(|cluster| cluster.is_active());
         if self.field.add_member_to_cluster(cid, node_id).is_err() {
             return false;
         }
         if active_workspace {
-            if !self.field.move_member_into_active_cluster_workspace(cid, node_id) {
+            if !self
+                .field
+                .move_member_into_active_cluster_workspace(cid, node_id)
+            {
                 return false;
             }
             if let Some(cluster) = self.field.cluster_mut(cid)
@@ -538,7 +550,11 @@ impl Halley {
     }
 
     fn dissolve_cluster(&mut self, cid: ClusterId) -> bool {
-        let core_id = self.model.field.cluster(cid).and_then(|cluster| cluster.core);
+        let core_id = self
+            .model
+            .field
+            .cluster(cid)
+            .and_then(|cluster| cluster.core);
         self.clear_cluster_shell_state(cid);
         if let Some(core_id) = core_id {
             self.model.monitor_state.node_monitor.remove(&core_id);
@@ -547,14 +563,18 @@ impl Halley {
     }
 
     pub(crate) fn remove_node_from_field(&mut self, id: NodeId, now_ms: u64) -> bool {
-        let cluster_snapshot = self.model.field.cluster_id_for_member_public(id).and_then(|cid| {
-            self.model
-                .field
-                .cluster(cid)
-                .map(|cluster| (cid, cluster.members().to_vec(), cluster.core))
-        });
-        let (snapshot_cid, snapshot_members, snapshot_core_id) = cluster_snapshot
-            .unwrap_or((ClusterId::new(0), Vec::new(), None));
+        let cluster_snapshot = self
+            .model
+            .field
+            .cluster_id_for_member_public(id)
+            .and_then(|cid| {
+                self.model
+                    .field
+                    .cluster(cid)
+                    .map(|cluster| (cid, cluster.members().to_vec(), cluster.core))
+            });
+        let (snapshot_cid, snapshot_members, snapshot_core_id) =
+            cluster_snapshot.unwrap_or((ClusterId::new(0), Vec::new(), None));
         let Some((_, effect)) = self.model.field.remove_node_cluster_safe(id) else {
             return false;
         };
@@ -562,9 +582,13 @@ impl Halley {
         match effect {
             Some(RemoveNodeClusterEffect::RemovedMember(cid)) => {
                 if let Some(cluster_monitor) = self.preferred_monitor_for_cluster(cid, None)
-                    && self.active_cluster_workspace_for_monitor(cluster_monitor.as_str()) == Some(cid)
+                    && self.active_cluster_workspace_for_monitor(cluster_monitor.as_str())
+                        == Some(cid)
                 {
-                    self.layout_active_cluster_workspace_for_monitor(cluster_monitor.as_str(), now_ms);
+                    self.layout_active_cluster_workspace_for_monitor(
+                        cluster_monitor.as_str(),
+                        now_ms,
+                    );
                 }
             }
             Some(RemoveNodeClusterEffect::DissolvedCluster(cid)) => {
@@ -689,9 +713,13 @@ impl Halley {
         match outcome {
             ClusterRemoveMemberOutcome::Removed => {
                 if let Some(cluster_monitor) = self.preferred_monitor_for_cluster(cid, None)
-                    && self.active_cluster_workspace_for_monitor(cluster_monitor.as_str()) == Some(cid)
+                    && self.active_cluster_workspace_for_monitor(cluster_monitor.as_str())
+                        == Some(cid)
                 {
-                    self.layout_active_cluster_workspace_for_monitor(cluster_monitor.as_str(), now_ms);
+                    self.layout_active_cluster_workspace_for_monitor(
+                        cluster_monitor.as_str(),
+                        now_ms,
+                    );
                 }
             }
             ClusterRemoveMemberOutcome::RequiresDissolve => {
@@ -783,7 +811,10 @@ impl Halley {
                 .cluster_state
                 .cluster_overflow_members
                 .remove(monitor);
-            self.model.cluster_state.cluster_overflow_rects.remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_overflow_rects
+                .remove(monitor);
             self.model
                 .cluster_state
                 .cluster_overflow_visible_until_ms
@@ -795,7 +826,10 @@ impl Halley {
                 .cluster_state
                 .cluster_overflow_members
                 .remove(monitor);
-            self.model.cluster_state.cluster_overflow_rects.remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_overflow_rects
+                .remove(monitor);
             self.model
                 .cluster_state
                 .cluster_overflow_visible_until_ms
@@ -808,7 +842,10 @@ impl Halley {
                 .cluster_state
                 .cluster_overflow_members
                 .remove(monitor);
-            self.model.cluster_state.cluster_overflow_rects.remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_overflow_rects
+                .remove(monitor);
             self.model
                 .cluster_state
                 .cluster_overflow_visible_until_ms
@@ -890,11 +927,11 @@ impl Halley {
         if self.active_cluster_workspace_for_monitor(monitor) != Some(cid) {
             return false;
         }
-        if !self
-            .model
-            .field
-            .swap_cluster_overflow_member_with_visible(cid, overflow_member, visible_member)
-        {
+        if !self.model.field.swap_cluster_overflow_member_with_visible(
+            cid,
+            overflow_member,
+            visible_member,
+        ) {
             return false;
         }
         self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
@@ -942,7 +979,10 @@ impl Halley {
 
     pub fn enter_cluster_mode(&mut self) -> bool {
         let monitor = self.model.monitor_state.current_monitor.clone();
-        if self.active_cluster_workspace_for_monitor(monitor.as_str()).is_some() {
+        if self
+            .active_cluster_workspace_for_monitor(monitor.as_str())
+            .is_some()
+        {
             self.show_overlay_toast(
                 monitor.as_str(),
                 "Cluster mode unavailable\nExit the workspace first",
@@ -1040,10 +1080,7 @@ impl Halley {
             return false;
         }
 
-        let members = selected_nodes
-            .iter()
-            .copied()
-            .collect::<Vec<_>>();
+        let members = selected_nodes.iter().copied().collect::<Vec<_>>();
         if members.len() == 1 {
             self.show_overlay_toast(
                 monitor.as_str(),
@@ -1054,15 +1091,20 @@ impl Halley {
             return false;
         }
         let members = self.order_cluster_creation_members(members);
-        let created = self.model.field.create_cluster(members).ok().and_then(|cid| {
-            let core = self.model.field.collapse_cluster(cid);
-            if let Some(core_id) = core {
-                self.assign_node_to_current_monitor(core_id);
-                let _ = self.model.field.touch(core_id, self.now_ms(now));
-                self.set_interaction_focus(Some(core_id), 30_000, now);
-            }
-            core
-        });
+        let created = self
+            .model
+            .field
+            .create_cluster(members)
+            .ok()
+            .and_then(|cid| {
+                let core = self.model.field.collapse_cluster(cid);
+                if let Some(core_id) = core {
+                    self.assign_node_to_current_monitor(core_id);
+                    let _ = self.model.field.touch(core_id, self.now_ms(now));
+                    self.set_interaction_focus(Some(core_id), 30_000, now);
+                }
+                core
+            });
         let _ = self.exit_cluster_mode();
         created.is_some()
     }
@@ -1199,7 +1241,10 @@ impl Halley {
             .cluster_state
             .cluster_overflow_members
             .remove(monitor);
-        self.model.cluster_state.cluster_overflow_rects.remove(monitor);
+        self.model
+            .cluster_state
+            .cluster_overflow_rects
+            .remove(monitor);
         self.model
             .cluster_state
             .cluster_overflow_visible_until_ms
