@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use halley_core::cluster::ClusterId;
 use halley_config::CompositorBindingAction;
 use halley_config::PointerBindingAction;
 
@@ -138,6 +139,14 @@ pub(crate) struct TitleClickCtx {
     pub(crate) at: Instant,
 }
 
+#[derive(Clone)]
+pub(crate) struct BloomDragCtx {
+    pub(crate) cluster_id: ClusterId,
+    pub(crate) member_id: halley_core::field::NodeId,
+    pub(crate) monitor: String,
+    pub(crate) core_screen: (f32, f32),
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct HitNode {
     pub(crate) node_id: halley_core::field::NodeId,
@@ -164,6 +173,7 @@ pub(crate) struct PointerState {
     pub(crate) drag: Option<DragCtx>,
     pub(crate) resize: Option<ResizeCtx>,
     pub(crate) move_anim: HashMap<halley_core::field::NodeId, NodeMoveAnim>,
+    pub(crate) bloom_drag: Option<BloomDragCtx>,
     pub(crate) last_title_click: Option<TitleClickCtx>,
     pub(crate) panning: bool,
     pub(crate) pan_monitor: Option<String>,
@@ -187,6 +197,7 @@ impl Default for PointerState {
             drag: None,
             resize: None,
             move_anim: HashMap::new(),
+            bloom_drag: None,
             last_title_click: None,
             panning: false,
             pan_monitor: None,

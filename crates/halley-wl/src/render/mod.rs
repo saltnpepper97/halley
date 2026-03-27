@@ -2,7 +2,7 @@ use glam::{Vec2, Vec4};
 use halley_core::field::Field;
 use halley_core::viewport::{FocusRing, FocusZone, Viewport};
 
-mod app_icon;
+pub(crate) mod app_icon;
 mod bearings;
 mod cursor;
 mod cursor_theme;
@@ -10,7 +10,7 @@ mod frame;
 pub mod layer_shell;
 mod node;
 mod offscreen;
-mod utils;
+pub(crate) mod utils;
 mod window;
 
 pub(crate) const ACTIVE_WINDOW_FRAME_PAD_PX: i32 = 3;

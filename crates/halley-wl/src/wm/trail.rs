@@ -187,10 +187,13 @@ impl Halley {
         }
 
         self.focus_state.suppress_trail_record_once = true;
+        let cluster_local = self.active_cluster_workspace_for_monitor(monitor).is_some();
         let restored = match node.state {
             halley_core::field::NodeState::Active => {
                 self.set_interaction_focus(Some(id), 30_000, now);
-                self.maybe_pan_to_restored_focus_on_close(monitor, id, now);
+                if !cluster_local {
+                    self.maybe_pan_to_restored_focus_on_close(monitor, id, now);
+                }
                 true
             }
             halley_core::field::NodeState::Node => {
@@ -199,7 +202,9 @@ impl Halley {
                 self.spawn_state.pending_spawn_activate_at_ms.remove(&id);
                 self.mark_active_transition(id, now, 360);
                 self.set_interaction_focus(Some(id), 30_000, now);
-                self.maybe_pan_to_restored_focus_on_close(monitor, id, now);
+                if !cluster_local {
+                    self.maybe_pan_to_restored_focus_on_close(monitor, id, now);
+                }
                 true
             }
             _ => false,

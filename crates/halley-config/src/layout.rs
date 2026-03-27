@@ -81,6 +81,12 @@ pub struct BearingsConfig {
     pub fade_distance: f32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClusterBloomDirection {
+    Clockwise,
+    CounterClockwise,
+}
+
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
     pub debug_tick_dump: bool,
@@ -116,6 +122,10 @@ pub struct RuntimeTuning {
 
     pub cluster_distance_px: f32,
     pub cluster_dwell_ms: u64,
+    pub cluster_show_icons: bool,
+    pub cluster_bloom_direction: ClusterBloomDirection,
+    pub tile_gaps_inner_px: f32,
+    pub tile_gaps_outer_px: f32,
     pub active_windows_allowed: usize,
     pub trail_history_length: usize,
     pub trail_wrap: bool,
@@ -225,6 +235,10 @@ impl Default for RuntimeTuning {
 
             cluster_distance_px: 280.0,
             cluster_dwell_ms: 900,
+            cluster_show_icons: true,
+            cluster_bloom_direction: ClusterBloomDirection::Clockwise,
+            tile_gaps_inner_px: 20.0,
+            tile_gaps_outer_px: 20.0,
             active_windows_allowed: 3,
             trail_history_length: 32,
             trail_wrap: true,
@@ -324,6 +338,8 @@ impl RuntimeTuning {
 
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);
+        self.tile_gaps_inner_px = self.tile_gaps_inner_px.clamp(0.0, 256.0);
+        self.tile_gaps_outer_px = self.tile_gaps_outer_px.clamp(0.0, 512.0);
         self.active_windows_allowed = self.active_windows_allowed.clamp(1, 64);
         self.trail_history_length = self.trail_history_length.clamp(1, 512);
 
@@ -422,6 +438,14 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
             modifiers: modifier,
             key: key("n"),
             action: CompositorBindingAction::ToggleState,
+        },
+        CompositorBinding {
+            modifiers: KeyModifiers {
+                shift: true,
+                ..modifier
+            },
+            key: key("c"),
+            action: CompositorBindingAction::ClusterMode,
         },
         CompositorBinding {
             modifiers: modifier,

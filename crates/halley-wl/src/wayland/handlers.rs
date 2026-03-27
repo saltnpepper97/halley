@@ -64,6 +64,31 @@ fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i3
 }
 
 fn initial_toplevel_size(st: &Halley, toplevel: &ToplevelSurface) -> InitialToplevelSize {
+    let predicted_monitor = st
+        .spawn_state
+        .pending_spawn_monitor
+        .as_ref()
+        .filter(|monitor| st.monitor_state.monitors.contains_key(monitor.as_str()))
+        .cloned()
+        .unwrap_or_else(|| {
+            let focused = st.focused_monitor().to_string();
+            if st.monitor_state.monitors.contains_key(focused.as_str()) {
+                focused
+            } else {
+                st.interaction_monitor().to_string()
+            }
+        });
+    if let Some(cid) = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str())
+        && let Some(rect) = st.cluster_spawn_rect_for_new_member(predicted_monitor.as_str(), cid)
+    {
+        let width = rect.w.max(64.0).round() as i32;
+        let height = rect.h.max(64.0).round() as i32;
+        return InitialToplevelSize {
+            node_size: (width, height),
+            configure_size: Some((width, height)),
+        };
+    }
+
     let detected = detected_initial_toplevel_size(toplevel);
     let node_size = detected.unwrap_or_else(|| {
         (
@@ -681,8 +706,15 @@ impl XdgShellHandler for Halley {
         let now = Instant::now();
         let _ = self.field.touch(id, self.now_ms(now));
         self.reveal_new_toplevel_node(id, is_transient, now);
-
-        self.resolve_surface_overlap();
+        let node_monitor = self.monitor_state.node_monitor.get(&id).cloned();
+        let handled_by_active_cluster = self
+            .field
+            .cluster_id_for_member_public(id)
+            .zip(node_monitor.as_deref())
+            .is_some_and(|(cid, monitor)| self.active_cluster_workspace_for_monitor(monitor) == Some(cid));
+        if !handled_by_active_cluster {
+            self.resolve_surface_overlap();
+        }
         self.request_maintenance();
     }
 
@@ -804,7 +836,17 @@ impl XdgShellHandler for Halley {
                 (closing_id, focused_monitor.as_deref())
         {
             let now = Instant::now();
-            if let Some(previous) =
+            if self.active_cluster_workspace_for_monitor(focused_monitor).is_some() {
+                if let Some(previous) = self.previous_window_from_trail_on_close(focused_monitor, closing_id)
+                {
+                    self.set_interaction_focus(Some(previous), 30_000, now);
+                } else if let Some(fallback) = self
+                    .last_focused_surface_node_for_monitor(focused_monitor)
+                    .filter(|&id| id != closing_id)
+                {
+                    self.set_interaction_focus(Some(fallback), 30_000, now);
+                }
+            } else if let Some(previous) =
                 self.previous_window_from_trail_on_close(focused_monitor, closing_id)
             {
                 let _ = self.restore_focus_to_node_after_close(focused_monitor, previous, now);

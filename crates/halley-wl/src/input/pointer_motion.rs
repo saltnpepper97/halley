@@ -7,13 +7,14 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::interaction::types::{DragAxisMode, ModState, PointerState};
+use crate::interaction::types::{DragAxisMode, HitNode, ModState, PointerState};
 use crate::spatial::{pick_hit_node_at, screen_to_world};
 use crate::state::{ActiveDragState, Halley};
 use crate::surface_ops::request_toplevel_resize_mode;
 use halley_config::{KeyModifiers, PointerBindingAction};
 
 use super::pointer_focus::pointer_focus_for_screen;
+use super::pointer_button::{ButtonFrame, begin_drag};
 use super::utils::modifier_active;
 
 #[inline]
@@ -81,6 +82,86 @@ fn active_pointer_binding(
         .map(|binding| binding.action)
 }
 
+fn update_cluster_join_candidate(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    monitor: &str,
+    desired_center: halley_core::field::Vec2,
+    now: Instant,
+) -> bool {
+    if st.field.cluster_id_for_member_public(node_id).is_some() {
+        st.interaction_state.cluster_join_candidate = None;
+        return false;
+    }
+    let Some(node) = st.field.node(node_id) else {
+        st.interaction_state.cluster_join_candidate = None;
+        return false;
+    };
+    if node.kind != halley_core::field::NodeKind::Surface {
+        st.interaction_state.cluster_join_candidate = None;
+        return false;
+    }
+
+    let candidate = st.cluster_bloom_for_monitor(monitor).and_then(|open_cid| {
+        let cluster = st.field.cluster(open_cid)?;
+        if !cluster.is_collapsed() {
+            return None;
+        }
+        let core_id = cluster.core?;
+        let core = st.field.node(core_id)?;
+        let core_monitor = st
+            .monitor_state
+            .node_monitor
+            .get(&core_id)
+            .map(String::as_str)
+            .unwrap_or(monitor);
+        if core_monitor != monitor {
+            return None;
+        }
+        let dx = desired_center.x - core.pos.x;
+        let dy = desired_center.y - core.pos.y;
+        let distance = dx.hypot(dy);
+        (distance <= st.tuning.cluster_distance_px).then_some(open_cid)
+    });
+
+    let Some(cluster_id) = candidate else {
+        st.interaction_state.cluster_join_candidate = None;
+        return false;
+    };
+    let core_engaged = st
+        .dragged_node_cluster_core_clamp(monitor, node_id, desired_center)
+        .is_some_and(|(_, engaged_cluster, push)| engaged_cluster == cluster_id && push > 1.0);
+    let now_ms = st.now_ms(now);
+    let keep_started_at = st
+        .interaction_state
+        .cluster_join_candidate
+        .as_ref()
+        .filter(|existing| {
+            existing.cluster_id == cluster_id
+                && existing.node_id == node_id
+                && existing.monitor == monitor
+        })
+        .map(|existing| existing.started_at_ms)
+        .unwrap_or(now_ms);
+    let dwell_ms = cluster_join_dwell_ms(st, core_engaged);
+    st.interaction_state.cluster_join_candidate = Some(crate::state::ClusterJoinCandidate {
+        cluster_id,
+        node_id,
+        monitor: monitor.to_string(),
+        started_at_ms: keep_started_at,
+        ready: now_ms.saturating_sub(keep_started_at) >= dwell_ms,
+    });
+    false
+}
+
+fn cluster_join_dwell_ms(st: &Halley, core_engaged: bool) -> u64 {
+    if core_engaged {
+        st.tuning.cluster_dwell_ms.min(140)
+    } else {
+        st.tuning.cluster_dwell_ms.min(220)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_pointer_motion_absolute(
     st: &mut Halley,
@@ -139,7 +220,13 @@ pub(crate) fn handle_pointer_motion_absolute(
         let ps = pointer_state.borrow();
         ps.panning.then(|| ps.pan_monitor.clone()).flatten()
     };
+    let locked_bloom_monitor = {
+        let ps = pointer_state.borrow();
+        ps.bloom_drag.as_ref().map(|drag| drag.monitor.clone())
+    };
     let (effective_sx, effective_sy) = if let Some(owner) = locked_resize_monitor.as_deref() {
+        clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
+    } else if let Some(owner) = locked_bloom_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
     } else if let Some(owner) = locked_drag_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
@@ -162,7 +249,11 @@ pub(crate) fn handle_pointer_motion_absolute(
         )
     });
     let target_monitor = {
-        if let Some(owner) = locked_surface_monitor {
+        if st.has_active_cluster_workspace() {
+            st.monitor_state.current_monitor.clone()
+        } else if let Some(owner) = locked_bloom_monitor {
+            owner
+        } else if let Some(owner) = locked_surface_monitor {
             owner
         } else if let Some(owner) = locked_resize_monitor {
             owner
@@ -239,7 +330,11 @@ pub(crate) fn handle_pointer_motion_absolute(
         pointer.frame(st);
     }
     let p = screen_to_world(st, local_w, local_h, local_sx, local_sy);
-    let drag_mod_ok = modifier_active(&mods, st.tuning.keybinds.modifier);
+    let drag_mod_ok = modifier_active(&mods, st.tuning.keybinds.modifier)
+        || matches!(
+            active_pointer_binding(st, &mods, 0x110),
+            Some(PointerBindingAction::MoveWindow | PointerBindingAction::FieldJump)
+        );
 
     let mut ps = pointer_state.borrow_mut();
     let pointer_world = p;
@@ -247,20 +342,92 @@ pub(crate) fn handle_pointer_motion_absolute(
     ps.screen = (effective_sx, effective_sy);
     ps.workspace_size = (local_w, local_h);
 
+    if let Some(pending_press) = st.interaction_state.pending_core_press.clone() {
+        let dx = effective_sx - pending_press.press_global_sx;
+        let dy = effective_sy - pending_press.press_global_sy;
+        const CORE_CLICK_DRAG_THRESHOLD_PX: f32 = 8.0;
+        if dx.hypot(dy) >= CORE_CLICK_DRAG_THRESHOLD_PX {
+            st.interaction_state.pending_core_press = None;
+            if let Some(core_hit) = st.field.node(pending_press.node_id).map(|_| HitNode {
+                node_id: pending_press.node_id,
+                on_titlebar: true,
+                is_core: true,
+            }) {
+                begin_drag(st, &mut ps, backend, core_hit, ButtonFrame {
+                    ws_w: local_w,
+                    ws_h: local_h,
+                    global_sx: effective_sx,
+                    global_sy: effective_sy,
+                    sx: local_sx,
+                    sy: local_sy,
+                    world_now: pointer_world,
+                    workspace_active: false,
+                }, pointer_world, false);
+                backend.request_redraw();
+            }
+        }
+    }
+
+    if let Some(bloom_drag) = ps.bloom_drag.clone() {
+        let dx = local_sx - bloom_drag.core_screen.0;
+        let dy = local_sy - bloom_drag.core_screen.1;
+        const BLOOM_DETACH_THRESHOLD_PX: f32 = 96.0;
+        let pull_dist = dx.hypot(dy);
+        st.interaction_state.bloom_pull_preview = Some(crate::state::BloomPullPreview {
+            cluster_id: bloom_drag.cluster_id,
+            member_id: bloom_drag.member_id,
+            mix: (pull_dist / BLOOM_DETACH_THRESHOLD_PX).clamp(0.0, 1.0),
+        });
+        if pull_dist >= BLOOM_DETACH_THRESHOLD_PX {
+            ps.bloom_drag = None;
+            st.interaction_state.bloom_pull_preview = None;
+            let detached = st.detach_member_from_cluster(
+                bloom_drag.cluster_id,
+                bloom_drag.member_id,
+                pointer_world,
+                now,
+            );
+            if detached {
+                st.assign_node_to_current_monitor(bloom_drag.member_id);
+                st.set_interaction_focus(Some(bloom_drag.member_id), 30_000, now);
+            }
+            backend.request_redraw();
+        }
+        return;
+    }
+
     if st.has_active_cluster_workspace() {
+        let monitor = st.monitor_state.current_monitor.clone();
+        let now_ms = st.now_ms(now);
+        if local_sx >= local_w as f32 - Halley::CLUSTER_OVERFLOW_REVEAL_EDGE_PX {
+            st.reveal_cluster_overflow_for_monitor(monitor.as_str(), now_ms);
+        } else if let Some(rect) = st.cluster_overflow_rect_for_monitor(monitor.as_str()) {
+            let inside = local_sx >= rect.x
+                && local_sx <= rect.x + rect.w
+                && local_sy >= rect.y
+                && local_sy <= rect.y + rect.h;
+            if inside {
+                st.reveal_cluster_overflow_for_monitor(monitor.as_str(), now_ms);
+            }
+        }
         ps.hover_node = None;
         st.set_drag_authority_node(None);
         ps.drag = None;
         ps.resize = None;
-        ps.panning = false;
         return;
     }
 
     if let Some(drag) = ps.drag {
         if ps.resize.is_some() || !drag_mod_ok {
+            let now = Instant::now();
+            let joined = !drag_mod_ok && st.commit_ready_cluster_join_for_node(drag.node_id, now);
             st.set_drag_authority_node(None);
             st.end_carry_state_tracking(drag.node_id);
             ps.drag = None;
+            st.interaction_state.active_drag = None;
+            if joined {
+                backend.request_redraw();
+            }
         } else {
             let mut next_drag = drag;
             let drag_allow_monitor_transfer =
@@ -446,8 +613,17 @@ pub(crate) fn handle_pointer_motion_absolute(
                 edge_pan_y: next_drag.edge_pan_y,
             });
             ps.drag = Some(next_drag);
+            let _ = update_cluster_join_candidate(
+                st,
+                drag.node_id,
+                target_monitor.as_str(),
+                desired_to,
+                now,
+            );
             backend.request_redraw();
         }
+    } else {
+        st.interaction_state.cluster_join_candidate = None;
     }
 
     if let Some(resize) = ps.resize {

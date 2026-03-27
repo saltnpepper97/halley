@@ -155,6 +155,17 @@ impl Halley {
         to: Vec2,
         clamp_only: bool,
     ) -> bool {
+        let carry_direct = |this: &mut Self, id: NodeId, to: Vec2| {
+            if this
+                .field
+                .node(id)
+                .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
+            {
+                this.field.carry_cluster_by_core(id, to)
+            } else {
+                this.field.carry(id, to)
+            }
+        };
         let moved = if !self.tuning.physics_enabled {
             self.carry_surface_no_overlap_static(id, to)
         } else if clamp_only
@@ -163,7 +174,7 @@ impl Halley {
         {
             self.carry_surface_no_overlap_static(id, to)
         } else {
-            self.field.carry(id, to)
+            carry_direct(self, id, to)
         };
         // Do NOT call monitor_for_screen(node.pos) here. node.pos is world
         // space; monitor_for_screen expects screen pixels. Calling it here
@@ -240,7 +251,15 @@ impl Halley {
             }
         }
 
-        self.field.carry(id, mover_pos)
+        if self
+            .field
+            .node(id)
+            .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
+        {
+            self.field.carry_cluster_by_core(id, mover_pos)
+        } else {
+            self.field.carry(id, mover_pos)
+        }
     }
 
     fn preview_collision_size(real_w: f32, real_h: f32) -> Vec2 {

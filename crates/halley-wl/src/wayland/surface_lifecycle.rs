@@ -12,6 +12,22 @@ use crate::activity::CommitActivity;
 use crate::state::Halley;
 
 impl Halley {
+    fn predicted_spawn_target_monitor(&self) -> String {
+        self.spawn_state
+            .pending_spawn_monitor
+            .as_ref()
+            .filter(|monitor| self.monitor_state.monitors.contains_key(monitor.as_str()))
+            .cloned()
+            .unwrap_or_else(|| {
+                let focused = self.focused_monitor().to_string();
+                if self.monitor_state.monitors.contains_key(focused.as_str()) {
+                    focused
+                } else {
+                    self.interaction_monitor().to_string()
+                }
+            })
+    }
+
     #[inline]
     fn surface_key(surface: &WlSurface) -> ObjectId {
         surface.id()
@@ -186,7 +202,24 @@ impl Halley {
                     .insert(node_id, new_size);
                 self.request_maintenance();
                 if self.interaction_state.resize_static_node != Some(node_id) {
-                    self.resolve_overlap_now();
+                    let node_monitor = self.monitor_state.node_monitor.get(&node_id).cloned();
+                    let active_cluster = self
+                        .field
+                        .cluster_id_for_member_public(node_id)
+                        .zip(node_monitor.as_deref())
+                        .is_some_and(|(cid, monitor)| {
+                            self.active_cluster_workspace_for_monitor(monitor) == Some(cid)
+                        });
+                    if active_cluster {
+                        if let Some(monitor) = node_monitor {
+                            self.layout_active_cluster_workspace_for_monitor(
+                                monitor.as_str(),
+                                self.now_ms(now),
+                            );
+                        }
+                    } else {
+                        self.resolve_overlap_now();
+                    }
                 }
             }
         }
@@ -207,7 +240,17 @@ impl Halley {
             x: size_px.0.max(64) as f32,
             y: size_px.1.max(64) as f32,
         };
-        let (monitor, pos, needs_pan) = self.pick_spawn_position(size);
+        let predicted_monitor = self.predicted_spawn_target_monitor();
+        let (monitor, pos, needs_pan) = if let Some(cid) =
+            self.active_cluster_workspace_for_monitor(predicted_monitor.as_str())
+        {
+            let pos = self
+                .cluster_spawn_position_for_new_member(predicted_monitor.as_str(), cid)
+                .unwrap_or_else(|| self.view_center_for_monitor(predicted_monitor.as_str()));
+            (predicted_monitor, pos, false)
+        } else {
+            self.pick_spawn_position(size)
+        };
 
         let id = self.field.spawn_surface(label.to_string(), pos, size);
         self.assign_node_to_monitor(id, monitor.as_str());
@@ -219,13 +262,17 @@ impl Halley {
         self.surface_to_node.insert(key, id);
         self.render_state.zoom_nominal_size.insert(id, size);
         self.workspace_state.last_active_size.insert(id, size);
+        let now = Instant::now();
+        let joined_active_cluster = self
+            .active_cluster_workspace_for_monitor(monitor.as_str())
+            .is_some_and(|cid| self.absorb_node_into_cluster(cid, id, now));
         if self.tuning.dev_anim_enabled {
             self.render_state
                 .animator
-                .observe_field(&self.field, Instant::now());
+                .observe_field(&self.field, now);
         }
-        if needs_pan {
-            self.queue_spawn_pan_to_node(id, Instant::now());
+        if needs_pan && !joined_active_cluster {
+            self.queue_spawn_pan_to_node(id, now);
         }
         self.refresh_node_identity_for_surface(surface, label);
         id

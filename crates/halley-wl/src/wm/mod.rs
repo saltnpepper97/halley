@@ -18,10 +18,10 @@ use crate::render::{DebugScene, build_debug_scene};
 use crate::state::Halley;
 
 mod carry;
+mod clusters;
 mod focus;
 mod fullscreen;
 mod maintenance;
 pub(crate) mod overlap;
 mod trail;
-mod workspace;
 mod zoom;

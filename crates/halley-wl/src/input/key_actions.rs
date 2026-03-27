@@ -108,8 +108,15 @@ pub(crate) fn apply_compositor_action_press(
             }
             true
         }
-        CompositorBindingAction::ToggleState => toggle_focused_active_node_state(st),
+        CompositorBindingAction::ToggleState => {
+            if st.has_active_cluster_workspace() {
+                st.collapse_active_cluster_workspace(std::time::Instant::now())
+            } else {
+                toggle_focused_active_node_state(st)
+            }
+        }
         CompositorBindingAction::CloseFocusedWindow => request_close_focused_toplevel(st),
+        CompositorBindingAction::ClusterMode => st.enter_cluster_mode(),
         CompositorBindingAction::Node(NodeBindingAction::Move(direction)) => {
             move_latest_node_direction(st, from_directional_action(direction))
         }
@@ -198,6 +205,7 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::Reload
             | CompositorBindingAction::ToggleState
             | CompositorBindingAction::CloseFocusedWindow
+            | CompositorBindingAction::ClusterMode
             | CompositorBindingAction::Trail(TrailBindingAction::Prev)
             | CompositorBindingAction::Trail(TrailBindingAction::Next)
             | CompositorBindingAction::Monitor(_)

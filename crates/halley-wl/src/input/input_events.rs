@@ -16,6 +16,8 @@ use super::key_actions::{
 };
 use super::pointer_focus::pointer_focus_for_screen;
 use super::utils::update_mod_state;
+use halley_config::CompositorBindingAction;
+use halley_config::keybinds::key_name_to_evdev;
 use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};
 use smithay::backend::input::{Axis, AxisRelativeDirection, AxisSource, ButtonState, KeyState};
 
@@ -50,6 +52,16 @@ fn is_modifier_keycode(code: u32) -> bool {
         | 66      // Caps Lock   (evdev 58 + 8)
         | 77      // Num Lock    (evdev 69 + 8)
         | 78 // Scroll Lock (evdev 70 + 8)
+    )
+}
+
+#[inline]
+fn cluster_mode_allows_keyboard_action(action: &CompositorBindingAction) -> bool {
+    matches!(
+        action,
+        CompositorBindingAction::ZoomIn
+            | CompositorBindingAction::ZoomOut
+            | CompositorBindingAction::ZoomReset
     )
 }
 
@@ -95,6 +107,39 @@ pub(crate) fn handle_keyboard_input(
 ) {
     update_mod_state(&mut mod_state.borrow_mut(), code, pressed);
 
+    let cluster_escape = key_name_to_evdev("escape").map(|code| code + 8);
+    let cluster_return = key_name_to_evdev("return").map(|code| code + 8);
+    if st.cluster_mode_active()
+        && (Some(code) == cluster_escape || Some(code) == cluster_return)
+    {
+        if let Some(keyboard) = st.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(
+                st,
+                code.into(),
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+                serial,
+                now_millis_u32(),
+                |_, _, _| FilterResult::Intercept(()),
+            );
+        }
+        if pressed {
+            let handled = if Some(code) == cluster_escape {
+                st.exit_cluster_mode()
+            } else {
+                st.confirm_cluster_mode(Instant::now())
+            };
+            if handled || Some(code) == cluster_return || Some(code) == cluster_escape {
+                backend.request_redraw();
+            }
+        }
+        return;
+    }
+
     let mods = mod_state.borrow().clone();
     let is_mod_key = is_modifier_keycode(code);
 
@@ -106,12 +151,17 @@ pub(crate) fn handle_keyboard_input(
     };
     let matched_binding = matched_action.is_some()
         || (pressed && !is_mod_key && key_is_compositor_binding(st, code, &mods));
+    let cluster_blocks_key = st.cluster_mode_active() && !is_mod_key;
+    let cluster_allowed_action = matched_action
+        .as_ref()
+        .is_some_and(cluster_mode_allows_keyboard_action);
 
     // Refresh interaction focus only for keys that are going to clients.
     // Compositor bindings like toggle-state should not first re-focus / re-heat
     // the surface they are about to collapse.
     if pressed
         && !matched_binding
+        && !cluster_blocks_key
         && !st.keyboard_focus_is_layer_surface()
         && let Some(fid) = st.last_input_surface_node_for_monitor(st.focused_monitor())
     {
@@ -130,6 +180,28 @@ pub(crate) fn handle_keyboard_input(
 
     let intercept = if is_mod_key {
         false
+    } else if cluster_blocks_key {
+        if pressed && cluster_allowed_action {
+            let mut ms = mod_state.borrow_mut();
+            first_binding_press = ms.intercepted_keys.insert(code);
+            repeat_binding_press = !first_binding_press;
+            if first_binding_press && let Some(action) = matched_action.clone() {
+                ms.intercepted_compositor_actions.insert(code, action);
+            }
+        } else if !pressed {
+            let mut ms = mod_state.borrow_mut();
+            let intercepted = ms.intercepted_keys.remove(&code);
+            if intercepted {
+                if let Some(action) = ms.intercepted_compositor_actions.remove(&code)
+                    && apply_compositor_action_release(st, action)
+                {
+                    backend.request_redraw();
+                }
+            } else {
+                ms.intercepted_compositor_actions.remove(&code);
+            }
+        }
+        true
     } else if pressed {
         if matched_binding {
             let mut ms = mod_state.borrow_mut();
@@ -209,10 +281,6 @@ pub(crate) fn handle_pointer_axis_input(
     relative_direction_horizontal: AxisRelativeDirection,
     relative_direction_vertical: AxisRelativeDirection,
 ) {
-    if st.has_active_cluster_workspace() {
-        return;
-    }
-
     let mut steps = (amount_v120_vertical.unwrap_or(0.0) as f32) / 120.0;
     if steps.abs() < f32::EPSILON {
         let px = amount_vertical.unwrap_or(0.0) as f32;

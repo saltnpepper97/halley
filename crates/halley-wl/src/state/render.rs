@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
 
 use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
@@ -81,6 +82,47 @@ pub(crate) struct PreviewHoverState {
     pub(crate) mix: f32,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct OverlayBannerState {
+    pub(crate) title: String,
+    pub(crate) subtitle: Option<String>,
+    pub(crate) visible: bool,
+    pub(crate) mix: f32,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct OverlayBannerSnapshot {
+    pub(crate) title: String,
+    pub(crate) subtitle: Option<String>,
+    pub(crate) mix: f32,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct OverlayToastState {
+    pub(crate) message: Option<String>,
+    pub(crate) visible_until_ms: u64,
+    pub(crate) mix: f32,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct OverlayToastSnapshot {
+    pub(crate) message: String,
+    pub(crate) mix: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ClusterBloomAnimState {
+    pub(crate) cluster_id: Option<ClusterId>,
+    pub(crate) visible: bool,
+    pub(crate) mix: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ClusterBloomAnimSnapshot {
+    pub(crate) cluster_id: ClusterId,
+    pub(crate) mix: f32,
+}
+
 pub(crate) struct RenderState {
     pub animator: Animator,
 
@@ -89,7 +131,11 @@ pub(crate) struct RenderState {
     pub(crate) node_preview_hover: HashMap<String, PreviewHoverState>,
     pub(crate) bearings_visible: bool,
     pub(crate) bearings_mix: HashMap<String, f32>,
+    pub(crate) cluster_bloom_mix: HashMap<String, ClusterBloomAnimState>,
+    pub(crate) overlay_banner: Option<OverlayBannerState>,
+    pub(crate) overlay_toast: Option<OverlayToastState>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
+    pub(crate) node_circle_program: Option<GlesTexProgram>,
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
     pub(crate) node_label_program: Option<GlesTexProgram>,
 
@@ -135,6 +181,11 @@ impl Halley {
         self.render_state.bearings_mix.retain(|monitor, mix| {
             self.monitor_state.monitors.contains_key(monitor) || *mix > 0.002
         });
+        self.render_state
+            .cluster_bloom_mix
+            .retain(|monitor, state| {
+                self.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
+            });
         self.prune_window_offscreen_cache(now);
     }
 
@@ -162,6 +213,7 @@ impl Halley {
             return logical;
         }
         if self.focus_state.primary_interaction_focus == Some(id)
+            || self.interaction_state.drag_authority_node == Some(id)
             || self.companion_surface_node(now_ms) == Some(id)
             || self.is_recently_interacted_surface(id, now_ms)
         {
@@ -306,8 +358,122 @@ impl Halley {
         *mix
     }
 
+    pub(crate) fn cluster_bloom_snapshot_for_monitor(
+        &mut self,
+        monitor: &str,
+    ) -> Option<ClusterBloomAnimSnapshot> {
+        let target_cluster = self
+            .cluster_state.cluster_bloom_open
+            .get(monitor)
+            .copied();
+        let state = self
+            .render_state
+            .cluster_bloom_mix
+            .entry(monitor.to_string())
+            .or_default();
+        if let Some(cid) = target_cluster
+            && state.cluster_id != Some(cid)
+        {
+            state.cluster_id = Some(cid);
+            if state.mix < 0.08 {
+                state.mix = 0.0;
+            }
+        }
+        state.visible = target_cluster.is_some();
+        let target = if state.visible { 1.0 } else { 0.0 };
+        let k = if target > 0.5 { 0.26 } else { 0.22 };
+        state.mix += (target - state.mix) * k;
+        if (state.mix - target).abs() < 0.01 {
+            state.mix = target;
+        }
+        if target <= 0.0 && state.mix <= 0.01 {
+            state.cluster_id = None;
+            return None;
+        }
+        state.cluster_id.map(|cluster_id| ClusterBloomAnimSnapshot {
+            cluster_id,
+            mix: state.mix.clamp(0.0, 1.0),
+        })
+    }
+
     pub fn set_app_focused(&mut self, focused: bool) {
         self.focus_state.app_focused = focused;
+    }
+
+    pub fn set_persistent_mode_banner(&mut self, title: &str, subtitle: Option<&str>) {
+        let state = self
+            .render_state
+            .overlay_banner
+            .get_or_insert_with(|| OverlayBannerState {
+                title: String::new(),
+                subtitle: None,
+                visible: false,
+                mix: 0.0,
+            });
+        state.title = title.to_string();
+        state.subtitle = subtitle.map(str::to_string);
+        state.visible = true;
+    }
+
+    pub fn clear_persistent_mode_banner(&mut self) {
+        if let Some(state) = self.render_state.overlay_banner.as_mut() {
+            state.visible = false;
+        }
+    }
+
+    pub(crate) fn persistent_mode_banner_snapshot(&mut self) -> Option<OverlayBannerSnapshot> {
+        let state = self.render_state.overlay_banner.as_mut()?;
+        let target = if state.visible { 1.0 } else { 0.0 };
+        let k = if target > 0.5 { 0.26 } else { 0.18 };
+        state.mix += (target - state.mix) * k;
+        if (state.mix - target).abs() < 0.01 {
+            state.mix = target;
+        }
+        if target <= 0.0 && state.mix <= 0.01 {
+            self.render_state.overlay_banner = None;
+            return None;
+        }
+        Some(OverlayBannerSnapshot {
+            title: state.title.clone(),
+            subtitle: state.subtitle.clone(),
+            mix: state.mix,
+        })
+    }
+
+    pub fn show_overlay_toast(&mut self, message: &str, duration_ms: u64, now: Instant) {
+        let now_ms = self.now_ms(now);
+        let toast = self
+            .render_state
+            .overlay_toast
+            .get_or_insert_with(Default::default);
+        toast.message = Some(message.to_string());
+        toast.visible_until_ms = now_ms.saturating_add(duration_ms.max(1));
+        if toast.mix < 0.12 {
+            toast.mix = 0.0;
+        }
+    }
+
+    pub(crate) fn overlay_toast_snapshot(&mut self, now: Instant) -> Option<OverlayToastSnapshot> {
+        let now_ms = self.now_ms(now);
+        let toast = self.render_state.overlay_toast.as_mut()?;
+        let target = if toast.message.is_some() && now_ms < toast.visible_until_ms {
+            1.0
+        } else {
+            0.0
+        };
+        let k = if target > 0.5 { 0.30 } else { 0.18 };
+        toast.mix += (target - toast.mix) * k;
+        if (toast.mix - target).abs() < 0.01 {
+            toast.mix = target;
+        }
+        if target <= 0.0 && toast.mix <= 0.01 {
+            self.render_state.overlay_toast = None;
+            return None;
+        }
+        Some(OverlayToastSnapshot {
+            message: toast.message.clone().unwrap_or_default(),
+            mix: toast.mix,
+        })
     }
 
     pub fn tick_animator_frame(&mut self, now: Instant) {
@@ -365,13 +531,29 @@ impl Halley {
                 halley_core::field::Vec2 { x: 0.0, y: 0.0 };
             self.interaction_state.grabbed_edge_pan_monitor = None;
             self.assign_node_to_monitor(node_id, active_drag.pointer_monitor.as_str());
-            self.carry_surface_non_overlap(node_id, desired_to, false)
+            let clamped_to = self
+                .dragged_node_cluster_core_clamp(
+                    active_drag.pointer_monitor.as_str(),
+                    node_id,
+                    desired_to,
+                )
+                .map(|(clamped, _, _)| clamped)
+                .unwrap_or(desired_to);
+            self.carry_surface_non_overlap(node_id, clamped_to, false)
         } else if !active_drag.edge_pan_eligible {
             self.interaction_state.grabbed_edge_pan_active = false;
             self.interaction_state.grabbed_edge_pan_direction =
                 halley_core::field::Vec2 { x: 0.0, y: 0.0 };
             self.interaction_state.grabbed_edge_pan_monitor = None;
-            self.carry_surface_non_overlap(node_id, desired_to, false)
+            let clamped_to = self
+                .dragged_node_cluster_core_clamp(
+                    active_drag.pointer_monitor.as_str(),
+                    node_id,
+                    desired_to,
+                )
+                .map(|(clamped, _, _)| clamped)
+                .unwrap_or(desired_to);
+            self.carry_surface_non_overlap(node_id, clamped_to, false)
         } else if let Some((clamped_center, edge_contact)) = self.dragged_node_edge_pan_clamp(
             active_drag.pointer_monitor.as_str(),
             node_id,
@@ -430,8 +612,13 @@ impl Halley {
                 }
             }
 
+            let drag_monitor = active_drag.pointer_monitor.clone();
             self.interaction_state.active_drag = Some(active_drag);
-            self.carry_surface_non_overlap(node_id, to, false)
+            let clamped_to = self
+                .dragged_node_cluster_core_clamp(drag_monitor.as_str(), node_id, to)
+                .map(|(clamped, _, _)| clamped)
+                .unwrap_or(to);
+            self.carry_surface_non_overlap(node_id, clamped_to, false)
         } else {
             self.interaction_state.active_drag = None;
             self.interaction_state.grabbed_edge_pan_active = false;

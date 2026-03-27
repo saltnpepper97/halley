@@ -25,6 +25,7 @@ use super::utils::{
 use crate::animation::ease_in_out_cubic;
 
 const NODE_SQUIRCLE_SHADER: &str = include_str!("shaders/node_squircle_shader.frag");
+const NODE_CIRCLE_SHADER: &str = include_str!("shaders/node_circle_shader.frag");
 
 const NODE_LABEL_SHADER: &str = include_str!("shaders/node_label_rounded_shader.frag");
 
@@ -67,6 +68,16 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
+    if st.render_state.node_circle_program.is_none() {
+        st.render_state.node_circle_program = Some(renderer.compile_custom_texture_shader(
+            NODE_CIRCLE_SHADER,
+            &[
+                UniformName::new("node_color", UniformType::_4f),
+                UniformName::new("fill_color", UniformType::_4f),
+            ],
+        )?);
+    }
+
     if st.render_state.node_label_program.is_none() {
         st.render_state.node_label_program = Some(renderer.compile_custom_texture_shader(
             NODE_LABEL_SHADER,
@@ -89,6 +100,7 @@ fn draw_shader_circle(
     cx: i32,
     cy: i32,
     radius: i32,
+    round_shape: NodeRoundShape,
     alpha: f32,
     border_color: Color32F,
     fill_color: Color32F,
@@ -97,7 +109,11 @@ fn draw_shader_circle(
     let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.render_state.node_squircle_program.as_ref() else {
+    let program = match round_shape {
+        NodeRoundShape::Circle => st.render_state.node_circle_program.as_ref(),
+        NodeRoundShape::Squircle => st.render_state.node_squircle_program.as_ref(),
+    };
+    let Some(program) = program else {
         return Ok(());
     };
 
@@ -146,6 +162,12 @@ fn draw_shader_circle(
     )?;
 
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum NodeRoundShape {
+    Circle,
+    Squircle,
 }
 
 fn draw_shader_label(
@@ -414,6 +436,7 @@ pub(crate) fn draw_node_markers(
         };
         let (sx, sy) = world_to_screen(st, size.w, size.h, p.x, p.y);
         let hovered = hover_node == Some(id);
+        let is_core = *node_state == halley_core::field::NodeState::Core;
         let hover_mix = ease_in_out_cubic(st.node_label_hover_mix(id, hovered));
         let border_mix = ease_in_out_cubic(((0.304 - anim.scale) / 0.004).clamp(0.0, 1.0));
         let icon_mix = st
@@ -427,12 +450,26 @@ pub(crate) fn draw_node_markers(
             .unwrap_or(0.0);
 
         let (dot_half, _, _, _) = node_marker_metrics(st, node_label.len(), anim.scale);
-        let render_radius = (dot_half as f32 * 1.5).round() as i32;
+        let render_radius = if is_core {
+            (dot_half as f32 * 1.68).round() as i32
+        } else {
+            (dot_half as f32 * 1.5).round() as i32
+        };
+        let proxy_radius = if is_core {
+            render_radius.max(dot_half)
+        } else {
+            let diameter =
+                node_render_diameter_px(st, intrinsic_size, node_label.len(), anim.scale).round()
+                    as i32;
+            (diameter / 2).max(dot_half)
+        };
+        let round_shape = if is_core {
+            NodeRoundShape::Circle
+        } else {
+            NodeRoundShape::Squircle
+        };
 
         if proxy_mix > 0.01 && border_mix < 0.99 {
-            let diameter = node_render_diameter_px(st, intrinsic_size, node_label.len(), anim.scale)
-                .round() as i32;
-            let proxy_radius = (diameter / 2).max(dot_half);
             let proxy_col = Color32F::new(0.84, 0.89, 0.95, 0.0);
             draw_shader_circle(
                 frame,
@@ -440,6 +477,7 @@ pub(crate) fn draw_node_markers(
                 sx,
                 sy,
                 proxy_radius,
+                round_shape,
                 1.0 - border_mix,
                 proxy_col,
                 proxy_col,
@@ -466,6 +504,7 @@ pub(crate) fn draw_node_markers(
                 sx,
                 sy,
                 render_radius,
+                round_shape,
                 border_mix,
                 node_color,
                 fill_color,

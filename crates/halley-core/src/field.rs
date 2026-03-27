@@ -458,6 +458,71 @@ impl Field {
             .find_map(|(&cid, c)| (c.core == Some(core)).then_some(cid))
     }
 
+    pub fn cluster_id_for_member_public(&self, member: NodeId) -> Option<ClusterId> {
+        self.clusters
+            .iter()
+            .find_map(|(&cid, c)| c.members.contains(&member).then_some(cid))
+    }
+
+    pub fn add_member_to_cluster(&mut self, id: ClusterId, member: NodeId) -> bool {
+        if self.node(member).is_none() || self.cluster_id_for_member_public(member).is_some() {
+            return false;
+        }
+        let Some(cluster) = self.clusters.get_mut(&id) else {
+            return false;
+        };
+        if cluster.members.contains(&member) {
+            return false;
+        }
+        cluster.members.push(member);
+        true
+    }
+
+    pub fn remove_member_from_cluster(&mut self, id: ClusterId, member: NodeId) -> bool {
+        let Some(cluster) = self.clusters.get_mut(&id) else {
+            return false;
+        };
+        let before = cluster.members.len();
+        cluster.members.retain(|&id| id != member);
+        if let Some(active) = cluster.active.as_mut() {
+            active.weights.remove(&member);
+            if let Some(majors) = active.majors_override.as_mut() {
+                majors.retain(|&id| id != member);
+                if majors.is_empty() {
+                    active.majors_override = None;
+                }
+            }
+        }
+        before != cluster.members.len()
+    }
+
+    pub fn sync_cluster_core_from_members(&mut self, id: ClusterId) -> Option<NodeId> {
+        let (members, core_id) = {
+            let cluster = self.clusters.get(&id)?;
+            (cluster.members.clone(), cluster.core)
+        };
+        if members.is_empty() {
+            return core_id;
+        }
+        let mut sum = Vec2 { x: 0.0, y: 0.0 };
+        for member in &members {
+            let node = self.node(*member)?;
+            sum.x += node.pos.x;
+            sum.y += node.pos.y;
+        }
+        let len = members.len() as f32;
+        let center = Vec2 {
+            x: sum.x / len,
+            y: sum.y / len,
+        };
+        if let Some(core_id) = core_id
+            && let Some(node) = self.node_mut(core_id)
+        {
+            node.pos = center;
+        }
+        core_id
+    }
+
     /// Drag the cluster by its core handle.
     pub fn carry_cluster_by_core(&mut self, core: NodeId, to: Vec2) -> bool {
         let cid = match self.cluster_id_for_core_public(core) {

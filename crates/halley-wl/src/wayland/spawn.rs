@@ -465,6 +465,13 @@ impl Halley {
             .get(&id)
             .cloned()
             .unwrap_or_else(|| self.focused_monitor().to_string());
+        if self.active_cluster_workspace_for_monitor(monitor.as_str()).is_some() {
+            self.mark_active_transition(id, now, 620);
+            self.record_focus_trail_visit(id);
+            self.focus_state.suppress_trail_record_once = true;
+            self.set_interaction_focus(Some(id), 30_000, now);
+            return;
+        }
         let should_pan = match self.tuning.pan_to_new {
             PanToNewMode::Never => false,
             PanToNewMode::Always => true,

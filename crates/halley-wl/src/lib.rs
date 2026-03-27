@@ -4,6 +4,7 @@ pub(crate) mod backend;
 pub(crate) mod input;
 pub(crate) mod interaction;
 pub(crate) mod ipc;
+pub(crate) mod overlay;
 pub mod render;
 pub mod run;
 pub(crate) mod spatial;

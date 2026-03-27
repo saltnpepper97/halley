@@ -70,6 +70,7 @@ pub enum CompositorBindingAction {
     Reload,
     ToggleState,
     CloseFocusedWindow,
+    ClusterMode,
     Quit { requires_shift: bool },
     ZoomIn,
     ZoomOut,

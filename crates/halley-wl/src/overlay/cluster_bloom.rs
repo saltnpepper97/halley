@@ -1,0 +1,322 @@
+use std::error::Error;
+use std::f32::consts::{PI, TAU};
+
+use smithay::{
+    backend::renderer::{
+        Color32F, Texture,
+        gles::{GlesFrame, Uniform},
+    },
+    utils::{Buffer, Physical, Rectangle, Transform},
+};
+
+use crate::render::app_icon::{ensure_app_icon_resources_for_node_ids, node_app_icon_entry};
+use crate::render::utils::{bitmap_text_size, draw_bitmap_text, world_to_screen};
+use crate::state::{ClusterBloomAnimSnapshot, Halley};
+
+#[derive(Clone, Copy)]
+pub(crate) struct BloomTokenLayout {
+    pub(crate) cluster_id: halley_core::cluster::ClusterId,
+    pub(crate) member_id: halley_core::field::NodeId,
+    pub(crate) center_sx: i32,
+    pub(crate) center_sy: i32,
+    pub(crate) token_radius: i32,
+    pub(crate) core_sx: i32,
+    pub(crate) core_sy: i32,
+}
+
+pub(crate) fn ensure_cluster_bloom_icon_resources(
+    renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+    st: &mut Halley,
+    monitor: &str,
+) -> Result<(), Box<dyn Error>> {
+    let ids = cluster_bloom_layouts(st, 1, 1, monitor)
+        .into_iter()
+        .map(|layout| layout.member_id);
+    ensure_app_icon_resources_for_node_ids(renderer, st, ids)
+}
+
+pub(crate) fn cluster_bloom_layouts(
+    st: &Halley,
+    screen_w: i32,
+    screen_h: i32,
+    monitor: &str,
+) -> Vec<BloomTokenLayout> {
+    let Some(cid) = st.cluster_state.cluster_bloom_open.get(monitor).copied() else {
+        return Vec::new();
+    };
+    cluster_bloom_layouts_for_cluster(
+        st,
+        screen_w,
+        screen_h,
+        ClusterBloomAnimSnapshot {
+            cluster_id: cid,
+            mix: 1.0,
+        },
+        monitor,
+    )
+}
+
+fn cluster_bloom_layouts_for_cluster(
+    st: &Halley,
+    screen_w: i32,
+    screen_h: i32,
+    snapshot: ClusterBloomAnimSnapshot,
+    monitor: &str,
+) -> Vec<BloomTokenLayout> {
+    if st.active_cluster_workspace_for_monitor(monitor).is_some() {
+        return Vec::new();
+    }
+    let Some(cluster) = st.field.cluster(snapshot.cluster_id) else {
+        return Vec::new();
+    };
+    if !cluster.is_collapsed() {
+        return Vec::new();
+    }
+    let Some(core_id) = cluster.core else {
+        return Vec::new();
+    };
+    let Some(core) = st.field.node(core_id) else {
+        return Vec::new();
+    };
+
+    let (core_sx, core_sy) =
+        world_to_screen(st, screen_w.max(1), screen_h.max(1), core.pos.x, core.pos.y);
+    let mut members = cluster.members.clone();
+    members.sort_by_key(|id| id.as_u64());
+    let count = members.len().max(1);
+    let token_radius = 24;
+    let token_diameter = token_radius as f32 * 2.0;
+    let min_slots = 10usize;
+    let slots = count.max(min_slots);
+    let angle_step = TAU / slots as f32;
+    let min_chord = token_diameter + 18.0;
+    let bloom_radius = (min_chord / (2.0 * (angle_step * 0.5).sin()).max(0.20)).max(84.0)
+        + (count as f32 - 1.0).min(5.0) * 3.0;
+    let direction = match st.tuning.cluster_bloom_direction {
+        halley_config::ClusterBloomDirection::Clockwise => 1.0,
+        halley_config::ClusterBloomDirection::CounterClockwise => -1.0,
+    };
+    let mix = snapshot.mix.clamp(0.0, 1.0);
+    let eased = mix * mix * (3.0 - 2.0 * mix);
+
+    members
+        .into_iter()
+        .enumerate()
+        .map(|(index, member_id)| {
+            let angle = -PI * 0.5 + direction * (angle_step * index as f32);
+            let radial_dx = angle.cos() * bloom_radius * eased;
+            let radial_dy = angle.sin() * bloom_radius * eased;
+            let center_sx = (core_sx as f32 + radial_dx).round() as i32;
+            let center_sy = (core_sy as f32 + radial_dy).round() as i32;
+            BloomTokenLayout {
+                cluster_id: snapshot.cluster_id,
+                member_id,
+                center_sx,
+                center_sy,
+                token_radius,
+                core_sx,
+                core_sy,
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn bloom_token_hit_test(
+    st: &Halley,
+    screen_w: i32,
+    screen_h: i32,
+    monitor: &str,
+    sx: f32,
+    sy: f32,
+) -> Option<BloomTokenLayout> {
+    cluster_bloom_layouts(st, screen_w, screen_h, monitor)
+        .into_iter()
+        .find(|layout| {
+            let dx = sx - layout.center_sx as f32;
+            let dy = sy - layout.center_sy as f32;
+            dx * dx + dy * dy <= (layout.token_radius * layout.token_radius) as f32
+        })
+}
+
+pub(crate) fn draw_cluster_bloom(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &mut Halley,
+    screen_w: i32,
+    screen_h: i32,
+    monitor: &str,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(snapshot) = st.cluster_bloom_snapshot_for_monitor(monitor) else {
+        draw_cluster_join_affordance(frame, st, screen_w, screen_h, monitor, damage)?;
+        return Ok(());
+    };
+    let bloom_alpha = snapshot.mix.clamp(0.0, 1.0);
+    for layout in cluster_bloom_layouts_for_cluster(st, screen_w, screen_h, snapshot, monitor) {
+        draw_bloom_token(frame, st, &layout, bloom_alpha, damage)?;
+    }
+    draw_cluster_join_affordance(frame, st, screen_w, screen_h, monitor, damage)?;
+    Ok(())
+}
+
+fn draw_bloom_token(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &Halley,
+    layout: &BloomTokenLayout,
+    alpha: f32,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    if alpha <= 0.01 {
+        return Ok(());
+    }
+    let pull_mix = st
+        .interaction_state
+        .bloom_pull_preview
+        .as_ref()
+        .filter(|preview| {
+            preview.cluster_id == layout.cluster_id && preview.member_id == layout.member_id
+        })
+        .map(|preview| preview.mix)
+        .unwrap_or(0.0);
+    let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
+        return Ok(());
+    };
+    let Some(program) = st.render_state.node_circle_program.as_ref() else {
+        return Ok(());
+    };
+    let radius = (layout.token_radius as f32 + 5.0 * pull_mix)
+        .round()
+        .max(1.0) as i32;
+    let diameter = radius * 2;
+    let dest = Rectangle::<i32, Physical>::new(
+        (layout.center_sx - radius, layout.center_sy - radius).into(),
+        (diameter, diameter).into(),
+    );
+    let src = Rectangle::<f64, Buffer>::new(
+        (0.0, 0.0).into(),
+        (texture.size().w as f64, texture.size().h as f64).into(),
+    );
+    let uniforms = [
+        Uniform::new("node_color", (0.12f32, 0.16f32, 0.20f32, 0.0f32)),
+        Uniform::new("fill_color", (0.95f32, 0.97f32, 0.99f32, 1.0f32)),
+    ];
+    frame.render_texture_from_to(
+        texture,
+        src,
+        dest,
+        &[damage],
+        &[],
+        Transform::Normal,
+        alpha,
+        Some(program),
+        &uniforms,
+    )?;
+
+    if st.tuning.cluster_show_icons
+        && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
+            node_app_icon_entry(st, layout.member_id)
+    {
+        let side = (diameter as f32 * 0.64).round() as i32;
+        let icon_dest = Rectangle::<i32, Physical>::new(
+            (layout.center_sx - side / 2, layout.center_sy - side / 2).into(),
+            (side, side).into(),
+        );
+        let icon_src = Rectangle::<f64, Buffer>::new(
+            (0.0, 0.0).into(),
+            (icon.width as f64, icon.height as f64).into(),
+        );
+        frame.render_texture_from_to(
+            &icon.texture,
+            icon_src,
+            icon_dest,
+            &[damage],
+            &[],
+            Transform::Normal,
+            alpha,
+            None,
+            &[],
+        )?;
+        return Ok(());
+    }
+
+    let fallback = st
+        .node_app_ids
+        .get(&layout.member_id)
+        .map(String::as_str)
+        .or_else(|| st.field.node(layout.member_id).map(|n| n.label.as_str()))
+        .unwrap_or("?");
+    let glyph = fallback
+        .chars()
+        .find(|ch| ch.is_ascii_alphanumeric())
+        .unwrap_or('?')
+        .to_ascii_uppercase()
+        .to_string();
+    let scale = 2;
+    let (text_w, text_h) = bitmap_text_size(&glyph, scale);
+    draw_bitmap_text(
+        frame,
+        layout.center_sx - text_w / 2,
+        layout.center_sy - text_h / 2,
+        &glyph,
+        scale,
+        Color32F::new(0.16, 0.20, 0.24, alpha),
+        damage,
+    )?;
+    Ok(())
+}
+
+fn draw_cluster_join_affordance(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &Halley,
+    screen_w: i32,
+    screen_h: i32,
+    monitor: &str,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(candidate) = st.interaction_state.cluster_join_candidate.as_ref() else {
+        return Ok(());
+    };
+    if candidate.monitor != monitor {
+        return Ok(());
+    }
+    let Some(cluster) = st.field.cluster(candidate.cluster_id) else {
+        return Ok(());
+    };
+    let Some(core_id) = cluster.core else {
+        return Ok(());
+    };
+    let Some(core) = st.field.node(core_id) else {
+        return Ok(());
+    };
+    let (sx, sy) = world_to_screen(st, screen_w, screen_h, core.pos.x, core.pos.y);
+    let radius = 30;
+    let rect = Rectangle::<i32, Physical>::new(
+        (sx - radius, sy - radius).into(),
+        (radius * 2, radius * 2).into(),
+    );
+    let Some(texture) = st.render_state.node_circle_texture.as_ref() else {
+        return Ok(());
+    };
+    let Some(program) = st.render_state.node_circle_program.as_ref() else {
+        return Ok(());
+    };
+    let src = Rectangle::<f64, Buffer>::new(
+        (0.0, 0.0).into(),
+        (texture.size().w as f64, texture.size().h as f64).into(),
+    );
+    let uniforms = [
+        Uniform::new("node_color", (0.17f32, 0.77f32, 0.70f32, 0.08f32)),
+        Uniform::new("fill_color", (0.17f32, 0.77f32, 0.70f32, 0.05f32)),
+    ];
+    frame.render_texture_from_to(
+        texture,
+        src,
+        rect,
+        &[damage],
+        &[],
+        Transform::Normal,
+        0.9,
+        Some(program),
+        &uniforms,
+    )?;
+    Ok(())
+}

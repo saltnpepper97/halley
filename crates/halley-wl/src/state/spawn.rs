@@ -124,6 +124,15 @@ impl Halley {
             if self.preserve_collapsed_surface(id) {
                 continue;
             }
+            let node_monitor = self
+                .monitor_state
+                .node_monitor
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| self.monitor_state.current_monitor.clone());
+            let cluster_local = self
+                .active_cluster_workspace_for_monitor(node_monitor.as_str())
+                .is_some();
             let _ = self.field.set_decay_level(id, DecayLevel::Hot);
             if let Some((_, _, w, h)) = self.render_state.window_geometry.get(&id) {
                 self.workspace_state
@@ -131,8 +140,10 @@ impl Halley {
                     .insert(id, Vec2 { x: *w, y: *h });
             }
             self.mark_active_transition(id, now, 620);
-            self.record_focus_trail_visit(id);
-            self.focus_state.suppress_trail_record_once = true;
+            if !cluster_local {
+                self.record_focus_trail_visit(id);
+                self.focus_state.suppress_trail_record_once = true;
+            }
             self.set_interaction_focus(Some(id), 30_000, now);
         }
     }

@@ -411,6 +411,9 @@ impl Halley {
         id: NodeId,
         now: Instant,
     ) -> bool {
+        if self.active_cluster_workspace_for_monitor(monitor).is_some() {
+            return false;
+        }
         if !self.tuning.close_restore_focus {
             return false;
         }

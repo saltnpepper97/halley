@@ -101,9 +101,13 @@ end
 
 clusters:
   distance-px 280.0
+  bloom-direction "clockwise"
+  show-icons true
 end
 
 tile:
+  gaps-inner 20
+  gaps-outer 20
 end
 
 physics:
@@ -138,6 +142,9 @@ keybinds:
   # switch monitor focus
   "$var.mod+shift+h" "monitor-focus left"
   "$var.mod+shift+l" "monitor-focus right"
+
+  # cluster mode
+  "$var.mod+shift+c" "cluster-mode"
 
   # bearings
   "$var.mod+z" "bearings-show"

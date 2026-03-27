@@ -40,6 +40,7 @@ use crate::activity::CommitActivity;
 use crate::animation::{AnimSpec, Animator};
 use crate::backend::interface::DmabufImportBackend;
 use crate::state::carry::CarryState;
+use crate::state::clusters::ClusterState;
 use crate::state::focus::FocusState;
 use crate::state::fullscreen::FullscreenState;
 use crate::state::interaction::InteractionState;
@@ -50,6 +51,7 @@ use crate::state::workspace::WorkspaceState;
 
 mod carry;
 mod client;
+mod clusters;
 mod focus;
 mod fullscreen;
 mod interaction;
@@ -61,8 +63,14 @@ mod workspace;
 
 pub use client::ClientState;
 pub(crate) use fullscreen::{FullscreenMotion, FullscreenScaleAnim, FullscreenSessionEntry};
-pub(crate) use interaction::{ActiveDragState, ViewportPanAnim};
-pub(crate) use render::{NodeAppIconCacheEntry, NodeAppIconTexture};
+pub(crate) use interaction::{
+    ActiveDragState, BloomPullPreview, ClusterJoinCandidate, PendingCoreClick,
+    PendingCorePress, ViewportPanAnim,
+};
+pub(crate) use render::{
+    ClusterBloomAnimSnapshot, NodeAppIconCacheEntry, NodeAppIconTexture, OverlayBannerSnapshot,
+    OverlayToastSnapshot,
+};
 pub(crate) use spawn::{
     ActiveSpawnPan, MonitorSpawnState, PendingSpawnPan, SpawnAnchorMode, SpawnPatch,
 };
@@ -92,6 +100,7 @@ pub struct Halley {
     pub(crate) carry_state: CarryState,
     pub(crate) monitor_state: MonitorState,
     pub(crate) focus_state: FocusState,
+    pub(crate) cluster_state: ClusterState,
     pub(crate) workspace_state: WorkspaceState,
     pub(crate) interaction_state: InteractionState,
     pub(crate) render_state: RenderState,
@@ -281,11 +290,20 @@ impl Halley {
                 recent_top_until: None,
             },
 
-            workspace_state: WorkspaceState {
+            cluster_state: ClusterState {
                 cluster_form_state: ClusterFormationState::default(),
-                active_cluster_workspace: None,
-                workspace_hidden_nodes: Vec::new(),
-                workspace_prev_viewport: None,
+                active_cluster_workspaces: HashMap::new(),
+                cluster_bloom_open: HashMap::new(),
+                cluster_mode_active: false,
+                cluster_mode_selected_nodes: HashSet::new(),
+                workspace_hidden_nodes: HashMap::new(),
+                workspace_prev_viewports: HashMap::new(),
+                cluster_overflow_members: HashMap::new(),
+                cluster_overflow_rects: HashMap::new(),
+                cluster_overflow_visible_until_ms: HashMap::new(),
+            },
+
+            workspace_state: WorkspaceState {
                 last_active_size: HashMap::new(),
                 manual_collapsed_nodes: HashSet::new(),
                 active_transition_until_ms: HashMap::new(),
@@ -300,7 +318,11 @@ impl Halley {
                 node_preview_hover: HashMap::new(),
                 bearings_visible: false,
                 bearings_mix: HashMap::new(),
+                cluster_bloom_mix: HashMap::new(),
+                overlay_banner: None,
+                overlay_toast: None,
                 node_circle_texture: None,
+                node_circle_program: None,
                 node_squircle_program: None,
                 node_label_program: None,
 
@@ -340,6 +362,10 @@ impl Halley {
                 viewport_pan_anim: None,
                 pan_dominant_until_ms: 0,
                 active_drag: None,
+                cluster_join_candidate: None,
+                bloom_pull_preview: None,
+                pending_core_press: None,
+                pending_core_click: None,
                 grabbed_edge_pan_active: false,
                 grabbed_edge_pan_direction: Vec2 { x: 0.0, y: 0.0 },
                 grabbed_edge_pan_monitor: None,
@@ -530,6 +556,15 @@ impl Halley {
         {
             consider(at_ms);
         }
+        if let Some(deadline_ms) = self
+            .interaction_state
+            .pending_core_click
+            .as_ref()
+            .map(|pending| pending.deadline_ms)
+            && deadline_ms > now_ms
+        {
+            consider(deadline_ms);
+        }
         if self.tuning.debug_tick_dump {
             consider(
                 now_ms.saturating_add(
@@ -567,10 +602,24 @@ impl Halley {
         self.reconcile_surface_bindings();
         let now_ms = now.duration_since(self.started_at).as_millis() as u64;
         let _ = self.recent_top_node_active(now);
-        if self.workspace_state.active_cluster_workspace.is_some() {
-            self.layout_active_cluster_workspace(now_ms);
-            self.render_state.animator.observe_field(&self.field, now);
-            return;
+        if let Some(pending) = self.interaction_state.pending_core_click.clone()
+            && now_ms >= pending.deadline_ms
+        {
+            self.interaction_state.pending_core_click = None;
+            if let Some(cid) = self.field.cluster_id_for_core_public(pending.node_id) {
+                let _ = self.open_cluster_bloom_for_monitor(pending.monitor.as_str(), cid);
+            }
+        }
+        self.cleanup_empty_clusters();
+        if self.has_any_active_cluster_workspace() {
+            let active_monitors = self
+                .cluster_state.active_cluster_workspaces
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            for monitor in active_monitors {
+                self.layout_active_cluster_workspace_for_monitor(monitor.as_str(), now_ms);
+            }
         }
         if let Some(fid) = self.focus_state.primary_interaction_focus
             && now_ms >= self.focus_state.interaction_focus_until_ms
@@ -668,7 +717,7 @@ impl Halley {
                 dwell_ms: self.tuning.cluster_dwell_ms,
                 ..Default::default()
             },
-            &mut self.workspace_state.cluster_form_state,
+            &mut self.cluster_state.cluster_form_state,
         );
         self.enforce_single_primary_active_unit();
         if !self.interaction_state.suspend_state_checks

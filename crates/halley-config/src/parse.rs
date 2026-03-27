@@ -8,6 +8,7 @@ use super::{
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
 use crate::layout::FocusRingConfig;
 use crate::layout::{
+    ClusterBloomDirection,
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode, PanToNewMode,
     ViewportOutputConfig, ViewportVrrMode, default_compositor_bindings, default_pointer_bindings,
 };
@@ -37,6 +38,7 @@ impl RuntimeTuning {
         load_trail_section(&cfg, &mut out);
         load_nodes_section(&cfg, &mut out);
         load_clusters_section(&cfg, &mut out);
+        load_tile_section(&cfg, &mut out);
         load_decay_section(&cfg, &mut out);
         load_field_section(&cfg, &mut out);
         load_physics_section(&cfg, &mut out);
@@ -546,6 +548,29 @@ fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["clusters.dwell-ms", "clusters.dwell_ms"],
         out.cluster_dwell_ms,
     );
+    out.cluster_show_icons = pick_bool(
+        cfg,
+        &["clusters.show-icons", "clusters.show_icons"],
+        out.cluster_show_icons,
+    );
+    out.cluster_bloom_direction = pick_cluster_bloom_direction(
+        cfg,
+        &["clusters.bloom-direction", "clusters.bloom_direction"],
+        out.cluster_bloom_direction,
+    );
+}
+
+fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.tile_gaps_inner_px = pick_f32(
+        cfg,
+        &["tile.gaps-inner", "tile.gaps_inner", "tile.gap-inner", "tile.gap_inner"],
+        out.tile_gaps_inner_px,
+    );
+    out.tile_gaps_outer_px = pick_f32(
+        cfg,
+        &["tile.gaps-outer", "tile.gaps_outer", "tile.gap-outer", "tile.gap_outer"],
+        out.tile_gaps_outer_px,
+    );
 }
 
 fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -845,6 +870,23 @@ fn pick_click_collapsed_pan_mode(
     }
 }
 
+fn pick_cluster_bloom_direction(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: ClusterBloomDirection,
+) -> ClusterBloomDirection {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "clockwise" | "cw" => ClusterBloomDirection::Clockwise,
+        "counterclockwise" | "counter-clockwise" | "counter_clockwise" | "ccw" => {
+            ClusterBloomDirection::CounterClockwise
+        }
+        _ => default,
+    }
+}
+
 fn parse_viewport_focus_ring(cfg: &RuneConfig, root: &str, key: &str) -> Option<FocusRingConfig> {
     let ring_root = format!("{root}.{key}.focus-ring");
     let rx = pick_f32(
@@ -1105,6 +1147,9 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "close_focused" | "close-focused" | "close_window" | "close-window" => {
             upsert_compositor_binding(out, mods, key, CompositorBindingAction::CloseFocusedWindow);
         }
+        "cluster_mode" | "cluster-mode" => {
+            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ClusterMode);
+        }
         "bearings_show" | "bearings-show" => {
             upsert_compositor_binding(
                 out,
@@ -1318,6 +1363,7 @@ mod tests {
     use super::apply_explicit_keybind_overrides_map;
     use crate::{
         BearingsBindingAction, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
+        ClusterBloomDirection,
         CloseRestorePanMode, CompositorBindingAction, DirectionalAction, MonitorBindingAction,
         MonitorBindingTarget, NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy,
         PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
@@ -1838,6 +1884,61 @@ end
             ClickCollapsedOutsideFocusMode::Ignore
         );
         assert_eq!(tuning.click_collapsed_pan, ClickCollapsedPanMode::Always);
+    }
+
+    #[test]
+    fn tile_gap_settings_parse_from_tile_section() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-tile-gaps-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+tile:
+  gaps-inner 18
+  gaps-outer 26
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.tile_gaps_inner_px, 18.0);
+        assert_eq!(tuning.tile_gaps_outer_px, 26.0);
+    }
+
+    #[test]
+    fn cluster_bloom_settings_parse_from_cluster_section() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-cluster-bloom-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+clusters:
+  bloom-direction "counterclockwise"
+  show-icons false
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(
+            tuning.cluster_bloom_direction,
+            ClusterBloomDirection::CounterClockwise
+        );
+        assert!(!tuning.cluster_show_icons);
     }
 
     #[test]

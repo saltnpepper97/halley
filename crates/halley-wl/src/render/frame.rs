@@ -15,6 +15,10 @@ use smithay::{
 };
 
 use crate::interaction::types::ResizeCtx;
+use crate::overlay::{
+    draw_cluster_bloom, draw_cluster_overflow_strip, draw_cluster_selection_markers,
+    draw_persistent_banner, draw_toast, ensure_cluster_bloom_icon_resources,
+};
 use crate::spatial::node_in_active_area_for_monitor;
 use crate::state::Halley;
 
@@ -164,6 +168,7 @@ pub(crate) fn draw_debug_frame_to_target(
     );
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
     let current_monitor = st.monitor_state.current_monitor.clone();
+    ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
     let offscreen_cleanup_program = renderer
@@ -429,6 +434,26 @@ fn draw_debug_frame_scene(
     if !scene.bearing_layouts.is_empty() {
         draw_bearings(frame, st, prepared.damage, &scene.bearing_layouts)?;
     }
+    let bloom_monitor = st.monitor_state.current_monitor.clone();
+    draw_cluster_bloom(
+        frame,
+        st,
+        size.w,
+        size.h,
+        bloom_monitor.as_str(),
+        prepared.damage,
+    )?;
+    draw_cluster_overflow_strip(
+        frame,
+        st,
+        bloom_monitor.as_str(),
+        prepared.damage,
+        st.now_ms(prepared.now),
+    )?;
+
+    if st.cluster_mode_active() {
+        draw_cluster_selection_markers(frame, st, size.w, size.h, prepared.damage)?;
+    }
 
     draw_node_hover_labels(
         frame,
@@ -458,6 +483,13 @@ fn draw_debug_frame_scene(
             Color32F::new(0.15, 0.85, 0.85, 0.9),
             prepared.damage,
         )?;
+    }
+
+    if let Some(banner) = st.persistent_mode_banner_snapshot() {
+        draw_persistent_banner(frame, st, prepared.damage, &banner)?;
+    }
+    if let Some(toast) = st.overlay_toast_snapshot(prepared.now) {
+        draw_toast(frame, st, size.w, size.h, prepared.damage, &toast)?;
     }
 
     Ok(())
