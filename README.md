@@ -1,101 +1,131 @@
 # Halley
 *Named after Halley's comet — periodic, precise, returning.*
 
-![License](https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square)
-![Status](https://img.shields.io/badge/status-active-brightgreen?style=flat-square)
-![Wayland](https://img.shields.io/badge/display-Wayland-orange?style=flat-square)
-![Build](https://img.shields.io/badge/build-passing-brightgreen?style=flat-square)
-![Rust](https://img.shields.io/badge/language-Rust-orange?style=flat-square)
-
-Halley is a Wayland compositor that reimagines desktop workspaces.
-
-> "Halley — Windows as nodes. Windows as clusters. Windows as your command center."
+![License](https://img.shields.io/badge/license-GPL--3.0--only-blueviolet?style=for-the-badge)
+![Status](https://img.shields.io/badge/status-active-brightgreen?style=for-the-badge)
+![Wayland](https://img.shields.io/badge/display-Wayland-blue?style=for-the-badge)
+![Build](https://img.shields.io/badge/build-passing-success?style=for-the-badge)
+![Rust](https://img.shields.io/badge/language-Rust-orange?style=for-the-badge)
 
 ---
 
-## The Comet
+> **Windows as nodes. Windows as clusters. Windows as your command center.**
 
-Halley's design is inspired by Halley's comet — periodic, precise, and returning. Like a comet with a predictable orbit, Halley brings consistency and elegance to window management.
+Halley is a Wayland compositor built from the ground up for multi-monitor setups. Each display gets its own independent infinite canvas. Windows live as nodes on those canvases, group into clusters you build intentionally, and decay gracefully when they drift out of focus. Inspired by the comet it's named after — periodic, precise, and always returning — Halley makes multi-monitor work feel deliberate rather than chaotic.
 
 ---
 
 ## Concepts
 
-### Field
-An infinite 2D canvas, one per monitor. Everything lives here — nodes, cluster cores, empty space. Zoomable and pannable; gesture support is planned.
+A quick orientation before diving in.
 
-### Nodes
-Windows on the Field. A node is either an open window or a collapsed window. Cluster cores also appear as nodes when collapsed.
-
-### Focus Ring
-An invisible eye-shaped region on your monitor that defines your active area. Windows that fall significantly outside it are candidates for decay. The ring can be made briefly visible via a config option — it fades out after a moment. Fully configurable in size and shape.
-
-### Decay
-When a node sits outside the focus ring beyond a configurable threshold, it decays — dimming or collapsing to reduce clutter. A small overlap tolerance prevents windows that are just barely outside the ring from decaying unexpectedly. Decay is optional and can be disabled entirely.
-
-### Jump
-A keybind-driven action to move a grabbed window across monitors, traversing between Fields.
-
-### Clusters
-Halley's answer to workspaces — contained layouts that exist outside the Field. See [Clusters](#clusters) below.
+| Term | What it is |
+|---|---|
+| **Field** | An infinite 2D canvas, one per monitor. Everything lives here. Zoomable and pannable. |
+| **Node** | A window on the Field — open, collapsed, or a cluster core. |
+| **Focus Ring** | An invisible eye-shaped region defining your active area. Windows outside it are candidates for decay. |
+| **Decay** | Nodes that drift outside the focus ring dim or collapse over time. Optional and configurable. |
+| **Cluster** | Halley's answer to workspaces — a contained layout you build intentionally from a set of windows. |
+| **Core** | The collapsed form of a cluster on the Field. Expands into a petal arrangement of window previews. |
+| **Trail** | History-aware navigation — step backward and forward through recent focus changes. |
+| **Bearings** | A lightweight directional overlay for orienting movement and navigation around the current view. |
+| **Jump** | Move a grabbed window across monitors, traversing between Fields, with a single keybind. |
 
 ---
 
 ## The Field
 
-`hally-core` manages one Field per monitor. The Field is zoomable, pannable, and will support gesture input in a future release. Key properties:
+Multi-monitor is a first-class concept in Halley — not an afterthought. Each monitor gets its own infinite canvas, completely independent from every other display. The Field is zoomable, pannable, and isolated per monitor.
 
-- **Per-monitor** — each display has its own independent infinite canvas
-- **Max windows** — configurable cap on open nodes at once
-- **Decay** — configurable, opt-in clutter management based on focus ring position
-- **Jump** — move grabbed windows between monitors with a keybind
+- **Per-monitor** — displays don't share state; each Field is its own world
+- **Max windows** — configurable cap on open nodes per Field
+- **Decay** — opt-in clutter management based on focus ring position; a small overlap tolerance prevents edge-case false positives
+- **Jump** — grab a window and send it to another monitor's Field with one keybind; `Super+Shift+LeftMouse` for a pointer-driven field jump
+
+The **Focus Ring** is the heart of the Field. It's an invisible eye-shaped region centered on your view — windows that fall significantly outside it over time become candidates for decay. You can make it briefly visible via config; it fades out after a moment. Size and shape are fully configurable.
 
 ---
 
 ## Clusters
 
-Clusters are Halley's answer to workspaces — contained layouts that exist outside the infinite Field. They are not auto-formed; you build them intentionally.
+Clusters are Halley's answer to workspaces — but you build them yourself, intentionally, rather than having them auto-generated.
 
-### Creating a cluster
+### Building a cluster
 
-Enter cluster mode to begin selection. Click or mark the windows you want — they join the cluster. Once formed, the cluster collapses into a **core node** on the Field.
+Enter cluster mode, then click or mark the windows you want to group. Press `Enter` to form the cluster, or `Esc` to cancel and return to the Field. Once formed, the cluster collapses into a **core node** on the Field — a single handle representing the whole group.
 
 ### The core
 
-A core node is the handle for a collapsed cluster. When expanded, its windows fan out in a **petal arrangement** — clockwise or counter-clockwise — as icon-sized previews around the core. From there you can:
+Clicking a core within the focus ring **enters** the cluster. Expanding it fans the windows out in a **petal arrangement** — clockwise or counter-clockwise — as icon-sized previews around the core. From there you can:
 
-- Pull windows out of the cluster into the Field
+- Pull windows out into the Field
 - Bring Field windows in
 - Collapse it back into the core
 
-Clicking a core within the focus ring **enters** the cluster — opening its contained workspace layout.
-
 ### Inside a cluster
 
-Once inside, you are no longer on the Field. The cluster is its own contained space with one of two layout modes:
+Once inside, you leave the Field entirely. The cluster is its own contained space with one of two layout modes:
 
-- **Tiling** — Weighted tiling. Windows arranged by assigned weight and recency.
-- **Stacking** — Windows layered in a navigable stack, similar to a mobile app switcher. Navigate with keybinds, reorder the stack as needed.
+**Tiling** — Weighted tiling. Windows are arranged by assigned weight and recency.
 
-> Clusters are not yet implemented. Planned for a future release.
-
----
-
-## IPC Protocol
-
-Unix socket at `$XDG_RUNTIME_DIR/hally.sock`.
+**Stacking** — Windows layered in a navigable stack, similar to a mobile app switcher. Navigate with keybinds, reorder the stack as needed.
 
 ---
 
-## Xwayland
+## Systems
 
-Via `xwayland-satellite` (on-demand, configurable).
+| System | Description |
+|---|---|
+| **Field** | Per-monitor infinite canvases with zoom and pan |
+| **Clusters** | Core nodes, cluster entry/exit, tiling, stacking, drag reordering |
+| **Focus Ring** | Configurable active region with optional preview |
+| **Decay** | Optional clutter reduction outside the focus ring |
+| **Trail** | Recent-focus navigation — back and forward |
+| **Bearings** | Directional overlays and navigation cues |
+| **Jump / Field Jump** | Fast cross-monitor grabbed-window movement |
+| **IPC** | Unix socket control at `$XDG_RUNTIME_DIR/halley/hally.sock` |
+| **Xwayland** | On-demand support via `xwayland-satellite` |
+
+---
+
+## Default Keybinds
+
+Defaults follow `examples/halley.rune`.
+
+| Category | Keybind | Action |
+|---|---|---|
+| Basic | `Super+Shift+r` | Reload config |
+| Basic | `Super+n` | Toggle state |
+| Basic | `Super+q` | Close focused window |
+| Quit | `Super+Shift+e` | Quit Halley |
+| Zoom | `Super+MouseWheelUp` | Zoom in |
+| Zoom | `Super+MouseWheelDown` | Zoom out |
+| Zoom | `Super+MiddleMouse` | Reset zoom |
+| Move | `Super+h` | Move node left |
+| Move | `Super+l` | Move node right |
+| Move | `Super+k` | Move node up |
+| Move | `Super+j` | Move node down |
+| Monitor | `Super+Shift+h` | Focus monitor left |
+| Monitor | `Super+Shift+l` | Focus monitor right |
+| Clusters | `Super+Shift+c` | Enter cluster mode |
+| Bearings | `Super+z` | Show bearings |
+| Bearings | `Super+Shift+z` | Toggle bearings |
+| Trail | `Super+Shift+,` | Trail previous |
+| Trail | `Super+Shift+.` | Trail next |
+| Launch | `Super+Return` | Launch `kitty` |
+| Launch | `Super+d` | Launch `fuzzel` |
+| Pointer | `Super+LeftMouse` | Move window |
+| Pointer | `Super+RightMouse` | Resize window |
+| Pointer | `Super+Shift+LeftMouse` | Field jump |
+| Media | `XF86AudioRaiseVolume` | Raise volume |
+| Media | `XF86AudioLowerVolume` | Lower volume |
+| Media | `XF86AudioMute` | Toggle mute |
 
 ---
 
 ## Configuration
 
-`crates/hally-config`: keybinds, focus ring, decay threshold, max windows, viewports, autostart.
+Handled by `crates/hally-config`. Covers keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
 
 ---
 
@@ -109,9 +139,3 @@ Tiling geometry, focus decay, cluster entry/exit, core expand/collapse, stack na
 
 **GPL-3.0-only**
 
----
-
-## Status
-
-- **Production** — Development environment active
-- **Clusters** — Coming soon
