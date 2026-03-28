@@ -1,8 +1,17 @@
 mod input_events;
+mod input_keyboard;
+mod input_pointer;
 mod key_actions;
 mod pointer_button;
+mod pointer_core;
+mod pointer_dispatch;
+mod pointer_drag;
 mod pointer_focus;
+mod pointer_frame;
 mod pointer_motion;
+mod pointer_motion_drag;
+mod pointer_motion_resize;
+mod pointer_resize;
 mod resize_helpers;
 mod utils;
 

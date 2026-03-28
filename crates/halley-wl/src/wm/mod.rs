@@ -17,10 +17,13 @@ use crate::render::{DebugScene, build_debug_scene};
 use crate::state::Halley;
 
 mod carry;
+mod cluster_read;
 mod clusters;
 mod focus;
 mod fullscreen;
 mod maintenance;
 pub(crate) mod overlap;
+mod overlap_physics;
+mod overlap_read;
 mod trail;
 mod zoom;

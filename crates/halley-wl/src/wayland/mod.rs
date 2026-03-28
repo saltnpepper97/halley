@@ -50,6 +50,7 @@ use smithay::{
 use crate::state::Halley;
 
 mod handlers;
+mod handlers_xdg;
 mod layer_shell;
 mod spawn;
 mod surface_lifecycle;
