@@ -88,7 +88,10 @@ pub(crate) fn ensure_node_circle_resources(
                 UniformName::new("node_color", UniformType::_4f),
                 UniformName::new("fill_color", UniformType::_4f),
                 UniformName::new("rect_size", UniformType::_2f),
+                UniformName::new("inner_rect_size", UniformType::_2f),
+                UniformName::new("inner_rect_offset", UniformType::_2f),
                 UniformName::new("corner_radius", UniformType::_1f),
+                UniformName::new("inner_corner_radius", UniformType::_1f),
                 UniformName::new("border_px", UniformType::_1f),
             ],
         ) {
@@ -232,7 +235,13 @@ fn draw_shader_label(
             ),
         ),
         Uniform::new("rect_size", (w as f32, h as f32)),
+        Uniform::new(
+            "inner_rect_size",
+            ((w as f32 - border_px * 2.0).max(1.0), (h as f32 - border_px * 2.0).max(1.0)),
+        ),
+        Uniform::new("inner_rect_offset", (border_px.max(0.0), border_px.max(0.0))),
         Uniform::new("corner_radius", corner_radius),
+        Uniform::new("inner_corner_radius", (corner_radius - border_px).max(0.0)),
         Uniform::new("border_px", border_px),
     ];
 

@@ -18,6 +18,11 @@ uniform vec4 border_color;
 uniform vec4 fill_color;
 uniform float content_alpha_scale;
 
+// Geometry rect within the dst (bbox) rect, in pixels relative to dst top-left.
+// When geo_size is zero (old callers / border-only draws) we fall back to rect_size.
+uniform vec2 geo_offset;
+uniform vec2 geo_size;
+
 float rounded_rect_sdf(vec2 p, vec2 size, float radius) {
     vec2 half_size = size * 0.5;
     vec2 q = abs(p) - (half_size - vec2(radius));
@@ -31,20 +36,45 @@ float sdf_alpha(float dist) {
 
 void main() {
     vec2 outer_size = max(rect_size, vec2(1.0));
-    float outer_radius = min(corner_radius, min(outer_size.x, outer_size.y) * 0.5);
-    vec2 p = v_coords * outer_size - outer_size * 0.5;
 
-    float outer_dist = rounded_rect_sdf(p, outer_size, outer_radius);
+    // Pixel position within the dst rect.
+    vec2 px = v_coords * outer_size;
+
+    // ----------------------------------------------------------------
+    // Outer clip: rounded rect of the full dst (border + bbox extent).
+    // ----------------------------------------------------------------
+    float outer_radius = min(corner_radius, min(outer_size.x, outer_size.y) * 0.5);
+    vec2 p_outer = px - outer_size * 0.5;
+    float outer_dist = rounded_rect_sdf(p_outer, outer_size, outer_radius);
     float outer_alpha = sdf_alpha(outer_dist);
     if (outer_alpha <= 0.0) {
         discard;
     }
 
-    float border = clamp(border_px, 0.0, min(outer_size.x, outer_size.y) * 0.5);
-    vec2 inner_size = max(outer_size - vec2(border * 2.0), vec2(1.0));
+    // ----------------------------------------------------------------
+    // Geometry clip: the content lives inside the geometry rect, which
+    // may be inset from the full dst because of CSD shadows / decorations.
+    // We round the geometry rect's corners to clip the actual window
+    // pixels — this is what prevents Firefox et al. from poking past
+    // the border.
+    // ----------------------------------------------------------------
+    vec2 eff_geo_size = (geo_size.x > 0.0 && geo_size.y > 0.0) ? geo_size : outer_size;
+    vec2 eff_geo_offset = (geo_size.x > 0.0 && geo_size.y > 0.0) ? geo_offset : vec2(0.0);
+
+    float border = clamp(border_px, 0.0, min(eff_geo_size.x, eff_geo_size.y) * 0.5);
+    vec2 inner_size = max(eff_geo_size - vec2(border * 2.0), vec2(1.0));
     float inner_radius = max(outer_radius - border, 0.0);
-    float inner_dist = rounded_rect_sdf(p, inner_size, inner_radius);
-    float inner_alpha = border > 0.0 ? sdf_alpha(inner_dist) : outer_alpha;
+
+    // Centre of the geometry rect in dst-pixel space.
+    vec2 geo_center = eff_geo_offset + eff_geo_size * 0.5;
+    vec2 p_inner = px - geo_center;
+
+    float inner_dist = rounded_rect_sdf(p_inner, inner_size, inner_radius);
+    float inner_alpha = (border > 0.0 || eff_geo_size != outer_size)
+        ? sdf_alpha(inner_dist)
+        : outer_alpha;
+
+    // Border occupies the band between the outer clip and the inner geometry clip.
     float border_alpha = max(outer_alpha - inner_alpha, 0.0);
 
     vec4 sampled = texture2D(tex, clamp(v_coords, vec2(0.0), vec2(1.0)));
@@ -62,3 +92,4 @@ void main() {
 
     gl_FragColor = (border_fill + composed) * alpha;
 }
+

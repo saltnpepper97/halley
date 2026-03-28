@@ -62,6 +62,8 @@ fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mut Halley) {
             UniformName::new("border_color", UniformType::_4f),
             UniformName::new("fill_color", UniformType::_4f),
             UniformName::new("content_alpha_scale", UniformType::_1f),
+            UniformName::new("geo_offset", UniformType::_2f),
+            UniformName::new("geo_size", UniformType::_2f),
         ],
     ) {
         Ok(program) => st.ui.render_state.window_texture_program = Some(program),
@@ -638,6 +640,8 @@ fn draw_offscreen_textures(
             Uniform::new("border_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
             Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
             Uniform::new("content_alpha_scale", 1.0f32),
+            Uniform::new("geo_offset", (tex.geo_offset_x, tex.geo_offset_y)),
+            Uniform::new("geo_size", (tex.geo_w, tex.geo_h)),
         ];
 
         frame.render_texture_from_to(
@@ -724,7 +728,13 @@ fn draw_window_borders(
                         ),
                     ),
                     Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
+                    Uniform::new("inner_rect_size", (rect.inner_w, rect.inner_h)),
+                    Uniform::new(
+                        "inner_rect_offset",
+                        (rect.inner_offset_x, rect.inner_offset_y),
+                    ),
                     Uniform::new("corner_radius", rect.corner_radius),
+                    Uniform::new("inner_corner_radius", rect.inner_corner_radius),
                     Uniform::new("border_px", rect.border_px),
                 ];
 
@@ -771,6 +781,9 @@ fn draw_window_borders(
                         ),
                     ),
                     Uniform::new("content_alpha_scale", 0.0f32),
+                    // Border-only draw: no content geo offset needed.
+                    Uniform::new("geo_offset", (0.0f32, 0.0f32)),
+                    Uniform::new("geo_size", (0.0f32, 0.0f32)),
                 ];
 
                 frame.render_texture_from_to(

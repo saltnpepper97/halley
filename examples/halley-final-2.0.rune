@@ -1,0 +1,345 @@
+@author "Dustin Pilgrim"
+@description "Spatial Wayland compositor built around infinite workspace navigation"
+
+# This is RUNE: Readable Unified Notation for Everyone.
+#
+# comments begin with `#`.
+# Blocks start with `name:` and end with `end`.
+# Strings use quotes: "example".
+# Lists use brackets: ["item1", "item2"]
+#
+# Any option set to `None` or `null` is treated internally as
+# either false or null, depending on the field
+#
+# Top-level variables such as these can be reused throughout
+# the configuration file.
+#
+# Environment variables applied to programs launched
+# during Halley's session.
+env:
+  XCURSOR_THEME "Adwaita"
+  XCURSOR_SIZE "24"
+end
+
+# Programs to launch automatically when Halley starts.
+#
+# `once` runs the command only on startup
+# `on-reload` runs whenever the config is reloaded
+#
+# Common examples include bars, notification daemons,
+# clipboard managers, and background utilities.
+#
+autostart:
+  once "mako"
+  once "gessod"
+  once "waybar"
+  once "stasis"
+end
+
+# Cursor appearance and behavior.
+#
+# These settings affect both the compositor cursor
+# and most applications.
+cursor:
+  theme "Adwaita"
+  size 24
+  hide-while-typing true
+end
+
+# Viewports represent physical monitors.
+#
+# Each viewport shows a portion of Halley's infinite
+# spatial field. Each monitor is an entire field
+# of it's own. Windows can traverse monitors
+# via a keybind configured below.
+#
+# Use `halleyctl outputs` to list available monitors.
+#
+viewport:
+  DP-1:
+    enabled true
+    
+    offset-x 0
+    offset-y 0
+    
+    width 2560
+    height 1440
+    
+    rate 180.0
+    transform 0
+    vrr "on"
+
+    focus-ring:
+      primary-rx 1020.0
+      primary-ry 520.0
+      offset-x 0
+      offset-y 0
+    end
+  end
+
+  #DP-2:
+  #  enabled true
+  # 
+  #  offset-x 2560
+  #  offset-y 0
+  #  
+  #  width 1920
+  #  height 1200
+  #  
+  #  rate 75.0
+  #  transform 0
+  #  vrr "off"
+  #
+  #  focus-ring:
+  #    primary-rx 920.0
+  #    primary-ry 520.0
+  #    offset-x 0
+  #    offset-y 0
+  #  end
+  #end
+end
+
+# The Field is Halley's infinite workspace
+#
+# These options control how the camera moves
+# through the field.
+field:
+  gap 20.0
+  active-windows-allowed 5
+  pan-to-new "if-needed"
+  close-restore-focus true
+  close-restore-pan "if-offscreen"
+end
+
+# Nodes are collapsed versions of windows.
+#
+# When windows move far away from the focus ring
+# they may shrink into nodes to reduce clutter.
+nodes:
+  # Display labels when nodes are visible
+  show-labels "hover"
+  show-app-icons "always"
+  icon-size 0.62
+
+  background-colour "auto"
+  border-colour-hover "use-window-active"
+  border-colour-inactive "use-window-inactive"
+
+  click-collapsed-outside-focus "activate"
+  click-collapsed-pan "if-offscreen"
+end
+
+# Trail stores the history of focused windows.
+# This allows quick navigation backwards and forwards
+# through previously focused windows.
+trail:
+  history-length 25
+  wrap true
+end
+
+bearings:
+  show-distance true
+  show-icons true
+  fade-distance 1200
+end
+
+decay:
+  active-delay 120
+  inactive-delay 30
+end
+
+clusters:
+  cluster-dwell-ms 2000
+  bloom-direction "clockwise"
+  show-icons true
+
+  startup:
+    dev:
+      launch: ["kitty", "firefox"]
+
+      place "around-focus-ring"
+
+      layout "tile"
+    end
+  end
+
+  default-layout "stacking"
+end
+
+tile:
+  new-on-top true
+  gaps-inner 10
+  gaps-outer 10
+  auto-fill true
+end
+
+# Stacked layout used inside clusters.
+#
+# Typically behaves similar to tabbed or mobile
+# style window stacks.
+#
+stacking:
+end
+
+physics:
+  enabled true
+  damping 0.15
+end
+
+animations:
+  enabled true
+
+  window-open:
+  end
+
+  window-close:
+  end
+
+  layer-open:
+  end
+
+  layer-close:
+  end
+
+  tile-rearange:
+  end
+end
+
+physics:
+  enabled true
+
+  # Higher values reduce movement speed faster
+  damping 0.85
+end
+
+decorations:
+  border-size 3
+  border-colour-focused "#fd5e53"
+  border-colour-unfocused "#333333"
+  border-radius 0
+  resize-using-border true
+
+  shadow:
+  end
+
+  # Post v0.1.0 Release
+  blur:
+  end
+  
+  no-csd true
+end
+
+# Keyboard shortcuts.
+#
+# Keybinds use the format:
+#
+# "modifier+key" "command"
+#
+keybinds:
+  mod "super"
+
+  # Basic compositor controls
+  "$var.mod+r" "reload"
+  "$var.mod+n" "toggle-state"
+  "$var.mod+q" "close-focused"
+
+  # Quit Halley
+  "$var.mod+shift+e" "quit"
+
+  # Zooming
+  "$var.mod+mousewheelup" "zoom-in"
+  "$var.mod+mousewheeldown" "zoom-out"
+  "$var.mod+middlemouse" "zoom-reset"
+
+  # Move the newest node in a direction
+  "$var.mod+h" "move-left"
+  "$var.mod+l" "move-right"
+  "$var.mod+k" "move-up"
+  "$var.mod+j" "move-down"
+
+  # Switch monitor focus
+  "$var.mod+shift+h" "monitor-focus left"
+  "$var.mod+shift+l" "monitor-focus right"
+
+  # Cluster mode
+  "$var.mod+shift+c" "cluster-mode"
+
+  # Trail system
+  "$var.mod+shift+," "trail-prev"
+  "$var.mod+shift+." "trail-next"
+
+  # Bearings system
+  "$var.mod+z" "bearings-show"
+  "$var.mod+shift+z" "bearings-toggle"
+
+  "$var.mod+shift+mouseleft" "field-jump"
+
+  # Tile
+  "$var.mod+left" "focus-tile-left"
+  "$var.mod+right" "focus-tile-right"
+  "$var.mod+up" "focus-tile-up"
+  "$var.mod+down" "focus-tile-down"
+
+  # Stacking
+  "alt+tab" "stack-next"
+  "alt+shift+tab" "stack-prev"
+
+  # Applications
+  "$var.mod+return" "kitty"
+  "$var.mod+d" "fuzzel"
+
+  # Post v0.1.0 Release
+  #"$var.mod+l" "lens"
+  #"$var.mod+" "aperture"
+
+  # Media
+  "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
+  "XF86AudioLowerVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+  "XF86AudioMute" "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+end
+
+# Rules allow matching specific applications
+# and applying behaviour automatically.
+rules:
+  file-picker:
+    title "Open File"
+    overlap-policy "parent"
+    spawn-position "preserve-request"
+    pan-into-view "never"
+    focus-behavior "focus-on-open"
+  end
+
+  picture-in-picture:
+    app-id ""
+    title "Picture-in-Picture"
+    overlap-scope "all"
+    spawn-position "center-parent"
+    pan-into-view "never"
+    focus-behavior "focus-on-open"
+  end
+end
+
+debug:
+  # Post v0.1.0
+  overlay-fps false
+
+  # Show focus ring while resizing it, including after resizing in config
+  show-ring-when-resizing true
+end
+
+dev:
+  enabled true
+  show_geometry_overlay false
+  debug_tick_dump true
+  debug_dump_every_ms 1000
+
+  runtime:
+    tick-ms 200
+  end
+
+  anim:
+    enabled true
+    state_change_ms 360
+    bounce 1.45
+  end
+end
