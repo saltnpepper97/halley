@@ -44,10 +44,10 @@ impl Halley {
             } else {
                 let scale_x = space.viewport.size.x / space.width.max(1) as f32;
                 let scale_y = space.viewport.size.y / space.height.max(1) as f32;
-                let world_left = space.viewport.center.x - space.viewport.size.x * 0.5;
-                let world_top = space.viewport.center.y + space.viewport.size.y * 0.5;
-                let left = world_left + usable.loc.x as f32 * scale_x;
-                let top = world_top - usable.loc.y as f32 * scale_y;
+                let left = space.viewport.center.x - space.viewport.size.x * 0.5
+                    + usable.loc.x as f32 * scale_x;
+                let top = space.viewport.center.y - space.viewport.size.y * 0.5
+                    + usable.loc.y as f32 * scale_y;
                 let size = halley_core::field::Vec2 {
                     x: (usable.size.w.max(1) as f32 * scale_x).max(1.0),
                     y: (usable.size.h.max(1) as f32 * scale_y).max(1.0),
@@ -55,7 +55,7 @@ impl Halley {
                 halley_core::viewport::Viewport::new(
                     halley_core::field::Vec2 {
                         x: left + size.x * 0.5,
-                        y: top - size.y * 0.5,
+                        y: top + size.y * 0.5,
                     },
                     size,
                 )

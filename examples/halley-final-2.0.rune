@@ -190,6 +190,7 @@ animations:
   enabled true
 
   window-open:
+    enabled true
   end
 
   window-close:

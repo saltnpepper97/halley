@@ -246,7 +246,40 @@ impl Halley {
                 .monitor_state
                 .monitors
                 .get(monitor)
-                .map(|space| space.usable_viewport)
+                .map(|space| {
+                    if space.usable_viewport == space.viewport {
+                        return self.model.viewport;
+                    }
+                    let full = space.viewport;
+                    let usable = space.usable_viewport;
+                    let full_left = full.center.x - full.size.x * 0.5;
+                    let full_right = full.center.x + full.size.x * 0.5;
+                    let full_top = full.center.y - full.size.y * 0.5;
+                    let full_bottom = full.center.y + full.size.y * 0.5;
+                    let usable_left = usable.center.x - usable.size.x * 0.5;
+                    let usable_right = usable.center.x + usable.size.x * 0.5;
+                    let usable_top = usable.center.y - usable.size.y * 0.5;
+                    let usable_bottom = usable.center.y + usable.size.y * 0.5;
+                    let left_frac = (usable_left - full_left) / full.size.x.max(1.0);
+                    let right_frac = (full_right - usable_right) / full.size.x.max(1.0);
+                    let top_frac = (usable_top - full_top) / full.size.y.max(1.0);
+                    let bottom_frac = (full_bottom - usable_bottom) / full.size.y.max(1.0);
+                    let live = self.model.viewport;
+                    let live_left = live.center.x - live.size.x * 0.5 + live.size.x * left_frac;
+                    let live_right = live.center.x + live.size.x * 0.5 - live.size.x * right_frac;
+                    let live_top = live.center.y - live.size.y * 0.5 + live.size.y * top_frac;
+                    let live_bottom = live.center.y + live.size.y * 0.5 - live.size.y * bottom_frac;
+                    Viewport::new(
+                        Vec2 {
+                            x: (live_left + live_right) * 0.5,
+                            y: (live_top + live_bottom) * 0.5,
+                        },
+                        Vec2 {
+                            x: (live_right - live_left).max(1.0),
+                            y: (live_bottom - live_top).max(1.0),
+                        },
+                    )
+                })
                 .unwrap_or(self.model.viewport)
         } else {
             self.model

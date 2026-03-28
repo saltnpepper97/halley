@@ -16,8 +16,8 @@ fn spawn_cardinal_dirs() -> [Vec2; 4] {
     [
         Vec2 { x: 1.0, y: 0.0 },  // right
         Vec2 { x: -1.0, y: 0.0 }, // left
-        Vec2 { x: 0.0, y: 1.0 },  // up
-        Vec2 { x: 0.0, y: -1.0 }, // down
+        Vec2 { x: 0.0, y: -1.0 }, // up
+        Vec2 { x: 0.0, y: 1.0 },  // down
     ]
 }
 
@@ -700,8 +700,8 @@ mod tests {
         let step_y = state.spawn_star_step_y(Vec2 { x: 100.0, y: 80.0 });
         assert_eq!(offsets[1], Vec2 { x: step_x, y: 0.0 });
         assert_eq!(offsets[2], Vec2 { x: -step_x, y: 0.0 });
-        assert_eq!(offsets[3], Vec2 { x: 0.0, y: step_y });
-        assert_eq!(offsets[4], Vec2 { x: 0.0, y: -step_y });
+        assert_eq!(offsets[3], Vec2 { x: 0.0, y: -step_y });
+        assert_eq!(offsets[4], Vec2 { x: 0.0, y: step_y });
     }
 
     #[test]
@@ -1520,10 +1520,10 @@ mod tests {
             .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: -1.0, y: 0.0 })
             .expect("left");
         let up = state
-            .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 0.0, y: 1.0 })
+            .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 0.0, y: -1.0 })
             .expect("up");
         let down = state
-            .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 0.0, y: -1.0 })
+            .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 0.0, y: 1.0 })
             .expect("down");
 
         let right_id = state.model.field.spawn_surface("right", right, size);

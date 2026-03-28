@@ -63,7 +63,7 @@ pub(crate) fn world_to_screen(st: &Halley, w: i32, h: i32, x: f32, y: f32) -> (i
     let vh = view.y.max(1.0);
 
     let nx = ((x - st.model.viewport.center.x) / vw) + 0.5;
-    let ny = 0.5 - ((y - st.model.viewport.center.y) / vh);
+    let ny = ((y - st.model.viewport.center.y) / vh) + 0.5;
 
     let sx = (nx * w as f32).round() as i32;
     let sy = (ny * h as f32).round() as i32;

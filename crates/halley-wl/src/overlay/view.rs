@@ -86,7 +86,7 @@ impl<'a> OverlayView<'a> {
         let vw = self.camera_view_size.x.max(1.0);
         let vh = self.camera_view_size.y.max(1.0);
         let nx = ((x - self.viewport.center.x) / vw) + 0.5;
-        let ny = 0.5 - ((y - self.viewport.center.y) / vh);
+        let ny = ((y - self.viewport.center.y) / vh) + 0.5;
         let sx = (nx * w as f32).round() as i32;
         let sy = (ny * h as f32).round() as i32;
         (sx, sy)

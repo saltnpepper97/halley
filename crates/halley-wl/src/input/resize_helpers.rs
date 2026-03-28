@@ -236,10 +236,10 @@ pub(crate) fn commit_handle_from_drag(dx: f32, dy: f32) -> ResizeHandle {
 ///   new_bottom = start_bottom + v_weight_bottom * dy
 ///
 /// Weight semantics:
-///   +1.0  — this edge tracks the pointer directly (right/bottom moving edges)
-///   -1.0  — this edge moves opposite to the pointer (left/top moving edges,
-///            so that dragging right on the left border moves it right = shrink,
-///            and dragging left moves it left = grow, as expected)
+///   +1.0  — this edge tracks the pointer directly in screen space.
+///           For example, dragging the top edge downward increases `top`,
+///           which shrinks the frame from the top in y-down coordinates.
+///   -1.0  — reserved for opposite-direction edge motion.
 ///    0.0  — this edge is anchored and does not move
 ///
 /// Both weights being 0.0 on an axis means that axis is not resized at all
@@ -256,6 +256,39 @@ pub(crate) fn weights_from_handle(handle: ResizeHandle) -> (f32, f32, f32, f32) 
         ResizeHandle::BottomLeft => (1.0, 0.0, 0.0, 1.0),
         ResizeHandle::BottomRight => (0.0, 1.0, 0.0, 1.0),
         ResizeHandle::Pending => (0.0, 0.0, 0.0, 0.0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drag_direction_maps_to_y_down_resize_handles() {
+        assert_eq!(commit_handle_from_drag(0.0, -40.0), ResizeHandle::Top);
+        assert_eq!(commit_handle_from_drag(0.0, 40.0), ResizeHandle::Bottom);
+        assert_eq!(commit_handle_from_drag(40.0, -40.0), ResizeHandle::TopRight);
+        assert_eq!(
+            commit_handle_from_drag(-40.0, 40.0),
+            ResizeHandle::BottomLeft
+        );
+    }
+
+    #[test]
+    fn top_and_bottom_weights_follow_screen_space_motion() {
+        assert_eq!(weights_from_handle(ResizeHandle::Top), (0.0, 0.0, 1.0, 0.0));
+        assert_eq!(
+            weights_from_handle(ResizeHandle::Bottom),
+            (0.0, 0.0, 0.0, 1.0)
+        );
+        assert_eq!(
+            weights_from_handle(ResizeHandle::TopLeft),
+            (1.0, 0.0, 1.0, 0.0)
+        );
+        assert_eq!(
+            weights_from_handle(ResizeHandle::BottomRight),
+            (0.0, 1.0, 0.0, 1.0)
+        );
     }
 }
 

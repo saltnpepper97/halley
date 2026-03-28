@@ -19,33 +19,33 @@ impl Bearing {
         let a = d.y.atan2(d.x);
 
         // Split circle into 8 equal wedges (pi/4 each).
-        // We map wedges so the result is intuitive in screen terms.
+        // We map wedges so the result is intuitive in screen terms with y-down.
         //
         // E:  -22.5°..+22.5°
-        // NE: +22.5°..+67.5°
-        // N:  +67.5°..+112.5°
-        // NW: +112.5°..+157.5°
+        // SE: +22.5°..+67.5°
+        // S:  +67.5°..+112.5°
+        // SW: +112.5°..+157.5°
         // W:  else near +/-180°
-        // SW: -157.5°..-112.5°
-        // S:  -112.5°..-67.5°
-        // SE: -67.5°..-22.5°
+        // NW: -157.5°..-112.5°
+        // N:  -112.5°..-67.5°
+        // NE: -67.5°..-22.5°
         const PI: f32 = std::f32::consts::PI;
         const P8: f32 = PI / 8.0;
 
         if (-P8..=P8).contains(&a) {
             Bearing::E
         } else if (P8..=3.0 * P8).contains(&a) {
-            Bearing::NE
-        } else if (3.0 * P8..=5.0 * P8).contains(&a) {
-            Bearing::N
-        } else if (5.0 * P8..=7.0 * P8).contains(&a) {
-            Bearing::NW
-        } else if (-3.0 * P8..=-P8).contains(&a) {
             Bearing::SE
-        } else if (-5.0 * P8..=-3.0 * P8).contains(&a) {
+        } else if (3.0 * P8..=5.0 * P8).contains(&a) {
             Bearing::S
-        } else if (-7.0 * P8..=-5.0 * P8).contains(&a) {
+        } else if (5.0 * P8..=7.0 * P8).contains(&a) {
             Bearing::SW
+        } else if (-3.0 * P8..=-P8).contains(&a) {
+            Bearing::NE
+        } else if (-5.0 * P8..=-3.0 * P8).contains(&a) {
+            Bearing::N
+        } else if (-7.0 * P8..=-5.0 * P8).contains(&a) {
+            Bearing::NW
         } else {
             Bearing::W
         }
@@ -136,11 +136,11 @@ mod tests {
         );
         assert_eq!(
             bearing_to_point(&vp, Vec2 { x: 0.0, y: 1000.0 }),
-            Some(Bearing::N)
+            Some(Bearing::S)
         );
         assert_eq!(
             bearing_to_point(&vp, Vec2 { x: 0.0, y: -1000.0 }),
-            Some(Bearing::S)
+            Some(Bearing::N)
         );
     }
 
@@ -156,7 +156,7 @@ mod tests {
                     y: 1000.0
                 }
             ),
-            Some(Bearing::NE)
+            Some(Bearing::SE)
         );
         assert_eq!(
             bearing_to_point(
@@ -166,7 +166,7 @@ mod tests {
                     y: 1000.0
                 }
             ),
-            Some(Bearing::NW)
+            Some(Bearing::SW)
         );
         assert_eq!(
             bearing_to_point(
@@ -176,7 +176,7 @@ mod tests {
                     y: -1000.0
                 }
             ),
-            Some(Bearing::SE)
+            Some(Bearing::NE)
         );
         assert_eq!(
             bearing_to_point(
@@ -186,7 +186,7 @@ mod tests {
                     y: -1000.0
                 }
             ),
-            Some(Bearing::SW)
+            Some(Bearing::NW)
         );
     }
 

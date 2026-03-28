@@ -418,7 +418,7 @@ pub(crate) fn handle_pointer_axis_input(
 
     let steps = steps.clamp(-4.0, 4.0);
     let camera = st.camera_view_size();
-    let pan_y = camera.y * (steps / 18.0);
+    let pan_y = -camera.y * (steps / 18.0);
     {
         let mut ps = pointer_state.borrow_mut();
         ps.panning = false;

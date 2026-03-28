@@ -252,8 +252,8 @@ impl World {
 /// Rule:
 /// - If crossing E: new x = left edge + epsilon, preserve y offset from viewport center.
 /// - If crossing W: new x = right edge - epsilon, preserve y offset.
-/// - If crossing N: new y = bottom edge - epsilon, preserve x offset.
-/// - If crossing S: new y = top edge + epsilon, preserve x offset.
+/// - If crossing N: new y = top edge + epsilon in y-down screen terms.
+/// - If crossing S: new y = bottom edge - epsilon in y-down screen terms.
 pub fn map_across_portal(from_vp: &Viewport, to_vp: &Viewport, dir: PortalDir, pos: Vec2) -> Vec2 {
     let to = to_vp.rect();
     let eps = 1.0;
@@ -274,11 +274,11 @@ pub fn map_across_portal(from_vp: &Viewport, to_vp: &Viewport, dir: PortalDir, p
         },
         PortalDir::N => Vec2 {
             x: to_vp.center.x + rel.x,
-            y: to.max.y - eps,
+            y: to.min.y + eps,
         },
         PortalDir::S => Vec2 {
             x: to_vp.center.x + rel.x,
-            y: to.min.y + eps,
+            y: to.max.y - eps,
         },
     }
 }

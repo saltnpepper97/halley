@@ -910,7 +910,7 @@ pub(crate) fn handle_pointer_motion_absolute(
         let dy_px = effective_sy - lsy;
         let camera = st.camera_view_size();
         let dx_world = dx_px * camera.x.max(1.0) / (local_w as f32).max(1.0);
-        let dy_world = -dy_px * camera.y.max(1.0) / (local_h as f32).max(1.0);
+        let dy_world = dy_px * camera.y.max(1.0) / (local_h as f32).max(1.0);
         let now = Instant::now();
         st.note_pan_activity(now);
         st.pan_camera_target(halley_core::field::Vec2 {

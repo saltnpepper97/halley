@@ -112,10 +112,9 @@ pub(crate) struct ResizeCtx {
     ///   new_top    = start_top    + v_weight_top   * dy
     ///   new_bottom = start_bottom + v_weight_bottom * dy
     ///
-    /// Anchored edges have weight 0.0. Moving edges have weight +1.0 (tracks
-    /// pointer directly) or -1.0 (moves opposite — used for left/top edges so
-    /// that dragging right/down on those edges correctly grows the window from
-    /// the opposite side). Zero-weight edges on both sides of an axis means
+    /// Anchored edges have weight 0.0. Moving edges have weight +1.0 when the
+    /// edge tracks pointer motion directly in y-down screen space. Zero-weight
+    /// edges on both sides of an axis means
     /// that axis is not resized (e.g. a pure Left grab doesn't touch height).
     pub(crate) h_weight_left: f32,
     pub(crate) h_weight_right: f32,
