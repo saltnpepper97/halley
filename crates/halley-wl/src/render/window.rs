@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use eventline::info;
 use smithay::{
     backend::renderer::{
         Color32F, Texture,
@@ -28,27 +27,13 @@ type CroppedSurfaceElement = CropRenderElement<SurfaceElement>;
 
 fn log_window_render_path(
     st: &Halley,
-    node_id: halley_core::field::NodeId,
-    path: &str,
-    detail: &str,
+    _node_id: halley_core::field::NodeId,
+    _path: &str,
+    _detail: &str,
 ) {
-    if !st.runtime.tuning.debug_tick_dump {
+    if !st.runtime.tuning.dev_enabled || !st.runtime.tuning.dev_show_geometry_overlay {
         return;
     }
-
-    let app_id = st
-        .model
-        .node_app_ids
-        .get(&node_id)
-        .map(String::as_str)
-        .unwrap_or("<unknown>");
-    info!(
-        "window-render-path node_id={} app_id={} path={} {}",
-        node_id.as_u64(),
-        app_id,
-        path,
-        detail
-    );
 }
 
 fn rect4_str(x: i32, y: i32, w: i32, h: i32) -> String {
@@ -367,8 +352,21 @@ pub(crate) fn collect_active_surfaces(
         }
 
         let alpha = (anim.alpha * live_ramp).clamp(0.0, 1.0);
-        let lock_dst_to_geometry = st.runtime.tuning.border_radius_px > 0;
-        let offscreen_clip = if st.runtime.tuning.border_radius_px > 0 {
+        let fullscreen_on_current_monitor = st
+            .fullscreen_monitor_for_node(node_id)
+            .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor);
+        let effective_border_px = if fullscreen_on_current_monitor {
+            0
+        } else {
+            st.runtime.tuning.border_size_px.max(0)
+        };
+        let effective_corner_radius_px = if fullscreen_on_current_monitor {
+            0
+        } else {
+            st.runtime.tuning.border_radius_px.max(0)
+        };
+        let lock_dst_to_geometry = effective_corner_radius_px > 0;
+        let offscreen_clip = if effective_corner_radius_px > 0 {
             st.ui
                 .render_state
                 .surface_clip_program
@@ -383,8 +381,7 @@ pub(crate) fn collect_active_surfaces(
                             )
                                 .into(),
                         ),
-                        (st.runtime.tuning.border_radius_px - st.runtime.tuning.border_size_px)
-                            .max(0) as f32,
+                        (effective_corner_radius_px - effective_border_px).max(0) as f32,
                         program,
                     )
                 })
@@ -398,8 +395,8 @@ pub(crate) fn collect_active_surfaces(
             w: gw.max(1),
             h: gh.max(1),
             alpha,
-            border_px: st.runtime.tuning.border_size_px.max(0) as f32,
-            corner_radius: st.runtime.tuning.border_radius_px.max(0) as f32,
+            border_px: effective_border_px as f32,
+            corner_radius: effective_corner_radius_px as f32,
             border_color: if st.model.focus_state.primary_interaction_focus == Some(node_id) {
                 let color = st.runtime.tuning.border_color_focused;
                 Color32F::new(color.r, color.g, color.b, 1.0)
@@ -630,8 +627,8 @@ pub(crate) fn collect_active_surfaces(
                             lock_dst_to_geometry,
                             texture.size().w,
                             texture.size().h,
-                            st.runtime.tuning.border_radius_px.max(0),
-                            st.runtime.tuning.border_size_px.max(0),
+                            effective_corner_radius_px,
+                            effective_border_px,
                         ),
                     );
 
@@ -641,7 +638,7 @@ pub(crate) fn collect_active_surfaces(
                         corner_radius: if offscreen_clip.is_some() {
                             0.0
                         } else {
-                            st.runtime.tuning.border_radius_px.max(0) as f32
+                            effective_corner_radius_px as f32
                         },
                         src_x,
                         src_y,

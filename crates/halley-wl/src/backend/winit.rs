@@ -3,7 +3,7 @@ use super::*;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
-use calloop::{Interest, Mode, PostAction, generic::Generic};
+use calloop::{generic::Generic, Interest, Mode, PostAction};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
@@ -59,6 +59,9 @@ fn publish_winit_output_snapshot(
         }],
         vrr_mode: None,
         vrr_support: None,
+        direct_scanout_candidate_node: None,
+        direct_scanout_active_node: None,
+        direct_scanout_reason: None,
         logical: Some(LogicalOutputInfo {
             scale: 1.0,
             focused,

@@ -61,7 +61,9 @@ mod spawn;
 mod workspace;
 
 pub use client::ClientState;
-pub(crate) use fullscreen::{FullscreenMotion, FullscreenScaleAnim, FullscreenSessionEntry};
+pub(crate) use fullscreen::{
+    FullscreenDirectScanoutState, FullscreenMotion, FullscreenScaleAnim, FullscreenSessionEntry,
+};
 pub(crate) use interaction::{
     ActiveDragState, BloomPullPreview, ClusterJoinCandidate, ClusterOverflowDragPreview,
     OverlayHoverTarget, PendingCoreClick, PendingCorePress, ViewportPanAnim,
@@ -354,6 +356,7 @@ impl Halley {
                     fullscreen_restore: HashMap::new(),
                     fullscreen_motion: HashMap::new(),
                     fullscreen_scale_anim: HashMap::new(),
+                    direct_scanout: HashMap::new(),
                 },
 
                 spawn_state: SpawnState {

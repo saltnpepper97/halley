@@ -1,6 +1,6 @@
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
+use smithay::reexports::wayland_server::Resource;
 
 use super::*;
 
@@ -229,6 +229,8 @@ impl Halley {
             None => return, // not active fullscreen on any monitor
         };
 
+        self.clear_fullscreen_direct_scanout_for_monitor(&monitor_name);
+
         self.input.interaction_state.reset_input_state_requested = true;
 
         if suspend {
@@ -337,6 +339,8 @@ impl Halley {
         now: Instant,
     ) {
         let monitor_name = self.fullscreen_monitor_name(node_id, output.as_ref());
+
+        self.clear_fullscreen_direct_scanout_for_monitor(&monitor_name);
 
         // Already fullscreen on this monitor — no-op.
         if self
@@ -541,6 +545,7 @@ impl Halley {
             .fullscreen_state
             .fullscreen_scale_anim
             .remove(&id);
+        self.clear_fullscreen_direct_scanout_for_node(id);
     }
 
     pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {

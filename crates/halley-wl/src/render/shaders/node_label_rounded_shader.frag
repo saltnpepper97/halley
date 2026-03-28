@@ -37,33 +37,11 @@ void main() {
     float inner_alpha = border_px > 0.0 ? sdf_alpha(inner_dist) : outer_alpha;
     float border_alpha = max(outer_alpha - inner_alpha, 0.0);
 
-    vec2 norm_p = vec2(
-        size.x > 0.0 ? p.x / (size.x * 0.5) : 0.0,
-        size.y > 0.0 ? p.y / (size.y * 0.5) : 0.0
-    );
-
-    vec2 light_dir = normalize(vec2(-0.55, -0.65));
-
-    float light = dot(norm_p, light_dir) * 0.5 + 0.5;
-    light = light * 0.55 + 0.225;
-
-    vec3 shaded_fill = mix(
-        mix(fill_color.rgb, vec3(0.0), 0.10),
-        mix(fill_color.rgb, vec3(1.0), 0.12),
-        light
-    );
-
-    float border_light = dot(norm_p, light_dir) * 0.5 + 0.5;
-    border_light = border_light * 0.55 + 0.225;
-
-    vec3 shaded_border = mix(
-        mix(node_color.rgb, vec3(0.0), 0.10),
-        mix(node_color.rgb, vec3(1.0), 0.10),
-        border_light
-    );
+    vec3 shaded_fill = fill_color.rgb;
+    vec3 shaded_border = node_color.rgb;
 
     vec3 color = shaded_fill * inner_alpha + shaded_border * border_alpha;
     float final_alpha = alpha * max(inner_alpha, border_alpha);
 
-    gl_FragColor = vec4(color * final_alpha, final_alpha);
+    gl_FragColor = vec4(color * alpha, final_alpha);
 }

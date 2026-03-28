@@ -2,8 +2,8 @@ use super::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::backend::tty::drm::TtyDrmOutput;
 use crate::backend::tty::drm::collect_outputs_for_ipc;
+use crate::backend::tty::drm::TtyDrmOutput;
 
 pub(crate) fn sync_tty_dpms_state(
     outputs: &[TtyDrmOutput],
@@ -40,9 +40,16 @@ pub(crate) fn publish_tty_outputs_snapshot(
     active_modes: &HashMap<String, drm_control::Mode>,
     dpms_enabled: &HashMap<String, bool>,
     tuning: &RuntimeTuning,
+    st: &Halley,
 ) {
     let vrr_support: HashMap<String, String> = HashMap::new();
-    let mut outputs = collect_outputs_for_ipc(dev, active_modes, tuning, &vrr_support);
+    let mut outputs = collect_outputs_for_ipc(
+        dev,
+        active_modes,
+        tuning,
+        &vrr_support,
+        &st.model.fullscreen_state.direct_scanout,
+    );
     for output in &mut outputs {
         if active_modes.contains_key(&output.name)
             && !tty_output_dpms_enabled(dpms_enabled, output.name.as_str())
@@ -163,6 +170,7 @@ pub(crate) fn apply_tty_dpms_command(
         &active_modes.borrow(),
         &dpms_enabled.borrow(),
         tuning,
+        st,
     );
 
     true

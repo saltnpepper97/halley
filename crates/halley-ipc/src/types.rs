@@ -14,6 +14,9 @@ pub struct OutputInfo {
     pub modes: Vec<ModeInfo>,
     pub vrr_mode: Option<String>,
     pub vrr_support: Option<String>,
+    pub direct_scanout_candidate_node: Option<u64>,
+    pub direct_scanout_active_node: Option<u64>,
+    pub direct_scanout_reason: Option<String>,
     pub logical: Option<LogicalOutputInfo>,
 }
 

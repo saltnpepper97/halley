@@ -38,6 +38,8 @@ pub(crate) fn log_rounded_shader_failure(
 }
 
 pub(crate) use bearings::bearing_hit_test;
+pub(crate) use cursor::cursor_surface_hotspot;
+pub(crate) use cursor_theme::themed_cursor_sprite_with_fallback;
 pub(crate) use frame::{draw_debug_frame, draw_debug_frame_to_target};
 pub(crate) use utils::preview_proxy_size;
 pub(crate) use utils::{node_marker_metrics, world_to_screen};

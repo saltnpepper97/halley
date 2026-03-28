@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, TtyBackendHandle, TtyDmabufImportBackend,
 };
+use crate::interaction::types::ResizeCtx;
 use crate::backend::tty::dpms::{
     any_tty_output_dpms_enabled, apply_tty_dpms_command, publish_tty_outputs_snapshot,
     sync_tty_dpms_state, tty_output_dpms_enabled, wake_tty_dpms_on_input,
@@ -17,7 +18,7 @@ use crate::backend::tty::drm::{
     queue_tty_drm_frame, rebuild_tty_outputs, selected_tty_scanout_signature,
 };
 use crate::backend::vblank_throttle::VBlankThrottle;
-use calloop::{Interest, Mode, PostAction, generic::Generic};
+use calloop::{Interest, Mode, PostAction, generic::Generic, ping::make_ping};
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, Event, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
@@ -28,6 +29,83 @@ const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 const OUTPUT_RESCAN_POLL_MS: u64 = 750;
 
 const HALLEY_X11_DISPLAY_NUM: u32 = 0;
+
+fn queue_ready_tty_outputs(
+    outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
+    dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
+    output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
+    pointer_state: &Rc<RefCell<crate::interaction::types::PointerState>>,
+    renderer: &Rc<RefCell<GlesRenderer>>,
+    first_frame_queued: &Rc<RefCell<HashSet<String>>>,
+    st: &mut Halley,
+    now: Instant,
+    resize_preview: Option<ResizeCtx>,
+) {
+    if !any_tty_output_dpms_enabled(&dpms_enabled.borrow()) {
+        return;
+    }
+
+    let cursor_image = st.effective_cursor_image_status();
+    let previous_monitor = st.model.monitor_state.current_monitor.clone();
+
+    let outputs_ref = outputs.borrow();
+    let mut render_order: Vec<_> = outputs_ref.iter().collect();
+    render_order.sort_by_key(|output| output.mode.vrefresh());
+
+    for output in render_order {
+        let output_name = output.connector_name.as_str();
+        if !tty_output_dpms_enabled(&dpms_enabled.borrow(), output_name) {
+            output_frame_pending
+                .borrow_mut()
+                .insert(output.connector_name.clone(), false);
+            continue;
+        }
+
+        let ps = pointer_state.borrow();
+        let (hover_node, preview_hover_node) =
+            resolve_hover_targets_for_monitor(st, &ps, now, output_name);
+        let cursor_screen = Some(ps.screen);
+        drop(ps);
+
+        if output_frame_pending
+            .borrow()
+            .get(output_name)
+            .copied()
+            .unwrap_or(false)
+        {
+            continue;
+        }
+
+        match queue_tty_drm_frame(
+            output_name,
+            &output.compositor,
+            renderer,
+            st,
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            cursor_screen,
+            Some(&cursor_image),
+        ) {
+            Err(err) => warn!("tty drm frame queue skipped for {}: {}", output_name, err),
+            Ok(false) => {}
+            Ok(true) => {
+                if first_frame_queued
+                    .borrow_mut()
+                    .insert(output.connector_name.clone())
+                {
+                    info!("first tty drm frame queued for {}", output_name);
+                }
+
+                output_frame_pending
+                    .borrow_mut()
+                    .insert(output.connector_name.clone(), true);
+            }
+        }
+    }
+
+    let _ = st.activate_monitor(previous_monitor.as_str());
+}
 
 fn halley_x11_paths(display_num: u32) -> (PathBuf, PathBuf) {
     (
@@ -299,6 +377,7 @@ fn apply_tty_reload(
         &active_modes.borrow(),
         &dpms_enabled.borrow(),
         &st.runtime.tuning,
+        st,
     );
 
     if reason != "rescan" {
@@ -674,6 +753,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 &active_modes.borrow(),
                 &dpms_enabled.borrow(),
                 &tuning,
+                &state,
             );
             let outputs_for_vblank = outputs.clone();
             let output_frame_pending = Rc::new(RefCell::new(HashMap::new()));
@@ -715,12 +795,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let first_frame_queued_for_timer = first_frame_queued.clone();
             let outputs_for_input = outputs.clone();
             let outputs_for_timer = outputs.clone();
+            let outputs_for_redraw = outputs.clone();
             let scanout_signature_for_timer = scanout_signature.clone();
             let pending_scanout_probe_at = Rc::new(RefCell::new(Some(
                 Instant::now() + Duration::from_millis(OUTPUT_RESCAN_POLL_MS),
             )));
             let pending_scanout_probe_at_for_timer = pending_scanout_probe_at.clone();
             let event_loop_handle_for_vblank = ev.handle();
+            let (redraw_ping, redraw_source) = make_ping()?;
+            let redraw_ping_for_vblank = redraw_ping.clone();
             ev.handle().insert_source(
                 drm_probe.notifier,
                 move |event, _metadata, _st| match event {
@@ -739,6 +822,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 .get(output_name.as_str())
                                 .map(|mode| frame_interval_for_refresh_hz(Some(mode.vrefresh() as f64)));
                             let throttled_output_name = output_name.clone();
+                            let redraw_ping_for_throttle = redraw_ping_for_vblank.clone();
                             let should_throttle = vblank_throttles_for_notifier
                                 .borrow_mut()
                                 .entry(output_name.clone())
@@ -759,6 +843,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                         output_frame_pending_for_notifier
                                             .borrow_mut()
                                             .insert(throttled_output_name.clone(), false);
+                                        redraw_ping_for_throttle.ping();
                                     }
                                 });
                             if should_throttle {
@@ -773,6 +858,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             output_frame_pending_for_notifier
                                 .borrow_mut()
                                 .insert(output_name.clone(), false);
+                            redraw_ping_for_vblank.ping();
                             matched_outputs.push(output_name.clone());
                             if first_vblank_logged_for_notifier
                                 .borrow_mut()
@@ -840,6 +926,28 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     DrmEvent::Error(err) => warn!("drm event error: {}", err),
                 },
             )?;
+
+            let dpms_enabled_for_redraw = dpms_enabled.clone();
+            let output_frame_pending_for_redraw = output_frame_pending.clone();
+            let pointer_state_for_redraw = pointer_state.clone();
+            let renderer_for_redraw = drm_probe.renderer.clone();
+            let first_frame_queued_for_redraw = first_frame_queued.clone();
+            ev.handle().insert_source(redraw_source, move |_event, _metadata, st| {
+                let ps = pointer_state_for_redraw.borrow();
+                let resize_preview = ps.resize;
+                drop(ps);
+                queue_ready_tty_outputs(
+                    &outputs_for_redraw,
+                    &dpms_enabled_for_redraw,
+                    &output_frame_pending_for_redraw,
+                    &pointer_state_for_redraw,
+                    &renderer_for_redraw,
+                    &first_frame_queued_for_redraw,
+                    st,
+                    Instant::now(),
+                    resize_preview,
+                );
+            })?;
 
             let _renderer_for_input = drm_probe.renderer.clone();
             ev.handle()
@@ -1325,70 +1433,17 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
 
                     st.send_frame_callbacks(now);
-
-                    let cursor_image = st.effective_cursor_image_status();
-                    let previous_monitor = st.model.monitor_state.current_monitor.clone();
-
-                    let outputs_ref = outputs_for_timer.borrow();
-                    let mut render_order: Vec<_> = outputs_ref.iter().collect();
-
-                    // Queue lower-refresh / "slower" outputs first so the slow secondary
-                    // gets its first frame submitted before the faster primary.
-                    render_order.sort_by_key(|output| output.mode.vrefresh());
-
-                    for output in render_order {
-                        let output_name = output.connector_name.as_str();
-                        if !tty_output_dpms_enabled(&dpms_enabled_for_timer.borrow(), output_name) {
-                            output_frame_pending
-                                .borrow_mut()
-                                .insert(output.connector_name.clone(), false);
-                            continue;
-                        }
-
-                        let ps = pointer_state_for_timer.borrow();
-                        let (hover_node, preview_hover_node) =
-                            resolve_hover_targets_for_monitor(st, &ps, now, output_name);
-                        let cursor_screen = Some(ps.screen);
-                        drop(ps);
-
-                        let compositor = &output.compositor;
-                        let frame_already_pending = output_frame_pending
-                            .borrow()
-                            .get(output_name)
-                            .copied()
-                            .unwrap_or(false);
-
-                        if frame_already_pending {
-                            continue;
-                        }
-
-                        if let Err(err) = queue_tty_drm_frame(
-                            output_name,
-                            compositor,
-                            &renderer_for_timer,
-                            st,
-                            resize_preview,
-                            hover_node,
-                            preview_hover_node,
-                            cursor_screen,
-                            Some(&cursor_image),
-                        ) {
-                            warn!("tty drm frame queue skipped for {}: {}", output_name, err);
-                        } else {
-                            if first_frame_queued_for_timer
-                                .borrow_mut()
-                                .insert(output.connector_name.clone())
-                            {
-                                info!("first tty drm frame queued for {}", output_name);
-                            }
-
-                            output_frame_pending
-                                .borrow_mut()
-                                .insert(output.connector_name.clone(), true);
-                        }
-                    }
-
-                    let _ = st.activate_monitor(previous_monitor.as_str());
+                    queue_ready_tty_outputs(
+                        &outputs_for_timer,
+                        &dpms_enabled_for_timer,
+                        &output_frame_pending,
+                        &pointer_state_for_timer,
+                        &renderer_for_timer,
+                        &first_frame_queued_for_timer,
+                        st,
+                        now,
+                        resize_preview,
+                    );
                 }
 
                 let secs = now.duration_since(input_started_at).as_secs();
