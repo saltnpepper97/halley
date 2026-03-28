@@ -85,6 +85,8 @@ pub(crate) struct ResizeCtx {
     pub(crate) start_visual_h: i32,
     pub(crate) start_geo_lx: f32,
     pub(crate) start_geo_ly: f32,
+    pub(crate) start_geo_inset_x: i32,
+    pub(crate) start_geo_inset_y: i32,
     pub(crate) start_left_px: f32,
     pub(crate) start_right_px: f32,
     pub(crate) start_top_px: f32,

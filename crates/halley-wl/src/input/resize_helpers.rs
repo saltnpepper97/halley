@@ -26,10 +26,6 @@ pub(crate) struct ActiveResizeGeometryScreen {
     pub(crate) surface_origin_x: f32,
     pub(crate) surface_origin_y: f32,
 
-    /// Live committed window geometry from st.window_geometry, updated on
-    /// every client commit during resize. Zero means not yet committed.
-    pub(crate) live_geo_lx: f32,
-    pub(crate) live_geo_ly: f32,
     pub(crate) live_geo_w: f32,
     pub(crate) live_geo_h: f32,
 }
@@ -398,23 +394,15 @@ pub(crate) fn active_resize_geometry_screen(
     let frame_top = rz.preview_top_px;
     let frame_right = rz.preview_right_px;
     let frame_bottom = rz.preview_bottom_px;
-    let (live_geo_lx, live_geo_ly, live_geo_w, live_geo_h) = st
+    let (_, _, live_geo_w, live_geo_h) = st
         .ui
         .render_state
         .window_geometry
         .get(&node_id)
         .copied()
         .unwrap_or((0.0, 0.0, 0.0, 0.0));
-    let geo_lx = if live_geo_w > 0.0 {
-        live_geo_lx
-    } else {
-        rz.start_geo_lx
-    };
-    let geo_ly = if live_geo_h > 0.0 {
-        live_geo_ly
-    } else {
-        rz.start_geo_ly
-    };
+    let geo_lx = rz.start_geo_lx;
+    let geo_ly = rz.start_geo_ly;
 
     Some(ActiveResizeGeometryScreen {
         frame_left,
@@ -423,8 +411,6 @@ pub(crate) fn active_resize_geometry_screen(
         frame_bottom,
         surface_origin_x: frame_left - geo_lx.round(),
         surface_origin_y: frame_top - geo_ly.round(),
-        live_geo_lx,
-        live_geo_ly,
         live_geo_w,
         live_geo_h,
     })

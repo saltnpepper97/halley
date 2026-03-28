@@ -279,7 +279,9 @@ pub(crate) fn collect_active_surfaces(
         let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
         let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
         let resizing_this_node = active_resize.is_some();
-        let draw_top_this_node = resizing_this_node || recent_top_node == Some(node_id);
+        let draw_top_this_node = resizing_this_node
+            || recent_top_node == Some(node_id)
+            || st.input.interaction_state.drag_authority_node == Some(node_id);
 
         let (scale, live_ramp) = if draw_top_this_node {
             (1.0f32, 1.0f32)
@@ -539,20 +541,17 @@ pub(crate) fn collect_active_surfaces(
                         // Use live committed geo (updated on every client commit)
                         // as the single source of truth. Falls back to frozen
                         // local_geo before the first commit after resize starts.
-                        let (live_lx, live_ly, live_gw, live_gh): (f32, f32, f32, f32) =
+                        let (live_gw, live_gh): (f32, f32) =
                             if active_resize.live_geo_w > 0.0 {
-                                (
-                                    active_resize.live_geo_lx,
-                                    active_resize.live_geo_ly,
-                                    active_resize.live_geo_w,
-                                    active_resize.live_geo_h,
-                                )
+                                (active_resize.live_geo_w, active_resize.live_geo_h)
                             } else {
-                                // Before first commit: use frozen start geo from ResizeCtx.
-                                // local_geo may have stale data; start_geo_lx/ly is reliable.
-                                let rz = resize_preview.unwrap();
-                                (rz.start_geo_lx, rz.start_geo_ly, local_geo.2, local_geo.3)
+                                // Before first commit: keep the frozen start size.
+                                (local_geo.2, local_geo.3)
                             };
+                        let frozen_geo_lx = (ob.loc.x + resize_preview.unwrap().start_geo_inset_x)
+                            as f32;
+                        let frozen_geo_ly = (ob.loc.y + resize_preview.unwrap().start_geo_inset_y)
+                            as f32;
 
                         // Match the normal offscreen path: anchor the destination from the
                         // live geometry rect itself, then let the visual crop helper expand it.
@@ -565,22 +564,24 @@ pub(crate) fn collect_active_surfaces(
                         // rect because those values round in different spaces. Using the frame/top-left
                         // anchor directly keeps the texture locked to its background while still sizing
                         // from the live committed geometry.
-                        let live_gw_px = (live_gw * cam_scale).round().max(1.0) as i32;
-                        let live_gh_px = (live_gh * cam_scale).round().max(1.0) as i32;
+                        let _live_gw_px = (live_gw * cam_scale).round().max(1.0) as i32;
+                        let _live_gh_px = (live_gh * cam_scale).round().max(1.0) as i32;
+                        let preview_gw_px = gw.max(1);
+                        let preview_gh_px = gh.max(1);
 
                         offscreen_visual_crop_and_dst(
                             ob.loc.x,
                             ob.loc.y,
                             ob.size.w.max(1),
                             ob.size.h.max(1),
-                            live_lx,
-                            live_ly,
+                            frozen_geo_lx,
+                            frozen_geo_ly,
                             live_gw,
                             live_gh,
                             gx,
                             gy,
-                            live_gw_px,
-                            live_gh_px,
+                            preview_gw_px,
+                            preview_gh_px,
                             cam_scale,
                             output_clip,
                             preserve_visual_margin,

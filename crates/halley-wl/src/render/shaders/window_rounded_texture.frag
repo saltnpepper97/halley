@@ -15,6 +15,7 @@ uniform vec2 rect_size;
 uniform float corner_radius;
 uniform float border_px;
 uniform vec4 border_color;
+uniform vec4 fill_color;
 uniform float content_alpha_scale;
 
 float rounded_rect_sdf(vec2 p, vec2 size, float radius) {
@@ -50,13 +51,14 @@ void main() {
 #if defined(NO_ALPHA)
     sampled = vec4(sampled.rgb, 1.0);
 #endif
-    sampled.rgb *= sampled.a;
     if (sampled.a < 0.003) {
         sampled = vec4(0.0);
     }
 
+    vec4 fill = fill_color * inner_alpha;
     vec4 content = sampled * (inner_alpha * content_alpha_scale);
+    vec4 composed = content + fill * max(1.0 - content.a, 0.0);
     vec4 border_fill = border_color * border_alpha;
 
-    gl_FragColor = (border_fill + content) * alpha;
+    gl_FragColor = (border_fill + composed) * alpha;
 }

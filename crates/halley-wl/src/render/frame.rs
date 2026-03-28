@@ -60,6 +60,7 @@ fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mut Halley) {
             UniformName::new("corner_radius", UniformType::_1f),
             UniformName::new("border_px", UniformType::_1f),
             UniformName::new("border_color", UniformType::_4f),
+            UniformName::new("fill_color", UniformType::_4f),
             UniformName::new("content_alpha_scale", UniformType::_1f),
         ],
     ) {
@@ -635,6 +636,7 @@ fn draw_offscreen_textures(
             Uniform::new("corner_radius", tex.corner_radius.max(0.0)),
             Uniform::new("border_px", 0.0f32),
             Uniform::new("border_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+            Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
             Uniform::new("content_alpha_scale", 1.0f32),
         ];
 
@@ -712,7 +714,15 @@ fn draw_window_borders(
                             rect.border_color.a(),
                         ),
                     ),
-                    Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+                    Uniform::new(
+                        "fill_color",
+                        (
+                            rect.border_color.r(),
+                            rect.border_color.g(),
+                            rect.border_color.b(),
+                            rect.border_color.a(),
+                        ),
+                    ),
                     Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
                     Uniform::new("corner_radius", rect.corner_radius),
                     Uniform::new("border_px", rect.border_px),
@@ -744,6 +754,15 @@ fn draw_window_borders(
                     Uniform::new("border_px", rect.border_px),
                     Uniform::new(
                         "border_color",
+                        (
+                            rect.border_color.r(),
+                            rect.border_color.g(),
+                            rect.border_color.b(),
+                            rect.border_color.a(),
+                        ),
+                    ),
+                    Uniform::new(
+                        "fill_color",
                         (
                             rect.border_color.r(),
                             rect.border_color.g(),

@@ -376,6 +376,13 @@ fn begin_resize(
         start_surface.x.max(1.0),
         start_surface.y.max(1.0),
     ));
+    let (start_bbox_lx, start_bbox_ly) = st
+        .ui
+        .render_state
+        .bbox_loc
+        .get(&hit.node_id)
+        .copied()
+        .unwrap_or((0.0, 0.0));
     let start_bbox = halley_core::field::Vec2 {
         x: fallback_size.x.max(1.0),
         y: fallback_size.y.max(1.0),
@@ -391,6 +398,8 @@ fn begin_resize(
         start_visual_h: start_h,
         start_geo_lx,
         start_geo_ly,
+        start_geo_inset_x: (start_geo_lx.round() - start_bbox_lx.round()) as i32,
+        start_geo_inset_y: (start_geo_ly.round() - start_bbox_ly.round()) as i32,
         start_left_px: start_left,
         start_right_px: start_right,
         start_top_px: start_top,
