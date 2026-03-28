@@ -124,7 +124,7 @@ impl Halley {
         node_id: NodeId,
     ) -> Option<bool> {
         let node = self.model.field.node(node_id)?;
-        let monitor = self.model.monitor_state.monitors.get(monitor_name)?;
+        let _monitor = self.model.monitor_state.monitors.get(monitor_name)?;
         let ext = if node.kind == halley_core::field::NodeKind::Surface
             && node.state == halley_core::field::NodeState::Active
         {
@@ -133,11 +133,8 @@ impl Halley {
             self.collision_extents_for_node(node)
         };
 
-        let (view_center, view_size) = if self.model.monitor_state.current_monitor == monitor_name {
-            (self.model.viewport.center, self.camera_view_size())
-        } else {
-            (monitor.viewport.center, monitor.zoom_ref_size)
-        };
+        let usable = self.usable_viewport_for_monitor(monitor_name);
+        let (view_center, view_size) = (usable.center, usable.size);
         let left = view_center.x - view_size.x * 0.5;
         let right = view_center.x + view_size.x * 0.5;
         let top = view_center.y - view_size.y * 0.5;
@@ -162,7 +159,7 @@ impl Halley {
         const EDGE_CONTACT_INSET: f32 = 0.75;
 
         let node = self.model.field.node(node_id)?;
-        let monitor = self.model.monitor_state.monitors.get(monitor_name)?;
+        let _monitor = self.model.monitor_state.monitors.get(monitor_name)?;
         let ext = if node.kind == halley_core::field::NodeKind::Surface
             && node.state == halley_core::field::NodeState::Active
         {
@@ -171,11 +168,8 @@ impl Halley {
             self.collision_extents_for_node(node)
         };
 
-        let (view_center, view_size) = if self.model.monitor_state.current_monitor == monitor_name {
-            (self.model.viewport.center, self.camera_view_size())
-        } else {
-            (monitor.viewport.center, monitor.zoom_ref_size)
-        };
+        let usable = self.usable_viewport_for_monitor(monitor_name);
+        let (view_center, view_size) = (usable.center, usable.size);
         let min_center_x = view_center.x - view_size.x * 0.5 + ext.left + EDGE_CONTACT_INSET;
         let max_center_x = view_center.x + view_size.x * 0.5 - ext.right - EDGE_CONTACT_INSET;
         let min_center_y = view_center.y - view_size.y * 0.5 + ext.top + EDGE_CONTACT_INSET;
@@ -230,8 +224,7 @@ impl Halley {
             && matches!(
                 node.state,
                 halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting
-            )
-        {
+            ) {
             self.surface_window_collision_extents(node)
         } else {
             self.collision_extents_for_node(node)

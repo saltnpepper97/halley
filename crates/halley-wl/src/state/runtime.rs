@@ -3,7 +3,7 @@ use super::*;
 use halley_config::RuntimeTuning;
 
 use crate::animation::{AnimSpec, AnimStyle};
-use crate::render::{DebugScene, build_debug_scene};
+use crate::render::{build_debug_scene, DebugScene};
 
 impl Halley {
     const RECENT_INTERACTION_PROTECT_MS: u64 = 7_500;
@@ -237,12 +237,25 @@ impl Halley {
     }
 
     pub fn view_center_for_monitor(&self, monitor: &str) -> Vec2 {
-        self.model
-            .monitor_state
-            .monitors
-            .get(monitor)
-            .map(|space| space.viewport.center)
-            .unwrap_or(self.model.viewport.center)
+        self.usable_viewport_for_monitor(monitor).center
+    }
+
+    pub fn usable_viewport_for_monitor(&self, monitor: &str) -> Viewport {
+        if self.model.monitor_state.current_monitor == monitor {
+            self.model
+                .monitor_state
+                .monitors
+                .get(monitor)
+                .map(|space| space.usable_viewport)
+                .unwrap_or(self.model.viewport)
+        } else {
+            self.model
+                .monitor_state
+                .monitors
+                .get(monitor)
+                .map(|space| space.usable_viewport)
+                .unwrap_or(self.model.viewport)
+        }
     }
 
     pub fn should_draw_focus_ring_preview(&self, now: Instant) -> bool {

@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashMap;
 use crate::state::ViewportPanAnim;
 use crate::state::{ClusterState, FocusState, FullscreenState, MonitorState};
 use eventline::info;
@@ -18,6 +19,7 @@ struct FocusReadContext<'a> {
     monitor_state: &'a MonitorState,
     tuning: &'a RuntimeTuning,
     viewport: halley_core::viewport::Viewport,
+    usable_viewports: HashMap<String, halley_core::viewport::Viewport>,
     focused_monitor: &'a str,
 }
 
@@ -105,15 +107,20 @@ impl<'a> FocusReadContext<'a> {
     }
 
     fn viewport_for_monitor(&self, monitor: &str) -> halley_core::viewport::Viewport {
-        if self.monitor_state.current_monitor == monitor {
-            self.viewport
-        } else {
-            self.monitor_state
-                .monitors
-                .get(monitor)
-                .map(|space| space.viewport)
-                .unwrap_or(self.viewport)
-        }
+        self.usable_viewports
+            .get(monitor)
+            .copied()
+            .unwrap_or_else(|| {
+                if self.monitor_state.current_monitor == monitor {
+                    self.viewport
+                } else {
+                    self.monitor_state
+                        .monitors
+                        .get(monitor)
+                        .map(|space| space.viewport)
+                        .unwrap_or(self.viewport)
+                }
+            })
     }
 
     fn surface_is_sufficiently_visible_on_monitor(
@@ -343,6 +350,13 @@ impl Halley {
             monitor_state: &self.model.monitor_state,
             tuning: &self.runtime.tuning,
             viewport: self.model.viewport,
+            usable_viewports: self
+                .model
+                .monitor_state
+                .monitors
+                .keys()
+                .map(|name| (name.clone(), self.usable_viewport_for_monitor(name)))
+                .collect(),
             focused_monitor: self.focused_monitor(),
         }
     }

@@ -1,8 +1,8 @@
 use smithay::{
     reexports::wayland_server::{
-        Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
+        protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface, Resource,
     },
-    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size},
+    utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER},
     wayland::{
         compositor::with_states,
         shell::wlr_layer::{
@@ -24,6 +24,48 @@ pub(crate) struct LayerPlacement {
 }
 
 impl Halley {
+    pub(crate) fn refresh_monitor_usable_viewports(&mut self) {
+        let monitor_names: Vec<String> =
+            self.model.monitor_state.monitors.keys().cloned().collect();
+        for monitor_name in monitor_names {
+            let Some(space) = self
+                .model
+                .monitor_state
+                .monitors
+                .get(&monitor_name)
+                .cloned()
+            else {
+                continue;
+            };
+            let usable = self.layer_shell_usable_rect_for_monitor(&monitor_name);
+            let full = Rectangle::from_size((space.width, space.height).into());
+            let usable_viewport = if usable == full {
+                space.viewport
+            } else {
+                let scale_x = space.viewport.size.x / space.width.max(1) as f32;
+                let scale_y = space.viewport.size.y / space.height.max(1) as f32;
+                let world_left = space.viewport.center.x - space.viewport.size.x * 0.5;
+                let world_top = space.viewport.center.y + space.viewport.size.y * 0.5;
+                let left = world_left + usable.loc.x as f32 * scale_x;
+                let top = world_top - usable.loc.y as f32 * scale_y;
+                let size = halley_core::field::Vec2 {
+                    x: (usable.size.w.max(1) as f32 * scale_x).max(1.0),
+                    y: (usable.size.h.max(1) as f32 * scale_y).max(1.0),
+                };
+                halley_core::viewport::Viewport::new(
+                    halley_core::field::Vec2 {
+                        x: left + size.x * 0.5,
+                        y: top - size.y * 0.5,
+                    },
+                    size,
+                )
+            };
+            if let Some(space_mut) = self.model.monitor_state.monitors.get_mut(&monitor_name) {
+                space_mut.usable_viewport = usable_viewport;
+            }
+        }
+    }
+
     fn restore_focus_after_layer_surface_close_for_monitor(&mut self, monitor: &str, now: Instant) {
         // Preserve any pending spawn target so launchers like fuzzel can close
         // before their chosen toplevel maps without losing monitor affinity.
@@ -258,6 +300,7 @@ impl Halley {
                 let _ = surface.send_pending_configure();
             }
         }
+        self.refresh_monitor_usable_viewports();
     }
 
     pub(crate) fn layer_shell_placements(
@@ -291,6 +334,24 @@ impl Halley {
         }
 
         placements
+    }
+
+    pub(crate) fn layer_shell_usable_rect_for_monitor(
+        &self,
+        monitor_name: &str,
+    ) -> Rectangle<i32, Logical> {
+        let output_rect = Rectangle::from_size(self.layer_output_size_for_monitor(monitor_name));
+        let mut zone = output_rect;
+
+        for surface in self.layer_shell_surfaces_sorted() {
+            if self.layer_surface_monitor_name(surface.wl_surface()) != monitor_name {
+                continue;
+            }
+            let data = Self::layer_cached_state(&surface);
+            let _ = compute_layer_placement(output_rect, &mut zone, data);
+        }
+
+        zone
     }
 
     fn layer_shell_surfaces_sorted(&self) -> Vec<LayerSurface> {

@@ -6,12 +6,12 @@ use std::time::Instant;
 
 use smithay::{
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
-    reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
+    reexports::wayland_server::{backend::ObjectId, protocol::wl_surface::WlSurface, Resource},
     utils::Transform,
 };
 
-use crate::state::Halley;
 use crate::state::spawn::MonitorSpawnState;
+use crate::state::Halley;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MonitorSpace {
@@ -20,6 +20,7 @@ pub(crate) struct MonitorSpace {
     pub width: i32,
     pub height: i32,
     pub viewport: Viewport,
+    pub usable_viewport: Viewport,
     pub zoom_ref_size: Vec2,
     pub camera_target_center: Vec2,
     pub camera_target_view_size: Vec2,
@@ -179,6 +180,7 @@ impl Halley {
                     width,
                     height,
                     viewport: restored.map(|m| m.viewport).unwrap_or(default_view),
+                    usable_viewport: restored.map(|m| m.usable_viewport).unwrap_or(default_view),
                     zoom_ref_size: restored
                         .map(|m| m.zoom_ref_size)
                         .unwrap_or(default_view.size),
@@ -202,6 +204,7 @@ impl Halley {
                     width: self.runtime.tuning.viewport_size.x.max(1.0).round() as i32,
                     height: self.runtime.tuning.viewport_size.y.max(1.0).round() as i32,
                     viewport: view,
+                    usable_viewport: view,
                     zoom_ref_size: self.runtime.tuning.viewport_size,
                     camera_target_center: self.runtime.tuning.viewport_center,
                     camera_target_view_size: self.runtime.tuning.viewport_size,
@@ -210,6 +213,7 @@ impl Halley {
         }
 
         self.model.monitor_state.monitors = monitors;
+        self.refresh_monitor_usable_viewports();
         self.model.spawn_state.per_monitor = self
             .model
             .monitor_state

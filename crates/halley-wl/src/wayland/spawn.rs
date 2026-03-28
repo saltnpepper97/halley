@@ -1,4 +1,5 @@
 use std::time::Instant;
+use std::collections::HashMap;
 
 use eventline::info;
 use halley_config::PanToNewMode;
@@ -26,6 +27,7 @@ struct SpawnReadContext<'a> {
     monitor_state: &'a MonitorState,
     spawn_state: &'a SpawnState,
     viewport: halley_core::viewport::Viewport,
+    usable_viewports: HashMap<String, halley_core::viewport::Viewport>,
     focused_monitor: &'a str,
     interaction_monitor: &'a str,
     pan_to_new: PanToNewMode,
@@ -39,6 +41,9 @@ enum RevealNewToplevelPlan {
 
 impl<'a> SpawnReadContext<'a> {
     fn viewport_center_for_monitor(&self, monitor: &str) -> Vec2 {
+        if let Some(viewport) = self.usable_viewports.get(monitor) {
+            return viewport.center;
+        }
         if self.monitor_state.current_monitor == monitor {
             return self.viewport.center;
         }
@@ -151,9 +156,15 @@ impl<'a> SpawnReadContext<'a> {
         };
         let ext = st.spawn_obstacle_extents_for_node(node);
         let viewport = if self.monitor_state.current_monitor == monitor {
-            self.viewport
+            self.usable_viewports
+                .get(monitor)
+                .copied()
+                .unwrap_or(self.viewport)
         } else if let Some(space) = self.monitor_state.monitors.get(monitor) {
-            space.viewport
+            self.usable_viewports
+                .get(monitor)
+                .copied()
+                .unwrap_or(space.viewport)
         } else {
             self.viewport
         };
@@ -232,6 +243,13 @@ impl Halley {
             monitor_state: &self.model.monitor_state,
             spawn_state: &self.model.spawn_state,
             viewport: self.model.viewport,
+            usable_viewports: self
+                .model
+                .monitor_state
+                .monitors
+                .keys()
+                .map(|name| (name.clone(), self.usable_viewport_for_monitor(name)))
+                .collect(),
             focused_monitor: self.focused_monitor(),
             interaction_monitor: self.interaction_monitor(),
             pan_to_new: self.runtime.tuning.pan_to_new,

@@ -57,7 +57,10 @@ impl Halley {
                     x: pos.x + fx * sample_fp.x,
                     y: pos.y + fy * sample_fp.y,
                 };
-                match focus_ring.zone(self.model.viewport.center, sp) {
+                match focus_ring.zone(
+                    self.view_center_for_monitor(self.model.monitor_state.current_monitor.as_str()),
+                    sp,
+                ) {
                     FocusZone::Inside => c_inside += 1,
                     FocusZone::Outside => {}
                 }

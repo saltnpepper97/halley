@@ -95,7 +95,7 @@ impl<'a> ClusterReadController<'a> {
         self.monitor_state
             .monitors
             .get(monitor)
-            .map(|space| space.viewport)
+            .map(|space| space.usable_viewport)
     }
 
     fn opened_cluster_world_rect_for_monitor(
