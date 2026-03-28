@@ -7,7 +7,7 @@ use eventline::{debug, info, warn};
 use super::utils::{key_matches, modifier_exact};
 use crate::interaction::actions::{move_latest_node_direction, toggle_focused_active_node_state};
 use crate::interaction::types::ModState;
-use crate::run::request_xwayland_start;
+use crate::bootstrap::request_xwayland_start;
 use crate::state::Halley;
 use crate::surface_ops::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
@@ -94,7 +94,7 @@ pub(crate) fn apply_compositor_action_press(
         }
         CompositorBindingAction::Reload => {
             if let Some(next) = RuntimeTuning::try_load_from_path(config_path) {
-                crate::run::apply_reloaded_tuning(st, next, config_path, wayland_display, "manual");
+                crate::bootstrap::apply_reloaded_tuning(st, next, config_path, wayland_display, "manual");
                 info!("manual config reload from {}", config_path);
                 info!(
                     "resolved keybinds: {}",

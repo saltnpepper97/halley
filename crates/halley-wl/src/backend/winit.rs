@@ -84,9 +84,9 @@ fn apply_winit_reload(
         x: ws.w.max(1) as f32,
         y: ws.h.max(1) as f32,
     };
-    let live_camera = crate::run::capture_live_camera_state(st);
+    let live_camera = crate::bootstrap::capture_live_camera_state(st);
     st.apply_tuning(next);
-    crate::run::restore_live_camera_state(st, live_camera);
+    crate::bootstrap::restore_live_camera_state(st, live_camera);
     st.advertise_output(
         "winit-0",
         smithay::output::Mode {
@@ -566,7 +566,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         if let Some(next) =
                             RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                         {
-                            if crate::run::viewport_section_changed(&st.runtime.tuning, &next) {
+                            if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
                                 apply_winit_reload(
                                     &backend_for_timer,
                                     st,
@@ -576,8 +576,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                     "ipc",
                                 );
                             } else {
-                                let next = crate::run::preserve_viewport_section(&st.runtime.tuning, next);
-                                crate::run::apply_reloaded_tuning(
+                                let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
+                                crate::bootstrap::apply_reloaded_tuning(
                                     st,
                                     next,
                                     config_path_for_timer.as_str(),
@@ -655,7 +655,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     if let Some(next) =
                         RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                     {
-                        if crate::run::viewport_section_changed(&st.runtime.tuning, &next) {
+                        if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
                             apply_winit_reload(
                                 &backend_for_timer,
                                 st,
@@ -665,8 +665,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 "watch",
                             );
                         } else {
-                            let next = crate::run::preserve_viewport_section(&st.runtime.tuning, next);
-                            crate::run::apply_reloaded_tuning(
+                            let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
+                            crate::bootstrap::apply_reloaded_tuning(
                                 st,
                                 next,
                                 config_path_for_timer.as_str(),
@@ -749,7 +749,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             loop {
                 ev.dispatch(None, &mut state)?;
 
-                if state.exit_requested() || crate::run::shutdown_requested() {
+                if state.exit_requested() || crate::bootstrap::shutdown_requested() {
                     info!("exit requested, shutting down main loop");
                     break Ok(());
                 }

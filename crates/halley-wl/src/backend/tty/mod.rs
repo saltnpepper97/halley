@@ -329,7 +329,7 @@ fn apply_tty_reload(
         }
     }
 
-    let live_camera = crate::run::capture_live_camera_state(st);
+    let live_camera = crate::bootstrap::capture_live_camera_state(st);
     st.apply_tuning(next);
     if reason != "rescan" {
         st.reconfigure_active_tty_monitors(&active_output_names(&rebuilt));
@@ -347,7 +347,7 @@ fn apply_tty_reload(
             let _ = st.activate_monitor(target_monitor.as_str());
         }
     }
-    crate::run::restore_live_camera_state(st, live_camera);
+    crate::bootstrap::restore_live_camera_state(st, live_camera);
 
     *scanout_signature.borrow_mut() = current_tty_output_signature(&rebuilt);
     sync_tty_dpms_state(&rebuilt, dpms_enabled);
@@ -1210,7 +1210,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         if let Some(next) =
                             RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                         {
-                            if crate::run::viewport_section_changed(&st.runtime.tuning, &next) {
+                            if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
                                 apply_tty_reload(
                                     &dev_for_timer,
                                     &gbm_for_timer,
@@ -1231,8 +1231,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     card_path.as_path(),
                                 );
                             } else {
-                                let next = crate::run::preserve_viewport_section(&st.runtime.tuning, next);
-                                crate::run::apply_reloaded_tuning(
+                                let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
+                                crate::bootstrap::apply_reloaded_tuning(
                                     st,
                                     next,
                                     config_path_for_timer.as_str(),
@@ -1320,7 +1320,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     if let Some(next) =
                         RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                     {
-                        if crate::run::viewport_section_changed(&st.runtime.tuning, &next) {
+                        if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
                             apply_tty_reload(
                                 &dev_for_timer,
                                 &gbm_for_timer,
@@ -1341,8 +1341,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     card_path.as_path(),
                                 );
                             } else {
-                                let next = crate::run::preserve_viewport_section(&st.runtime.tuning, next);
-                                crate::run::apply_reloaded_tuning(
+                                let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
+                                crate::bootstrap::apply_reloaded_tuning(
                                     st,
                                 next,
                                 config_path_for_timer.as_str(),
