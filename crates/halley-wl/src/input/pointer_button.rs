@@ -1363,7 +1363,10 @@ pub(crate) fn handle_pointer_button_input(
                     if reordered {
                         backend.request_redraw();
                     } else {
-                        st.reveal_cluster_overflow_for_monitor(overflow_drag.monitor.as_str(), now_ms);
+                        st.reveal_cluster_overflow_for_monitor(
+                            overflow_drag.monitor.as_str(),
+                            now_ms,
+                        );
                         backend.request_redraw();
                     }
                     return;

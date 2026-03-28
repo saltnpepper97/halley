@@ -2,8 +2,8 @@ use super::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::backend::tty::drm::collect_outputs_for_ipc;
 use crate::backend::tty::drm::TtyDrmOutput;
+use crate::backend::tty::drm::collect_outputs_for_ipc;
 
 pub(crate) fn sync_tty_dpms_state(
     outputs: &[TtyDrmOutput],

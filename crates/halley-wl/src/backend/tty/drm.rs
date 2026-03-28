@@ -10,18 +10,18 @@ use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags, PrimaryPlaneE
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
+use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::element::{
     Kind,
     memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
     render_elements,
     surface::render_elements_from_surface_tree,
 };
-use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::{Bind, Offscreen};
 use smithay::desktop::{PopupManager, utils::bbox_from_surface_tree};
-use smithay::output::OutputModeSource;
 use smithay::input::pointer::CursorImageStatus;
+use smithay::output::OutputModeSource;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Physical, Scale, Size, Transform};
@@ -687,17 +687,18 @@ pub(crate) fn queue_tty_drm_frame(
                 Some(reason),
             ),
             Some(Ok(candidate)) => {
-                let mut elements: Vec<HalleyDirectScanoutElement> = render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
-                    &mut *renderer_ref,
-                    &candidate.surface,
-                    (0, 0),
-                    1.0,
-                    1.0,
-                    Kind::Unspecified,
-                )
-                .into_iter()
-                .map(Into::into)
-                .collect();
+                let mut elements: Vec<HalleyDirectScanoutElement> =
+                    render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
+                        &mut *renderer_ref,
+                        &candidate.surface,
+                        (0, 0),
+                        1.0,
+                        1.0,
+                        Kind::Unspecified,
+                    )
+                    .into_iter()
+                    .map(Into::into)
+                    .collect();
                 elements.extend(direct_scanout_cursor_elements(
                     &mut *renderer_ref,
                     local_cursor,
@@ -716,8 +717,10 @@ pub(crate) fn queue_tty_drm_frame(
                             output_name,
                             Some(candidate.node_id),
                             direct_scanout_active.then_some(candidate.node_id),
-                            (!direct_scanout_active)
-                                .then_some("eligible fullscreen surface fell back to compositor primary plane".to_string()),
+                            (!direct_scanout_active).then_some(
+                                "eligible fullscreen surface fell back to compositor primary plane"
+                                    .to_string(),
+                            ),
                         );
                         let queued = if !render_res.is_empty {
                             compositor.queue_frame(()).map_err(|err| {
@@ -737,10 +740,7 @@ pub(crate) fn queue_tty_drm_frame(
                             output_name,
                             Some(candidate.node_id),
                             None,
-                            Some(format!(
-                                "direct scanout render attempt failed: {}",
-                                err
-                            )),
+                            Some(format!("direct scanout render attempt failed: {}", err)),
                         );
                     }
                 }
@@ -856,21 +856,22 @@ fn direct_scanout_cursor_elements(
             });
             let (hotspot_x, hotspot_y) = crate::render::cursor_surface_hotspot(&surface);
             let loc = (sx.round() as i32 - hotspot_x, sy.round() as i32 - hotspot_y);
-            Ok(render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
-                renderer,
-                &surface,
-                loc,
-                scale,
-                1.0,
-                Kind::Cursor,
+            Ok(
+                render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
+                    renderer,
+                    &surface,
+                    loc,
+                    scale,
+                    1.0,
+                    Kind::Cursor,
+                )
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             )
-            .into_iter()
-            .map(Into::into)
-            .collect())
         }
         CursorImageStatus::Named(icon) => {
-            let Some(sprite) = crate::render::themed_cursor_sprite_with_fallback(icon)
-            else {
+            let Some(sprite) = crate::render::themed_cursor_sprite_with_fallback(icon) else {
                 return Ok(Vec::new());
             };
             let loc = (
@@ -936,14 +937,26 @@ fn fullscreen_direct_scanout_candidate(
     local_cursor: Option<(f32, f32)>,
     cursor_image: Option<&CursorImageStatus>,
 ) -> Option<Result<FullscreenDirectScanoutCandidate, (halley_core::field::NodeId, String)>> {
-    let node_id = *st.model.fullscreen_state.fullscreen_active_node.get(output_name)?;
+    let node_id = *st
+        .model
+        .fullscreen_state
+        .fullscreen_active_node
+        .get(output_name)?;
     let blocked = |reason: &str| Err((node_id, reason.to_string()));
 
     if st.output_transform_for(output_name) != Transform::Normal {
         return Some(blocked("output transform is not normal"));
     }
-    if st.model.fullscreen_state.fullscreen_motion.contains_key(&node_id)
-        || st.model.fullscreen_state.fullscreen_scale_anim.contains_key(&node_id)
+    if st
+        .model
+        .fullscreen_state
+        .fullscreen_motion
+        .contains_key(&node_id)
+        || st
+            .model
+            .fullscreen_state
+            .fullscreen_scale_anim
+            .contains_key(&node_id)
     {
         return Some(blocked("fullscreen transition is still animating"));
     }
@@ -968,7 +981,9 @@ fn fullscreen_direct_scanout_candidate(
         ));
     }
     if monitor_has_blocking_layer_shell_surfaces(st, output_name) {
-        return Some(blocked("top/overlay layer-shell surfaces are present on the output"));
+        return Some(blocked(
+            "top/overlay layer-shell surfaces are present on the output",
+        ));
     }
     let Some(surface) = fullscreen_root_surface_for_node(st, node_id) else {
         return Some(blocked("fullscreen node has no live toplevel surface"));

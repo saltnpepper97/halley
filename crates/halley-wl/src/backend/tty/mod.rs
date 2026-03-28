@@ -8,7 +8,6 @@ use std::collections::HashSet;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, TtyBackendHandle, TtyDmabufImportBackend,
 };
-use crate::interaction::types::ResizeCtx;
 use crate::backend::tty::dpms::{
     any_tty_output_dpms_enabled, apply_tty_dpms_command, publish_tty_outputs_snapshot,
     sync_tty_dpms_state, tty_output_dpms_enabled, wake_tty_dpms_on_input,
@@ -18,6 +17,7 @@ use crate::backend::tty::drm::{
     queue_tty_drm_frame, rebuild_tty_outputs, selected_tty_scanout_signature,
 };
 use crate::backend::vblank_throttle::VBlankThrottle;
+use crate::interaction::types::ResizeCtx;
 use calloop::{Interest, Mode, PostAction, generic::Generic, ping::make_ping};
 
 use smithay::backend::input::{
@@ -932,22 +932,23 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let pointer_state_for_redraw = pointer_state.clone();
             let renderer_for_redraw = drm_probe.renderer.clone();
             let first_frame_queued_for_redraw = first_frame_queued.clone();
-            ev.handle().insert_source(redraw_source, move |_event, _metadata, st| {
-                let ps = pointer_state_for_redraw.borrow();
-                let resize_preview = ps.resize;
-                drop(ps);
-                queue_ready_tty_outputs(
-                    &outputs_for_redraw,
-                    &dpms_enabled_for_redraw,
-                    &output_frame_pending_for_redraw,
-                    &pointer_state_for_redraw,
-                    &renderer_for_redraw,
-                    &first_frame_queued_for_redraw,
-                    st,
-                    Instant::now(),
-                    resize_preview,
-                );
-            })?;
+            ev.handle()
+                .insert_source(redraw_source, move |_event, _metadata, st| {
+                    let ps = pointer_state_for_redraw.borrow();
+                    let resize_preview = ps.resize;
+                    drop(ps);
+                    queue_ready_tty_outputs(
+                        &outputs_for_redraw,
+                        &dpms_enabled_for_redraw,
+                        &output_frame_pending_for_redraw,
+                        &pointer_state_for_redraw,
+                        &renderer_for_redraw,
+                        &first_frame_queued_for_redraw,
+                        st,
+                        Instant::now(),
+                        resize_preview,
+                    );
+                })?;
 
             let _renderer_for_input = drm_probe.renderer.clone();
             ev.handle()

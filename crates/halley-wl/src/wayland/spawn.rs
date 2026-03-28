@@ -1,5 +1,5 @@
-use std::time::Instant;
 use std::collections::HashMap;
+use std::time::Instant;
 
 use eventline::info;
 use halley_config::PanToNewMode;

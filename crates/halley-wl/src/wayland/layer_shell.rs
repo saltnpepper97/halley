@@ -1,8 +1,8 @@
 use smithay::{
     reexports::wayland_server::{
-        protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface, Resource,
+        Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
     },
-    utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER},
+    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size},
     wayland::{
         compositor::with_states,
         shell::wlr_layer::{

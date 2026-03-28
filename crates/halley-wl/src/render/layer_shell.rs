@@ -3,10 +3,10 @@ use std::time::Instant;
 
 use smithay::{
     backend::renderer::{
-        element::{surface::render_elements_from_surface_tree, Kind},
+        element::{Kind, surface::render_elements_from_surface_tree},
         gles::GlesRenderer,
     },
-    desktop::{find_popup_root_surface, utils::bbox_from_surface_tree, PopupKind, PopupManager},
+    desktop::{PopupKind, PopupManager, find_popup_root_surface, utils::bbox_from_surface_tree},
     reexports::wayland_server::Resource,
     utils::{Logical, Physical, Size},
     wayland::shell::wlr_layer::Layer,

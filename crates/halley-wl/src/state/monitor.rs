@@ -6,12 +6,12 @@ use std::time::Instant;
 
 use smithay::{
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
-    reexports::wayland_server::{backend::ObjectId, protocol::wl_surface::WlSurface, Resource},
+    reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
     utils::Transform,
 };
 
-use crate::state::spawn::MonitorSpawnState;
 use crate::state::Halley;
+use crate::state::spawn::MonitorSpawnState;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MonitorSpace {

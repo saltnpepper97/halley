@@ -237,9 +237,15 @@ fn draw_shader_label(
         Uniform::new("rect_size", (w as f32, h as f32)),
         Uniform::new(
             "inner_rect_size",
-            ((w as f32 - border_px * 2.0).max(1.0), (h as f32 - border_px * 2.0).max(1.0)),
+            (
+                (w as f32 - border_px * 2.0).max(1.0),
+                (h as f32 - border_px * 2.0).max(1.0),
+            ),
         ),
-        Uniform::new("inner_rect_offset", (border_px.max(0.0), border_px.max(0.0))),
+        Uniform::new(
+            "inner_rect_offset",
+            (border_px.max(0.0), border_px.max(0.0)),
+        ),
         Uniform::new("corner_radius", corner_radius),
         Uniform::new("inner_corner_radius", (corner_radius - border_px).max(0.0)),
         Uniform::new("border_px", border_px),

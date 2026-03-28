@@ -3,7 +3,7 @@ use super::*;
 use halley_config::RuntimeTuning;
 
 use crate::animation::{AnimSpec, AnimStyle};
-use crate::render::{build_debug_scene, DebugScene};
+use crate::render::{DebugScene, build_debug_scene};
 
 impl Halley {
     const RECENT_INTERACTION_PROTECT_MS: u64 = 7_500;

@@ -685,9 +685,9 @@ fn projected_anchor_for_lane(
     let edge_y = center.y + dy * t;
 
     let scalar = if lane.uses_horizontal_axis() {
-        ((edge_x - (center.x - half_w)) / size.x.max(1.0)) * screen_w as f32
+        project_horizontal_edge_scalar(center.x, half_w, size.x, edge_x, screen_w)
     } else {
-        (((center.y + half_h) - edge_y) / size.y.max(1.0)) * screen_h as f32
+        project_vertical_edge_scalar(center.y, half_h, size.y, edge_y, screen_h)
     };
 
     scalar.clamp(
@@ -698,6 +698,26 @@ fn projected_anchor_for_lane(
             screen_h as f32 - EDGE_PAD as f32
         },
     )
+}
+
+fn project_horizontal_edge_scalar(
+    center_x: f32,
+    half_w: f32,
+    size_x: f32,
+    edge_x: f32,
+    screen_w: i32,
+) -> f32 {
+    ((edge_x - (center_x - half_w)) / size_x.max(1.0)) * screen_w as f32
+}
+
+fn project_vertical_edge_scalar(
+    center_y: f32,
+    half_h: f32,
+    size_y: f32,
+    edge_y: f32,
+    screen_h: i32,
+) -> f32 {
+    ((edge_y - (center_y - half_h)) / size_y.max(1.0)) * screen_h as f32
 }
 
 fn bearing_label(st: &Halley, node_id: NodeId, title: &str) -> String {
@@ -782,6 +802,21 @@ fn rect_contains(rect: Rectangle<i32, Physical>, x: i32, y: i32) -> bool {
         && x < rect.loc.x + rect.size.w
         && y >= rect.loc.y
         && y < rect.loc.y + rect.size.h
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vertical_projection_decreases_when_edge_moves_up() {
+        let upper = project_vertical_edge_scalar(0.0, 50.0, 100.0, -25.0, 1000);
+        let lower = project_vertical_edge_scalar(0.0, 50.0, 100.0, 25.0, 1000);
+
+        assert!(upper < lower, "upper={upper} lower={lower}");
+        assert_eq!(upper, 250.0);
+        assert_eq!(lower, 750.0);
+    }
 }
 
 fn draw_bearing_icon(
@@ -874,9 +909,15 @@ fn draw_shader_label(
         Uniform::new("rect_size", (w as f32, h as f32)),
         Uniform::new(
             "inner_rect_size",
-            ((w as f32 - border_px * 2.0).max(1.0), (h as f32 - border_px * 2.0).max(1.0)),
+            (
+                (w as f32 - border_px * 2.0).max(1.0),
+                (h as f32 - border_px * 2.0).max(1.0),
+            ),
         ),
-        Uniform::new("inner_rect_offset", (border_px.max(0.0), border_px.max(0.0))),
+        Uniform::new(
+            "inner_rect_offset",
+            (border_px.max(0.0), border_px.max(0.0)),
+        ),
         Uniform::new("corner_radius", corner_radius),
         Uniform::new("inner_corner_radius", (corner_radius - border_px).max(0.0)),
         Uniform::new("border_px", border_px),

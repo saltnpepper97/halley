@@ -372,14 +372,22 @@ pub(crate) fn collect_active_surfaces(
         } else {
             let base = st.runtime.tuning.border_size_px.max(0) as f32;
             let scaled = (base * render_scale).round();
-            if base > 0.0 { scaled.max(1.0) as i32 } else { 0 }
+            if base > 0.0 {
+                scaled.max(1.0) as i32
+            } else {
+                0
+            }
         };
         let effective_corner_radius_px = if fullscreen_on_current_monitor {
             0
         } else {
             let base = st.runtime.tuning.border_radius_px.max(0) as f32;
             let scaled = (base * render_scale).round();
-            if base > 0.0 { scaled.max(1.0) as i32 } else { 0 }
+            if base > 0.0 {
+                scaled.max(1.0) as i32
+            } else {
+                0
+            }
         };
         let lock_dst_to_geometry = effective_corner_radius_px > 0;
         let offscreen_clip = None;
@@ -539,17 +547,16 @@ pub(crate) fn collect_active_surfaces(
                         // Use live committed geo (updated on every client commit)
                         // as the single source of truth. Falls back to frozen
                         // local_geo before the first commit after resize starts.
-                        let (live_gw, live_gh): (f32, f32) =
-                            if active_resize.live_geo_w > 0.0 {
-                                (active_resize.live_geo_w, active_resize.live_geo_h)
-                            } else {
-                                // Before first commit: keep the frozen start size.
-                                (local_geo.2, local_geo.3)
-                            };
-                        let frozen_geo_lx = (ob.loc.x + resize_preview.unwrap().start_geo_inset_x)
-                            as f32;
-                        let frozen_geo_ly = (ob.loc.y + resize_preview.unwrap().start_geo_inset_y)
-                            as f32;
+                        let (live_gw, live_gh): (f32, f32) = if active_resize.live_geo_w > 0.0 {
+                            (active_resize.live_geo_w, active_resize.live_geo_h)
+                        } else {
+                            // Before first commit: keep the frozen start size.
+                            (local_geo.2, local_geo.3)
+                        };
+                        let frozen_geo_lx =
+                            (ob.loc.x + resize_preview.unwrap().start_geo_inset_x) as f32;
+                        let frozen_geo_ly =
+                            (ob.loc.y + resize_preview.unwrap().start_geo_inset_y) as f32;
 
                         // Match the normal offscreen path: anchor the destination from the
                         // live geometry rect itself, then let the visual crop helper expand it.
@@ -662,8 +669,8 @@ pub(crate) fn collect_active_surfaces(
                     let offscreen = OffscreenNodeTexture {
                         texture: texture.clone(),
                         alpha,
-                        corner_radius: (effective_corner_radius_px - effective_border_px)
-                            .max(0) as f32,
+                        corner_radius: (effective_corner_radius_px - effective_border_px).max(0)
+                            as f32,
                         src_x,
                         src_y,
                         src_w,

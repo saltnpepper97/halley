@@ -1,5 +1,4 @@
 use super::*;
-use std::collections::HashMap;
 use crate::state::ViewportPanAnim;
 use crate::state::{ClusterState, FocusState, FullscreenState, MonitorState};
 use eventline::info;
@@ -10,6 +9,7 @@ use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurfa
 use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
+use std::collections::HashMap;
 
 struct FocusReadContext<'a> {
     field: &'a Field,
