@@ -2,6 +2,8 @@ mod dpms;
 mod drm;
 
 use super::*;
+
+use crate::input::ctx::InputCtx;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -977,13 +979,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         // both stop matching.
                         let code: u32 = event.key_code().into();
                         let pressed = event.state() == KeyState::Pressed;
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
                         handle_backend_input_event(
                             st,
-                            &mod_state_for_input,
-                            &pointer_state_for_input,
-                            &backend_handle,
-                            config_path.as_str(),
-                            sock_name.as_str(),
+                            &input_ctx,
                             BackendInputEventData::Keyboard { code, pressed },
                         );
                     }
@@ -1018,13 +1023,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             info!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
                         }
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
                         handle_backend_input_event(
                             st,
-                            &mod_state_for_input,
-                            &pointer_state_for_input,
-                            &backend_handle,
-                            config_path.as_str(),
-                            sock_name.as_str(),
+                            &input_ctx,
                             BackendInputEventData::PointerMotionAbsolute {
                                 ws_w,
                                 ws_h,
@@ -1060,13 +1068,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             *pointer_seen_for_input.borrow_mut() = true;
                         }
                         let (ws_w, ws_h) = backend_handle.window_size_i32();
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
                         handle_backend_input_event(
                             st,
-                            &mod_state_for_input,
-                            &pointer_state_for_input,
-                            &backend_handle,
-                            config_path.as_str(),
-                            sock_name.as_str(),
+                            &input_ctx,
                             BackendInputEventData::PointerMotionAbsolute {
                                 ws_w,
                                 ws_h,
@@ -1099,13 +1110,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             info!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
                         }
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
                         handle_backend_input_event(
                             st,
-                            &mod_state_for_input,
-                            &pointer_state_for_input,
-                            &backend_handle,
-                            config_path.as_str(),
-                            sock_name.as_str(),
+                            &input_ctx,
                             BackendInputEventData::PointerButton {
                                 button_code: event.button_code(),
                                 state: event.state(),
@@ -1131,13 +1145,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             info!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
                         }
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_input,
+                            pointer_state: &pointer_state_for_input,
+                            backend: &backend_handle,
+                            config_path: config_path.as_str(),
+                            wayland_display: sock_name.as_str(),
+                        };
                         handle_backend_input_event(
                             st,
-                            &mod_state_for_input,
-                            &pointer_state_for_input,
-                            &backend_handle,
-                            config_path.as_str(),
-                            sock_name.as_str(),
+                            &input_ctx,
                             BackendInputEventData::PointerAxis {
                                 source: event.source(),
                                 amount_v120_horizontal: event.amount_v120(Axis::Horizontal),

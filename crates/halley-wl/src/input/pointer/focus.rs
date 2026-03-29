@@ -11,7 +11,7 @@ use crate::interaction::types::ResizeCtx;
 use crate::spatial::pick_hit_node_at;
 use crate::state::Halley;
 
-use super::resize_helpers::active_node_surface_transform_screen_details;
+use super::resize::active_node_surface_transform_screen_details;
 
 fn clamp_layer_popup_origin(
     popup: &smithay::desktop::PopupKind,

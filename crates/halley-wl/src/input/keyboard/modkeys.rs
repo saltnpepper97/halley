@@ -160,3 +160,12 @@ mod tests {
         ));
     }
 }
+
+
+#[inline]
+pub(crate) fn is_modifier_keycode(code: u32) -> bool {
+    matches!(
+        code,
+        37 | 105 | 50 | 62 | 64 | 108 | 133 | 134 | 66 | 77 | 78
+    )
+}

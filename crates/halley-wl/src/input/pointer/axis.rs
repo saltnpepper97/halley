@@ -1,19 +1,17 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::time::Instant;
 
 use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::interaction::types::{ModState, PointerState};
+use crate::input::ctx::InputCtx;
 use crate::spatial::screen_to_world;
 use crate::state::Halley;
 
-use super::key_actions::{
+use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
-use super::pointer_focus::pointer_focus_for_screen;
+use super::focus::pointer_focus_for_screen;
 use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};
 use smithay::backend::input::{Axis, AxisRelativeDirection, AxisSource};
 
@@ -27,13 +25,9 @@ fn now_millis_u32() -> u32 {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn handle_pointer_axis_input(
+pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     st: &mut Halley,
-    mod_state: &Rc<RefCell<ModState>>,
-    pointer_state: &Rc<RefCell<PointerState>>,
-    backend: &impl BackendView,
-    config_path: &str,
-    wayland_display: &str,
+    ctx: &InputCtx<'_, B>,
     source: AxisSource,
     amount_v120_horizontal: Option<f64>,
     amount_v120_vertical: Option<f64>,
@@ -51,28 +45,28 @@ pub(crate) fn handle_pointer_axis_input(
     }
     if steps.abs() >= f32::EPSILON {
         let steps = steps.clamp(-4.0, 4.0);
-        let mods = mod_state.borrow().clone();
+        let mods = ctx.mod_state.borrow().clone();
         let wheel_code = if steps > 0.0 {
             WHEEL_UP_CODE
         } else {
             WHEEL_DOWN_CODE
         };
         if let Some(action) = compositor_binding_action_active(st, wheel_code, &mods) {
-            pointer_state.borrow_mut().panning = false;
-            if apply_compositor_action_press(st, action, config_path, wayland_display) {
-                backend.request_redraw();
+            ctx.pointer_state.borrow_mut().panning = false;
+            if apply_compositor_action_press(st, action, ctx.config_path, ctx.wayland_display) {
+                ctx.backend.request_redraw();
             }
             return;
         }
-        if apply_bound_pointer_input(st, wheel_code, &mods, config_path, wayland_display) {
-            pointer_state.borrow_mut().panning = false;
-            backend.request_redraw();
+        if apply_bound_pointer_input(st, wheel_code, &mods, ctx.config_path, ctx.wayland_display) {
+            ctx.pointer_state.borrow_mut().panning = false;
+            ctx.backend.request_redraw();
             return;
         }
     }
 
     let (sx, sy) = {
-        let ps = pointer_state.borrow();
+        let ps = ctx.pointer_state.borrow();
         (ps.screen.0, ps.screen.1)
     };
     let target_monitor = st
@@ -82,13 +76,13 @@ pub(crate) fn handle_pointer_axis_input(
     let _ = st.activate_monitor(target_monitor.as_str());
     let (ws_w, ws_h, sx, sy) = st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
     {
-        let mut ps = pointer_state.borrow_mut();
+        let mut ps = ctx.pointer_state.borrow_mut();
         ps.workspace_size = (ws_w, ws_h);
     }
     let world_now = screen_to_world(st, ws_w, ws_h, sx, sy);
-    pointer_state.borrow_mut().world = world_now;
+    ctx.pointer_state.borrow_mut().world = world_now;
     let now = Instant::now();
-    let resize_preview = pointer_state.borrow().resize;
+    let resize_preview = ctx.pointer_state.borrow().resize;
     if let Some(pointer) = st.platform.seat.get_pointer() {
         if pointer.current_focus().is_none()
             && let Some(focus) =
@@ -164,11 +158,11 @@ pub(crate) fn handle_pointer_axis_input(
     let camera = st.camera_view_size();
     let pan_y = -camera.y * (steps / 18.0);
     {
-        let mut ps = pointer_state.borrow_mut();
+        let mut ps = ctx.pointer_state.borrow_mut();
         ps.panning = false;
     }
     st.note_pan_activity(now);
     st.pan_camera_target(halley_core::field::Vec2 { x: 0.0, y: pan_y });
     st.note_pan_viewport_change(now);
-    backend.request_redraw();
+    ctx.backend.request_redraw();
 }

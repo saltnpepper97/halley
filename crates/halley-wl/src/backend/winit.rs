@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::input::ctx::InputCtx;
+
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
@@ -393,13 +395,16 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     WinitEvent::Input(InputEvent::Keyboard { event }) => {
                         let code: u32 = event.key_code().into();
                         let pressed = event.state() == KeyState::Pressed;
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_winit,
+                            pointer_state: &pointer_state_for_winit,
+                            backend: &backend_handle_for_winit,
+                            config_path: config_path_for_winit.as_str(),
+                            wayland_display: wayland_display_for_winit.as_str(),
+                        };
                         handle_backend_input_event(
                             st,
-                            &mod_state_for_winit,
-                            &pointer_state_for_winit,
-                            &backend_handle_for_winit,
-                            config_path_for_winit.as_str(),
-                            wayland_display_for_winit.as_str(),
+                            &input_ctx,
                             BackendInputEventData::Keyboard { code, pressed },
                         );
                     }
@@ -407,13 +412,16 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         let ws = backend_for_winit.borrow().window_size();
                         let sx = event.x_transformed(ws.w) as f32;
                         let sy = event.y_transformed(ws.h) as f32;
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_winit,
+                            pointer_state: &pointer_state_for_winit,
+                            backend: &backend_handle_for_winit,
+                            config_path: config_path_for_winit.as_str(),
+                            wayland_display: wayland_display_for_winit.as_str(),
+                        };
                         handle_backend_input_event(
                             st,
-                            &mod_state_for_winit,
-                            &pointer_state_for_winit,
-                            &backend_handle_for_winit,
-                            config_path_for_winit.as_str(),
-                            wayland_display_for_winit.as_str(),
+                            &input_ctx,
                             BackendInputEventData::PointerMotionAbsolute {
                                 ws_w: ws.w,
                                 ws_h: ws.h,
@@ -440,13 +448,16 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             + smithay::backend::input::PointerMotionEvent::<
                                 smithay::backend::winit::WinitInput,
                             >::delta_y(&event) as f32;
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_winit,
+                            pointer_state: &pointer_state_for_winit,
+                            backend: &backend_handle_for_winit,
+                            config_path: config_path_for_winit.as_str(),
+                            wayland_display: wayland_display_for_winit.as_str(),
+                        };
                         handle_backend_input_event(
                             st,
-                            &mod_state_for_winit,
-                            &pointer_state_for_winit,
-                            &backend_handle_for_winit,
-                            config_path_for_winit.as_str(),
-                            wayland_display_for_winit.as_str(),
+                            &input_ctx,
                             BackendInputEventData::PointerMotionAbsolute {
                                 ws_w: ws.w,
                                 ws_h: ws.h,
@@ -475,13 +486,16 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     WinitEvent::Input(InputEvent::PointerButton { event }) => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_winit,
+                            pointer_state: &pointer_state_for_winit,
+                            backend: &backend_handle_for_winit,
+                            config_path: config_path_for_winit.as_str(),
+                            wayland_display: wayland_display_for_winit.as_str(),
+                        };
                         handle_backend_input_event(
                             st,
-                            &mod_state_for_winit,
-                            &pointer_state_for_winit,
-                            &backend_handle_for_winit,
-                            config_path_for_winit.as_str(),
-                            wayland_display_for_winit.as_str(),
+                            &input_ctx,
                             BackendInputEventData::PointerButton {
                                 button_code: event.button_code(),
                                 state: event.state(),
@@ -489,13 +503,16 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                     WinitEvent::Input(InputEvent::PointerAxis { event }) => {
+                        let input_ctx = InputCtx {
+                            mod_state: &mod_state_for_winit,
+                            pointer_state: &pointer_state_for_winit,
+                            backend: &backend_handle_for_winit,
+                            config_path: config_path_for_winit.as_str(),
+                            wayland_display: wayland_display_for_winit.as_str(),
+                        };
                         handle_backend_input_event(
                             st,
-                            &mod_state_for_winit,
-                            &pointer_state_for_winit,
-                            &backend_handle_for_winit,
-                            config_path_for_winit.as_str(),
-                            wayland_display_for_winit.as_str(),
+                            &input_ctx,
                             BackendInputEventData::PointerAxis {
                                 source: event.source(),
                                 amount_v120_horizontal: event.amount_v120(Axis::Horizontal),

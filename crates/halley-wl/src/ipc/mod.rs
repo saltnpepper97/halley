@@ -15,7 +15,7 @@ use smithay::wayland::shell::xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData};
 
 use crate::interaction::actions::promote_node_level;
 use crate::state::Halley;
-use crate::surface_ops::{current_surface_size_for_node, request_close_node_toplevel};
+use crate::compositor::surface_ops::{current_surface_size_for_node, request_close_node_toplevel};
 
 pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
     match request {

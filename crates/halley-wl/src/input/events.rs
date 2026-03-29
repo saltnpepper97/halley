@@ -1,9 +1,9 @@
 use crate::backend::interface::BackendView;
-use crate::interaction::types::{ModState, PointerState};
 use crate::state::Halley;
 
-use super::input_keyboard::handle_keyboard_input;
-use super::input_pointer::handle_pointer_axis_input;
+use super::ctx::InputCtx;
+use super::keyboard::handle_keyboard_input;
+use super::pointer::axis::handle_pointer_axis_input;
 use smithay::backend::input::{AxisRelativeDirection, AxisSource, ButtonState};
 
 pub(crate) enum BackendInputEventData {
@@ -37,28 +37,16 @@ pub(crate) enum BackendInputEventData {
     },
 }
 
-pub(crate) fn handle_backend_input_event(
+pub(crate) fn handle_backend_input_event<B: BackendView>(
     st: &mut Halley,
-    mod_state: &std::rc::Rc<std::cell::RefCell<ModState>>,
-    pointer_state: &std::rc::Rc<std::cell::RefCell<PointerState>>,
-    backend: &impl BackendView,
-    config_path: &str,
-    wayland_display: &str,
+    ctx: &InputCtx<'_, B>,
     event: BackendInputEventData,
 ) {
     st.note_input_activity();
 
     match event {
         BackendInputEventData::Keyboard { code, pressed } => {
-            handle_keyboard_input(
-                st,
-                mod_state,
-                backend,
-                config_path,
-                wayland_display,
-                code,
-                pressed,
-            );
+            handle_keyboard_input(st, ctx, code, pressed);
         }
         BackendInputEventData::PointerMotionAbsolute {
             ws_w,
@@ -71,11 +59,9 @@ pub(crate) fn handle_backend_input_event(
             delta_y_unaccel,
             time_usec,
         } => {
-            super::pointer_motion::handle_pointer_motion_absolute(
+            super::pointer::motion::handle_pointer_motion_absolute(
                 st,
-                backend,
-                mod_state,
-                pointer_state,
+                ctx,
                 ws_w,
                 ws_h,
                 sx,
@@ -86,16 +72,7 @@ pub(crate) fn handle_backend_input_event(
             );
         }
         BackendInputEventData::PointerButton { button_code, state } => {
-            super::pointer_button::handle_pointer_button_input(
-                st,
-                backend,
-                mod_state,
-                pointer_state,
-                config_path,
-                wayland_display,
-                button_code,
-                state,
-            );
+            super::pointer::button::handle_pointer_button_input(st, ctx, button_code, state);
         }
         BackendInputEventData::PointerAxis {
             source,
@@ -108,11 +85,7 @@ pub(crate) fn handle_backend_input_event(
         } => {
             handle_pointer_axis_input(
                 st,
-                mod_state,
-                pointer_state,
-                backend,
-                config_path,
-                wayland_display,
+                ctx,
                 source,
                 amount_v120_horizontal,
                 amount_v120_vertical,

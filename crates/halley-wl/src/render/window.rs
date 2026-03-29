@@ -16,7 +16,7 @@ use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_
 use crate::input::active_resize_geometry_screen;
 use crate::interaction::types::ResizeCtx;
 use crate::state::Halley;
-use crate::surface_ops::window_geometry_for_node;
+use crate::compositor::surface_ops::window_geometry_for_node;
 
 use super::offscreen::render_surface_tree_to_texture;
 use super::utils::{sync_node_size_from_surface, world_to_screen};

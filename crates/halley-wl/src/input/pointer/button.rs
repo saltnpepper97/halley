@@ -1,36 +1,33 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::time::Instant;
 
 use eventline::info;
-use halley_config::PointerBindingAction;
+use halley_config::{KeyModifiers, PointerBindingAction};
 
 use crate::backend::interface::BackendView;
 use crate::interaction::actions::{
     activate_collapsed_node_from_click, focus_or_reveal_surface_node,
 };
-use crate::interaction::types::{BloomDragCtx, HitNode, ModState, OverflowDragCtx, PointerState};
+use crate::interaction::types::{BloomDragCtx, HitNode, ModState, OverflowDragCtx, PointerState, NODE_DOUBLE_CLICK_MS, TitleClickCtx};
+use crate::input::ctx::InputCtx;
+use crate::input::keyboard::modkeys::modifier_active;
 use crate::overlay::{
     bloom_token_hit_test, cluster_overflow_icon_hit_test, cluster_overflow_strip_slot_at,
 };
 use crate::render::bearing_hit_test;
+use crate::spatial::screen_to_world;
 use crate::spatial::pick_hit_node_at;
-use crate::state::{Halley, PendingCoreClick};
+use crate::state::{Halley, PendingCoreClick, PendingCorePress};
 use smithay::backend::input::ButtonState;
+use smithay::input::pointer::{ButtonEvent, MotionEvent};
+use smithay::reexports::wayland_server::Resource;
+use smithay::utils::SERIAL_COUNTER;
 
-use super::key_actions::{
+use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
-use super::pointer_core::{
-    clear_pointer_activity, collapse_bloom_for_core_if_open, handle_core_left_press,
-    handle_workspace_left_press, restore_fullscreen_click_focus, set_title_click,
-    title_click_is_double,
-};
-use super::pointer_dispatch::dispatch_pointer_button;
-use super::pointer_drag::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
-use super::pointer_focus::layer_surface_focus_for_screen;
-use super::pointer_frame::{ButtonFrame, active_pointer_binding, button_frame_for_monitor};
-use super::pointer_resize::{begin_resize, finalize_resize};
+use super::motion::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
+use super::focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
+use super::resize::{begin_resize, finalize_resize};
 
 fn handle_left_press(
     st: &mut Halley,
@@ -294,20 +291,16 @@ fn handle_button_release(
     }
 }
 
-pub(crate) fn handle_pointer_button_input(
+pub(crate) fn handle_pointer_button_input<B: BackendView>(
     st: &mut Halley,
-    backend: &impl BackendView,
-    mod_state: &Rc<RefCell<ModState>>,
-    pointer_state: &Rc<RefCell<PointerState>>,
-    config_path: &str,
-    wayland_display: &str,
+    ctx: &InputCtx<'_, B>,
     button_code: u32,
     button_state: ButtonState,
 ) {
     let left = button_code == 0x110;
     let right = button_code == 0x111;
-    let mut ps = pointer_state.borrow_mut();
-    let (ws_w, ws_h) = backend.window_size_i32();
+    let mut ps = ctx.pointer_state.borrow_mut();
+    let (ws_w, ws_h) = ctx.backend.window_size_i32();
     let (frame, target_monitor, clamped_screen) =
         button_frame_for_monitor(st, ws_w, ws_h, ps.screen);
     let (sx, sy) = clamped_screen;
@@ -334,7 +327,7 @@ pub(crate) fn handle_pointer_button_input(
         );
     }
     let world_now = frame.world_now;
-    let mods = mod_state.borrow().clone();
+    let mods = ctx.mod_state.borrow().clone();
     let cluster_pointer_action = match button_state {
         ButtonState::Pressed => active_pointer_binding(st, &mods, button_code),
         ButtonState::Released => ps.intercepted_buttons.get(&button_code).copied(),
@@ -369,7 +362,7 @@ pub(crate) fn handle_pointer_button_input(
                 if let Some(hit) = hit {
                     let _ = st.toggle_cluster_mode_selection(hit.node_id);
                     ps.last_title_click = None;
-                    backend.request_redraw();
+                    ctx.backend.request_redraw();
                     return;
                 }
 
@@ -382,11 +375,11 @@ pub(crate) fn handle_pointer_button_input(
                 ps.pan_monitor = Some(monitor);
                 ps.pan_last_screen = (frame.global_sx, frame.global_sy);
                 ps.last_title_click = None;
-                backend.request_redraw();
+                ctx.backend.request_redraw();
                 return;
             }
             ButtonState::Released if left || right => {
-                handle_button_release(st, &mut ps, backend, button_code, None, world_now);
+                handle_button_release(st, &mut ps, ctx.backend, button_code, None, world_now);
                 return;
             }
             ButtonState::Pressed | ButtonState::Released => {
@@ -418,7 +411,7 @@ pub(crate) fn handle_pointer_button_input(
             mix: 0.0,
         });
         ps.last_title_click = None;
-        backend.request_redraw();
+        ctx.backend.request_redraw();
         return;
     }
     if matches!(button_state, ButtonState::Pressed)
@@ -437,7 +430,7 @@ pub(crate) fn handle_pointer_button_input(
         let _ = focus_or_reveal_surface_node(st, node_id, now);
         ps.last_title_click = None;
         ps.panning = false;
-        backend.request_redraw();
+        ctx.backend.request_redraw();
         return;
     }
     if matches!(button_state, ButtonState::Pressed)
@@ -465,7 +458,7 @@ pub(crate) fn handle_pointer_button_input(
             });
         st.set_cursor_override_icon(Some(smithay::input::pointer::CursorIcon::Grabbing));
         ps.last_title_click = None;
-        backend.request_redraw();
+        ctx.backend.request_redraw();
         return;
     }
     let intercepted_binding = match button_state {
@@ -473,19 +466,19 @@ pub(crate) fn handle_pointer_button_input(
             if let Some(action) = compositor_binding_action_active(st, button_code, &mods) {
                 ps.intercepted_binding_buttons.insert(button_code);
                 ps.panning = false;
-                let _ = apply_compositor_action_press(st, action, config_path, wayland_display);
-                backend.request_redraw();
+                let _ = apply_compositor_action_press(st, action, ctx.config_path, ctx.wayland_display);
+                ctx.backend.request_redraw();
                 true
             } else if apply_bound_pointer_input(
                 st,
                 button_code,
                 &mods,
-                config_path,
-                wayland_display,
+                ctx.config_path,
+                ctx.wayland_display,
             ) {
                 ps.intercepted_binding_buttons.insert(button_code);
                 ps.panning = false;
-                backend.request_redraw();
+                ctx.backend.request_redraw();
                 true
             } else {
                 false
@@ -533,7 +526,7 @@ pub(crate) fn handle_pointer_button_input(
                 handle_left_press(
                     st,
                     &mut ps,
-                    backend,
+                    ctx.backend,
                     matches!(
                         matched_action,
                         Some(PointerBindingAction::MoveWindow | PointerBindingAction::FieldJump)
@@ -546,7 +539,7 @@ pub(crate) fn handle_pointer_button_input(
                 handle_right_press(
                     st,
                     &mut ps,
-                    backend,
+                    ctx.backend,
                     matches!(matched_action, Some(PointerBindingAction::ResizeWindow)),
                     hit,
                     frame,
@@ -554,13 +547,13 @@ pub(crate) fn handle_pointer_button_input(
             } else {
                 match matched_action {
                     Some(PointerBindingAction::MoveWindow) => {
-                        handle_move_binding_press(st, &mut ps, backend, hit, frame, false);
+                        handle_move_binding_press(st, &mut ps, ctx.backend, hit, frame, false);
                     }
                     Some(PointerBindingAction::FieldJump) => {
-                        handle_move_binding_press(st, &mut ps, backend, hit, frame, true);
+                        handle_move_binding_press(st, &mut ps, ctx.backend, hit, frame, true);
                     }
                     Some(PointerBindingAction::ResizeWindow) => {
-                        handle_resize_binding_press(st, &mut ps, backend, hit, frame);
+                        handle_resize_binding_press(st, &mut ps, ctx.backend, hit, frame);
                     }
                     None => {}
                 }
@@ -578,12 +571,12 @@ pub(crate) fn handle_pointer_button_input(
                     reopen_bloom_on_timeout: pending_press.reopen_bloom_on_timeout,
                 });
                 st.request_maintenance();
-                backend.request_redraw();
+                ctx.backend.request_redraw();
                 return;
             }
             if left && ps.bloom_drag.take().is_some() {
                 st.input.interaction_state.bloom_pull_preview = None;
-                backend.request_redraw();
+                ctx.backend.request_redraw();
                 return;
             }
             if left && let Some(overflow_drag) = ps.overflow_drag.take() {
@@ -611,13 +604,13 @@ pub(crate) fn handle_pointer_button_input(
                         now_ms,
                     );
                     if reordered {
-                        backend.request_redraw();
+                        ctx.backend.request_redraw();
                     } else {
                         st.reveal_cluster_overflow_for_monitor(
                             overflow_drag.monitor.as_str(),
                             now_ms,
                         );
-                        backend.request_redraw();
+                        ctx.backend.request_redraw();
                     }
                     return;
                 }
@@ -636,18 +629,411 @@ pub(crate) fn handle_pointer_button_input(
                         st.now_ms(now),
                     );
                     if swapped {
-                        backend.request_redraw();
+                        ctx.backend.request_redraw();
                     }
                     return;
                 }
                 st.reveal_cluster_overflow_for_monitor(overflow_drag.monitor.as_str(), now_ms);
-                backend.request_redraw();
+                ctx.backend.request_redraw();
                 return;
             }
             if intercepted_binding {
                 return;
             }
-            handle_button_release(st, &mut ps, backend, button_code, matched_action, world_now);
+            handle_button_release(st, &mut ps, ctx.backend, button_code, matched_action, world_now);
         }
     }
+}
+
+
+
+pub(super) fn title_click_is_double(
+    ps: &PointerState,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+) -> bool {
+    ps.last_title_click.is_some_and(|last| {
+        last.node_id == node_id
+            && now.duration_since(last.at).as_millis() as u64 <= NODE_DOUBLE_CLICK_MS
+    })
+}
+
+pub(super) fn set_title_click(
+    ps: &mut PointerState,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+) {
+    ps.last_title_click = Some(TitleClickCtx { node_id, at: now });
+}
+
+pub(super) fn clear_pointer_activity(st: &mut Halley, ps: &mut PointerState) {
+    if let Some(drag) = ps.drag {
+        st.set_drag_authority_node(None);
+        st.end_carry_state_tracking(drag.node_id);
+    }
+    st.clear_grabbed_edge_pan_state();
+    st.input.interaction_state.active_drag = None;
+    st.input.interaction_state.pending_core_press = None;
+    st.input.interaction_state.cluster_overflow_drag_preview = None;
+    st.set_cursor_override_icon(None);
+    ps.drag = None;
+    ps.overflow_drag = None;
+    ps.resize = None;
+    ps.panning = false;
+    ps.pan_monitor = None;
+}
+
+pub(super) fn collapse_bloom_for_core_if_open(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+) -> bool {
+    let Some(cid) = st.model.field.cluster_id_for_core_public(node_id) else {
+        return false;
+    };
+    let monitor = st
+        .model
+        .monitor_state
+        .node_monitor
+        .get(&node_id)
+        .cloned()
+        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    if st.cluster_bloom_for_monitor(monitor.as_str()) != Some(cid) {
+        return false;
+    }
+    st.close_cluster_bloom_for_monitor(monitor.as_str())
+}
+
+pub(super) fn restore_fullscreen_click_focus(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+) -> bool {
+    if !st.is_fullscreen_active(node_id) {
+        return false;
+    }
+
+    let monitor_name = st
+        .fullscreen_monitor_for_node(node_id)
+        .map(str::to_owned)
+        .or_else(|| st.model.monitor_state.node_monitor.get(&node_id).cloned())
+        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+
+    let entry = st
+        .model
+        .fullscreen_state
+        .fullscreen_restore
+        .get(&node_id)
+        .copied();
+    let fallback_center = st
+        .model
+        .monitor_state
+        .monitors
+        .get(monitor_name.as_str())
+        .map(|space| space.viewport.center)
+        .unwrap_or(st.model.viewport.center);
+    let target_center = st
+        .model
+        .field
+        .node(node_id)
+        .map(|node| node.pos)
+        .or_else(|| entry.map(|e| e.viewport_center))
+        .unwrap_or(fallback_center);
+
+    st.set_interaction_monitor(monitor_name.as_str());
+    let _ = st.activate_monitor(monitor_name.as_str());
+    if let Some(space) = st
+        .model
+        .monitor_state
+        .monitors
+        .get_mut(monitor_name.as_str())
+    {
+        let one_x_zoom = halley_core::field::Vec2 {
+            x: space.width as f32,
+            y: space.height as f32,
+        };
+        space.viewport.center = target_center;
+        space.camera_target_center = target_center;
+        space.viewport.size = one_x_zoom;
+        space.zoom_ref_size = one_x_zoom;
+        space.camera_target_view_size = one_x_zoom;
+    }
+    if st.model.monitor_state.current_monitor == monitor_name {
+        let one_x_zoom = st
+            .model
+            .monitor_state
+            .monitors
+            .get(monitor_name.as_str())
+            .map(|space| halley_core::field::Vec2 {
+                x: space.width as f32,
+                y: space.height as f32,
+            })
+            .unwrap_or(st.model.viewport.size);
+        st.model.viewport.center = target_center;
+        st.model.camera_target_center = target_center;
+        st.model.viewport.size = one_x_zoom;
+        st.model.zoom_ref_size = one_x_zoom;
+        st.model.camera_target_view_size = one_x_zoom;
+        st.runtime.tuning.viewport_center = target_center;
+        st.runtime.tuning.viewport_size = one_x_zoom;
+        st.input.interaction_state.viewport_pan_anim = None;
+    }
+
+    st.set_interaction_focus(Some(node_id), 30_000, now);
+    true
+}
+
+pub(super) fn handle_core_left_press(
+    st: &mut Halley,
+    ps: &mut PointerState,
+    backend: &dyn BackendView,
+    hit: HitNode,
+    frame: ButtonFrame,
+) {
+    let now = Instant::now();
+    st.set_interaction_focus(Some(hit.node_id), 700, now);
+    let was_bloom_open = collapse_bloom_for_core_if_open(st, hit.node_id);
+    let now_ms = st.now_ms(now);
+    if st
+        .input
+        .interaction_state
+        .pending_core_click
+        .as_ref()
+        .is_some_and(|pending| {
+            pending.node_id == hit.node_id
+                && pending.monitor == st.model.monitor_state.current_monitor
+                && pending.deadline_ms > now_ms
+        })
+    {
+        let _ = st.toggle_cluster_workspace_by_core(hit.node_id, now);
+        st.input.interaction_state.pending_core_click = None;
+        ps.last_title_click = None;
+    } else {
+        st.input.interaction_state.pending_core_press = Some(PendingCorePress {
+            node_id: hit.node_id,
+            monitor: st.model.monitor_state.current_monitor.clone(),
+            press_global_sx: frame.global_sx,
+            press_global_sy: frame.global_sy,
+            reopen_bloom_on_timeout: !was_bloom_open,
+        });
+    }
+    backend.request_redraw();
+}
+
+pub(super) fn handle_workspace_left_press(
+    st: &mut Halley,
+    ps: &mut PointerState,
+    backend: &dyn BackendView,
+    hit: HitNode,
+) {
+    let now = Instant::now();
+    let monitor = st.model.monitor_state.current_monitor.clone();
+    if let Some(rect) = st.cluster_overflow_rect_for_monitor(monitor.as_str()) {
+        let (.., local_sx, local_sy) =
+            st.local_screen_in_monitor(monitor.as_str(), ps.screen.0, ps.screen.1);
+        let inside = local_sx >= rect.x
+            && local_sx <= rect.x + rect.w
+            && local_sy >= rect.y
+            && local_sy <= rect.y + rect.h;
+        if inside {
+            st.reveal_cluster_overflow_for_monitor(monitor.as_str(), st.now_ms(now));
+        } else {
+            st.hide_cluster_overflow_for_monitor(monitor.as_str());
+        }
+    }
+    let focus_hold_ms = if hit.on_titlebar || hit.is_core {
+        700
+    } else {
+        30_000
+    };
+    st.set_interaction_focus(Some(hit.node_id), focus_hold_ms, now);
+    if hit.on_titlebar || hit.is_core {
+        if title_click_is_double(ps, hit.node_id, now) {
+            let _ = st.exit_cluster_workspace_if_member(hit.node_id, now);
+            ps.last_title_click = None;
+            clear_pointer_activity(st, ps);
+            backend.request_redraw();
+        } else {
+            set_title_click(ps, hit.node_id, now);
+            backend.request_redraw();
+        }
+    } else {
+        ps.last_title_click = None;
+        backend.request_redraw();
+    }
+}
+
+
+pub(super) fn dispatch_pointer_button(
+    st: &mut Halley,
+    frame: ButtonFrame,
+    resize_preview: Option<crate::interaction::types::ResizeCtx>,
+    button_code: u32,
+    button_state: smithay::backend::input::ButtonState,
+) {
+    let Some(pointer) = st.platform.seat.get_pointer() else {
+        return;
+    };
+    let focus = pointer_focus_for_screen(
+        st,
+        frame.ws_w,
+        frame.ws_h,
+        frame.sx,
+        frame.sy,
+        std::time::Instant::now(),
+        resize_preview,
+    );
+    let motion_serial = SERIAL_COUNTER.next_serial();
+    let button_serial = SERIAL_COUNTER.next_serial();
+    let location = if focus
+        .as_ref()
+        .is_some_and(|(surface, _)| st.is_layer_surface(surface))
+    {
+        (frame.sx as f64, frame.sy as f64).into()
+    } else {
+        let cam_scale = st.camera_render_scale() as f64;
+        (frame.sx as f64 / cam_scale, frame.sy as f64 / cam_scale).into()
+    };
+    pointer.motion(
+        st,
+        focus,
+        &MotionEvent {
+            location,
+            serial: motion_serial,
+            time: now_millis_u32(),
+        },
+    );
+    pointer.button(
+        st,
+        &ButtonEvent {
+            serial: button_serial,
+            time: now_millis_u32(),
+            button: button_code,
+            state: button_state,
+        },
+    );
+    pointer.frame(st);
+}
+
+
+#[derive(Clone, Copy)]
+pub(crate) struct ButtonFrame {
+    pub(super) ws_w: i32,
+    pub(super) ws_h: i32,
+    pub(super) global_sx: f32,
+    pub(super) global_sy: f32,
+    pub(super) sx: f32,
+    pub(super) sy: f32,
+    pub(super) world_now: halley_core::field::Vec2,
+    pub(super) workspace_active: bool,
+}
+
+#[inline]
+pub(super) fn now_millis_u32() -> u32 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| (d.as_millis() & 0xffff_ffff) as u32)
+        .unwrap_or(0)
+}
+
+#[inline]
+pub(super) fn clamp_screen_to_workspace(ws_w: i32, ws_h: i32, sx: f32, sy: f32) -> (f32, f32) {
+    let max_x = (ws_w.max(1) - 1) as f32;
+    let max_y = (ws_h.max(1) - 1) as f32;
+    (sx.clamp(0.0, max_x), sy.clamp(0.0, max_y))
+}
+
+#[inline]
+pub(super) fn clamp_screen_to_monitor(st: &Halley, name: &str, sx: f32, sy: f32) -> (f32, f32) {
+    if let Some(monitor) = st.model.monitor_state.monitors.get(name) {
+        let max_x = (monitor.offset_x + monitor.width - 1) as f32;
+        let max_y = (monitor.offset_y + monitor.height - 1) as f32;
+        (
+            sx.clamp(monitor.offset_x as f32, max_x),
+            sy.clamp(monitor.offset_y as f32, max_y),
+        )
+    } else {
+        (sx, sy)
+    }
+}
+
+#[inline]
+fn modifier_specificity(modifiers: KeyModifiers) -> u32 {
+    [
+        modifiers.super_key,
+        modifiers.left_super,
+        modifiers.right_super,
+        modifiers.alt,
+        modifiers.left_alt,
+        modifiers.right_alt,
+        modifiers.ctrl,
+        modifiers.left_ctrl,
+        modifiers.right_ctrl,
+        modifiers.shift,
+        modifiers.left_shift,
+        modifiers.right_shift,
+    ]
+    .into_iter()
+    .filter(|enabled| *enabled)
+    .count() as u32
+}
+
+#[inline]
+pub(super) fn active_pointer_binding(
+    st: &Halley,
+    mods: &ModState,
+    button_code: u32,
+) -> Option<PointerBindingAction> {
+    st.runtime
+        .tuning
+        .pointer_bindings
+        .iter()
+        .filter(|binding| binding.button == button_code && modifier_active(mods, binding.modifiers))
+        .max_by_key(|binding| modifier_specificity(binding.modifiers))
+        .map(|binding| binding.action)
+}
+
+pub(super) fn button_frame_for_monitor(
+    st: &mut Halley,
+    ws_w: i32,
+    ws_h: i32,
+    screen: (f32, f32),
+) -> (ButtonFrame, String, (f32, f32)) {
+    let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, screen.0, screen.1);
+    let target_monitor = st
+        .active_locked_pointer_surface()
+        .and_then(|surface| {
+            let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
+            Some(
+                st.model
+                    .monitor_state
+                    .node_monitor
+                    .get(&node_id)
+                    .cloned()
+                    .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
+            )
+        })
+        .unwrap_or_else(|| {
+            st.monitor_for_screen(sx, sy)
+                .unwrap_or_else(|| st.interaction_monitor().to_string())
+        });
+    st.set_interaction_monitor(target_monitor.as_str());
+    let _ = st.activate_monitor(target_monitor.as_str());
+    let (local_w, local_h, local_sx, local_sy) =
+        st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
+    let world_now = screen_to_world(st, local_w, local_h, local_sx, local_sy);
+    (
+        ButtonFrame {
+            ws_w: local_w,
+            ws_h: local_h,
+            global_sx: sx,
+            global_sy: sy,
+            sx: local_sx,
+            sy: local_sy,
+            world_now,
+            workspace_active: st.has_active_cluster_workspace(),
+        },
+        target_monitor,
+        (sx, sy),
+    )
 }
