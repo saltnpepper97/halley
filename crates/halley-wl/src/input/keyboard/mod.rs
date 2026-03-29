@@ -1,19 +1,20 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+pub(crate) mod bindings;
+pub(crate) mod modkeys;
+pub(crate) mod spawn;
+
+use crate::input::ctx::InputCtx;
+use crate::state::Halley;
+
 use std::time::Instant;
 
 use smithay::input::keyboard::FilterResult;
 use smithay::utils::SERIAL_COUNTER;
 
-use crate::backend::interface::BackendView;
-use crate::interaction::types::ModState;
-use crate::state::Halley;
-
-use super::key_actions::{
+use self::bindings::{
     apply_bound_key, apply_compositor_action_release, compositor_action_allows_repeat,
     compositor_binding_action, key_is_compositor_binding,
 };
-use super::utils::update_mod_state;
+use self::modkeys::{is_modifier_keycode, update_mod_state};
 use halley_config::CompositorBindingAction;
 use halley_config::keybinds::key_name_to_evdev;
 use smithay::backend::input::KeyState;
@@ -27,13 +28,6 @@ fn now_millis_u32() -> u32 {
         .unwrap_or(0)
 }
 
-#[inline]
-fn is_modifier_keycode(code: u32) -> bool {
-    matches!(
-        code,
-        37 | 105 | 50 | 62 | 64 | 108 | 133 | 134 | 66 | 77 | 78
-    )
-}
 
 #[inline]
 fn cluster_mode_allows_keyboard_action(action: &CompositorBindingAction) -> bool {
@@ -45,16 +39,13 @@ fn cluster_mode_allows_keyboard_action(action: &CompositorBindingAction) -> bool
     )
 }
 
-pub(crate) fn handle_keyboard_input(
+pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     st: &mut Halley,
-    mod_state: &Rc<RefCell<ModState>>,
-    backend: &impl BackendView,
-    config_path: &str,
-    wayland_display: &str,
+    ctx: &InputCtx<'_, B>,
     code: u32,
     pressed: bool,
 ) {
-    update_mod_state(&mut mod_state.borrow_mut(), code, pressed);
+    update_mod_state(&mut ctx.mod_state.borrow_mut(), code, pressed);
 
     let cluster_escape = key_name_to_evdev("escape").map(|code| code + 8);
     let cluster_return = key_name_to_evdev("return").map(|code| code + 8);
@@ -81,13 +72,13 @@ pub(crate) fn handle_keyboard_input(
                 st.confirm_cluster_mode(Instant::now())
             };
             if handled || Some(code) == cluster_return || Some(code) == cluster_escape {
-                backend.request_redraw();
+                ctx.backend.request_redraw();
             }
         }
         return;
     }
 
-    let mods = mod_state.borrow().clone();
+    let mods = ctx.mod_state.borrow().clone();
     let is_mod_key = is_modifier_keycode(code);
     let matched_action = if pressed && !is_mod_key {
         compositor_binding_action(st, code, &mods)
@@ -133,20 +124,20 @@ pub(crate) fn handle_keyboard_input(
         false
     } else if cluster_blocks_key {
         if pressed && cluster_allowed_action {
-            let mut ms = mod_state.borrow_mut();
+            let mut ms = ctx.mod_state.borrow_mut();
             first_binding_press = ms.intercepted_keys.insert(code);
             repeat_binding_press = !first_binding_press;
             if first_binding_press && let Some(action) = matched_action.clone() {
                 ms.intercepted_compositor_actions.insert(code, action);
             }
         } else if !pressed {
-            let mut ms = mod_state.borrow_mut();
+            let mut ms = ctx.mod_state.borrow_mut();
             let intercepted = ms.intercepted_keys.remove(&code);
             if intercepted {
                 if let Some(action) = ms.intercepted_compositor_actions.remove(&code)
                     && apply_compositor_action_release(st, action)
                 {
-                    backend.request_redraw();
+                    ctx.backend.request_redraw();
                 }
             } else {
                 ms.intercepted_compositor_actions.remove(&code);
@@ -155,7 +146,7 @@ pub(crate) fn handle_keyboard_input(
         true
     } else if pressed {
         if matched_binding {
-            let mut ms = mod_state.borrow_mut();
+            let mut ms = ctx.mod_state.borrow_mut();
             first_binding_press = ms.intercepted_keys.insert(code);
             repeat_binding_press = !first_binding_press;
             if first_binding_press && let Some(action) = matched_action.clone() {
@@ -166,13 +157,13 @@ pub(crate) fn handle_keyboard_input(
             false
         }
     } else {
-        let mut ms = mod_state.borrow_mut();
+        let mut ms = ctx.mod_state.borrow_mut();
         let intercepted = ms.intercepted_keys.remove(&code);
         if intercepted {
             if let Some(action) = ms.intercepted_compositor_actions.remove(&code)
                 && apply_compositor_action_release(st, action)
             {
-                backend.request_redraw();
+                ctx.backend.request_redraw();
             }
         }
         intercepted
@@ -209,8 +200,8 @@ pub(crate) fn handle_keyboard_input(
                 && matched_action
                     .as_ref()
                     .is_some_and(|action| compositor_action_allows_repeat(action.clone()))))
-        && apply_bound_key(st, code, &mods, config_path, wayland_display)
+        && apply_bound_key(st, code, &mods, ctx.config_path, ctx.wayland_display)
     {
-        backend.request_redraw();
+        ctx.backend.request_redraw();
     }
 }

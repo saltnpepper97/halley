@@ -1,15 +1,10 @@
-use std::os::unix::process::CommandExt;
-use std::process::Child;
-use std::process::Command;
+use eventline::{info, warn};
 
-use eventline::{debug, info, warn};
-
-use super::utils::{key_matches, modifier_exact};
+use super::modkeys::{key_matches, modifier_exact};
 use crate::interaction::actions::{move_latest_node_direction, toggle_focused_active_node_state};
 use crate::interaction::types::ModState;
-use crate::bootstrap::request_xwayland_start;
 use crate::state::Halley;
-use crate::surface_ops::request_close_focused_toplevel;
+use crate::compositor::surface_ops::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{
     BearingsBindingAction, CompositorBindingAction, DirectionalAction, MonitorBindingAction,
@@ -53,13 +48,7 @@ pub(crate) fn compositor_binding_action_active(
     key_code: u32,
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
-    for binding in &st.runtime.tuning.compositor_bindings {
-        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            return Some(binding.action.clone());
-        }
-    }
-
-    None
+    compositor_binding_action(st, key_code, mods)
 }
 
 pub(crate) fn key_is_compositor_binding(st: &Halley, key_code: u32, mods: &ModState) -> bool {
@@ -232,7 +221,7 @@ pub(crate) fn apply_bound_key(
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             // FIX: store the child so it's tracked for cleanup on WM exit,
             // rather than dropping it immediately (which orphaned the process).
-            let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
+            let ok = match super::spawn::spawn_command(binding.command.as_str(), wayland_display, "command") {
                 Some(child) => {
                     st.runtime.spawned_children.push(child);
                     true
@@ -258,7 +247,7 @@ pub(crate) fn apply_bound_pointer_input(
 
     for binding in st.runtime.tuning.launch_bindings.clone() {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            let ok = match spawn_command(binding.command.as_str(), wayland_display, "command") {
+            let ok = match super::spawn::spawn_command(binding.command.as_str(), wayland_display, "command") {
                 Some(child) => {
                     st.runtime.spawned_children.push(child);
                     true
@@ -271,49 +260,6 @@ pub(crate) fn apply_bound_pointer_input(
     false
 }
 
-pub(crate) fn spawn_command(command: &str, wayland_display: &str, label: &str) -> Option<Child> {
-    request_xwayland_start();
-    let mut cmd = Command::new("sh");
-    cmd.arg("-lc")
-        .arg(command)
-        .env("WAYLAND_DISPLAY", wayland_display)
-        .env("XDG_SESSION_TYPE", "wayland")
-        .env("GDK_BACKEND", "wayland,x11")
-        .env("QT_QPA_PLATFORM", "wayland;xcb")
-        .env("SDL_VIDEODRIVER", "wayland")
-        .env("CLUTTER_BACKEND", "wayland")
-        .env("MOZ_ENABLE_WAYLAND", "1")
-        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-
-    // Give each spawned app its own process group so we can kill
-    // the whole group (including any children it forks) on WM exit.
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setpgid(0, 0);
-            Ok(())
-        });
-    }
-
-    match cmd.spawn() {
-        Ok(child) => {
-            debug!(
-                "spawned {} via `{}` on WAYLAND_DISPLAY={} (pid={})",
-                label,
-                command,
-                wayland_display,
-                child.id()
-            );
-            Some(child)
-        }
-        Err(err) => {
-            warn!("{} spawn failed via `{}`: {}", label, command, err);
-            None
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
