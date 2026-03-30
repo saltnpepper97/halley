@@ -268,7 +268,7 @@ impl Halley {
         }
 
         self.model.monitor_state.monitors = monitors;
-        self.refresh_monitor_usable_viewports();
+        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
         self.model.spawn_state.per_monitor = self
             .model
             .monitor_state
@@ -449,110 +449,6 @@ impl Halley {
             Some(Scale::Integer(1)),
             Some(location),
         );
-    }
-
-    pub(crate) fn reconcile_surface_bindings(&mut self) {
-        const STALE_SURFACE_GRACE_MS: u64 = 1500;
-        let now = Instant::now();
-
-        let alive: HashSet<ObjectId> = self
-            .platform
-            .xdg_shell_state
-            .toplevel_surfaces()
-            .iter()
-            .map(|t| t.wl_surface().id())
-            .collect();
-
-        let stale: Vec<ObjectId> = self
-            .model
-            .surface_to_node
-            .keys()
-            .filter(|k| !alive.contains(*k))
-            .filter(|k| {
-                let Some(activity) = self.runtime.surface_activity.get(*k) else {
-                    return true;
-                };
-                now.duration_since(activity.last_commit_at()).as_millis() as u64
-                    >= STALE_SURFACE_GRACE_MS
-            })
-            .cloned()
-            .collect();
-
-        for key in stale {
-            self.runtime.surface_activity.remove(&key);
-            if let Some(id) = self.model.surface_to_node.remove(&key) {
-                if self.model.focus_state.pan_restore_active_focus == Some(id) {
-                    self.model.focus_state.pan_restore_active_focus = None;
-                }
-                self.model
-                    .workspace_state
-                    .manual_collapsed_nodes
-                    .remove(&id);
-                self.ui.render_state.zoom_nominal_size.remove(&id);
-                self.ui.render_state.zoom_resize_fallback.remove(&id);
-                self.ui.render_state.zoom_resize_reject_streak.remove(&id);
-                self.ui.render_state.zoom_last_observed_size.remove(&id);
-                self.ui.render_state.zoom_resize_static_streak.remove(&id);
-                self.model.node_app_ids.remove(&id);
-                self.model.workspace_state.last_active_size.remove(&id);
-                self.ui.render_state.bbox_loc.remove(&id);
-                self.ui.render_state.window_geometry.remove(&id);
-                self.model
-                    .spawn_state
-                    .pending_spawn_activate_at_ms
-                    .remove(&id);
-                self.model
-                    .workspace_state
-                    .active_transition_until_ms
-                    .remove(&id);
-                self.model
-                    .workspace_state
-                    .primary_promote_cooldown_until_ms
-                    .remove(&id);
-                self.model.focus_state.last_surface_focus_ms.remove(&id);
-                self.model.carry_state.carry_zone_hint.remove(&id);
-                self.model.carry_state.carry_zone_last_change_ms.remove(&id);
-                self.model.carry_state.carry_zone_pending.remove(&id);
-                self.model
-                    .carry_state
-                    .carry_zone_pending_since_ms
-                    .remove(&id);
-                self.model
-                    .carry_state
-                    .carry_activation_anim_armed
-                    .remove(&id);
-                self.model.carry_state.carry_state_hold.remove(&id);
-                if self.input.interaction_state.resize_active == Some(id) {
-                    self.input.interaction_state.resize_active = None;
-                }
-                if self.input.interaction_state.resize_static_node == Some(id) {
-                    self.input.interaction_state.resize_static_node = None;
-                    self.input.interaction_state.resize_static_lock_pos = None;
-                    self.input.interaction_state.resize_static_until_ms = 0;
-                }
-                if self.model.focus_state.primary_interaction_focus == Some(id) {
-                    self.model.focus_state.primary_interaction_focus = None;
-                    self.model.focus_state.interaction_focus_until_ms = 0;
-                }
-                let stale_monitors: Vec<String> = self
-                    .model
-                    .focus_state
-                    .monitor_focus
-                    .iter()
-                    .filter_map(|(monitor, &focused)| (focused == id).then_some(monitor.clone()))
-                    .collect();
-
-                for monitor in stale_monitors {
-                    self.model.focus_state.monitor_focus.remove(&monitor);
-                }
-                self.input.interaction_state.smoothed_render_pos.remove(&id);
-                let _ = self.remove_node_from_field(id, self.now_ms(Instant::now()));
-            }
-        }
-
-        self.runtime
-            .surface_activity
-            .retain(|k, _| alive.contains(k));
     }
 }
 

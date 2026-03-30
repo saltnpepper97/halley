@@ -291,7 +291,7 @@ impl Halley {
                 .is_some_and(|preview| preview.monitor == *monitor)
             {
                 self.input.interaction_state.cluster_overflow_drag_preview = None;
-                self.set_cursor_override_icon(None);
+                crate::compositor::interaction::pointer::set_cursor_override_icon(self, None);
             }
             self.restore_cluster_workspace_monitor(monitor.as_str());
         }
@@ -1067,7 +1067,7 @@ impl Halley {
             .is_some_and(|preview| preview.monitor == monitor)
         {
             self.input.interaction_state.cluster_overflow_drag_preview = None;
-            self.set_cursor_override_icon(None);
+            crate::compositor::interaction::pointer::set_cursor_override_icon(self, None);
         }
         true
     }

@@ -58,7 +58,9 @@ pub(crate) fn collect_layer_surfaces(
 
     let logical_size: Size<i32, Logical> = (size.w, size.h).into();
 
-    for placement in st.layer_shell_placements(logical_size) {
+    for placement in
+        crate::compositor::monitor::layer_shell::layer_shell_placements(st, logical_size)
+    {
         let elements = render_elements_from_surface_tree(
             renderer,
             &placement.wl_surface,

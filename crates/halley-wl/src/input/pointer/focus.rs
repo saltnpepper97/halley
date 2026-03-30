@@ -192,7 +192,10 @@ pub(crate) fn layer_surface_focus_for_screen(
     let block_non_overlay =
         fullscreen_hit_blocks_non_overlay_layers(st, ws_w, ws_h, sx, sy, now, resize_preview);
 
-    let mut placements = st.layer_shell_placements((ws_w.max(1), ws_h.max(1)).into());
+    let mut placements = crate::compositor::monitor::layer_shell::layer_shell_placements(
+        st,
+        (ws_w.max(1), ws_h.max(1)).into(),
+    );
     placements.sort_by_key(|placement| {
         std::cmp::Reverse(match placement.layer {
             smithay::wayland::shell::wlr_layer::Layer::Background => 0u8,

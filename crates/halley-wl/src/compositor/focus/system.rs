@@ -1,18 +1,12 @@
 use super::*;
-use crate::compositor::clusters::state::ClusterState;
-use crate::compositor::focus::state::FocusState;
-use crate::compositor::fullscreen::state::FullscreenState;
+use crate::compositor::focus::read;
 use crate::compositor::interaction::state::ViewportPanAnim;
-use crate::compositor::monitor::state::MonitorState;
 use eventline::info;
-use halley_config::CloseRestorePanMode;
-use halley_core::viewport::FocusZone;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::selection::data_device::set_data_device_focus;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
-use std::collections::HashMap;
 
 use crate::compositor::ctx::FocusCtx;
 use smithay::input::Seat;
@@ -47,355 +41,11 @@ impl Halley {
     }
 }
 
-struct FocusReadContext<'a> {
-    field: &'a Field,
-    cluster_state: &'a ClusterState,
-    focus_state: &'a FocusState,
-    fullscreen_state: &'a FullscreenState,
-    monitor_state: &'a MonitorState,
-    tuning: &'a RuntimeTuning,
-    viewport: halley_core::viewport::Viewport,
-    usable_viewports: HashMap<String, halley_core::viewport::Viewport>,
-    focused_monitor: &'a str,
-}
-
-enum CloseRestorePanPlan {
-    None,
-    PanTo(Vec2),
-}
-
-impl<'a> FocusReadContext<'a> {
-    fn surface_node_matches(
-        &self,
-        id: NodeId,
-        allow_active: bool,
-        allow_node: bool,
-        monitor: Option<&str>,
-    ) -> bool {
-        self.field.node(id).is_some_and(|n| {
-            self.field.is_visible(id)
-                && n.kind == halley_core::field::NodeKind::Surface
-                && match n.state {
-                    halley_core::field::NodeState::Active => allow_active,
-                    halley_core::field::NodeState::Node => allow_node,
-                    _ => false,
-                }
-                && monitor.is_none_or(|monitor| {
-                    self.monitor_state
-                        .node_monitor
-                        .get(&id)
-                        .is_some_and(|m| m == monitor)
-                })
-        })
-    }
-
-    fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
-        match requested {
-            None => self
-                .fullscreen_state
-                .fullscreen_active_node
-                .get(self.focused_monitor)
-                .copied(),
-            Some(requested_id) => {
-                let requested_monitor = self
-                    .fullscreen_monitor_for_node(requested_id)
-                    .map(str::to_string)
-                    .or_else(|| self.monitor_state.node_monitor.get(&requested_id).cloned());
-                let Some(requested_monitor) = requested_monitor else {
-                    return requested;
-                };
-                let fullscreen_id = self
-                    .fullscreen_state
-                    .fullscreen_active_node
-                    .get(requested_monitor.as_str())
-                    .copied();
-                let fullscreen_monitor = fullscreen_id.and_then(|fullscreen_id| {
-                    self.fullscreen_monitor_for_node(fullscreen_id).or_else(|| {
-                        self.monitor_state
-                            .node_monitor
-                            .get(&fullscreen_id)
-                            .map(String::as_str)
-                    })
-                });
-                if fullscreen_id == Some(requested_id) {
-                    return requested;
-                }
-                let requested_monitor = self
-                    .monitor_state
-                    .node_monitor
-                    .get(&requested_id)
-                    .map(String::as_str)
-                    .or(fullscreen_monitor);
-                if requested_monitor == fullscreen_monitor {
-                    fullscreen_id
-                } else {
-                    requested
-                }
-            }
-        }
-    }
-
-    fn fullscreen_monitor_for_node(&self, id: NodeId) -> Option<&str> {
-        self.fullscreen_state
-            .fullscreen_active_node
-            .iter()
-            .find_map(|(monitor, nid)| (*nid == id).then_some(monitor.as_str()))
-    }
-
-    fn viewport_for_monitor(&self, monitor: &str) -> halley_core::viewport::Viewport {
-        self.usable_viewports
-            .get(monitor)
-            .copied()
-            .unwrap_or_else(|| {
-                if self.monitor_state.current_monitor == monitor {
-                    self.viewport
-                } else {
-                    self.monitor_state
-                        .monitors
-                        .get(monitor)
-                        .map(|space| space.viewport)
-                        .unwrap_or(self.viewport)
-                }
-            })
-    }
-
-    fn surface_is_sufficiently_visible_on_monitor(
-        &self,
-        st: &Halley,
-        monitor: &str,
-        id: NodeId,
-    ) -> bool {
-        let Some(node) = self.field.node(id) else {
-            return false;
-        };
-        let ext = st.spawn_obstacle_extents_for_node(node);
-        let viewport = self.viewport_for_monitor(monitor);
-        let margin_x = (viewport.size.x * 0.08).clamp(32.0, 160.0);
-        let margin_y = (viewport.size.y * 0.08).clamp(32.0, 120.0);
-        let min_x = viewport.center.x - viewport.size.x * 0.5 + margin_x;
-        let max_x = viewport.center.x + viewport.size.x * 0.5 - margin_x;
-        let min_y = viewport.center.y - viewport.size.y * 0.5 + margin_y;
-        let max_y = viewport.center.y + viewport.size.y * 0.5 - margin_y;
-
-        node.pos.x - ext.left >= min_x
-            && node.pos.x + ext.right <= max_x
-            && node.pos.y - ext.top >= min_y
-            && node.pos.y + ext.bottom <= max_y
-    }
-
-    fn minimal_reveal_center_for_surface_on_monitor(
-        &self,
-        st: &Halley,
-        monitor: &str,
-        id: NodeId,
-    ) -> Option<Vec2> {
-        let node = self.field.node(id)?;
-        let ext = st.spawn_obstacle_extents_for_node(node);
-        let viewport = self.viewport_for_monitor(monitor);
-        let margin_x = (viewport.size.x * 0.08).clamp(32.0, 160.0);
-        let margin_y = (viewport.size.y * 0.08).clamp(32.0, 120.0);
-        let avail_w = (viewport.size.x - margin_x * 2.0).max(1.0);
-        let avail_h = (viewport.size.y - margin_y * 2.0).max(1.0);
-
-        let mut target = viewport.center;
-        if ext.left + ext.right > avail_w {
-            target.x = node.pos.x;
-        } else {
-            let min_x = viewport.center.x - viewport.size.x * 0.5 + margin_x;
-            let max_x = viewport.center.x + viewport.size.x * 0.5 - margin_x;
-            let left = node.pos.x - ext.left;
-            let right = node.pos.x + ext.right;
-            if left < min_x {
-                target.x += left - min_x;
-            } else if right > max_x {
-                target.x += right - max_x;
-            }
-        }
-
-        if ext.top + ext.bottom > avail_h {
-            target.y = node.pos.y;
-        } else {
-            let min_y = viewport.center.y - viewport.size.y * 0.5 + margin_y;
-            let max_y = viewport.center.y + viewport.size.y * 0.5 - margin_y;
-            let top = node.pos.y - ext.top;
-            let bottom = node.pos.y + ext.bottom;
-            if top < min_y {
-                target.y += top - min_y;
-            } else if bottom > max_y {
-                target.y += bottom - max_y;
-            }
-        }
-
-        Some(target)
-    }
-
-    fn close_restore_pan_plan(
-        &self,
-        st: &Halley,
-        monitor: &str,
-        id: NodeId,
-    ) -> CloseRestorePanPlan {
-        if self
-            .cluster_state
-            .active_cluster_workspaces
-            .contains_key(monitor)
-        {
-            return CloseRestorePanPlan::None;
-        }
-        if !self.tuning.close_restore_focus {
-            return CloseRestorePanPlan::None;
-        }
-
-        match self.tuning.close_restore_pan {
-            CloseRestorePanMode::Never => CloseRestorePanPlan::None,
-            CloseRestorePanMode::Always => self
-                .field
-                .node(id)
-                .map(|node| CloseRestorePanPlan::PanTo(node.pos))
-                .unwrap_or(CloseRestorePanPlan::None),
-            CloseRestorePanMode::IfOffscreen => {
-                if self.surface_is_sufficiently_visible_on_monitor(st, monitor, id) {
-                    CloseRestorePanPlan::None
-                } else {
-                    self.minimal_reveal_center_for_surface_on_monitor(st, monitor, id)
-                        .map(CloseRestorePanPlan::PanTo)
-                        .unwrap_or(CloseRestorePanPlan::None)
-                }
-            }
-        }
-    }
-
-    fn last_focused_active_surface_node(&self) -> Option<NodeId> {
-        if let Some(id) = self.focus_state.primary_interaction_focus
-            && self.surface_node_matches(id, true, false, None)
-        {
-            return Some(id);
-        }
-        self.focus_state
-            .last_surface_focus_ms
-            .iter()
-            .filter_map(|(&id, &at)| {
-                self.surface_node_matches(id, true, false, None)
-                    .then_some((id, at))
-            })
-            .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
-            .map(|(id, _)| id)
-    }
-
-    fn last_focused_surface_node(&self) -> Option<NodeId> {
-        if let Some(id) = self.focus_state.primary_interaction_focus
-            && self.surface_node_matches(id, true, true, None)
-        {
-            return Some(id);
-        }
-        self.focus_state
-            .last_surface_focus_ms
-            .iter()
-            .filter_map(|(&id, &at)| {
-                self.surface_node_matches(id, true, true, None)
-                    .then_some((id, at))
-            })
-            .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
-            .map(|(id, _)| id)
-    }
-
-    fn last_focused_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        if let Some(id) = self.focus_state.monitor_focus.get(monitor).copied()
-            && self.surface_node_matches(id, true, true, Some(monitor))
-        {
-            return Some(id);
-        }
-        self.focus_state
-            .last_surface_focus_ms
-            .iter()
-            .filter_map(|(&id, &at)| {
-                self.surface_node_matches(id, true, true, Some(monitor))
-                    .then_some((id, at))
-            })
-            .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
-            .map(|(id, _)| id)
-    }
-
-    fn last_input_surface_node(&self) -> Option<NodeId> {
-        if let Some(id) = self.focus_state.primary_interaction_focus
-            && self.surface_node_matches(id, true, true, None)
-        {
-            return Some(id);
-        }
-        self.focus_state
-            .last_surface_focus_ms
-            .iter()
-            .filter_map(|(&id, &at)| {
-                self.surface_node_matches(id, true, true, None)
-                    .then_some((id, at))
-            })
-            .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
-            .map(|(id, _)| id)
-    }
-
-    fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        let primary = self.focus_state.primary_interaction_focus.and_then(|id| {
-            self.surface_node_matches(id, true, true, Some(monitor))
-                .then_some((id, u64::MAX))
-        });
-        let monitor_focus = self
-            .focus_state
-            .monitor_focus
-            .get(monitor)
-            .copied()
-            .and_then(|id| {
-                self.surface_node_matches(id, true, true, Some(monitor))
-                    .then_some((
-                        id,
-                        self.focus_state
-                            .last_surface_focus_ms
-                            .get(&id)
-                            .copied()
-                            .unwrap_or(0),
-                    ))
-            });
-        primary
-            .into_iter()
-            .chain(monitor_focus)
-            .chain(
-                self.focus_state
-                    .last_surface_focus_ms
-                    .iter()
-                    .filter_map(|(&id, &at)| {
-                        self.surface_node_matches(id, true, true, Some(monitor))
-                            .then_some((id, at))
-                    }),
-            )
-            .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
-            .map(|(id, _)| id)
-    }
-}
-
 impl Halley {
     pub(crate) const VIEWPORT_PAN_PRELOAD_MS: u64 = 70;
     pub(crate) const VIEWPORT_PAN_DURATION_MS: u64 = 260;
     const SPAWN_VIEW_HANDOFF_PAN_RATIO: f32 = 0.35;
     const SPAWN_VIEW_HANDOFF_FOCUS_RATIO: f32 = 0.25;
-
-    fn focus_read_context(&self) -> FocusReadContext<'_> {
-        FocusReadContext {
-            field: &self.model.field,
-            cluster_state: &self.model.cluster_state,
-            focus_state: &self.model.focus_state,
-            fullscreen_state: &self.model.fullscreen_state,
-            monitor_state: &self.model.monitor_state,
-            tuning: &self.runtime.tuning,
-            viewport: self.model.viewport,
-            usable_viewports: self
-                .model
-                .monitor_state
-                .monitors
-                .keys()
-                .map(|name| (name.clone(), self.usable_viewport_for_monitor(name)))
-                .collect(),
-            focused_monitor: self.focused_monitor(),
-        }
-    }
 
     pub fn wl_surface_for_node(&self, id: NodeId) -> Option<WlSurface> {
         for top in self.platform.xdg_shell_state.toplevel_surfaces() {
@@ -418,8 +68,7 @@ impl Halley {
     }
 
     fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
-        self.focus_read_context()
-            .fullscreen_focus_override(requested)
+        read::fullscreen_focus_override(self, requested)
     }
 
     pub fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
@@ -461,7 +110,7 @@ impl Halley {
         }
         self.model.monitor_state.layer_keyboard_focus = None;
         let requested_focus_surface = focus_id.and_then(|fid| self.wl_surface_for_node(fid));
-        let active_locked_surface = self.active_locked_pointer_surface();
+        let active_locked_surface = crate::compositor::interaction::pointer::active_locked_pointer_surface(self);
         let locked_surface_node = active_locked_surface
             .as_ref()
             .and_then(|surface| self.model.surface_to_node.get(&surface.id()).copied());
@@ -479,7 +128,7 @@ impl Halley {
                 Some(surface.id()) != focus_surface.as_ref().map(|wl| wl.id())
             })
         {
-            self.release_active_pointer_constraint();
+            crate::compositor::interaction::pointer::release_active_pointer_constraint(self);
         }
         if let Some(keyboard) = self.platform.seat.get_keyboard() {
             keyboard.set_focus(self, focus_surface.clone(), SERIAL_COUNTER.next_serial());
@@ -548,9 +197,9 @@ impl Halley {
             let _ = self.model.field.touch(fid, now_ms);
             let _ = self.model.field.set_decay_level(fid, DecayLevel::Hot);
             if self.runtime.tuning.restore_last_active_on_pan_return {
-                self.model.focus_state.pan_restore_active_focus = Some(fid);
-            }
+            self.model.focus_state.pan_restore_active_focus = Some(fid);
         }
+    }
     }
 
     pub fn note_pan_activity(&mut self, now: Instant) {
@@ -565,8 +214,7 @@ impl Halley {
         if self.runtime.tuning.restore_last_active_on_pan_return
             && self.model.focus_state.pan_restore_active_focus.is_none()
         {
-            self.model.focus_state.pan_restore_active_focus =
-                self.last_focused_active_surface_node();
+            self.model.focus_state.pan_restore_active_focus = read::last_focused_active_surface_node(self);
         }
         self.input.interaction_state.suspend_overlap_resolve = false;
         self.input.interaction_state.suspend_state_checks = false;
@@ -694,8 +342,7 @@ impl Halley {
         monitor: &str,
         id: NodeId,
     ) -> bool {
-        self.focus_read_context()
-            .surface_is_sufficiently_visible_on_monitor(self, monitor, id)
+        read::surface_is_sufficiently_visible_on_monitor(self, monitor, id)
     }
 
     pub(crate) fn minimal_reveal_center_for_surface_on_monitor(
@@ -703,8 +350,7 @@ impl Halley {
         monitor: &str,
         id: NodeId,
     ) -> Option<Vec2> {
-        self.focus_read_context()
-            .minimal_reveal_center_for_surface_on_monitor(self, monitor, id)
+        read::minimal_reveal_center_for_surface_on_monitor(self, monitor, id)
     }
 
     pub(crate) fn maybe_pan_to_restored_focus_on_close(
@@ -713,17 +359,7 @@ impl Halley {
         id: NodeId,
         now: Instant,
     ) -> bool {
-        match self
-            .focus_read_context()
-            .close_restore_pan_plan(self, monitor, id)
-        {
-            CloseRestorePanPlan::None => false,
-            CloseRestorePanPlan::PanTo(target) => self.animate_viewport_center_to(target, now),
-        }
-    }
-
-    fn last_focused_active_surface_node(&self) -> Option<NodeId> {
-        self.focus_read_context().last_focused_active_surface_node()
+        read::maybe_pan_to_restored_focus_on_close(self, monitor, id, now)
     }
 
     pub fn begin_resize_interaction(&mut self, id: NodeId, now: Instant) {
@@ -778,21 +414,19 @@ impl Halley {
     }
 
     pub fn last_focused_surface_node(&self) -> Option<NodeId> {
-        self.focus_read_context().last_focused_surface_node()
+        read::last_focused_surface_node(self)
     }
 
     pub fn last_focused_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        self.focus_read_context()
-            .last_focused_surface_node_for_monitor(monitor)
+        read::last_focused_surface_node_for_monitor(self, monitor)
     }
 
     pub fn last_input_surface_node(&self) -> Option<NodeId> {
-        self.focus_read_context().last_input_surface_node()
+        read::last_input_surface_node(self)
     }
 
     pub fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        self.focus_read_context()
-            .last_input_surface_node_for_monitor(monitor)
+        read::last_input_surface_node_for_monitor(self, monitor)
     }
 
 }

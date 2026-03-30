@@ -24,7 +24,9 @@ pub(crate) fn on_seat_focus_changed(
     now: Instant,
 ) {
     let st = &mut ctx.st;
-    let focused_is_layer = focused.is_some_and(|surface| st.is_layer_surface(surface));
+    let focused_is_layer = focused.is_some_and(|surface| {
+        crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+    });
     if focused_is_layer {
         return;
     }
@@ -302,7 +304,9 @@ impl Halley {
             None => return, // not active fullscreen on any monitor
         };
 
-        self.clear_fullscreen_direct_scanout_for_monitor(&monitor_name);
+        self.model
+            .fullscreen_state
+            .clear_direct_scanout_for_monitor(&monitor_name);
 
         self.input.interaction_state.reset_input_state_requested = true;
 
@@ -416,7 +420,9 @@ impl Halley {
     ) {
         let monitor_name = self.fullscreen_monitor_name(node_id, output.as_ref());
 
-        self.clear_fullscreen_direct_scanout_for_monitor(&monitor_name);
+        self.model
+            .fullscreen_state
+            .clear_direct_scanout_for_monitor(&monitor_name);
 
         // Already fullscreen on this monitor — no-op.
         if self
@@ -627,7 +633,9 @@ impl Halley {
             .fullscreen_state
             .fullscreen_scale_anim
             .remove(&id);
-        self.clear_fullscreen_direct_scanout_for_node(id);
+        self.model
+            .fullscreen_state
+            .clear_direct_scanout_for_node(id);
     }
 
     pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {

@@ -16,6 +16,7 @@ use crate::render::{DebugScene, build_debug_scene};
 use crate::compositor::root::Halley;
 
 pub mod decay;
+pub mod read;
 pub mod state;
 pub mod system;
 pub mod trail;

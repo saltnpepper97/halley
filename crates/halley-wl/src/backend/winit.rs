@@ -373,7 +373,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         *mod_state_for_winit.borrow_mut() = ModState::default();
                         let mut ps = pointer_state_for_winit.borrow_mut();
                         if ps.resize.is_none() {
-                            st.set_drag_authority_node(None);
+                            crate::compositor::carry::system::set_drag_authority_node(st, None);
                             ps.drag = None;
                             ps.move_anim.clear();
                             ps.panning = false;
@@ -539,18 +539,18 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             );
             let timer = Timer::from_duration(initial_frame_interval);
             ev.handle().insert_source(timer, move |_tick, _, st| {
-                if st.take_input_state_reset_request() {
+                if crate::compositor::interaction::state::take_input_state_reset_request(st) {
                     *mod_state_for_timer.borrow_mut() = ModState::default();
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     ps.intercepted_buttons.clear();
                     ps.intercepted_binding_buttons.clear();
                     ps.intercepted_buttons.clear();
-                    st.set_drag_authority_node(None);
+                    crate::compositor::carry::system::set_drag_authority_node(st, None);
                     ps.drag = None;
                     ps.move_anim.clear();
                     ps.panning = false;
                 }
-                if let Some((sx, sy)) = st.take_pointer_screen_hint_request() {
+                if let Some((sx, sy)) = crate::compositor::interaction::state::take_pointer_screen_hint_request(st) {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     let (ws_w, ws_h) = ps.workspace_size;
                     ps.screen = (sx, sy);

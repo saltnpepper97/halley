@@ -88,7 +88,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             && let Some(focus) =
                 pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)
         {
-            let location = if st.is_layer_surface(&focus.0) {
+            let location = if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0) {
                 (sx as f64, sy as f64).into()
             } else {
                 let cam_scale = st.camera_render_scale() as f64;

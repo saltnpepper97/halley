@@ -9,5 +9,6 @@ use halley_core::field::{NodeId, Vec2};
 use crate::compositor::ctx::SpawnCtx;
 use crate::compositor::root::Halley;
 
+pub mod read;
 pub mod reveal;
 pub mod state;

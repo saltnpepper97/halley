@@ -1183,18 +1183,18 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let renderer_for_timer = drm_probe.renderer.clone();
 
             ev.handle().insert_source(timer, move |_tick, _, st| {
-                if st.take_input_state_reset_request() {
+                if crate::compositor::interaction::state::take_input_state_reset_request(st) {
                     *mod_state_for_timer.borrow_mut() = ModState::default();
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     ps.intercepted_buttons.clear();
                     ps.intercepted_binding_buttons.clear();
                     ps.intercepted_buttons.clear();
-                    st.set_drag_authority_node(None);
+                    crate::compositor::carry::system::set_drag_authority_node(st, None);
                     ps.drag = None;
                     ps.move_anim.clear();
                     ps.panning = false;
                 }
-                if let Some((sx, sy)) = st.take_pointer_screen_hint_request() {
+                if let Some((sx, sy)) = crate::compositor::interaction::state::take_pointer_screen_hint_request(st) {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     let (ws_w, ws_h) = ps.workspace_size;
                     ps.screen = (sx, sy);
@@ -1446,7 +1446,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     if !dpms_just_woke_outputs_for_timer.borrow().is_empty() {
                         st.input.interaction_state.dpms_just_woke = false;
                         dpms_just_woke_outputs_for_timer.borrow_mut().clear();
-                        st.configure_layer_shell_surfaces((1, 1).into());
+                        crate::compositor::monitor::layer_shell::configure_layer_shell_surfaces(st, (1, 1).into());
                         crate::render::send_frame_callbacks(st, now);
                     }
 

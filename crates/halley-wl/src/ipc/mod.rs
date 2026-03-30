@@ -321,13 +321,13 @@ fn move_node_direction(
         y: node.pos.y + dy,
     };
     let _ = st.model.field.set_pinned(id, false);
-    st.begin_carry_state_tracking(id);
+    crate::compositor::carry::system::begin_carry_state_tracking(st, id);
     let moved = st.carry_surface_non_overlap(id, to, false);
     if moved {
-        st.update_carry_state_preview(id, Instant::now());
+        crate::compositor::carry::system::update_carry_state_preview(st, id, Instant::now());
         st.set_interaction_focus(Some(id), 30_000, Instant::now());
     }
-    st.end_carry_state_tracking(id);
+    crate::compositor::carry::system::end_carry_state_tracking(st, id);
     if moved {
         Ok(())
     } else {

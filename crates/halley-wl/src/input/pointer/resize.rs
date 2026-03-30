@@ -63,8 +63,8 @@ pub(super) fn begin_resize(
         weights_from_handle(handle);
 
     if let Some(drag) = ps.drag {
-        st.set_drag_authority_node(None);
-        st.end_carry_state_tracking(drag.node_id);
+        crate::compositor::carry::system::set_drag_authority_node(st, None);
+        crate::compositor::carry::system::end_carry_state_tracking(st, drag.node_id);
     }
     ps.drag = None;
     ps.panning = false;
@@ -166,7 +166,7 @@ pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &
 
     let now = Instant::now();
     ps.move_anim.clear();
-    st.set_drag_authority_node(None);
+    crate::compositor::carry::system::set_drag_authority_node(st, None);
     st.input
         .interaction_state
         .physics_velocity

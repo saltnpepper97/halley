@@ -310,7 +310,8 @@ pub(crate) fn sync_node_size_from_surface(
     let bh = bbox.size.h.max(1) as f32;
 
     let now_ms = st.now_ms(Instant::now());
-    let resize_static_active = st.resize_static_active_for(node_id, now_ms);
+    let resize_static_active =
+        crate::compositor::interaction::state::resize_static_active_for(st, node_id, now_ms);
 
     let Some(node) = st.model.field.node_mut(node_id) else {
         return bbox;

@@ -716,7 +716,7 @@ mod tests {
             .field
             .set_state(node, halley_core::field::NodeState::Node);
 
-        state.set_drag_authority_node(Some(node));
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(node));
         assert!(state.carry_surface_non_overlap(node, Vec2 { x: 0.0, y: 0.0 }, false));
         state.resolve_surface_overlap();
 
@@ -776,7 +776,7 @@ mod tests {
         let a_before = state.model.field.node(a).expect("a before").pos;
         let b_before = state.model.field.node(b).expect("b before").pos;
 
-        state.set_drag_authority_node(Some(dragged));
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
         assert!(state.carry_surface_non_overlap(dragged, Vec2 { x: 0.0, y: 0.0 }, false));
         state.resolve_surface_overlap();
 
@@ -1032,7 +1032,7 @@ mod tests {
             Vec2 { x: 320.0, y: 220.0 },
         );
 
-        state.set_drag_authority_node(Some(dragged));
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
         for step in 0..48 {
             let to = Vec2 {
                 x: -180.0 + step as f32 * 9.0,
@@ -1072,7 +1072,12 @@ mod tests {
             .interaction_state
             .physics_velocity
             .insert(id, Vec2 { x: 480.0, y: 120.0 });
-        state.finalize_mouse_drag_state(id, Vec2 { x: 0.0, y: 0.0 }, Instant::now());
+        crate::compositor::carry::system::finalize_mouse_drag_state(
+            &mut state,
+            id,
+            Vec2 { x: 0.0, y: 0.0 },
+            Instant::now(),
+        );
 
         assert!(
             !state
@@ -1163,7 +1168,7 @@ mod tests {
             },
         );
 
-        state.set_drag_authority_node(Some(dragged));
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
         state.input.interaction_state.drag_authority_velocity = Vec2 { x: 420.0, y: 0.0 };
 
         state.resolve_surface_overlap();

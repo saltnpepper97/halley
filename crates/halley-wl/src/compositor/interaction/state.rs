@@ -137,249 +137,243 @@ pub(crate) struct InteractionState {
     pub(crate) cursor_override_icon: Option<CursorIcon>,
 }
 
-impl Halley {
-    pub(crate) fn take_input_state_reset_request(&mut self) -> bool {
-        std::mem::take(&mut self.input.interaction_state.reset_input_state_requested)
-    }
+pub(crate) fn take_input_state_reset_request(st: &mut Halley) -> bool {
+    std::mem::take(&mut st.input.interaction_state.reset_input_state_requested)
+}
 
-    pub(crate) fn take_pointer_screen_hint_request(&mut self) -> Option<(f32, f32)> {
-        self.input
-            .interaction_state
-            .pending_pointer_screen_hint
-            .take()
-    }
+pub(crate) fn take_pointer_screen_hint_request(st: &mut Halley) -> Option<(f32, f32)> {
+    st.input
+        .interaction_state
+        .pending_pointer_screen_hint
+        .take()
+}
 
-    pub(crate) fn tick_cluster_join_candidate_ready(&mut self, now_ms: u64) {
-        let dwell_ms = self.runtime.tuning.cluster_dwell_ms;
-        let Some(candidate) = self.input.interaction_state.cluster_join_candidate.as_mut() else {
-            return;
-        };
-        if candidate.ready {
-            return;
-        }
-        candidate.ready = now_ms.saturating_sub(candidate.started_at_ms) >= dwell_ms;
+pub(crate) fn tick_cluster_join_candidate_ready(st: &mut Halley, now_ms: u64) {
+    let dwell_ms = st.runtime.tuning.cluster_dwell_ms;
+    let Some(candidate) = st.input.interaction_state.cluster_join_candidate.as_mut() else {
+        return;
+    };
+    if candidate.ready {
+        return;
     }
+    candidate.ready = now_ms.saturating_sub(candidate.started_at_ms) >= dwell_ms;
+}
 
-    pub(crate) fn resize_static_active_for(&self, node_id: NodeId, now_ms: u64) -> bool {
-        self.input.interaction_state.resize_static_node == Some(node_id)
-            && now_ms < self.input.interaction_state.resize_static_until_ms
-    }
+pub(crate) fn resize_static_active_for(st: &Halley, node_id: NodeId, now_ms: u64) -> bool {
+    st.input.interaction_state.resize_static_node == Some(node_id)
+        && now_ms < st.input.interaction_state.resize_static_until_ms
+}
 
-    #[inline]
-    pub(crate) fn is_recently_resized_node(&self, id: NodeId, now_ms: u64) -> bool {
-        self.input.interaction_state.resize_static_node == Some(id)
-            && now_ms < self.input.interaction_state.resize_static_until_ms
-    }
+#[inline]
+pub(crate) fn is_recently_resized_node(st: &Halley, id: NodeId, now_ms: u64) -> bool {
+    st.input.interaction_state.resize_static_node == Some(id)
+        && now_ms < st.input.interaction_state.resize_static_until_ms
+}
 
-    #[inline]
-    pub(crate) fn clear_grabbed_edge_pan_state(&mut self) {
-        self.input.interaction_state.grabbed_edge_pan_active = false;
-        self.input.interaction_state.grabbed_edge_pan_direction = Vec2 { x: 0.0, y: 0.0 };
-        self.input.interaction_state.grabbed_edge_pan_pressure = Vec2 { x: 0.0, y: 0.0 };
-        self.input.interaction_state.grabbed_edge_pan_monitor = None;
-    }
+#[inline]
+pub(crate) fn clear_grabbed_edge_pan_state(st: &mut Halley) {
+    st.input.interaction_state.grabbed_edge_pan_active = false;
+    st.input.interaction_state.grabbed_edge_pan_direction = Vec2 { x: 0.0, y: 0.0 };
+    st.input.interaction_state.grabbed_edge_pan_pressure = Vec2 { x: 0.0, y: 0.0 };
+    st.input.interaction_state.grabbed_edge_pan_monitor = None;
+}
 
-    pub(crate) fn node_fully_visible_on_monitor(
-        &self,
-        monitor_name: &str,
-        node_id: NodeId,
-    ) -> Option<bool> {
-        let node = self.model.field.node(node_id)?;
-        let _monitor = self.model.monitor_state.monitors.get(monitor_name)?;
-        let ext = if node.kind == halley_core::field::NodeKind::Surface
-            && node.state == halley_core::field::NodeState::Active
+pub(crate) fn node_fully_visible_on_monitor(
+    st: &Halley,
+    monitor_name: &str,
+    node_id: NodeId,
+) -> Option<bool> {
+    let node = st.model.field.node(node_id)?;
+    let _monitor = st.model.monitor_state.monitors.get(monitor_name)?;
+    let ext = if node.kind == halley_core::field::NodeKind::Surface
+        && node.state == halley_core::field::NodeState::Active
+    {
+        st.surface_window_collision_extents(node)
+    } else {
+        st.collision_extents_for_node(node)
+    };
+
+    let usable = st.usable_viewport_for_monitor(monitor_name);
+    let (view_center, view_size) = (usable.center, usable.size);
+    let left = view_center.x - view_size.x * 0.5;
+    let right = view_center.x + view_size.x * 0.5;
+    let top = view_center.y - view_size.y * 0.5;
+    let bottom = view_center.y + view_size.y * 0.5;
+
+    Some(
+        node.pos.x - ext.left >= left
+            && node.pos.x + ext.right <= right
+            && node.pos.y - ext.top >= top
+            && node.pos.y + ext.bottom <= bottom,
+    )
+}
+
+pub(crate) fn dragged_node_edge_pan_clamp(
+    st: &Halley,
+    monitor_name: &str,
+    node_id: NodeId,
+    desired_center: Vec2,
+    previous_contact: Vec2,
+) -> Option<(Vec2, Vec2)> {
+    const EDGE_PAN_EXIT_MARGIN: f32 = 24.0;
+    const EDGE_CONTACT_INSET: f32 = 0.75;
+
+    let node = st.model.field.node(node_id)?;
+    let _monitor = st.model.monitor_state.monitors.get(monitor_name)?;
+    let ext = if node.kind == halley_core::field::NodeKind::Surface
+        && node.state == halley_core::field::NodeState::Active
+    {
+        st.surface_window_collision_extents(node)
+    } else {
+        st.collision_extents_for_node(node)
+    };
+
+    let usable = st.usable_viewport_for_monitor(monitor_name);
+    let (view_center, view_size) = (usable.center, usable.size);
+    let min_center_x = view_center.x - view_size.x * 0.5 + ext.left + EDGE_CONTACT_INSET;
+    let max_center_x = view_center.x + view_size.x * 0.5 - ext.right - EDGE_CONTACT_INSET;
+    let min_center_y = view_center.y - view_size.y * 0.5 + ext.top + EDGE_CONTACT_INSET;
+    let max_center_y = view_center.y + view_size.y * 0.5 - ext.bottom - EDGE_CONTACT_INSET;
+
+    let clamped_center = Vec2 {
+        x: desired_center.x.clamp(min_center_x, max_center_x),
+        y: desired_center.y.clamp(min_center_y, max_center_y),
+    };
+    let edge_contact = Vec2 {
+        x: if previous_contact.x < 0.0 && desired_center.x < min_center_x + EDGE_PAN_EXIT_MARGIN {
+            -1.0
+        } else if previous_contact.x > 0.0 && desired_center.x > max_center_x - EDGE_PAN_EXIT_MARGIN
         {
-            self.surface_window_collision_extents(node)
+            1.0
+        } else if desired_center.x < min_center_x - 0.01 {
+            -1.0
+        } else if desired_center.x > max_center_x + 0.01 {
+            1.0
         } else {
-            self.collision_extents_for_node(node)
-        };
-
-        let usable = self.usable_viewport_for_monitor(monitor_name);
-        let (view_center, view_size) = (usable.center, usable.size);
-        let left = view_center.x - view_size.x * 0.5;
-        let right = view_center.x + view_size.x * 0.5;
-        let top = view_center.y - view_size.y * 0.5;
-        let bottom = view_center.y + view_size.y * 0.5;
-
-        Some(
-            node.pos.x - ext.left >= left
-                && node.pos.x + ext.right <= right
-                && node.pos.y - ext.top >= top
-                && node.pos.y + ext.bottom <= bottom,
-        )
-    }
-
-    pub(crate) fn dragged_node_edge_pan_clamp(
-        &self,
-        monitor_name: &str,
-        node_id: NodeId,
-        desired_center: Vec2,
-        previous_contact: Vec2,
-    ) -> Option<(Vec2, Vec2)> {
-        const EDGE_PAN_EXIT_MARGIN: f32 = 24.0;
-        const EDGE_CONTACT_INSET: f32 = 0.75;
-
-        let node = self.model.field.node(node_id)?;
-        let _monitor = self.model.monitor_state.monitors.get(monitor_name)?;
-        let ext = if node.kind == halley_core::field::NodeKind::Surface
-            && node.state == halley_core::field::NodeState::Active
+            0.0
+        },
+        y: if previous_contact.y < 0.0 && desired_center.y < min_center_y + EDGE_PAN_EXIT_MARGIN {
+            -1.0
+        } else if previous_contact.y > 0.0 && desired_center.y > max_center_y - EDGE_PAN_EXIT_MARGIN
         {
-            self.surface_window_collision_extents(node)
+            1.0
+        } else if desired_center.y < min_center_y - 0.01 {
+            -1.0
+        } else if desired_center.y > max_center_y + 0.01 {
+            1.0
         } else {
-            self.collision_extents_for_node(node)
-        };
+            0.0
+        },
+    };
 
-        let usable = self.usable_viewport_for_monitor(monitor_name);
-        let (view_center, view_size) = (usable.center, usable.size);
-        let min_center_x = view_center.x - view_size.x * 0.5 + ext.left + EDGE_CONTACT_INSET;
-        let max_center_x = view_center.x + view_size.x * 0.5 - ext.right - EDGE_CONTACT_INSET;
-        let min_center_y = view_center.y - view_size.y * 0.5 + ext.top + EDGE_CONTACT_INSET;
-        let max_center_y = view_center.y + view_size.y * 0.5 - ext.bottom - EDGE_CONTACT_INSET;
+    Some((clamped_center, edge_contact))
+}
 
-        let clamped_center = Vec2 {
-            x: desired_center.x.clamp(min_center_x, max_center_x),
-            y: desired_center.y.clamp(min_center_y, max_center_y),
-        };
-        let edge_contact = Vec2 {
-            x: if previous_contact.x < 0.0 && desired_center.x < min_center_x + EDGE_PAN_EXIT_MARGIN
-            {
-                -1.0
-            } else if previous_contact.x > 0.0
-                && desired_center.x > max_center_x - EDGE_PAN_EXIT_MARGIN
-            {
-                1.0
-            } else if desired_center.x < min_center_x - 0.01 {
-                -1.0
-            } else if desired_center.x > max_center_x + 0.01 {
-                1.0
-            } else {
-                0.0
-            },
-            y: if previous_contact.y < 0.0 && desired_center.y < min_center_y + EDGE_PAN_EXIT_MARGIN
-            {
-                -1.0
-            } else if previous_contact.y > 0.0
-                && desired_center.y > max_center_y - EDGE_PAN_EXIT_MARGIN
-            {
-                1.0
-            } else if desired_center.y < min_center_y - 0.01 {
-                -1.0
-            } else if desired_center.y > max_center_y + 0.01 {
-                1.0
-            } else {
-                0.0
-            },
-        };
+pub(crate) fn dragged_node_cluster_core_clamp(
+    st: &Halley,
+    monitor_name: &str,
+    node_id: NodeId,
+    desired_center: Vec2,
+) -> Option<(Vec2, ClusterId, f32)> {
+    let node = st.model.field.node(node_id)?;
+    let mover_ext = if node.kind == halley_core::field::NodeKind::Surface
+        && matches!(
+            node.state,
+            halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting
+        ) {
+        st.surface_window_collision_extents(node)
+    } else {
+        st.collision_extents_for_node(node)
+    };
+    let gap = st.non_overlap_gap_world();
+    let mut mover_pos = desired_center;
+    let mut engaged_cluster = None;
+    let mut max_push = 0.0f32;
 
-        Some((clamped_center, edge_contact))
-    }
+    for _ in 0..12 {
+        let cores = st
+            .model
+            .field
+            .clusters_iter()
+            .filter(|cluster| {
+                cluster.is_collapsed()
+                    && !cluster.contains(node_id)
+                    && cluster.core != Some(node_id)
+            })
+            .filter_map(|cluster| {
+                let core_id = cluster.core?;
+                let core = st.model.field.node(core_id)?;
+                let core_monitor = st
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&core_id)
+                    .map(String::as_str)
+                    .unwrap_or(monitor_name);
+                (core_monitor == monitor_name).then_some((
+                    cluster.id,
+                    core.pos,
+                    st.collision_extents_for_node(core),
+                ))
+            })
+            .collect::<Vec<_>>();
 
-    pub(crate) fn dragged_node_cluster_core_clamp(
-        &self,
-        monitor_name: &str,
-        node_id: NodeId,
-        desired_center: Vec2,
-    ) -> Option<(Vec2, ClusterId, f32)> {
-        let node = self.model.field.node(node_id)?;
-        let mover_ext = if node.kind == halley_core::field::NodeKind::Surface
-            && matches!(
-                node.state,
-                halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting
-            ) {
-            self.surface_window_collision_extents(node)
-        } else {
-            self.collision_extents_for_node(node)
-        };
-        let gap = self.non_overlap_gap_world();
-        let mut mover_pos = desired_center;
-        let mut engaged_cluster = None;
-        let mut max_push = 0.0f32;
+        let mut changed = false;
+        for (cluster_id, core_pos, core_ext) in cores {
+            let dx = mover_pos.x - core_pos.x;
+            let dy = mover_pos.y - core_pos.y;
+            let req_x = st.required_sep_x(mover_pos.x, mover_ext, core_pos.x, core_ext, gap);
+            let req_y = st.required_sep_y(mover_pos.y, mover_ext, core_pos.y, core_ext, gap);
+            let ox = req_x - dx.abs();
+            let oy = req_y - dy.abs();
+            if ox <= 0.0 || oy <= 0.0 {
+                continue;
+            }
 
-        for _ in 0..12 {
-            let cores = self
-                .model
-                .field
-                .clusters_iter()
-                .filter(|cluster| {
-                    cluster.is_collapsed()
-                        && !cluster.contains(node_id)
-                        && cluster.core != Some(node_id)
-                })
-                .filter_map(|cluster| {
-                    let core_id = cluster.core?;
-                    let core = self.model.field.node(core_id)?;
-                    let core_monitor = self
-                        .model
-                        .monitor_state
-                        .node_monitor
-                        .get(&core_id)
-                        .map(String::as_str)
-                        .unwrap_or(monitor_name);
-                    (core_monitor == monitor_name).then_some((
-                        cluster.id,
-                        core.pos,
-                        self.collision_extents_for_node(core),
-                    ))
-                })
-                .collect::<Vec<_>>();
-
-            let mut changed = false;
-            for (cluster_id, core_pos, core_ext) in cores {
-                let dx = mover_pos.x - core_pos.x;
-                let dy = mover_pos.y - core_pos.y;
-                let req_x = self.required_sep_x(mover_pos.x, mover_ext, core_pos.x, core_ext, gap);
-                let req_y = self.required_sep_y(mover_pos.y, mover_ext, core_pos.y, core_ext, gap);
-                let ox = req_x - dx.abs();
-                let oy = req_y - dy.abs();
-                if ox <= 0.0 || oy <= 0.0 {
-                    continue;
-                }
-
-                engaged_cluster = Some(cluster_id);
-                max_push = max_push.max(ox.max(oy));
-                if ox < oy {
-                    let s = if dx.abs() > f32::EPSILON {
-                        dx.signum()
-                    } else if core_pos.x <= mover_pos.x {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    mover_pos.x += s * (ox + 0.3);
+            engaged_cluster = Some(cluster_id);
+            max_push = max_push.max(ox.max(oy));
+            if ox < oy {
+                let s = if dx.abs() > f32::EPSILON {
+                    dx.signum()
+                } else if core_pos.x <= mover_pos.x {
+                    1.0
                 } else {
-                    let s = if dy.abs() > f32::EPSILON {
-                        dy.signum()
-                    } else if core_pos.y <= mover_pos.y {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    mover_pos.y += s * (oy + 0.3);
-                }
-                changed = true;
+                    -1.0
+                };
+                mover_pos.x += s * (ox + 0.3);
+            } else {
+                let s = if dy.abs() > f32::EPSILON {
+                    dy.signum()
+                } else if core_pos.y <= mover_pos.y {
+                    1.0
+                } else {
+                    -1.0
+                };
+                mover_pos.y += s * (oy + 0.3);
             }
-
-            if !changed {
-                break;
-            }
+            changed = true;
         }
 
-        engaged_cluster.map(|cluster_id| (mover_pos, cluster_id, max_push))
+        if !changed {
+            break;
+        }
     }
 
-    pub(crate) fn enforce_pan_dominant_zone_states(&mut self, now_ms: u64) {
-        let active_outside_ring_delay_ms = self.runtime.tuning.active_outside_ring_delay_ms;
-        let inactive_outside_ring_delay_ms = self.runtime.tuning.inactive_outside_ring_delay_ms;
+    engaged_cluster.map(|cluster_id| (mover_pos, cluster_id, max_push))
+}
 
-        let ids: Vec<NodeId> = self.model.field.nodes().keys().copied().collect();
+pub(crate) fn enforce_pan_dominant_zone_states(st: &mut Halley, now_ms: u64) {
+    let active_outside_ring_delay_ms = st.runtime.tuning.active_outside_ring_delay_ms;
+    let inactive_outside_ring_delay_ms = st.runtime.tuning.inactive_outside_ring_delay_ms;
 
-        for id in ids {
-            self.apply_single_surface_decay_policy(
-                id,
-                now_ms,
-                active_outside_ring_delay_ms,
-                inactive_outside_ring_delay_ms,
-            );
-        }
+    let ids: Vec<NodeId> = st.model.field.nodes().keys().copied().collect();
+
+    for id in ids {
+        st.apply_single_surface_decay_policy(
+            id,
+            now_ms,
+            active_outside_ring_delay_ms,
+            inactive_outside_ring_delay_ms,
+        );
     }
 }

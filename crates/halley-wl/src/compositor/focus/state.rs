@@ -260,7 +260,7 @@ impl Halley {
 
     pub fn reassert_wayland_keyboard_focus_if_drifted(&mut self, id: Option<NodeId>) {
         if self.model.monitor_state.layer_keyboard_focus.is_some() {
-            self.reassert_layer_surface_keyboard_focus_if_drifted();
+            crate::compositor::monitor::layer_shell::reassert_layer_surface_keyboard_focus_if_drifted(self);
             return;
         }
         let desired_focus = id.and_then(|fid| self.wl_surface_for_node(fid));

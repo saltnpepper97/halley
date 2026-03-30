@@ -229,7 +229,7 @@ impl Halley {
         if !self.model.focus_state.app_focused {
             return;
         }
-        self.reconcile_surface_bindings();
+        crate::compositor::workspace::lifecycle::reconcile_surface_bindings(self);
         let now_ms = now.duration_since(self.runtime.started_at).as_millis() as u64;
         let _ = self.recent_top_node_active(now);
         if let Some(pending) = self.input.interaction_state.pending_core_click.clone()
@@ -269,7 +269,7 @@ impl Halley {
         if self.model.focus_state.primary_interaction_focus.is_none()
             && self.model.monitor_state.layer_keyboard_focus.is_some()
         {
-            self.reassert_layer_surface_keyboard_focus_if_drifted();
+            crate::compositor::monitor::layer_shell::reassert_layer_surface_keyboard_focus_if_drifted(self);
         }
         self.model
             .workspace_state
@@ -340,8 +340,8 @@ impl Halley {
             self.input.interaction_state.resize_static_until_ms = 0;
         }
         if !self.input.interaction_state.suspend_state_checks {
-            self.enforce_pan_dominant_zone_states(now_ms);
-            self.enforce_carry_zone_states();
+            crate::compositor::interaction::state::enforce_pan_dominant_zone_states(self, now_ms);
+            crate::compositor::carry::state::enforce_carry_zone_states(self);
         }
         if let Some(id) = self.input.interaction_state.resize_active {
             let _ = self.model.field.touch(id, now_ms);

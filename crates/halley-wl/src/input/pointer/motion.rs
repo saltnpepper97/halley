@@ -45,9 +45,12 @@ pub(crate) fn begin_drag(
         .get(&hit.node_id)
         .cloned()
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
-    let edge_pan_eligible = st
-        .node_fully_visible_on_monitor(drag_monitor.as_str(), hit.node_id)
-        .unwrap_or(false);
+    let edge_pan_eligible = crate::compositor::interaction::state::node_fully_visible_on_monitor(
+        st,
+        drag_monitor.as_str(),
+        hit.node_id,
+    )
+    .unwrap_or(false);
     let mut drag_ctx = DragCtx {
         node_id: hit.node_id,
         allow_monitor_transfer,
@@ -80,7 +83,7 @@ pub(crate) fn begin_drag(
     st.assign_node_to_monitor(hit.node_id, drag_monitor.as_str());
     st.input.interaction_state.physics_velocity.remove(&hit.node_id);
     st.input.interaction_state.drag_authority_velocity = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
-    st.clear_grabbed_edge_pan_state();
+    crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
     st.input.interaction_state.active_drag = Some(ActiveDragState {
         node_id: hit.node_id,
         allow_monitor_transfer,
@@ -92,8 +95,8 @@ pub(crate) fn begin_drag(
         edge_pan_x: DragAxisMode::Free,
         edge_pan_y: DragAxisMode::Free,
     });
-    st.set_drag_authority_node(Some(hit.node_id));
-    st.begin_carry_state_tracking(hit.node_id);
+    crate::compositor::carry::system::set_drag_authority_node(st, Some(hit.node_id));
+    crate::compositor::carry::system::begin_carry_state_tracking(st, hit.node_id);
     if !hit.is_core {
         st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
     }
@@ -123,7 +126,7 @@ pub(crate) fn finish_pointer_drag(
         .as_ref()
         .map(|drag| drag.pointer_monitor.clone())
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
-    st.clear_grabbed_edge_pan_state();
+    crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
     st.input.interaction_state.active_drag = None;
     let joined = st.commit_ready_cluster_join_for_node(node_id, now);
     if !joined {
@@ -138,15 +141,20 @@ pub(crate) fn finish_pointer_drag(
             false
         };
         if started_active {
-            st.finalize_mouse_drag_state(node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 }, now);
+            crate::compositor::carry::system::finalize_mouse_drag_state(
+                st,
+                node_id,
+                halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+                now,
+            );
         } else if !moved_in_cluster {
-            st.update_carry_state_preview(node_id, now);
+            crate::compositor::carry::system::update_carry_state_preview(st, node_id, now);
         }
     } else {
         st.input.interaction_state.cluster_join_candidate = None;
     }
-    st.set_drag_authority_node(None);
-    st.end_carry_state_tracking(node_id);
+    crate::compositor::carry::system::set_drag_authority_node(st, None);
+    crate::compositor::carry::system::end_carry_state_tracking(st, node_id);
     ps.preview_block_until = Some(now + Duration::from_millis(360));
     ps.drag = None;
 }
@@ -172,7 +180,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     let raw_sy = sy;
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
     let now = Instant::now();
-    let locked_surface = st.active_locked_pointer_surface();
+    let locked_surface = crate::compositor::interaction::pointer::active_locked_pointer_surface(st);
     let mods = ctx.mod_state.borrow().clone();
     let drag_state = {
         let ps = ctx.pointer_state.borrow();
@@ -305,7 +313,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         if locked_surface.is_none() {
             let location = if focus
                 .as_ref()
-                .is_some_and(|(surface, _)| st.is_layer_surface(surface))
+                .is_some_and(|(surface, _)| crate::compositor::monitor::layer_shell::is_layer_surface(st, surface))
             {
                 (local_sx as f64, local_sy as f64).into()
             } else {
@@ -322,7 +330,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 },
             );
             if let Some((surface, _)) = focus.as_ref() {
-                st.activate_pointer_constraint_for_surface(surface);
+                crate::compositor::interaction::pointer::activate_pointer_constraint_for_surface(st, surface);
             }
         }
         pointer.frame(st);
@@ -392,12 +400,15 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                     monitor: monitor.clone(),
                     screen_local: (local_sx, local_sy),
                 });
-            st.set_cursor_override_icon(Some(smithay::input::pointer::CursorIcon::Grabbing));
+            crate::compositor::interaction::pointer::set_cursor_override_icon(
+                st,
+                Some(smithay::input::pointer::CursorIcon::Grabbing),
+            );
             st.reveal_cluster_overflow_for_monitor(monitor.as_str(), now_ms);
             st.input.interaction_state.overlay_hover_target = None;
             ps.hover_started_at = None;
             ps.hover_node = None;
-            st.set_drag_authority_node(None);
+            crate::compositor::carry::system::set_drag_authority_node(st, None);
             ps.drag = None;
             ps.resize = None;
             ctx.backend.request_redraw();
@@ -422,7 +433,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                     st.reveal_cluster_overflow_for_monitor(monitor.as_str(), now_ms);
                 }
             }
-            st.set_cursor_override_icon(
+            crate::compositor::interaction::pointer::set_cursor_override_icon(
+                st,
                 queue_hover
                     .map(|_| smithay::input::pointer::CursorIcon::Pointer)
                     .or(None),
@@ -441,7 +453,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                     screen_anchor: (local_sx.round() as i32, local_sy.round() as i32),
                     prefer_left: true,
                 });
-            st.set_drag_authority_node(None);
+            crate::compositor::carry::system::set_drag_authority_node(st, None);
             ps.drag = None;
             ps.resize = None;
             if queue_hover.is_some() {
@@ -452,7 +464,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     }
     st.input.interaction_state.cluster_overflow_drag_preview = None;
     st.input.interaction_state.overlay_hover_target = None;
-    st.set_cursor_override_icon(None);
+    crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
 
     let _ = handle_drag_motion(
         st,
@@ -719,8 +731,8 @@ pub(super) fn handle_drag_motion(
 
     if ps.resize.is_some() || !drag_mod_ok {
         let joined = !drag_mod_ok && st.commit_ready_cluster_join_for_node(drag.node_id, now);
-        st.set_drag_authority_node(None);
-        st.end_carry_state_tracking(drag.node_id);
+        crate::compositor::carry::system::set_drag_authority_node(st, None);
+        crate::compositor::carry::system::end_carry_state_tracking(st, drag.node_id);
         ps.drag = None;
         st.input.interaction_state.active_drag = None;
         if joined {
@@ -809,7 +821,8 @@ fn update_drag_edge_pan(
             .cloned()
             .or_else(|| Some(target_monitor.to_string()))
     {
-        if let Some((clamped_center, edge_contact)) = st.dragged_node_edge_pan_clamp(
+        if let Some((clamped_center, edge_contact)) = crate::compositor::interaction::state::dragged_node_edge_pan_clamp(
+            st,
             owner_monitor.as_str(),
             node_id,
             desired_to,

@@ -247,7 +247,7 @@ impl Halley {
     fn is_hard_decay_protected(&self, id: NodeId, now_ms: u64) -> bool {
         self.model.focus_state.primary_interaction_focus == Some(id)
             || self.input.interaction_state.resize_active == Some(id)
-            || self.is_recently_resized_node(id, now_ms)
+            || crate::compositor::interaction::state::is_recently_resized_node(self, id, now_ms)
             || self.model.carry_state.carry_zone_hint.contains_key(&id)
             || self
                 .model
