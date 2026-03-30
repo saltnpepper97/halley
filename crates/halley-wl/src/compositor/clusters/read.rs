@@ -66,18 +66,18 @@ impl<'a> ClusterReadController<'a> {
                     .find_map(|(monitor, open_cid)| (*open_cid == cid).then(|| monitor.clone()))
             })
             .or_else(|| {
+                self.field
+                    .cluster(cid)
+                    .and_then(|cluster| cluster.core)
+                    .and_then(|core_id| self.monitor_state.node_monitor.get(&core_id).cloned())
+            })
+            .or_else(|| {
                 self.field.cluster(cid).and_then(|cluster| {
                     cluster
                         .members()
                         .iter()
                         .find_map(|member| self.monitor_state.node_monitor.get(member).cloned())
                 })
-            })
-            .or_else(|| {
-                self.field
-                    .cluster(cid)
-                    .and_then(|cluster| cluster.core)
-                    .and_then(|core_id| self.monitor_state.node_monitor.get(&core_id).cloned())
             })
             .or_else(|| Some(self.monitor_state.current_monitor.clone()))
     }

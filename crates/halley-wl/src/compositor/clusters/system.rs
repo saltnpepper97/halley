@@ -203,23 +203,27 @@ impl Halley {
             .preferred_monitor_for_cluster(cid, preferred)
     }
 
-    fn sync_cluster_core_monitor(
+    fn sync_cluster_monitor(
         &mut self,
         cid: halley_core::cluster::ClusterId,
         preferred: Option<&str>,
     ) -> bool {
-        let Some(core_id) = self
-            .model
-            .field
-            .cluster(cid)
-            .and_then(|cluster| cluster.core)
-        else {
-            return false;
-        };
         let Some(target_monitor) = self.preferred_monitor_for_cluster(cid, preferred) else {
             return false;
         };
-        self.assign_node_to_monitor(core_id, target_monitor.as_str());
+
+        let (core_id, members) = if let Some(cluster) = self.model.field.cluster(cid) {
+            (cluster.core, cluster.members().to_vec())
+        } else {
+            return false;
+        };
+
+        if let Some(core_id) = core_id {
+            self.assign_node_to_monitor(core_id, target_monitor.as_str());
+        }
+        for member_id in members {
+            self.assign_node_to_monitor(member_id, target_monitor.as_str());
+        }
         true
     }
 
@@ -393,7 +397,7 @@ impl Halley {
             }
             Some(RemoveNodeClusterEffect::RemovedCore(cid)) => {
                 self.model.monitor_state.node_monitor.remove(&id);
-                let _ = self.sync_cluster_core_monitor(cid, None);
+                let _ = self.sync_cluster_monitor(cid, None);
             }
             None => {}
         }
@@ -414,7 +418,7 @@ impl Halley {
         monitor: &str,
         cid: halley_core::cluster::ClusterId,
     ) -> bool {
-        let _ = self.sync_cluster_core_monitor(cid, Some(monitor));
+        let _ = self.sync_cluster_monitor(cid, Some(monitor));
         let opened = self
             .cluster_mutation_controller()
             .open_cluster_bloom_for_monitor(monitor, cid);
@@ -969,7 +973,7 @@ impl Halley {
         else {
             return false;
         };
-        let _ = self.sync_cluster_core_monitor(cid, Some(monitor));
+        let _ = self.sync_cluster_monitor(cid, Some(monitor));
         self.model
             .cluster_state
             .workspace_prev_viewports
@@ -1154,3 +1158,152 @@ impl Halley {
         self.refresh_cluster_overflow_for_monitor(monitor, now_ms, false);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use halley_core::field::Vec2;
+    use smithay::reexports::wayland_server::Display;
+
+    #[test]
+    fn test_cluster_monitor_transfer_reopen() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "monitor_a".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "monitor_b".to_string(),
+                enabled: true,
+                offset_x: 1920,
+                offset_y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        // 1. Create two surfaces on monitor_a
+        let n1 = st.model.field.spawn_surface(
+            "monitor_a",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        let n2 = st.model.field.spawn_surface(
+            "monitor_a",
+            Vec2 { x: 600.0, y: 100.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        st.assign_node_to_monitor(n1, "monitor_a");
+        st.assign_node_to_monitor(n2, "monitor_a");
+
+        // 2. Create a cluster
+        let cid = st.model.field.create_cluster(vec![n1, n2]).expect("cluster");
+        
+        // 3. Collapse to core
+        let core_id = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core_id, "monitor_a");
+
+        // 4. Move core to monitor_b
+        st.assign_node_to_monitor(core_id, "monitor_b");
+        // Also move its position to monitor_b's space
+        let _ = st.model.field.carry(core_id, Vec2 { x: 1920.0 + 500.0, y: 500.0 });
+
+        // 5. Reopen/expand cluster on monitor_b
+        // We simulate the double-click/enter behavior
+        let now = Instant::now();
+        st.focus_monitor_view("monitor_b", now);
+        let success = st.enter_cluster_workspace_by_core(core_id, "monitor_b", now);
+        assert!(success);
+
+        // 6. Verify cluster members are now on monitor_b
+        assert_eq!(st.model.monitor_state.node_monitor.get(&n1).map(|s| s.as_str()), Some("monitor_b"));
+        assert_eq!(st.model.monitor_state.node_monitor.get(&n2).map(|s| s.as_str()), Some("monitor_b"));
+        
+        // 7. Verify core is also on monitor_b
+        assert_eq!(st.model.monitor_state.node_monitor.get(&core_id).map(|s| s.as_str()), Some("monitor_b"));
+    }
+
+    #[test]
+    fn test_cluster_monitor_maintenance_sync() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "monitor_a".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "monitor_b".to_string(),
+                enabled: true,
+                offset_x: 1920,
+                offset_y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        let n1 = st.model.field.spawn_surface(
+            "monitor_a",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        let n2 = st.model.field.spawn_surface(
+            "monitor_a",
+            Vec2 { x: 600.0, y: 100.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        st.assign_node_to_monitor(n1, "monitor_a");
+        st.assign_node_to_monitor(n2, "monitor_a");
+
+        let cid = st.model.field.create_cluster(vec![n1, n2]).expect("cluster");
+        let core_id = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core_id, "monitor_a");
+
+        // Stale members monitor
+        st.assign_node_to_monitor(n1, "monitor_a");
+        st.assign_node_to_monitor(n2, "monitor_a");
+        // Move core to monitor_b
+        st.assign_node_to_monitor(core_id, "monitor_b");
+
+        // MAINTENANCE SYNC (without preferred monitor)
+        let success = st.sync_cluster_monitor(cid, None);
+        assert!(success);
+
+        // Should have picked monitor_b from core, NOT monitor_a from members
+        assert_eq!(st.model.monitor_state.node_monitor.get(&n1).map(|s| s.as_str()), Some("monitor_b"));
+        assert_eq!(st.model.monitor_state.node_monitor.get(&n2).map(|s| s.as_str()), Some("monitor_b"));
+        assert_eq!(st.model.monitor_state.node_monitor.get(&core_id).map(|s| s.as_str()), Some("monitor_b"));
+    }
+}
+
+
