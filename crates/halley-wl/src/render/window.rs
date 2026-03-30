@@ -64,10 +64,10 @@ pub(crate) struct OffscreenNodeTexture {
     pub texture: GlesTexture,
     pub alpha: f32,
     pub corner_radius: f32,
-    pub src_x: i32,
-    pub src_y: i32,
-    pub src_w: i32,
-    pub src_h: i32,
+    pub src_x: f64,
+    pub src_y: f64,
+    pub src_w: f64,
+    pub src_h: f64,
     pub dst_x: i32,
     pub dst_y: i32,
     pub dst_w: i32,
@@ -117,43 +117,41 @@ fn offscreen_visual_crop_and_dst(
     clip: Rectangle<i32, Physical>,
     preserve_visual_margin: bool,
     lock_dst_to_geometry: bool,
-) -> (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32) {
+) -> (f64, f64, f64, f64, i32, i32, i32, i32, i32, i32, i32, i32) {
     const VISUAL_MARGIN_CAP: i32 = 4;
 
-    let geo_x = (geo_lx.round() as i32) - bbox_loc_x;
-    let geo_y = (geo_ly.round() as i32) - bbox_loc_y;
-    let geo_w_i = geo_w.round().max(1.0) as i32;
-    let geo_h_i = geo_h.round().max(1.0) as i32;
+    let geo_x = geo_lx - bbox_loc_x as f32;
+    let geo_y = geo_ly - bbox_loc_y as f32;
+    let geo_w_f = geo_w.max(1.0);
+    let geo_h_f = geo_h.max(1.0);
 
-    let bbox_right = bbox_loc_x + bbox_w;
-    let bbox_bottom = bbox_loc_y + bbox_h;
-    let geo_right_abs = (geo_lx + geo_w).round() as i32;
-    let geo_bottom_abs = (geo_ly + geo_h).round() as i32;
+    let bbox_right = (bbox_loc_x + bbox_w) as f32;
+    let bbox_bottom = (bbox_loc_y + bbox_h) as f32;
+    let geo_right_abs = geo_lx + geo_w;
+    let geo_bottom_abs = geo_ly + geo_h;
 
     let (left_extra, top_extra, right_extra, bottom_extra) = if preserve_visual_margin {
         (
-            geo_x.clamp(0, VISUAL_MARGIN_CAP),
-            geo_y.clamp(0, VISUAL_MARGIN_CAP),
-            (bbox_right - geo_right_abs).clamp(0, VISUAL_MARGIN_CAP),
-            (bbox_bottom - geo_bottom_abs).clamp(0, VISUAL_MARGIN_CAP),
+            geo_x.clamp(0.0, VISUAL_MARGIN_CAP as f32),
+            geo_y.clamp(0.0, VISUAL_MARGIN_CAP as f32),
+            (bbox_right - geo_right_abs).clamp(0.0, VISUAL_MARGIN_CAP as f32),
+            (bbox_bottom - geo_bottom_abs).clamp(0.0, VISUAL_MARGIN_CAP as f32),
         )
     } else {
-        (0, 0, 0, 0)
+        (0.0, 0.0, 0.0, 0.0)
     };
 
-    let src_x = (geo_x - left_extra).max(0);
-    let src_y = (geo_y - top_extra).max(0);
-    let src_w = (geo_w_i + left_extra + right_extra)
-        .min(bbox_w.saturating_sub(src_x))
-        .max(1);
-    let src_h = (geo_h_i + top_extra + bottom_extra)
-        .min(bbox_h.saturating_sub(src_y))
-        .max(1);
+    let src_x = (geo_x - left_extra).max(0.0) as f64;
+    let src_y = (geo_y - top_extra).max(0.0) as f64;
+    let src_w = (geo_w_f + left_extra + right_extra) as f64;
+    let src_w = src_w.min(bbox_w as f64 - src_x).max(1.0);
+    let src_h = (geo_h_f + top_extra + bottom_extra) as f64;
+    let src_h = src_h.min(bbox_h as f64 - src_y).max(1.0);
 
-    let dst_expand_l = ((left_extra as f32) * scale).round() as i32;
-    let dst_expand_t = ((top_extra as f32) * scale).round() as i32;
-    let dst_expand_r = ((right_extra as f32) * scale).round() as i32;
-    let dst_expand_b = ((bottom_extra as f32) * scale).round() as i32;
+    let dst_expand_l = (left_extra * scale).round() as i32;
+    let dst_expand_t = (top_extra * scale).round() as i32;
+    let dst_expand_r = (right_extra * scale).round() as i32;
+    let dst_expand_b = (bottom_extra * scale).round() as i32;
 
     let (final_dst_x, final_dst_y, final_dst_w, final_dst_h) = if lock_dst_to_geometry {
         (dst_x, dst_y, dst_w.max(1), dst_h.max(1))
@@ -640,7 +638,7 @@ pub(crate) fn collect_active_surfaces(
                                 texture_rect.3
                             ),
                             rect4_str(gx, gy, gw.max(1), gh.max(1)),
-                            rect4_str(src_x, src_y, src_w, src_h),
+                            rect4f_str(src_x as f32, src_y as f32, src_w as f32, src_h as f32),
                             rect4_str(dst_x, dst_y, dst_w, dst_h),
                             rect4_str(clip_x, clip_y, clip_w, clip_h),
                             preserve_visual_margin,
@@ -673,10 +671,10 @@ pub(crate) fn collect_active_surfaces(
                     let geo_local_x = local_geo.0 - ob.loc.x as f32;
                     let geo_local_y = local_geo.1 - ob.loc.y as f32;
                     // Scale into dst-pixel space (relative to dst top-left).
-                    let geo_offset_x = (geo_local_x * dst_scale_x).round().max(0.0);
-                    let geo_offset_y = (geo_local_y * dst_scale_y).round().max(0.0);
-                    let geo_w_px = (local_geo.2 * dst_scale_x).round().max(1.0);
-                    let geo_h_px = (local_geo.3 * dst_scale_y).round().max(1.0);
+                    let geo_offset_x = (geo_local_x * dst_scale_x).max(0.0);
+                    let geo_offset_y = (geo_local_y * dst_scale_y).max(0.0);
+                    let geo_w_px = (local_geo.2 * dst_scale_x).max(1.0);
+                    let geo_h_px = (local_geo.3 * dst_scale_y).max(1.0);
 
                     let offscreen = OffscreenNodeTexture {
                         texture: texture.clone(),
@@ -773,10 +771,10 @@ pub(crate) fn collect_active_surfaces(
             if use_offscreen_zoom {
                 match render_surface_tree_to_texture(renderer, popup.wl_surface(), alpha, None) {
                     Ok(offscreen) => {
-                        let src_x = 0;
-                        let src_y = 0;
-                        let src_w = offscreen.bbox.size.w.max(1);
-                        let src_h = offscreen.bbox.size.h.max(1);
+                        let src_x = 0.0f64;
+                        let src_y = 0.0f64;
+                        let src_w = offscreen.bbox.size.w.max(1) as f64;
+                        let src_h = offscreen.bbox.size.h.max(1) as f64;
                         let dst_x =
                             popup_sx + (offscreen.bbox.loc.x as f32 * element_scale).round() as i32;
                         let dst_y =

@@ -41,7 +41,6 @@ void main() {
 #if defined(NO_ALPHA)
     sampled = vec4(sampled.rgb, 1.0);
 #endif
-    sampled.rgb *= sampled.a;
     if (sampled.a < 0.003) {
         sampled = vec4(0.0);
     }

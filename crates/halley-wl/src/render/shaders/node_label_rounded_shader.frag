@@ -40,11 +40,8 @@ void main() {
     float inner_alpha = border_px > 0.0 ? sdf_alpha(inner_dist) : outer_alpha;
     float border_alpha = max(outer_alpha - inner_alpha, 0.0);
 
-    vec3 shaded_fill = fill_color.rgb;
-    vec3 shaded_border = node_color.rgb;
+    vec4 fill = fill_color * inner_alpha;
+    vec4 border = node_color * border_alpha;
 
-    vec3 color = shaded_fill * inner_alpha + shaded_border * border_alpha;
-    float final_alpha = alpha * max(inner_alpha, border_alpha);
-
-    gl_FragColor = vec4(color * alpha, final_alpha);
+    gl_FragColor = (fill + border) * alpha;
 }

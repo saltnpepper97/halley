@@ -917,14 +917,14 @@ fn draw_offscreen_textures(
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
     for tex in offscreen_textures {
         let tex_size = tex.texture.size();
-        let max_src_w = (tex_size.w - tex.src_x).max(1);
-        let max_src_h = (tex_size.h - tex.src_y).max(1);
+        let max_src_w = (tex_size.w as f64 - tex.src_x).max(1.0);
+        let max_src_h = (tex_size.h as f64 - tex.src_y).max(1.0);
 
         let src = Rectangle::<f64, Buffer>::new(
-            (tex.src_x as f64, tex.src_y as f64).into(),
+            (tex.src_x, tex.src_y).into(),
             (
-                tex.src_w.min(max_src_w).max(1) as f64,
-                tex.src_h.min(max_src_h).max(1) as f64,
+                tex.src_w.min(max_src_w).max(1.0),
+                tex.src_h.min(max_src_h).max(1.0),
             )
                 .into(),
         );
@@ -1035,12 +1035,7 @@ fn draw_window_borders(
                     ),
                     Uniform::new(
                         "fill_color",
-                        (
-                            rect.border_color.r(),
-                            rect.border_color.g(),
-                            rect.border_color.b(),
-                            rect.border_color.a(),
-                        ),
+                        (0.0f32, 0.0f32, 0.0f32, 0.0f32),
                     ),
                     Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
                     Uniform::new("inner_rect_size", (rect.inner_w, rect.inner_h)),
@@ -1088,12 +1083,7 @@ fn draw_window_borders(
                     ),
                     Uniform::new(
                         "fill_color",
-                        (
-                            rect.border_color.r(),
-                            rect.border_color.g(),
-                            rect.border_color.b(),
-                            rect.border_color.a(),
-                        ),
+                        (0.0f32, 0.0f32, 0.0f32, 0.0f32),
                     ),
                     Uniform::new("content_alpha_scale", 0.0f32),
                     // Border-only draw: no content geo offset needed.
