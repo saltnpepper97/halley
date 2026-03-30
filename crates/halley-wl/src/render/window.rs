@@ -192,8 +192,12 @@ pub(crate) fn collect_active_surfaces(
 ) -> (
     Vec<CroppedSurfaceElement>,
     Vec<CroppedSurfaceElement>,
+    Vec<CroppedSurfaceElement>,
     Vec<OffscreenNodeTexture>,
     Vec<OffscreenNodeTexture>,
+    Vec<OffscreenNodeTexture>,
+    Vec<OffscreenNodeTexture>,
+    Vec<CroppedSurfaceElement>,
     Vec<OffscreenNodeTexture>,
     Vec<CroppedSurfaceElement>,
     HashMap<
@@ -208,10 +212,14 @@ pub(crate) fn collect_active_surfaces(
 ) {
     let mut active_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut resized_active_elements: Vec<CroppedSurfaceElement> = Vec::new();
+    let mut fullscreen_active_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut resized_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let mut fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let mut fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
+    let mut fullscreen_popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut resized_border_rects: Vec<ActiveBorderRect> = Vec::new();
@@ -507,7 +515,9 @@ pub(crate) fn collect_active_surfaces(
                                 })
                                 .collect();
 
-                            if draw_top_this_node {
+                            if fullscreen_on_current_monitor {
+                                fullscreen_active_elements.extend(cropped);
+                            } else if draw_top_this_node {
                                 resized_active_elements.extend(cropped);
                             } else {
                                 active_elements.extend(cropped);
@@ -690,7 +700,9 @@ pub(crate) fn collect_active_surfaces(
                         geo_w: geo_w_px,
                         geo_h: geo_h_px,
                     };
-                    if draw_top_this_node {
+                    if fullscreen_on_current_monitor {
+                        fullscreen_offscreen_textures.push(offscreen);
+                    } else if draw_top_this_node {
                         resized_offscreen_textures.push(offscreen);
                     } else {
                         offscreen_textures.push(offscreen);
@@ -731,7 +743,9 @@ pub(crate) fn collect_active_surfaces(
                 .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
                 .collect();
 
-            if draw_top_this_node {
+            if fullscreen_on_current_monitor {
+                fullscreen_active_elements.extend(cropped);
+            } else if draw_top_this_node {
                 resized_active_elements.extend(cropped);
             } else {
                 active_elements.extend(cropped);
@@ -773,7 +787,7 @@ pub(crate) fn collect_active_surfaces(
                         let dst_h = (offscreen.bbox.size.h as f32 * element_scale)
                             .round()
                             .max(1.0) as i32;
-                        popup_offscreen_textures.push(OffscreenNodeTexture {
+                        let offscreen_texture = OffscreenNodeTexture {
                             texture: offscreen.texture,
                             alpha,
                             corner_radius: 0.0,
@@ -794,7 +808,12 @@ pub(crate) fn collect_active_surfaces(
                             geo_offset_y: 0.0,
                             geo_w: 0.0,
                             geo_h: 0.0,
-                        });
+                        };
+                        if fullscreen_on_current_monitor {
+                            fullscreen_popup_offscreen_textures.push(offscreen_texture);
+                        } else {
+                            popup_offscreen_textures.push(offscreen_texture);
+                        }
                     }
                     Err(_) => {
                         let popup_elems: Vec<SurfaceElement> = render_elements_from_surface_tree(
@@ -829,16 +848,24 @@ pub(crate) fn collect_active_surfaces(
             }
         }
 
-        popup_elements.extend(popup_cropped);
+        if fullscreen_on_current_monitor {
+            fullscreen_popup_elements.extend(popup_cropped);
+        } else {
+            popup_elements.extend(popup_cropped);
+        }
     }
 
     (
         active_elements,
         resized_active_elements,
+        fullscreen_active_elements,
         offscreen_textures,
         resized_offscreen_textures,
+        fullscreen_offscreen_textures,
         popup_offscreen_textures,
         popup_elements,
+        fullscreen_popup_offscreen_textures,
+        fullscreen_popup_elements,
         node_surface_map,
         border_rects,
         resized_border_rects,

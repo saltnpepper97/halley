@@ -397,10 +397,14 @@ struct SceneCollections {
     layer_overlay_elements: Vec<SurfaceElement>,
     active_elements: Vec<CroppedSurfaceElement>,
     resized_active_elements: Vec<CroppedSurfaceElement>,
+    fullscreen_active_elements: Vec<CroppedSurfaceElement>,
     offscreen_textures: Vec<OffscreenNodeTexture>,
     resized_offscreen_textures: Vec<OffscreenNodeTexture>,
+    fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
     popup_offscreen_textures: Vec<OffscreenNodeTexture>,
     popup_elements: Vec<CroppedSurfaceElement>,
+    fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
+    fullscreen_popup_elements: Vec<CroppedSurfaceElement>,
     border_rects: Vec<ActiveBorderRect>,
     resized_border_rects: Vec<ActiveBorderRect>,
     overlay_rects: Vec<(i32, i32, i32, i32, Color32F)>,
@@ -580,10 +584,14 @@ fn collect_debug_frame_scene(
     let (
         active_elements,
         resized_active_elements,
+        fullscreen_active_elements,
         offscreen_textures,
         resized_offscreen_textures,
+        fullscreen_offscreen_textures,
         popup_offscreen_textures,
         popup_elements,
+        fullscreen_popup_offscreen_textures,
+        fullscreen_popup_elements,
         node_surface_map,
         border_rects,
         resized_border_rects,
@@ -663,10 +671,14 @@ fn collect_debug_frame_scene(
         layer_overlay_elements,
         active_elements,
         resized_active_elements,
+        fullscreen_active_elements,
         offscreen_textures,
         resized_offscreen_textures,
+        fullscreen_offscreen_textures,
         popup_offscreen_textures,
         popup_elements,
+        fullscreen_popup_offscreen_textures,
+        fullscreen_popup_elements,
         border_rects,
         resized_border_rects,
         overlay_rects,
@@ -838,6 +850,30 @@ fn draw_debug_frame_scene(
 
     if !scene.layer_top_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.layer_top_elements, &[prepared.damage]);
+    }
+
+    if !scene.fullscreen_active_elements.is_empty() {
+        let _ = draw_render_elements(
+            frame,
+            1.0,
+            &scene.fullscreen_active_elements,
+            &[prepared.damage],
+        );
+    }
+    draw_offscreen_textures(
+        frame,
+        prepared.damage,
+        &scene.fullscreen_offscreen_textures,
+        st.ui.render_state.window_texture_program.as_ref(),
+    )?;
+    draw_offscreen_textures(
+        frame,
+        prepared.damage,
+        &scene.fullscreen_popup_offscreen_textures,
+        st.ui.render_state.window_texture_program.as_ref(),
+    )?;
+    if !scene.fullscreen_popup_elements.is_empty() {
+        let _ = draw_render_elements(frame, 1.0, &scene.fullscreen_popup_elements, &[prepared.damage]);
     }
 
     if !scene.layer_overlay_elements.is_empty() {
