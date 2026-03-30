@@ -15,7 +15,7 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Size, Transform},
 };
 
-use crate::state::Halley;
+use crate::compositor::root::Halley;
 use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy};
 
 use super::log_rounded_shader_failure;
@@ -344,7 +344,9 @@ pub(crate) fn collect_hover_preview(
         .map(|preview| preview.0)
         .or(hovered_preview_id);
     let Some((preview_id, preview_mix_raw)) =
-        st.node_preview_hover_anim_for_monitor(monitor, preview_target)
+        st.ui
+            .render_state
+            .node_preview_hover_anim_for_monitor(monitor, preview_target)
     else {
         return (None, Vec::new());
     };
@@ -378,7 +380,7 @@ pub(crate) fn collect_hover_preview(
     }
 
     let preview_mix = ease_in_out_cubic(preview_mix_raw.clamp(0.0, 1.0));
-    let anim = st.anim_style_for(preview_id, node_state.clone(), now);
+    let anim = crate::render::anim_style_for(st, preview_id, node_state.clone(), now);
 
     const PROXY_TO_MARKER_START: f32 = 0.50;
     const PROXY_TO_MARKER_END: f32 = 0.20;
@@ -462,7 +464,7 @@ pub(crate) fn draw_node_markers(
         let node_pos = *node_pos;
         let intrinsic_size = *intrinsic_size;
 
-        let anim = st.anim_style_for(id, node_state.clone(), now);
+        let anim = crate::render::anim_style_for(st, id, node_state.clone(), now);
 
         if !matches!(
             node_state,
@@ -490,9 +492,11 @@ pub(crate) fn draw_node_markers(
         let focused = st.model.focus_state.primary_interaction_focus == Some(id);
         let highlighted = hovered || focused;
         let is_core = *node_state == halley_core::field::NodeState::Core;
-        let hover_mix = ease_in_out_cubic(st.node_label_hover_mix(id, highlighted));
+        let hover_mix = ease_in_out_cubic(st.ui.render_state.node_label_hover_mix(id, highlighted));
         let border_mix = ease_in_out_cubic(((0.304 - anim.scale) / 0.004).clamp(0.0, 1.0));
         let icon_mix = st
+            .ui
+            .render_state
             .anim_track_elapsed_for(id, node_state.clone(), now)
             .map(|elapsed| {
                 let elapsed_ms = elapsed.as_millis() as u64;
@@ -583,7 +587,7 @@ pub(crate) fn draw_node_markers(
             let mut drew_real_icon = false;
             if icon_alpha > 0.01
                 && let Some(app_id) = st.model.node_app_ids.get(&id)
-                && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
+                && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
                     st.ui.render_state.node_app_icon_cache.get(app_id)
             {
                 let side =
@@ -656,7 +660,7 @@ pub(crate) fn draw_node_hover_labels(
             continue;
         }
 
-        let anim = st.anim_style_for(node.id, node.state.clone(), now);
+        let anim = crate::render::anim_style_for(st, node.id, node.state.clone(), now);
         let dot_alpha = (anim.alpha
             * ease_in_out_cubic(((0.50 - anim.scale) / (0.50 - 0.20)).clamp(0.0, 1.0)))
         .clamp(0.0, 1.0);
@@ -667,7 +671,9 @@ pub(crate) fn draw_node_hover_labels(
         let hover_mix = match st.runtime.tuning.node_show_labels {
             NodeDisplayPolicy::Off => 0.0,
             NodeDisplayPolicy::Hover => {
-                st.node_label_hover_mix(node.id, hover_node == Some(node.id))
+                st.ui
+                    .render_state
+                    .node_label_hover_mix(node.id, hover_node == Some(node.id))
             }
             NodeDisplayPolicy::Always => 1.0,
         };

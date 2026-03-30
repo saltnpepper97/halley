@@ -4,10 +4,13 @@ use eventline::info;
 use halley_config::{KeyModifiers, PointerBindingAction};
 
 use crate::backend::interface::BackendView;
-use crate::interaction::actions::{
+use crate::compositor::actions::window::{
     activate_collapsed_node_from_click, focus_or_reveal_surface_node,
 };
-use crate::interaction::types::{BloomDragCtx, HitNode, ModState, OverflowDragCtx, PointerState, NODE_DOUBLE_CLICK_MS, TitleClickCtx};
+use crate::compositor::interaction::{
+    BloomDragCtx, HitNode, ModState, OverflowDragCtx, PointerState, TitleClickCtx,
+    NODE_DOUBLE_CLICK_MS,
+};
 use crate::input::ctx::InputCtx;
 use crate::input::keyboard::modkeys::modifier_active;
 use crate::overlay::{
@@ -16,7 +19,8 @@ use crate::overlay::{
 use crate::render::bearing_hit_test;
 use crate::spatial::screen_to_world;
 use crate::spatial::pick_hit_node_at;
-use crate::state::{Halley, PendingCoreClick, PendingCorePress};
+use crate::compositor::interaction::state::{PendingCoreClick, PendingCorePress};
+use crate::compositor::root::Halley;
 use smithay::backend::input::ButtonState;
 use smithay::input::pointer::{ButtonEvent, MotionEvent};
 use smithay::reexports::wayland_server::Resource;
@@ -405,7 +409,8 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             monitor: target_monitor.clone(),
             core_screen: (layout.core_sx as f32, layout.core_sy as f32),
         });
-        st.input.interaction_state.bloom_pull_preview = Some(crate::state::BloomPullPreview {
+        st.input.interaction_state.bloom_pull_preview = Some(
+            crate::compositor::interaction::state::BloomPullPreview {
             cluster_id: layout.cluster_id,
             member_id: layout.member_id,
             mix: 0.0,
@@ -451,7 +456,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             monitor: target_monitor.clone(),
         });
         st.input.interaction_state.cluster_overflow_drag_preview =
-            Some(crate::state::ClusterOverflowDragPreview {
+            Some(crate::compositor::interaction::state::ClusterOverflowDragPreview {
                 member_id: hit.member_id,
                 monitor: target_monitor.clone(),
                 screen_local: (local_sx, local_sy),
@@ -866,7 +871,7 @@ pub(super) fn handle_workspace_left_press(
 pub(super) fn dispatch_pointer_button(
     st: &mut Halley,
     frame: ButtonFrame,
-    resize_preview: Option<crate::interaction::types::ResizeCtx>,
+    resize_preview: Option<crate::compositor::interaction::ResizeCtx>,
     button_code: u32,
     button_state: smithay::backend::input::ButtonState,
 ) {

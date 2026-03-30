@@ -1,15 +1,15 @@
 use std::time::Instant;
 
 use smithay::desktop::{
-    PopupManager, WindowSurfaceType,
     utils::{bbox_from_surface_tree, under_from_surface_tree},
+    PopupManager, WindowSurfaceType,
 };
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};
 
-use crate::interaction::types::ResizeCtx;
+use crate::compositor::interaction::ResizeCtx;
+use crate::compositor::root::Halley;
 use crate::spatial::pick_hit_node_at;
-use crate::state::Halley;
 
 use super::resize::active_node_surface_transform_screen_details;
 

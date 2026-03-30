@@ -12,8 +12,8 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
-use crate::state::Halley;
-use crate::state::RenderState;
+use crate::compositor::root::Halley;
+use crate::render::state::RenderState;
 
 use crate::render::utils::{bitmap_text_size, draw_bitmap_text};
 
@@ -208,7 +208,7 @@ pub(crate) fn draw_cluster_overflow_strip(
             1.0,
         )?;
         if overlay.tuning.tile_queue_show_icons
-            && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
+            && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
                 overlay.node_app_icon_entry(node_id)
         {
             let icon_dest = Rectangle::<i32, Physical>::new(
@@ -276,7 +276,7 @@ pub(crate) fn draw_cluster_overflow_strip(
             1.0,
         )?;
         if overlay.tuning.tile_queue_show_icons
-            && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
+            && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
                 overlay.node_app_icon_entry(node_id)
         {
             let icon_dest = Rectangle::<i32, Physical>::new(
@@ -457,10 +457,18 @@ pub(crate) fn draw_monitor_hud(
     now: std::time::Instant,
 ) -> Result<(), Box<dyn Error>> {
     let overlay_monitor = st.model.monitor_state.current_monitor.clone();
-    if let Some(banner) = st.persistent_mode_banner_snapshot(overlay_monitor.as_str()) {
+    if let Some(banner) = st
+        .ui
+        .render_state
+        .persistent_mode_banner_snapshot(overlay_monitor.as_str())
+    {
         draw_persistent_banner(frame, &st.ui.render_state, damage, &banner)?;
     }
-    if let Some(toast) = st.overlay_toast_snapshot(overlay_monitor.as_str(), now) {
+    if let Some(toast) = st
+        .ui
+        .render_state
+        .overlay_toast_snapshot(overlay_monitor.as_str(), st.now_ms(now))
+    {
         draw_toast(
             frame,
             &st.ui.render_state,
@@ -506,7 +514,7 @@ pub(crate) fn draw_overlay_hover_label(
     else {
         return Ok(());
     };
-    let hover_mix = st.node_label_hover_mix(target.node_id, true);
+    let hover_mix = st.ui.render_state.node_label_hover_mix(target.node_id, true);
     let reveal_mix = crate::animation::ease_in_out_cubic(hover_mix * hover_mix * hover_mix);
     let label_fade = ((reveal_mix - 0.30) / 0.55).clamp(0.0, 1.0);
     if label_fade <= 0.01 {

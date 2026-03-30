@@ -1,7 +1,7 @@
 use std::time::Instant;
 
-use crate::interaction::types::{NodeMoveAnim, PointerState};
-use crate::state::Halley;
+use crate::compositor::interaction::{NodeMoveAnim, PointerState};
+use crate::compositor::root::Halley;
 
 use super::curves::ease_in_out_cubic;
 

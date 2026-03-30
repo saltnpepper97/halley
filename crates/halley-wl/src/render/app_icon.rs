@@ -8,7 +8,8 @@ use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::ImportMem;
 use smithay::backend::renderer::gles::GlesRenderer;
 
-use crate::state::{Halley, NodeAppIconCacheEntry, NodeAppIconTexture};
+use crate::compositor::root::Halley;
+use crate::render::state::{NodeAppIconCacheEntry, NodeAppIconTexture};
 
 use super::node::NodeSnapshot;
 

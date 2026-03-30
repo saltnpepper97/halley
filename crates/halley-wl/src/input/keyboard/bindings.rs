@@ -1,9 +1,11 @@
 use eventline::{info, warn};
 
 use super::modkeys::{key_matches, modifier_exact};
-use crate::interaction::actions::{move_latest_node_direction, toggle_focused_active_node_state};
-use crate::interaction::types::ModState;
-use crate::state::Halley;
+use crate::compositor::actions::window::{
+    move_latest_node_direction, toggle_focused_active_node_state,
+};
+use crate::compositor::interaction::ModState;
+use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{
@@ -83,7 +85,13 @@ pub(crate) fn apply_compositor_action_press(
         }
         CompositorBindingAction::Reload => {
             if let Some(next) = RuntimeTuning::try_load_from_path(config_path) {
-                crate::bootstrap::apply_reloaded_tuning(st, next, config_path, wayland_display, "manual");
+                crate::bootstrap::apply_reloaded_tuning(
+                    st,
+                    next,
+                    config_path,
+                    wayland_display,
+                    "manual",
+                );
                 info!("manual config reload from {}", config_path);
                 info!(
                     "resolved keybinds: {}",
@@ -110,10 +118,16 @@ pub(crate) fn apply_compositor_action_press(
             move_latest_node_direction(st, from_directional_action(direction))
         }
         CompositorBindingAction::Trail(TrailBindingAction::Prev) => {
-            crate::interaction::actions::step_window_trail(st, halley_ipc::TrailDirection::Prev)
+            crate::compositor::actions::window::step_window_trail(
+                st,
+                halley_ipc::TrailDirection::Prev,
+            )
         }
         CompositorBindingAction::Trail(TrailBindingAction::Next) => {
-            crate::interaction::actions::step_window_trail(st, halley_ipc::TrailDirection::Next)
+            crate::compositor::actions::window::step_window_trail(
+                st,
+                halley_ipc::TrailDirection::Next,
+            )
         }
         CompositorBindingAction::Monitor(MonitorBindingAction::Focus(target)) => {
             let target = match target {
@@ -148,10 +162,10 @@ pub(crate) fn apply_compositor_action_press(
             )
         }
         CompositorBindingAction::Bearings(BearingsBindingAction::Show) => {
-            st.set_bearings_visible(true)
+            st.ui.render_state.set_bearings_visible(true)
         }
         CompositorBindingAction::Bearings(BearingsBindingAction::Toggle) => {
-            st.toggle_bearings_visible();
+            st.ui.render_state.toggle_bearings_visible();
             true
         }
         CompositorBindingAction::ZoomIn => {
@@ -184,7 +198,7 @@ pub(crate) fn apply_compositor_action_release(
 ) -> bool {
     match action {
         CompositorBindingAction::Bearings(BearingsBindingAction::Show) => {
-            st.set_bearings_visible(false)
+            st.ui.render_state.set_bearings_visible(false)
         }
         _ => false,
     }
@@ -221,7 +235,11 @@ pub(crate) fn apply_bound_key(
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
             // FIX: store the child so it's tracked for cleanup on WM exit,
             // rather than dropping it immediately (which orphaned the process).
-            let ok = match super::spawn::spawn_command(binding.command.as_str(), wayland_display, "command") {
+            let ok = match super::spawn::spawn_command(
+                binding.command.as_str(),
+                wayland_display,
+                "command",
+            ) {
                 Some(child) => {
                     st.runtime.spawned_children.push(child);
                     true
@@ -247,7 +265,11 @@ pub(crate) fn apply_bound_pointer_input(
 
     for binding in st.runtime.tuning.launch_bindings.clone() {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            let ok = match super::spawn::spawn_command(binding.command.as_str(), wayland_display, "command") {
+            let ok = match super::spawn::spawn_command(
+                binding.command.as_str(),
+                wayland_display,
+                "command",
+            ) {
                 Some(child) => {
                     st.runtime.spawned_children.push(child);
                     true
@@ -260,12 +282,11 @@ pub(crate) fn apply_bound_pointer_input(
     false
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{compositor_action_allows_repeat, input_matches_binding};
-    use halley_config::WHEEL_UP_CODE;
     use halley_config::keybinds::key_name_to_evdev;
+    use halley_config::WHEEL_UP_CODE;
     use halley_config::{CompositorBindingAction, TrailBindingAction};
 
     #[test]

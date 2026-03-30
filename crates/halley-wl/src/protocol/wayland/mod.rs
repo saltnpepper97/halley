@@ -47,12 +47,10 @@ use smithay::{
     },
 };
 
-use crate::state::Halley;
+use crate::compositor::root::Halley;
 
+pub(crate) mod client_state;
 mod handlers;
 mod handlers_xdg;
-mod layer_shell;
-mod spawn;
-mod surface_lifecycle;
 
-pub use crate::state::ClientState;
+pub use client_state::ClientState;

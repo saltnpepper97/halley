@@ -5,10 +5,11 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
-use crate::interaction::types::{DragAxisMode, DragCtx, HitNode, ModState, PointerState};
+use crate::compositor::interaction::{DragAxisMode, DragCtx, HitNode, ModState, PointerState};
 use crate::input::ctx::InputCtx;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
-use crate::state::{ActiveDragState, Halley};
+use crate::compositor::interaction::state::ActiveDragState;
+use crate::compositor::root::Halley;
 use halley_config::PointerBindingAction;
 
 use super::focus::pointer_focus_for_screen;
@@ -357,7 +358,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let dy = local_sy - bloom_drag.core_screen.1;
         const BLOOM_DETACH_THRESHOLD_PX: f32 = 96.0;
         let pull_dist = dx.hypot(dy);
-        st.input.interaction_state.bloom_pull_preview = Some(crate::state::BloomPullPreview {
+        st.input.interaction_state.bloom_pull_preview = Some(
+            crate::compositor::interaction::state::BloomPullPreview {
             cluster_id: bloom_drag.cluster_id,
             member_id: bloom_drag.member_id,
             mix: (pull_dist / BLOOM_DETACH_THRESHOLD_PX).clamp(0.0, 1.0),
@@ -385,7 +387,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let now_ms = st.now_ms(now);
         if let Some(overflow_drag) = ps.overflow_drag.clone() {
             st.input.interaction_state.cluster_overflow_drag_preview =
-                Some(crate::state::ClusterOverflowDragPreview {
+                Some(crate::compositor::interaction::state::ClusterOverflowDragPreview {
                     member_id: overflow_drag.member_id,
                     monitor: monitor.clone(),
                     screen_local: (local_sx, local_sy),
@@ -433,7 +435,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             }
             ps.hover_node = next_hover;
             st.input.interaction_state.overlay_hover_target =
-                next_hover.map(|node_id| crate::state::OverlayHoverTarget {
+                next_hover.map(|node_id| crate::compositor::interaction::state::OverlayHoverTarget {
                     node_id,
                     monitor: monitor.clone(),
                     screen_anchor: (local_sx.round() as i32, local_sy.round() as i32),
@@ -501,7 +503,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         .map(|layout| {
             (
                 layout.member_id,
-                crate::state::OverlayHoverTarget {
+                crate::compositor::interaction::state::OverlayHoverTarget {
                     node_id: layout.member_id,
                     monitor: target_monitor.clone(),
                     screen_anchor: (layout.center_sx, layout.center_sy),
@@ -637,7 +639,8 @@ pub(super) fn update_cluster_join_candidate(
         .map(|existing| existing.started_at_ms)
         .unwrap_or(now_ms);
     let dwell_ms = cluster_join_dwell_ms(st);
-    st.input.interaction_state.cluster_join_candidate = Some(crate::state::ClusterJoinCandidate {
+    st.input.interaction_state.cluster_join_candidate = Some(
+        crate::compositor::interaction::state::ClusterJoinCandidate {
         cluster_id,
         node_id,
         monitor: monitor.to_string(),
@@ -794,7 +797,7 @@ fn update_drag_edge_pan(
     desired_to: halley_core::field::Vec2,
     dt: f32,
     drag_allow_monitor_transfer: bool,
-    next_drag: &mut crate::interaction::types::DragCtx,
+    next_drag: &mut crate::compositor::interaction::DragCtx,
 ) {
     if !drag_allow_monitor_transfer
         && next_drag.edge_pan_eligible

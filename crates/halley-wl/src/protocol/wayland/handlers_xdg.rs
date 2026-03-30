@@ -1,4 +1,5 @@
 use super::*;
+use crate::compositor::{fullscreen, monitor, spawn, workspace};
 use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -52,7 +53,12 @@ impl XdgShellHandler for Halley {
 
         let is_transient = toplevel.parent().is_some();
         let wl = toplevel.wl_surface().clone();
-        let id = self.ensure_node_for_surface(&wl, "toplevel", initial_size.node_size);
+        let id = workspace::lifecycle::ensure_node_for_surface(
+            &mut self.surface_lifecycle_ctx(),
+            &wl,
+            "toplevel",
+            initial_size.node_size,
+        );
         let now = Instant::now();
         let node_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
         let handled_by_active_cluster = self
@@ -66,7 +72,7 @@ impl XdgShellHandler for Halley {
         if !handled_by_active_cluster {
             let _ = self.model.field.touch(id, self.now_ms(now));
         }
-        self.reveal_new_toplevel_node(id, is_transient, now);
+        spawn::reveal::reveal_new_toplevel_node(&mut self.spawn_ctx(), id, is_transient, now);
         if !handled_by_active_cluster {
             self.resolve_surface_overlap();
             self.request_maintenance();
@@ -74,11 +80,19 @@ impl XdgShellHandler for Halley {
     }
 
     fn app_id_changed(&mut self, surface: ToplevelSurface) {
-        self.refresh_node_identity_for_surface(surface.wl_surface(), "Window");
+        workspace::lifecycle::refresh_surface_identity(
+            &mut self.surface_lifecycle_ctx(),
+            surface.wl_surface(),
+            "Window",
+        );
     }
 
     fn title_changed(&mut self, surface: ToplevelSurface) {
-        self.refresh_node_identity_for_surface(surface.wl_surface(), "Window");
+        workspace::lifecycle::refresh_surface_identity(
+            &mut self.surface_lifecycle_ctx(),
+            surface.wl_surface(),
+            "Window",
+        );
     }
 
     fn new_popup(&mut self, popup: PopupSurface, positioner: PositionerState) {
@@ -108,7 +122,12 @@ impl XdgShellHandler for Halley {
             surface.send_configure();
             return;
         };
-        self.enter_xdg_fullscreen(node_id, output, Instant::now());
+        fullscreen::system::enter_xdg_fullscreen(
+            &mut self.fullscreen_ctx(),
+            node_id,
+            output,
+            Instant::now(),
+        );
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
@@ -117,7 +136,11 @@ impl XdgShellHandler for Halley {
             surface.send_configure();
             return;
         };
-        self.exit_xdg_fullscreen(node_id, Instant::now());
+        fullscreen::system::exit_xdg_fullscreen(
+            &mut self.fullscreen_ctx(),
+            node_id,
+            Instant::now(),
+        );
     }
 
     fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, serial: Serial) {
@@ -148,93 +171,7 @@ impl XdgShellHandler for Halley {
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
-        let key = surface.wl_surface().id();
-        let closing_id = self.model.surface_to_node.get(&key).copied();
-        let had_keyboard_focus = self
-            .platform
-            .seat
-            .get_keyboard()
-            .and_then(|kb| kb.current_focus())
-            .is_some_and(|focused| focused.id() == key);
-        let had_pointer_focus = self
-            .platform
-            .seat
-            .get_pointer()
-            .and_then(|ptr| ptr.current_focus())
-            .is_some_and(|focused| focused.id() == key);
-        let focused_monitor = self
-            .model
-            .surface_to_node
-            .get(&key)
-            .and_then(|id| self.model.monitor_state.node_monitor.get(id))
-            .cloned();
-
-        if had_keyboard_focus || had_pointer_focus {
-            eventline::info!(
-                "toplevel_destroyed with active focus (keyboard={} pointer={}); scheduling input state reset",
-                had_keyboard_focus,
-                had_pointer_focus
-            );
-            self.input.interaction_state.reset_input_state_requested = true;
-            if let Some(ref focused_monitor) = focused_monitor {
-                self.model.spawn_state.pending_spawn_monitor = Some(focused_monitor.clone());
-                eventline::info!(
-                    "pending spawn monitor latched from destroyed toplevel: {}",
-                    focused_monitor
-                );
-            }
-        }
-
-        if had_keyboard_focus {
-            self.clear_keyboard_focus();
-        }
-
-        if had_keyboard_focus
-            && self.runtime.tuning.close_restore_focus
-            && let (Some(closing_id), Some(focused_monitor)) =
-                (closing_id, focused_monitor.as_deref())
-        {
-            let now = Instant::now();
-            if self
-                .active_cluster_workspace_for_monitor(focused_monitor)
-                .is_some()
-            {
-                if let Some(previous) =
-                    self.previous_window_from_trail_on_close(focused_monitor, closing_id)
-                {
-                    self.set_interaction_focus(Some(previous), 30_000, now);
-                } else if let Some(fallback) = self
-                    .last_focused_surface_node_for_monitor(focused_monitor)
-                    .filter(|&id| id != closing_id)
-                {
-                    self.set_interaction_focus(Some(fallback), 30_000, now);
-                }
-            } else if let Some(previous) =
-                self.previous_window_from_trail_on_close(focused_monitor, closing_id)
-            {
-                let _ = self.restore_focus_to_node_after_close(focused_monitor, previous, now);
-            } else if let Some(fallback) = self
-                .last_focused_surface_node_for_monitor(focused_monitor)
-                .filter(|&id| id != closing_id)
-                .or_else(|| {
-                    self.last_focused_surface_node()
-                        .filter(|&id| id != closing_id)
-                })
-            {
-                let _ = self.restore_focus_to_node_after_close(focused_monitor, fallback, now);
-            }
-        } else if had_keyboard_focus
-            && !self.runtime.tuning.close_restore_focus
-            && let Some(focused_monitor) = focused_monitor.as_deref()
-        {
-            self.model
-                .focus_state
-                .blocked_monitor_focus_restore
-                .insert(focused_monitor.to_string());
-        }
-        if had_pointer_focus {
-            self.clear_pointer_focus();
-        }
+        workspace::lifecycle::on_toplevel_destroyed(&mut self.surface_lifecycle_ctx(), surface);
     }
 }
 
@@ -252,13 +189,19 @@ impl WlrLayerShellHandler for Halley {
         layer: Layer,
         namespace: String,
     ) {
-        self.register_layer_surface(surface, output, layer, namespace);
+        monitor::layer_shell::register_layer_surface(
+            &mut self.layer_shell_ctx(),
+            surface,
+            output,
+            layer,
+            namespace,
+        );
     }
 
     fn ack_configure(&mut self, _surface: WlSurface, _configure: LayerSurfaceConfigure) {}
 
     fn layer_destroyed(&mut self, surface: LayerSurface) {
-        self.remove_layer_surface(&surface);
+        monitor::layer_shell::remove_layer_surface(&mut self.layer_shell_ctx(), &surface);
     }
 }
 

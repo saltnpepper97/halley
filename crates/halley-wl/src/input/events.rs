@@ -1,5 +1,5 @@
 use crate::backend::interface::BackendView;
-use crate::state::Halley;
+use crate::compositor::root::Halley;
 
 use super::ctx::InputCtx;
 use super::keyboard::handle_keyboard_input;

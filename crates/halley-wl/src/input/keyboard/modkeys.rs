@@ -1,4 +1,4 @@
-use crate::interaction::types::ModState;
+use crate::compositor::interaction::ModState;
 use halley_config::KeyModifiers;
 
 /// Match an incoming XKB keycode against a stored evdev keycode.
@@ -121,7 +121,7 @@ pub(crate) fn modifier_exact(mods: &ModState, need: KeyModifiers) -> bool {
 #[cfg(test)]
 mod tests {
     use super::modifier_exact;
-    use crate::interaction::types::ModState;
+    use crate::compositor::interaction::ModState;
     use halley_config::KeyModifiers;
 
     #[test]
@@ -160,7 +160,6 @@ mod tests {
         ));
     }
 }
-
 
 #[inline]
 pub(crate) fn is_modifier_keycode(code: u32) -> bool {

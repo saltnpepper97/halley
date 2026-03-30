@@ -6,7 +6,7 @@ use smithay::utils::SERIAL_COUNTER;
 use crate::backend::interface::BackendView;
 use crate::input::ctx::InputCtx;
 use crate::spatial::screen_to_world;
-use crate::state::Halley;
+use crate::compositor::root::Halley;
 
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,

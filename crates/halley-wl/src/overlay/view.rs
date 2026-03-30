@@ -3,9 +3,11 @@ use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::tiling::Rect;
 use halley_core::viewport::Viewport;
 
-use crate::state::{
-    ClusterState, Halley, InteractionState, MonitorState, NodeAppIconCacheEntry, RenderState,
-};
+use crate::compositor::clusters::state::ClusterState;
+use crate::compositor::interaction::state::InteractionState;
+use crate::compositor::monitor::state::MonitorState;
+use crate::compositor::root::Halley;
+use crate::render::state::{NodeAppIconCacheEntry, RenderState};
 
 pub(crate) struct OverlayView<'a> {
     pub(crate) field: &'a Field,

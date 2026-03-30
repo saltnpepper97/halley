@@ -12,6 +12,7 @@ mod frame;
 pub mod layer_shell;
 mod node;
 mod offscreen;
+pub(crate) mod state;
 pub(crate) mod utils;
 mod window;
 
@@ -40,7 +41,11 @@ pub(crate) fn log_rounded_shader_failure(
 pub(crate) use bearings::bearing_hit_test;
 pub(crate) use cursor::cursor_surface_hotspot;
 pub(crate) use cursor_theme::themed_cursor_sprite_with_fallback;
-pub(crate) use frame::{draw_debug_frame, draw_debug_frame_to_target};
+pub(crate) use frame::{
+    anim_style_for, begin_render_frame, draw_debug_frame, draw_debug_frame_to_target,
+    monitor_overlay_requires_full_repaint, send_frame_callbacks, tick_animator_frame,
+    tick_frame_effects, tick_live_overlap,
+};
 pub(crate) use utils::preview_proxy_size;
 pub(crate) use utils::{node_marker_metrics, world_to_screen};
 

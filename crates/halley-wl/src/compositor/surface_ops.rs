@@ -4,7 +4,7 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
-use crate::state::Halley;
+use crate::compositor::root::Halley;
 
 pub(crate) fn request_close_focused_toplevel(st: &mut Halley) -> bool {
     let Some(node_id) = st

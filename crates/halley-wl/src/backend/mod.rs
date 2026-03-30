@@ -41,14 +41,15 @@ use smithay::{
 use crate::activity::VisualState;
 use crate::animation::advance_node_move_anim;
 use crate::input::{BackendInputEventData, handle_backend_input_event};
-use crate::interaction::types::{ModState, PointerState};
+use crate::compositor::interaction::{ModState, PointerState};
 use crate::bootstrap::{
     drain_ipc_commands, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite, init_logging, publish_outputs,
     register_xwayland_request_channel, run_autostart_commands, shutdown_requested,
 };
 use crate::spatial::{node_in_active_area, node_in_active_area_for_monitor};
-use crate::state::{ClientState, Halley};
+use crate::compositor::root::Halley;
+use crate::protocol::wayland::ClientState;
 use crate::compositor::surface_ops::current_surface_size_for_node;
 
 pub(crate) mod interface;

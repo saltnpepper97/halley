@@ -1,0 +1,389 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
+
+use calloop::ping::Ping;
+use halley_config::RuntimeTuning;
+use smithay::reexports::wayland_server::backend::ObjectId;
+
+use super::root::Halley;
+use crate::activity::CommitActivity;
+use crate::animation::AnimSpec;
+
+pub(crate) struct RuntimeState {
+    pub(crate) tuning: RuntimeTuning,
+    pub(crate) surface_activity: HashMap<ObjectId, CommitActivity>,
+    pub(crate) exit_requested: bool,
+    pub(crate) started_at: Instant,
+    pub(crate) last_debug_dump_at: Instant,
+    pub(crate) maintenance_dirty: bool,
+    pub(crate) maintenance_ping: Option<Ping>,
+    pub(crate) pending_drm_syncobj_surfaces: Arc<Mutex<Vec<ObjectId>>>,
+    pub(crate) spawned_children: Vec<std::process::Child>,
+}
+
+impl Halley {
+    pub fn now_ms(&self, now: Instant) -> u64 {
+        now.duration_since(self.runtime.started_at).as_millis() as u64
+    }
+
+    pub(crate) fn debug_dump(&self) {}
+
+    pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
+        let prev_runtime_viewport = self.model.viewport;
+        let prev_config_viewport = self.runtime.tuning.viewport();
+        let prev_effective_no_csd = self.runtime.tuning.effective_no_csd();
+        let prev_physics_enabled = self.runtime.tuning.physics_enabled;
+        let prev_focus = self.last_input_surface_node();
+        let previous_output_names: std::collections::HashSet<String> = self
+            .model
+            .monitor_state
+            .monitors
+            .keys()
+            .cloned()
+            .chain(
+                self.runtime
+                    .tuning
+                    .tty_viewports
+                    .iter()
+                    .map(|v| v.connector.clone()),
+            )
+            .collect();
+
+        tuning.enforce_guards();
+        tuning.apply_process_env();
+
+        let next_viewport = tuning.viewport();
+        let logical_viewport_changed = prev_config_viewport.center != next_viewport.center
+            || prev_config_viewport.size != next_viewport.size;
+        if logical_viewport_changed {
+            self.model.viewport = next_viewport;
+            self.model.zoom_ref_size = tuning.viewport_size;
+            self.model.camera_target_center = self.model.viewport.center;
+            self.model.camera_target_view_size = self.model.zoom_ref_size;
+            if prev_runtime_viewport.center != next_viewport.center
+                || prev_runtime_viewport.size != next_viewport.size
+            {
+                self.input.interaction_state.viewport_pan_anim = None;
+            }
+        }
+
+        self.ui.render_state.animator.set_spec(AnimSpec {
+            state_change_ms: tuning.dev_anim_state_change_ms,
+            bounce: tuning.dev_anim_bounce,
+        });
+
+        if prev_physics_enabled && !tuning.physics_enabled {
+            self.model.workspace_state.active_transition_until_ms.clear();
+            self.input.interaction_state.drag_authority_node = None;
+            self.input.interaction_state.physics_velocity.clear();
+            self.input.interaction_state.smoothed_render_pos.clear();
+            self.model.camera_target_center = self.model.viewport.center;
+            self.model.camera_target_view_size = self.model.zoom_ref_size;
+        }
+
+        let next_output_names: std::collections::HashSet<String> = previous_output_names
+            .iter()
+            .cloned()
+            .chain(tuning.tty_viewports.iter().map(|v| v.connector.clone()))
+            .collect();
+        let now = Instant::now();
+        let now_ms = self.now_ms(now);
+        for output_name in next_output_names {
+            if self
+                .runtime
+                .tuning
+                .focus_ring_for_output(output_name.as_str())
+                != tuning.focus_ring_for_output(output_name.as_str())
+            {
+                self.model.focus_state.focus_ring_preview_until_ms.insert(
+                    output_name,
+                    now_ms.saturating_add(crate::compositor::focus::state::FOCUS_RING_PREVIEW_MS),
+                );
+            }
+        }
+
+        self.runtime.tuning = tuning;
+        if prev_effective_no_csd != self.runtime.tuning.effective_no_csd() {
+            self.refresh_xdg_decoration_mode();
+        }
+        self.request_maintenance();
+
+        if let Some(id) = prev_focus {
+            self.set_interaction_focus(Some(id), 30_000, now);
+        }
+    }
+
+    pub fn request_exit(&mut self) {
+        self.runtime.exit_requested = true;
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        self.runtime.exit_requested
+    }
+
+    #[inline]
+    pub fn request_maintenance(&mut self) {
+        self.runtime.maintenance_dirty = true;
+        if let Some(ping) = &self.runtime.maintenance_ping {
+            ping.ping();
+        }
+    }
+
+    pub fn next_maintenance_deadline(&self, now: Instant) -> Option<Instant> {
+        if !self.model.focus_state.app_focused {
+            return None;
+        }
+
+        let now_ms = self.now_ms(now);
+        let mut next_ms: Option<u64> = None;
+        let mut consider = |at_ms: u64| {
+            next_ms = Some(next_ms.map_or(at_ms, |cur| cur.min(at_ms)));
+        };
+
+        if self.model.focus_state.primary_interaction_focus.is_some()
+            && self.model.focus_state.interaction_focus_until_ms > now_ms
+        {
+            consider(self.model.focus_state.interaction_focus_until_ms);
+        }
+        if self.input.interaction_state.resize_static_node.is_some()
+            && self.input.interaction_state.resize_static_until_ms > now_ms
+        {
+            consider(self.input.interaction_state.resize_static_until_ms);
+        }
+        if let Some(at_ms) = self
+            .model
+            .spawn_state
+            .pending_spawn_activate_at_ms
+            .values()
+            .copied()
+            .min()
+            && at_ms > now_ms
+        {
+            consider(at_ms);
+        }
+        if let Some(at_ms) = self
+            .model
+            .workspace_state
+            .active_transition_until_ms
+            .values()
+            .copied()
+            .min()
+            && at_ms > now_ms
+        {
+            consider(at_ms);
+        }
+        if let Some(at_ms) = self
+            .model
+            .workspace_state
+            .primary_promote_cooldown_until_ms
+            .values()
+            .copied()
+            .min()
+            && at_ms > now_ms
+        {
+            consider(at_ms);
+        }
+        if let Some(deadline_ms) = self
+            .input
+            .interaction_state
+            .pending_core_click
+            .as_ref()
+            .map(|pending| pending.deadline_ms)
+            && deadline_ms > now_ms
+        {
+            consider(deadline_ms);
+        }
+        if self.runtime.tuning.debug_tick_dump {
+            consider(
+                now_ms.saturating_add(
+                    self.runtime.tuning.debug_dump_every_ms.saturating_sub(
+                        now.duration_since(self.runtime.last_debug_dump_at)
+                            .as_millis() as u64,
+                    ),
+                ),
+            );
+        }
+
+        next_ms.map(|at_ms| {
+            now.checked_add(std::time::Duration::from_millis(
+                at_ms.saturating_sub(now_ms),
+            ))
+            .unwrap_or(now)
+        })
+    }
+
+    #[inline]
+    pub fn run_maintenance_if_needed(&mut self, now: Instant) {
+        let due = self
+            .next_maintenance_deadline(now)
+            .is_some_and(|deadline| deadline <= now);
+        if self.runtime.maintenance_dirty || due {
+            self.run_maintenance(now);
+        }
+    }
+
+    #[inline]
+    pub fn run_maintenance(&mut self, now: Instant) {
+        self.runtime.maintenance_dirty = false;
+        if !self.model.focus_state.app_focused {
+            return;
+        }
+        self.reconcile_surface_bindings();
+        let now_ms = now.duration_since(self.runtime.started_at).as_millis() as u64;
+        let _ = self.recent_top_node_active(now);
+        if let Some(pending) = self.input.interaction_state.pending_core_click.clone()
+            && now_ms >= pending.deadline_ms
+        {
+            self.input.interaction_state.pending_core_click = None;
+            if pending.reopen_bloom_on_timeout
+                && let Some(cid) = self.model.field.cluster_id_for_core_public(pending.node_id)
+            {
+                let _ = self.open_cluster_bloom_for_monitor(pending.monitor.as_str(), cid);
+            }
+        }
+        if self.has_any_active_cluster_workspace() {
+            let active_monitors = self
+                .model
+                .cluster_state
+                .active_cluster_workspaces
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            for monitor in active_monitors {
+                self.layout_active_cluster_workspace_for_monitor(monitor.as_str(), now_ms);
+            }
+        }
+        if let Some(fid) = self.model.focus_state.primary_interaction_focus
+            && now_ms >= self.model.focus_state.interaction_focus_until_ms
+        {
+            let keep = self.model.field.node(fid).is_some_and(|n| {
+                self.model.field.is_visible(fid) && n.kind == halley_core::field::NodeKind::Surface
+            });
+            if keep {
+                self.model.focus_state.interaction_focus_until_ms = now_ms.saturating_add(30_000);
+            } else {
+                self.set_interaction_focus(None, 0, now);
+            }
+        }
+        if self.model.focus_state.primary_interaction_focus.is_none()
+            && self.model.monitor_state.layer_keyboard_focus.is_some()
+        {
+            self.reassert_layer_surface_keyboard_focus_if_drifted();
+        }
+        self.model
+            .workspace_state
+            .active_transition_until_ms
+            .retain(|_, &mut until| until > now_ms);
+        self.model
+            .workspace_state
+            .primary_promote_cooldown_until_ms
+            .retain(|_, &mut until| until > now_ms);
+        let alive_ids: std::collections::HashSet<_> = self.model.field.node_ids_all().into_iter().collect();
+        self.model
+            .carry_state
+            .carry_zone_hint
+            .retain(|id, _| alive_ids.contains(id));
+        self.model
+            .carry_state
+            .carry_zone_last_change_ms
+            .retain(|id, _| alive_ids.contains(id));
+        self.model
+            .carry_state
+            .carry_zone_pending
+            .retain(|id, _| alive_ids.contains(id));
+        self.model
+            .carry_state
+            .carry_zone_pending_since_ms
+            .retain(|id, _| alive_ids.contains(id));
+        self.model
+            .carry_state
+            .carry_activation_anim_armed
+            .retain(|id| alive_ids.contains(id));
+        self.model
+            .carry_state
+            .carry_state_hold
+            .retain(|id, _| alive_ids.contains(id));
+        self.model
+            .focus_state
+            .last_surface_focus_ms
+            .retain(|id, _| alive_ids.contains(id));
+        self.model
+            .workspace_state
+            .manual_collapsed_nodes
+            .retain(|id| alive_ids.contains(id));
+
+        self.process_pending_spawn_activations(now, now_ms);
+        let resize_settling = self
+            .input
+            .interaction_state
+            .resize_static_node
+            .is_some_and(|_| now_ms < self.input.interaction_state.resize_static_until_ms);
+        if resize_settling
+            && let (Some(id), Some(lock_pos)) = (
+                self.input.interaction_state.resize_static_node,
+                self.input.interaction_state.resize_static_lock_pos,
+            )
+            && let Some(n) = self.model.field.node(id)
+            && ((n.pos.x - lock_pos.x).abs() > 0.05 || (n.pos.y - lock_pos.y).abs() > 0.05)
+        {
+            let _ = self.model.field.carry(id, lock_pos);
+        }
+        if self
+            .input
+            .interaction_state
+            .resize_static_node
+            .is_some_and(|_| now_ms >= self.input.interaction_state.resize_static_until_ms)
+        {
+            self.input.interaction_state.resize_static_node = None;
+            self.input.interaction_state.resize_static_lock_pos = None;
+            self.input.interaction_state.resize_static_until_ms = 0;
+        }
+        if !self.input.interaction_state.suspend_state_checks {
+            self.enforce_pan_dominant_zone_states(now_ms);
+            self.enforce_carry_zone_states();
+        }
+        if let Some(id) = self.input.interaction_state.resize_active {
+            let _ = self.model.field.touch(id, now_ms);
+            let _ = self.model.field.set_decay_level(id, halley_core::decay::DecayLevel::Hot);
+        }
+        if self.input.interaction_state.resize_active.is_none()
+            && !(self.input.interaction_state.resize_static_node.is_some()
+                && now_ms < self.input.interaction_state.resize_static_until_ms)
+        {
+            self.update_zoom_live_surface_sizes();
+        }
+        let _ = halley_core::cluster_policy::tick_cluster_formation(
+            &mut self.model.field,
+            now_ms,
+            halley_core::cluster_policy::ClusterPolicy {
+                enabled: false,
+                distance_px: self.runtime.tuning.cluster_distance_px,
+                dwell_ms: self.runtime.tuning.cluster_dwell_ms,
+                ..Default::default()
+            },
+            &mut self.model.cluster_state.cluster_form_state,
+        );
+        self.enforce_single_primary_active_unit();
+        if !self.input.interaction_state.suspend_state_checks
+            && self.input.interaction_state.resize_active.is_none()
+        {
+            self.resolve_surface_overlap();
+        }
+        self.restore_pan_return_active_focus(now);
+        self.ui
+            .render_state
+            .animator
+            .observe_field(&self.model.field, now);
+
+        if self.runtime.tuning.debug_tick_dump
+            && now
+                .duration_since(self.runtime.last_debug_dump_at)
+                .as_millis() as u64
+                >= self.runtime.tuning.debug_dump_every_ms
+        {
+            self.debug_dump();
+            self.runtime.last_debug_dump_at = now;
+        }
+    }
+}
