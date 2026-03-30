@@ -4,7 +4,7 @@ use calloop::timer::{TimeoutAction, Timer};
 use calloop::{LoopHandle, RegistrationToken};
 use eventline::debug;
 
-use crate::state::Halley;
+use crate::compositor::root::Halley;
 
 #[derive(Debug)]
 pub(crate) struct VBlankThrottle {

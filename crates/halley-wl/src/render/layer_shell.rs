@@ -3,16 +3,16 @@ use std::time::Instant;
 
 use smithay::{
     backend::renderer::{
-        element::{Kind, surface::render_elements_from_surface_tree},
+        element::{surface::render_elements_from_surface_tree, Kind},
         gles::GlesRenderer,
     },
-    desktop::{PopupKind, PopupManager, find_popup_root_surface, utils::bbox_from_surface_tree},
+    desktop::{find_popup_root_surface, utils::bbox_from_surface_tree, PopupKind, PopupManager},
     reexports::wayland_server::Resource,
     utils::{Logical, Physical, Size},
     wayland::shell::wlr_layer::Layer,
 };
 
-use crate::state::Halley;
+use crate::compositor::root::Halley;
 
 type LayerElements =
     Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>;

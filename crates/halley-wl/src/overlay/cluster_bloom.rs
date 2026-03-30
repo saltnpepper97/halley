@@ -12,7 +12,7 @@ use smithay::{
 use crate::overlay::{ClusterBloomAnimSnapshot, OverlayView};
 use crate::render::app_icon::ensure_app_icon_resources_for_node_ids;
 use crate::render::utils::{bitmap_text_size, draw_bitmap_text};
-use crate::state::Halley;
+use crate::compositor::root::Halley;
 
 #[derive(Clone, Copy)]
 pub(crate) struct BloomTokenLayout {
@@ -159,7 +159,10 @@ pub(crate) fn draw_cluster_bloom(
     monitor: &str,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(snapshot) = st.cluster_bloom_snapshot_for_monitor(monitor) else {
+    let Some(snapshot) = st.ui.render_state.cluster_bloom_snapshot_for_monitor(
+        monitor,
+        st.model.cluster_state.cluster_bloom_open.get(monitor).copied(),
+    ) else {
         let overlay = OverlayView::from_halley(st);
         draw_cluster_join_affordance(frame, &overlay, screen_w, screen_h, monitor, damage)?;
         return Ok(());
@@ -229,7 +232,7 @@ fn draw_bloom_token(
     )?;
 
     if overlay.tuning.cluster_show_icons
-        && let Some(crate::state::NodeAppIconCacheEntry::Ready(icon)) =
+        && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
             overlay.node_app_icon_entry(layout.member_id)
     {
         let side = (diameter as f32 * 0.64).round() as i32;

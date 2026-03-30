@@ -5,7 +5,7 @@ use crate::input::ctx::InputCtx;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
-use calloop::{Interest, Mode, PostAction, generic::Generic};
+use calloop::{generic::Generic, Interest, Mode, PostAction};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
@@ -322,7 +322,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         ) {
                             debug!("draw failed: {}", err);
                         } else {
-                            st.send_frame_callbacks(now);
+                            crate::render::send_frame_callbacks(st, now);
                         }
                     }
                     WinitEvent::Resized { size, .. } => {
@@ -365,7 +365,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         ) {
                             debug!("draw failed: {}", err);
                         } else {
-                            st.send_frame_callbacks(now);
+                            crate::render::send_frame_callbacks(st, now);
                         }
                     }
                     WinitEvent::Focus(false) => {
@@ -643,15 +643,15 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     let ps = pointer_state_for_timer.borrow();
                     ps.resize.is_some()
                 };
-                st.tick_frame_effects(now);
-                st.tick_animator_frame(now);
+                crate::render::tick_frame_effects(st, now);
+                crate::render::tick_animator_frame(st, now);
                 st.tick_fullscreen_motion(now);
-                st.begin_render_frame(now);
+                crate::render::begin_render_frame(st, now);
                 {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     let _ = advance_node_move_anim(st, &mut ps, now);
                 }
-                st.tick_live_overlap();
+                crate::render::tick_live_overlap(st);
                 if !resize_active {
                     st.run_maintenance_if_needed(now);
                 }

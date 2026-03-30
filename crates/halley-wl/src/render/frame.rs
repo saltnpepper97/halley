@@ -1,7 +1,9 @@
+use std::collections::HashSet;
 use std::error::Error;
 use std::time::Instant;
 
-use smithay::wayland::compositor::{SurfaceAttributes, with_states};
+use halley_core::field::{NodeId, Vec2};
+use smithay::wayland::compositor::{SurfaceAttributes, TraversalAction, with_states, with_surface_tree_downward};
 use smithay::{
     backend::renderer::{
         Color32F, Frame, Renderer, Texture,
@@ -16,13 +18,14 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
-use crate::interaction::types::ResizeCtx;
+use crate::compositor::interaction::ResizeCtx;
 use crate::overlay::{
     OverlayView, draw_cluster_bloom, draw_cluster_overflow_strip, draw_cluster_selection_markers,
     draw_monitor_hud, draw_overlay_hover_label, ensure_cluster_bloom_icon_resources,
 };
 use crate::spatial::node_in_active_area_for_monitor;
-use crate::state::Halley;
+use crate::compositor::root::Halley;
+use crate::animation::AnimStyle;
 
 use super::app_icon::{ensure_app_icon_resources_for_node_ids, ensure_node_app_icon_resources};
 use super::bearings::BearingChipLayout;
@@ -45,6 +48,267 @@ type CroppedSurfaceElement =
 
 const WINDOW_TEXTURE_SHADER: &str = include_str!("shaders/window_rounded_texture.frag");
 const SURFACE_CLIP_SHADER: &str = include_str!("shaders/surface_clipped_texture.frag");
+
+pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) -> bool {
+    st.cluster_mode_active_for_monitor(monitor)
+        || st.ui.render_state.overlay_banner.contains_key(monitor)
+        || st.ui.render_state.overlay_toast.contains_key(monitor)
+}
+
+pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
+    st.ui.render_state.render_last_tick = now;
+    st.platform.popup_manager.cleanup();
+    let alive: HashSet<NodeId> = st.model.field.node_ids_all().into_iter().collect();
+    st.input
+        .interaction_state
+        .physics_velocity
+        .retain(|id, _| alive.contains(id));
+    st.input
+        .interaction_state
+        .smoothed_render_pos
+        .retain(|id, _| alive.contains(id));
+    st.ui
+        .render_state
+        .node_hover_mix
+        .retain(|id, _| alive.contains(id));
+    st.ui.render_state.node_preview_hover.retain(|_, state| {
+        state.node = state.node.filter(|id| alive.contains(id));
+        state.node.is_some() || state.mix > 0.002
+    });
+    st.ui.render_state.bearings_mix.retain(|monitor, mix| {
+        st.model.monitor_state.monitors.contains_key(monitor) || *mix > 0.002
+    });
+    st.ui.render_state.cluster_bloom_mix.retain(|monitor, state| {
+        st.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
+    });
+    st.ui.render_state.prune_window_offscreen_cache(&alive, now);
+}
+
+pub(crate) fn anim_style_for(
+    st: &Halley,
+    id: NodeId,
+    state: halley_core::field::NodeState,
+    now: Instant,
+) -> AnimStyle {
+    if !st.runtime.tuning.dev_anim_enabled || !st.runtime.tuning.physics_enabled {
+        return AnimStyle::default();
+    }
+
+    let now_ms = st.now_ms(now);
+    if st.input.interaction_state.resize_active == Some(id)
+        || (st.input.interaction_state.resize_static_node == Some(id)
+            && now_ms < st.input.interaction_state.resize_static_until_ms)
+    {
+        return AnimStyle::default();
+    }
+
+    st.ui.render_state.animator.style_for(id, state, now)
+}
+
+pub(crate) fn tick_animator_frame(st: &mut Halley, now: Instant) {
+    st.ui
+        .render_state
+        .tick_animator_frame(&st.model.field, st.runtime.tuning.physics_enabled, now);
+}
+
+pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
+    let now_ms = st.now_ms(now);
+    st.tick_viewport_pan_animation(now_ms);
+    st.tick_pending_spawn_pan(now, now_ms);
+    tick_active_drag(st, now);
+    st.tick_cluster_join_candidate_ready(now_ms);
+    st.tick_camera_smoothing(now);
+}
+
+fn tick_active_drag(st: &mut Halley, now: Instant) {
+    let Some(mut active_drag) = st.input.interaction_state.active_drag.clone() else {
+        st.clear_grabbed_edge_pan_state();
+        return;
+    };
+
+    let Some(node_id) = st.input.interaction_state.drag_authority_node else {
+        st.input.interaction_state.active_drag = None;
+        return;
+    };
+    if node_id != active_drag.node_id {
+        st.input.interaction_state.active_drag = None;
+        st.clear_grabbed_edge_pan_state();
+        return;
+    }
+
+    let pointer_world = crate::spatial::screen_to_world(
+        st,
+        active_drag.pointer_workspace_size.0,
+        active_drag.pointer_workspace_size.1,
+        active_drag.pointer_screen_local.0,
+        active_drag.pointer_screen_local.1,
+    );
+    let desired_to = Vec2 {
+        x: pointer_world.x - active_drag.current_offset.x,
+        y: pointer_world.y - active_drag.current_offset.y,
+    };
+
+    let moved = if active_drag.allow_monitor_transfer {
+        st.clear_grabbed_edge_pan_state();
+        st.assign_node_to_monitor(node_id, active_drag.pointer_monitor.as_str());
+        let to = st
+            .dragged_node_cluster_core_clamp(active_drag.pointer_monitor.as_str(), node_id, desired_to)
+            .and_then(|(clamped, cid, _)| {
+                (st.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
+                    .then_some(clamped)
+            })
+            .unwrap_or(desired_to);
+        st.carry_surface_non_overlap(node_id, to, false)
+    } else if !active_drag.edge_pan_eligible {
+        st.clear_grabbed_edge_pan_state();
+        let to = st
+            .dragged_node_cluster_core_clamp(active_drag.pointer_monitor.as_str(), node_id, desired_to)
+            .and_then(|(clamped, cid, _)| {
+                (st.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
+                    .then_some(clamped)
+            })
+            .unwrap_or(desired_to);
+        st.carry_surface_non_overlap(node_id, to, false)
+    } else if let Some((clamped_center, edge_contact)) = st.dragged_node_edge_pan_clamp(
+        active_drag.pointer_monitor.as_str(),
+        node_id,
+        desired_to,
+        Vec2 {
+            x: active_drag.edge_pan_x.sign(),
+            y: active_drag.edge_pan_y.sign(),
+        },
+    ) {
+        if active_drag.edge_pan_x.sign() != 0.0 && edge_contact.x != active_drag.edge_pan_x.sign() {
+            active_drag.edge_pan_x = crate::compositor::interaction::DragAxisMode::Free;
+        }
+        if active_drag.edge_pan_y.sign() != 0.0 && edge_contact.y != active_drag.edge_pan_y.sign() {
+            active_drag.edge_pan_y = crate::compositor::interaction::DragAxisMode::Free;
+        }
+
+        let direction = Vec2 {
+            x: active_drag.edge_pan_x.sign(),
+            y: active_drag.edge_pan_y.sign(),
+        };
+        let edge_pan_active = direction.x != 0.0 || direction.y != 0.0;
+        st.input.interaction_state.grabbed_edge_pan_active = edge_pan_active;
+        st.input.interaction_state.grabbed_edge_pan_direction = direction;
+        st.input.interaction_state.grabbed_edge_pan_monitor =
+            edge_pan_active.then(|| active_drag.pointer_monitor.clone());
+
+        let mut to = clamped_center;
+        if edge_pan_active {
+            let dt = now
+                .saturating_duration_since(st.ui.render_state.render_last_tick)
+                .as_secs_f32()
+                .clamp(1.0 / 240.0, 1.0 / 30.0);
+            const DRAG_EDGE_PAN_SPEED: f32 = 720.0;
+            let pan_delta = Vec2 {
+                x: direction.x * DRAG_EDGE_PAN_SPEED * dt,
+                y: direction.y * DRAG_EDGE_PAN_SPEED * dt,
+            };
+            st.note_pan_activity(now);
+            st.pan_camera_target(pan_delta);
+            st.model.viewport.center = st.model.camera_target_center;
+            st.runtime.tuning.viewport_center = st.model.viewport.center;
+            st.sync_current_monitor_state();
+            st.note_pan_viewport_change(now);
+
+            let post_pan_pointer_world = crate::spatial::screen_to_world(
+                st,
+                active_drag.pointer_workspace_size.0,
+                active_drag.pointer_workspace_size.1,
+                active_drag.pointer_screen_local.0,
+                active_drag.pointer_screen_local.1,
+            );
+            let post_pan_desired_to = Vec2 {
+                x: post_pan_pointer_world.x - active_drag.current_offset.x,
+                y: post_pan_pointer_world.y - active_drag.current_offset.y,
+            };
+            to = st
+                .dragged_node_edge_pan_clamp(
+                    active_drag.pointer_monitor.as_str(),
+                    node_id,
+                    post_pan_desired_to,
+                    direction,
+                )
+                .map(|(clamped, _)| clamped)
+                .unwrap_or(post_pan_desired_to);
+        }
+        let drag_monitor = active_drag.pointer_monitor.clone();
+        st.input.interaction_state.active_drag = Some(active_drag.clone());
+        let to = st
+            .dragged_node_cluster_core_clamp(drag_monitor.as_str(), node_id, to)
+            .and_then(|(clamped, cid, _)| {
+                (st.cluster_bloom_for_monitor(drag_monitor.as_str()) == Some(cid))
+                    .then_some(clamped)
+            })
+            .unwrap_or(to);
+        st.carry_surface_non_overlap(node_id, to, false)
+    } else {
+        st.input.interaction_state.active_drag = None;
+        st.clear_grabbed_edge_pan_state();
+        return;
+    };
+    let live_reordered = if st.model.field.is_active_cluster_member(node_id) {
+        st.move_active_cluster_member_to_drop_tile(
+            active_drag.pointer_monitor.as_str(),
+            node_id,
+            pointer_world,
+            st.now_ms(now),
+        )
+    } else {
+        false
+    };
+    if moved || live_reordered {
+        st.request_maintenance();
+    }
+}
+
+pub(crate) fn tick_live_overlap(st: &mut Halley) {
+    if st.input.interaction_state.suspend_state_checks
+        || st.input.interaction_state.resize_active.is_some()
+    {
+        return;
+    }
+    st.resolve_surface_overlap();
+}
+
+pub(crate) fn send_frame_callbacks(st: &mut Halley, now: Instant) {
+    let elapsed_ms = now.duration_since(st.runtime.started_at).as_millis();
+    let time_ms = elapsed_ms.min(u32::MAX as u128) as u32;
+    for layer in st.platform.wlr_layer_shell_state.layer_surfaces() {
+        send_frames_surface_tree(layer.wl_surface(), time_ms);
+    }
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        send_frames_surface_tree(top.wl_surface(), time_ms);
+    }
+    for popup in st.platform.xdg_shell_state.popup_surfaces() {
+        send_frames_surface_tree(popup.wl_surface(), time_ms);
+    }
+}
+
+fn send_frames_surface_tree(
+    surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    time_ms: u32,
+) {
+    with_surface_tree_downward(
+        surface,
+        (),
+        |_, _, &()| TraversalAction::DoChildren(()),
+        |_, states, &()| {
+            for callback in states
+                .cached_state
+                .get::<SurfaceAttributes>()
+                .current()
+                .frame_callbacks
+                .drain(..)
+            {
+                callback.done(time_ms);
+            }
+        },
+        |_, _, &()| true,
+    );
+}
 
 fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mut Halley) {
     if st.ui.render_state.window_texture_program.is_some()
@@ -290,7 +554,7 @@ fn collect_debug_frame_scene(
     now: Instant,
 ) -> SceneCollections {
     let render_monitor = st.model.monitor_state.current_monitor.clone();
-    let bearings_mix = st.bearings_mix_for_monitor(render_monitor.as_str());
+    let bearings_mix = st.ui.render_state.bearings_mix_for_monitor(render_monitor.as_str());
     let (
         layer_background_elements,
         layer_bottom_elements,

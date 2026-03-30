@@ -2,19 +2,19 @@ use std::time::{Duration, Instant};
 
 use eventline::debug;
 
+use crate::animation::active_surface_render_scale;
 use crate::backend::interface::BackendView;
+use crate::compositor::interaction::{HitNode, PointerState, ResizeCtx, ResizeHandle};
+use crate::compositor::root::Halley;
+use crate::compositor::surface_ops::{
+    current_surface_size_for_node, request_toplevel_resize_mode, window_geometry_for_node,
+};
+use crate::render::active_window_frame_pad_px;
+use crate::render::world_to_screen;
 use smithay::desktop::utils::bbox_from_surface_tree;
 use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
-use crate::interaction::types::{HitNode, PointerState, ResizeCtx, ResizeHandle};
-use crate::render::active_window_frame_pad_px;
-use crate::animation::active_surface_render_scale;
-use crate::render::world_to_screen;
-use crate::state::Halley;
-use crate::compositor::surface_ops::{
-    current_surface_size_for_node, request_toplevel_resize_mode, window_geometry_for_node,
-};
 
 use super::button::ButtonFrame;
 
@@ -244,10 +244,9 @@ pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &
     backend.request_redraw();
 }
 
-
 pub(super) fn handle_resize_motion(
     st: &mut Halley,
-    ps: &mut crate::interaction::types::PointerState,
+    ps: &mut crate::compositor::interaction::PointerState,
     local_w: i32,
     local_h: i32,
     local_sx: f32,
@@ -392,7 +391,6 @@ pub(super) fn handle_resize_motion(
     backend.request_redraw();
     true
 }
-
 
 #[derive(Clone, Copy)]
 pub(crate) struct ActiveNodeSurfaceTransformScreen {
@@ -729,7 +727,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
         return None;
     }
 
-    let anim = st.anim_style_for(node_id, n.state.clone(), now);
+    let anim = crate::render::anim_style_for(st, node_id, n.state.clone(), now);
     let transition_alpha = st.active_transition_alpha(node_id, now);
     let cam_scale = st.camera_render_scale();
     let anim_scale = active_surface_render_scale(

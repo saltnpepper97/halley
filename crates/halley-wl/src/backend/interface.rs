@@ -2,14 +2,14 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::rc::Rc;
 
-use smithay::backend::renderer::ImportDma;
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::ImportDma;
 use smithay::backend::winit::WinitGraphicsBackend;
-use smithay::backend::{allocator::Format, allocator::dmabuf::Dmabuf};
+use smithay::backend::{allocator::dmabuf::Dmabuf, allocator::Format};
 
-use crate::interaction::types::ResizeCtx;
+use crate::compositor::interaction::ResizeCtx;
+use crate::compositor::root::Halley;
 use crate::render::draw_debug_frame;
-use crate::state::Halley;
 use std::cell::Cell;
 
 pub(crate) trait BackendView {

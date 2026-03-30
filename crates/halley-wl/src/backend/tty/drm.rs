@@ -1,7 +1,7 @@
 use super::*;
 use std::collections::HashMap;
 
-use crate::interaction::types::ResizeCtx;
+use crate::compositor::interaction::ResizeCtx;
 use halley_ipc::{ModeInfo, OutputInfo, OutputStatus};
 
 use smithay::backend::allocator::Fourcc;
@@ -547,7 +547,10 @@ pub(crate) fn collect_outputs_for_ipc(
     active_modes: &HashMap<String, drm_control::Mode>,
     tuning: &RuntimeTuning,
     vrr_support: &HashMap<String, String>,
-    direct_scanout: &HashMap<String, crate::state::FullscreenDirectScanoutState>,
+    direct_scanout: &HashMap<
+        String,
+        crate::compositor::fullscreen::state::FullscreenDirectScanoutState,
+    >,
 ) -> Vec<OutputInfo> {
     let mut outputs = Vec::new();
 
@@ -747,7 +750,7 @@ pub(crate) fn queue_tty_drm_frame(
             }
         }
 
-        let force_overlay_full_repaint = st.monitor_overlay_requires_full_repaint(output_name);
+        let force_overlay_full_repaint = crate::render::monitor_overlay_requires_full_repaint(st, output_name);
         let mut texture: GlesTexture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
             &mut *renderer_ref,
             Fourcc::Abgr8888,
@@ -966,7 +969,7 @@ fn fullscreen_direct_scanout_candidate(
     {
         return Some(blocked("interactive move or resize is active"));
     }
-    if st.monitor_overlay_requires_full_repaint(output_name) {
+    if crate::render::monitor_overlay_requires_full_repaint(st, output_name) {
         return Some(blocked("monitor overlays are active"));
     }
     if hover_node.is_some() || preview_hover_node.is_some() {

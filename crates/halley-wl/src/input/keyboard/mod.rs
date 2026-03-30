@@ -3,7 +3,7 @@ pub(crate) mod modkeys;
 pub(crate) mod spawn;
 
 use crate::input::ctx::InputCtx;
-use crate::state::Halley;
+use crate::compositor::root::Halley;
 
 use std::time::Instant;
 

@@ -10,7 +10,7 @@ use smithay::{
     utils::{Logical, Physical, Rectangle},
 };
 
-use crate::state::Halley;
+use crate::compositor::root::Halley;
 
 /// Draw an elliptical ring at a fixed screen-space position and radius.
 ///

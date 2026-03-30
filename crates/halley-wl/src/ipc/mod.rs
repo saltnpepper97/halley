@@ -9,12 +9,12 @@ use halley_ipc::{
     Response, TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
 };
 use smithay::desktop::PopupManager;
-use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
+use smithay::reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData};
 
-use crate::interaction::actions::promote_node_level;
-use crate::state::Halley;
+use crate::compositor::actions::window::promote_node_level;
+use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::{current_surface_size_for_node, request_close_node_toplevel};
 
 pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
@@ -146,19 +146,19 @@ fn handle_monitor_request(st: &mut Halley, request: MonitorRequest) -> Response 
 fn handle_bearings_request(st: &mut Halley, request: BearingsRequest) -> Response {
     match request {
         BearingsRequest::Show => {
-            st.set_bearings_visible(true);
+            st.ui.render_state.set_bearings_visible(true);
             Response::Ok
         }
         BearingsRequest::Hide => {
-            st.set_bearings_visible(false);
+            st.ui.render_state.set_bearings_visible(false);
             Response::Ok
         }
         BearingsRequest::Toggle => {
-            st.toggle_bearings_visible();
+            st.ui.render_state.toggle_bearings_visible();
             Response::Ok
         }
         BearingsRequest::Status => Response::BearingsStatus(BearingsStatusResponse {
-            visible: st.bearings_visible(),
+            visible: st.ui.render_state.bearings_visible(),
         }),
     }
 }

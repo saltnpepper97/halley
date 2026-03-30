@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::backend::interface::BackendView;
-use crate::interaction::types::{ModState, PointerState};
+use crate::compositor::interaction::{ModState, PointerState};
 
 /// Shared context threaded through every input handler.
 ///

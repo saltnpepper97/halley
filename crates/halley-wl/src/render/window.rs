@@ -14,8 +14,8 @@ use smithay::{
 
 use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_back};
 use crate::input::active_resize_geometry_screen;
-use crate::interaction::types::ResizeCtx;
-use crate::state::Halley;
+use crate::compositor::interaction::ResizeCtx;
+use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::window_geometry_for_node;
 
 use super::offscreen::render_surface_tree_to_texture;
@@ -272,7 +272,7 @@ pub(crate) fn collect_active_surfaces(
         let node_state = node.state.clone();
         let node_intrinsic = node.intrinsic_size;
         let transition_alpha = st.active_transition_alpha(node_id, now);
-        let anim = st.anim_style_for(node_id, node_state, now);
+        let anim = crate::render::anim_style_for(st, node_id, node_state, now);
         let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
         let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
         let resizing_this_node = active_resize.is_some();
@@ -424,7 +424,9 @@ pub(crate) fn collect_active_surfaces(
         if use_offscreen_zoom {
             let cache_miss = {
                 let cache =
-                    st.ensure_window_offscreen_cache(node_id, bbox.size.w, bbox.size.h, now);
+                    st.ui
+                        .render_state
+                        .ensure_window_offscreen_cache(node_id, bbox.size.w, bbox.size.h, now);
                 cache.dirty || cache.texture.is_none() || cache.bbox.is_none()
             };
 

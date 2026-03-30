@@ -19,7 +19,7 @@ use crate::backend::tty::drm::{
     queue_tty_drm_frame, rebuild_tty_outputs, selected_tty_scanout_signature,
 };
 use crate::backend::vblank_throttle::VBlankThrottle;
-use crate::interaction::types::ResizeCtx;
+use crate::compositor::interaction::ResizeCtx;
 use calloop::{Interest, Mode, PostAction, generic::Generic, ping::make_ping};
 
 use smithay::backend::input::{
@@ -36,7 +36,7 @@ fn queue_ready_tty_outputs(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
-    pointer_state: &Rc<RefCell<crate::interaction::types::PointerState>>,
+    pointer_state: &Rc<RefCell<crate::compositor::interaction::PointerState>>,
     renderer: &Rc<RefCell<GlesRenderer>>,
     first_frame_queued: &Rc<RefCell<HashSet<String>>>,
     st: &mut Halley,
@@ -1307,15 +1307,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     let resize_active = ps.resize.is_some();
                     drop(ps);
 
-                    st.tick_frame_effects(now);
-                    st.tick_animator_frame(now);
+                    crate::render::tick_frame_effects(st, now);
+                    crate::render::tick_animator_frame(st, now);
                     st.tick_fullscreen_motion(now);
-                    st.begin_render_frame(now);
+                    crate::render::begin_render_frame(st, now);
                     {
                         let mut ps = pointer_state_for_timer.borrow_mut();
                         let _ = advance_node_move_anim(st, &mut ps, now);
                     }
-                    st.tick_live_overlap();
+                    crate::render::tick_live_overlap(st);
                     if !resize_active {
                         st.run_maintenance_if_needed(now);
                     }
@@ -1447,10 +1447,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         st.input.interaction_state.dpms_just_woke = false;
                         dpms_just_woke_outputs_for_timer.borrow_mut().clear();
                         st.configure_layer_shell_surfaces((1, 1).into());
-                        st.send_frame_callbacks(now);
+                        crate::render::send_frame_callbacks(st, now);
                     }
 
-                    st.send_frame_callbacks(now);
+                    crate::render::send_frame_callbacks(st, now);
                     queue_ready_tty_outputs(
                         &outputs_for_timer,
                         &dpms_enabled_for_timer,

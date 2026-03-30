@@ -1,10 +1,9 @@
 use std::time::Instant;
 
+use crate::compositor::interaction::{HitNode, ResizeCtx};
+use crate::compositor::root::Halley;
 use crate::input::active_node_screen_rect;
-use crate::interaction::types::HitNode;
-use crate::interaction::types::ResizeCtx;
 use crate::render::{node_marker_metrics, world_to_screen};
-use crate::state::Halley;
 use halley_core::viewport::FocusZone;
 
 pub(crate) fn pick_hit_node_at(
@@ -34,7 +33,7 @@ pub(crate) fn pick_hit_node_at(
         ) {
             continue;
         }
-        let anim = st.anim_style_for(id, n.state.clone(), now);
+        let anim = crate::render::anim_style_for(st, id, n.state.clone(), now);
         let hit = match n.state {
             halley_core::field::NodeState::Active => {
                 if let Some((left, top, right, bottom)) =

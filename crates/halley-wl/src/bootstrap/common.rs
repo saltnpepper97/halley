@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use eventline::{debug, info, warn};
 use rustix::net::{
-    AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
+    bind, listen, socket_with, AddressFamily, SocketAddrUnix, SocketFlags, SocketType,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
