@@ -1,10 +1,10 @@
 use super::*;
-use crate::compositor::clusters::state::ClusterState;
-use crate::compositor::interaction::state::InteractionState;
 use crate::compositor::clusters::read::{
     ClusterLayoutPlan, ClusterReadController, ClusterTilePlacement, EnterClusterWorkspacePlan,
     ExitClusterWorkspacePlan,
 };
+use crate::compositor::clusters::state::ClusterState;
+use crate::compositor::interaction::state::InteractionState;
 use halley_core::cluster::{ClusterId, ClusterRemoveMemberOutcome};
 use halley_core::field::RemoveNodeClusterEffect;
 

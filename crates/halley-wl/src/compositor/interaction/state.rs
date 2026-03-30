@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use halley_config::CompositorBindingAction;
 use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
+use halley_core::viewport::Viewport;
 
 use crate::compositor::interaction::drag::DragAxisMode;
 use crate::compositor::root::Halley;
@@ -178,13 +179,29 @@ pub(crate) fn clear_grabbed_edge_pan_state(st: &mut Halley) {
     st.input.interaction_state.grabbed_edge_pan_monitor = None;
 }
 
+#[inline]
+fn field_viewport_for_monitor(st: &Halley, monitor_name: &str) -> Option<Viewport> {
+    if st.model.monitor_state.current_monitor == monitor_name {
+        return Some(Viewport::new(
+            st.model.viewport.center,
+            st.model.zoom_ref_size,
+        ));
+    }
+
+    st.model
+        .monitor_state
+        .monitors
+        .get(monitor_name)
+        .map(|space| Viewport::new(space.viewport.center, space.zoom_ref_size))
+}
+
 pub(crate) fn node_fully_visible_on_monitor(
     st: &Halley,
     monitor_name: &str,
     node_id: NodeId,
 ) -> Option<bool> {
     let node = st.model.field.node(node_id)?;
-    let _monitor = st.model.monitor_state.monitors.get(monitor_name)?;
+    let viewport = field_viewport_for_monitor(st, monitor_name)?;
     let ext = if node.kind == halley_core::field::NodeKind::Surface
         && node.state == halley_core::field::NodeState::Active
     {
@@ -193,8 +210,7 @@ pub(crate) fn node_fully_visible_on_monitor(
         st.collision_extents_for_node(node)
     };
 
-    let usable = st.usable_viewport_for_monitor(monitor_name);
-    let (view_center, view_size) = (usable.center, usable.size);
+    let (view_center, view_size) = (viewport.center, viewport.size);
     let left = view_center.x - view_size.x * 0.5;
     let right = view_center.x + view_size.x * 0.5;
     let top = view_center.y - view_size.y * 0.5;
@@ -219,7 +235,7 @@ pub(crate) fn dragged_node_edge_pan_clamp(
     const EDGE_CONTACT_INSET: f32 = 0.75;
 
     let node = st.model.field.node(node_id)?;
-    let _monitor = st.model.monitor_state.monitors.get(monitor_name)?;
+    let viewport = field_viewport_for_monitor(st, monitor_name)?;
     let ext = if node.kind == halley_core::field::NodeKind::Surface
         && node.state == halley_core::field::NodeState::Active
     {
@@ -228,8 +244,7 @@ pub(crate) fn dragged_node_edge_pan_clamp(
         st.collision_extents_for_node(node)
     };
 
-    let usable = st.usable_viewport_for_monitor(monitor_name);
-    let (view_center, view_size) = (usable.center, usable.size);
+    let (view_center, view_size) = (viewport.center, viewport.size);
     let min_center_x = view_center.x - view_size.x * 0.5 + ext.left + EDGE_CONTACT_INSET;
     let max_center_x = view_center.x + view_size.x * 0.5 - ext.right - EDGE_CONTACT_INSET;
     let min_center_y = view_center.y - view_size.y * 0.5 + ext.top + EDGE_CONTACT_INSET;
@@ -375,5 +390,65 @@ pub(crate) fn enforce_pan_dominant_zone_states(st: &mut Halley, now_ms: u64) {
             active_outside_ring_delay_ms,
             inactive_outside_ring_delay_ms,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn zoomed_out_test_state() -> Halley {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.zoom_ref_size = Vec2 {
+            x: 3840.0,
+            y: 1080.0,
+        };
+        state.model.camera_target_view_size = state.model.zoom_ref_size;
+        state.runtime.tuning.viewport_size = state.model.zoom_ref_size;
+        state
+    }
+
+    #[test]
+    fn node_visibility_uses_zoomed_field_viewport() {
+        let mut state = zoomed_out_test_state();
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let id = state.model.field.spawn_surface(
+            "visible-on-zoomed-field",
+            Vec2 { x: 1200.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 80.0 },
+        );
+
+        assert_eq!(
+            node_fully_visible_on_monitor(&state, monitor.as_str(), id),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn edge_pan_clamp_uses_zoomed_field_viewport() {
+        let mut state = zoomed_out_test_state();
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let id = state.model.field.spawn_surface(
+            "dragged-on-zoomed-field",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 80.0 },
+        );
+        let desired_center = Vec2 { x: 1200.0, y: 0.0 };
+
+        let (clamped_center, edge_contact) = dragged_node_edge_pan_clamp(
+            &state,
+            monitor.as_str(),
+            id,
+            desired_center,
+            Vec2 { x: 0.0, y: 0.0 },
+        )
+        .expect("clamp result");
+
+        assert_eq!(clamped_center, desired_center);
+        assert_eq!(edge_contact, Vec2 { x: 0.0, y: 0.0 });
     }
 }

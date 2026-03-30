@@ -110,7 +110,8 @@ impl Halley {
         }
         self.model.monitor_state.layer_keyboard_focus = None;
         let requested_focus_surface = focus_id.and_then(|fid| self.wl_surface_for_node(fid));
-        let active_locked_surface = crate::compositor::interaction::pointer::active_locked_pointer_surface(self);
+        let active_locked_surface =
+            crate::compositor::interaction::pointer::active_locked_pointer_surface(self);
         let locked_surface_node = active_locked_surface
             .as_ref()
             .and_then(|surface| self.model.surface_to_node.get(&surface.id()).copied());
@@ -197,9 +198,9 @@ impl Halley {
             let _ = self.model.field.touch(fid, now_ms);
             let _ = self.model.field.set_decay_level(fid, DecayLevel::Hot);
             if self.runtime.tuning.restore_last_active_on_pan_return {
-            self.model.focus_state.pan_restore_active_focus = Some(fid);
+                self.model.focus_state.pan_restore_active_focus = Some(fid);
+            }
         }
-    }
     }
 
     pub fn note_pan_activity(&mut self, now: Instant) {
@@ -214,7 +215,8 @@ impl Halley {
         if self.runtime.tuning.restore_last_active_on_pan_return
             && self.model.focus_state.pan_restore_active_focus.is_none()
         {
-            self.model.focus_state.pan_restore_active_focus = read::last_focused_active_surface_node(self);
+            self.model.focus_state.pan_restore_active_focus =
+                read::last_focused_active_surface_node(self);
         }
         self.input.interaction_state.suspend_overlap_resolve = false;
         self.input.interaction_state.suspend_state_checks = false;
@@ -428,7 +430,6 @@ impl Halley {
     pub fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
         read::last_input_surface_node_for_monitor(self, monitor)
     }
-
 }
 
 #[cfg(test)]

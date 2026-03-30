@@ -74,7 +74,10 @@ impl Halley {
         });
 
         if prev_physics_enabled && !tuning.physics_enabled {
-            self.model.workspace_state.active_transition_until_ms.clear();
+            self.model
+                .workspace_state
+                .active_transition_until_ms
+                .clear();
             self.input.interaction_state.drag_authority_node = None;
             self.input.interaction_state.physics_velocity.clear();
             self.input.interaction_state.smoothed_render_pos.clear();
@@ -279,7 +282,8 @@ impl Halley {
             .workspace_state
             .primary_promote_cooldown_until_ms
             .retain(|_, &mut until| until > now_ms);
-        let alive_ids: std::collections::HashSet<_> = self.model.field.node_ids_all().into_iter().collect();
+        let alive_ids: std::collections::HashSet<_> =
+            self.model.field.node_ids_all().into_iter().collect();
         self.model
             .carry_state
             .carry_zone_hint
@@ -345,7 +349,10 @@ impl Halley {
         }
         if let Some(id) = self.input.interaction_state.resize_active {
             let _ = self.model.field.touch(id, now_ms);
-            let _ = self.model.field.set_decay_level(id, halley_core::decay::DecayLevel::Hot);
+            let _ = self
+                .model
+                .field
+                .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
         }
         if self.input.interaction_state.resize_active.is_none()
             && !(self.input.interaction_state.resize_static_node.is_some()

@@ -1,7 +1,7 @@
 pub mod activity;
 pub mod animation;
-pub mod bootstrap;
 pub(crate) mod backend;
+pub mod bootstrap;
 pub(crate) mod compositor;
 pub(crate) mod input;
 pub(crate) mod ipc;

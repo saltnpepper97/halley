@@ -198,7 +198,11 @@ impl<'a> FocusReadContext<'a> {
         monitor: &str,
         id: NodeId,
     ) -> CloseRestorePanPlan {
-        if self.cluster_state.active_cluster_workspaces.contains_key(monitor) {
+        if self
+            .cluster_state
+            .active_cluster_workspaces
+            .contains_key(monitor)
+        {
             return CloseRestorePanPlan::None;
         }
         if !self.tuning.close_restore_focus {

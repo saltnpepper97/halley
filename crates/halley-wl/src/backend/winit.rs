@@ -5,7 +5,7 @@ use crate::input::ctx::InputCtx;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
-use calloop::{generic::Generic, Interest, Mode, PostAction};
+use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;

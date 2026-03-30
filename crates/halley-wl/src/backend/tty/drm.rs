@@ -753,7 +753,8 @@ pub(crate) fn queue_tty_drm_frame(
             }
         }
 
-        let force_overlay_full_repaint = crate::render::monitor_overlay_requires_full_repaint(st, output_name);
+        let force_overlay_full_repaint =
+            crate::render::monitor_overlay_requires_full_repaint(st, output_name);
         let mut texture: GlesTexture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
             &mut *renderer_ref,
             Fourcc::Abgr8888,

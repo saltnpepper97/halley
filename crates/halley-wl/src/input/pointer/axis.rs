@@ -4,14 +4,14 @@ use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
+use crate::compositor::root::Halley;
 use crate::input::ctx::InputCtx;
 use crate::spatial::screen_to_world;
-use crate::compositor::root::Halley;
 
+use super::focus::pointer_focus_for_screen;
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
-use super::focus::pointer_focus_for_screen;
 use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};
 use smithay::backend::input::{Axis, AxisRelativeDirection, AxisSource};
 
@@ -88,12 +88,13 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             && let Some(focus) =
                 pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)
         {
-            let location = if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0) {
-                (sx as f64, sy as f64).into()
-            } else {
-                let cam_scale = st.camera_render_scale() as f64;
-                (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
-            };
+            let location =
+                if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0) {
+                    (sx as f64, sy as f64).into()
+                } else {
+                    let cam_scale = st.camera_render_scale() as f64;
+                    (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
+                };
             pointer.motion(
                 st,
                 Some(focus),

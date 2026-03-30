@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use halley_config::RuntimeTuning;
 
 use eventline::runtime::{set_console_level, set_file_level};
-use eventline::{info, scope, warn, FileSetup, LogLevel, LogPolicy, RunHeader, Setup};
+use eventline::{FileSetup, LogLevel, LogPolicy, RunHeader, Setup, info, scope, warn};
 use once_cell::sync::OnceCell;
 
 use crate::compositor::interaction::state::ViewportPanAnim;
@@ -18,8 +18,8 @@ mod common;
 mod ipc;
 
 pub(crate) use common::{
-    auto_backend, ensure_dbus_session_bus_address, ensure_host_display, ensure_xdg_runtime_dir,
-    ensure_xwayland_satellite, halley_runtime_dir, RuntimeBackend,
+    RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
+    ensure_xdg_runtime_dir, ensure_xwayland_satellite, halley_runtime_dir,
 };
 pub(crate) use ipc::{drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc};
 

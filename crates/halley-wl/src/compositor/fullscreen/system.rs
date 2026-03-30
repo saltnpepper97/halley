@@ -1,6 +1,6 @@
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
 use smithay::reexports::wayland_server::Resource;
+use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
 
 use super::*;
 use crate::compositor::ctx::FullscreenCtx;

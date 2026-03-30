@@ -144,7 +144,10 @@ impl RenderState {
         monitor: &str,
         hovered: Option<NodeId>,
     ) -> Option<(NodeId, f32)> {
-        let state = self.node_preview_hover.entry(monitor.to_string()).or_default();
+        let state = self
+            .node_preview_hover
+            .entry(monitor.to_string())
+            .or_default();
         if hovered.is_some() && hovered != state.node {
             state.node = hovered;
             state.mix = 0.0;
@@ -182,7 +185,10 @@ impl RenderState {
 
     pub(crate) fn bearings_mix_for_monitor(&mut self, monitor: &str) -> f32 {
         let target = if self.bearings_visible { 1.0 } else { 0.0 };
-        let mix = self.bearings_mix.entry(monitor.to_string()).or_insert(target);
+        let mix = self
+            .bearings_mix
+            .entry(monitor.to_string())
+            .or_insert(target);
         if target > 0.5 {
             *mix += (target - *mix) * 0.18;
         } else {
@@ -202,8 +208,13 @@ impl RenderState {
         monitor: &str,
         target_cluster: Option<ClusterId>,
     ) -> Option<ClusterBloomAnimSnapshot> {
-        let state = self.cluster_bloom_mix.entry(monitor.to_string()).or_default();
-        if let Some(cid) = target_cluster && state.cluster_id != Some(cid) {
+        let state = self
+            .cluster_bloom_mix
+            .entry(monitor.to_string())
+            .or_default();
+        if let Some(cid) = target_cluster
+            && state.cluster_id != Some(cid)
+        {
             state.cluster_id = Some(cid);
             if state.mix < 0.08 {
                 state.mix = 0.0;

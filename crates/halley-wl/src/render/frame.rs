@@ -3,7 +3,9 @@ use std::error::Error;
 use std::time::Instant;
 
 use halley_core::field::{NodeId, Vec2};
-use smithay::wayland::compositor::{SurfaceAttributes, TraversalAction, with_states, with_surface_tree_downward};
+use smithay::wayland::compositor::{
+    SurfaceAttributes, TraversalAction, with_states, with_surface_tree_downward,
+};
 use smithay::{
     backend::renderer::{
         Color32F, Frame, Renderer, Texture,
@@ -18,14 +20,14 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
+use crate::animation::AnimStyle;
 use crate::compositor::interaction::ResizeCtx;
+use crate::compositor::root::Halley;
 use crate::overlay::{
     OverlayView, draw_cluster_bloom, draw_cluster_overflow_strip, draw_cluster_selection_markers,
     draw_monitor_hud, draw_overlay_hover_label, ensure_cluster_bloom_icon_resources,
 };
 use crate::spatial::node_in_active_area_for_monitor;
-use crate::compositor::root::Halley;
-use crate::animation::AnimStyle;
 
 use super::app_icon::{ensure_app_icon_resources_for_node_ids, ensure_node_app_icon_resources};
 use super::bearings::BearingChipLayout;
@@ -78,9 +80,12 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
     st.ui.render_state.bearings_mix.retain(|monitor, mix| {
         st.model.monitor_state.monitors.contains_key(monitor) || *mix > 0.002
     });
-    st.ui.render_state.cluster_bloom_mix.retain(|monitor, state| {
-        st.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
-    });
+    st.ui
+        .render_state
+        .cluster_bloom_mix
+        .retain(|monitor, state| {
+            st.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
+        });
     st.ui.render_state.prune_window_offscreen_cache(&alive, now);
 }
 
@@ -157,11 +162,11 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
             node_id,
             desired_to,
         )
-            .and_then(|(clamped, cid, _)| {
-                (st.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
-                    .then_some(clamped)
-            })
-            .unwrap_or(desired_to);
+        .and_then(|(clamped, cid, _)| {
+            (st.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
+                .then_some(clamped)
+        })
+        .unwrap_or(desired_to);
         st.carry_surface_non_overlap(node_id, to, false)
     } else if !active_drag.edge_pan_eligible {
         crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
@@ -171,11 +176,11 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
             node_id,
             desired_to,
         )
-            .and_then(|(clamped, cid, _)| {
-                (st.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
-                    .then_some(clamped)
-            })
-            .unwrap_or(desired_to);
+        .and_then(|(clamped, cid, _)| {
+            (st.cluster_bloom_for_monitor(active_drag.pointer_monitor.as_str()) == Some(cid))
+                .then_some(clamped)
+        })
+        .unwrap_or(desired_to);
         st.carry_surface_non_overlap(node_id, to, false)
     } else if let Some((clamped_center, edge_contact)) =
         crate::compositor::interaction::state::dragged_node_edge_pan_clamp(
@@ -242,8 +247,8 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
                 post_pan_desired_to,
                 direction,
             )
-                .map(|(clamped, _)| clamped)
-                .unwrap_or(post_pan_desired_to);
+            .map(|(clamped, _)| clamped)
+            .unwrap_or(post_pan_desired_to);
         }
         let drag_monitor = active_drag.pointer_monitor.clone();
         st.input.interaction_state.active_drag = Some(active_drag.clone());
@@ -253,11 +258,10 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
             node_id,
             to,
         )
-            .and_then(|(clamped, cid, _)| {
-                (st.cluster_bloom_for_monitor(drag_monitor.as_str()) == Some(cid))
-                    .then_some(clamped)
-            })
-            .unwrap_or(to);
+        .and_then(|(clamped, cid, _)| {
+            (st.cluster_bloom_for_monitor(drag_monitor.as_str()) == Some(cid)).then_some(clamped)
+        })
+        .unwrap_or(to);
         st.carry_surface_non_overlap(node_id, to, false)
     } else {
         st.input.interaction_state.active_drag = None;
@@ -554,7 +558,10 @@ fn prepare_debug_frame_state(
 ) -> PreparedFrameState {
     let now = Instant::now();
     if !st.input.interaction_state.suppress_layer_shell_configure {
-        crate::compositor::monitor::layer_shell::configure_layer_shell_surfaces(st, (size.w, size.h).into());
+        crate::compositor::monitor::layer_shell::configure_layer_shell_surfaces(
+            st,
+            (size.w, size.h).into(),
+        );
     }
 
     PreparedFrameState {
@@ -573,7 +580,10 @@ fn collect_debug_frame_scene(
     now: Instant,
 ) -> SceneCollections {
     let render_monitor = st.model.monitor_state.current_monitor.clone();
-    let bearings_mix = st.ui.render_state.bearings_mix_for_monitor(render_monitor.as_str());
+    let bearings_mix = st
+        .ui
+        .render_state
+        .bearings_mix_for_monitor(render_monitor.as_str());
     let (
         layer_background_elements,
         layer_bottom_elements,
@@ -873,7 +883,12 @@ fn draw_debug_frame_scene(
         st.ui.render_state.window_texture_program.as_ref(),
     )?;
     if !scene.fullscreen_popup_elements.is_empty() {
-        let _ = draw_render_elements(frame, 1.0, &scene.fullscreen_popup_elements, &[prepared.damage]);
+        let _ = draw_render_elements(
+            frame,
+            1.0,
+            &scene.fullscreen_popup_elements,
+            &[prepared.damage],
+        );
     }
 
     if !scene.layer_overlay_elements.is_empty() {
@@ -1033,10 +1048,7 @@ fn draw_window_borders(
                             rect.border_color.a(),
                         ),
                     ),
-                    Uniform::new(
-                        "fill_color",
-                        (0.0f32, 0.0f32, 0.0f32, 0.0f32),
-                    ),
+                    Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
                     Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
                     Uniform::new("inner_rect_size", (rect.inner_w, rect.inner_h)),
                     Uniform::new(
@@ -1081,10 +1093,7 @@ fn draw_window_borders(
                             rect.border_color.a(),
                         ),
                     ),
-                    Uniform::new(
-                        "fill_color",
-                        (0.0f32, 0.0f32, 0.0f32, 0.0f32),
-                    ),
+                    Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
                     Uniform::new("content_alpha_scale", 0.0f32),
                     // Border-only draw: no content geo offset needed.
                     Uniform::new("geo_offset", (0.0f32, 0.0f32)),

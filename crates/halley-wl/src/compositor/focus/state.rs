@@ -141,13 +141,15 @@ impl Halley {
                     self.model.spawn_state.pending_spawn_monitor = None;
                     let _ = self.activate_monitor(monitor.as_str());
                     let spawn = self.spawn_monitor_state_mut(monitor.as_str());
-                    spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::Focus;
+                    spawn.spawn_anchor_mode =
+                        crate::compositor::spawn::state::SpawnAnchorMode::Focus;
                     spawn.spawn_pan_start_center = None;
                     self.model.focus_state.monitor_focus.insert(monitor, fid);
                 } else {
                     let current_monitor = self.model.monitor_state.current_monitor.clone();
                     let spawn = self.spawn_monitor_state_mut(current_monitor.as_str());
-                    spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::Focus;
+                    spawn.spawn_anchor_mode =
+                        crate::compositor::spawn::state::SpawnAnchorMode::Focus;
                     spawn.spawn_pan_start_center = None;
                 }
 

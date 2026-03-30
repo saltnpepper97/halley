@@ -10,14 +10,14 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface};
 
 use crate::compositor::ctx::SpawnCtx;
-use crate::compositor::spawn::read;
-use crate::compositor::spawn::read::RevealNewToplevelPlan;
-use crate::render::active_window_frame_pad_px;
 use crate::compositor::focus::state::FocusState;
 use crate::compositor::monitor::state::MonitorState;
-use crate::compositor::root::Halley;
-use crate::compositor::spawn::state::{MonitorSpawnState, SpawnState};
 use crate::compositor::overlap::system::CollisionExtents;
+use crate::compositor::root::Halley;
+use crate::compositor::spawn::read;
+use crate::compositor::spawn::read::RevealNewToplevelPlan;
+use crate::compositor::spawn::state::{MonitorSpawnState, SpawnState};
+use crate::render::active_window_frame_pad_px;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct InitialToplevelSize {
@@ -61,11 +61,21 @@ pub(crate) fn initial_toplevel_size(
         .spawn_state
         .pending_spawn_monitor
         .as_ref()
-        .filter(|monitor| st.model.monitor_state.monitors.contains_key(monitor.as_str()))
+        .filter(|monitor| {
+            st.model
+                .monitor_state
+                .monitors
+                .contains_key(monitor.as_str())
+        })
         .cloned()
         .unwrap_or_else(|| {
             let focused = st.focused_monitor().to_string();
-            if st.model.monitor_state.monitors.contains_key(focused.as_str()) {
+            if st
+                .model
+                .monitor_state
+                .monitors
+                .contains_key(focused.as_str())
+            {
                 focused
             } else {
                 st.interaction_monitor().to_string()
@@ -285,15 +295,15 @@ impl Halley {
         focus_pos: Vec2,
         growth_dir: Vec2,
     ) {
-        self.spawn_monitor_state_mut(monitor).spawn_patch = Some(
-            crate::compositor::spawn::state::SpawnPatch {
-            anchor,
-            focus_node,
-            focus_pos,
-            growth_dir,
-            placements_in_patch: 0,
-            frontier: Vec::new(),
-        });
+        self.spawn_monitor_state_mut(monitor).spawn_patch =
+            Some(crate::compositor::spawn::state::SpawnPatch {
+                anchor,
+                focus_node,
+                focus_pos,
+                growth_dir,
+                placements_in_patch: 0,
+                frontier: Vec::new(),
+            });
     }
 
     /// Returns `(monitor, position, needs_pan)`.
@@ -308,8 +318,8 @@ impl Halley {
         self.spawn_monitor_state_mut(target_monitor.as_str())
             .spawn_cursor += 1;
         let monitor_spawn = self.spawn_monitor_state(target_monitor.as_str());
-        let viewport_center = read::spawn_read_context(self)
-            .viewport_center_for_monitor(target_monitor.as_str());
+        let viewport_center =
+            read::spawn_read_context(self).viewport_center_for_monitor(target_monitor.as_str());
         let (focus_id, focus_pos) =
             read::spawn_read_context(self).current_spawn_focus(target_monitor.as_str());
         info!(
@@ -321,8 +331,11 @@ impl Halley {
             focus_id.map(|id| id.as_u64())
         );
         let focus_visible = focus_id.is_some_and(|id| {
-            read::spawn_read_context(self)
-                .viewport_fully_contains_surface_on_monitor(self, target_monitor.as_str(), id)
+            read::spawn_read_context(self).viewport_fully_contains_surface_on_monitor(
+                self,
+                target_monitor.as_str(),
+                id,
+            )
         });
 
         if let Some(id) = focus_id {
@@ -433,13 +446,12 @@ impl Halley {
             .spawn_state
             .pending_spawn_activate_at_ms
             .remove(&id);
-        self.model
-            .spawn_state
-            .pending_spawn_pan_queue
-            .push_back(crate::compositor::spawn::state::PendingSpawnPan {
+        self.model.spawn_state.pending_spawn_pan_queue.push_back(
+            crate::compositor::spawn::state::PendingSpawnPan {
                 node_id: id,
                 target_center,
-            });
+            },
+        );
         self.maybe_start_pending_spawn_pan(now);
     }
 
@@ -459,20 +471,20 @@ impl Halley {
                 now,
                 Self::VIEWPORT_PAN_PRELOAD_MS,
             );
-            self.model.spawn_state.active_spawn_pan = Some(
-                crate::compositor::spawn::state::ActiveSpawnPan {
-                node_id: next.node_id,
-                pan_start_at_ms: now_ms.saturating_add(if did_pan {
-                    Self::VIEWPORT_PAN_PRELOAD_MS
-                } else {
-                    0
-                }),
-                reveal_at_ms: now_ms.saturating_add(if did_pan {
-                    Self::VIEWPORT_PAN_PRELOAD_MS + Self::VIEWPORT_PAN_DURATION_MS
-                } else {
-                    0
-                }),
-            });
+            self.model.spawn_state.active_spawn_pan =
+                Some(crate::compositor::spawn::state::ActiveSpawnPan {
+                    node_id: next.node_id,
+                    pan_start_at_ms: now_ms.saturating_add(if did_pan {
+                        Self::VIEWPORT_PAN_PRELOAD_MS
+                    } else {
+                        0
+                    }),
+                    reveal_at_ms: now_ms.saturating_add(if did_pan {
+                        Self::VIEWPORT_PAN_PRELOAD_MS + Self::VIEWPORT_PAN_DURATION_MS
+                    } else {
+                        0
+                    }),
+                });
             break;
         }
     }
@@ -521,9 +533,7 @@ impl Halley {
         is_transient: bool,
         now: Instant,
     ) {
-        match self
-            .resolve_spawn_reveal_plan(id, is_transient)
-        {
+        match self.resolve_spawn_reveal_plan(id, is_transient) {
             RevealNewToplevelPlan::AlreadyQueued => {}
             RevealNewToplevelPlan::ActivateNow => {
                 self.record_focus_trail_visit(id);

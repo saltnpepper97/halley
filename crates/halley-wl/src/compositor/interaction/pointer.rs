@@ -5,9 +5,9 @@ use halley_config::PointerBindingAction;
 use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
 use smithay::input::pointer::{CursorIcon, MotionEvent, PointerHandle};
-use smithay::reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource};
+use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::utils::SERIAL_COUNTER;
-use smithay::wayland::pointer_constraints::{with_pointer_constraint, PointerConstraint};
+use smithay::wayland::pointer_constraints::{PointerConstraint, with_pointer_constraint};
 
 use crate::compositor::ctx::PointerCtx;
 use crate::compositor::interaction::drag::DragCtx;
@@ -115,7 +115,9 @@ pub(crate) fn activate_pointer_constraint_for_surface(st: &mut Halley, surface: 
         return;
     };
     with_pointer_constraint(surface, &pointer, |constraint| {
-        if let Some(constraint) = constraint && !constraint.is_active() {
+        if let Some(constraint) = constraint
+            && !constraint.is_active()
+        {
             constraint.activate();
         }
     });
@@ -159,14 +161,9 @@ pub(crate) fn apply_cursor_position_hint(
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
     let (ws_w, ws_h, _, _) = st.local_screen_in_monitor(monitor.as_str(), 0.0, 0.0);
     let previous_monitor = st.begin_temporary_render_monitor(monitor.as_str());
-    let Some(xform) = active_node_surface_transform_screen_details(
-        st,
-        ws_w,
-        ws_h,
-        node_id,
-        Instant::now(),
-        None,
-    ) else {
+    let Some(xform) =
+        active_node_surface_transform_screen_details(st, ws_w, ws_h, node_id, Instant::now(), None)
+    else {
         st.end_temporary_render_monitor(previous_monitor);
         return;
     };
@@ -204,7 +201,9 @@ pub(crate) fn release_active_pointer_constraint(st: &mut Halley) -> bool {
     };
     let mut released = false;
     with_pointer_constraint(&surface, &pointer, |constraint| {
-        if let Some(constraint) = constraint && constraint.is_active() {
+        if let Some(constraint) = constraint
+            && constraint.is_active()
+        {
             constraint.deactivate();
             released = true;
         }
@@ -221,7 +220,9 @@ pub(crate) fn active_locked_pointer_surface(st: &Halley) -> Option<WlSurface> {
     let surface = pointer.current_focus()?;
     let locked = with_pointer_constraint(&surface, &pointer, |constraint| {
         matches!(constraint.as_deref(), Some(PointerConstraint::Locked(_)))
-            && constraint.as_deref().is_some_and(PointerConstraint::is_active)
+            && constraint
+                .as_deref()
+                .is_some_and(PointerConstraint::is_active)
     });
     locked.then_some(surface)
 }

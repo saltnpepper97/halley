@@ -3,15 +3,15 @@ use std::rc::Rc;
 
 use smithay::{
     desktop::PopupManager,
-    input::{pointer::CursorImageStatus, Seat, SeatState},
+    input::{Seat, SeatState, pointer::CursorImageStatus},
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode,
         wayland_server::{
-            backend::ObjectId, protocol::wl_surface::WlSurface, DisplayHandle, Resource,
+            DisplayHandle, Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
         },
     },
     wayland::{
-        compositor::{add_blocker, with_states, CompositorState},
+        compositor::{CompositorState, add_blocker, with_states},
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjState},
         idle_notify::IdleNotifierState,
@@ -23,7 +23,7 @@ use smithay::{
             wlr_data_control::DataControlState,
         },
         shell::wlr_layer::WlrLayerShellState,
-        shell::xdg::{decoration::XdgDecorationState, ToplevelState, XdgShellState},
+        shell::xdg::{ToplevelState, XdgShellState, decoration::XdgDecorationState},
         shm::ShmState,
         viewporter::ViewporterState,
     },

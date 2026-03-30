@@ -9,7 +9,7 @@ use halley_ipc::{
     Response, TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
 };
 use smithay::desktop::PopupManager;
-use smithay::reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource};
+use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData};
 

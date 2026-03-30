@@ -44,10 +44,7 @@ pub(crate) fn drop_surface(ctx: &mut SurfaceLifecycleCtx<'_>, surface: &WlSurfac
     drop_surface_impl(ctx.st, surface);
 }
 
-pub(crate) fn on_toplevel_destroyed(
-    ctx: &mut SurfaceLifecycleCtx<'_>,
-    surface: ToplevelSurface,
-) {
+pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: ToplevelSurface) {
     let st = &mut ctx.st;
     let key = surface.wl_surface().id();
     let closing_id = st.model.surface_to_node.get(&key).copied();
@@ -95,8 +92,13 @@ pub(crate) fn on_toplevel_destroyed(
         && let (Some(closing_id), Some(focused_monitor)) = (closing_id, focused_monitor.as_deref())
     {
         let now = Instant::now();
-        if st.active_cluster_workspace_for_monitor(focused_monitor).is_some() {
-            if let Some(previous) = st.previous_window_from_trail_on_close(focused_monitor, closing_id) {
+        if st
+            .active_cluster_workspace_for_monitor(focused_monitor)
+            .is_some()
+        {
+            if let Some(previous) =
+                st.previous_window_from_trail_on_close(focused_monitor, closing_id)
+            {
                 st.set_interaction_focus(Some(previous), 30_000, now);
             } else if let Some(fallback) = st
                 .last_focused_surface_node_for_monitor(focused_monitor)
@@ -104,12 +106,17 @@ pub(crate) fn on_toplevel_destroyed(
             {
                 st.set_interaction_focus(Some(fallback), 30_000, now);
             }
-        } else if let Some(previous) = st.previous_window_from_trail_on_close(focused_monitor, closing_id) {
+        } else if let Some(previous) =
+            st.previous_window_from_trail_on_close(focused_monitor, closing_id)
+        {
             let _ = st.restore_focus_to_node_after_close(focused_monitor, previous, now);
         } else if let Some(fallback) = st
             .last_focused_surface_node_for_monitor(focused_monitor)
             .filter(|&id| id != closing_id)
-            .or_else(|| st.last_focused_surface_node().filter(|&id| id != closing_id))
+            .or_else(|| {
+                st.last_focused_surface_node()
+                    .filter(|&id| id != closing_id)
+            })
         {
             let _ = st.restore_focus_to_node_after_close(focused_monitor, fallback, now);
         }
@@ -148,7 +155,8 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
             let Some(activity) = st.runtime.surface_activity.get(*k) else {
                 return true;
             };
-            now.duration_since(activity.last_commit_at()).as_millis() as u64 >= STALE_SURFACE_GRACE_MS
+            now.duration_since(activity.last_commit_at()).as_millis() as u64
+                >= STALE_SURFACE_GRACE_MS
         })
         .cloned()
         .collect();
@@ -169,8 +177,14 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
             st.model.workspace_state.last_active_size.remove(&id);
             st.ui.render_state.bbox_loc.remove(&id);
             st.ui.render_state.window_geometry.remove(&id);
-            st.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
-            st.model.workspace_state.active_transition_until_ms.remove(&id);
+            st.model
+                .spawn_state
+                .pending_spawn_activate_at_ms
+                .remove(&id);
+            st.model
+                .workspace_state
+                .active_transition_until_ms
+                .remove(&id);
             st.model
                 .workspace_state
                 .primary_promote_cooldown_until_ms
@@ -218,11 +232,21 @@ fn predicted_spawn_target_monitor(st: &Halley) -> String {
         .spawn_state
         .pending_spawn_monitor
         .as_ref()
-        .filter(|monitor| st.model.monitor_state.monitors.contains_key(monitor.as_str()))
+        .filter(|monitor| {
+            st.model
+                .monitor_state
+                .monitors
+                .contains_key(monitor.as_str())
+        })
         .cloned()
         .unwrap_or_else(|| {
             let focused = st.focused_monitor().to_string();
-            if st.model.monitor_state.monitors.contains_key(focused.as_str()) {
+            if st
+                .model
+                .monitor_state
+                .monitors
+                .contains_key(focused.as_str())
+            {
                 focused
             } else {
                 st.interaction_monitor().to_string()
@@ -394,7 +418,10 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                     node.footprint = new_size;
                 }
             }
-            st.model.workspace_state.last_active_size.insert(node_id, new_size);
+            st.model
+                .workspace_state
+                .last_active_size
+                .insert(node_id, new_size);
             st.request_maintenance();
             if st.input.interaction_state.resize_static_node != Some(node_id) {
                 let node_monitor = st.model.monitor_state.node_monitor.get(&node_id).cloned();
@@ -408,7 +435,10 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                     });
                 if active_cluster {
                     if let Some(monitor) = node_monitor {
-                        st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), st.now_ms(now));
+                        st.layout_active_cluster_workspace_for_monitor(
+                            monitor.as_str(),
+                            st.now_ms(now),
+                        );
                     }
                 } else {
                     st.resolve_overlap_now();
@@ -476,7 +506,10 @@ fn ensure_node_for_surface_impl(
     let now = Instant::now();
     let joined_active_cluster = spawned_in_active_cluster;
     if st.runtime.tuning.dev_anim_enabled {
-        st.ui.render_state.animator.observe_field(&st.model.field, now);
+        st.ui
+            .render_state
+            .animator
+            .observe_field(&st.model.field, now);
     }
     if needs_pan && !joined_active_cluster {
         st.queue_spawn_pan_to_node(id, now);
@@ -509,7 +542,7 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         .as_ref()
         .is_some_and(|focused| focused.id() == surface.id())
     {
-            crate::compositor::interaction::pointer::clear_pointer_focus(st);
+        crate::compositor::interaction::pointer::clear_pointer_focus(st);
     }
     let key = surface_key(surface);
     st.runtime.surface_activity.remove(&key);
@@ -530,8 +563,14 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         st.model.workspace_state.last_active_size.remove(&id);
         st.ui.render_state.bbox_loc.remove(&id);
         st.ui.render_state.window_geometry.remove(&id);
-        st.model.spawn_state.pending_spawn_activate_at_ms.remove(&id);
-        st.model.workspace_state.active_transition_until_ms.remove(&id);
+        st.model
+            .spawn_state
+            .pending_spawn_activate_at_ms
+            .remove(&id);
+        st.model
+            .workspace_state
+            .active_transition_until_ms
+            .remove(&id);
         st.model
             .workspace_state
             .primary_promote_cooldown_until_ms

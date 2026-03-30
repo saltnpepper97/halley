@@ -2,7 +2,7 @@ use super::*;
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::monitor::state::MonitorState;
 use crate::render::active_window_frame_pad_px;
-use halley_core::cluster::{ClusterId, CLUSTER_VISIBLE_CAPACITY};
+use halley_core::cluster::{CLUSTER_VISIBLE_CAPACITY, ClusterId};
 
 pub(super) struct ClusterReadController<'a> {
     pub(super) field: &'a Field,
