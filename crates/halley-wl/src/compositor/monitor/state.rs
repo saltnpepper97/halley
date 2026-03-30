@@ -57,7 +57,12 @@ impl Halley {
     }
 
     pub fn usable_viewport_for_monitor(&self, monitor: &str) -> Viewport {
+        let is_cluster = self.cluster_mode_active_for_monitor(monitor);
+
         if self.model.monitor_state.current_monitor == monitor {
+            if !is_cluster {
+                return self.model.viewport;
+            }
             self.model
                 .monitor_state
                 .monitors
@@ -102,7 +107,13 @@ impl Halley {
                 .monitor_state
                 .monitors
                 .get(monitor)
-                .map(|space| space.usable_viewport)
+                .map(|space| {
+                    if is_cluster {
+                        space.usable_viewport
+                    } else {
+                        space.viewport
+                    }
+                })
                 .unwrap_or(self.model.viewport)
         }
     }
