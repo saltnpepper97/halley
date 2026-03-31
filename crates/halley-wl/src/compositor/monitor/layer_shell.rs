@@ -172,8 +172,8 @@ fn apply_layer_surface_focus(
     st.model.focus_state.primary_interaction_focus = None;
     st.model.focus_state.interaction_focus_until_ms = 0;
     st.model.monitor_state.layer_keyboard_focus = Some(surface.id());
-    if crate::compositor::interaction::pointer::active_locked_pointer_surface(st)
-        .is_some_and(|locked_surface| locked_surface.id() != surface.id())
+    if crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
+        .is_some_and(|(constrained_surface, _)| constrained_surface.id() != surface.id())
     {
         crate::compositor::interaction::pointer::release_active_pointer_constraint(st);
     }

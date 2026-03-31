@@ -215,14 +215,15 @@ pub(crate) fn release_active_pointer_constraint(st: &mut Halley) -> bool {
     released
 }
 
-pub(crate) fn active_locked_pointer_surface(st: &Halley) -> Option<WlSurface> {
+pub(crate) fn active_constrained_pointer_surface(st: &Halley) -> Option<(WlSurface, bool)> {
     let pointer = st.platform.seat.get_pointer()?;
     let surface = pointer.current_focus()?;
-    let locked = with_pointer_constraint(&surface, &pointer, |constraint| {
-        matches!(constraint.as_deref(), Some(PointerConstraint::Locked(_)))
-            && constraint
-                .as_deref()
-                .is_some_and(PointerConstraint::is_active)
-    });
-    locked.then_some(surface)
+    let is_locked = with_pointer_constraint(&surface, &pointer, |constraint| {
+        let active = constraint
+            .as_deref()
+            .is_some_and(PointerConstraint::is_active);
+        let locked = matches!(constraint.as_deref(), Some(PointerConstraint::Locked(_)));
+        if active { Some(locked) } else { None }
+    })?;
+    Some((surface, is_locked))
 }

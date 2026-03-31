@@ -21,6 +21,9 @@ use super::resize::handle_resize_motion;
 use crate::input::keyboard::modkeys::modifier_active;
 
 pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
+    if st.is_fullscreen_active(node_id) {
+        return false;
+    }
     st.model.field.node(node_id).is_some_and(|n| match n.kind {
         halley_core::field::NodeKind::Surface => st.model.field.is_visible(node_id),
         halley_core::field::NodeKind::Core => n.state == halley_core::field::NodeState::Core,
@@ -184,7 +187,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     let raw_sy = sy;
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
     let now = Instant::now();
-    let locked_surface = crate::compositor::interaction::pointer::active_locked_pointer_surface(st);
+    let constrained_surface_info = crate::compositor::interaction::pointer::active_constrained_pointer_surface(st);
+    let locked_surface = constrained_surface_info.as_ref().and_then(|(s, locked)| if *locked { Some(s.clone()) } else { None });
     let mods = ctx.mod_state.borrow().clone();
     let drag_state = {
         let ps = ctx.pointer_state.borrow();
@@ -200,7 +204,18 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 active_pointer_binding(st, &mods, 0x110) == Some(PointerBindingAction::FieldJump);
             (drag, owner, allow_monitor_transfer)
         })
-    };
+        };
+    let constrained_surface_monitor = constrained_surface_info.as_ref().and_then(|(surface, _)| {
+        let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
+        Some(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&node_id)
+                .cloned()
+                .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
+        )
+    });
     let locked_drag_monitor = drag_state
         .as_ref()
         .and_then(|(_, owner, allow_monitor_transfer)| {
@@ -229,7 +244,9 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let ps = ctx.pointer_state.borrow();
         ps.overflow_drag.as_ref().map(|drag| drag.monitor.clone())
     };
-    let (effective_sx, effective_sy) = if let Some(owner) = locked_resize_monitor.as_deref() {
+    let (effective_sx, effective_sy) = if let Some(owner) = constrained_surface_monitor.as_deref() {
+        clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
+    } else if let Some(owner) = locked_resize_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
     } else if let Some(owner) = locked_bloom_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
@@ -245,17 +262,6 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         (sx, sy)
     };
 
-    let locked_surface_monitor = locked_surface.as_ref().and_then(|surface| {
-        let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
-        Some(
-            st.model
-                .monitor_state
-                .node_monitor
-                .get(&node_id)
-                .cloned()
-                .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
-        )
-    });
     let target_monitor = {
         if st.has_active_cluster_workspace() {
             st.model.monitor_state.current_monitor.clone()
@@ -263,7 +269,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             owner
         } else if let Some(owner) = locked_bloom_monitor {
             owner
-        } else if let Some(owner) = locked_surface_monitor {
+        } else if let Some(owner) = constrained_surface_monitor {
             owner
         } else if let Some(owner) = locked_resize_monitor {
             owner

@@ -998,6 +998,9 @@ pub(super) fn active_pointer_binding(
     mods: &ModState,
     button_code: u32,
 ) -> Option<PointerBindingAction> {
+    if crate::compositor::interaction::pointer::active_constrained_pointer_surface(st).is_some() {
+        return None;
+    }
     st.runtime
         .tuning
         .pointer_bindings
@@ -1014,8 +1017,8 @@ pub(super) fn button_frame_for_monitor(
     screen: (f32, f32),
 ) -> (ButtonFrame, String, (f32, f32)) {
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, screen.0, screen.1);
-    let target_monitor = crate::compositor::interaction::pointer::active_locked_pointer_surface(st)
-        .and_then(|surface| {
+    let target_monitor = crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
+        .and_then(|(surface, _)| {
             let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
             Some(
                 st.model

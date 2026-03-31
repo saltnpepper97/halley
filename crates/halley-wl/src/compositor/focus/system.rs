@@ -110,22 +110,23 @@ impl Halley {
         }
         self.model.monitor_state.layer_keyboard_focus = None;
         let requested_focus_surface = focus_id.and_then(|fid| self.wl_surface_for_node(fid));
-        let active_locked_surface =
-            crate::compositor::interaction::pointer::active_locked_pointer_surface(self);
-        let locked_surface_node = active_locked_surface
+        let active_constrained_surface =
+            crate::compositor::interaction::pointer::active_constrained_pointer_surface(self)
+                .map(|(surface, _)| surface);
+        let locked_surface_node = active_constrained_surface
             .as_ref()
             .and_then(|surface| self.model.surface_to_node.get(&surface.id()).copied());
         let keep_locked_focus =
             locked_surface_node.is_some_and(|nid| self.is_fullscreen_active(nid));
         let focus_surface = if keep_locked_focus {
-            active_locked_surface
+            active_constrained_surface
                 .clone()
                 .or(requested_focus_surface.clone())
         } else {
             requested_focus_surface.clone()
         };
         if !keep_locked_focus
-            && active_locked_surface.as_ref().is_some_and(|surface| {
+            && active_constrained_surface.as_ref().is_some_and(|surface| {
                 Some(surface.id()) != focus_surface.as_ref().map(|wl| wl.id())
             })
         {
