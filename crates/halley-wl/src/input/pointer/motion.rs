@@ -266,9 +266,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     };
 
     let target_monitor = {
-        if st.has_active_cluster_workspace() {
-            st.model.monitor_state.current_monitor.clone()
-        } else if let Some(owner) = locked_overflow_monitor {
+        if let Some(owner) = locked_overflow_monitor {
             owner
         } else if let Some(owner) = locked_bloom_monitor {
             owner
