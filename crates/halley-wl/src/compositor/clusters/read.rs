@@ -97,11 +97,16 @@ impl<'a> ClusterReadController<'a> {
         viewport: halley_core::viewport::Viewport,
         member_count: usize,
     ) -> Vec<halley_core::tiling::Rect> {
+        let (outer_gap, inner_gap) = compensated_cluster_gaps(
+            self.tuning.tile_gaps_outer_px.max(0.0),
+            self.tuning.tile_gaps_inner_px.max(0.0),
+            self.tuning.border_size_px.max(0) as f32,
+        );
         direct_cluster_layout_rects(
             viewport,
             member_count.min(CLUSTER_VISIBLE_CAPACITY),
-            self.tuning.tile_gaps_outer_px.max(0.0),
-            self.tuning.tile_gaps_inner_px.max(0.0),
+            outer_gap,
+            inner_gap,
             Self::MASTER_WIDTH_FRAC,
         )
     }
@@ -309,6 +314,14 @@ fn direct_cluster_layout_rects(
     rects
 }
 
+fn compensated_cluster_gaps(outer_gap: f32, inner_gap: f32, border_px: f32) -> (f32, f32) {
+    let border_px = border_px.max(0.0);
+    (
+        outer_gap.max(0.0) + border_px,
+        inner_gap.max(0.0) + border_px * 2.0,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +338,14 @@ mod tests {
             (actual - expected).abs() <= 0.01,
             "expected {expected}, got {actual}"
         );
+    }
+
+    #[test]
+    fn compensated_cluster_gaps_reserve_outward_border_space() {
+        let (outer, inner) = compensated_cluster_gaps(10.0, 10.0, 3.0);
+
+        assert_close(outer, 13.0);
+        assert_close(inner, 16.0);
     }
 
     #[test]

@@ -1194,6 +1194,7 @@ mod tests {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tile_gaps_outer_px = 20.0;
         tuning.tile_gaps_inner_px = 20.0;
+        tuning.border_size_px = 0;
         tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
             connector: "monitor_a".to_string(),
             enabled: true,

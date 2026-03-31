@@ -1012,21 +1012,14 @@ fn draw_window_borders(
             continue;
         }
 
-        let dst = if rect.outset {
-            Rectangle::<i32, Physical>::new(
-                (rect.x - border_px, rect.y - border_px).into(),
-                (
-                    (rect.w + border_px * 2).max(1),
-                    (rect.h + border_px * 2).max(1),
-                )
-                    .into(),
+        let dst = Rectangle::<i32, Physical>::new(
+            (rect.x - border_px, rect.y - border_px).into(),
+            (
+                (rect.w + border_px * 2).max(1),
+                (rect.h + border_px * 2).max(1),
             )
-        } else {
-            Rectangle::<i32, Physical>::new(
-                (rect.x, rect.y).into(),
-                (rect.w.max(1), rect.h.max(1)).into(),
-            )
-        };
+                .into(),
+        );
         let Some(visible) = dst
             .intersection(framebuffer)
             .and_then(|r| r.intersection(damage))
