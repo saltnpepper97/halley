@@ -284,32 +284,15 @@ impl<'a> OverlapReadContext<'a> {
                     .map(|(_, _, w, h)| Vec2 { x: *w, y: *h })
             })
             .unwrap_or(n.intrinsic_size);
-        let bbox_w = n.intrinsic_size.x.max(1.0);
-        let bbox_h = n.intrinsic_size.y.max(1.0);
-        let (bbox_lx, bbox_ly) = self
-            .render_state
-            .bbox_loc
-            .get(&n.id)
-            .copied()
-            .unwrap_or((0.0, 0.0));
-        let (geo_lx, geo_ly, geo_w, geo_h) = self
-            .render_state
-            .window_geometry
-            .get(&n.id)
-            .copied()
-            .unwrap_or((bbox_lx, bbox_ly, bbox_w, bbox_h));
-
-        let left = (bbox_w * 0.5 + bbox_lx - geo_lx).max(16.0);
-        let right = (geo_lx + geo_w - bbox_lx - bbox_w * 0.5).max(16.0);
-        let top = (bbox_h * 0.5 + bbox_ly - geo_ly).max(16.0);
-        let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
         let frame_pad = active_window_frame_pad_px(self.tuning) as f32;
+        let half_w = basis.x.max(1.0) * 0.5 + frame_pad;
+        let half_h = basis.y.max(1.0) * 0.5 + frame_pad;
 
         CollisionExtents {
-            left: left * basis.x.max(1.0) / bbox_w + frame_pad,
-            right: right * basis.x.max(1.0) / bbox_w + frame_pad,
-            top: top * basis.y.max(1.0) / bbox_h + frame_pad,
-            bottom: bottom * basis.y.max(1.0) / bbox_h + frame_pad,
+            left: half_w,
+            right: half_w,
+            top: half_h,
+            bottom: half_h,
         }
     }
 

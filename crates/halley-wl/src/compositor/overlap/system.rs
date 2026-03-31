@@ -821,6 +821,40 @@ mod tests {
     }
 
     #[test]
+    fn surface_collision_extents_ignore_asymmetric_bbox_offsets() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let id = state.model.field.spawn_surface(
+            "gtk-like",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 920.0,
+            },
+        );
+        state.ui.render_state.bbox_loc.insert(id, (4.0, 6.0));
+        state
+            .ui
+            .render_state
+            .window_geometry
+            .insert(id, (12.0, 18.0, 840.0, 620.0));
+
+        let node = state.model.field.node(id).expect("surface node");
+        let ext = state.surface_window_collision_extents(node);
+        let expected_half_w = 420.0 + active_window_frame_pad_px(&state.runtime.tuning) as f32;
+        let expected_half_h = 310.0 + active_window_frame_pad_px(&state.runtime.tuning) as f32;
+
+        assert_eq!(ext.left, expected_half_w);
+        assert_eq!(ext.right, expected_half_w);
+        assert_eq!(ext.top, expected_half_h);
+        assert_eq!(ext.bottom, expected_half_h);
+    }
+
+    #[test]
     fn resolve_overlap_settles_collapsed_nodes() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
