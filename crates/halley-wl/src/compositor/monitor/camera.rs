@@ -41,7 +41,7 @@ pub(crate) fn clamp_camera_view_size(st: &Halley, size: Vec2) -> Vec2 {
 
 #[inline]
 pub(crate) fn zoom_blocked_by_interaction(st: &Halley) -> bool {
-    st.has_any_active_cluster_workspace()
+    st.has_active_cluster_workspace()
         || st
             .model
             .fullscreen_state

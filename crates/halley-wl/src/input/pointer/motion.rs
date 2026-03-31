@@ -584,6 +584,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         ps.hover_started_at = None;
     }
     ps.hover_node = next_hover;
+
+    ctx.backend.request_redraw();
 }
 
 pub(super) fn cluster_join_dwell_ms(st: &Halley) -> u64 {

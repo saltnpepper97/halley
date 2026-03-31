@@ -575,6 +575,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         }
 
         self.request_toplevel_fullscreen_state(node_id, true, output, Some(target_size));
+        self.assign_node_to_monitor(node_id, monitor_name.as_str());
         self.model
             .fullscreen_state
             .fullscreen_active_node

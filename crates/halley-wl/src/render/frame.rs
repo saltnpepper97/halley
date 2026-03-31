@@ -1238,10 +1238,8 @@ fn draw_cursor_layer(
                         &cursor.cursor_surface_elements,
                         &[damage],
                     );
-                    false
-                } else {
-                    true
                 }
+                false
             }
         };
 
