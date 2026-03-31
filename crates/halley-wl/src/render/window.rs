@@ -15,10 +15,10 @@ use smithay::{
 use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_back};
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
+use crate::compositor::spawn::state::is_persistent_rule_top;
 use crate::compositor::surface_ops::{
     is_active_cluster_workspace_member, window_geometry_for_node,
 };
-use crate::compositor::spawn::state::is_persistent_rule_top;
 use crate::input::active_resize_geometry_screen;
 
 use super::offscreen::render_surface_tree_to_texture;

@@ -1,8 +1,8 @@
 use std::time::Instant;
 
 use smithay::desktop::{
-    utils::{bbox_from_surface_tree, under_from_surface_tree},
     PopupManager, WindowSurfaceType,
+    utils::{bbox_from_surface_tree, under_from_surface_tree},
 };
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};

@@ -67,7 +67,8 @@ pub(crate) fn initial_toplevel_size(
         .cluster_bloom_open
         .contains_key(predicted_monitor.as_str());
     if !stack_mode_open
-        && intent.rule.cluster_participation == halley_config::InitialWindowClusterParticipation::Layout
+        && intent.rule.cluster_participation
+            == halley_config::InitialWindowClusterParticipation::Layout
         && let Some(cid) = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str())
         && let Some(rect) = st.cluster_spawn_rect_for_new_member(predicted_monitor.as_str(), cid)
     {
@@ -253,7 +254,10 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
 
     fn viewport_for_monitor(&self, monitor: &str) -> Option<Viewport> {
         if self.model.monitor_state.current_monitor == monitor {
-            return Some(Viewport::new(self.model.viewport.center, self.camera_view_size()));
+            return Some(Viewport::new(
+                self.model.viewport.center,
+                self.camera_view_size(),
+            ));
         }
         self.model
             .monitor_state
@@ -322,7 +326,8 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
             {
                 return false;
             }
-            if overlap_policy == InitialWindowOverlapPolicy::ParentOnly && parent_node == Some(other.id)
+            if overlap_policy == InitialWindowOverlapPolicy::ParentOnly
+                && parent_node == Some(other.id)
             {
                 return false;
             }
@@ -455,9 +460,12 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         let target_monitor = self.spawn_target_monitor_for_intent(intent);
         let overlap_policy = intent.effective_overlap_policy();
         let placement = intent.effective_spawn_placement();
-        self.spawn_monitor_state_mut(target_monitor.as_str()).spawn_cursor += 1;
-        let viewport_center = read::spawn_read_context(self).viewport_center_for_monitor(target_monitor.as_str());
-        let (focus_id, focus_pos) = read::spawn_read_context(self).current_spawn_focus(target_monitor.as_str());
+        self.spawn_monitor_state_mut(target_monitor.as_str())
+            .spawn_cursor += 1;
+        let viewport_center =
+            read::spawn_read_context(self).viewport_center_for_monitor(target_monitor.as_str());
+        let (focus_id, focus_pos) =
+            read::spawn_read_context(self).current_spawn_focus(target_monitor.as_str());
         let parent_anchor = intent
             .parent_node
             .and_then(|id| self.model.field.node(id).map(|node| node.pos));
@@ -524,7 +532,8 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             chosen,
             growth_dir,
         );
-        self.spawn_monitor_state_mut(target_monitor.as_str()).spawn_view_anchor = chosen;
+        self.spawn_monitor_state_mut(target_monitor.as_str())
+            .spawn_view_anchor = chosen;
         (target_monitor, pos, false)
     }
 
@@ -645,37 +654,6 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         (target_monitor, fallback_anchor, false)
     }
 
-    pub(crate) fn queue_spawn_pan_to_node(&mut self, id: NodeId, now: Instant) {
-        let monitor = self
-            .model
-            .monitor_state
-            .node_monitor
-            .get(&id)
-            .cloned()
-            .unwrap_or_else(|| self.focused_monitor().to_string());
-        let Some(target_center) = (match self.runtime.tuning.pan_to_new {
-            PanToNewMode::Always => self.model.field.node(id).map(|node| node.pos),
-            PanToNewMode::IfNeeded => {
-                self.minimal_reveal_center_for_surface_on_monitor(monitor.as_str(), id)
-            }
-            PanToNewMode::Never => None,
-        }) else {
-            return;
-        };
-        let _ = self.model.field.set_detached(id, true);
-        self.model
-            .spawn_state
-            .pending_spawn_activate_at_ms
-            .remove(&id);
-        self.model.spawn_state.pending_spawn_pan_queue.push_back(
-            crate::compositor::spawn::state::PendingSpawnPan {
-                node_id: id,
-                target_center,
-            },
-        );
-        self.maybe_start_pending_spawn_pan(now);
-    }
-
     pub(crate) fn maybe_start_pending_spawn_pan(&mut self, now: Instant) {
         if self.model.spawn_state.active_spawn_pan.is_some() {
             return;
@@ -759,16 +737,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         is_transient: bool,
         now: Instant,
     ) {
-        if self.model.spawn_state.pending_rule_rechecks.contains(&id) {
-            self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
-            self.record_focus_trail_visit(id);
-            self.model.focus_state.suppress_trail_record_once = true;
-            self.set_interaction_focus(Some(id), 30_000, now);
-            self.model
-                .spawn_state
-                .pending_spawn_activate_at_ms
-                .remove(&id);
-            self.mark_active_transition(id, now, 620);
+        if self.model.spawn_state.pending_initial_reveal.contains(&id) {
             return;
         }
         if self
@@ -1910,5 +1879,35 @@ mod tests {
         );
 
         assert_eq!(state.spawn_target_monitor_for_intent(&intent), "right");
+    }
+
+    #[test]
+    fn pending_initial_reveal_blocks_initial_reveal() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let id = state.model.field.spawn_surface(
+            "window",
+            Vec2 {
+                x: 5000.0,
+                y: 5000.0,
+            },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(id);
+        let _ = state
+            .model
+            .field
+            .set_state(id, halley_core::field::NodeState::Active);
+        state.model.spawn_state.pending_initial_reveal.insert(id);
+
+        state.reveal_new_toplevel_node(id, false, Instant::now());
+
+        assert!(state.model.spawn_state.active_spawn_pan.is_none());
+        assert!(state.model.spawn_state.pending_spawn_pan_queue.is_empty());
+        assert_ne!(state.model.focus_state.primary_interaction_focus, Some(id));
     }
 }

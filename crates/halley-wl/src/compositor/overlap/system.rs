@@ -1,7 +1,7 @@
 use super::*;
 use crate::compositor::overlap::physics::{
-    resolve_contact_pair, CONTACT_SKIN, MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON,
-    POSITION_SOLVER_ITERS,
+    CONTACT_SKIN, MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON, POSITION_SOLVER_ITERS,
+    resolve_contact_pair,
 };
 pub(crate) use crate::compositor::overlap::read::CollisionExtents;
 use crate::compositor::overlap::read::OverlapReadContext;

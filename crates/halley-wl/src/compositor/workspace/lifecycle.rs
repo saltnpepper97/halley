@@ -56,13 +56,13 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
         .seat
         .get_keyboard()
         .and_then(|kb| kb.current_focus())
-        .is_some_and(|focused| focused.id() == key);
+        .is_some_and(|focused| surface_tree_root(&focused).id() == key);
     let had_pointer_focus = st
         .platform
         .seat
         .get_pointer()
         .and_then(|ptr| ptr.current_focus())
-        .is_some_and(|focused| focused.id() == key);
+        .is_some_and(|focused| surface_tree_root(&focused).id() == key);
     let focused_monitor = st
         .model
         .surface_to_node
@@ -186,6 +186,7 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
                 .remove(&id);
             st.model.spawn_state.applied_window_rules.remove(&id);
             st.model.spawn_state.pending_rule_rechecks.remove(&id);
+            st.model.spawn_state.pending_initial_reveal.remove(&id);
             st.model
                 .workspace_state
                 .active_transition_until_ms
@@ -352,11 +353,24 @@ fn maybe_apply_pending_initial_window_rule(
     root_surface: &WlSurface,
     now: Instant,
 ) {
-    if !st.model.spawn_state.pending_rule_rechecks.contains(&node_id) {
+    if !st
+        .model
+        .spawn_state
+        .pending_rule_rechecks
+        .contains(&node_id)
+    {
         return;
     }
-    let intent = crate::compositor::spawn::rules::resolve_initial_window_intent_for_surface(st, root_surface);
+    let intent = crate::compositor::spawn::rules::resolve_initial_window_intent_for_surface(
+        st,
+        root_surface,
+    );
     if !intent.matched_rule {
+        if !crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &intent) {
+            st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
+            st.model.spawn_state.pending_initial_reveal.remove(&node_id);
+            st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
+        }
         return;
     }
     let monitor = st
@@ -368,6 +382,8 @@ fn maybe_apply_pending_initial_window_rule(
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
     if st.cluster_bloom_for_monitor(monitor.as_str()).is_some() {
         st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
+        st.model.spawn_state.pending_initial_reveal.remove(&node_id);
+        st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
         return;
     }
 
@@ -391,6 +407,8 @@ fn maybe_apply_pending_initial_window_rule(
         .applied_window_rules
         .insert(node_id, intent.applied_rule_for_node());
     st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
+    st.model.spawn_state.pending_initial_reveal.remove(&node_id);
+    st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
 }
 
 fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
@@ -520,7 +538,9 @@ fn ensure_node_for_surface_impl(
     let predicted_monitor = st.spawn_target_monitor_for_intent(intent);
     let now = Instant::now();
     exit_monitor_fullscreen_for_new_toplevel(st, predicted_monitor.as_str(), now);
-    let stack_mode_open = st.cluster_bloom_for_monitor(predicted_monitor.as_str()).is_some();
+    let stack_mode_open = st
+        .cluster_bloom_for_monitor(predicted_monitor.as_str())
+        .is_some();
     let effective_intent = if stack_mode_open {
         intent.bypassed()
     } else {
@@ -540,25 +560,26 @@ fn ensure_node_for_surface_impl(
         stack_mode_open,
         &effective_intent,
     );
-    let (monitor, id, needs_pan, spawned_in_active_cluster) = if join_cluster_layout {
+    let (monitor, id, spawned_in_active_cluster) = if join_cluster_layout {
         let cid = active_cluster.expect("checked");
         match st
             .model
             .field
             .spawn_surface_in_active_cluster(cid, label.to_string(), size)
         {
-            Ok(id) => (predicted_monitor, id, false, true),
+            Ok(id) => (predicted_monitor, id, true),
             Err(_) => {
-                let (monitor, pos, needs_pan) =
+                let (monitor, pos, _needs_pan) =
                     st.pick_spawn_position_with_intent(size, &effective_intent);
                 let id = st.model.field.spawn_surface(label.to_string(), pos, size);
-                (monitor, id, needs_pan, false)
+                (monitor, id, false)
             }
         }
     } else {
-        let (monitor, pos, needs_pan) = st.pick_spawn_position_with_intent(size, &effective_intent);
+        let (monitor, pos, _needs_pan) =
+            st.pick_spawn_position_with_intent(size, &effective_intent);
         let id = st.model.field.spawn_surface(label.to_string(), pos, size);
-        (monitor, id, needs_pan, false)
+        (monitor, id, false)
     };
     st.assign_node_to_monitor(id, monitor.as_str());
     if effective_intent.matched_rule {
@@ -568,6 +589,7 @@ fn ensure_node_for_surface_impl(
             .insert(id, effective_intent.applied_rule_for_node());
     } else if crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &effective_intent) {
         st.model.spawn_state.pending_rule_rechecks.insert(id);
+        st.model.spawn_state.pending_initial_reveal.insert(id);
     }
     let _ = st
         .model
@@ -586,9 +608,6 @@ fn ensure_node_for_surface_impl(
             .render_state
             .animator
             .observe_field(&st.model.field, now);
-    }
-    if needs_pan && !joined_active_cluster {
-        st.queue_spawn_pan_to_node(id, now);
     }
     if let Some(cid) = active_cluster.filter(|_| joined_active_cluster) {
         let overflow_len = st
@@ -645,6 +664,7 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
             .remove(&id);
         st.model.spawn_state.applied_window_rules.remove(&id);
         st.model.spawn_state.pending_rule_rechecks.remove(&id);
+        st.model.spawn_state.pending_initial_reveal.remove(&id);
         st.model
             .workspace_state
             .active_transition_until_ms
@@ -810,8 +830,20 @@ mod tests {
             ..layout_intent.clone()
         };
 
-        assert!(should_join_active_cluster_layout(true, false, &layout_intent));
-        assert!(!should_join_active_cluster_layout(true, false, &float_intent));
-        assert!(!should_join_active_cluster_layout(true, true, &layout_intent));
+        assert!(should_join_active_cluster_layout(
+            true,
+            false,
+            &layout_intent
+        ));
+        assert!(!should_join_active_cluster_layout(
+            true,
+            false,
+            &float_intent
+        ));
+        assert!(!should_join_active_cluster_layout(
+            true,
+            true,
+            &layout_intent
+        ));
     }
 }

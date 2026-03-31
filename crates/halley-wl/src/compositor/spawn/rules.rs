@@ -3,7 +3,7 @@ use halley_config::{
     WindowRule,
 };
 use halley_core::field::NodeId;
-use smithay::reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource};
+use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{ToplevelSurface, XdgToplevelSurfaceData};
 
@@ -53,12 +53,16 @@ impl InitialWindowIntent {
     pub(crate) fn applied_rule_for_node(
         &self,
     ) -> crate::compositor::spawn::state::AppliedInitialWindowRule {
+        let effective_spawn_placement = self.effective_spawn_placement();
         crate::compositor::spawn::state::AppliedInitialWindowRule {
             overlap_policy: self.effective_overlap_policy(),
             spawn_placement: self.rule.spawn_placement,
             cluster_participation: self.rule.cluster_participation,
             parent_node: self.parent_node,
-            suppress_reveal_pan: self.matched_rule,
+            suppress_reveal_pan: !matches!(
+                effective_spawn_placement,
+                InitialWindowSpawnPlacement::Adjacent
+            ),
         }
     }
 
@@ -312,5 +316,32 @@ mod tests {
         let state = Halley::new_for_test(&dh, tuning);
 
         assert!(matching_window_rule(&state, None, Some("File Upload - Firefox")).is_some());
+    }
+
+    #[test]
+    fn only_non_adjacent_effective_placements_suppress_reveal_pan() {
+        let adjacent = InitialWindowIntent {
+            app_id: Some("firefox".to_string()),
+            title: None,
+            parent_node: None,
+            rule: ResolvedInitialWindowRule {
+                overlap_policy: InitialWindowOverlapPolicy::All,
+                spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: InitialWindowClusterParticipation::Float,
+            },
+            matched_rule: true,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+        let center = InitialWindowIntent {
+            rule: ResolvedInitialWindowRule {
+                spawn_placement: InitialWindowSpawnPlacement::Center,
+                ..adjacent.rule
+            },
+            ..adjacent.clone()
+        };
+
+        assert!(!adjacent.applied_rule_for_node().suppress_reveal_pan);
+        assert!(center.applied_rule_for_node().suppress_reveal_pan);
     }
 }

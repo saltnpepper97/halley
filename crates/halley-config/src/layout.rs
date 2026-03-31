@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use crate::keybinds::{key_name_to_evdev, WHEEL_DOWN_CODE, WHEEL_UP_CODE};
+use crate::keybinds::{WHEEL_DOWN_CODE, WHEEL_UP_CODE, key_name_to_evdev};
 use halley_core::decay::FocusRingDecayPolicy;
 use halley_core::field::Vec2;
 use halley_core::viewport::{FocusRing, Viewport};

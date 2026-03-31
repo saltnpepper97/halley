@@ -10,8 +10,8 @@ use halley_core::viewport::Viewport;
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
-    input::{pointer::CursorImageStatus, SeatState},
-    reexports::wayland_server::{backend::ObjectId, DisplayHandle},
+    input::{SeatState, pointer::CursorImageStatus},
+    reexports::wayland_server::{DisplayHandle, backend::ObjectId},
     wayland::{
         compositor::CompositorState,
         dmabuf::DmabufState,
@@ -24,7 +24,7 @@ use smithay::{
             wlr_data_control::DataControlState,
         },
         shell::wlr_layer::WlrLayerShellState,
-        shell::xdg::{decoration::XdgDecorationState, XdgShellState},
+        shell::xdg::{XdgShellState, decoration::XdgDecorationState},
         shm::ShmState,
         viewporter::ViewporterState,
     },
@@ -267,6 +267,7 @@ impl Halley {
                     active_spawn_pan: None,
                     applied_window_rules: HashMap::new(),
                     pending_rule_rechecks: HashSet::new(),
+                    pending_initial_reveal: HashSet::new(),
                 },
                 field: Field::new(),
                 viewport: primary_viewport,
@@ -1153,10 +1154,6 @@ impl Halley {
     ) -> (String, Vec2, bool) {
         super::spawn::reveal::spawn_reveal_controller(self)
             .pick_spawn_position_with_intent(size, intent)
-    }
-
-    pub(crate) fn queue_spawn_pan_to_node(&mut self, id: NodeId, now: Instant) {
-        super::spawn::reveal::spawn_reveal_controller(self).queue_spawn_pan_to_node(id, now)
     }
 
     #[allow(dead_code)]

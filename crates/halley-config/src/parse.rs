@@ -139,7 +139,9 @@ fn finalize_window_rule(rule: &PartialWindowRule, line_no: usize) -> Result<Wind
     Ok(WindowRule {
         app_ids: rule.app_ids.clone(),
         titles: rule.titles.clone(),
-        overlap_policy: rule.overlap_policy.unwrap_or(InitialWindowOverlapPolicy::None),
+        overlap_policy: rule
+            .overlap_policy
+            .unwrap_or(InitialWindowOverlapPolicy::None),
         spawn_placement: rule
             .spawn_placement
             .unwrap_or(InitialWindowSpawnPlacement::Adjacent),
@@ -155,7 +157,9 @@ fn parse_rule_entry(
     line_no: usize,
 ) -> Result<(), String> {
     let Some((key, rest)) = line.split_once(char::is_whitespace) else {
-        return Err(format!("line {line_no}: expected `<key> <value>` inside rule"));
+        return Err(format!(
+            "line {line_no}: expected `<key> <value>` inside rule"
+        ));
     };
     let value = rest.trim();
     if value.is_empty() {
@@ -199,7 +203,9 @@ fn parse_rule_match_strings(
     if trimmed.starts_with('[') {
         return parse_string_array_literal(value, line_no, field_name);
     }
-    Ok(vec![parse_rule_match_pattern(trimmed, line_no, field_name)?])
+    Ok(vec![parse_rule_match_pattern(
+        trimmed, line_no, field_name,
+    )?])
 }
 
 fn parse_rule_overlap_policy(
@@ -248,7 +254,9 @@ fn parse_rule_cluster_participation(
 fn parse_quoted_string_literal(value: &str, line_no: usize) -> Result<String, String> {
     let trimmed = value.trim();
     if !trimmed.starts_with('"') || !trimmed.ends_with('"') || trimmed.len() < 2 {
-        return Err(format!("line {line_no}: expected quoted string, got `{trimmed}`"));
+        return Err(format!(
+            "line {line_no}: expected quoted string, got `{trimmed}`"
+        ));
     }
     Ok(trimmed[1..trimmed.len() - 1].to_string())
 }
@@ -256,7 +264,9 @@ fn parse_quoted_string_literal(value: &str, line_no: usize) -> Result<String, St
 fn parse_regex_literal(value: &str, line_no: usize) -> Result<String, String> {
     let trimmed = value.trim();
     if !trimmed.starts_with("r\"") || !trimmed.ends_with('"') || trimmed.len() < 3 {
-        return Err(format!("line {line_no}: expected regex literal, got `{trimmed}`"));
+        return Err(format!(
+            "line {line_no}: expected regex literal, got `{trimmed}`"
+        ));
     }
     Ok(trimmed[2..trimmed.len() - 1].to_string())
 }
@@ -269,12 +279,13 @@ fn parse_rule_match_pattern(
     let trimmed = value.trim();
     if trimmed.starts_with("r\"") {
         let raw = parse_regex_literal(trimmed, line_no)?;
-        let compiled = regex::Regex::new(&raw).map_err(|err| {
-            format!("line {line_no}: invalid {field_name} regex `{raw}`: {err}")
-        })?;
+        let compiled = regex::Regex::new(&raw)
+            .map_err(|err| format!("line {line_no}: invalid {field_name} regex `{raw}`: {err}"))?;
         Ok(WindowRulePattern::Regex(compiled))
     } else {
-        Ok(WindowRulePattern::Exact(parse_quoted_string_literal(trimmed, line_no)?))
+        Ok(WindowRulePattern::Exact(parse_quoted_string_literal(
+            trimmed, line_no,
+        )?))
     }
 }
 
@@ -285,7 +296,9 @@ fn parse_string_array_literal(
 ) -> Result<Vec<WindowRulePattern>, String> {
     let trimmed = value.trim();
     if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
-        return Err(format!("line {line_no}: expected string array literal, got `{trimmed}`"));
+        return Err(format!(
+            "line {line_no}: expected string array literal, got `{trimmed}`"
+        ));
     }
     let mut out = Vec::new();
     let mut rest = &trimmed[1..trimmed.len() - 1];
@@ -315,9 +328,15 @@ fn parse_string_array_literal(
             }
         }
         let Some(end_idx) = end_idx else {
-            return Err(format!("line {line_no}: unterminated {field_name} matcher in array"));
+            return Err(format!(
+                "line {line_no}: unterminated {field_name} matcher in array"
+            ));
         };
-        out.push(parse_rule_match_pattern(&rest[..=end_idx], line_no, field_name)?);
+        out.push(parse_rule_match_pattern(
+            &rest[..=end_idx],
+            line_no,
+            field_name,
+        )?);
         rest = rest[end_idx + 1..].trim_start();
         if rest.is_empty() {
             break;
@@ -331,7 +350,9 @@ fn parse_string_array_literal(
         }
     }
     if out.is_empty() {
-        return Err(format!("line {line_no}: {field_name} array must not be empty"));
+        return Err(format!(
+            "line {line_no}: {field_name} array must not be empty"
+        ));
     }
     Ok(out)
 }
@@ -1738,11 +1759,10 @@ mod tests {
     use crate::{
         BearingsBindingAction, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
         CloseRestorePanMode, ClusterBloomDirection, CompositorBindingAction, DirectionalAction,
-        InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
-        InitialWindowSpawnPlacement, MonitorBindingAction, MonitorBindingTarget,
-        NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy, PanToNewMode,
-        RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE, WindowRulePattern,
-        keybinds::key_name_to_evdev,
+        InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
+        MonitorBindingAction, MonitorBindingTarget, NodeBackgroundColorMode, NodeBindingAction,
+        NodeDisplayPolicy, PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
+        WindowRulePattern, keybinds::key_name_to_evdev,
     };
 
     fn write_temp_config(prefix: &str, content: &str) -> std::path::PathBuf {
@@ -2025,8 +2045,12 @@ end
 
         assert_eq!(tuning.window_rules.len(), 2);
         assert_eq!(tuning.window_rules[0].app_ids.len(), 2);
-        assert!(matches!(&tuning.window_rules[0].app_ids[0], WindowRulePattern::Exact(value) if value == "file-picker"));
-        assert!(matches!(&tuning.window_rules[0].app_ids[1], WindowRulePattern::Exact(value) if value == "Picture-in-Picture"));
+        assert!(
+            matches!(&tuning.window_rules[0].app_ids[0], WindowRulePattern::Exact(value) if value == "file-picker")
+        );
+        assert!(
+            matches!(&tuning.window_rules[0].app_ids[1], WindowRulePattern::Exact(value) if value == "Picture-in-Picture")
+        );
         assert!(tuning.window_rules[0].titles.is_empty());
         assert_eq!(
             tuning.window_rules[0].overlap_policy,
@@ -2040,7 +2064,9 @@ end
             tuning.window_rules[0].cluster_participation,
             InitialWindowClusterParticipation::Float
         );
-        assert!(matches!(&tuning.window_rules[1].app_ids[0], WindowRulePattern::Exact(value) if value == "firefox"));
+        assert!(
+            matches!(&tuning.window_rules[1].app_ids[0], WindowRulePattern::Exact(value) if value == "firefox")
+        );
         assert!(tuning.window_rules[1].titles.is_empty());
     }
 
@@ -2069,13 +2095,16 @@ end
 
         assert_eq!(tuning.window_rules.len(), 2);
         assert!(tuning.window_rules[0].app_ids.is_empty());
-        assert!(matches!(&tuning.window_rules[0].titles[0], WindowRulePattern::Exact(value) if value == "Picture-in-Picture"));
-        assert_eq!(
-            tuning.window_rules[1].titles.len(),
-            2
+        assert!(
+            matches!(&tuning.window_rules[0].titles[0], WindowRulePattern::Exact(value) if value == "Picture-in-Picture")
         );
-        assert!(matches!(&tuning.window_rules[1].titles[0], WindowRulePattern::Exact(value) if value == "Save As"));
-        assert!(matches!(&tuning.window_rules[1].titles[1], WindowRulePattern::Exact(value) if value == "Open File"));
+        assert_eq!(tuning.window_rules[1].titles.len(), 2);
+        assert!(
+            matches!(&tuning.window_rules[1].titles[0], WindowRulePattern::Exact(value) if value == "Save As")
+        );
+        assert!(
+            matches!(&tuning.window_rules[1].titles[1], WindowRulePattern::Exact(value) if value == "Open File")
+        );
     }
 
     #[test]
@@ -2095,8 +2124,12 @@ end
             .expect("config should parse");
         let _ = fs::remove_file(&path);
 
-        assert!(matches!(&tuning.window_rules[0].titles[0], WindowRulePattern::Regex(regex) if regex.as_str() == "File Upload.*"));
-        assert!(matches!(&tuning.window_rules[0].titles[1], WindowRulePattern::Exact(value) if value == "Picture-in-Picture"));
+        assert!(
+            matches!(&tuning.window_rules[0].titles[0], WindowRulePattern::Regex(regex) if regex.as_str() == "File Upload.*")
+        );
+        assert!(
+            matches!(&tuning.window_rules[0].titles[1], WindowRulePattern::Exact(value) if value == "Picture-in-Picture")
+        );
     }
 
     #[test]
