@@ -567,7 +567,12 @@ fn ensure_node_for_surface_impl(
             .field
             .spawn_surface_in_active_cluster(cid, label.to_string(), size)
         {
-            Ok(id) => (predicted_monitor, id, true),
+            Ok(id) => {
+                if st.runtime.tuning.tile_new_on_top {
+                    let _ = st.model.field.promote_cluster_member_to_master(cid, id);
+                }
+                (predicted_monitor, id, true)
+            }
             Err(_) => {
                 let (monitor, pos, _needs_pan) =
                     st.pick_spawn_position_with_intent(size, &effective_intent);

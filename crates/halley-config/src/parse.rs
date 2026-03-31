@@ -885,6 +885,11 @@ fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.tile_gaps_outer_px,
     );
+    out.tile_new_on_top = pick_bool(
+        cfg,
+        &["tile.new-on-top", "tile.new_on_top"],
+        out.tile_new_on_top,
+    );
     out.tile_queue_show_icons = pick_bool(
         cfg,
         &[
@@ -2472,6 +2477,30 @@ end
 
         assert_eq!(tuning.tile_gaps_inner_px, 18.0);
         assert_eq!(tuning.tile_gaps_outer_px, 26.0);
+    }
+
+    #[test]
+    fn tile_new_on_top_setting_parses_from_tile_section() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-tile-new-on-top-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+tile:
+  new-on-top true
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert!(tuning.tile_new_on_top);
     }
 
     #[test]

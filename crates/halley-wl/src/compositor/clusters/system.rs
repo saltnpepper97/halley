@@ -13,6 +13,7 @@ struct ClusterMutationController<'a> {
     field: &'a mut Field,
     cluster_state: &'a mut ClusterState,
     interaction_state: &'a mut InteractionState,
+    tuning: &'a halley_config::RuntimeTuning,
 }
 
 impl<'a> ClusterMutationController<'a> {
@@ -147,6 +148,9 @@ impl<'a> ClusterMutationController<'a> {
         if self.field.add_member_to_cluster(cid, node_id).is_err() {
             return false;
         }
+        if self.tuning.tile_new_on_top {
+            let _ = self.field.promote_cluster_member_to_master(cid, node_id);
+        }
         if active_workspace {
             if !self
                 .field
@@ -275,11 +279,17 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
     const CLUSTER_OVERFLOW_REVEAL_MS: u64 = 2200;
 
     fn cluster_mutation_controller(&mut self) -> ClusterMutationController<'_> {
-        let crate::compositor::root::Halley { model, input, .. } = &mut **self;
+        let crate::compositor::root::Halley {
+            model,
+            input,
+            runtime,
+            ..
+        } = &mut **self;
         ClusterMutationController {
             field: &mut model.field,
             cluster_state: &mut model.cluster_state,
             interaction_state: &mut input.interaction_state,
+            tuning: &runtime.tuning,
         }
     }
 

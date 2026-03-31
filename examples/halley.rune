@@ -107,6 +107,7 @@ clusters:
 end
 
 tile:
+  new-on-top false
   gaps-inner 20
   gaps-outer 20
   queue-show-icons true
