@@ -974,10 +974,20 @@ impl Halley {
             return false;
         };
         let _ = self.sync_cluster_monitor(cid, Some(monitor));
+        let previous_full_viewport = if self.model.monitor_state.current_monitor == monitor {
+            self.model.viewport
+        } else {
+            self.model
+                .monitor_state
+                .monitors
+                .get(monitor)
+                .map(|space| space.viewport)
+                .unwrap_or(plan.current_viewport)
+        };
         self.model
             .cluster_state
             .workspace_prev_viewports
-            .insert(monitor.to_string(), plan.current_viewport);
+            .insert(monitor.to_string(), previous_full_viewport);
         self.model
             .cluster_state
             .workspace_core_positions
@@ -1552,5 +1562,74 @@ mod tests {
         assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
         assert_eq!(st.model.viewport, full_viewport);
         assert_eq!(st.model.camera_target_view_size, full_viewport.size);
+    }
+
+    #[test]
+    fn cluster_exit_restores_full_viewport_not_usable_viewport() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let full_viewport = st.model.viewport;
+        let reduced_usable = halley_core::viewport::Viewport::new(
+            Vec2 { x: 400.0, y: 320.0 },
+            Vec2 { x: 800.0, y: 560.0 },
+        );
+        st.model
+            .monitor_state
+            .monitors
+            .get_mut("monitor_a")
+            .expect("monitor")
+            .usable_viewport = reduced_usable;
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(master, "monitor_a");
+        st.assign_node_to_monitor(stack, "monitor_a");
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+
+        let now = Instant::now();
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+        assert_eq!(
+            st.model
+                .cluster_state
+                .workspace_prev_viewports
+                .get("monitor_a"),
+            Some(&full_viewport)
+        );
+
+        assert!(st.exit_cluster_workspace_for_monitor("monitor_a", now));
+        assert_eq!(st.model.viewport, full_viewport);
+        assert_eq!(
+            st.model
+                .monitor_state
+                .monitors
+                .get("monitor_a")
+                .expect("monitor")
+                .viewport,
+            full_viewport
+        );
+        assert_eq!(
+            st.model
+                .monitor_state
+                .monitors
+                .get("monitor_a")
+                .expect("monitor")
+                .usable_viewport,
+            reduced_usable
+        );
     }
 }
