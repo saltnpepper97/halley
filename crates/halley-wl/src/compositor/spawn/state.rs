@@ -75,85 +75,86 @@ pub(crate) struct SpawnState {
     pub(crate) active_spawn_pan: Option<ActiveSpawnPan>,
 }
 
-impl Halley {
-    pub(crate) fn default_spawn_view_anchor_for_monitor(&self, monitor: &str) -> Vec2 {
-        self.model
-            .monitor_state
-            .monitors
-            .get(monitor)
-            .map(|space| space.viewport.center)
-            .unwrap_or(self.model.viewport.center)
-    }
+pub(crate) fn default_spawn_view_anchor_for_monitor(st: &Halley, monitor: &str) -> Vec2 {
+    st.model
+        .monitor_state
+        .monitors
+        .get(monitor)
+        .map(|space| space.viewport.center)
+        .unwrap_or(st.model.viewport.center)
+}
 
-    pub(crate) fn spawn_monitor_state(&self, monitor: &str) -> MonitorSpawnState {
-        self.model
-            .spawn_state
-            .per_monitor
-            .get(monitor)
-            .cloned()
-            .unwrap_or_else(|| {
-                MonitorSpawnState::new(self.default_spawn_view_anchor_for_monitor(monitor))
-            })
-    }
+pub(crate) fn spawn_monitor_state(st: &Halley, monitor: &str) -> MonitorSpawnState {
+    st.model
+        .spawn_state
+        .per_monitor
+        .get(monitor)
+        .cloned()
+        .unwrap_or_else(|| {
+            MonitorSpawnState::new(default_spawn_view_anchor_for_monitor(st, monitor))
+        })
+}
 
-    pub(crate) fn spawn_monitor_state_mut(&mut self, monitor: &str) -> &mut MonitorSpawnState {
-        let view_anchor = self.default_spawn_view_anchor_for_monitor(monitor);
-        self.model
-            .spawn_state
-            .per_monitor
-            .entry(monitor.to_string())
-            .or_insert_with(|| MonitorSpawnState::new(view_anchor))
-    }
+pub(crate) fn spawn_monitor_state_mut<'a>(
+    st: &'a mut Halley,
+    monitor: &str,
+) -> &'a mut MonitorSpawnState {
+    let view_anchor = default_spawn_view_anchor_for_monitor(st, monitor);
+    st.model
+        .spawn_state
+        .per_monitor
+        .entry(monitor.to_string())
+        .or_insert_with(|| MonitorSpawnState::new(view_anchor))
+}
 
-    pub(crate) fn process_pending_spawn_activations(&mut self, now: Instant, now_ms: u64) {
-        let due: Vec<NodeId> = self
-            .model
+pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, now_ms: u64) {
+    let due: Vec<NodeId> = st
+        .model
+        .spawn_state
+        .pending_spawn_activate_at_ms
+        .iter()
+        .filter_map(|(&id, &at)| (now_ms >= at).then_some(id))
+        .collect();
+
+    for id in due {
+        st.model
             .spawn_state
             .pending_spawn_activate_at_ms
-            .iter()
-            .filter_map(|(&id, &at)| (now_ms >= at).then_some(id))
-            .collect();
-
-        for id in due {
-            self.model
-                .spawn_state
-                .pending_spawn_activate_at_ms
-                .remove(&id);
-            if !self.model.field.is_visible(id) {
-                continue;
-            }
-            let Some(n) = self.model.field.node(id) else {
-                continue;
-            };
-            if n.kind != halley_core::field::NodeKind::Surface {
-                continue;
-            }
-            if self.preserve_collapsed_surface(id) {
-                continue;
-            }
-            let node_monitor = self
-                .model
-                .monitor_state
-                .node_monitor
-                .get(&id)
-                .cloned()
-                .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
-            let cluster_local = self
-                .active_cluster_workspace_for_monitor(node_monitor.as_str())
-                .is_some();
-            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-            if let Some((_, _, w, h)) = self.ui.render_state.window_geometry.get(&id) {
-                self.model
-                    .workspace_state
-                    .last_active_size
-                    .insert(id, Vec2 { x: *w, y: *h });
-            }
-            self.mark_active_transition(id, now, 620);
-            if !cluster_local {
-                self.record_focus_trail_visit(id);
-                self.model.focus_state.suppress_trail_record_once = true;
-            }
-            self.set_interaction_focus(Some(id), 30_000, now);
+            .remove(&id);
+        if !st.model.field.is_visible(id) {
+            continue;
         }
+        let Some(n) = st.model.field.node(id) else {
+            continue;
+        };
+        if n.kind != halley_core::field::NodeKind::Surface {
+            continue;
+        }
+        if crate::compositor::workspace::state::preserve_collapsed_surface(st, id) {
+            continue;
+        }
+        let node_monitor = st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        let cluster_local = st
+            .active_cluster_workspace_for_monitor(node_monitor.as_str())
+            .is_some();
+        let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
+        if let Some((_, _, w, h)) = st.ui.render_state.window_geometry.get(&id) {
+            st.model
+                .workspace_state
+                .last_active_size
+                .insert(id, Vec2 { x: *w, y: *h });
+        }
+        crate::compositor::workspace::state::mark_active_transition(st, id, now, 620);
+        if !cluster_local {
+            st.record_focus_trail_visit(id);
+            st.model.focus_state.suppress_trail_record_once = true;
+        }
+        st.set_interaction_focus(Some(id), 30_000, now);
     }
 }
