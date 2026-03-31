@@ -187,8 +187,11 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     let raw_sy = sy;
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
     let now = Instant::now();
-    let constrained_surface_info = crate::compositor::interaction::pointer::active_constrained_pointer_surface(st);
-    let locked_surface = constrained_surface_info.as_ref().and_then(|(s, locked)| if *locked { Some(s.clone()) } else { None });
+    let constrained_surface_info =
+        crate::compositor::interaction::pointer::active_constrained_pointer_surface(st);
+    let locked_surface = constrained_surface_info
+        .as_ref()
+        .and_then(|(s, locked)| if *locked { Some(s.clone()) } else { None });
     let mods = ctx.mod_state.borrow().clone();
     let drag_state = {
         let ps = ctx.pointer_state.borrow();
@@ -204,7 +207,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 active_pointer_binding(st, &mods, 0x110) == Some(PointerBindingAction::FieldJump);
             (drag, owner, allow_monitor_transfer)
         })
-        };
+    };
     let constrained_surface_monitor = constrained_surface_info.as_ref().and_then(|(surface, _)| {
         let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
         Some(

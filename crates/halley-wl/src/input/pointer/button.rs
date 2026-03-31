@@ -1017,22 +1017,23 @@ pub(super) fn button_frame_for_monitor(
     screen: (f32, f32),
 ) -> (ButtonFrame, String, (f32, f32)) {
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, screen.0, screen.1);
-    let target_monitor = crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
-        .and_then(|(surface, _)| {
-            let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
-            Some(
-                st.model
-                    .monitor_state
-                    .node_monitor
-                    .get(&node_id)
-                    .cloned()
-                    .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
-            )
-        })
-        .unwrap_or_else(|| {
-            st.monitor_for_screen(sx, sy)
-                .unwrap_or_else(|| st.interaction_monitor().to_string())
-        });
+    let target_monitor =
+        crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
+            .and_then(|(surface, _)| {
+                let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
+                Some(
+                    st.model
+                        .monitor_state
+                        .node_monitor
+                        .get(&node_id)
+                        .cloned()
+                        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
+                )
+            })
+            .unwrap_or_else(|| {
+                st.monitor_for_screen(sx, sy)
+                    .unwrap_or_else(|| st.interaction_monitor().to_string())
+            });
     st.set_interaction_monitor(target_monitor.as_str());
     let _ = st.activate_monitor(target_monitor.as_str());
     let (local_w, local_h, local_sx, local_sy) =

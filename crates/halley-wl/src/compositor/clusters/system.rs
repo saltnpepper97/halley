@@ -1213,8 +1213,12 @@ mod tests {
         st.assign_node_to_monitor(n2, "monitor_a");
 
         // 2. Create a cluster
-        let cid = st.model.field.create_cluster(vec![n1, n2]).expect("cluster");
-        
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![n1, n2])
+            .expect("cluster");
+
         // 3. Collapse to core
         let core_id = st.model.field.collapse_cluster(cid).expect("core");
         st.assign_node_to_monitor(core_id, "monitor_a");
@@ -1222,7 +1226,13 @@ mod tests {
         // 4. Move core to monitor_b
         st.assign_node_to_monitor(core_id, "monitor_b");
         // Also move its position to monitor_b's space
-        let _ = st.model.field.carry(core_id, Vec2 { x: 1920.0 + 500.0, y: 500.0 });
+        let _ = st.model.field.carry(
+            core_id,
+            Vec2 {
+                x: 1920.0 + 500.0,
+                y: 500.0,
+            },
+        );
 
         // 5. Reopen/expand cluster on monitor_b
         // We simulate the double-click/enter behavior
@@ -1232,11 +1242,32 @@ mod tests {
         assert!(success);
 
         // 6. Verify cluster members are now on monitor_b
-        assert_eq!(st.model.monitor_state.node_monitor.get(&n1).map(|s| s.as_str()), Some("monitor_b"));
-        assert_eq!(st.model.monitor_state.node_monitor.get(&n2).map(|s| s.as_str()), Some("monitor_b"));
-        
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&n1)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&n2)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
+
         // 7. Verify core is also on monitor_b
-        assert_eq!(st.model.monitor_state.node_monitor.get(&core_id).map(|s| s.as_str()), Some("monitor_b"));
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&core_id)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
     }
 
     #[test]
@@ -1285,7 +1316,11 @@ mod tests {
         st.assign_node_to_monitor(n1, "monitor_a");
         st.assign_node_to_monitor(n2, "monitor_a");
 
-        let cid = st.model.field.create_cluster(vec![n1, n2]).expect("cluster");
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![n1, n2])
+            .expect("cluster");
         let core_id = st.model.field.collapse_cluster(cid).expect("core");
         st.assign_node_to_monitor(core_id, "monitor_a");
 
@@ -1300,10 +1335,29 @@ mod tests {
         assert!(success);
 
         // Should have picked monitor_b from core, NOT monitor_a from members
-        assert_eq!(st.model.monitor_state.node_monitor.get(&n1).map(|s| s.as_str()), Some("monitor_b"));
-        assert_eq!(st.model.monitor_state.node_monitor.get(&n2).map(|s| s.as_str()), Some("monitor_b"));
-        assert_eq!(st.model.monitor_state.node_monitor.get(&core_id).map(|s| s.as_str()), Some("monitor_b"));
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&n1)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&n2)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&core_id)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
     }
 }
-
-

@@ -43,6 +43,11 @@ impl Halley {
     #[inline]
     pub(crate) fn zoom_blocked_by_interaction(&self) -> bool {
         self.has_active_cluster_workspace()
+            || self
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .contains_key(self.model.monitor_state.current_monitor.as_str())
             || self.cluster_mode_active()
             || self.input.interaction_state.grabbed_edge_pan_active
             || self
@@ -177,5 +182,101 @@ impl Halley {
         let vp_w = self.model.viewport.size.x.max(1.0);
         let view_w = self.camera_view_size().x.max(1.0);
         (vp_w / view_w).max(0.01)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fullscreen_on_current_monitor_blocks_zoom_changes() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        state.assign_node_to_current_monitor(fullscreen);
+        let current_monitor = state.model.monitor_state.current_monitor.clone();
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(current_monitor, fullscreen);
+
+        let base = state.model.viewport.size;
+        let zoomed_out = Vec2 {
+            x: base.x * 1.5,
+            y: base.y * 1.5,
+        };
+        state.model.camera_target_view_size = zoomed_out;
+        state.reset_zoom();
+        assert_eq!(state.model.camera_target_view_size, zoomed_out);
+
+        state.model.camera_target_view_size = base;
+        state.zoom_by_steps(-1.0);
+        assert_eq!(state.model.camera_target_view_size, base);
+    }
+
+    #[test]
+    fn fullscreen_on_other_monitor_does_not_block_zoom() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let fullscreen_left = state.model.field.spawn_surface(
+            "fullscreen-left",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        state.assign_node_to_monitor(fullscreen_left, "left");
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert("left".to_string(), fullscreen_left);
+
+        state.set_interaction_monitor("right");
+        state.set_focused_monitor("right");
+        let _ = state.activate_monitor("right");
+
+        let before = state.model.camera_target_view_size;
+        state.zoom_by_steps(-1.0);
+
+        assert!(state.model.camera_target_view_size.x > before.x);
+        assert!(state.model.camera_target_view_size.y > before.y);
     }
 }

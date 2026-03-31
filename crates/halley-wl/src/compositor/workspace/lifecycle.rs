@@ -254,6 +254,18 @@ fn predicted_spawn_target_monitor(st: &Halley) -> String {
         })
 }
 
+fn exit_monitor_fullscreen_for_new_toplevel(st: &mut Halley, monitor: &str, now: Instant) {
+    if let Some(existing) = st
+        .model
+        .fullscreen_state
+        .fullscreen_active_node
+        .get(monitor)
+        .copied()
+    {
+        st.exit_xdg_fullscreen(existing, now);
+    }
+}
+
 #[inline]
 fn surface_key(surface: &WlSurface) -> ObjectId {
     surface.id()
@@ -464,6 +476,8 @@ fn ensure_node_for_surface_impl(
         y: size_px.1.max(64) as f32,
     };
     let predicted_monitor = predicted_spawn_target_monitor(st);
+    let now = Instant::now();
+    exit_monitor_fullscreen_for_new_toplevel(st, predicted_monitor.as_str(), now);
     let active_cluster = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str());
     let previous_overflow_len = active_cluster
         .and_then(|cid| {
@@ -503,7 +517,6 @@ fn ensure_node_for_surface_impl(
     st.model.surface_to_node.insert(key, id);
     st.ui.render_state.zoom_nominal_size.insert(id, size);
     st.model.workspace_state.last_active_size.insert(id, size);
-    let now = Instant::now();
     let joined_active_cluster = spawned_in_active_cluster;
     if st.runtime.tuning.dev_anim_enabled {
         st.ui
@@ -600,4 +613,88 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         let _ = st.remove_node_from_field(id, st.now_ms(Instant::now()));
     }
     st.request_maintenance();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_toplevel_on_fullscreen_monitor_exits_only_that_monitor_fullscreen() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let fullscreen_left = state.model.field.spawn_surface(
+            "fullscreen-left",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        let fullscreen_right = state.model.field.spawn_surface(
+            "fullscreen-right",
+            Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        state.assign_node_to_monitor(fullscreen_left, "left");
+        state.assign_node_to_monitor(fullscreen_right, "right");
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert("left".to_string(), fullscreen_left);
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert("right".to_string(), fullscreen_right);
+
+        exit_monitor_fullscreen_for_new_toplevel(&mut state, "left", Instant::now());
+
+        assert!(
+            !state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .contains_key("left")
+        );
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .get("right"),
+            Some(&fullscreen_right)
+        );
+    }
 }
