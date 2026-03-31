@@ -361,6 +361,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     ps.world = pointer_world;
     ps.screen = (effective_sx, effective_sy);
     ps.workspace_size = (local_w, local_h);
+    st.input.interaction_state.last_pointer_screen_global = Some((effective_sx, effective_sy));
 
     maybe_begin_core_drag_from_pending_press(
         st,

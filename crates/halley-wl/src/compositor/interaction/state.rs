@@ -109,6 +109,7 @@ pub(crate) struct PendingCoreClick {
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
+    pub(crate) last_pointer_screen_global: Option<(f32, f32)>,
     pub(crate) suppress_layer_shell_configure: bool,
     pub(crate) dpms_just_woke: bool,
     pub(crate) resize_active: Option<NodeId>,

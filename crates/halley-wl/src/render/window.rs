@@ -18,6 +18,7 @@ use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::{
     is_active_cluster_workspace_member, window_geometry_for_node,
 };
+use crate::compositor::spawn::state::is_persistent_rule_top;
 use crate::input::active_resize_geometry_screen;
 
 use super::offscreen::render_surface_tree_to_texture;
@@ -285,9 +286,11 @@ pub(crate) fn collect_active_surfaces(
         let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
         let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
         let resizing_this_node = active_resize.is_some();
+        let persistent_rule_top = is_persistent_rule_top(st, node_id);
         let draw_top_this_node = resizing_this_node
             || recent_top_node == Some(node_id)
-            || st.input.interaction_state.drag_authority_node == Some(node_id);
+            || st.input.interaction_state.drag_authority_node == Some(node_id)
+            || persistent_rule_top;
 
         let (scale, live_ramp) = if draw_top_this_node || active_cluster_member {
             (1.0f32 * fullscreen_entry_scale, 1.0f32)

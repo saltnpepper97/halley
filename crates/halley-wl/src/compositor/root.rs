@@ -10,8 +10,8 @@ use halley_core::viewport::Viewport;
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
-    input::{SeatState, pointer::CursorImageStatus},
-    reexports::wayland_server::{DisplayHandle, backend::ObjectId},
+    input::{pointer::CursorImageStatus, SeatState},
+    reexports::wayland_server::{backend::ObjectId, DisplayHandle},
     wayland::{
         compositor::CompositorState,
         dmabuf::DmabufState,
@@ -24,7 +24,7 @@ use smithay::{
             wlr_data_control::DataControlState,
         },
         shell::wlr_layer::WlrLayerShellState,
-        shell::xdg::{XdgShellState, decoration::XdgDecorationState},
+        shell::xdg::{decoration::XdgDecorationState, XdgShellState},
         shm::ShmState,
         viewporter::ViewporterState,
     },
@@ -265,6 +265,8 @@ impl Halley {
                     per_monitor: HashMap::new(),
                     pending_spawn_pan_queue: VecDeque::new(),
                     active_spawn_pan: None,
+                    applied_window_rules: HashMap::new(),
+                    pending_rule_rechecks: HashSet::new(),
                 },
                 field: Field::new(),
                 viewport: primary_viewport,
@@ -309,6 +311,7 @@ impl Halley {
                 interaction_state: InteractionState {
                     reset_input_state_requested: false,
                     pending_pointer_screen_hint: None,
+                    last_pointer_screen_global: None,
                     suppress_layer_shell_configure: false,
                     dpms_just_woke: false,
                     resize_active: None,
@@ -1131,8 +1134,25 @@ impl Halley {
             .update_spawn_patch(monitor, anchor, focus_node, focus_pos, growth_dir)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn pick_spawn_position(&mut self, size: Vec2) -> (String, Vec2, bool) {
         super::spawn::reveal::spawn_reveal_controller(self).pick_spawn_position(size)
+    }
+
+    pub(crate) fn spawn_target_monitor_for_intent(
+        &self,
+        intent: &super::spawn::rules::InitialWindowIntent,
+    ) -> String {
+        super::spawn::reveal::spawn_reveal_controller(self).spawn_target_monitor_for_intent(intent)
+    }
+
+    pub(crate) fn pick_spawn_position_with_intent(
+        &mut self,
+        size: Vec2,
+        intent: &super::spawn::rules::InitialWindowIntent,
+    ) -> (String, Vec2, bool) {
+        super::spawn::reveal::spawn_reveal_controller(self)
+            .pick_spawn_position_with_intent(size, intent)
     }
 
     pub(crate) fn queue_spawn_pan_to_node(&mut self, id: NodeId, now: Instant) {

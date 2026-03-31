@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 halley-core = { path = "../halley-core" }
 
+regex = "1.12.3"
 rune-cfg = { version =  "0.4.4", path = "../../../../libs/rune-cfg" }

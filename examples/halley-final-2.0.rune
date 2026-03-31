@@ -1,77 +1,71 @@
 @author "Dustin Pilgrim"
 @description "Spatial Wayland compositor built around infinite workspace navigation"
 
-# This is RUNE: Readable Unified Notation for Everyone.
+# Environment variables exported to processes launched
+# inside Halley's session.
 #
-# comments begin with `#`.
-# Blocks start with `name:` and end with `end`.
-# Strings use quotes: "example".
-# Lists use brackets: ["item1", "item2"]
-#
-# Any option set to `None` or `null` is treated internally as
-# either false or null, depending on the field
-#
-# Top-level variables such as these can be reused throughout
-# the configuration file.
-#
-# Environment variables applied to programs launched
-# during Halley's session.
+# This is commonly used for cursor theme/size and other
+# desktop-session level defaults inherited by child apps.
 env:
   XCURSOR_THEME "Adwaita"
   XCURSOR_SIZE "24"
 end
 
-# Programs to launch automatically when Halley starts.
+# Programs started automatically by Halley.
 #
-# `once` runs the command only on startup
-# `on-reload` runs whenever the config is reloaded
-#
-# Common examples include bars, notification daemons,
-# clipboard managers, and background utilities.
-#
+# `once` runs only during compositor startup.
+# `on-reload` runs again whenever the config reloads.
 autostart:
-  once "mako"
-  once "gessod"
   once "waybar"
-  once "stasis"
+
+  #once "mako"
+  #once "gessod"
+  #once "capitd"
+
+  # Example:
+  #on-reload "thunderbird"
 end
 
-# Cursor appearance and behavior.
+# Viewports describe physical monitors and the visible
+# region Halley should manage on each one.
 #
-# These settings affect both the compositor cursor
-# and most applications.
-cursor:
-  theme "Adwaita"
-  size 24
-  hide-while-typing true
-end
-
-# Viewports represent physical monitors.
-#
-# Each viewport shows a portion of Halley's infinite
-# spatial field. Each monitor is an entire field
-# of it's own. Windows can traverse monitors
-# via a keybind configured below.
-#
-# Use `halleyctl outputs` to list available monitors.
-#
+# Each monitor owns its own field space. Crossing between
+# monitors is a transfer between spaces rather than a single
+# continuous desktop stretched across outputs.
 viewport:
   DP-1:
     enabled true
     
+    # Output position in the global monitor arrangement.
     offset-x 0
     offset-y 0
     
+    # Logical output size used by the compositor.
     width 2560
     height 1440
     
+    # Preferred refresh rate in Hz.
     rate 180.0
+
+    # Output transform / rotation.
+    # Usually 0 for normal orientation.
     transform 0
+
+    # Variable refresh rate policy for this output.
     vrr "on"
 
+    # The focus ring defines the primary active area.
+    #
+    # Windows inside or near this region are candidates
+    # to remain expanded and interactive. Windows far
+    # outside it may decay into nodes.
     focus-ring:
-      primary-rx 1020.0
-      primary-ry 520.0
+      # Horizontal and vertical radii of the focus area.
+      primary-rx 820.0
+      primary-ry 420.0
+
+      # Offset lets the ring sit slightly away from the
+      # exact monitor centre if desired.
       offset-x 0
       offset-y 0
     end
@@ -79,8 +73,8 @@ viewport:
 
   #DP-2:
   #  enabled true
-  # 
-  #  offset-x 2560
+  #  
+  #  offset-x 0
   #  offset-y 0
   #  
   #  width 1920
@@ -91,256 +85,321 @@ viewport:
   #  vrr "off"
   #
   #  focus-ring:
-  #    primary-rx 920.0
-  #    primary-ry 520.0
+  #    primary-rx 820.0
+  #    primary-ry 420.0
   #    offset-x 0
   #    offset-y 0
   #  end
   #end
 end
 
-# The Field is Halley's infinite workspace
+# The field is Halley's spatial workspace.
 #
-# These options control how the camera moves
-# through the field.
+# These settings affect how windows are placed and how the
+# camera behaves while moving through the world.
 field:
+  # Default spacing kept between placed windows.
   gap 20.0
+
+  # Maximum number of fully active windows Halley should
+  # allow before preferring more reduced states.
   active-windows-allowed 5
+
+  # Controls whether opening a new window may pan the view.
+  #
+  # "if-needed" only moves the camera when the new window
+  # would otherwise appear outside the current view.
   pan-to-new "if-needed"
+
+  # When closing a focused window, attempt to restore focus
+  # to the most relevant previous target.
   close-restore-focus true
+
+  # Controls whether focus restoration may also restore pan.
+  #
+  # "if-offscreen" only moves the camera if the restored
+  # focus target is currently outside the visible area.
   close-restore-pan "if-offscreen"
+
+  # Zoom tuning for navigating the field.
+  zoom:
+    # Maximum allowed zoom-in level.
+    max-in 2.50
+
+    # Maximum allowed zoom-out level.
+    max-out 0.35
+
+    # Increment used by zoom-in and zoom-out commands.
+    step 0.10
+
+    # Scale restored by zoom-reset.
+    reset 1.0
+
+    # Clamp zoom to the configured range.
+    clamp true
+  end
 end
 
-# Nodes are collapsed versions of windows.
+# Nodes are collapsed representations of windows.
 #
-# When windows move far away from the focus ring
-# they may shrink into nodes to reduce clutter.
-nodes:
-  # Display labels when nodes are visible
+# They keep distant or inactive content present in the field
+# without occupying the full space of a live window.
+node:
+  # Controls when node labels are shown.
+  #
+  # "hover" keeps the field quieter while still making
+  # names easy to inspect on demand.
   show-labels "hover"
-  show-app-icons "always"
-  icon-size 0.62
 
+  # Controls when application icons appear on nodes.
+  show-app-icons "always"
+
+  # Icon size as a fraction of the node diameter.
+  icon-size 0.72
+
+  # Node fill colour.
+  #
+  # "auto" derives the background from the active node or
+  # border styling so the node remains visually related to
+  # its source window.
   background-colour "auto"
+
+  # Border colour used while hovering a node.
   border-colour-hover "use-window-active"
+
+  # Border colour used in the normal inactive state.
   border-colour-inactive "use-window-inactive"
 
+  # Action to perform when clicking a collapsed node that is
+  # currently outside the focus area.
   click-collapsed-outside-focus "activate"
+
+  # Controls whether clicking a collapsed node may also pan
+  # the camera to bring it into view.
   click-collapsed-pan "if-offscreen"
 end
 
-# Trail stores the history of focused windows.
-# This allows quick navigation backwards and forwards
-# through previously focused windows.
-trail:
-  history-length 25
-  wrap true
-end
-
-bearings:
-  show-distance true
-  show-icons true
-  fade-distance 1200
-end
-
+# Decay controls how quickly windows move between more active
+# and more reduced representations.
 decay:
+  # Delay before a previously active window decays.
   active-delay 120
+
+  # Delay for less important inactive windows.
   inactive-delay 30
 end
 
-clusters:
-  cluster-dwell-ms 2000
-  bloom-direction "clockwise"
+# Trail stores recent focus history for back/forward style
+# navigation between previously used windows or nodes.
+trail:
+  # Maximum number of history entries retained.
+  history-length 25
+
+  # When true, moving past the end wraps around.
+  wrap true
+end
+
+# Bearings are edge indicators for off-screen items.
+#
+# They help you locate windows, nodes, or clusters that are
+# nearby but currently outside the visible region.
+bearings:
+  # Show approximate distance to the target.
+  show-distance true
+
+  # Show the application's icon when available.
   show-icons true
 
-  startup:
-    dev:
-      launch: ["kitty", "firefox"]
-
-      place "around-focus-ring"
-
-      layout "tile"
-    end
-  end
-
-  default-layout "stacking"
+  # Distance at which bearings begin fading.
+  fade-distance 1200
 end
 
+# Cluster settings control workspace-like grouping behavior.
+clusters:
+  # Distance threshold used for cluster grouping logic.
+  distance-px 280.0
+
+  # Default ordering used when blooming items around a core.
+  bloom-direction "clockwise"
+
+  # Show icons for clusters where supported.
+  show-icons true
+end
+
+# Tile layout settings used when a cluster enters tiled mode.
 tile:
-  new-on-top true
-  gaps-inner 10
-  gaps-outer 10
-  auto-fill true
+  # Space between tiled windows.
+  gaps-inner 20
+
+  # Space between the outer tile boundary and windows.
+  gaps-outer 20
+
+  # Show icons in the queue / tile UI where applicable.
+  queue-show-icons true
+
+  # Maximum number of open tiled items shown at once.
+  max-open 5
 end
 
-# Stacked layout used inside clusters.
+# Stacking layout used inside clusters.
 #
-# Typically behaves similar to tabbed or mobile
-# style window stacks.
-#
+# Intended for tab-like or app-switcher-style presentation
+# where one item is primary and others remain in an ordered
+# stack.
 stacking:
 end
 
+# Physics smooths motion and interactions in the field.
 physics:
   enabled true
-  damping 0.15
+
+  # Higher values damp movement faster.
+  damping 0.35
 end
 
+# Animation toggles and per-event animation groups.
 animations:
   enabled true
 
+  # Animation used when opening standard windows.
   window-open:
     enabled true
   end
 
+  # Animation used when closing standard windows.
   window-close:
   end
 
+  # Animation used when opening layer-shell surfaces.
   layer-open:
   end
 
+  # Animation used when closing layer-shell surfaces.
   layer-close:
   end
 
+  # Animation used while rearranging tiled layouts.
   tile-rearange:
   end
 end
 
-physics:
-  enabled true
-
-  # Higher values reduce movement speed faster
-  damping 0.85
-end
-
+# Window border and server-side decoration behavior.
 decorations:
   border-size 3
+  border-radius 0
   border-colour-focused "#fd5e53"
   border-colour-unfocused "#333333"
-  border-radius 0
+
+  # Allows resizing by grabbing the compositor border region.
   resize-using-border true
 
-  shadow:
-  end
-
-  # Post v0.1.0 Release
-  blur:
-  end
-  
+  # Rounded borders force server-side decorations so clients
+  # like GTK or Firefox do not draw a square client-side frame
+  # inside Halley's rounded outer shape.
   no-csd true
 end
 
-# Keyboard shortcuts.
+# Keyboard and pointer shortcuts.
 #
-# Keybinds use the format:
-#
-# "modifier+key" "command"
-#
+# Bindings may be context-sensitive. The same chord can be
+# reused by more specific modes if Halley resolves only the
+# highest-priority matching action for the current context.
 keybinds:
   mod "super"
 
-  # Basic compositor controls
-  "$var.mod+r" "reload"
+  # Basic compositor controls.
+  "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
   "$var.mod+q" "close-focused"
 
-  # Quit Halley
-  "$var.mod+shift+e" "quit"
-
-  # Zooming
+  # Field zoom controls.
   "$var.mod+mousewheelup" "zoom-in"
   "$var.mod+mousewheeldown" "zoom-out"
   "$var.mod+middlemouse" "zoom-reset"
 
-  # Move the newest node in a direction
-  "$var.mod+h" "move-left"
-  "$var.mod+l" "move-right"
-  "$var.mod+k" "move-up"
-  "$var.mod+j" "move-down"
+  # Quit Halley.
+  "$var.mod+shift+e" "quit"
 
-  # Switch monitor focus
-  "$var.mod+shift+h" "monitor-focus left"
-  "$var.mod+shift+l" "monitor-focus right"
+  # Move the selected or latest node in the field.
+  "$var.mod+left" "node-move left"
+  "$var.mod+right" "node-move right"
+  "$var.mod+up" "node-move up"
+  "$var.mod+down" "node-move down"
 
-  # Cluster mode
+  # Move focus between monitors.
+  "$var.mod+shift+left" "monitor-focus left"
+  "$var.mod+shift+right" "monitor-focus right"
+  "$var.mod+shift+up" "monitor-focus up"
+  "$var.mod+shift+down" "monitor-focus down"
+
+  # Enter cluster mode for grouping windows.
   "$var.mod+shift+c" "cluster-mode"
 
-  # Trail system
-  "$var.mod+shift+," "trail-prev"
-  "$var.mod+shift+." "trail-next"
-
-  # Bearings system
+  # Bearings controls.
   "$var.mod+z" "bearings-show"
   "$var.mod+shift+z" "bearings-toggle"
 
-  "$var.mod+shift+mouseleft" "field-jump"
+  # Trail navigation.
+  "$var.mod+," "trail-prev"
+  "$var.mod+." "trail-next"
 
-  # Tile
-  "$var.mod+left" "focus-tile-left"
-  "$var.mod+right" "focus-tile-right"
-  "$var.mod+up" "focus-tile-up"
-  "$var.mod+down" "focus-tile-down"
-
-  # Stacking
-  "alt+tab" "stack-next"
-  "alt+shift+tab" "stack-prev"
-
-  # Applications
+  # Application launchers.
   "$var.mod+return" "kitty"
   "$var.mod+d" "fuzzel"
 
-  # Post v0.1.0 Release
-  #"$var.mod+l" "lens"
-  #"$var.mod+" "aperture"
+  # Direct pointer-driven window and field actions.
+  "$var.mod+leftmouse" "move-window"
+  "$var.mod+rightmouse" "resize-window"
+  "$var.mod+shift+leftmouse" "field-jump"
 
-  # Media
-  "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"
-  "XF86AudioLowerVolume" "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
-  "XF86AudioMute" "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+  # Tile layout navigation.
+  "$var.mod+left" "tile-focus left"
+  "$var.mod+right" "tile-focus right"
+  "$var.mod+up" "tile-focus up"
+  "$var.mod+down" "tile-focus down"
+
+  # Tile swaps.
+  "$var.mod+shift+left" "tile-swap left"
+  "$var.mod+shift" "tile-swap right"
+  "$var.mod+shift+up" "tile-swap up"
+  "$var.mod+shift+sdown" "tile-swap down"
+
+  # Stack / field cycling.
+  "alt+tab" "node-focus-cycle"
+
+  # Media controls.
+  "xf86audioraisevolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
+  "xf86audiolowervolume" "wpctl set-volume @default_audio_sink@ 5%-"
+  "xf86audiomute" "wpctl set-mute @default_audio_sink@ toggle"
 end
 
-# Rules allow matching specific applications
-# and applying behaviour automatically.
+# Rules match windows and apply special behavior automatically.
+#
+# Useful for floating utility surfaces, transient dialogs,
+# picture-in-picture windows, and other windows that should
+# not follow default field placement rules.
 rules:
-  file-picker:
-    title "Open File"
-    overlap-policy "parent"
-    spawn-position "preserve-request"
-    pan-into-view "never"
-    focus-behavior "focus-on-open"
-  end
+  rule:
+    # Match one or more exact titles or title patterns.
+    title ["Picture-in-Picture", r"File Upload.*"]
 
-  picture-in-picture:
-    app-id ""
-    title "Picture-in-Picture"
-    overlap-scope "all"
-    spawn-position "center-parent"
-    pan-into-view "never"
-    focus-behavior "focus-on-open"
+    # Controls overlap permissions for matched windows.
+    overlap-policy "all"
+
+    # Use the application's requested placement when possible.
+    spawn-position "app"
+
+    # Exclude matched windows from normal cluster participation.
+    cluster-participation "float"
   end
 end
 
+# Debugging aids intended for normal development use.
 debug:
   # Post v0.1.0
   overlay-fps false
 
-  # Show focus ring while resizing it, including after resizing in config
+  # Shows the focus ring while resizing or retuning it so
+  # adjustments are easier to see live.
   show-ring-when-resizing true
-end
-
-dev:
-  enabled true
-  show_geometry_overlay false
-  debug_tick_dump true
-  debug_dump_every_ms 1000
-
-  runtime:
-    tick-ms 200
-  end
-
-  anim:
-    enabled true
-    state_change_ms 360
-    bounce 1.45
-  end
 end

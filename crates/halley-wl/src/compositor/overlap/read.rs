@@ -2,6 +2,7 @@ use super::*;
 use crate::animation::{ease_in_out_cubic, proxy_anim_scale};
 use crate::compositor::interaction::state::InteractionState;
 use crate::compositor::monitor::state::MonitorState;
+use crate::compositor::spawn::state::SpawnState;
 use crate::compositor::workspace::state::WorkspaceState;
 use crate::render::state::RenderState;
 use crate::render::{active_window_frame_pad_px, preview_proxy_size};
@@ -62,6 +63,7 @@ pub(super) struct OverlapReadContext<'a> {
     pub(super) field: &'a Field,
     pub(super) monitor_state: &'a MonitorState,
     pub(super) interaction_state: &'a InteractionState,
+    pub(super) spawn_state: &'a SpawnState,
     pub(super) render_state: &'a RenderState,
     pub(super) workspace_state: &'a WorkspaceState,
     pub(super) tuning: &'a RuntimeTuning,
@@ -153,12 +155,28 @@ impl<'a> OverlapReadContext<'a> {
 
     #[inline]
     pub(crate) fn nodes_share_overlap_group(&self, a: NodeId, b: NodeId) -> bool {
+        if self.node_allows_overlap_with(a, b) || self.node_allows_overlap_with(b, a) {
+            return false;
+        }
         match (
             self.monitor_state.node_monitor.get(&a),
             self.monitor_state.node_monitor.get(&b),
         ) {
             (Some(a_monitor), Some(b_monitor)) => a_monitor == b_monitor,
             _ => true,
+        }
+    }
+
+    fn node_allows_overlap_with(&self, id: NodeId, other: NodeId) -> bool {
+        let Some(rule) = self.spawn_state.applied_window_rules.get(&id) else {
+            return false;
+        };
+        match rule.overlap_policy {
+            halley_config::InitialWindowOverlapPolicy::None => false,
+            halley_config::InitialWindowOverlapPolicy::ParentOnly => {
+                rule.parent_node == Some(other)
+            }
+            halley_config::InitialWindowOverlapPolicy::All => true,
         }
     }
 

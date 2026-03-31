@@ -13,6 +13,7 @@ use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 use crate::activity::CommitActivity;
 use crate::compositor::ctx::SurfaceLifecycleCtx;
 use crate::compositor::root::Halley;
+use crate::compositor::spawn::rules::InitialWindowIntent;
 use crate::compositor::surface_ops::is_active_cluster_workspace_member;
 
 pub(crate) fn refresh_surface_identity(
@@ -36,8 +37,9 @@ pub(crate) fn ensure_node_for_surface(
     surface: &WlSurface,
     label: &str,
     size_px: (i32, i32),
+    intent: &InitialWindowIntent,
 ) -> NodeId {
-    ensure_node_for_surface_impl(ctx.st, surface, label, size_px)
+    ensure_node_for_surface_impl(ctx.st, surface, label, size_px, intent)
 }
 
 #[allow(dead_code)]
@@ -182,6 +184,8 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
                 .spawn_state
                 .pending_spawn_activate_at_ms
                 .remove(&id);
+            st.model.spawn_state.applied_window_rules.remove(&id);
+            st.model.spawn_state.pending_rule_rechecks.remove(&id);
             st.model
                 .workspace_state
                 .active_transition_until_ms
@@ -228,33 +232,6 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
     st.runtime.surface_activity.retain(|k, _| alive.contains(k));
 }
 
-fn predicted_spawn_target_monitor(st: &Halley) -> String {
-    st.model
-        .spawn_state
-        .pending_spawn_monitor
-        .as_ref()
-        .filter(|monitor| {
-            st.model
-                .monitor_state
-                .monitors
-                .contains_key(monitor.as_str())
-        })
-        .cloned()
-        .unwrap_or_else(|| {
-            let focused = st.focused_monitor().to_string();
-            if st
-                .model
-                .monitor_state
-                .monitors
-                .contains_key(focused.as_str())
-            {
-                focused
-            } else {
-                st.interaction_monitor().to_string()
-            }
-        })
-}
-
 fn exit_monitor_fullscreen_for_new_toplevel(st: &mut Halley, monitor: &str, now: Instant) {
     if let Some(existing) = st
         .model
@@ -265,6 +242,17 @@ fn exit_monitor_fullscreen_for_new_toplevel(st: &mut Halley, monitor: &str, now:
     {
         st.exit_xdg_fullscreen(existing, now);
     }
+}
+
+fn should_join_active_cluster_layout(
+    active_cluster: bool,
+    stack_mode_open: bool,
+    intent: &InitialWindowIntent,
+) -> bool {
+    active_cluster
+        && !stack_mode_open
+        && intent.rule.cluster_participation
+            == halley_config::InitialWindowClusterParticipation::Layout
 }
 
 #[inline]
@@ -354,6 +342,55 @@ fn refresh_node_identity_for_surface(st: &mut Halley, surface: &WlSurface, fallb
             st.model.node_app_ids.remove(&node_id);
         }
     }
+
+    maybe_apply_pending_initial_window_rule(st, node_id, &root_surface, Instant::now());
+}
+
+fn maybe_apply_pending_initial_window_rule(
+    st: &mut Halley,
+    node_id: NodeId,
+    root_surface: &WlSurface,
+    now: Instant,
+) {
+    if !st.model.spawn_state.pending_rule_rechecks.contains(&node_id) {
+        return;
+    }
+    let intent = crate::compositor::spawn::rules::resolve_initial_window_intent_for_surface(st, root_surface);
+    if !intent.matched_rule {
+        return;
+    }
+    let monitor = st
+        .model
+        .monitor_state
+        .node_monitor
+        .get(&node_id)
+        .cloned()
+        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    if st.cluster_bloom_for_monitor(monitor.as_str()).is_some() {
+        st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
+        return;
+    }
+
+    if intent.rule.cluster_participation == halley_config::InitialWindowClusterParticipation::Float
+        && let Some(cid) = st.model.field.cluster_id_for_member_public(node_id)
+        && st.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(cid)
+        && let Some(pos) = st.model.field.node(node_id).map(|node| node.pos)
+    {
+        let _ = st.detach_member_from_cluster(cid, node_id, pos, now);
+        st.assign_node_to_monitor(node_id, monitor.as_str());
+    }
+
+    if let Some(size) = st.model.field.node(node_id).map(|node| node.intrinsic_size) {
+        let (_, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
+        let _ = st.model.field.carry(node_id, pos);
+    }
+
+    st.set_recent_top_node(node_id, now + std::time::Duration::from_millis(1200));
+    st.model
+        .spawn_state
+        .applied_window_rules
+        .insert(node_id, intent.applied_rule_for_node());
+    st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
 }
 
 fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
@@ -469,6 +506,7 @@ fn ensure_node_for_surface_impl(
     surface: &WlSurface,
     label: &str,
     size_px: (i32, i32),
+    intent: &InitialWindowIntent,
 ) -> NodeId {
     let key = surface_key(surface);
     if let Some(id) = st.model.surface_to_node.get(&key).copied() {
@@ -479,9 +517,15 @@ fn ensure_node_for_surface_impl(
         x: size_px.0.max(64) as f32,
         y: size_px.1.max(64) as f32,
     };
-    let predicted_monitor = predicted_spawn_target_monitor(st);
+    let predicted_monitor = st.spawn_target_monitor_for_intent(intent);
     let now = Instant::now();
     exit_monitor_fullscreen_for_new_toplevel(st, predicted_monitor.as_str(), now);
+    let stack_mode_open = st.cluster_bloom_for_monitor(predicted_monitor.as_str()).is_some();
+    let effective_intent = if stack_mode_open {
+        intent.bypassed()
+    } else {
+        intent.clone()
+    };
     let active_cluster = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str());
     let previous_overflow_len = active_cluster
         .and_then(|cid| {
@@ -491,7 +535,13 @@ fn ensure_node_for_surface_impl(
                 .map(|cluster| cluster.overflow_members().len())
         })
         .unwrap_or(0);
-    let (monitor, id, needs_pan, spawned_in_active_cluster) = if let Some(cid) = active_cluster {
+    let join_cluster_layout = should_join_active_cluster_layout(
+        active_cluster.is_some(),
+        stack_mode_open,
+        &effective_intent,
+    );
+    let (monitor, id, needs_pan, spawned_in_active_cluster) = if join_cluster_layout {
+        let cid = active_cluster.expect("checked");
         match st
             .model
             .field
@@ -499,17 +549,26 @@ fn ensure_node_for_surface_impl(
         {
             Ok(id) => (predicted_monitor, id, false, true),
             Err(_) => {
-                let (monitor, pos, needs_pan) = st.pick_spawn_position(size);
+                let (monitor, pos, needs_pan) =
+                    st.pick_spawn_position_with_intent(size, &effective_intent);
                 let id = st.model.field.spawn_surface(label.to_string(), pos, size);
                 (monitor, id, needs_pan, false)
             }
         }
     } else {
-        let (monitor, pos, needs_pan) = st.pick_spawn_position(size);
+        let (monitor, pos, needs_pan) = st.pick_spawn_position_with_intent(size, &effective_intent);
         let id = st.model.field.spawn_surface(label.to_string(), pos, size);
         (monitor, id, needs_pan, false)
     };
     st.assign_node_to_monitor(id, monitor.as_str());
+    if effective_intent.matched_rule {
+        st.model
+            .spawn_state
+            .applied_window_rules
+            .insert(id, effective_intent.applied_rule_for_node());
+    } else if crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &effective_intent) {
+        st.model.spawn_state.pending_rule_rechecks.insert(id);
+    }
     let _ = st
         .model
         .field
@@ -584,6 +643,8 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
             .spawn_state
             .pending_spawn_activate_at_ms
             .remove(&id);
+        st.model.spawn_state.applied_window_rules.remove(&id);
+        st.model.spawn_state.pending_rule_rechecks.remove(&id);
         st.model
             .workspace_state
             .active_transition_until_ms
@@ -622,6 +683,7 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compositor::spawn::rules::{InitialWindowIntent, ResolvedInitialWindowRule};
 
     #[test]
     fn committed_window_geometry_prefers_xdg_geometry_size() {
@@ -723,5 +785,33 @@ mod tests {
                 .get("right"),
             Some(&fullscreen_right)
         );
+    }
+
+    #[test]
+    fn tiled_cluster_layout_participation_honors_layout_and_float() {
+        let layout_intent = InitialWindowIntent {
+            app_id: Some("firefox".to_string()),
+            title: None,
+            parent_node: None,
+            rule: ResolvedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
+            },
+            matched_rule: true,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+        let float_intent = InitialWindowIntent {
+            rule: ResolvedInitialWindowRule {
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                ..layout_intent.rule
+            },
+            ..layout_intent.clone()
+        };
+
+        assert!(should_join_active_cluster_layout(true, false, &layout_intent));
+        assert!(!should_join_active_cluster_layout(true, false, &float_intent));
+        assert!(!should_join_active_cluster_layout(true, true, &layout_intent));
     }
 }

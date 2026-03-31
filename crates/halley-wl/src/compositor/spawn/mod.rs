@@ -11,4 +11,5 @@ use crate::compositor::root::Halley;
 
 pub mod read;
 pub mod reveal;
+pub mod rules;
 pub mod state;

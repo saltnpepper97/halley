@@ -24,9 +24,10 @@ use smithay::wayland::shell::wlr_layer::{
 pub(super) fn initial_toplevel_size(
     st: &mut Halley,
     toplevel: &ToplevelSurface,
+    intent: &spawn::rules::InitialWindowIntent,
 ) -> spawn::reveal::InitialToplevelSize {
     let mut ctx = st.spawn_ctx();
-    spawn::reveal::initial_toplevel_size(&mut ctx, toplevel)
+    spawn::reveal::initial_toplevel_size(&mut ctx, toplevel, intent)
 }
 
 pub(super) fn constrain_layer_popup(

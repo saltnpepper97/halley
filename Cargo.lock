@@ -948,6 +948,7 @@ name = "halley-config"
 version = "0.1.0"
 dependencies = [
  "halley-core",
+ "regex",
  "rune-cfg",
 ]
 
@@ -979,6 +980,7 @@ dependencies = [
  "once_cell",
  "pollster",
  "postcard",
+ "regex",
  "resvg",
  "rustix 1.1.4",
  "serde",

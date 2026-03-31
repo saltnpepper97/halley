@@ -1,7 +1,7 @@
 use super::*;
 use crate::compositor::overlap::physics::{
-    CONTACT_SKIN, MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON, POSITION_SOLVER_ITERS,
-    resolve_contact_pair,
+    resolve_contact_pair, CONTACT_SKIN, MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON,
+    POSITION_SOLVER_ITERS,
 };
 pub(crate) use crate::compositor::overlap::read::CollisionExtents;
 use crate::compositor::overlap::read::OverlapReadContext;
@@ -14,6 +14,7 @@ fn overlap_read_context(st: &Halley) -> OverlapReadContext<'_> {
         field: &st.model.field,
         monitor_state: &st.model.monitor_state,
         interaction_state: &st.input.interaction_state,
+        spawn_state: &st.model.spawn_state,
         render_state: &st.ui.render_state,
         workspace_state: &st.model.workspace_state,
         tuning: &st.runtime.tuning,

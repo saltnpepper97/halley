@@ -1,6 +1,9 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
+use halley_config::{
+    InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
+};
 use halley_core::decay::DecayLevel;
 use halley_core::field::{NodeId, Vec2};
 
@@ -39,6 +42,15 @@ pub(crate) struct ActiveSpawnPan {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct AppliedInitialWindowRule {
+    pub(crate) overlap_policy: InitialWindowOverlapPolicy,
+    pub(crate) spawn_placement: InitialWindowSpawnPlacement,
+    pub(crate) cluster_participation: InitialWindowClusterParticipation,
+    pub(crate) parent_node: Option<NodeId>,
+    pub(crate) suppress_reveal_pan: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SpawnAnchorMode {
     Focus,
     View,
@@ -73,6 +85,15 @@ pub(crate) struct SpawnState {
     pub(crate) per_monitor: HashMap<String, MonitorSpawnState>,
     pub(crate) pending_spawn_pan_queue: VecDeque<PendingSpawnPan>,
     pub(crate) active_spawn_pan: Option<ActiveSpawnPan>,
+    pub(crate) applied_window_rules: HashMap<NodeId, AppliedInitialWindowRule>,
+    pub(crate) pending_rule_rechecks: HashSet<NodeId>,
+}
+
+pub(crate) fn is_persistent_rule_top(st: &Halley, node_id: NodeId) -> bool {
+    st.model
+        .spawn_state
+        .applied_window_rules
+        .contains_key(&node_id)
 }
 
 pub(crate) fn default_spawn_view_anchor_for_monitor(st: &Halley, monitor: &str) -> Vec2 {

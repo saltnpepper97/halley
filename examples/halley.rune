@@ -8,6 +8,7 @@ autostart:
 
   #once "mako"
   #once "gessod"
+  #once "capitd"
 
   # Example:
   #on-reload "thunderbird"
@@ -109,11 +110,35 @@ tile:
   gaps-inner 20
   gaps-outer 20
   queue-show-icons true
+  max-open 5
+end
+
+stacking:
 end
 
 physics:
   enabled true
   damping 0.35
+end
+
+animations:
+  enabled true
+
+  window-open:
+    enabled true
+  end
+
+  window-close:
+  end
+
+  layer-open:
+  end
+
+  layer-close:
+  end
+
+  tile-rearange:
+  end
 end
 
 decorations:
@@ -154,7 +179,7 @@ keybinds:
   "$var.mod+shift+up" "monitor-focus up"
   "$var.mod+shift+down" "monitor-focus down"
 
-  # cluster mode
+  # cluster mode (workspaces)
   "$var.mod+shift+c" "cluster-mode"
 
   # bearings
@@ -177,13 +202,34 @@ keybinds:
   "$var.mod+right" "tile-focus right"
   "$var.mod+up" "tile-focus up"
   "$var.mod+down" "tile-focus down"
+
   "$var.mod+shift+left" "tile-swap left"
   "$var.mod+shift" "tile-swap right"
   "$var.mod+shift+up" "tile-swap up"
   "$var.mod+shift+sdown" "tile-swap down"
 
+  # Stacking + Field
+  "alt+tab" "node-focus-cycle"
+
   # media
   "xf86audioraisevolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
   "xf86audiolowervolume" "wpctl set-volume @default_audio_sink@ 5%-"
   "xf86audiomute" "wpctl set-mute @default_audio_sink@ toggle"
+end
+
+rules:
+  rule:
+    title ["Picture-in-Picture", r"File Upload.*"]
+    overlap-policy "all"
+    spawn-position "app"
+    cluster-participation "float"
+  end
+end
+
+debug:
+  # Post v0.1.0
+  overlay-fps false
+
+  # Show focus ring while resizing it, including after resizing in config
+  show-ring-when-resizing true
 end

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use crate::keybinds::{WHEEL_DOWN_CODE, WHEEL_UP_CODE, key_name_to_evdev};
+use crate::keybinds::{key_name_to_evdev, WHEEL_DOWN_CODE, WHEEL_UP_CODE};
 use halley_core::decay::FocusRingDecayPolicy;
 use halley_core::field::Vec2;
 use halley_core::viewport::{FocusRing, Viewport};
@@ -88,10 +88,77 @@ pub struct BearingsConfig {
     pub fade_distance: f32,
 }
 
+use regex::Regex;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClusterBloomDirection {
     Clockwise,
     CounterClockwise,
+}
+
+#[derive(Clone, Debug)]
+pub enum WindowRulePattern {
+    Exact(String),
+    Regex(Regex),
+}
+
+impl PartialEq for WindowRulePattern {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Exact(a), Self::Exact(b)) => a == b,
+            (Self::Regex(a), Self::Regex(b)) => a.as_str() == b.as_str(),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for WindowRulePattern {}
+
+impl WindowRulePattern {
+    pub fn matches(&self, value: &str) -> bool {
+        match self {
+            Self::Exact(exact) => exact == value,
+            Self::Regex(regex) => regex.is_match(value),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Exact(exact) => exact.as_str(),
+            Self::Regex(regex) => regex.as_str(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitialWindowOverlapPolicy {
+    None,
+    ParentOnly,
+    All,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitialWindowSpawnPlacement {
+    Center,
+    Adjacent,
+    ViewportCenter,
+    Cursor,
+    App,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitialWindowClusterParticipation {
+    Layout,
+    Float,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WindowRule {
+    pub app_ids: Vec<WindowRulePattern>,
+    pub titles: Vec<WindowRulePattern>,
+    pub overlap_policy: InitialWindowOverlapPolicy,
+    pub spawn_placement: InitialWindowSpawnPlacement,
+    pub cluster_participation: InitialWindowClusterParticipation,
 }
 
 #[derive(Clone, Debug)]
@@ -159,6 +226,7 @@ pub struct RuntimeTuning {
     pub restore_last_active_on_pan_return: bool,
     pub physics_enabled: bool,
     pub no_csd: bool,
+    pub window_rules: Vec<WindowRule>,
 
     pub keybinds: Keybinds,
     pub compositor_bindings: Vec<CompositorBinding>,
@@ -286,6 +354,7 @@ impl Default for RuntimeTuning {
             restore_last_active_on_pan_return: true,
             physics_enabled: true,
             no_csd: false,
+            window_rules: Vec::new(),
 
             keybinds: Keybinds::default(),
             compositor_bindings: default_compositor_bindings(Keybinds::default().modifier),
