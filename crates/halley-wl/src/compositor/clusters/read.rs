@@ -1,7 +1,6 @@
 use super::*;
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::monitor::state::MonitorState;
-use crate::render::active_window_frame_pad_px;
 use halley_core::cluster::{CLUSTER_VISIBLE_CAPACITY, ClusterId};
 
 pub(super) struct ClusterReadController<'a> {
@@ -36,6 +35,7 @@ pub(super) struct ClusterLayoutPlan {
 }
 
 impl<'a> ClusterReadController<'a> {
+    const MASTER_WIDTH_FRAC: f32 = 0.6;
     const OVERFLOW_STRIP_PAD_PX: f32 = 18.0;
     const OVERFLOW_STRIP_W_PX: f32 = 56.0;
     const OVERFLOW_ICON_PAD_PX: f32 = 8.0;
@@ -92,19 +92,17 @@ impl<'a> ClusterReadController<'a> {
             .map(|space| space.usable_viewport)
     }
 
-    fn opened_cluster_world_rect_for_monitor(
+    fn cluster_layout_rects_for_count(
         &self,
-        monitor: &str,
-    ) -> Option<halley_core::tiling::Rect> {
-        let viewport = self.workspace_viewport_for_monitor(monitor)?;
-        Some(
-            halley_core::tiling::Rect {
-                x: viewport.center.x - viewport.size.x * 0.5,
-                y: viewport.center.y - viewport.size.y * 0.5,
-                w: viewport.size.x,
-                h: viewport.size.y,
-            }
-            .inset(self.tuning.tile_gaps_outer_px.max(0.0)),
+        viewport: halley_core::viewport::Viewport,
+        member_count: usize,
+    ) -> Vec<halley_core::tiling::Rect> {
+        direct_cluster_layout_rects(
+            viewport,
+            member_count.min(CLUSTER_VISIBLE_CAPACITY),
+            self.tuning.tile_gaps_outer_px.max(0.0),
+            self.tuning.tile_gaps_inner_px.max(0.0),
+            Self::MASTER_WIDTH_FRAC,
         )
     }
 
@@ -114,24 +112,16 @@ impl<'a> ClusterReadController<'a> {
         cid: ClusterId,
     ) -> Option<halley_core::tiling::Rect> {
         let cluster = self.field.cluster(cid)?;
-        let tile_rect = self.opened_cluster_world_rect_for_monitor(monitor)?;
-        let tile_inset = (self.tuning.tile_gaps_inner_px * 0.5
-            + active_window_frame_pad_px(self.tuning) as f32)
-            .clamp(4.0, 28.0);
-        let layout = cluster.workspace_layout(tile_rect);
+        let viewport = self.workspace_viewport_for_monitor(monitor)?;
         if cluster.members().len() >= CLUSTER_VISIBLE_CAPACITY {
-            return layout
-                .tiles
-                .iter()
-                .find(|tile| tile.id == cluster.members()[CLUSTER_VISIBLE_CAPACITY - 1])
-                .map(|tile| tile.rect.inset(tile_inset));
+            return self
+                .cluster_layout_rects_for_count(viewport, CLUSTER_VISIBLE_CAPACITY)
+                .into_iter()
+                .last();
         }
-        layout
-            .tiles
+        self.cluster_layout_rects_for_count(viewport, cluster.members().len() + 1)
             .into_iter()
-            .map(|tile| tile.rect)
             .last()
-            .map(|rect| rect.inset(tile_inset))
     }
 
     pub(super) fn overflow_strip_rect_for_monitor(
@@ -229,19 +219,144 @@ impl<'a> ClusterReadController<'a> {
             .get(monitor)
             .copied()?;
         let cluster = self.field.cluster(cid)?;
-        let world_rect = self.opened_cluster_world_rect_for_monitor(monitor)?;
-        let tile_inset = (self.tuning.tile_gaps_inner_px * 0.5
-            + active_window_frame_pad_px(self.tuning) as f32)
-            .clamp(4.0, 28.0);
-        let tiles = cluster
-            .workspace_layout(world_rect)
-            .tiles
+        let viewport = self.workspace_viewport_for_monitor(monitor)?;
+        let visible_members = cluster.visible_members();
+        let tiles = self
+            .cluster_layout_rects_for_count(viewport, visible_members.len())
             .into_iter()
-            .map(|tile| ClusterTilePlacement {
-                node_id: tile.id,
-                rect: tile.rect.inset(tile_inset),
-            })
+            .zip(visible_members.iter().copied())
+            .map(|(rect, node_id)| ClusterTilePlacement { node_id, rect })
             .collect::<Vec<_>>();
         Some(ClusterLayoutPlan { tiles })
+    }
+}
+
+fn direct_cluster_layout_rects(
+    viewport: halley_core::viewport::Viewport,
+    member_count: usize,
+    outer_gap: f32,
+    inner_gap: f32,
+    master_width_frac: f32,
+) -> Vec<halley_core::tiling::Rect> {
+    let member_count = member_count.min(CLUSTER_VISIBLE_CAPACITY);
+    if member_count == 0 {
+        return Vec::new();
+    }
+
+    let outer_gap = outer_gap.max(0.0);
+    let inner_gap = inner_gap.max(0.0);
+    let viewport_left = viewport.center.x - viewport.size.x * 0.5;
+    let viewport_top = viewport.center.y - viewport.size.y * 0.5;
+    let content_x = viewport_left + outer_gap;
+    let content_y = viewport_top + outer_gap;
+    let content_w = (viewport.size.x - outer_gap * 2.0).max(0.0);
+    let content_h = (viewport.size.y - outer_gap * 2.0).max(0.0);
+
+    if member_count == 1 {
+        return vec![halley_core::tiling::Rect {
+            x: content_x,
+            y: content_y,
+            w: content_w,
+            h: content_h,
+        }];
+    }
+
+    let split_w = (content_w - inner_gap).max(0.0);
+    let master_w = (split_w * master_width_frac.clamp(0.0, 1.0)).clamp(0.0, split_w);
+    let stack_w = (split_w - master_w).max(0.0);
+    let stack_x = content_x + master_w + inner_gap;
+    let stack_count = member_count - 1;
+
+    let mut rects = Vec::with_capacity(member_count);
+    rects.push(halley_core::tiling::Rect {
+        x: content_x,
+        y: content_y,
+        w: master_w,
+        h: content_h,
+    });
+
+    if stack_count == 1 {
+        rects.push(halley_core::tiling::Rect {
+            x: stack_x,
+            y: content_y,
+            w: stack_w,
+            h: content_h,
+        });
+        return rects;
+    }
+
+    let total_stack_gap = inner_gap * (stack_count.saturating_sub(1) as f32);
+    let stack_window_h = ((content_h - total_stack_gap).max(0.0)) / stack_count as f32;
+    let mut next_y = content_y;
+    let content_bottom = content_y + content_h;
+
+    for index in 0..stack_count {
+        let remaining = stack_count - index;
+        let h = if remaining == 1 {
+            (content_bottom - next_y).max(0.0)
+        } else {
+            stack_window_h.max(0.0)
+        };
+        rects.push(halley_core::tiling::Rect {
+            x: stack_x,
+            y: next_y,
+            w: stack_w,
+            h,
+        });
+        next_y += h + inner_gap;
+    }
+
+    rects
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_viewport() -> halley_core::viewport::Viewport {
+        halley_core::viewport::Viewport::new(
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        )
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() <= 0.01,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn two_window_layout_uses_full_height_and_exact_horizontal_gap() {
+        let rects = direct_cluster_layout_rects(test_viewport(), 2, 0.0, 10.0, 0.6);
+        assert_eq!(rects.len(), 2);
+
+        let master = rects[0];
+        let stack = rects[1];
+
+        assert_close(master.y, 0.0);
+        assert_close(master.h, 600.0);
+        assert_close(stack.y, 0.0);
+        assert_close(stack.h, 600.0);
+        assert_close(stack.x - master.right(), 10.0);
+    }
+
+    #[test]
+    fn three_window_layout_keeps_exact_vertical_stack_gap() {
+        let rects = direct_cluster_layout_rects(test_viewport(), 3, 10.0, 10.0, 0.6);
+        assert_eq!(rects.len(), 3);
+
+        let master = rects[0];
+        let upper = rects[1];
+        let lower = rects[2];
+
+        assert_close(master.x, 10.0);
+        assert_close(master.y, 10.0);
+        assert_close(master.bottom(), 590.0);
+        assert_close(upper.x - master.right(), 10.0);
+        assert_close(upper.y, 10.0);
+        assert_close(lower.y - upper.bottom(), 10.0);
+        assert_close(lower.bottom(), 590.0);
     }
 }

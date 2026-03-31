@@ -13,6 +13,7 @@ use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 use crate::activity::CommitActivity;
 use crate::compositor::ctx::SurfaceLifecycleCtx;
 use crate::compositor::root::Halley;
+use crate::compositor::surface_ops::is_active_cluster_workspace_member;
 
 pub(crate) fn refresh_surface_identity(
     ctx: &mut SurfaceLifecycleCtx<'_>,
@@ -392,32 +393,18 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                 .current()
                 .geometry
         });
-        if let Some(g) = geo {
-            st.ui.render_state.window_geometry.insert(
-                node_id,
-                (
-                    g.loc.x as f32,
-                    g.loc.y as f32,
-                    g.size.w.max(1) as f32,
-                    g.size.h.max(1) as f32,
-                ),
-            );
-        } else {
-            st.ui.render_state.window_geometry.insert(
-                node_id,
-                (
-                    bbox.loc.x as f32,
-                    bbox.loc.y as f32,
-                    bbox.size.w.max(1) as f32,
-                    bbox.size.h.max(1) as f32,
-                ),
-            );
+        let (window_geometry, new_size) = committed_window_geometry(
+            (bbox.loc.x, bbox.loc.y),
+            (bbox.size.w, bbox.size.h),
+            geo.map(|g| (g.loc.x, g.loc.y, g.size.w, g.size.h)),
+        );
+        st.ui
+            .render_state
+            .window_geometry
+            .insert(node_id, window_geometry);
+        if is_active_cluster_workspace_member(st, node_id) {
+            return;
         }
-
-        let new_size = Vec2 {
-            x: bbox.size.w.max(1) as f32,
-            y: bbox.size.h.max(1) as f32,
-        };
         let size_changed = st.model.field.node(node_id).is_some_and(|node| {
             (node.intrinsic_size.x - new_size.x).abs() > 0.5
                 || (node.intrinsic_size.y - new_size.y).abs() > 0.5
@@ -458,6 +445,23 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             }
         }
     }
+}
+
+fn committed_window_geometry(
+    bbox_loc: (i32, i32),
+    bbox_size: (i32, i32),
+    geometry: Option<(i32, i32, i32, i32)>,
+) -> ((f32, f32, f32, f32), Vec2) {
+    let (x, y, w, h) = geometry.unwrap_or((bbox_loc.0, bbox_loc.1, bbox_size.0, bbox_size.1));
+    let width = w.max(1) as f32;
+    let height = h.max(1) as f32;
+    (
+        (x as f32, y as f32, width, height),
+        Vec2 {
+            x: width,
+            y: height,
+        },
+    )
 }
 
 fn ensure_node_for_surface_impl(
@@ -618,6 +622,29 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn committed_window_geometry_prefers_xdg_geometry_size() {
+        let (geometry, size) =
+            committed_window_geometry((4, 6), (1200, 920), Some((12, 18, 840, 620)));
+
+        assert_eq!(geometry, (12.0, 18.0, 840.0, 620.0));
+        assert_eq!(size, Vec2 { x: 840.0, y: 620.0 });
+    }
+
+    #[test]
+    fn committed_window_geometry_falls_back_to_bbox_size() {
+        let (geometry, size) = committed_window_geometry((4, 6), (1200, 920), None);
+
+        assert_eq!(geometry, (4.0, 6.0, 1200.0, 920.0));
+        assert_eq!(
+            size,
+            Vec2 {
+                x: 1200.0,
+                y: 920.0
+            }
+        );
+    }
 
     #[test]
     fn new_toplevel_on_fullscreen_monitor_exits_only_that_monitor_fullscreen() {

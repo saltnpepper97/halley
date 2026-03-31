@@ -15,7 +15,8 @@ impl XdgDecorationHandler for Halley {
         toplevel.send_configure();
     }
 
-    fn request_mode(&mut self, toplevel: ToplevelSurface, mode: XdgDecorationMode) {
+    fn request_mode(&mut self, toplevel: ToplevelSurface, _mode: XdgDecorationMode) {
+        let mode = self.preferred_xdg_decoration_mode();
         toplevel.with_pending_state(|state| {
             state.decoration_mode = Some(mode);
             self.apply_toplevel_tiled_hint(state);
@@ -24,8 +25,9 @@ impl XdgDecorationHandler for Halley {
     }
 
     fn unset_mode(&mut self, toplevel: ToplevelSurface) {
+        let mode = self.preferred_xdg_decoration_mode();
         toplevel.with_pending_state(|state| {
-            state.decoration_mode = None;
+            state.decoration_mode = Some(mode);
             self.apply_toplevel_tiled_hint(state);
         });
         toplevel.send_configure();

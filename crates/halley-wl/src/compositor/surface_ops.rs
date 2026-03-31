@@ -6,6 +6,17 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use crate::compositor::root::Halley;
 
+pub(crate) fn is_active_cluster_workspace_member(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+) -> bool {
+    st.model
+        .field
+        .cluster_id_for_member_public(node_id)
+        .zip(st.model.monitor_state.node_monitor.get(&node_id))
+        .is_some_and(|(cid, monitor)| st.active_cluster_workspace_for_monitor(monitor) == Some(cid))
+}
+
 pub(crate) fn request_close_focused_toplevel(st: &mut Halley) -> bool {
     let Some(node_id) = st
         .last_focused_surface_node_for_monitor(st.focused_monitor())
@@ -170,4 +181,46 @@ pub(crate) fn window_geometry_for_node(
             node.intrinsic_size.y.max(1.0),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use halley_core::field::Vec2;
+    use smithay::reexports::wayland_server::Display;
+    use std::time::Instant;
+
+    #[test]
+    fn active_cluster_workspace_member_matches_current_monitor_workspace() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(master, monitor.as_str());
+        st.assign_node_to_monitor(stack, monitor.as_str());
+
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, monitor.as_str());
+
+        assert!(!is_active_cluster_workspace_member(&st, master));
+        assert!(st.toggle_cluster_workspace_by_core(core, Instant::now()));
+        assert!(is_active_cluster_workspace_member(&st, master));
+        assert!(is_active_cluster_workspace_member(&st, stack));
+        assert!(!is_active_cluster_workspace_member(&st, core));
+    }
 }

@@ -15,7 +15,9 @@ use smithay::{
 use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_back};
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::window_geometry_for_node;
+use crate::compositor::surface_ops::{
+    is_active_cluster_workspace_member, window_geometry_for_node,
+};
 use crate::input::active_resize_geometry_screen;
 
 use super::offscreen::render_surface_tree_to_texture;
@@ -49,6 +51,7 @@ pub(crate) struct ActiveBorderRect {
     pub y: i32,
     pub w: i32,
     pub h: i32,
+    pub outset: bool,
     pub inner_offset_x: f32,
     pub inner_offset_y: f32,
     pub inner_w: f32,
@@ -98,6 +101,23 @@ fn rect_from_local_geometry(
         (local_w * scale).round().max(1.0) as i32,
         (local_h * scale).round().max(1.0) as i32,
     )
+}
+
+fn effective_window_geometry_for_render(
+    local_geometry: (f32, f32, f32, f32),
+    node_intrinsic: halley_core::field::Vec2,
+    active_cluster_member: bool,
+) -> (f32, f32, f32, f32) {
+    if active_cluster_member {
+        (
+            0.0,
+            0.0,
+            node_intrinsic.x.max(1.0),
+            node_intrinsic.y.max(1.0),
+        )
+    } else {
+        local_geometry
+    }
 }
 
 fn offscreen_visual_crop_and_dst(
@@ -277,6 +297,7 @@ pub(crate) fn collect_active_surfaces(
         let node_pos = node.pos;
         let node_state = node.state.clone();
         let node_intrinsic = node.intrinsic_size;
+        let active_cluster_member = is_active_cluster_workspace_member(st, node_id);
         let transition_alpha = st.active_transition_alpha(node_id, now);
         let anim = crate::render::anim_style_for(st, node_id, node_state, now);
         let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
@@ -286,8 +307,8 @@ pub(crate) fn collect_active_surfaces(
             || recent_top_node == Some(node_id)
             || st.input.interaction_state.drag_authority_node == Some(node_id);
 
-        let (scale, live_ramp) = if draw_top_this_node {
-            (1.0f32, 1.0f32)
+        let (scale, live_ramp) = if draw_top_this_node || active_cluster_member {
+            (1.0f32 * fullscreen_entry_scale, 1.0f32)
         } else {
             let s = active_surface_render_scale(
                 anim.scale,
@@ -316,7 +337,11 @@ pub(crate) fn collect_active_surfaces(
             bbox.size.h.max(1) as f32,
         );
 
-        let local_geo = window_geometry_for_node(st, node_id).unwrap_or(local_bbox);
+        let local_geo = effective_window_geometry_for_render(
+            window_geometry_for_node(st, node_id).unwrap_or(local_bbox),
+            node_intrinsic,
+            active_cluster_member,
+        );
 
         let (cx, cy, sx, sy, texture_rect, geometry_rect) =
             if let Some(active_resize) = active_resize {
@@ -327,16 +352,21 @@ pub(crate) fn collect_active_surfaces(
             } else {
                 let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
 
-                let (gx, gy, gw, gh) = local_geo;
+                let (_, _, gw, gh) = local_geo;
                 let rw = (gw * render_scale).round().max(1.0) as i32;
                 let rh = (gh * render_scale).round().max(1.0) as i32;
                 let rx = cx - (rw / 2);
                 let ry = cy - (rh / 2);
 
-                let sx = rx - (gx * render_scale).round() as i32;
-                let sy = ry - (gy * render_scale).round() as i32;
+                let source_rect = if active_cluster_member {
+                    local_bbox
+                } else {
+                    local_geo
+                };
+                let sx = rx - (source_rect.0 * render_scale).round() as i32;
+                let sy = ry - (source_rect.1 * render_scale).round() as i32;
 
-                let texture_rect = rect_from_local_geometry(sx, sy, render_scale, local_bbox);
+                let texture_rect = rect_from_local_geometry(sx, sy, render_scale, source_rect);
                 let geometry_rect = (rx, ry, rw, rh);
 
                 (cx, cy, sx, sy, texture_rect, geometry_rect)
@@ -410,6 +440,7 @@ pub(crate) fn collect_active_surfaces(
             y: gy,
             w: gw.max(1),
             h: gh.max(1),
+            outset: !active_cluster_member,
             inner_offset_x: effective_border_px as f32,
             inner_offset_y: effective_border_px as f32,
             inner_w: gw.max(1) as f32,
@@ -873,4 +904,37 @@ pub(crate) fn collect_active_surfaces(
         overlay_points,
         overlap_overlay_rects,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn active_cluster_render_uses_tile_size() {
+        let local = effective_window_geometry_for_render(
+            (12.0, 18.0, 840.0, 620.0),
+            halley_core::field::Vec2 {
+                x: 1200.0,
+                y: 920.0,
+            },
+            true,
+        );
+
+        assert_eq!(local, (0.0, 0.0, 1200.0, 920.0));
+    }
+
+    #[test]
+    fn non_cluster_render_keeps_committed_geometry_size() {
+        let local = effective_window_geometry_for_render(
+            (12.0, 18.0, 840.0, 620.0),
+            halley_core::field::Vec2 {
+                x: 1200.0,
+                y: 920.0,
+            },
+            false,
+        );
+
+        assert_eq!(local, (12.0, 18.0, 840.0, 620.0));
+    }
 }

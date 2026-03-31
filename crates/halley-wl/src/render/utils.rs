@@ -306,8 +306,13 @@ pub(crate) fn sync_node_size_from_surface(
 ) -> Rectangle<i32, Logical> {
     let bbox = snapshot_surface_geometry(st, node_id, wl);
 
-    let bw = bbox.size.w.max(1) as f32;
-    let bh = bbox.size.h.max(1) as f32;
+    if crate::compositor::surface_ops::is_active_cluster_workspace_member(st, node_id) {
+        return bbox;
+    }
+
+    let (bw, bh) = crate::compositor::surface_ops::window_geometry_for_node(st, node_id)
+        .map(|(_, _, w, h)| (w.max(1.0), h.max(1.0)))
+        .unwrap_or((bbox.size.w.max(1) as f32, bbox.size.h.max(1) as f32));
 
     let now_ms = st.now_ms(Instant::now());
     let resize_static_active =

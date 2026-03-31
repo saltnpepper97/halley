@@ -67,40 +67,7 @@ impl Halley {
                 .monitor_state
                 .monitors
                 .get(monitor)
-                .map(|space| {
-                    if space.usable_viewport == space.viewport {
-                        return self.model.viewport;
-                    }
-                    let full = space.viewport;
-                    let usable = space.usable_viewport;
-                    let full_left = full.center.x - full.size.x * 0.5;
-                    let full_right = full.center.x + full.size.x * 0.5;
-                    let full_top = full.center.y - full.size.y * 0.5;
-                    let full_bottom = full.center.y + full.size.y * 0.5;
-                    let usable_left = usable.center.x - usable.size.x * 0.5;
-                    let usable_right = usable.center.x + usable.size.x * 0.5;
-                    let usable_top = usable.center.y - usable.size.y * 0.5;
-                    let usable_bottom = usable.center.y + usable.size.y * 0.5;
-                    let left_frac = (usable_left - full_left) / full.size.x.max(1.0);
-                    let right_frac = (full_right - usable_right) / full.size.x.max(1.0);
-                    let top_frac = (usable_top - full_top) / full.size.y.max(1.0);
-                    let bottom_frac = (full_bottom - usable_bottom) / full.size.y.max(1.0);
-                    let live = self.model.viewport;
-                    let live_left = live.center.x - live.size.x * 0.5 + live.size.x * left_frac;
-                    let live_right = live.center.x + live.size.x * 0.5 - live.size.x * right_frac;
-                    let live_top = live.center.y - live.size.y * 0.5 + live.size.y * top_frac;
-                    let live_bottom = live.center.y + live.size.y * 0.5 - live.size.y * bottom_frac;
-                    Viewport::new(
-                        Vec2 {
-                            x: (live_left + live_right) * 0.5,
-                            y: (live_top + live_bottom) * 0.5,
-                        },
-                        Vec2 {
-                            x: (live_right - live_left).max(1.0),
-                            y: (live_bottom - live_top).max(1.0),
-                        },
-                    )
-                })
+                .map(|space| space.usable_viewport)
                 .unwrap_or(self.model.viewport)
         } else {
             self.model
@@ -467,8 +434,7 @@ impl Halley {
 mod tests {
     use super::*;
 
-    #[test]
-    fn reconfigure_active_monitors_preserves_focused_monitor_when_still_present() {
+    fn two_monitor_tuning() -> halley_config::RuntimeTuning {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![
             halley_config::ViewportOutputConfig {
@@ -496,6 +462,12 @@ mod tests {
                 focus_ring: None,
             },
         ];
+        tuning
+    }
+
+    #[test]
+    fn reconfigure_active_monitors_preserves_focused_monitor_when_still_present() {
+        let tuning = two_monitor_tuning();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -511,33 +483,7 @@ mod tests {
 
     #[test]
     fn reconfigure_active_monitors_falls_back_when_focused_monitor_disappears() {
-        let mut tuning = halley_config::RuntimeTuning::default();
-        tuning.tty_viewports = vec![
-            halley_config::ViewportOutputConfig {
-                connector: "left".to_string(),
-                enabled: true,
-                offset_x: 0,
-                offset_y: 0,
-                width: 800,
-                height: 600,
-                refresh_rate: None,
-                transform_degrees: 0,
-                vrr: halley_config::ViewportVrrMode::Off,
-                focus_ring: None,
-            },
-            halley_config::ViewportOutputConfig {
-                connector: "right".to_string(),
-                enabled: true,
-                offset_x: 800,
-                offset_y: 0,
-                width: 800,
-                height: 600,
-                refresh_rate: None,
-                transform_degrees: 0,
-                vrr: halley_config::ViewportVrrMode::Off,
-                focus_ring: None,
-            },
-        ];
+        let tuning = two_monitor_tuning();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -549,5 +495,36 @@ mod tests {
 
         assert_eq!(state.focused_monitor(), "left");
         assert_eq!(state.interaction_monitor(), "left");
+    }
+
+    #[test]
+    fn current_monitor_cluster_usable_viewport_returns_stored_usable_rect() {
+        let tuning = two_monitor_tuning();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        state.model.monitor_state.current_monitor = "left".to_string();
+        state.model.viewport =
+            Viewport::new(Vec2 { x: 400.0, y: 300.0 }, Vec2 { x: 800.0, y: 600.0 });
+        state
+            .model
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .insert("left".to_string(), std::collections::HashSet::new());
+        state
+            .model
+            .monitor_state
+            .monitors
+            .get_mut("left")
+            .expect("left")
+            .usable_viewport =
+            Viewport::new(Vec2 { x: 400.0, y: 320.0 }, Vec2 { x: 800.0, y: 560.0 });
+
+        assert_eq!(
+            state.usable_viewport_for_monitor("left"),
+            Viewport::new(Vec2 { x: 400.0, y: 320.0 }, Vec2 { x: 800.0, y: 560.0 })
+        );
     }
 }
