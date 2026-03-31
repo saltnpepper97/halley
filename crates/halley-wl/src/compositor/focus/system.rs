@@ -10,6 +10,7 @@ use smithay::wayland::selection::primary_selection::set_primary_focus;
 
 use crate::compositor::ctx::FocusCtx;
 use smithay::input::Seat;
+use std::ops::{Deref, DerefMut};
 
 pub(crate) fn on_seat_focus_changed(
     ctx: &mut FocusCtx<'_>,
@@ -27,7 +28,86 @@ pub(crate) fn on_seat_focus_changed(
     set_primary_focus(&st.platform.display_handle, seat, client);
 }
 
-impl Halley {
+pub(crate) struct FocusSystemController<T> {
+    st: T,
+}
+
+pub(crate) fn focus_system_controller<T>(st: T) -> FocusSystemController<T> {
+    FocusSystemController { st }
+}
+
+impl<T: Deref<Target = Halley>> Deref for FocusSystemController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for FocusSystemController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+pub fn wl_surface_for_node(st: &Halley, id: NodeId) -> Option<WlSurface> {
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let wl = top.wl_surface().clone();
+        if st.model.surface_to_node.get(&wl.id()).copied() == Some(id) {
+            return Some(wl);
+        }
+    }
+    None
+}
+
+pub(crate) fn update_selection_focus_from_surface(st: &Halley, surface: Option<&WlSurface>) {
+    let client = surface.and_then(|wl| wl.client());
+    set_data_device_focus(
+        &st.platform.display_handle,
+        &st.platform.seat,
+        client.clone(),
+    );
+    set_primary_focus(&st.platform.display_handle, &st.platform.seat, client);
+}
+
+pub(crate) fn surface_is_sufficiently_visible_on_monitor(
+    st: &Halley,
+    monitor: &str,
+    id: NodeId,
+) -> bool {
+    read::surface_is_sufficiently_visible_on_monitor(st, monitor, id)
+}
+
+pub(crate) fn minimal_reveal_center_for_surface_on_monitor(
+    st: &Halley,
+    monitor: &str,
+    id: NodeId,
+) -> Option<Vec2> {
+    read::minimal_reveal_center_for_surface_on_monitor(st, monitor, id)
+}
+
+#[cfg(test)]
+pub(crate) fn fullscreen_focus_override(st: &Halley, requested: Option<NodeId>) -> Option<NodeId> {
+    read::fullscreen_focus_override(st, requested)
+}
+
+pub fn last_focused_surface_node(st: &Halley) -> Option<NodeId> {
+    read::last_focused_surface_node(st)
+}
+
+pub fn last_focused_surface_node_for_monitor(st: &Halley, monitor: &str) -> Option<NodeId> {
+    read::last_focused_surface_node_for_monitor(st, monitor)
+}
+
+pub fn last_input_surface_node(st: &Halley) -> Option<NodeId> {
+    read::last_input_surface_node(st)
+}
+
+pub fn last_input_surface_node_for_monitor(st: &Halley, monitor: &str) -> Option<NodeId> {
+    read::last_input_surface_node_for_monitor(st, monitor)
+}
+
+impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
     pub fn set_app_focused(&mut self, focused: bool) {
         self.model.focus_state.app_focused = focused;
     }
@@ -41,33 +121,12 @@ impl Halley {
     }
 }
 
-impl Halley {
-    pub(crate) const VIEWPORT_PAN_PRELOAD_MS: u64 = 70;
+impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
     pub(crate) const VIEWPORT_PAN_DURATION_MS: u64 = 260;
     const SPAWN_VIEW_HANDOFF_PAN_RATIO: f32 = 0.35;
     const SPAWN_VIEW_HANDOFF_FOCUS_RATIO: f32 = 0.25;
 
-    pub fn wl_surface_for_node(&self, id: NodeId) -> Option<WlSurface> {
-        for top in self.platform.xdg_shell_state.toplevel_surfaces() {
-            let wl = top.wl_surface().clone();
-            if self.model.surface_to_node.get(&wl.id()).copied() == Some(id) {
-                return Some(wl);
-            }
-        }
-        None
-    }
-
-    pub(crate) fn update_selection_focus_from_surface(&self, surface: Option<&WlSurface>) {
-        let client = surface.and_then(|wl| wl.client());
-        set_data_device_focus(
-            &self.platform.display_handle,
-            &self.platform.seat,
-            client.clone(),
-        );
-        set_primary_focus(&self.platform.display_handle, &self.platform.seat, client);
-    }
-
-    fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
+    pub(crate) fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
         read::fullscreen_focus_override(self, requested)
     }
 
@@ -340,22 +399,6 @@ impl Halley {
         }
     }
 
-    pub(crate) fn surface_is_sufficiently_visible_on_monitor(
-        &self,
-        monitor: &str,
-        id: NodeId,
-    ) -> bool {
-        read::surface_is_sufficiently_visible_on_monitor(self, monitor, id)
-    }
-
-    pub(crate) fn minimal_reveal_center_for_surface_on_monitor(
-        &self,
-        monitor: &str,
-        id: NodeId,
-    ) -> Option<Vec2> {
-        read::minimal_reveal_center_for_surface_on_monitor(self, monitor, id)
-    }
-
     pub(crate) fn maybe_pan_to_restored_focus_on_close(
         &mut self,
         monitor: &str,
@@ -414,22 +457,6 @@ impl Halley {
 
     pub fn set_last_active_size_now(&mut self, id: NodeId, size: Vec2) {
         self.model.workspace_state.last_active_size.insert(id, size);
-    }
-
-    pub fn last_focused_surface_node(&self) -> Option<NodeId> {
-        read::last_focused_surface_node(self)
-    }
-
-    pub fn last_focused_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        read::last_focused_surface_node_for_monitor(self, monitor)
-    }
-
-    pub fn last_input_surface_node(&self) -> Option<NodeId> {
-        read::last_input_surface_node(self)
-    }
-
-    pub fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        read::last_input_surface_node_for_monitor(self, monitor)
     }
 }
 

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
 use eventline::info;
@@ -126,38 +127,69 @@ fn spawn_cardinal_dirs() -> [Vec2; 4] {
     ]
 }
 
-impl Halley {
+pub(crate) struct SpawnRevealController<T> {
+    st: T,
+}
+
+pub(crate) fn spawn_reveal_controller<T>(st: T) -> SpawnRevealController<T> {
+    SpawnRevealController { st }
+}
+
+impl<T: Deref<Target = Halley>> Deref for SpawnRevealController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for SpawnRevealController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
     const SPAWN_STAR_RINGS: usize = 24;
 
     #[cfg(test)]
     #[allow(dead_code)]
-    fn viewport_center_for_monitor(&self, monitor: &str) -> Vec2 {
+    pub(crate) fn viewport_center_for_monitor(&self, monitor: &str) -> Vec2 {
         read::spawn_read_context(self).viewport_center_for_monitor(monitor)
     }
 
     #[cfg(test)]
     #[allow(dead_code)]
-    fn resolve_spawn_target_monitor(&self) -> String {
+    pub(crate) fn resolve_spawn_target_monitor(&self) -> String {
         read::spawn_read_context(self).resolve_spawn_target_monitor()
     }
 
     #[cfg(test)]
-    fn current_spawn_focus(&self, monitor: &str) -> (Option<NodeId>, Vec2) {
+    pub(crate) fn current_spawn_focus(&self, monitor: &str) -> (Option<NodeId>, Vec2) {
         read::spawn_read_context(self).current_spawn_focus(monitor)
     }
 
     #[cfg(test)]
     #[allow(dead_code)]
-    fn viewport_fully_contains_surface_on_monitor(&self, monitor: &str, id: NodeId) -> bool {
+    pub(crate) fn viewport_fully_contains_surface_on_monitor(
+        &self,
+        monitor: &str,
+        id: NodeId,
+    ) -> bool {
         read::spawn_read_context(self).viewport_fully_contains_surface_on_monitor(self, monitor, id)
     }
 
     #[cfg(test)]
-    fn right_spawn_candidate_for_focus(&self, id: NodeId, size: Vec2) -> Option<Vec2> {
+    pub(crate) fn right_spawn_candidate_for_focus(&self, id: NodeId, size: Vec2) -> Option<Vec2> {
         self.spawn_candidate_for_focus_dir(id, size, Vec2 { x: 1.0, y: 0.0 })
     }
 
-    fn spawn_candidate_for_focus_dir(&self, id: NodeId, size: Vec2, dir: Vec2) -> Option<Vec2> {
+    pub(crate) fn spawn_candidate_for_focus_dir(
+        &self,
+        id: NodeId,
+        size: Vec2,
+        dir: Vec2,
+    ) -> Option<Vec2> {
         let node = self.model.field.node(id)?;
         let focus_ext = self.spawn_obstacle_extents_for_node(node);
         let candidate_ext = CollisionExtents::symmetric(size);
@@ -186,25 +218,25 @@ impl Halley {
         Some(pos)
     }
 
-    fn spawn_star_step_x(&self, size: Vec2) -> f32 {
+    pub(crate) fn spawn_star_step_x(&self, size: Vec2) -> f32 {
         size.x
             + (active_window_frame_pad_px(&self.runtime.tuning) as f32 * 2.0)
             + self.non_overlap_gap_world()
     }
 
-    fn spawn_star_step_y(&self, size: Vec2) -> f32 {
+    pub(crate) fn spawn_star_step_y(&self, size: Vec2) -> f32 {
         size.y
             + (active_window_frame_pad_px(&self.runtime.tuning) as f32 * 2.0)
             + self.non_overlap_gap_world()
     }
 
     #[cfg(test)]
-    fn spawn_star_step(&self, size: Vec2) -> f32 {
+    pub(crate) fn spawn_star_step(&self, size: Vec2) -> f32 {
         self.spawn_star_step_x(size)
             .max(self.spawn_star_step_y(size))
     }
 
-    fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
+    pub(crate) fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
         let step_x = self.spawn_star_step_x(size);
         let step_y = self.spawn_star_step_y(size);
         let mut out = Vec::with_capacity(1 + Self::SPAWN_STAR_RINGS * spawn_cardinal_dirs().len());
@@ -286,8 +318,10 @@ impl Halley {
             % dirs.len();
         dirs[idx]
     }
+}
 
-    fn update_spawn_patch(
+impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
+    pub(crate) fn update_spawn_patch(
         &mut self,
         monitor: &str,
         anchor: Vec2,
@@ -469,18 +503,18 @@ impl Halley {
             let did_pan = self.animate_viewport_center_to_delayed(
                 next.target_center,
                 now,
-                Self::VIEWPORT_PAN_PRELOAD_MS,
+                Halley::VIEWPORT_PAN_PRELOAD_MS,
             );
             self.model.spawn_state.active_spawn_pan =
                 Some(crate::compositor::spawn::state::ActiveSpawnPan {
                     node_id: next.node_id,
                     pan_start_at_ms: now_ms.saturating_add(if did_pan {
-                        Self::VIEWPORT_PAN_PRELOAD_MS
+                        Halley::VIEWPORT_PAN_PRELOAD_MS
                     } else {
                         0
                     }),
                     reveal_at_ms: now_ms.saturating_add(if did_pan {
-                        Self::VIEWPORT_PAN_PRELOAD_MS + Self::VIEWPORT_PAN_DURATION_MS
+                        Halley::VIEWPORT_PAN_PRELOAD_MS + Halley::VIEWPORT_PAN_DURATION_MS
                     } else {
                         0
                     }),
@@ -513,11 +547,16 @@ impl Halley {
             .model
             .field
             .set_decay_level(active.node_id, DecayLevel::Hot);
-        if let Some(node) = self.model.field.node(active.node_id) {
+        let intrinsic_size = self
+            .model
+            .field
+            .node(active.node_id)
+            .map(|node| node.intrinsic_size);
+        if let Some(intrinsic_size) = intrinsic_size {
             self.model
                 .workspace_state
                 .last_active_size
-                .insert(active.node_id, node.intrinsic_size);
+                .insert(active.node_id, intrinsic_size);
         }
         self.mark_active_transition(active.node_id, now, 620);
         self.record_focus_trail_visit(active.node_id);

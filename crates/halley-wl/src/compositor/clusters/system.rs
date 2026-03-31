@@ -7,6 +7,7 @@ use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::interaction::state::InteractionState;
 use halley_core::cluster::{ClusterId, ClusterRemoveMemberOutcome};
 use halley_core::field::RemoveNodeClusterEffect;
+use std::ops::{Deref, DerefMut};
 
 struct ClusterMutationController<'a> {
     field: &'a mut Field,
@@ -173,24 +174,46 @@ impl<'a> ClusterMutationController<'a> {
     }
 }
 
-impl Halley {
-    pub(crate) const CLUSTER_OVERFLOW_REVEAL_EDGE_PX: f32 = 28.0;
-    const CLUSTER_OVERFLOW_REVEAL_MS: u64 = 2200;
+pub(crate) struct ClusterSystemController<T> {
+    st: T,
+}
 
+pub(crate) fn cluster_system_controller<T>(st: T) -> ClusterSystemController<T> {
+    ClusterSystemController { st }
+}
+
+pub(crate) fn active_cluster_workspace_for_monitor(
+    st: &Halley,
+    monitor: &str,
+) -> Option<ClusterId> {
+    st.model
+        .cluster_state
+        .active_cluster_workspaces
+        .get(monitor)
+        .copied()
+}
+
+impl<T: Deref<Target = Halley>> Deref for ClusterSystemController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for ClusterSystemController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
     fn cluster_read_controller(&self) -> ClusterReadController<'_> {
         ClusterReadController {
             field: &self.model.field,
             cluster_state: &self.model.cluster_state,
             monitor_state: &self.model.monitor_state,
             tuning: &self.runtime.tuning,
-        }
-    }
-
-    fn cluster_mutation_controller(&mut self) -> ClusterMutationController<'_> {
-        ClusterMutationController {
-            field: &mut self.model.field,
-            cluster_state: &mut self.model.cluster_state,
-            interaction_state: &mut self.input.interaction_state,
         }
     }
 
@@ -203,7 +226,64 @@ impl Halley {
             .preferred_monitor_for_cluster(cid, preferred)
     }
 
-    fn sync_cluster_monitor(
+    pub(crate) fn cluster_overflow_rect_for_monitor(
+        &self,
+        monitor: &str,
+    ) -> Option<halley_core::tiling::Rect> {
+        self.model
+            .cluster_state
+            .cluster_overflow_rects
+            .get(monitor)
+            .copied()
+    }
+
+    pub(crate) fn cluster_spawn_rect_for_new_member(
+        &self,
+        monitor: &str,
+        cid: ClusterId,
+    ) -> Option<halley_core::tiling::Rect> {
+        self.cluster_read_controller()
+            .cluster_spawn_rect_for_new_member(monitor, cid)
+    }
+
+    pub fn has_any_active_cluster_workspace(&self) -> bool {
+        !self
+            .model
+            .cluster_state
+            .active_cluster_workspaces
+            .is_empty()
+    }
+
+    pub fn cluster_mode_active(&self) -> bool {
+        self.cluster_mode_active_for_monitor(self.model.monitor_state.current_monitor.as_str())
+    }
+
+    pub fn cluster_mode_active_for_monitor(&self, monitor: &str) -> bool {
+        self.model
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .contains_key(monitor)
+    }
+
+    pub fn has_active_cluster_workspace(&self) -> bool {
+        self.active_cluster_workspace_for_monitor(self.model.monitor_state.current_monitor.as_str())
+            .is_some()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
+    const CLUSTER_OVERFLOW_REVEAL_MS: u64 = 2200;
+
+    fn cluster_mutation_controller(&mut self) -> ClusterMutationController<'_> {
+        let crate::compositor::root::Halley { model, input, .. } = &mut **self;
+        ClusterMutationController {
+            field: &mut model.field,
+            cluster_state: &mut model.cluster_state,
+            interaction_state: &mut input.interaction_state,
+        }
+    }
+
+    pub(crate) fn sync_cluster_monitor(
         &mut self,
         cid: halley_core::cluster::ClusterId,
         preferred: Option<&str>,
@@ -526,7 +606,8 @@ impl Halley {
             .cluster(cid)
             .and_then(|cluster| cluster.core)
         {
-            let _ = self.model.field.touch(core_id, self.now_ms(now));
+            let now_ms = self.now_ms(now);
+            let _ = self.model.field.touch(core_id, now_ms);
         }
         true
     }
@@ -640,34 +721,6 @@ impl Halley {
             .remove(monitor);
     }
 
-    pub(crate) fn cluster_overflow_rect_for_monitor(
-        &self,
-        monitor: &str,
-    ) -> Option<halley_core::tiling::Rect> {
-        self.model
-            .cluster_state
-            .cluster_overflow_rects
-            .get(monitor)
-            .copied()
-    }
-
-    pub(crate) fn cluster_spawn_rect_for_new_member(
-        &self,
-        monitor: &str,
-        cid: ClusterId,
-    ) -> Option<halley_core::tiling::Rect> {
-        self.cluster_read_controller()
-            .cluster_spawn_rect_for_new_member(monitor, cid)
-    }
-
-    pub fn has_any_active_cluster_workspace(&self) -> bool {
-        !self
-            .model
-            .cluster_state
-            .active_cluster_workspaces
-            .is_empty()
-    }
-
     pub(crate) fn swap_cluster_overflow_member_with_visible(
         &mut self,
         monitor: &str,
@@ -778,28 +831,18 @@ impl Halley {
         self.exit_cluster_workspace_for_monitor(monitor.as_str(), now)
     }
 
-    pub fn cluster_mode_active(&self) -> bool {
-        self.cluster_mode_active_for_monitor(self.model.monitor_state.current_monitor.as_str())
-    }
-
-    pub fn cluster_mode_active_for_monitor(&self, monitor: &str) -> bool {
-        self.model
-            .cluster_state
-            .cluster_mode_selected_nodes
-            .contains_key(monitor)
-    }
-
     pub fn enter_cluster_mode(&mut self) -> bool {
         let monitor = self.model.monitor_state.current_monitor.clone();
         if self
             .active_cluster_workspace_for_monitor(monitor.as_str())
             .is_some()
         {
+            let now_ms = self.now_ms(Instant::now());
             self.ui.render_state.show_overlay_toast(
                 monitor.as_str(),
                 "Cluster mode unavailable\nExit the workspace first",
                 3200,
-                self.now_ms(Instant::now()),
+                now_ms,
             );
             return false;
         }
@@ -884,12 +927,13 @@ impl Halley {
         else {
             return false;
         };
+        let now_ms = self.now_ms(now);
         if selected_nodes.is_empty() {
             self.ui.render_state.show_overlay_toast(
                 monitor.as_str(),
                 "No selections\nSelect at least two windows",
                 2200,
-                self.now_ms(now),
+                now_ms,
             );
             return false;
         }
@@ -900,7 +944,7 @@ impl Halley {
                 monitor.as_str(),
                 "Not enough selections\nSelect at least two windows",
                 5000,
-                self.now_ms(now),
+                now_ms,
             );
             return false;
         }
@@ -914,7 +958,7 @@ impl Halley {
                 let core = self.model.field.collapse_cluster(cid);
                 if let Some(core_id) = core {
                     self.assign_node_to_current_monitor(core_id);
-                    let _ = self.model.field.touch(core_id, self.now_ms(now));
+                    let _ = self.model.field.touch(core_id, now_ms);
                     self.set_interaction_focus(Some(core_id), 30_000, now);
                 }
                 core
@@ -933,11 +977,6 @@ impl Halley {
         self.enter_cluster_workspace_by_core(core_id, monitor.as_str(), now)
     }
 
-    pub fn has_active_cluster_workspace(&self) -> bool {
-        self.active_cluster_workspace_for_monitor(self.model.monitor_state.current_monitor.as_str())
-            .is_some()
-    }
-
     pub fn exit_cluster_workspace_if_member(&mut self, member: NodeId, now: Instant) -> bool {
         let monitor = self.model.monitor_state.current_monitor.clone();
         let Some(cid) = self.active_cluster_workspace_for_monitor(monitor.as_str()) else {
@@ -952,7 +991,7 @@ impl Halley {
         self.exit_cluster_workspace_for_monitor(monitor.as_str(), now)
     }
 
-    fn enter_cluster_workspace_by_core(
+    pub(crate) fn enter_cluster_workspace_by_core(
         &mut self,
         core_id: NodeId,
         monitor: &str,
@@ -1034,7 +1073,11 @@ impl Halley {
         true
     }
 
-    fn exit_cluster_workspace_for_monitor(&mut self, monitor: &str, now: Instant) -> bool {
+    pub(crate) fn exit_cluster_workspace_for_monitor(
+        &mut self,
+        monitor: &str,
+        now: Instant,
+    ) -> bool {
         let Some(plan) = self
             .cluster_read_controller()
             .plan_exit_cluster_workspace(monitor)
@@ -1060,7 +1103,8 @@ impl Halley {
             }
             let _ = self.model.field.set_detached(core_id, false);
             self.assign_node_to_monitor(core_id, monitor);
-            let _ = self.model.field.touch(core_id, self.now_ms(now));
+            let now_ms = self.now_ms(now);
+            let _ = self.model.field.touch(core_id, now_ms);
         }
 
         self.restore_cluster_workspace_monitor(monitor);

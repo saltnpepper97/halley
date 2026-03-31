@@ -1,10 +1,33 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
 
 use super::*;
 use crate::compositor::overlap::system::CollisionExtents;
 use halley_core::viewport::{FocusRing, FocusZone};
 
-impl Halley {
+pub(crate) struct FocusDecayController<T> {
+    st: T,
+}
+
+pub(crate) fn focus_decay_controller<T>(st: T) -> FocusDecayController<T> {
+    FocusDecayController { st }
+}
+
+impl<T: Deref<Target = Halley>> Deref for FocusDecayController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for FocusDecayController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: Deref<Target = Halley>> FocusDecayController<T> {
     const ACTIVE_RING_OUTSIDE_DECAY_FRAC: f32 = 0.98;
 
     fn focus_ring_center_for_node(&self, id: NodeId) -> Vec2 {
@@ -79,11 +102,13 @@ impl Halley {
         self.focus_ring_coverage_for_extents(node.pos, ext, focus_center, focus_ring)
     }
 
-    fn surface_is_definitively_outside_focus_ring(&self, id: NodeId) -> bool {
+    pub(crate) fn surface_is_definitively_outside_focus_ring(&self, id: NodeId) -> bool {
         let (_, outside_frac) = self.surface_ring_coverage(id);
         outside_frac >= Self::ACTIVE_RING_OUTSIDE_DECAY_FRAC
     }
+}
 
+impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
     pub(crate) fn enforce_single_primary_active_unit(&mut self) {
         let now_ms = self.now_ms(Instant::now());
         let active_windows_allowed = self.runtime.tuning.active_windows_allowed.max(1);

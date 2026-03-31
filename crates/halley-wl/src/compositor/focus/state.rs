@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
 use eventline::info;
@@ -29,7 +30,29 @@ pub(crate) struct FocusState {
 pub(crate) const COMPANION_PROTECT_MS: u64 = 12_000;
 pub(crate) const FOCUS_RING_PREVIEW_MS: u64 = 1_500;
 
-impl Halley {
+pub(crate) struct FocusStateController<T> {
+    st: T,
+}
+
+pub(crate) fn focus_state_controller<T>(st: T) -> FocusStateController<T> {
+    FocusStateController { st }
+}
+
+impl<T: Deref<Target = Halley>> Deref for FocusStateController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for FocusStateController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: Deref<Target = Halley>> FocusStateController<T> {
     pub(crate) fn companion_surface_node(&self, now_ms: u64) -> Option<NodeId> {
         let focused = self.model.focus_state.primary_interaction_focus;
         self.model
@@ -71,6 +94,18 @@ impl Halley {
             .is_some_and(|&until_ms| self.now_ms(now) < until_ms)
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn focused_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
+        self.model.focus_state.monitor_focus.get(monitor).copied()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn focused_monitor_for_node(&self, id: NodeId) -> Option<String> {
+        self.model.monitor_state.node_monitor.get(&id).cloned()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
     pub(crate) fn focus_monitor_view(&mut self, monitor: &str, now: Instant) {
         let open_monitors = self
             .model
@@ -283,16 +318,6 @@ impl Halley {
                 self.update_selection_focus_from_surface(desired_focus.as_ref());
             }
         }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn focused_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        self.model.focus_state.monitor_focus.get(monitor).copied()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn focused_monitor_for_node(&self, id: NodeId) -> Option<String> {
-        self.model.monitor_state.node_monitor.get(&id).cloned()
     }
 
     #[allow(dead_code)]

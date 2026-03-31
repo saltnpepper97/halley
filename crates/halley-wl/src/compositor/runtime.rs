@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -22,13 +23,124 @@ pub(crate) struct RuntimeState {
     pub(crate) spawned_children: Vec<std::process::Child>,
 }
 
-impl Halley {
+pub(crate) struct RuntimeController<T> {
+    st: T,
+}
+
+pub(crate) fn runtime_controller<T>(st: T) -> RuntimeController<T> {
+    RuntimeController { st }
+}
+
+impl<T: Deref<Target = Halley>> Deref for RuntimeController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for RuntimeController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: Deref<Target = Halley>> RuntimeController<T> {
     pub fn now_ms(&self, now: Instant) -> u64 {
         now.duration_since(self.runtime.started_at).as_millis() as u64
     }
 
     pub(crate) fn debug_dump(&self) {}
 
+    pub fn exit_requested(&self) -> bool {
+        self.runtime.exit_requested
+    }
+
+    pub fn next_maintenance_deadline(&self, now: Instant) -> Option<Instant> {
+        if !self.model.focus_state.app_focused {
+            return None;
+        }
+
+        let now_ms = self.now_ms(now);
+        let mut next_ms: Option<u64> = None;
+        let mut consider = |at_ms: u64| {
+            next_ms = Some(next_ms.map_or(at_ms, |cur| cur.min(at_ms)));
+        };
+
+        if self.model.focus_state.primary_interaction_focus.is_some()
+            && self.model.focus_state.interaction_focus_until_ms > now_ms
+        {
+            consider(self.model.focus_state.interaction_focus_until_ms);
+        }
+        if self.input.interaction_state.resize_static_node.is_some()
+            && self.input.interaction_state.resize_static_until_ms > now_ms
+        {
+            consider(self.input.interaction_state.resize_static_until_ms);
+        }
+        if let Some(at_ms) = self
+            .model
+            .spawn_state
+            .pending_spawn_activate_at_ms
+            .values()
+            .copied()
+            .min()
+            && at_ms > now_ms
+        {
+            consider(at_ms);
+        }
+        if let Some(at_ms) = self
+            .model
+            .workspace_state
+            .active_transition_until_ms
+            .values()
+            .copied()
+            .min()
+            && at_ms > now_ms
+        {
+            consider(at_ms);
+        }
+        if let Some(at_ms) = self
+            .model
+            .workspace_state
+            .primary_promote_cooldown_until_ms
+            .values()
+            .copied()
+            .min()
+            && at_ms > now_ms
+        {
+            consider(at_ms);
+        }
+        if let Some(deadline_ms) = self
+            .input
+            .interaction_state
+            .pending_core_click
+            .as_ref()
+            .map(|pending| pending.deadline_ms)
+            && deadline_ms > now_ms
+        {
+            consider(deadline_ms);
+        }
+        if self.runtime.tuning.debug_tick_dump {
+            consider(
+                now_ms.saturating_add(
+                    self.runtime.tuning.debug_dump_every_ms.saturating_sub(
+                        now.duration_since(self.runtime.last_debug_dump_at)
+                            .as_millis() as u64,
+                    ),
+                ),
+            );
+        }
+
+        next_ms.map(|at_ms| {
+            now.checked_add(std::time::Duration::from_millis(
+                at_ms.saturating_sub(now_ms),
+            ))
+            .unwrap_or(now)
+        })
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
     pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
         let prev_runtime_viewport = self.model.viewport;
         let prev_config_viewport = self.runtime.tuning.viewport();
@@ -121,99 +233,12 @@ impl Halley {
         self.runtime.exit_requested = true;
     }
 
-    pub fn exit_requested(&self) -> bool {
-        self.runtime.exit_requested
-    }
-
     #[inline]
     pub fn request_maintenance(&mut self) {
         self.runtime.maintenance_dirty = true;
         if let Some(ping) = &self.runtime.maintenance_ping {
             ping.ping();
         }
-    }
-
-    pub fn next_maintenance_deadline(&self, now: Instant) -> Option<Instant> {
-        if !self.model.focus_state.app_focused {
-            return None;
-        }
-
-        let now_ms = self.now_ms(now);
-        let mut next_ms: Option<u64> = None;
-        let mut consider = |at_ms: u64| {
-            next_ms = Some(next_ms.map_or(at_ms, |cur| cur.min(at_ms)));
-        };
-
-        if self.model.focus_state.primary_interaction_focus.is_some()
-            && self.model.focus_state.interaction_focus_until_ms > now_ms
-        {
-            consider(self.model.focus_state.interaction_focus_until_ms);
-        }
-        if self.input.interaction_state.resize_static_node.is_some()
-            && self.input.interaction_state.resize_static_until_ms > now_ms
-        {
-            consider(self.input.interaction_state.resize_static_until_ms);
-        }
-        if let Some(at_ms) = self
-            .model
-            .spawn_state
-            .pending_spawn_activate_at_ms
-            .values()
-            .copied()
-            .min()
-            && at_ms > now_ms
-        {
-            consider(at_ms);
-        }
-        if let Some(at_ms) = self
-            .model
-            .workspace_state
-            .active_transition_until_ms
-            .values()
-            .copied()
-            .min()
-            && at_ms > now_ms
-        {
-            consider(at_ms);
-        }
-        if let Some(at_ms) = self
-            .model
-            .workspace_state
-            .primary_promote_cooldown_until_ms
-            .values()
-            .copied()
-            .min()
-            && at_ms > now_ms
-        {
-            consider(at_ms);
-        }
-        if let Some(deadline_ms) = self
-            .input
-            .interaction_state
-            .pending_core_click
-            .as_ref()
-            .map(|pending| pending.deadline_ms)
-            && deadline_ms > now_ms
-        {
-            consider(deadline_ms);
-        }
-        if self.runtime.tuning.debug_tick_dump {
-            consider(
-                now_ms.saturating_add(
-                    self.runtime.tuning.debug_dump_every_ms.saturating_sub(
-                        now.duration_since(self.runtime.last_debug_dump_at)
-                            .as_millis() as u64,
-                    ),
-                ),
-            );
-        }
-
-        next_ms.map(|at_ms| {
-            now.checked_add(std::time::Duration::from_millis(
-                at_ms.saturating_sub(now_ms),
-            ))
-            .unwrap_or(now)
-        })
     }
 
     #[inline]
@@ -360,16 +385,18 @@ impl Halley {
         {
             self.update_zoom_live_surface_sizes();
         }
+        let cluster_policy = halley_core::cluster_policy::ClusterPolicy {
+            enabled: false,
+            distance_px: self.runtime.tuning.cluster_distance_px,
+            dwell_ms: self.runtime.tuning.cluster_dwell_ms,
+            ..Default::default()
+        };
+        let model = &mut self.model;
         let _ = halley_core::cluster_policy::tick_cluster_formation(
-            &mut self.model.field,
+            &mut model.field,
             now_ms,
-            halley_core::cluster_policy::ClusterPolicy {
-                enabled: false,
-                distance_px: self.runtime.tuning.cluster_distance_px,
-                dwell_ms: self.runtime.tuning.cluster_dwell_ms,
-                ..Default::default()
-            },
-            &mut self.model.cluster_state.cluster_form_state,
+            cluster_policy,
+            &mut model.cluster_state.cluster_form_state,
         );
         self.enforce_single_primary_active_unit();
         if !self.input.interaction_state.suspend_state_checks
@@ -378,10 +405,8 @@ impl Halley {
             self.resolve_surface_overlap();
         }
         self.restore_pan_return_active_focus(now);
-        self.ui
-            .render_state
-            .animator
-            .observe_field(&self.model.field, now);
+        let crate::compositor::root::Halley { model, ui, .. } = &mut **self;
+        ui.render_state.animator.observe_field(&model.field, now);
 
         if self.runtime.tuning.debug_tick_dump
             && now

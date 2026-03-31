@@ -1,6 +1,7 @@
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
+use std::ops::{Deref, DerefMut};
 
 use super::*;
 use crate::compositor::ctx::FullscreenCtx;
@@ -79,7 +80,61 @@ pub(crate) fn on_seat_focus_changed(
     }
 }
 
-impl Halley {
+pub(crate) struct FullscreenController<T> {
+    st: T,
+}
+
+pub(crate) fn fullscreen_controller<T>(st: T) -> FullscreenController<T> {
+    FullscreenController { st }
+}
+
+impl<T: Deref<Target = Halley>> Deref for FullscreenController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for FullscreenController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+pub(crate) fn fullscreen_entry_scale(st: &Halley, node_id: NodeId, now_ms: u64) -> f32 {
+    let Some(anim) = st
+        .model
+        .fullscreen_state
+        .fullscreen_scale_anim
+        .get(&node_id)
+        .copied()
+    else {
+        return 1.0;
+    };
+    let elapsed = now_ms.saturating_sub(anim.start_ms);
+    let t = (elapsed as f32 / anim.duration_ms.max(1) as f32).clamp(0.0, 1.0);
+    let e = if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        1.0 - (-2.0 * t + 2.0).powf(3.0) * 0.5
+    };
+    0.94 + (1.0 - 0.94) * e
+}
+
+pub(crate) fn fullscreen_monitor_for_node(st: &Halley, node_id: NodeId) -> Option<&str> {
+    st.model
+        .fullscreen_state
+        .fullscreen_active_node
+        .iter()
+        .find_map(|(monitor, &id)| (id == node_id).then_some(monitor.as_str()))
+}
+
+pub(crate) fn is_fullscreen_active(st: &Halley, node_id: NodeId) -> bool {
+    fullscreen_monitor_for_node(st, node_id).is_some()
+}
+
+impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
     const FULLSCREEN_ENTER_MS: u64 = 220;
     const FULLSCREEN_EXIT_MS: u64 = 320;
 
@@ -189,26 +244,6 @@ impl Halley {
         );
     }
 
-    pub(crate) fn fullscreen_entry_scale(&self, node_id: NodeId, now_ms: u64) -> f32 {
-        let Some(anim) = self
-            .model
-            .fullscreen_state
-            .fullscreen_scale_anim
-            .get(&node_id)
-            .copied()
-        else {
-            return 1.0;
-        };
-        let elapsed = now_ms.saturating_sub(anim.start_ms);
-        let t = (elapsed as f32 / anim.duration_ms.max(1) as f32).clamp(0.0, 1.0);
-        let e = if t < 0.5 {
-            4.0 * t * t * t
-        } else {
-            1.0 - (-2.0 * t + 2.0).powf(3.0) * 0.5
-        };
-        0.94 + (1.0 - 0.94) * e
-    }
-
     fn fullscreen_displaced_target(
         &self,
         pos: Vec2,
@@ -284,19 +319,6 @@ impl Halley {
     }
 
     /// Returns the monitor name that `node_id` is currently fullscreened on, if any.
-    pub(crate) fn fullscreen_monitor_for_node(&self, node_id: NodeId) -> Option<&str> {
-        self.model
-            .fullscreen_state
-            .fullscreen_active_node
-            .iter()
-            .find_map(|(monitor, &id)| (id == node_id).then_some(monitor.as_str()))
-    }
-
-    /// True if `node_id` is the active fullscreen on any monitor.
-    pub(crate) fn is_fullscreen_active(&self, node_id: NodeId) -> bool {
-        self.fullscreen_monitor_for_node(node_id).is_some()
-    }
-
     fn exit_xdg_fullscreen_inner(&mut self, node_id: NodeId, now: Instant, suspend: bool) {
         // Find which monitor this node is fullscreened on.
         let monitor_name = match self.fullscreen_monitor_for_node(node_id) {
@@ -466,6 +488,8 @@ impl Halley {
         let saved_size =
             crate::compositor::surface_ops::current_surface_size_for_node(self, node_id)
                 .unwrap_or(node.intrinsic_size);
+        let saved_bbox_loc = self.ui.render_state.bbox_loc.get(&node_id).copied();
+        let saved_window_geometry = self.ui.render_state.window_geometry.get(&node_id).copied();
 
         self.model.fullscreen_state.fullscreen_restore.insert(
             node_id,
@@ -474,8 +498,8 @@ impl Halley {
                 size: saved_size,
                 viewport_center,
                 intrinsic_size: node.intrinsic_size,
-                bbox_loc: self.ui.render_state.bbox_loc.get(&node_id).copied(),
-                window_geometry: self.ui.render_state.window_geometry.get(&node_id).copied(),
+                bbox_loc: saved_bbox_loc,
+                window_geometry: saved_window_geometry,
                 pinned: node.pinned,
             },
         );
@@ -522,18 +546,21 @@ impl Halley {
             let Some(other) = self.model.field.node(other_id).cloned() else {
                 continue;
             };
+            let other_size =
+                crate::compositor::surface_ops::current_surface_size_for_node(self, other_id)
+                    .unwrap_or(other.intrinsic_size);
+            let other_bbox_loc = self.ui.render_state.bbox_loc.get(&other_id).copied();
+            let other_window_geometry =
+                self.ui.render_state.window_geometry.get(&other_id).copied();
             self.model.fullscreen_state.fullscreen_restore.insert(
                 other_id,
                 crate::compositor::fullscreen::state::FullscreenSessionEntry {
                     pos: other.pos,
-                    size: crate::compositor::surface_ops::current_surface_size_for_node(
-                        self, other_id,
-                    )
-                    .unwrap_or(other.intrinsic_size),
+                    size: other_size,
                     viewport_center,
                     intrinsic_size: other.intrinsic_size,
-                    bbox_loc: self.ui.render_state.bbox_loc.get(&other_id).copied(),
-                    window_geometry: self.ui.render_state.window_geometry.get(&other_id).copied(),
+                    bbox_loc: other_bbox_loc,
+                    window_geometry: other_window_geometry,
                     pinned: other.pinned,
                 },
             );

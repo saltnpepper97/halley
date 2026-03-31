@@ -91,6 +91,10 @@ fn preferred_monitor_name(monitors: &HashMap<String, MonitorSpace>) -> Option<St
 }
 
 impl Halley {
+    pub(crate) const CLUSTER_OVERFLOW_REVEAL_EDGE_PX: f32 = 28.0;
+    pub(crate) const VIEWPORT_PAN_PRELOAD_MS: u64 = 70;
+    pub(crate) const VIEWPORT_PAN_DURATION_MS: u64 = 260;
+
     pub fn new(
         dh: &DisplayHandle,
         loop_handle: LoopHandle<'static, Self>,
@@ -721,6 +725,665 @@ impl Halley {
 
     pub(crate) fn request_toplevel_resize(&mut self, node_id: NodeId, width: i32, height: i32) {
         super::overlap::system::request_toplevel_resize(self, node_id, width, height)
+    }
+
+    pub fn now_ms(&self, now: Instant) -> u64 {
+        super::runtime::runtime_controller(self).now_ms(now)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn debug_dump(&self) {
+        super::runtime::runtime_controller(self).debug_dump()
+    }
+
+    pub fn apply_tuning(&mut self, tuning: RuntimeTuning) {
+        super::runtime::runtime_controller(self).apply_tuning(tuning)
+    }
+
+    pub fn request_exit(&mut self) {
+        super::runtime::runtime_controller(self).request_exit()
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        super::runtime::runtime_controller(self).exit_requested()
+    }
+
+    pub fn request_maintenance(&mut self) {
+        super::runtime::runtime_controller(self).request_maintenance()
+    }
+
+    #[allow(dead_code)]
+    pub fn next_maintenance_deadline(&self, now: Instant) -> Option<Instant> {
+        super::runtime::runtime_controller(self).next_maintenance_deadline(now)
+    }
+
+    pub fn run_maintenance_if_needed(&mut self, now: Instant) {
+        super::runtime::runtime_controller(self).run_maintenance_if_needed(now)
+    }
+
+    #[allow(dead_code)]
+    pub fn run_maintenance(&mut self, now: Instant) {
+        super::runtime::runtime_controller(self).run_maintenance(now)
+    }
+
+    pub(crate) fn record_focus_trail_visit(&mut self, id: NodeId) {
+        super::focus::trail::focus_trail_controller(self).record_focus_trail_visit(id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn trail_for_monitor_mut(
+        &mut self,
+        monitor: &str,
+    ) -> &mut halley_core::trail::Trail {
+        super::focus::trail::trail_for_monitor_mut(self, monitor)
+    }
+
+    pub(crate) fn navigate_window_trail(
+        &mut self,
+        direction: halley_ipc::TrailDirection,
+        now: Instant,
+    ) -> bool {
+        super::focus::trail::focus_trail_controller(self).navigate_window_trail(direction, now)
+    }
+
+    pub(crate) fn previous_window_from_trail_on_close(
+        &mut self,
+        monitor: &str,
+        closing_id: NodeId,
+    ) -> Option<NodeId> {
+        super::focus::trail::focus_trail_controller(self)
+            .previous_window_from_trail_on_close(monitor, closing_id)
+    }
+
+    pub(crate) fn restore_focus_to_node_after_close(
+        &mut self,
+        monitor: &str,
+        id: NodeId,
+        now: Instant,
+    ) -> bool {
+        super::focus::trail::focus_trail_controller(self)
+            .restore_focus_to_node_after_close(monitor, id, now)
+    }
+
+    pub(crate) fn enforce_single_primary_active_unit(&mut self) {
+        super::focus::decay::focus_decay_controller(self).enforce_single_primary_active_unit()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn surface_is_definitively_outside_focus_ring(&self, id: NodeId) -> bool {
+        super::focus::decay::focus_decay_controller(self)
+            .surface_is_definitively_outside_focus_ring(id)
+    }
+
+    pub fn apply_single_surface_decay_policy(
+        &mut self,
+        id: NodeId,
+        now_ms: u64,
+        active_delay_ms: u64,
+        inactive_delay_ms: u64,
+    ) {
+        super::focus::decay::focus_decay_controller(self).apply_single_surface_decay_policy(
+            id,
+            now_ms,
+            active_delay_ms,
+            inactive_delay_ms,
+        )
+    }
+
+    pub(crate) fn companion_surface_node(&self, now_ms: u64) -> Option<NodeId> {
+        super::focus::state::focus_state_controller(self).companion_surface_node(now_ms)
+    }
+
+    pub fn active_focus_ring(&self) -> halley_core::viewport::FocusRing {
+        super::focus::state::focus_state_controller(self).active_focus_ring()
+    }
+
+    pub fn focus_ring_for_monitor(&self, monitor: &str) -> halley_core::viewport::FocusRing {
+        super::focus::state::focus_state_controller(self).focus_ring_for_monitor(monitor)
+    }
+
+    pub fn should_draw_focus_ring_preview(&self, now: Instant) -> bool {
+        super::focus::state::focus_state_controller(self).should_draw_focus_ring_preview(now)
+    }
+
+    pub(crate) fn focus_monitor_view(&mut self, monitor: &str, now: Instant) {
+        super::focus::state::focus_state_controller(self).focus_monitor_view(monitor, now)
+    }
+
+    pub fn set_interaction_focus(&mut self, id: Option<NodeId>, hold_ms: u64, now: Instant) {
+        super::focus::state::focus_state_controller(self).set_interaction_focus(id, hold_ms, now)
+    }
+
+    pub(crate) fn restore_pan_return_active_focus(&mut self, now: Instant) {
+        super::focus::state::focus_state_controller(self).restore_pan_return_active_focus(now)
+    }
+
+    #[allow(dead_code)]
+    pub fn reassert_wayland_keyboard_focus_if_drifted(&mut self, id: Option<NodeId>) {
+        super::focus::state::focus_state_controller(self)
+            .reassert_wayland_keyboard_focus_if_drifted(id)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn focused_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
+        super::focus::state::focus_state_controller(self).focused_node_for_monitor(monitor)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn focused_monitor_for_node(&self, id: NodeId) -> Option<String> {
+        super::focus::state::focus_state_controller(self).focused_monitor_for_node(id)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn set_monitor_focus(&mut self, monitor: &str, id: NodeId) {
+        super::focus::state::focus_state_controller(self).set_monitor_focus(monitor, id)
+    }
+
+    pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
+        super::focus::state::focus_state_controller(self).set_recent_top_node(node_id, until)
+    }
+
+    pub fn recent_top_node_active(&mut self, now: Instant) -> Option<NodeId> {
+        super::focus::state::focus_state_controller(self).recent_top_node_active(now)
+    }
+
+    pub fn set_app_focused(&mut self, focused: bool) {
+        super::focus::system::focus_system_controller(self).set_app_focused(focused)
+    }
+
+    pub(crate) fn clear_keyboard_focus(&mut self) {
+        super::focus::system::focus_system_controller(self).clear_keyboard_focus()
+    }
+
+    pub fn wl_surface_for_node(
+        &self,
+        id: NodeId,
+    ) -> Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface> {
+        super::focus::system::wl_surface_for_node(self, id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
+        super::focus::system::fullscreen_focus_override(self, requested)
+    }
+
+    pub(crate) fn update_selection_focus_from_surface(
+        &self,
+        surface: Option<&smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
+    ) {
+        super::focus::system::update_selection_focus_from_surface(self, surface)
+    }
+
+    pub fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
+        super::focus::system::focus_system_controller(self).apply_wayland_focus_state(id)
+    }
+
+    pub fn update_focus_tracking_for_surface(&mut self, fid: NodeId, now_ms: u64) {
+        super::focus::system::focus_system_controller(self)
+            .update_focus_tracking_for_surface(fid, now_ms)
+    }
+
+    pub fn note_pan_activity(&mut self, now: Instant) {
+        super::focus::system::focus_system_controller(self).note_pan_activity(now)
+    }
+
+    pub(crate) fn note_pan_viewport_change(&mut self, now: Instant) {
+        super::focus::system::focus_system_controller(self).note_pan_viewport_change(now)
+    }
+
+    pub fn set_pan_restore_focus_target(&mut self, id: NodeId) {
+        super::focus::system::focus_system_controller(self).set_pan_restore_focus_target(id)
+    }
+
+    pub fn animate_viewport_center_to(&mut self, target_center: Vec2, now: Instant) -> bool {
+        super::focus::system::focus_system_controller(self)
+            .animate_viewport_center_to(target_center, now)
+    }
+
+    pub fn animate_viewport_center_to_delayed(
+        &mut self,
+        target_center: Vec2,
+        now: Instant,
+        delay_ms: u64,
+    ) -> bool {
+        super::focus::system::focus_system_controller(self).animate_viewport_center_to_delayed(
+            target_center,
+            now,
+            delay_ms,
+        )
+    }
+
+    pub(crate) fn tick_viewport_pan_animation(&mut self, now_ms: u64) {
+        super::focus::system::focus_system_controller(self).tick_viewport_pan_animation(now_ms)
+    }
+
+    pub(crate) fn surface_is_sufficiently_visible_on_monitor(
+        &self,
+        monitor: &str,
+        id: NodeId,
+    ) -> bool {
+        super::focus::system::surface_is_sufficiently_visible_on_monitor(self, monitor, id)
+    }
+
+    pub(crate) fn minimal_reveal_center_for_surface_on_monitor(
+        &self,
+        monitor: &str,
+        id: NodeId,
+    ) -> Option<Vec2> {
+        super::focus::system::minimal_reveal_center_for_surface_on_monitor(self, monitor, id)
+    }
+
+    pub(crate) fn maybe_pan_to_restored_focus_on_close(
+        &mut self,
+        monitor: &str,
+        id: NodeId,
+        now: Instant,
+    ) -> bool {
+        super::focus::system::focus_system_controller(self)
+            .maybe_pan_to_restored_focus_on_close(monitor, id, now)
+    }
+
+    pub fn begin_resize_interaction(&mut self, id: NodeId, now: Instant) {
+        super::focus::system::focus_system_controller(self).begin_resize_interaction(id, now)
+    }
+
+    pub fn end_resize_interaction(&mut self, now: Instant) {
+        super::focus::system::focus_system_controller(self).end_resize_interaction(now)
+    }
+
+    pub fn resolve_overlap_now(&mut self) {
+        super::focus::system::focus_system_controller(self).resolve_overlap_now()
+    }
+
+    pub fn set_last_active_size_now(&mut self, id: NodeId, size: Vec2) {
+        super::focus::system::focus_system_controller(self).set_last_active_size_now(id, size)
+    }
+
+    pub fn last_focused_surface_node(&self) -> Option<NodeId> {
+        super::focus::system::last_focused_surface_node(self)
+    }
+
+    pub fn last_focused_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
+        super::focus::system::last_focused_surface_node_for_monitor(self, monitor)
+    }
+
+    pub fn last_input_surface_node(&self) -> Option<NodeId> {
+        super::focus::system::last_input_surface_node(self)
+    }
+
+    pub fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
+        super::focus::system::last_input_surface_node_for_monitor(self, monitor)
+    }
+
+    pub(crate) fn fullscreen_entry_scale(&self, node_id: NodeId, now_ms: u64) -> f32 {
+        super::fullscreen::system::fullscreen_entry_scale(self, node_id, now_ms)
+    }
+
+    pub(crate) fn fullscreen_monitor_for_node(&self, node_id: NodeId) -> Option<&str> {
+        super::fullscreen::system::fullscreen_monitor_for_node(self, node_id)
+    }
+
+    pub(crate) fn is_fullscreen_active(&self, node_id: NodeId) -> bool {
+        super::fullscreen::system::is_fullscreen_active(self, node_id)
+    }
+
+    pub(crate) fn suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
+        super::fullscreen::system::fullscreen_controller(self).suspend_xdg_fullscreen(node_id, now)
+    }
+
+    pub(crate) fn enter_xdg_fullscreen(
+        &mut self,
+        node_id: NodeId,
+        output: Option<smithay::reexports::wayland_server::protocol::wl_output::WlOutput>,
+        now: Instant,
+    ) {
+        super::fullscreen::system::fullscreen_controller(self)
+            .enter_xdg_fullscreen(node_id, output, now)
+    }
+
+    pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
+        super::fullscreen::system::fullscreen_controller(self).exit_xdg_fullscreen(node_id, now)
+    }
+
+    pub(crate) fn drop_fullscreen_surface(&mut self, id: NodeId, now: Instant) {
+        super::fullscreen::system::fullscreen_controller(self).drop_fullscreen_surface(id, now)
+    }
+
+    pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {
+        super::fullscreen::system::fullscreen_controller(self).tick_fullscreen_motion(now)
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn viewport_center_for_monitor(&self, monitor: &str) -> Vec2 {
+        super::spawn::reveal::spawn_reveal_controller(self).viewport_center_for_monitor(monitor)
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn resolve_spawn_target_monitor(&self) -> String {
+        super::spawn::reveal::spawn_reveal_controller(self).resolve_spawn_target_monitor()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn current_spawn_focus(&self, monitor: &str) -> (Option<NodeId>, Vec2) {
+        super::spawn::reveal::spawn_reveal_controller(self).current_spawn_focus(monitor)
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn viewport_fully_contains_surface_on_monitor(
+        &self,
+        monitor: &str,
+        id: NodeId,
+    ) -> bool {
+        super::spawn::reveal::spawn_reveal_controller(self)
+            .viewport_fully_contains_surface_on_monitor(monitor, id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn right_spawn_candidate_for_focus(&self, id: NodeId, size: Vec2) -> Option<Vec2> {
+        super::spawn::reveal::spawn_reveal_controller(self)
+            .right_spawn_candidate_for_focus(id, size)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn spawn_star_step(&self, size: Vec2) -> f32 {
+        super::spawn::reveal::spawn_reveal_controller(self).spawn_star_step(size)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
+        super::spawn::reveal::spawn_reveal_controller(self).star_candidate_offsets(size)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn spawn_star_step_x(&self, size: Vec2) -> f32 {
+        super::spawn::reveal::spawn_reveal_controller(self).spawn_star_step_x(size)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn spawn_star_step_y(&self, size: Vec2) -> f32 {
+        super::spawn::reveal::spawn_reveal_controller(self).spawn_star_step_y(size)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn spawn_candidate_for_focus_dir(
+        &self,
+        id: NodeId,
+        size: Vec2,
+        dir: Vec2,
+    ) -> Option<Vec2> {
+        super::spawn::reveal::spawn_reveal_controller(self)
+            .spawn_candidate_for_focus_dir(id, size, dir)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn update_spawn_patch(
+        &mut self,
+        monitor: &str,
+        anchor: Vec2,
+        focus_node: Option<NodeId>,
+        focus_pos: Vec2,
+        growth_dir: Vec2,
+    ) {
+        super::spawn::reveal::spawn_reveal_controller(self)
+            .update_spawn_patch(monitor, anchor, focus_node, focus_pos, growth_dir)
+    }
+
+    pub(crate) fn pick_spawn_position(&mut self, size: Vec2) -> (String, Vec2, bool) {
+        super::spawn::reveal::spawn_reveal_controller(self).pick_spawn_position(size)
+    }
+
+    pub(crate) fn queue_spawn_pan_to_node(&mut self, id: NodeId, now: Instant) {
+        super::spawn::reveal::spawn_reveal_controller(self).queue_spawn_pan_to_node(id, now)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn maybe_start_pending_spawn_pan(&mut self, now: Instant) {
+        super::spawn::reveal::spawn_reveal_controller(self).maybe_start_pending_spawn_pan(now)
+    }
+
+    pub(crate) fn tick_pending_spawn_pan(&mut self, now: Instant, now_ms: u64) {
+        super::spawn::reveal::spawn_reveal_controller(self).tick_pending_spawn_pan(now, now_ms)
+    }
+
+    pub(crate) fn reveal_new_toplevel_node(
+        &mut self,
+        id: NodeId,
+        is_transient: bool,
+        now: Instant,
+    ) {
+        super::spawn::reveal::spawn_reveal_controller(self).reveal_new_toplevel_node(
+            id,
+            is_transient,
+            now,
+        )
+    }
+
+    pub(crate) fn remove_node_from_field(&mut self, id: NodeId, now_ms: u64) -> bool {
+        super::clusters::system::cluster_system_controller(self).remove_node_from_field(id, now_ms)
+    }
+
+    pub fn cluster_bloom_for_monitor(
+        &mut self,
+        monitor: &str,
+    ) -> Option<halley_core::cluster::ClusterId> {
+        super::clusters::system::cluster_system_controller(self).cluster_bloom_for_monitor(monitor)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn sync_cluster_monitor(
+        &mut self,
+        cid: halley_core::cluster::ClusterId,
+        preferred: Option<&str>,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .sync_cluster_monitor(cid, preferred)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn enter_cluster_workspace_by_core(
+        &mut self,
+        core_id: NodeId,
+        monitor: &str,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .enter_cluster_workspace_by_core(core_id, monitor, now)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn exit_cluster_workspace_for_monitor(
+        &mut self,
+        monitor: &str,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .exit_cluster_workspace_for_monitor(monitor, now)
+    }
+
+    pub fn open_cluster_bloom_for_monitor(
+        &mut self,
+        monitor: &str,
+        cid: halley_core::cluster::ClusterId,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .open_cluster_bloom_for_monitor(monitor, cid)
+    }
+
+    pub fn close_cluster_bloom_for_monitor(&mut self, monitor: &str) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .close_cluster_bloom_for_monitor(monitor)
+    }
+
+    pub fn detach_member_from_cluster(
+        &mut self,
+        cid: halley_core::cluster::ClusterId,
+        member_id: NodeId,
+        world_pos: Vec2,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .detach_member_from_cluster(cid, member_id, world_pos, now)
+    }
+
+    #[allow(dead_code)]
+    pub fn absorb_node_into_cluster(
+        &mut self,
+        cid: halley_core::cluster::ClusterId,
+        node_id: NodeId,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .absorb_node_into_cluster(cid, node_id, now)
+    }
+
+    pub(crate) fn commit_ready_cluster_join_for_node(
+        &mut self,
+        node_id: NodeId,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .commit_ready_cluster_join_for_node(node_id, now)
+    }
+
+    pub fn active_cluster_workspace_for_monitor(
+        &self,
+        monitor: &str,
+    ) -> Option<halley_core::cluster::ClusterId> {
+        super::clusters::system::active_cluster_workspace_for_monitor(self, monitor)
+    }
+
+    pub(crate) fn reveal_cluster_overflow_for_monitor(&mut self, monitor: &str, now_ms: u64) {
+        super::clusters::system::cluster_system_controller(self)
+            .reveal_cluster_overflow_for_monitor(monitor, now_ms)
+    }
+
+    pub(crate) fn hide_cluster_overflow_for_monitor(&mut self, monitor: &str) {
+        super::clusters::system::cluster_system_controller(self)
+            .hide_cluster_overflow_for_monitor(monitor)
+    }
+
+    pub(crate) fn cluster_overflow_rect_for_monitor(
+        &self,
+        monitor: &str,
+    ) -> Option<halley_core::tiling::Rect> {
+        super::clusters::system::cluster_system_controller(self)
+            .cluster_overflow_rect_for_monitor(monitor)
+    }
+
+    pub(crate) fn cluster_spawn_rect_for_new_member(
+        &self,
+        monitor: &str,
+        cid: halley_core::cluster::ClusterId,
+    ) -> Option<halley_core::tiling::Rect> {
+        super::clusters::system::cluster_system_controller(self)
+            .cluster_spawn_rect_for_new_member(monitor, cid)
+    }
+
+    pub fn has_any_active_cluster_workspace(&self) -> bool {
+        super::clusters::system::cluster_system_controller(self).has_any_active_cluster_workspace()
+    }
+
+    pub(crate) fn swap_cluster_overflow_member_with_visible(
+        &mut self,
+        monitor: &str,
+        cid: halley_core::cluster::ClusterId,
+        overflow_member: NodeId,
+        visible_member: NodeId,
+        now_ms: u64,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .swap_cluster_overflow_member_with_visible(
+                monitor,
+                cid,
+                overflow_member,
+                visible_member,
+                now_ms,
+            )
+    }
+
+    pub(crate) fn reorder_cluster_overflow_member(
+        &mut self,
+        monitor: &str,
+        cid: halley_core::cluster::ClusterId,
+        member: NodeId,
+        target_overflow_index: usize,
+        now_ms: u64,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self).reorder_cluster_overflow_member(
+            monitor,
+            cid,
+            member,
+            target_overflow_index,
+            now_ms,
+        )
+    }
+
+    pub(crate) fn move_active_cluster_member_to_drop_tile(
+        &mut self,
+        monitor: &str,
+        member: NodeId,
+        world_pos: Vec2,
+        now_ms: u64,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .move_active_cluster_member_to_drop_tile(monitor, member, world_pos, now_ms)
+    }
+
+    pub fn collapse_active_cluster_workspace(&mut self, now: Instant) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .collapse_active_cluster_workspace(now)
+    }
+
+    pub fn cluster_mode_active(&self) -> bool {
+        super::clusters::system::cluster_system_controller(self).cluster_mode_active()
+    }
+
+    pub fn cluster_mode_active_for_monitor(&self, monitor: &str) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .cluster_mode_active_for_monitor(monitor)
+    }
+
+    pub fn enter_cluster_mode(&mut self) -> bool {
+        super::clusters::system::cluster_system_controller(self).enter_cluster_mode()
+    }
+
+    pub fn exit_cluster_mode(&mut self) -> bool {
+        super::clusters::system::cluster_system_controller(self).exit_cluster_mode()
+    }
+
+    pub fn toggle_cluster_mode_selection(&mut self, node_id: NodeId) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .toggle_cluster_mode_selection(node_id)
+    }
+
+    pub fn confirm_cluster_mode(&mut self, now: Instant) -> bool {
+        super::clusters::system::cluster_system_controller(self).confirm_cluster_mode(now)
+    }
+
+    pub fn toggle_cluster_workspace_by_core(&mut self, core_id: NodeId, now: Instant) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .toggle_cluster_workspace_by_core(core_id, now)
+    }
+
+    pub fn has_active_cluster_workspace(&self) -> bool {
+        super::clusters::system::cluster_system_controller(self).has_active_cluster_workspace()
+    }
+
+    pub fn exit_cluster_workspace_if_member(&mut self, member: NodeId, now: Instant) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .exit_cluster_workspace_if_member(member, now)
+    }
+
+    pub(crate) fn layout_active_cluster_workspace_for_monitor(
+        &mut self,
+        monitor: &str,
+        now_ms: u64,
+    ) {
+        super::clusters::system::cluster_system_controller(self)
+            .layout_active_cluster_workspace_for_monitor(monitor, now_ms)
     }
 }
 

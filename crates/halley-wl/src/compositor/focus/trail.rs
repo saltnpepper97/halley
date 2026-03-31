@@ -2,9 +2,47 @@ use super::*;
 use halley_core::decay::DecayLevel;
 use halley_core::trail::Trail;
 use halley_ipc::TrailDirection;
+use std::ops::{Deref, DerefMut};
 
-impl Halley {
-    fn trail_for_monitor_mut(&mut self, monitor: &str) -> &mut halley_core::trail::Trail {
+pub(crate) struct FocusTrailController<T> {
+    st: T,
+}
+
+pub(crate) fn focus_trail_controller<T>(st: T) -> FocusTrailController<T> {
+    FocusTrailController { st }
+}
+
+#[cfg(test)]
+pub(crate) fn trail_for_monitor_mut<'a>(
+    st: &'a mut Halley,
+    monitor: &str,
+) -> &'a mut halley_core::trail::Trail {
+    st.model
+        .focus_state
+        .focus_trail
+        .entry(monitor.to_string())
+        .or_insert_with(Trail::new)
+}
+
+impl<T: Deref<Target = Halley>> Deref for FocusTrailController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for FocusTrailController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
+    pub(crate) fn trail_for_monitor_mut(
+        &mut self,
+        monitor: &str,
+    ) -> &mut halley_core::trail::Trail {
         self.model
             .focus_state
             .focus_trail
