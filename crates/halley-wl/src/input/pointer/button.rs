@@ -631,7 +631,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 if overflow_drag.monitor == target_monitor
                     && let Some(hit) = release_hit
                     && let Some(cluster) = st.model.field.cluster(overflow_drag.cluster_id)
-                    && cluster.visible_members().contains(&hit.node_id)
+                    && cluster.visible_members(st.runtime.tuning.tile_max_stack).contains(&hit.node_id)
                 {
                     let swapped = st.swap_cluster_overflow_member_with_visible(
                         overflow_drag.monitor.as_str(),

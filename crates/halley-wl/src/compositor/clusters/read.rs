@@ -1,7 +1,7 @@
 use super::*;
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::monitor::state::MonitorState;
-use halley_core::cluster::{CLUSTER_VISIBLE_CAPACITY, ClusterId};
+use halley_core::cluster::ClusterId;
 
 pub(super) struct ClusterReadController<'a> {
     pub(super) field: &'a Field,
@@ -102,9 +102,14 @@ impl<'a> ClusterReadController<'a> {
             self.tuning.tile_gaps_inner_px.max(0.0),
             self.tuning.border_size_px.max(0) as f32,
         );
+        let limit = if self.tuning.tile_max_stack == 0 {
+            member_count
+        } else {
+            self.tuning.tile_max_stack + 1
+        };
         direct_cluster_layout_rects(
             viewport,
-            member_count.min(CLUSTER_VISIBLE_CAPACITY),
+            member_count.min(limit),
             outer_gap,
             inner_gap,
             Self::MASTER_WIDTH_FRAC,
@@ -118,9 +123,14 @@ impl<'a> ClusterReadController<'a> {
     ) -> Option<halley_core::tiling::Rect> {
         let cluster = self.field.cluster(cid)?;
         let viewport = self.workspace_viewport_for_monitor(monitor)?;
-        if cluster.members().len() >= CLUSTER_VISIBLE_CAPACITY {
+        let limit = if self.tuning.tile_max_stack == 0 {
+            usize::MAX
+        } else {
+            self.tuning.tile_max_stack + 1
+        };
+        if cluster.members().len() >= limit {
             return self
-                .cluster_layout_rects_for_count(viewport, CLUSTER_VISIBLE_CAPACITY)
+                .cluster_layout_rects_for_count(viewport, limit)
                 .into_iter()
                 .last();
         }
@@ -225,7 +235,7 @@ impl<'a> ClusterReadController<'a> {
             .copied()?;
         let cluster = self.field.cluster(cid)?;
         let viewport = self.workspace_viewport_for_monitor(monitor)?;
-        let visible_members = cluster.visible_members();
+        let visible_members = cluster.visible_members(self.tuning.tile_max_stack);
         let tiles = self
             .cluster_layout_rects_for_count(viewport, visible_members.len())
             .into_iter()
@@ -243,7 +253,6 @@ fn direct_cluster_layout_rects(
     inner_gap: f32,
     master_width_frac: f32,
 ) -> Vec<halley_core::tiling::Rect> {
-    let member_count = member_count.min(CLUSTER_VISIBLE_CAPACITY);
     if member_count == 0 {
         return Vec::new();
     }

@@ -760,11 +760,12 @@ impl Field {
         id: ClusterId,
         overflow_member: NodeId,
         visible_member: NodeId,
+        max_stack: usize,
     ) -> bool {
         let Some(cluster) = self.clusters.get_mut(&id) else {
             return false;
         };
-        cluster.swap_overflow_member_with_visible(overflow_member, visible_member)
+        cluster.swap_overflow_member_with_visible(overflow_member, visible_member, max_stack)
     }
 
     pub fn reorder_cluster_overflow_member(
@@ -772,11 +773,12 @@ impl Field {
         id: ClusterId,
         member: NodeId,
         target_overflow_index: usize,
+        max_stack: usize,
     ) -> bool {
         let Some(cluster) = self.clusters.get_mut(&id) else {
             return false;
         };
-        cluster.reorder_overflow_member(member, target_overflow_index)
+        cluster.reorder_overflow_member(member, target_overflow_index, max_stack)
     }
 
     pub fn dissolve_cluster(&mut self, id: ClusterId) -> bool {
@@ -1490,10 +1492,10 @@ mod tests {
             y: 0.0,
             w: 1000.0,
             h: 600.0,
-        });
+        }, 3);
 
-        assert_eq!(cluster.visible_members(), &members[..4]);
-        assert_eq!(cluster.overflow_members(), &members[4..]);
+        assert_eq!(cluster.visible_members(3), &members[..4]);
+        assert_eq!(cluster.overflow_members(3), &members[4..]);
         assert_eq!(layout.tiles.len(), 4);
         assert!(
             layout
@@ -1520,7 +1522,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let cid = f.create_cluster(members.clone()).unwrap();
-        assert!(f.swap_cluster_overflow_member_with_visible(cid, members[4], members[2]));
+        assert!(f.swap_cluster_overflow_member_with_visible(cid, members[4], members[2], 3));
 
         let cluster = f.cluster(cid).unwrap();
         assert_eq!(
@@ -1530,10 +1532,10 @@ mod tests {
             ]
         );
         assert_eq!(
-            cluster.visible_members(),
+            cluster.visible_members(3),
             &[members[0], members[1], members[4], members[3]]
         );
-        assert_eq!(cluster.overflow_members(), &[members[2], members[5]]);
+        assert_eq!(cluster.overflow_members(3), &[members[2], members[5]]);
     }
 
     #[test]
@@ -1553,12 +1555,12 @@ mod tests {
             .collect::<Vec<_>>();
 
         let cid = f.create_cluster(members.clone()).unwrap();
-        assert!(f.reorder_cluster_overflow_member(cid, members[6], 0));
+        assert!(f.reorder_cluster_overflow_member(cid, members[6], 0, 3));
 
         let cluster = f.cluster(cid).unwrap();
-        assert_eq!(cluster.visible_members(), &members[..4]);
+        assert_eq!(cluster.visible_members(3), &members[..4]);
         assert_eq!(
-            cluster.overflow_members(),
+            cluster.overflow_members(3),
             &[members[6], members[4], members[5]]
         );
     }

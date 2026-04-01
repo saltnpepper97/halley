@@ -562,8 +562,7 @@ fn ensure_node_for_surface_impl(
             st.model
                 .field
                 .cluster(cid)
-                .map(|cluster| cluster.overflow_members().len())
-        })
+                .map(|cluster| cluster.overflow_members(st.runtime.tuning.tile_max_stack).len())        })
         .unwrap_or(0);
     let join_cluster_layout = should_join_active_cluster_layout(
         active_cluster.is_some(),
@@ -629,8 +628,7 @@ fn ensure_node_for_surface_impl(
             .model
             .field
             .cluster(cid)
-            .map(|cluster| cluster.overflow_members().len())
-            .unwrap_or(0);
+            .map(|cluster| cluster.overflow_members(st.runtime.tuning.tile_max_stack).len())            .unwrap_or(0);
         if overflow_len > previous_overflow_len {
             st.reveal_cluster_overflow_for_monitor(monitor.as_str(), st.now_ms(now));
         }

@@ -207,7 +207,7 @@ pub struct RuntimeTuning {
     pub tile_gaps_outer_px: f32,
     pub tile_new_on_top: bool,
     pub tile_queue_show_icons: bool,
-    pub active_windows_allowed: usize,
+    pub tile_max_stack: usize,
     pub trail_history_length: usize,
     pub trail_wrap: bool,
 
@@ -336,7 +336,7 @@ impl Default for RuntimeTuning {
             tile_gaps_outer_px: 20.0,
             tile_new_on_top: false,
             tile_queue_show_icons: true,
-            active_windows_allowed: 3,
+            tile_max_stack: 3,
             trail_history_length: 32,
             trail_wrap: true,
 
@@ -444,7 +444,7 @@ impl RuntimeTuning {
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);
         self.tile_gaps_inner_px = self.tile_gaps_inner_px.clamp(0.0, 256.0);
         self.tile_gaps_outer_px = self.tile_gaps_outer_px.clamp(0.0, 512.0);
-        self.active_windows_allowed = self.active_windows_allowed.clamp(1, 64);
+        self.tile_max_stack = self.tile_max_stack.clamp(0, 64);
         self.trail_history_length = self.trail_history_length.clamp(1, 512);
 
         self.active_outside_ring_delay_ms = self.active_outside_ring_delay_ms.clamp(0, 7_200_000);

@@ -900,6 +900,17 @@ fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.tile_queue_show_icons,
     );
+    out.tile_max_stack = pick_u64(
+        cfg,
+        &[
+            "tile.max-stack",
+            "tile.max_stack",
+            "tile.stack-limit",
+            "field.active-windows-allowed",
+            "field.active_windows_allowed",
+        ],
+        out.tile_max_stack as u64,
+    ) as usize;
 }
 
 fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -944,14 +955,6 @@ fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["field.close-restore-pan", "field.close_restore_pan"],
         out.close_restore_pan,
     );
-    out.active_windows_allowed = pick_u64(
-        cfg,
-        &[
-            "field.active-windows-allowed",
-            "field.active_windows_allowed",
-        ],
-        out.active_windows_allowed as u64,
-    ) as usize;
 }
 
 fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -2305,7 +2308,31 @@ end
     }
 
     #[test]
-    fn field_active_windows_allowed_parses_from_config() {
+    fn tile_max_stack_parses_from_config() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-tile-max-stack-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+tile:
+  max-stack 5
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.tile_max_stack, 5);
+    }
+
+    #[test]
+    fn legacy_field_active_windows_allowed_parses_as_fallback() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")
@@ -2327,7 +2354,7 @@ end
         let _ = fs::remove_file(&path);
 
         assert_eq!(tuning.non_overlap_gap_px, 24.0);
-        assert_eq!(tuning.active_windows_allowed, 5);
+        assert_eq!(tuning.tile_max_stack, 5);
     }
 
     #[test]

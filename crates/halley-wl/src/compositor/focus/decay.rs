@@ -111,7 +111,12 @@ impl<T: Deref<Target = Halley>> FocusDecayController<T> {
 impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
     pub(crate) fn enforce_single_primary_active_unit(&mut self) {
         let now_ms = self.now_ms(Instant::now());
-        let active_windows_allowed = self.runtime.tuning.active_windows_allowed.max(1);
+        let tile_max_stack = self.runtime.tuning.tile_max_stack;
+        let active_windows_allowed = if tile_max_stack == 0 {
+            usize::MAX
+        } else {
+            tile_max_stack + 1
+        };
         let companion = self.companion_surface_node(now_ms);
         let preferred_surface = self.last_input_surface_node();
 

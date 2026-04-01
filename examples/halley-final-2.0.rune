@@ -237,8 +237,9 @@ tile:
   # Show icons in the queue / tile UI where applicable.
   queue-show-icons true
 
-  # Maximum number of open tiled items shown at once.
-  max-open 5
+  # Maximum number of windows allowed in the stack before overflow goes to the queue.
+  # 0 means unlimited.
+  max-stack 5
 end
 
 # Stacking layout used inside clusters.
