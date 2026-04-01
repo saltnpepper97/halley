@@ -70,12 +70,12 @@ pub(crate) fn update_selection_focus_from_surface(st: &Halley, surface: Option<&
     set_primary_focus(&st.platform.display_handle, &st.platform.seat, client);
 }
 
-pub(crate) fn surface_is_sufficiently_visible_on_monitor(
+pub(crate) fn surface_is_fully_visible_on_monitor(
     st: &Halley,
     monitor: &str,
     id: NodeId,
 ) -> bool {
-    read::surface_is_sufficiently_visible_on_monitor(st, monitor, id)
+    read::surface_is_fully_visible_on_monitor(st, monitor, id)
 }
 
 pub(crate) fn minimal_reveal_center_for_surface_on_monitor(

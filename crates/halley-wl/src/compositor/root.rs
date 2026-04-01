@@ -961,12 +961,12 @@ impl Halley {
         super::focus::system::focus_system_controller(self).tick_viewport_pan_animation(now_ms)
     }
 
-    pub(crate) fn surface_is_sufficiently_visible_on_monitor(
+    pub(crate) fn surface_is_fully_visible_on_monitor(
         &self,
         monitor: &str,
         id: NodeId,
     ) -> bool {
-        super::focus::system::surface_is_sufficiently_visible_on_monitor(self, monitor, id)
+        super::focus::system::surface_is_fully_visible_on_monitor(self, monitor, id)
     }
 
     pub(crate) fn minimal_reveal_center_for_surface_on_monitor(

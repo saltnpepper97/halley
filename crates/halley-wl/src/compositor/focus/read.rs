@@ -122,7 +122,7 @@ impl<'a> FocusReadContext<'a> {
             })
     }
 
-    fn surface_is_sufficiently_visible_on_monitor(
+    fn surface_is_fully_visible_on_monitor(
         &self,
         st: &Halley,
         monitor: &str,
@@ -133,12 +133,10 @@ impl<'a> FocusReadContext<'a> {
         };
         let ext = st.spawn_obstacle_extents_for_node(node);
         let viewport = self.viewport_for_monitor(monitor);
-        let margin_x = (viewport.size.x * 0.08).clamp(32.0, 160.0);
-        let margin_y = (viewport.size.y * 0.08).clamp(32.0, 120.0);
-        let min_x = viewport.center.x - viewport.size.x * 0.5 + margin_x;
-        let max_x = viewport.center.x + viewport.size.x * 0.5 - margin_x;
-        let min_y = viewport.center.y - viewport.size.y * 0.5 + margin_y;
-        let max_y = viewport.center.y + viewport.size.y * 0.5 - margin_y;
+        let min_x = viewport.center.x - viewport.size.x * 0.5;
+        let max_x = viewport.center.x + viewport.size.x * 0.5;
+        let min_y = viewport.center.y - viewport.size.y * 0.5;
+        let max_y = viewport.center.y + viewport.size.y * 0.5;
 
         node.pos.x - ext.left >= min_x
             && node.pos.x + ext.right <= max_x
@@ -217,7 +215,7 @@ impl<'a> FocusReadContext<'a> {
                 .map(|node| CloseRestorePanPlan::PanTo(node.pos))
                 .unwrap_or(CloseRestorePanPlan::None),
             CloseRestorePanMode::IfOffscreen => {
-                if self.surface_is_sufficiently_visible_on_monitor(st, monitor, id) {
+                if self.surface_is_fully_visible_on_monitor(st, monitor, id) {
                     CloseRestorePanPlan::None
                 } else {
                     self.minimal_reveal_center_for_surface_on_monitor(st, monitor, id)
@@ -358,12 +356,12 @@ pub(crate) fn fullscreen_focus_override(st: &Halley, requested: Option<NodeId>) 
     focus_read_context(st).fullscreen_focus_override(requested)
 }
 
-pub(crate) fn surface_is_sufficiently_visible_on_monitor(
+pub(crate) fn surface_is_fully_visible_on_monitor(
     st: &Halley,
     monitor: &str,
     id: NodeId,
 ) -> bool {
-    focus_read_context(st).surface_is_sufficiently_visible_on_monitor(st, monitor, id)
+    focus_read_context(st).surface_is_fully_visible_on_monitor(st, monitor, id)
 }
 
 pub(crate) fn minimal_reveal_center_for_surface_on_monitor(

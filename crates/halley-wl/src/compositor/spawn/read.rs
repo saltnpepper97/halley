@@ -132,40 +132,6 @@ impl<'a> SpawnReadContext<'a> {
             .unwrap_or_else(|| MonitorSpawnState::new(self.viewport_center_for_monitor(monitor)))
     }
 
-    pub(crate) fn viewport_fully_contains_surface_on_monitor(
-        &self,
-        st: &Halley,
-        monitor: &str,
-        id: NodeId,
-    ) -> bool {
-        let Some(node) = self.field.node(id) else {
-            return false;
-        };
-        let ext = st.spawn_obstacle_extents_for_node(node);
-        let viewport = if self.monitor_state.current_monitor == monitor {
-            self.usable_viewports
-                .get(monitor)
-                .copied()
-                .unwrap_or(self.viewport)
-        } else if let Some(space) = self.monitor_state.monitors.get(monitor) {
-            self.usable_viewports
-                .get(monitor)
-                .copied()
-                .unwrap_or(space.viewport)
-        } else {
-            self.viewport
-        };
-        let min_x = viewport.center.x - viewport.size.x * 0.5;
-        let max_x = viewport.center.x + viewport.size.x * 0.5;
-        let min_y = viewport.center.y - viewport.size.y * 0.5;
-        let max_y = viewport.center.y + viewport.size.y * 0.5;
-
-        node.pos.x - ext.left >= min_x
-            && node.pos.x + ext.right <= max_x
-            && node.pos.y - ext.top >= min_y
-            && node.pos.y + ext.bottom <= max_y
-    }
-
     pub(crate) fn reveal_new_toplevel_plan(
         &self,
         st: &Halley,
@@ -207,11 +173,7 @@ impl<'a> SpawnReadContext<'a> {
                 None => return RevealNewToplevelPlan::ActivateNow,
             },
             PanToNewMode::IfNeeded => {
-                if crate::compositor::focus::read::surface_is_sufficiently_visible_on_monitor(
-                    st,
-                    monitor.as_str(),
-                    id,
-                ) {
+                if st.surface_is_fully_visible_on_monitor(monitor.as_str(), id) {
                     return RevealNewToplevelPlan::ActivateNow;
                 }
                 match crate::compositor::focus::read::minimal_reveal_center_for_surface_on_monitor(

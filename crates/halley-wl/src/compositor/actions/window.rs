@@ -95,7 +95,7 @@ pub(crate) fn activate_collapsed_node_from_click(
     match st.runtime.tuning.click_collapsed_pan {
         ClickCollapsedPanMode::Never => false,
         ClickCollapsedPanMode::IfOffscreen => {
-            if st.surface_is_sufficiently_visible_on_monitor(target_monitor.as_str(), node_id) {
+            if st.surface_is_fully_visible_on_monitor(target_monitor.as_str(), node_id) {
                 false
             } else {
                 st.minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)

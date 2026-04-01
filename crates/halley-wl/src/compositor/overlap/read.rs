@@ -121,6 +121,9 @@ impl<'a> OverlapReadContext<'a> {
         if !self.field.participates_in_field_dynamics(id) {
             return false;
         }
+        if self.spawn_state.pending_initial_reveal.contains(&id) {
+            return false;
+        }
         self.field.node(id).is_some_and(|n| {
             self.field.is_visible(id)
                 && matches!(

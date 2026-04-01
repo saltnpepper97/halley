@@ -173,7 +173,7 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         monitor: &str,
         id: NodeId,
     ) -> bool {
-        read::spawn_read_context(self).viewport_fully_contains_surface_on_monitor(self, monitor, id)
+        self.surface_is_fully_visible_on_monitor(monitor, id)
     }
 
     #[cfg(test)]
@@ -561,8 +561,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             focus_id.map(|id| id.as_u64())
         );
         let focus_visible = focus_id.is_some_and(|id| {
-            read::spawn_read_context(self).viewport_fully_contains_surface_on_monitor(
-                self,
+            self.surface_is_fully_visible_on_monitor(
                 target_monitor.as_str(),
                 id,
             )
