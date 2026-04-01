@@ -249,23 +249,34 @@ fn output_advertise_order(outputs: &[TtyDrmOutput], tuning: &RuntimeTuning) -> V
 
 fn layout_size_for_outputs(tuning: &RuntimeTuning, outputs: &[TtyDrmOutput]) -> (i32, i32) {
     let active_names = active_output_names(outputs);
-    let layout_w = tuning
+    let active_viewports: Vec<_> = tuning
         .tty_viewports
         .iter()
         .filter(|viewport| viewport.enabled)
         .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
-        .map(|viewport| viewport.offset_x + viewport.width as i32)
-        .max()
-        .unwrap_or(tuning.viewport_size.x.max(1.0).round() as i32);
-    let layout_h = tuning
-        .tty_viewports
+        .collect();
+
+    if active_viewports.is_empty() {
+        return (
+            tuning.viewport_size.x.max(1.0).round() as i32,
+            tuning.viewport_size.y.max(1.0).round() as i32,
+        );
+    }
+
+    let min_x = active_viewports.iter().map(|v| v.offset_x).min().unwrap();
+    let max_x = active_viewports
         .iter()
-        .filter(|viewport| viewport.enabled)
-        .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
-        .map(|viewport| viewport.offset_y + viewport.height as i32)
+        .map(|v| v.offset_x + v.width as i32)
         .max()
-        .unwrap_or(tuning.viewport_size.y.max(1.0).round() as i32);
-    (layout_w, layout_h)
+        .unwrap();
+    let min_y = active_viewports.iter().map(|v| v.offset_y).min().unwrap();
+    let max_y = active_viewports
+        .iter()
+        .map(|v| v.offset_y + v.height as i32)
+        .max()
+        .unwrap();
+
+    (max_x - min_x, max_y - min_y)
 }
 
 fn apply_tty_reload(

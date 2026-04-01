@@ -730,6 +730,24 @@ pub(crate) fn active_node_surface_transform_screen_details(
     let anim = crate::render::anim_style_for(st, node_id, n.state.clone(), now);
     let transition_alpha = st.active_transition_alpha(node_id, now);
     let cam_scale = st.camera_render_scale();
+
+    // Fit scale for fullscreen windows that don't match the physical monitor resolution.
+    // This happens often in XWayland when a game queries the "primary" monitor size
+    // and gets it wrong, resulting in a window smaller than the actual monitor.
+    let fit_scale = if let Some(monitor) = st.fullscreen_monitor_for_node(node_id) {
+        let (target_w, target_h) = if monitor == st.model.monitor_state.current_monitor {
+            let ws = st.model.viewport.size;
+            (ws.x.round() as i32, ws.y.round() as i32)
+        } else {
+            st.fullscreen_target_size_for(monitor)
+        };
+        let sw = (target_w as f32) / n.intrinsic_size.x.max(1.0);
+        let sh = (target_h as f32) / n.intrinsic_size.y.max(1.0);
+        sw.min(sh).max(0.1) // aspect-correct fit
+    } else {
+        1.0
+    };
+
     let anim_scale = active_surface_render_scale(
         anim.scale,
         st.active_zoom_lock_scale(),
@@ -737,6 +755,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
         n.intrinsic_size.y,
         transition_alpha,
     ) * st.fullscreen_entry_scale(node_id, st.now_ms(now))
+        * fit_scale
         * cam_scale;
 
     let (origin_x, origin_y, scale) =

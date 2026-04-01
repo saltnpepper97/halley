@@ -280,6 +280,10 @@ pub(crate) fn collect_active_surfaces(
         let node_pos = node.pos;
         let node_state = node.state.clone();
         let node_intrinsic = node.intrinsic_size;
+        let fullscreen_on_current_monitor = st
+            .fullscreen_monitor_for_node(node_id)
+            .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor);
+
         let active_cluster_member = is_active_cluster_workspace_member(st, node_id);
         let transition_alpha = st.active_transition_alpha(node_id, now);
         let anim = crate::render::anim_style_for(st, node_id, node_state, now);
@@ -311,8 +315,22 @@ pub(crate) fn collect_active_surfaces(
             (s * fullscreen_entry_scale, live_ramp)
         };
 
+        // Fit scale for fullscreen windows that don't match the physical monitor resolution.
+        let fit_scale = if fullscreen_on_current_monitor {
+            let sw = (output_clip.size.w as f32) / node_intrinsic.x.max(1.0);
+            let sh = (output_clip.size.h as f32) / node_intrinsic.y.max(1.0);
+            sw.min(sh).max(0.1) // aspect-correct fit
+        } else if let Some(monitor) = st.fullscreen_monitor_for_node(node_id) {
+            let (target_w, target_h) = st.fullscreen_target_size_for(monitor);
+            let sw = (target_w as f32) / node_intrinsic.x.max(1.0);
+            let sh = (target_h as f32) / node_intrinsic.y.max(1.0);
+            sw.min(sh).max(0.1) // aspect-correct fit
+        } else {
+            1.0
+        };
+
         let cam_scale = st.camera_render_scale();
-        let render_scale = scale * cam_scale;
+        let render_scale = scale * cam_scale * fit_scale;
 
         let p = node_pos;
         let local_bbox = (
@@ -336,8 +354,19 @@ pub(crate) fn collect_active_surfaces(
                 let (_, _, gw, gh) = local_geo;
                 let rw = (gw * render_scale).round().max(1.0) as i32;
                 let rh = (gh * render_scale).round().max(1.0) as i32;
-                let rx = cx - (rw / 2);
-                let ry = cy - (rh / 2);
+
+                let (rx, ry, rw, rh) = if fullscreen_on_current_monitor {
+                    (
+                        output_clip.loc.x,
+                        output_clip.loc.y,
+                        output_clip.size.w,
+                        output_clip.size.h,
+                    )
+                } else {
+                    let rx = cx - (rw / 2);
+                    let ry = cy - (rh / 2);
+                    (rx, ry, rw, rh)
+                };
 
                 let sx = rx - (local_geo.0 * render_scale).round() as i32;
                 let sy = ry - (local_geo.1 * render_scale).round() as i32;
@@ -376,9 +405,6 @@ pub(crate) fn collect_active_surfaces(
         }
 
         let alpha = (anim.alpha * live_ramp).clamp(0.0, 1.0);
-        let fullscreen_on_current_monitor = st
-            .fullscreen_monitor_for_node(node_id)
-            .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor);
         let effective_border_px = if fullscreen_on_current_monitor {
             0
         } else {
@@ -431,7 +457,9 @@ pub(crate) fn collect_active_surfaces(
         } else {
             border_rects.push(border_rect);
         }
-        let use_offscreen_zoom = true;
+
+        // Games/fullscreen processes bypass offscreen zoom for performance and compatibility.
+        let use_offscreen_zoom = !fullscreen_on_current_monitor;
 
         if use_offscreen_zoom {
             let cache_miss = {
@@ -508,7 +536,16 @@ pub(crate) fn collect_active_surfaces(
                                 Kind::Unspecified,
                             );
 
-                            let (tx, ty, tw, th) = texture_rect;
+                            let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
+                                (
+                                    output_clip.loc.x,
+                                    output_clip.loc.y,
+                                    output_clip.size.w,
+                                    output_clip.size.h,
+                                )
+                            } else {
+                                texture_rect
+                            };
                             let display_clip = Rectangle::<i32, Physical>::new(
                                 (tx, ty).into(),
                                 (tw.max(1), th.max(1)).into(),
@@ -605,7 +642,7 @@ pub(crate) fn collect_active_surfaces(
                             gy,
                             preview_gw_px,
                             preview_gh_px,
-                            cam_scale,
+                            render_scale,
                             output_clip,
                             preserve_visual_margin,
                             lock_dst_to_geometry,
@@ -624,7 +661,7 @@ pub(crate) fn collect_active_surfaces(
                             gy,
                             gw.max(1),
                             gh.max(1),
-                            cam_scale,
+                            render_scale,
                             output_clip,
                             preserve_visual_margin,
                             lock_dst_to_geometry,
@@ -741,7 +778,16 @@ pub(crate) fn collect_active_surfaces(
                 alpha,
                 Kind::Unspecified,
             );
-            let (tx, ty, tw, th) = texture_rect;
+            let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
+                (
+                    output_clip.loc.x,
+                    output_clip.loc.y,
+                    output_clip.size.w,
+                    output_clip.size.h,
+                )
+            } else {
+                texture_rect
+            };
             let display_clip =
                 Rectangle::<i32, Physical>::new((tx, ty).into(), (tw.max(1), th.max(1)).into());
             let cropped: Vec<_> = elems

@@ -420,8 +420,18 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         .entry(key.clone())
         .or_insert_with(|| CommitActivity::new(now))
         .on_commit(now);
-    for output in st.model.monitor_state.outputs.values() {
-        output.enter(surface);
+    let target_monitor = if let Some(node_id) = st.model.surface_to_node.get(&root_key) {
+        st.model.monitor_state.node_monitor.get(node_id).cloned()
+    } else {
+        None
+    }.unwrap_or_else(|| st.model.monitor_state.focused_monitor.clone());
+
+    for (name, output) in &st.model.monitor_state.outputs {
+        if *name == target_monitor {
+            output.enter(surface);
+        } else {
+            output.leave(surface);
+        }
     }
 
     crate::compositor::monitor::layer_shell::maybe_grant_layer_surface_focus_on_commit(

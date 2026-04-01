@@ -363,6 +363,18 @@ pub(crate) fn assign_node_to_monitor(st: &mut Halley, id: NodeId, monitor: &str)
         .monitor_state
         .node_monitor
         .insert(id, monitor.to_string());
+
+    // Update surface output assignments immediately so Xwayland and Wayland clients
+    // know which output the window is on before the next commit.
+    if let Some(surface) = crate::compositor::focus::system::wl_surface_for_node(st, id) {
+        for (name, output) in &st.model.monitor_state.outputs {
+            if name == monitor {
+                output.enter(&surface);
+            } else {
+                output.leave(&surface);
+            }
+        }
+    }
 }
 
 pub(crate) fn assign_layer_surface_to_monitor(

@@ -1031,6 +1031,25 @@ impl Halley {
         super::fullscreen::system::is_fullscreen_active(self, node_id)
     }
 
+    pub(crate) fn fullscreen_target_size_for(&self, monitor_name: &str) -> (i32, i32) {
+        self.model
+            .monitor_state
+            .outputs
+            .get(monitor_name)
+            .and_then(|output| output.current_mode())
+            .map(|mode| (mode.size.w, mode.size.h))
+            .unwrap_or_else(|| {
+                let space = self.model.monitor_state.monitors.get(monitor_name);
+                let size = space
+                    .map(|m| m.viewport.size)
+                    .unwrap_or(self.model.viewport.size);
+                (
+                    size.x.round().max(96.0) as i32,
+                    size.y.round().max(72.0) as i32,
+                )
+            })
+    }
+
     pub(crate) fn suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
         super::fullscreen::system::fullscreen_controller(self).suspend_xdg_fullscreen(node_id, now)
     }
