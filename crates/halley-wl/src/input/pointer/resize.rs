@@ -797,10 +797,16 @@ pub(crate) fn active_node_surface_transform_screen_details(
                 .map(|(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
                 .unwrap_or(local_bbox);
 
-            let rw = (gw * anim_scale).round() as i32;
-            let rh = (gh * anim_scale).round() as i32;
-            let rx = cx - (rw / 2);
-            let ry = cy - (rh / 2);
+            let (rx, ry) = if st
+                .fullscreen_monitor_for_node(node_id)
+                .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor)
+            {
+                (0, 0)
+            } else {
+                let rw = (gw * anim_scale).round() as i32;
+                let rh = (gh * anim_scale).round() as i32;
+                (cx - (rw / 2), cy - (rh / 2))
+            };
             let origin_x = (rx as f32) - (gx * anim_scale).round();
             let origin_y = (ry as f32) - (gy * anim_scale).round();
 
