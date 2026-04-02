@@ -2,8 +2,8 @@ pub(crate) mod bindings;
 pub(crate) mod modkeys;
 pub(crate) mod spawn;
 
-use crate::input::ctx::InputCtx;
 use crate::compositor::root::Halley;
+use crate::input::ctx::InputCtx;
 
 use std::time::Instant;
 
@@ -27,7 +27,6 @@ fn now_millis_u32() -> u32 {
         .map(|d| (d.as_millis() & 0xffff_ffff) as u32)
         .unwrap_or(0)
 }
-
 
 #[inline]
 fn cluster_mode_allows_keyboard_action(action: &CompositorBindingAction) -> bool {
@@ -96,7 +95,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         && !is_mod_key
         && !matched_binding
         && !cluster_blocks_key
-        && !st.keyboard_focus_is_layer_surface()
+        && !crate::compositor::monitor::layer_shell::keyboard_focus_is_layer_surface(st)
         && let Some(fid) = st.last_input_surface_node_for_monitor(st.focused_monitor())
     {
         let open_monitors = st

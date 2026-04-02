@@ -249,23 +249,34 @@ fn output_advertise_order(outputs: &[TtyDrmOutput], tuning: &RuntimeTuning) -> V
 
 fn layout_size_for_outputs(tuning: &RuntimeTuning, outputs: &[TtyDrmOutput]) -> (i32, i32) {
     let active_names = active_output_names(outputs);
-    let layout_w = tuning
+    let active_viewports: Vec<_> = tuning
         .tty_viewports
         .iter()
         .filter(|viewport| viewport.enabled)
         .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
-        .map(|viewport| viewport.offset_x + viewport.width as i32)
-        .max()
-        .unwrap_or(tuning.viewport_size.x.max(1.0).round() as i32);
-    let layout_h = tuning
-        .tty_viewports
+        .collect();
+
+    if active_viewports.is_empty() {
+        return (
+            tuning.viewport_size.x.max(1.0).round() as i32,
+            tuning.viewport_size.y.max(1.0).round() as i32,
+        );
+    }
+
+    let min_x = active_viewports.iter().map(|v| v.offset_x).min().unwrap();
+    let max_x = active_viewports
         .iter()
-        .filter(|viewport| viewport.enabled)
-        .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
-        .map(|viewport| viewport.offset_y + viewport.height as i32)
+        .map(|v| v.offset_x + v.width as i32)
         .max()
-        .unwrap_or(tuning.viewport_size.y.max(1.0).round() as i32);
-    (layout_w, layout_h)
+        .unwrap();
+    let min_y = active_viewports.iter().map(|v| v.offset_y).min().unwrap();
+    let max_y = active_viewports
+        .iter()
+        .map(|v| v.offset_y + v.height as i32)
+        .max()
+        .unwrap();
+
+    (max_x - min_x, max_y - min_y)
 }
 
 fn apply_tty_reload(
@@ -1183,18 +1194,18 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let renderer_for_timer = drm_probe.renderer.clone();
 
             ev.handle().insert_source(timer, move |_tick, _, st| {
-                if st.take_input_state_reset_request() {
+                if crate::compositor::interaction::state::take_input_state_reset_request(st) {
                     *mod_state_for_timer.borrow_mut() = ModState::default();
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     ps.intercepted_buttons.clear();
                     ps.intercepted_binding_buttons.clear();
                     ps.intercepted_buttons.clear();
-                    st.set_drag_authority_node(None);
+                    crate::compositor::carry::system::set_drag_authority_node(st, None);
                     ps.drag = None;
                     ps.move_anim.clear();
                     ps.panning = false;
                 }
-                if let Some((sx, sy)) = st.take_pointer_screen_hint_request() {
+                if let Some((sx, sy)) = crate::compositor::interaction::state::take_pointer_screen_hint_request(st) {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     let (ws_w, ws_h) = ps.workspace_size;
                     ps.screen = (sx, sy);
@@ -1446,7 +1457,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     if !dpms_just_woke_outputs_for_timer.borrow().is_empty() {
                         st.input.interaction_state.dpms_just_woke = false;
                         dpms_just_woke_outputs_for_timer.borrow_mut().clear();
-                        st.configure_layer_shell_surfaces((1, 1).into());
+                        crate::compositor::monitor::layer_shell::configure_layer_shell_surfaces(st, (1, 1).into());
                         crate::render::send_frame_callbacks(st, now);
                     }
 

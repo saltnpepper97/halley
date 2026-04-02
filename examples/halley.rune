@@ -8,6 +8,7 @@ autostart:
 
   #once "mako"
   #once "gessod"
+  #once "capitd"
 
   # Example:
   #on-reload "thunderbird"
@@ -106,14 +107,39 @@ clusters:
 end
 
 tile:
+  new-on-top false
   gaps-inner 20
   gaps-outer 20
   queue-show-icons true
+  max-stack 5
+end
+
+stacking:
 end
 
 physics:
   enabled true
   damping 0.35
+end
+
+animations:
+  enabled true
+
+  window-open:
+    enabled true
+  end
+
+  window-close:
+  end
+
+  layer-open:
+  end
+
+  layer-close:
+  end
+
+  tile-rearange:
+  end
 end
 
 decorations:
@@ -143,24 +169,26 @@ keybinds:
   "$var.mod+shift+e" "quit"
 
   # move the selected/latest node in a direction
-  "$var.mod+h" "node-move left"
-  "$var.mod+l" "node-move right"
-  "$var.mod+k" "node-move up"
-  "$var.mod+j" "node-move down"
+  "$var.mod+left" "node-move left"
+  "$var.mod+right" "node-move right"
+  "$var.mod+up" "node-move up"
+  "$var.mod+down" "node-move down"
 
   # switch monitor focus
-  "$var.mod+shift+h" "monitor-focus left"
-  "$var.mod+shift+l" "monitor-focus right"
+  "$var.mod+shift+left" "monitor-focus left"
+  "$var.mod+shift+right" "monitor-focus right"
+  "$var.mod+shift+up" "monitor-focus up"
+  "$var.mod+shift+down" "monitor-focus down"
 
-  # cluster mode
+  # cluster mode (workspaces)
   "$var.mod+shift+c" "cluster-mode"
 
   # bearings
   "$var.mod+z" "bearings-show"
   "$var.mod+shift+z" "bearings-toggle"
 
-  "$var.mod+shift+," "trail-prev"
-  "$var.mod+shift+." "trail-next"
+  "$var.mod+," "trail-prev"
+  "$var.mod+." "trail-next"
 
   # applications
   "$var.mod+return" "kitty"
@@ -170,8 +198,39 @@ keybinds:
   "$var.mod+rightmouse" "resize-window"
   "$var.mod+shift+leftmouse" "field-jump"
 
+  # tile layout
+  "$var.mod+left" "tile-focus left"
+  "$var.mod+right" "tile-focus right"
+  "$var.mod+up" "tile-focus up"
+  "$var.mod+down" "tile-focus down"
+
+  "$var.mod+shift+left" "tile-swap left"
+  "$var.mod+shift" "tile-swap right"
+  "$var.mod+shift+up" "tile-swap up"
+  "$var.mod+shift+sdown" "tile-swap down"
+
+  # Stacking + Field
+  "alt+tab" "node-focus-cycle"
+
   # media
   "xf86audioraisevolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
   "xf86audiolowervolume" "wpctl set-volume @default_audio_sink@ 5%-"
   "xf86audiomute" "wpctl set-mute @default_audio_sink@ toggle"
+end
+
+rules:
+  rule:
+    title ["Picture-in-Picture", r"File Upload.*"]
+    overlap-policy "all"
+    spawn-position "app"
+    cluster-participation "float"
+  end
+end
+
+debug:
+  # Post v0.1.0
+  overlay-fps false
+
+  # Show focus ring while resizing it, including after resizing in config
+  show-ring-when-resizing true
 end

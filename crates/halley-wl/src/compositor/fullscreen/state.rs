@@ -2,8 +2,6 @@ use std::collections::HashMap;
 
 use halley_core::field::{NodeId, Vec2};
 
-use crate::compositor::root::Halley;
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FullscreenSessionEntry {
     pub pos: Vec2,
@@ -46,15 +44,15 @@ pub(crate) struct FullscreenState {
     pub(crate) direct_scanout: HashMap<String, FullscreenDirectScanoutState>,
 }
 
-impl Halley {
-    pub(crate) fn set_fullscreen_direct_scanout_status(
+impl FullscreenState {
+    pub(crate) fn set_direct_scanout_status(
         &mut self,
         monitor: &str,
         candidate_node: Option<NodeId>,
         active_node: Option<NodeId>,
         reason: Option<String>,
     ) {
-        self.model.fullscreen_state.direct_scanout.insert(
+        self.direct_scanout.insert(
             monitor.to_string(),
             FullscreenDirectScanoutState {
                 candidate_node,
@@ -64,16 +62,13 @@ impl Halley {
         );
     }
 
-    pub(crate) fn clear_fullscreen_direct_scanout_for_monitor(&mut self, monitor: &str) {
-        self.model.fullscreen_state.direct_scanout.remove(monitor);
+    pub(crate) fn clear_direct_scanout_for_monitor(&mut self, monitor: &str) {
+        self.direct_scanout.remove(monitor);
     }
 
-    pub(crate) fn clear_fullscreen_direct_scanout_for_node(&mut self, node_id: NodeId) {
-        self.model
-            .fullscreen_state
-            .direct_scanout
-            .retain(|_, state| {
-                state.candidate_node != Some(node_id) && state.active_node != Some(node_id)
-            });
+    pub(crate) fn clear_direct_scanout_for_node(&mut self, node_id: NodeId) {
+        self.direct_scanout.retain(|_, state| {
+            state.candidate_node != Some(node_id) && state.active_node != Some(node_id)
+        });
     }
 }

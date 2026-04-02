@@ -9,10 +9,10 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
+use crate::compositor::root::Halley;
 use crate::overlay::{ClusterBloomAnimSnapshot, OverlayView};
 use crate::render::app_icon::ensure_app_icon_resources_for_node_ids;
 use crate::render::utils::{bitmap_text_size, draw_bitmap_text};
-use crate::compositor::root::Halley;
 
 #[derive(Clone, Copy)]
 pub(crate) struct BloomTokenLayout {
@@ -161,7 +161,11 @@ pub(crate) fn draw_cluster_bloom(
 ) -> Result<(), Box<dyn Error>> {
     let Some(snapshot) = st.ui.render_state.cluster_bloom_snapshot_for_monitor(
         monitor,
-        st.model.cluster_state.cluster_bloom_open.get(monitor).copied(),
+        st.model
+            .cluster_state
+            .cluster_bloom_open
+            .get(monitor)
+            .copied(),
     ) else {
         let overlay = OverlayView::from_halley(st);
         draw_cluster_join_affordance(frame, &overlay, screen_w, screen_h, monitor, damage)?;

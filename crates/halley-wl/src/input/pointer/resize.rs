@@ -63,8 +63,8 @@ pub(super) fn begin_resize(
         weights_from_handle(handle);
 
     if let Some(drag) = ps.drag {
-        st.set_drag_authority_node(None);
-        st.end_carry_state_tracking(drag.node_id);
+        crate::compositor::carry::system::set_drag_authority_node(st, None);
+        crate::compositor::carry::system::end_carry_state_tracking(st, drag.node_id);
     }
     ps.drag = None;
     ps.panning = false;
@@ -166,7 +166,7 @@ pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &
 
     let now = Instant::now();
     ps.move_anim.clear();
-    st.set_drag_authority_node(None);
+    crate::compositor::carry::system::set_drag_authority_node(st, None);
     st.input
         .interaction_state
         .physics_velocity
@@ -730,6 +730,24 @@ pub(crate) fn active_node_surface_transform_screen_details(
     let anim = crate::render::anim_style_for(st, node_id, n.state.clone(), now);
     let transition_alpha = st.active_transition_alpha(node_id, now);
     let cam_scale = st.camera_render_scale();
+
+    // Fit scale for fullscreen windows that don't match the physical monitor resolution.
+    // This happens often in XWayland when a game queries the "primary" monitor size
+    // and gets it wrong, resulting in a window smaller than the actual monitor.
+    let fit_scale = if let Some(monitor) = st.fullscreen_monitor_for_node(node_id) {
+        let (target_w, target_h) = if monitor == st.model.monitor_state.current_monitor {
+            let ws = st.model.viewport.size;
+            (ws.x.round() as i32, ws.y.round() as i32)
+        } else {
+            st.fullscreen_target_size_for(monitor)
+        };
+        let sw = (target_w as f32) / n.intrinsic_size.x.max(1.0);
+        let sh = (target_h as f32) / n.intrinsic_size.y.max(1.0);
+        sw.min(sh).max(0.1) // aspect-correct fit
+    } else {
+        1.0
+    };
+
     let anim_scale = active_surface_render_scale(
         anim.scale,
         st.active_zoom_lock_scale(),
@@ -737,6 +755,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
         n.intrinsic_size.y,
         transition_alpha,
     ) * st.fullscreen_entry_scale(node_id, st.now_ms(now))
+        * fit_scale
         * cam_scale;
 
     let (origin_x, origin_y, scale) =
@@ -778,10 +797,16 @@ pub(crate) fn active_node_surface_transform_screen_details(
                 .map(|(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
                 .unwrap_or(local_bbox);
 
-            let rw = (gw * anim_scale).round() as i32;
-            let rh = (gh * anim_scale).round() as i32;
-            let rx = cx - (rw / 2);
-            let ry = cy - (rh / 2);
+            let (rx, ry) = if st
+                .fullscreen_monitor_for_node(node_id)
+                .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor)
+            {
+                (0, 0)
+            } else {
+                let rw = (gw * anim_scale).round() as i32;
+                let rh = (gh * anim_scale).round() as i32;
+                (cx - (rw / 2), cy - (rh / 2))
+            };
             let origin_x = (rx as f32) - (gx * anim_scale).round();
             let origin_y = (ry as f32) - (gy * anim_scale).round();
 

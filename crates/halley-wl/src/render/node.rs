@@ -343,10 +343,10 @@ pub(crate) fn collect_hover_preview(
     let preview_target = overlay_hover_preview
         .map(|preview| preview.0)
         .or(hovered_preview_id);
-    let Some((preview_id, preview_mix_raw)) =
-        st.ui
-            .render_state
-            .node_preview_hover_anim_for_monitor(monitor, preview_target)
+    let Some((preview_id, preview_mix_raw)) = st
+        .ui
+        .render_state
+        .node_preview_hover_anim_for_monitor(monitor, preview_target)
     else {
         return (None, Vec::new());
     };
@@ -670,11 +670,10 @@ pub(crate) fn draw_node_hover_labels(
 
         let hover_mix = match st.runtime.tuning.node_show_labels {
             NodeDisplayPolicy::Off => 0.0,
-            NodeDisplayPolicy::Hover => {
-                st.ui
-                    .render_state
-                    .node_label_hover_mix(node.id, hover_node == Some(node.id))
-            }
+            NodeDisplayPolicy::Hover => st
+                .ui
+                .render_state
+                .node_label_hover_mix(node.id, hover_node == Some(node.id)),
             NodeDisplayPolicy::Always => 1.0,
         };
         // cube the hover_mix so the whole animation is back-loaded — nothing

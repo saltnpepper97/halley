@@ -285,8 +285,8 @@ pub(crate) fn apply_bound_pointer_input(
 #[cfg(test)]
 mod tests {
     use super::{compositor_action_allows_repeat, input_matches_binding};
-    use halley_config::keybinds::key_name_to_evdev;
     use halley_config::WHEEL_UP_CODE;
+    use halley_config::keybinds::key_name_to_evdev;
     use halley_config::{CompositorBindingAction, TrailBindingAction};
 
     #[test]

@@ -7,31 +7,31 @@ use crate::backend::interface::BackendView;
 use crate::compositor::actions::window::{
     activate_collapsed_node_from_click, focus_or_reveal_surface_node,
 };
+use crate::compositor::interaction::state::{PendingCoreClick, PendingCorePress};
 use crate::compositor::interaction::{
-    BloomDragCtx, HitNode, ModState, OverflowDragCtx, PointerState, TitleClickCtx,
-    NODE_DOUBLE_CLICK_MS,
+    BloomDragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, OverflowDragCtx, PointerState,
+    TitleClickCtx,
 };
+use crate::compositor::root::Halley;
 use crate::input::ctx::InputCtx;
 use crate::input::keyboard::modkeys::modifier_active;
 use crate::overlay::{
     bloom_token_hit_test, cluster_overflow_icon_hit_test, cluster_overflow_strip_slot_at,
 };
 use crate::render::bearing_hit_test;
-use crate::spatial::screen_to_world;
 use crate::spatial::pick_hit_node_at;
-use crate::compositor::interaction::state::{PendingCoreClick, PendingCorePress};
-use crate::compositor::root::Halley;
+use crate::spatial::screen_to_world;
 use smithay::backend::input::ButtonState;
 use smithay::input::pointer::{ButtonEvent, MotionEvent};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
+use super::focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
+use super::motion::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
+use super::resize::{begin_resize, finalize_resize};
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
-use super::motion::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
-use super::focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
-use super::resize::{begin_resize, finalize_resize};
 
 fn handle_left_press(
     st: &mut Halley,
@@ -323,7 +323,8 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     if matches!(button_state, ButtonState::Pressed)
         && let Some((surface, _)) = layer_focus.as_ref()
     {
-        let monitor = st.layer_surface_monitor_name(surface);
+        let monitor =
+            crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface);
         st.model.spawn_state.pending_spawn_monitor = Some(monitor.clone());
         info!(
             "pending spawn monitor latched from layer press: {}",
@@ -350,7 +351,8 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         match button_state {
             ButtonState::Pressed if left => {
                 if let Some((surface, _)) = layer_focus.as_ref() {
-                    let _ = st.focus_layer_surface(surface);
+                    let _ =
+                        crate::compositor::monitor::layer_shell::focus_layer_surface(st, surface);
                     ps.last_title_click = None;
                     return;
                 }
@@ -409,12 +411,12 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             monitor: target_monitor.clone(),
             core_screen: (layout.core_sx as f32, layout.core_sy as f32),
         });
-        st.input.interaction_state.bloom_pull_preview = Some(
-            crate::compositor::interaction::state::BloomPullPreview {
-            cluster_id: layout.cluster_id,
-            member_id: layout.member_id,
-            mix: 0.0,
-        });
+        st.input.interaction_state.bloom_pull_preview =
+            Some(crate::compositor::interaction::state::BloomPullPreview {
+                cluster_id: layout.cluster_id,
+                member_id: layout.member_id,
+                mix: 0.0,
+            });
         ps.last_title_click = None;
         ctx.backend.request_redraw();
         return;
@@ -455,13 +457,17 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             member_id: hit.member_id,
             monitor: target_monitor.clone(),
         });
-        st.input.interaction_state.cluster_overflow_drag_preview =
-            Some(crate::compositor::interaction::state::ClusterOverflowDragPreview {
+        st.input.interaction_state.cluster_overflow_drag_preview = Some(
+            crate::compositor::interaction::state::ClusterOverflowDragPreview {
                 member_id: hit.member_id,
                 monitor: target_monitor.clone(),
                 screen_local: (local_sx, local_sy),
-            });
-        st.set_cursor_override_icon(Some(smithay::input::pointer::CursorIcon::Grabbing));
+            },
+        );
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(smithay::input::pointer::CursorIcon::Grabbing),
+        );
         ps.last_title_click = None;
         ctx.backend.request_redraw();
         return;
@@ -471,7 +477,8 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             if let Some(action) = compositor_binding_action_active(st, button_code, &mods) {
                 ps.intercepted_binding_buttons.insert(button_code);
                 ps.panning = false;
-                let _ = apply_compositor_action_press(st, action, ctx.config_path, ctx.wayland_display);
+                let _ =
+                    apply_compositor_action_press(st, action, ctx.config_path, ctx.wayland_display);
                 ctx.backend.request_redraw();
                 true
             } else if apply_bound_pointer_input(
@@ -509,7 +516,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         && !intercepted
         && let Some((surface, _)) = layer_focus
     {
-        let _ = st.focus_layer_surface(&surface);
+        let _ = crate::compositor::monitor::layer_shell::focus_layer_surface(st, &surface);
         ps.last_title_click = None;
         return;
     }
@@ -587,7 +594,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             if left && let Some(overflow_drag) = ps.overflow_drag.take() {
                 let now = Instant::now();
                 st.input.interaction_state.cluster_overflow_drag_preview = None;
-                st.set_cursor_override_icon(None);
+                crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
                 let now_ms = st.now_ms(now);
                 let strip_slot = if overflow_drag.monitor == target_monitor {
                     cluster_overflow_strip_slot_at(
@@ -624,7 +631,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 if overflow_drag.monitor == target_monitor
                     && let Some(hit) = release_hit
                     && let Some(cluster) = st.model.field.cluster(overflow_drag.cluster_id)
-                    && cluster.visible_members().contains(&hit.node_id)
+                    && cluster.visible_members(st.runtime.tuning.tile_max_stack).contains(&hit.node_id)
                 {
                     let swapped = st.swap_cluster_overflow_member_with_visible(
                         overflow_drag.monitor.as_str(),
@@ -645,12 +652,17 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             if intercepted_binding {
                 return;
             }
-            handle_button_release(st, &mut ps, ctx.backend, button_code, matched_action, world_now);
+            handle_button_release(
+                st,
+                &mut ps,
+                ctx.backend,
+                button_code,
+                matched_action,
+                world_now,
+            );
         }
     }
 }
-
-
 
 pub(super) fn title_click_is_double(
     ps: &PointerState,
@@ -673,14 +685,14 @@ pub(super) fn set_title_click(
 
 pub(super) fn clear_pointer_activity(st: &mut Halley, ps: &mut PointerState) {
     if let Some(drag) = ps.drag {
-        st.set_drag_authority_node(None);
-        st.end_carry_state_tracking(drag.node_id);
+        crate::compositor::carry::system::set_drag_authority_node(st, None);
+        crate::compositor::carry::system::end_carry_state_tracking(st, drag.node_id);
     }
-    st.clear_grabbed_edge_pan_state();
+    crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
     st.input.interaction_state.active_drag = None;
     st.input.interaction_state.pending_core_press = None;
     st.input.interaction_state.cluster_overflow_drag_preview = None;
-    st.set_cursor_override_icon(None);
+    crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
     ps.drag = None;
     ps.overflow_drag = None;
     ps.resize = None;
@@ -867,7 +879,6 @@ pub(super) fn handle_workspace_left_press(
     }
 }
 
-
 pub(super) fn dispatch_pointer_button(
     st: &mut Halley,
     frame: ButtonFrame,
@@ -889,10 +900,9 @@ pub(super) fn dispatch_pointer_button(
     );
     let motion_serial = SERIAL_COUNTER.next_serial();
     let button_serial = SERIAL_COUNTER.next_serial();
-    let location = if focus
-        .as_ref()
-        .is_some_and(|(surface, _)| st.is_layer_surface(surface))
-    {
+    let location = if focus.as_ref().is_some_and(|(surface, _)| {
+        crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+    }) {
         (frame.sx as f64, frame.sy as f64).into()
     } else {
         let cam_scale = st.camera_render_scale() as f64;
@@ -918,7 +928,6 @@ pub(super) fn dispatch_pointer_button(
     );
     pointer.frame(st);
 }
-
 
 #[derive(Clone, Copy)]
 pub(crate) struct ButtonFrame {
@@ -989,6 +998,9 @@ pub(super) fn active_pointer_binding(
     mods: &ModState,
     button_code: u32,
 ) -> Option<PointerBindingAction> {
+    if crate::compositor::interaction::pointer::active_constrained_pointer_surface(st).is_some() {
+        return None;
+    }
     st.runtime
         .tuning
         .pointer_bindings
@@ -1005,25 +1017,26 @@ pub(super) fn button_frame_for_monitor(
     screen: (f32, f32),
 ) -> (ButtonFrame, String, (f32, f32)) {
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, screen.0, screen.1);
-    let target_monitor = st
-        .active_locked_pointer_surface()
-        .and_then(|surface| {
-            let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
-            Some(
-                st.model
-                    .monitor_state
-                    .node_monitor
-                    .get(&node_id)
-                    .cloned()
-                    .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
-            )
-        })
-        .unwrap_or_else(|| {
-            st.monitor_for_screen(sx, sy)
-                .unwrap_or_else(|| st.interaction_monitor().to_string())
-        });
+    let target_monitor =
+        crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
+            .and_then(|(surface, _)| {
+                let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
+                Some(
+                    st.model
+                        .monitor_state
+                        .node_monitor
+                        .get(&node_id)
+                        .cloned()
+                        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
+                )
+            })
+            .unwrap_or_else(|| {
+                st.monitor_for_screen(sx, sy)
+                    .unwrap_or_else(|| st.interaction_monitor().to_string())
+            });
     st.set_interaction_monitor(target_monitor.as_str());
     let _ = st.activate_monitor(target_monitor.as_str());
+    st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
     let (local_w, local_h, local_sx, local_sy) =
         st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
     let world_now = screen_to_world(st, local_w, local_h, local_sx, local_sy);

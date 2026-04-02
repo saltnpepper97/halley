@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -22,112 +23,37 @@ pub(crate) struct RuntimeState {
     pub(crate) spawned_children: Vec<std::process::Child>,
 }
 
-impl Halley {
+pub(crate) struct RuntimeController<T> {
+    st: T,
+}
+
+pub(crate) fn runtime_controller<T>(st: T) -> RuntimeController<T> {
+    RuntimeController { st }
+}
+
+impl<T: Deref<Target = Halley>> Deref for RuntimeController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for RuntimeController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: Deref<Target = Halley>> RuntimeController<T> {
     pub fn now_ms(&self, now: Instant) -> u64 {
         now.duration_since(self.runtime.started_at).as_millis() as u64
     }
 
     pub(crate) fn debug_dump(&self) {}
 
-    pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
-        let prev_runtime_viewport = self.model.viewport;
-        let prev_config_viewport = self.runtime.tuning.viewport();
-        let prev_effective_no_csd = self.runtime.tuning.effective_no_csd();
-        let prev_physics_enabled = self.runtime.tuning.physics_enabled;
-        let prev_focus = self.last_input_surface_node();
-        let previous_output_names: std::collections::HashSet<String> = self
-            .model
-            .monitor_state
-            .monitors
-            .keys()
-            .cloned()
-            .chain(
-                self.runtime
-                    .tuning
-                    .tty_viewports
-                    .iter()
-                    .map(|v| v.connector.clone()),
-            )
-            .collect();
-
-        tuning.enforce_guards();
-        tuning.apply_process_env();
-
-        let next_viewport = tuning.viewport();
-        let logical_viewport_changed = prev_config_viewport.center != next_viewport.center
-            || prev_config_viewport.size != next_viewport.size;
-        if logical_viewport_changed {
-            self.model.viewport = next_viewport;
-            self.model.zoom_ref_size = tuning.viewport_size;
-            self.model.camera_target_center = self.model.viewport.center;
-            self.model.camera_target_view_size = self.model.zoom_ref_size;
-            if prev_runtime_viewport.center != next_viewport.center
-                || prev_runtime_viewport.size != next_viewport.size
-            {
-                self.input.interaction_state.viewport_pan_anim = None;
-            }
-        }
-
-        self.ui.render_state.animator.set_spec(AnimSpec {
-            state_change_ms: tuning.dev_anim_state_change_ms,
-            bounce: tuning.dev_anim_bounce,
-        });
-
-        if prev_physics_enabled && !tuning.physics_enabled {
-            self.model.workspace_state.active_transition_until_ms.clear();
-            self.input.interaction_state.drag_authority_node = None;
-            self.input.interaction_state.physics_velocity.clear();
-            self.input.interaction_state.smoothed_render_pos.clear();
-            self.model.camera_target_center = self.model.viewport.center;
-            self.model.camera_target_view_size = self.model.zoom_ref_size;
-        }
-
-        let next_output_names: std::collections::HashSet<String> = previous_output_names
-            .iter()
-            .cloned()
-            .chain(tuning.tty_viewports.iter().map(|v| v.connector.clone()))
-            .collect();
-        let now = Instant::now();
-        let now_ms = self.now_ms(now);
-        for output_name in next_output_names {
-            if self
-                .runtime
-                .tuning
-                .focus_ring_for_output(output_name.as_str())
-                != tuning.focus_ring_for_output(output_name.as_str())
-            {
-                self.model.focus_state.focus_ring_preview_until_ms.insert(
-                    output_name,
-                    now_ms.saturating_add(crate::compositor::focus::state::FOCUS_RING_PREVIEW_MS),
-                );
-            }
-        }
-
-        self.runtime.tuning = tuning;
-        if prev_effective_no_csd != self.runtime.tuning.effective_no_csd() {
-            self.refresh_xdg_decoration_mode();
-        }
-        self.request_maintenance();
-
-        if let Some(id) = prev_focus {
-            self.set_interaction_focus(Some(id), 30_000, now);
-        }
-    }
-
-    pub fn request_exit(&mut self) {
-        self.runtime.exit_requested = true;
-    }
-
     pub fn exit_requested(&self) -> bool {
         self.runtime.exit_requested
-    }
-
-    #[inline]
-    pub fn request_maintenance(&mut self) {
-        self.runtime.maintenance_dirty = true;
-        if let Some(ping) = &self.runtime.maintenance_ping {
-            ping.ping();
-        }
     }
 
     pub fn next_maintenance_deadline(&self, now: Instant) -> Option<Instant> {
@@ -212,6 +138,108 @@ impl Halley {
             .unwrap_or(now)
         })
     }
+}
+
+impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
+    pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
+        let prev_runtime_viewport = self.model.viewport;
+        let prev_config_viewport = self.runtime.tuning.viewport();
+        let prev_effective_no_csd = self.runtime.tuning.effective_no_csd();
+        let prev_physics_enabled = self.runtime.tuning.physics_enabled;
+        let prev_focus = self.last_input_surface_node();
+        let previous_output_names: std::collections::HashSet<String> = self
+            .model
+            .monitor_state
+            .monitors
+            .keys()
+            .cloned()
+            .chain(
+                self.runtime
+                    .tuning
+                    .tty_viewports
+                    .iter()
+                    .map(|v| v.connector.clone()),
+            )
+            .collect();
+
+        tuning.enforce_guards();
+        tuning.apply_process_env();
+
+        let next_viewport = tuning.viewport();
+        let logical_viewport_changed = prev_config_viewport.center != next_viewport.center
+            || prev_config_viewport.size != next_viewport.size;
+        if logical_viewport_changed {
+            self.model.viewport = next_viewport;
+            self.model.zoom_ref_size = tuning.viewport_size;
+            self.model.camera_target_center = self.model.viewport.center;
+            self.model.camera_target_view_size = self.model.zoom_ref_size;
+            if prev_runtime_viewport.center != next_viewport.center
+                || prev_runtime_viewport.size != next_viewport.size
+            {
+                self.input.interaction_state.viewport_pan_anim = None;
+            }
+        }
+
+        self.ui.render_state.animator.set_spec(AnimSpec {
+            state_change_ms: tuning.dev_anim_state_change_ms,
+            bounce: tuning.dev_anim_bounce,
+        });
+
+        if prev_physics_enabled && !tuning.physics_enabled {
+            self.model
+                .workspace_state
+                .active_transition_until_ms
+                .clear();
+            self.input.interaction_state.drag_authority_node = None;
+            self.input.interaction_state.physics_velocity.clear();
+            self.input.interaction_state.smoothed_render_pos.clear();
+            self.model.camera_target_center = self.model.viewport.center;
+            self.model.camera_target_view_size = self.model.zoom_ref_size;
+        }
+
+        let next_output_names: std::collections::HashSet<String> = previous_output_names
+            .iter()
+            .cloned()
+            .chain(tuning.tty_viewports.iter().map(|v| v.connector.clone()))
+            .collect();
+        let now = Instant::now();
+        let now_ms = self.now_ms(now);
+        for output_name in next_output_names {
+            if self
+                .runtime
+                .tuning
+                .focus_ring_for_output(output_name.as_str())
+                != tuning.focus_ring_for_output(output_name.as_str())
+            {
+                self.model.focus_state.focus_ring_preview_until_ms.insert(
+                    output_name,
+                    now_ms.saturating_add(crate::compositor::focus::state::FOCUS_RING_PREVIEW_MS),
+                );
+            }
+        }
+
+        self.runtime.tuning = tuning;
+        if prev_effective_no_csd != self.runtime.tuning.effective_no_csd() {
+            self.refresh_xdg_decoration_mode();
+        }
+        self.request_maintenance();
+
+        if let Some(id) = prev_focus {
+            self.set_interaction_focus(Some(id), 30_000, now);
+        }
+    }
+
+    pub fn request_exit(&mut self) {
+        self.runtime.exit_requested = true;
+    }
+
+    #[inline]
+    pub fn request_maintenance(&mut self) {
+        self.runtime.maintenance_dirty = true;
+        if let Some(ping) = &self.runtime.maintenance_ping {
+            ping.ping();
+        }
+    }
 
     #[inline]
     pub fn run_maintenance_if_needed(&mut self, now: Instant) {
@@ -229,7 +257,7 @@ impl Halley {
         if !self.model.focus_state.app_focused {
             return;
         }
-        self.reconcile_surface_bindings();
+        crate::compositor::workspace::lifecycle::reconcile_surface_bindings(self);
         let now_ms = now.duration_since(self.runtime.started_at).as_millis() as u64;
         let _ = self.recent_top_node_active(now);
         if let Some(pending) = self.input.interaction_state.pending_core_click.clone()
@@ -269,7 +297,7 @@ impl Halley {
         if self.model.focus_state.primary_interaction_focus.is_none()
             && self.model.monitor_state.layer_keyboard_focus.is_some()
         {
-            self.reassert_layer_surface_keyboard_focus_if_drifted();
+            crate::compositor::monitor::layer_shell::reassert_layer_surface_keyboard_focus_if_drifted(self);
         }
         self.model
             .workspace_state
@@ -279,7 +307,8 @@ impl Halley {
             .workspace_state
             .primary_promote_cooldown_until_ms
             .retain(|_, &mut until| until > now_ms);
-        let alive_ids: std::collections::HashSet<_> = self.model.field.node_ids_all().into_iter().collect();
+        let alive_ids: std::collections::HashSet<_> =
+            self.model.field.node_ids_all().into_iter().collect();
         self.model
             .carry_state
             .carry_zone_hint
@@ -340,12 +369,15 @@ impl Halley {
             self.input.interaction_state.resize_static_until_ms = 0;
         }
         if !self.input.interaction_state.suspend_state_checks {
-            self.enforce_pan_dominant_zone_states(now_ms);
-            self.enforce_carry_zone_states();
+            crate::compositor::interaction::state::enforce_pan_dominant_zone_states(self, now_ms);
+            crate::compositor::carry::state::enforce_carry_zone_states(self);
         }
         if let Some(id) = self.input.interaction_state.resize_active {
             let _ = self.model.field.touch(id, now_ms);
-            let _ = self.model.field.set_decay_level(id, halley_core::decay::DecayLevel::Hot);
+            let _ = self
+                .model
+                .field
+                .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
         }
         if self.input.interaction_state.resize_active.is_none()
             && !(self.input.interaction_state.resize_static_node.is_some()
@@ -353,16 +385,18 @@ impl Halley {
         {
             self.update_zoom_live_surface_sizes();
         }
+        let cluster_policy = halley_core::cluster_policy::ClusterPolicy {
+            enabled: false,
+            distance_px: self.runtime.tuning.cluster_distance_px,
+            dwell_ms: self.runtime.tuning.cluster_dwell_ms,
+            ..Default::default()
+        };
+        let model = &mut self.model;
         let _ = halley_core::cluster_policy::tick_cluster_formation(
-            &mut self.model.field,
+            &mut model.field,
             now_ms,
-            halley_core::cluster_policy::ClusterPolicy {
-                enabled: false,
-                distance_px: self.runtime.tuning.cluster_distance_px,
-                dwell_ms: self.runtime.tuning.cluster_dwell_ms,
-                ..Default::default()
-            },
-            &mut self.model.cluster_state.cluster_form_state,
+            cluster_policy,
+            &mut model.cluster_state.cluster_form_state,
         );
         self.enforce_single_primary_active_unit();
         if !self.input.interaction_state.suspend_state_checks
@@ -371,10 +405,8 @@ impl Halley {
             self.resolve_surface_overlap();
         }
         self.restore_pan_return_active_focus(now);
-        self.ui
-            .render_state
-            .animator
-            .observe_field(&self.model.field, now);
+        let crate::compositor::root::Halley { model, ui, .. } = &mut **self;
+        ui.render_state.animator.observe_field(&model.field, now);
 
         if self.runtime.tuning.debug_tick_dump
             && now

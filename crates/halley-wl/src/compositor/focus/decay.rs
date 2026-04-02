@@ -1,10 +1,33 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
 
 use super::*;
 use crate::compositor::overlap::system::CollisionExtents;
 use halley_core::viewport::{FocusRing, FocusZone};
 
-impl Halley {
+pub(crate) struct FocusDecayController<T> {
+    st: T,
+}
+
+pub(crate) fn focus_decay_controller<T>(st: T) -> FocusDecayController<T> {
+    FocusDecayController { st }
+}
+
+impl<T: Deref<Target = Halley>> Deref for FocusDecayController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for FocusDecayController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: Deref<Target = Halley>> FocusDecayController<T> {
     const ACTIVE_RING_OUTSIDE_DECAY_FRAC: f32 = 0.98;
 
     fn focus_ring_center_for_node(&self, id: NodeId) -> Vec2 {
@@ -79,14 +102,21 @@ impl Halley {
         self.focus_ring_coverage_for_extents(node.pos, ext, focus_center, focus_ring)
     }
 
-    fn surface_is_definitively_outside_focus_ring(&self, id: NodeId) -> bool {
+    pub(crate) fn surface_is_definitively_outside_focus_ring(&self, id: NodeId) -> bool {
         let (_, outside_frac) = self.surface_ring_coverage(id);
         outside_frac >= Self::ACTIVE_RING_OUTSIDE_DECAY_FRAC
     }
+}
 
+impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
     pub(crate) fn enforce_single_primary_active_unit(&mut self) {
         let now_ms = self.now_ms(Instant::now());
-        let active_windows_allowed = self.runtime.tuning.active_windows_allowed.max(1);
+        let tile_max_stack = self.runtime.tuning.tile_max_stack;
+        let active_windows_allowed = if tile_max_stack == 0 {
+            usize::MAX
+        } else {
+            tile_max_stack + 1
+        };
         let companion = self.companion_surface_node(now_ms);
         let preferred_surface = self.last_input_surface_node();
 
@@ -247,7 +277,7 @@ impl Halley {
     fn is_hard_decay_protected(&self, id: NodeId, now_ms: u64) -> bool {
         self.model.focus_state.primary_interaction_focus == Some(id)
             || self.input.interaction_state.resize_active == Some(id)
-            || self.is_recently_resized_node(id, now_ms)
+            || crate::compositor::interaction::state::is_recently_resized_node(self, id, now_ms)
             || self.model.carry_state.carry_zone_hint.contains_key(&id)
             || self
                 .model

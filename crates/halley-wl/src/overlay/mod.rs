@@ -514,7 +514,10 @@ pub(crate) fn draw_overlay_hover_label(
     else {
         return Ok(());
     };
-    let hover_mix = st.ui.render_state.node_label_hover_mix(target.node_id, true);
+    let hover_mix = st
+        .ui
+        .render_state
+        .node_label_hover_mix(target.node_id, true);
     let reveal_mix = crate::animation::ease_in_out_cubic(hover_mix * hover_mix * hover_mix);
     let label_fade = ((reveal_mix - 0.30) / 0.55).clamp(0.0, 1.0);
     if label_fade <= 0.01 {

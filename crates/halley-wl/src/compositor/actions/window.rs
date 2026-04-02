@@ -95,7 +95,7 @@ pub(crate) fn activate_collapsed_node_from_click(
     match st.runtime.tuning.click_collapsed_pan {
         ClickCollapsedPanMode::Never => false,
         ClickCollapsedPanMode::IfOffscreen => {
-            if st.surface_is_sufficiently_visible_on_monitor(target_monitor.as_str(), node_id) {
+            if st.surface_is_fully_visible_on_monitor(target_monitor.as_str(), node_id) {
                 false
             } else {
                 st.minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
@@ -171,10 +171,10 @@ pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
         y: n.pos.y + dy,
     };
     let _ = st.model.field.set_pinned(id, false);
-    st.begin_carry_state_tracking(id);
+    crate::compositor::carry::system::begin_carry_state_tracking(st, id);
     if st.carry_surface_non_overlap(id, to, false) {
-        st.update_carry_state_preview(id, Instant::now());
-        st.end_carry_state_tracking(id);
+        crate::compositor::carry::system::update_carry_state_preview(st, id, Instant::now());
+        crate::compositor::carry::system::end_carry_state_tracking(st, id);
         st.set_interaction_focus(Some(id), 30_000, Instant::now());
         if let Some(nn) = st.model.field.node(id) {
             info!(
@@ -187,7 +187,7 @@ pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
         }
         return true;
     }
-    st.end_carry_state_tracking(id);
+    crate::compositor::carry::system::end_carry_state_tracking(st, id);
     false
 }
 

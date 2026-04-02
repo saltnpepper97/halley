@@ -3,15 +3,15 @@ use std::rc::Rc;
 
 use smithay::{
     desktop::PopupManager,
-    input::{pointer::CursorImageStatus, Seat, SeatState},
+    input::{Seat, SeatState, pointer::CursorImageStatus},
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode,
         wayland_server::{
-            backend::ObjectId, protocol::wl_surface::WlSurface, DisplayHandle, Resource,
+            DisplayHandle, Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
         },
     },
     wayland::{
-        compositor::{add_blocker, with_states, CompositorState},
+        compositor::{CompositorState, add_blocker, with_states},
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjState},
         idle_notify::IdleNotifierState,
@@ -23,7 +23,7 @@ use smithay::{
             wlr_data_control::DataControlState,
         },
         shell::wlr_layer::WlrLayerShellState,
-        shell::xdg::{decoration::XdgDecorationState, ToplevelState, XdgShellState},
+        shell::xdg::{ToplevelState, XdgShellState, decoration::XdgDecorationState},
         shm::ShmState,
         viewporter::ViewporterState,
     },
@@ -59,162 +59,160 @@ pub(crate) struct PlatformState {
     pub(crate) dmabuf_importer: Option<Rc<dyn DmabufImportBackend>>,
 }
 
-impl Halley {
-    pub(crate) fn preferred_xdg_decoration_mode(&self) -> XdgDecorationMode {
-        if self.runtime.tuning.effective_no_csd() {
-            XdgDecorationMode::ServerSide
+pub(crate) fn preferred_xdg_decoration_mode(st: &Halley) -> XdgDecorationMode {
+    if st.runtime.tuning.effective_no_csd() {
+        XdgDecorationMode::ServerSide
+    } else {
+        XdgDecorationMode::ClientSide
+    }
+}
+
+pub(crate) fn apply_toplevel_tiled_hint(st: &Halley, state: &mut ToplevelState) {
+    let tiled = st.runtime.tuning.effective_no_csd()
+        && !state
+            .states
+            .contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen);
+    for edge in [
+        smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledTop,
+        smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledBottom,
+        smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledLeft,
+        smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledRight,
+    ] {
+        if tiled {
+            state.states.set(edge);
         } else {
-            XdgDecorationMode::ClientSide
+            state.states.unset(edge);
         }
     }
+}
 
-    pub(crate) fn apply_toplevel_tiled_hint(&self, state: &mut ToplevelState) {
-        let tiled = self.runtime.tuning.effective_no_csd()
-            && !state
-                .states
-                .contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen);
-        for edge in [
-            smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledTop,
-            smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledBottom,
-            smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledLeft,
-            smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledRight,
-        ] {
-            if tiled {
-                state.states.set(edge);
-            } else {
-                state.states.unset(edge);
-            }
-        }
-    }
-
-    pub(crate) fn refresh_xdg_decoration_mode(&mut self) {
-        let mode = self.preferred_xdg_decoration_mode();
-        for toplevel in self.platform.xdg_shell_state.toplevel_surfaces() {
-            toplevel.with_pending_state(|state| {
-                state.decoration_mode = Some(mode);
-                self.apply_toplevel_tiled_hint(state);
-            });
-            toplevel.send_configure();
-        }
-    }
-
-    pub(crate) fn effective_cursor_image_status(&self) -> CursorImageStatus {
-        self.input
-            .interaction_state
-            .cursor_override_icon
-            .map(CursorImageStatus::Named)
-            .unwrap_or_else(|| self.platform.cursor_image_status.clone())
-    }
-
-    pub(crate) fn install_drm_syncobj_blocker(&mut self, surface: &WlSurface) {
-        if self.platform.drm_syncobj_state.is_none() {
-            return;
-        }
-
-        let acquire_point = with_states(surface, |states| {
-            let mut cached = states.cached_state.get::<DrmSyncobjCachedState>();
-            cached.pending().acquire_point.clone()
+pub(crate) fn refresh_xdg_decoration_mode(st: &mut Halley) {
+    let mode = preferred_xdg_decoration_mode(st);
+    for toplevel in st.platform.xdg_shell_state.toplevel_surfaces() {
+        toplevel.with_pending_state(|state| {
+            state.decoration_mode = Some(mode);
+            apply_toplevel_tiled_hint(st, state);
         });
+        toplevel.send_configure();
+    }
+}
 
-        let Some(acquire_point) = acquire_point else {
-            return;
+pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
+    st.input
+        .interaction_state
+        .cursor_override_icon
+        .map(CursorImageStatus::Named)
+        .unwrap_or_else(|| st.platform.cursor_image_status.clone())
+}
+
+pub(crate) fn install_drm_syncobj_blocker(st: &mut Halley, surface: &WlSurface) {
+    if st.platform.drm_syncobj_state.is_none() {
+        return;
+    }
+
+    let acquire_point = with_states(surface, |states| {
+        let mut cached = states.cached_state.get::<DrmSyncobjCachedState>();
+        cached.pending().acquire_point.clone()
+    });
+
+    let Some(acquire_point) = acquire_point else {
+        return;
+    };
+
+    let blocker_state = SyncobjCommitBlockerState::default();
+    add_blocker(
+        surface,
+        SyncobjCommitBlocker {
+            state: blocker_state.clone(),
+        },
+    );
+    spawn_drm_syncobj_waiter(st, surface.id(), acquire_point, blocker_state);
+}
+
+fn spawn_drm_syncobj_waiter(
+    st: &Halley,
+    surface_id: ObjectId,
+    acquire_point: DrmSyncPoint,
+    blocker_state: SyncobjCommitBlockerState,
+) {
+    let pending_surfaces = st.runtime.pending_drm_syncobj_surfaces.clone();
+    std::thread::spawn(move || {
+        let state = if acquire_point.wait(i64::MAX).is_ok() {
+            SyncobjCommitBlockerStatus::Released
+        } else {
+            SyncobjCommitBlockerStatus::Cancelled
         };
+        blocker_state.store(state);
+        if let Ok(mut pending) = pending_surfaces.lock() {
+            pending.push(surface_id);
+        }
+    });
+}
 
-        let blocker_state = SyncobjCommitBlockerState::default();
-        add_blocker(
-            surface,
-            SyncobjCommitBlocker {
-                state: blocker_state.clone(),
-            },
-        );
-        self.spawn_drm_syncobj_waiter(surface.id(), acquire_point, blocker_state);
-    }
+pub(crate) fn drain_drm_syncobj_blockers(st: &mut Halley) {
+    let surface_ids = match st.runtime.pending_drm_syncobj_surfaces.lock() {
+        Ok(mut pending) => std::mem::take(&mut *pending),
+        Err(_) => return,
+    };
+    let dh = st.platform.display_handle.clone();
 
-    fn spawn_drm_syncobj_waiter(
-        &self,
-        surface_id: ObjectId,
-        acquire_point: DrmSyncPoint,
-        blocker_state: SyncobjCommitBlockerState,
-    ) {
-        let pending_surfaces = self.runtime.pending_drm_syncobj_surfaces.clone();
-        std::thread::spawn(move || {
-            let state = if acquire_point.wait(i64::MAX).is_ok() {
-                SyncobjCommitBlockerStatus::Released
-            } else {
-                SyncobjCommitBlockerStatus::Cancelled
-            };
-            blocker_state.store(state);
-            if let Ok(mut pending) = pending_surfaces.lock() {
-                pending.push(surface_id);
-            }
-        });
-    }
-
-    pub(crate) fn drain_drm_syncobj_blockers(&mut self) {
-        let surface_ids = match self.runtime.pending_drm_syncobj_surfaces.lock() {
-            Ok(mut pending) => std::mem::take(&mut *pending),
-            Err(_) => return,
+    for surface_id in surface_ids {
+        let Ok(client) = dh.get_client(surface_id) else {
+            continue;
         };
-        let dh = self.platform.display_handle.clone();
+        let Some(client_state) = client.get_data::<ClientState>() else {
+            continue;
+        };
+        client_state.compositor_state.blocker_cleared(st, &dh);
+    }
+}
 
-        for surface_id in surface_ids {
-            let Ok(client) = dh.get_client(surface_id) else {
-                continue;
-            };
-            let Some(client_state) = client.get_data::<ClientState>() else {
-                continue;
-            };
-            client_state.compositor_state.blocker_cleared(self, &dh);
-        }
+pub(crate) fn configure_dmabuf_importer(
+    st: &mut Halley,
+    importer: Rc<dyn DmabufImportBackend>,
+    main_device: Option<libc::dev_t>,
+) {
+    let formats = importer.dmabuf_formats();
+    if formats.is_empty() {
+        return;
     }
 
-    pub(crate) fn configure_dmabuf_importer(
-        &mut self,
-        importer: Rc<dyn DmabufImportBackend>,
-        main_device: Option<libc::dev_t>,
-    ) {
-        let formats = importer.dmabuf_formats();
-        if formats.is_empty() {
-            return;
-        }
-
-        let global = match main_device {
-            Some(device) => {
-                let feedback = DmabufFeedbackBuilder::new(device, formats.iter().copied())
-                    .build()
-                    .expect("renderer dmabuf feedback should be constructible");
-                self.platform
-                    .dmabuf_state
-                    .create_global_with_default_feedback::<Halley>(
-                        &self.platform.display_handle,
-                        &feedback,
-                    )
-            }
-            None => self
-                .platform
+    let global = match main_device {
+        Some(device) => {
+            let feedback = DmabufFeedbackBuilder::new(device, formats.iter().copied())
+                .build()
+                .expect("renderer dmabuf feedback should be constructible");
+            st.platform
                 .dmabuf_state
-                .create_global::<Halley>(&self.platform.display_handle, formats.iter().copied()),
-        };
+                .create_global_with_default_feedback::<Halley>(
+                    &st.platform.display_handle,
+                    &feedback,
+                )
+        }
+        None => st
+            .platform
+            .dmabuf_state
+            .create_global::<Halley>(&st.platform.display_handle, formats.iter().copied()),
+    };
 
-        self.platform.dmabuf_importer = Some(importer);
-        self.platform.dmabuf_global = Some(global);
-    }
+    st.platform.dmabuf_importer = Some(importer);
+    st.platform.dmabuf_global = Some(global);
+}
 
-    pub(crate) fn configure_dmabuf_importer_for_fd<Fd: AsFd>(
-        &mut self,
-        importer: Rc<dyn DmabufImportBackend>,
-        device_fd: Fd,
-    ) {
-        let main_device = rustix::fs::fstat(device_fd).ok().map(|stat| stat.st_rdev);
-        self.configure_dmabuf_importer(importer, main_device);
-    }
+pub(crate) fn configure_dmabuf_importer_for_fd<Fd: AsFd>(
+    st: &mut Halley,
+    importer: Rc<dyn DmabufImportBackend>,
+    device_fd: Fd,
+) {
+    let main_device = rustix::fs::fstat(device_fd).ok().map(|stat| stat.st_rdev);
+    configure_dmabuf_importer(st, importer, main_device);
+}
 
-    #[inline]
-    pub fn note_input_activity(&mut self) {
-        self.platform
-            .idle_notifier_state
-            .notify_activity(&self.platform.seat);
-    }
+#[inline]
+pub fn note_input_activity(st: &mut Halley) {
+    st.platform
+        .idle_notifier_state
+        .notify_activity(&st.platform.seat);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

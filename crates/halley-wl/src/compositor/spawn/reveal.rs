@@ -1,21 +1,26 @@
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
 use eventline::info;
-use halley_config::PanToNewMode;
+use halley_config::{InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, PanToNewMode};
 use halley_core::decay::DecayLevel;
 use halley_core::field::{NodeId, Vec2};
+use halley_core::viewport::Viewport;
 use smithay::desktop::utils::bbox_from_surface_tree;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface};
 
 use crate::compositor::ctx::SpawnCtx;
-use crate::render::active_window_frame_pad_px;
 use crate::compositor::focus::state::FocusState;
 use crate::compositor::monitor::state::MonitorState;
-use crate::compositor::root::Halley;
-use crate::compositor::spawn::state::{MonitorSpawnState, SpawnState};
 use crate::compositor::overlap::system::CollisionExtents;
+use crate::compositor::root::Halley;
+use crate::compositor::spawn::read;
+use crate::compositor::spawn::read::RevealNewToplevelPlan;
+use crate::compositor::spawn::rules::{InitialWindowIntent, ResolvedInitialWindowRule};
+use crate::compositor::spawn::state::{MonitorSpawnState, SpawnState};
+use crate::render::active_window_frame_pad_px;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct InitialToplevelSize {
@@ -52,24 +57,19 @@ fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i3
 pub(crate) fn initial_toplevel_size(
     ctx: &mut SpawnCtx<'_>,
     toplevel: &ToplevelSurface,
+    intent: &InitialWindowIntent,
 ) -> InitialToplevelSize {
     let st = &ctx.st;
-    let predicted_monitor = st
+    let predicted_monitor = st.spawn_target_monitor_for_intent(intent);
+    let stack_mode_open = st
         .model
-        .spawn_state
-        .pending_spawn_monitor
-        .as_ref()
-        .filter(|monitor| st.model.monitor_state.monitors.contains_key(monitor.as_str()))
-        .cloned()
-        .unwrap_or_else(|| {
-            let focused = st.focused_monitor().to_string();
-            if st.model.monitor_state.monitors.contains_key(focused.as_str()) {
-                focused
-            } else {
-                st.interaction_monitor().to_string()
-            }
-        });
-    if let Some(cid) = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str())
+        .cluster_state
+        .cluster_bloom_open
+        .contains_key(predicted_monitor.as_str());
+    if !stack_mode_open
+        && intent.rule.cluster_participation
+            == halley_config::InitialWindowClusterParticipation::Layout
+        && let Some(cid) = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str())
         && let Some(rect) = st.cluster_spawn_rect_for_new_member(predicted_monitor.as_str(), cid)
     {
         let width = rect.w.max(64.0).round() as i32;
@@ -114,265 +114,79 @@ fn spawn_cardinal_dirs() -> [Vec2; 4] {
     ]
 }
 
-struct SpawnReadContext<'a> {
-    field: &'a halley_core::field::Field,
-    focus_state: &'a FocusState,
-    monitor_state: &'a MonitorState,
-    spawn_state: &'a SpawnState,
-    viewport: halley_core::viewport::Viewport,
-    usable_viewports: HashMap<String, halley_core::viewport::Viewport>,
-    focused_monitor: &'a str,
-    interaction_monitor: &'a str,
-    pan_to_new: PanToNewMode,
+pub(crate) struct SpawnRevealController<T> {
+    st: T,
 }
 
-enum RevealNewToplevelPlan {
-    AlreadyQueued,
-    ActivateNow,
-    QueuePan { target_center: Vec2 },
+pub(crate) fn spawn_reveal_controller<T>(st: T) -> SpawnRevealController<T> {
+    SpawnRevealController { st }
 }
 
-impl<'a> SpawnReadContext<'a> {
-    fn viewport_center_for_monitor(&self, monitor: &str) -> Vec2 {
-        if let Some(viewport) = self.usable_viewports.get(monitor) {
-            return viewport.center;
-        }
-        if self.monitor_state.current_monitor == monitor {
-            return self.viewport.center;
-        }
-        self.monitor_state
-            .monitors
-            .get(monitor)
-            .map(|space| space.viewport.center)
-            .unwrap_or(self.viewport.center)
-    }
+impl<T: Deref<Target = Halley>> Deref for SpawnRevealController<T> {
+    type Target = Halley;
 
-    fn resolve_spawn_target_monitor(&self) -> String {
-        let focused = self.focused_monitor.to_string();
-        if self.monitor_state.monitors.contains_key(focused.as_str()) {
-            return focused;
-        }
-        self.interaction_monitor.to_string()
-    }
-
-    fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
-        let primary = self.focus_state.primary_interaction_focus.and_then(|id| {
-            self.field.node(id).and_then(|n| {
-                (self.field.is_visible(id)
-                    && n.kind == halley_core::field::NodeKind::Surface
-                    && self
-                        .monitor_state
-                        .node_monitor
-                        .get(&id)
-                        .is_some_and(|m| m == monitor))
-                .then_some((id, u64::MAX))
-            })
-        });
-        let monitor_focus = self
-            .focus_state
-            .monitor_focus
-            .get(monitor)
-            .copied()
-            .and_then(|id| {
-                self.field.node(id).and_then(|n| {
-                    (self.field.is_visible(id)
-                        && n.kind == halley_core::field::NodeKind::Surface
-                        && self
-                            .monitor_state
-                            .node_monitor
-                            .get(&id)
-                            .is_some_and(|m| m == monitor))
-                    .then_some((
-                        id,
-                        self.focus_state
-                            .last_surface_focus_ms
-                            .get(&id)
-                            .copied()
-                            .unwrap_or(0),
-                    ))
-                })
-            });
-        primary
-            .into_iter()
-            .chain(monitor_focus)
-            .chain(
-                self.focus_state
-                    .last_surface_focus_ms
-                    .iter()
-                    .filter_map(|(&id, &at)| {
-                        self.field.node(id).and_then(|n| {
-                            (self.field.is_visible(id)
-                                && n.kind == halley_core::field::NodeKind::Surface
-                                && self
-                                    .monitor_state
-                                    .node_monitor
-                                    .get(&id)
-                                    .is_some_and(|m| m == monitor))
-                            .then_some((id, at))
-                        })
-                    }),
-            )
-            .max_by_key(|entry: &(NodeId, u64)| (entry.1, entry.0.as_u64()))
-            .map(|(id, _)| id)
-    }
-
-    fn current_spawn_focus(&self, monitor: &str) -> (Option<NodeId>, Vec2) {
-        let spawn = self.spawn_monitor_state(monitor);
-        let viewport_center = self.viewport_center_for_monitor(monitor);
-        if spawn.spawn_anchor_mode == crate::compositor::spawn::state::SpawnAnchorMode::View {
-            return (None, spawn.spawn_view_anchor);
-        }
-        if let Some(id) = self.last_input_surface_node_for_monitor(monitor)
-            && let Some(node) = self.field.node(id)
-        {
-            return (Some(id), node.pos);
-        }
-        (None, viewport_center)
-    }
-
-    fn spawn_monitor_state(&self, monitor: &str) -> MonitorSpawnState {
-        self.spawn_state
-            .per_monitor
-            .get(monitor)
-            .cloned()
-            .unwrap_or_else(|| MonitorSpawnState::new(self.viewport_center_for_monitor(monitor)))
-    }
-
-    fn viewport_fully_contains_surface_on_monitor(
-        &self,
-        st: &Halley,
-        monitor: &str,
-        id: NodeId,
-    ) -> bool {
-        let Some(node) = self.field.node(id) else {
-            return false;
-        };
-        let ext = st.spawn_obstacle_extents_for_node(node);
-        let viewport = if self.monitor_state.current_monitor == monitor {
-            self.usable_viewports
-                .get(monitor)
-                .copied()
-                .unwrap_or(self.viewport)
-        } else if let Some(space) = self.monitor_state.monitors.get(monitor) {
-            self.usable_viewports
-                .get(monitor)
-                .copied()
-                .unwrap_or(space.viewport)
-        } else {
-            self.viewport
-        };
-        let min_x = viewport.center.x - viewport.size.x * 0.5;
-        let max_x = viewport.center.x + viewport.size.x * 0.5;
-        let min_y = viewport.center.y - viewport.size.y * 0.5;
-        let max_y = viewport.center.y + viewport.size.y * 0.5;
-
-        node.pos.x - ext.left >= min_x
-            && node.pos.x + ext.right <= max_x
-            && node.pos.y - ext.top >= min_y
-            && node.pos.y + ext.bottom <= max_y
-    }
-
-    fn reveal_new_toplevel_plan(
-        &self,
-        st: &Halley,
-        id: NodeId,
-        is_transient: bool,
-    ) -> RevealNewToplevelPlan {
-        if is_transient {
-            return RevealNewToplevelPlan::ActivateNow;
-        }
-        if self
-            .spawn_state
-            .active_spawn_pan
-            .is_some_and(|active| active.node_id == id)
-            || self
-                .spawn_state
-                .pending_spawn_pan_queue
-                .iter()
-                .any(|pending| pending.node_id == id)
-        {
-            return RevealNewToplevelPlan::AlreadyQueued;
-        }
-
-        let monitor = self
-            .monitor_state
-            .node_monitor
-            .get(&id)
-            .cloned()
-            .unwrap_or_else(|| self.focused_monitor.to_string());
-        if st
-            .active_cluster_workspace_for_monitor(monitor.as_str())
-            .is_some()
-        {
-            return RevealNewToplevelPlan::ActivateNow;
-        }
-        let target_center = match self.pan_to_new {
-            PanToNewMode::Never => return RevealNewToplevelPlan::ActivateNow,
-            PanToNewMode::Always => match self.field.node(id) {
-                Some(node) => node.pos,
-                None => return RevealNewToplevelPlan::ActivateNow,
-            },
-            PanToNewMode::IfNeeded => {
-                if st.surface_is_sufficiently_visible_on_monitor(monitor.as_str(), id) {
-                    return RevealNewToplevelPlan::ActivateNow;
-                }
-                match st.minimal_reveal_center_for_surface_on_monitor(monitor.as_str(), id) {
-                    Some(center) => center,
-                    None => return RevealNewToplevelPlan::ActivateNow,
-                }
-            }
-        };
-        RevealNewToplevelPlan::QueuePan { target_center }
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
     }
 }
 
-impl Halley {
+impl<T: DerefMut<Target = Halley>> DerefMut for SpawnRevealController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
     const SPAWN_STAR_RINGS: usize = 24;
 
-    fn spawn_read_context(&self) -> SpawnReadContext<'_> {
-        SpawnReadContext {
-            field: &self.model.field,
-            focus_state: &self.model.focus_state,
-            monitor_state: &self.model.monitor_state,
-            spawn_state: &self.model.spawn_state,
-            viewport: self.model.viewport,
-            usable_viewports: self
-                .model
-                .monitor_state
-                .monitors
-                .keys()
-                .map(|name| (name.clone(), self.usable_viewport_for_monitor(name)))
-                .collect(),
-            focused_monitor: self.focused_monitor(),
-            interaction_monitor: self.interaction_monitor(),
-            pan_to_new: self.runtime.tuning.pan_to_new,
-        }
+    fn default_window_rule() -> ResolvedInitialWindowRule {
+        ResolvedInitialWindowRule::default()
     }
 
-    fn viewport_center_for_monitor(&self, monitor: &str) -> Vec2 {
-        self.spawn_read_context()
-            .viewport_center_for_monitor(monitor)
-    }
-
-    fn resolve_spawn_target_monitor(&self) -> String {
-        self.spawn_read_context().resolve_spawn_target_monitor()
-    }
-
-    fn current_spawn_focus(&self, monitor: &str) -> (Option<NodeId>, Vec2) {
-        self.spawn_read_context().current_spawn_focus(monitor)
-    }
-
-    fn viewport_fully_contains_surface_on_monitor(&self, monitor: &str, id: NodeId) -> bool {
-        self.spawn_read_context()
-            .viewport_fully_contains_surface_on_monitor(self, monitor, id)
+    fn has_default_window_rule(intent: &InitialWindowIntent) -> bool {
+        intent.rule == Self::default_window_rule()
+            && intent.parent_node.is_none()
+            && !intent.prefer_app_intent
     }
 
     #[cfg(test)]
-    fn right_spawn_candidate_for_focus(&self, id: NodeId, size: Vec2) -> Option<Vec2> {
+    #[allow(dead_code)]
+    pub(crate) fn viewport_center_for_monitor(&self, monitor: &str) -> Vec2 {
+        read::spawn_read_context(self).viewport_center_for_monitor(monitor)
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn resolve_spawn_target_monitor(&self) -> String {
+        read::spawn_read_context(self).resolve_spawn_target_monitor()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn current_spawn_focus(&self, monitor: &str) -> (Option<NodeId>, Vec2) {
+        read::spawn_read_context(self).current_spawn_focus(monitor)
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn viewport_fully_contains_surface_on_monitor(
+        &self,
+        monitor: &str,
+        id: NodeId,
+    ) -> bool {
+        self.surface_is_fully_visible_on_monitor(monitor, id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn right_spawn_candidate_for_focus(&self, id: NodeId, size: Vec2) -> Option<Vec2> {
         self.spawn_candidate_for_focus_dir(id, size, Vec2 { x: 1.0, y: 0.0 })
     }
 
-    fn spawn_candidate_for_focus_dir(&self, id: NodeId, size: Vec2, dir: Vec2) -> Option<Vec2> {
+    pub(crate) fn spawn_candidate_for_focus_dir(
+        &self,
+        id: NodeId,
+        size: Vec2,
+        dir: Vec2,
+    ) -> Option<Vec2> {
         let node = self.model.field.node(id)?;
         let focus_ext = self.spawn_obstacle_extents_for_node(node);
         let candidate_ext = CollisionExtents::symmetric(size);
@@ -401,25 +215,25 @@ impl Halley {
         Some(pos)
     }
 
-    fn spawn_star_step_x(&self, size: Vec2) -> f32 {
+    pub(crate) fn spawn_star_step_x(&self, size: Vec2) -> f32 {
         size.x
             + (active_window_frame_pad_px(&self.runtime.tuning) as f32 * 2.0)
             + self.non_overlap_gap_world()
     }
 
-    fn spawn_star_step_y(&self, size: Vec2) -> f32 {
+    pub(crate) fn spawn_star_step_y(&self, size: Vec2) -> f32 {
         size.y
             + (active_window_frame_pad_px(&self.runtime.tuning) as f32 * 2.0)
             + self.non_overlap_gap_world()
     }
 
     #[cfg(test)]
-    fn spawn_star_step(&self, size: Vec2) -> f32 {
+    pub(crate) fn spawn_star_step(&self, size: Vec2) -> f32 {
         self.spawn_star_step_x(size)
             .max(self.spawn_star_step_y(size))
     }
 
-    fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
+    pub(crate) fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
         let step_x = self.spawn_star_step_x(size);
         let step_y = self.spawn_star_step_y(size);
         let mut out = Vec::with_capacity(1 + Self::SPAWN_STAR_RINGS * spawn_cardinal_dirs().len());
@@ -438,6 +252,33 @@ impl Halley {
         out
     }
 
+    fn viewport_for_monitor(&self, monitor: &str) -> Option<Viewport> {
+        if self.model.monitor_state.current_monitor == monitor {
+            return Some(Viewport::new(
+                self.model.viewport.center,
+                self.camera_view_size(),
+            ));
+        }
+        self.model
+            .monitor_state
+            .monitors
+            .get(monitor)
+            .map(|space| Viewport::new(space.viewport.center, space.zoom_ref_size))
+    }
+
+    fn world_from_monitor_screen(&self, monitor: &str, sx: f32, sy: f32) -> Option<Vec2> {
+        let (w, h, local_sx, local_sy) = self.local_screen_in_monitor(monitor, sx, sy);
+        let viewport = self.viewport_for_monitor(monitor)?;
+        let w = (w as f32).max(1.0);
+        let h = (h as f32).max(1.0);
+        let nx = (local_sx / w) - 0.5;
+        let ny = (local_sy / h) - 0.5;
+        Some(Vec2 {
+            x: viewport.center.x + nx * viewport.size.x.max(1.0),
+            y: viewport.center.y + ny * viewport.size.y.max(1.0),
+        })
+    }
+
     fn spawn_candidate_fits(
         &self,
         monitor: &str,
@@ -445,6 +286,28 @@ impl Halley {
         size: Vec2,
         skip_node: Option<NodeId>,
     ) -> bool {
+        self.spawn_candidate_fits_with_policy(
+            monitor,
+            pos,
+            size,
+            skip_node,
+            InitialWindowOverlapPolicy::None,
+            None,
+        )
+    }
+
+    fn spawn_candidate_fits_with_policy(
+        &self,
+        monitor: &str,
+        pos: Vec2,
+        size: Vec2,
+        skip_node: Option<NodeId>,
+        overlap_policy: InitialWindowOverlapPolicy,
+        parent_node: Option<NodeId>,
+    ) -> bool {
+        if overlap_policy == InitialWindowOverlapPolicy::All {
+            return true;
+        }
         let pair_gap = self.non_overlap_gap_world();
         let candidate = CollisionExtents::symmetric(size);
         !self.model.field.nodes().values().any(|other| {
@@ -463,6 +326,11 @@ impl Halley {
             {
                 return false;
             }
+            if overlap_policy == InitialWindowOverlapPolicy::ParentOnly
+                && parent_node == Some(other.id)
+            {
+                return false;
+            }
             let other_ext = self.spawn_obstacle_extents_for_node(other);
             let req_x = self.required_sep_x(pos.x, candidate, other.pos.x, other_ext, pair_gap);
             let req_y = self.required_sep_y(pos.y, candidate, other.pos.y, other_ext, pair_gap);
@@ -471,16 +339,63 @@ impl Halley {
     }
 
     fn try_spawn_star(&self, monitor: &str, center: Vec2, size: Vec2) -> Option<Vec2> {
+        self.try_spawn_star_with_policy(
+            monitor,
+            center,
+            size,
+            InitialWindowOverlapPolicy::None,
+            None,
+        )
+    }
+
+    fn try_spawn_star_with_policy(
+        &self,
+        monitor: &str,
+        center: Vec2,
+        size: Vec2,
+        overlap_policy: InitialWindowOverlapPolicy,
+        parent_node: Option<NodeId>,
+    ) -> Option<Vec2> {
         for offset in self.star_candidate_offsets(size) {
             let pos = Vec2 {
                 x: center.x + offset.x,
                 y: center.y + offset.y,
             };
-            if self.spawn_candidate_fits(monitor, pos, size, None) {
+            if self.spawn_candidate_fits_with_policy(
+                monitor,
+                pos,
+                size,
+                None,
+                overlap_policy,
+                parent_node,
+            ) {
                 return Some(pos);
             }
         }
         None
+    }
+
+    fn resolve_parent_monitor(&self, parent_node: Option<NodeId>) -> Option<String> {
+        parent_node.and_then(|id| self.model.monitor_state.node_monitor.get(&id).cloned())
+    }
+
+    pub(crate) fn spawn_target_monitor_for_intent(&self, intent: &InitialWindowIntent) -> String {
+        let default_monitor = read::spawn_read_context(self).resolve_spawn_target_monitor();
+        match intent.effective_spawn_placement() {
+            InitialWindowSpawnPlacement::Center
+            | InitialWindowSpawnPlacement::Adjacent
+            | InitialWindowSpawnPlacement::App => self
+                .resolve_parent_monitor(intent.parent_node)
+                .unwrap_or(default_monitor),
+            InitialWindowSpawnPlacement::Cursor => {
+                if let Some((sx, sy)) = self.input.interaction_state.last_pointer_screen_global {
+                    self.monitor_for_screen(sx, sy).unwrap_or(default_monitor)
+                } else {
+                    default_monitor
+                }
+            }
+            InitialWindowSpawnPlacement::ViewportCenter => default_monitor,
+        }
     }
 
     fn pick_cluster_growth_dir(&self, monitor: &str, center: Vec2) -> Vec2 {
@@ -501,8 +416,10 @@ impl Halley {
             % dirs.len();
         dirs[idx]
     }
+}
 
-    fn update_spawn_patch(
+impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
+    pub(crate) fn update_spawn_patch(
         &mut self,
         monitor: &str,
         anchor: Vec2,
@@ -510,31 +427,131 @@ impl Halley {
         focus_pos: Vec2,
         growth_dir: Vec2,
     ) {
-        self.spawn_monitor_state_mut(monitor).spawn_patch = Some(
-            crate::compositor::spawn::state::SpawnPatch {
-            anchor,
-            focus_node,
-            focus_pos,
-            growth_dir,
-            placements_in_patch: 0,
-            frontier: Vec::new(),
-        });
+        self.spawn_monitor_state_mut(monitor).spawn_patch =
+            Some(crate::compositor::spawn::state::SpawnPatch {
+                anchor,
+                focus_node,
+                focus_pos,
+                growth_dir,
+                placements_in_patch: 0,
+                frontier: Vec::new(),
+            });
+    }
+
+    fn default_pick_spawn_position(&mut self, size: Vec2) -> (String, Vec2, bool) {
+        self.pick_spawn_position_impl(size)
     }
 
     /// Returns `(monitor, position, needs_pan)`.
+    #[allow(dead_code)]
     pub(crate) fn pick_spawn_position(&mut self, size: Vec2) -> (String, Vec2, bool) {
+        self.default_pick_spawn_position(size)
+    }
+
+    pub(crate) fn pick_spawn_position_with_intent(
+        &mut self,
+        size: Vec2,
+        intent: &InitialWindowIntent,
+    ) -> (String, Vec2, bool) {
+        if Self::has_default_window_rule(intent) {
+            return self.default_pick_spawn_position(size);
+        }
+
+        let target_monitor = self.spawn_target_monitor_for_intent(intent);
+        let overlap_policy = intent.effective_overlap_policy();
+        let placement = intent.effective_spawn_placement();
+        self.spawn_monitor_state_mut(target_monitor.as_str())
+            .spawn_cursor += 1;
+        let viewport_center =
+            read::spawn_read_context(self).viewport_center_for_monitor(target_monitor.as_str());
+        let (focus_id, focus_pos) =
+            read::spawn_read_context(self).current_spawn_focus(target_monitor.as_str());
+        let parent_anchor = intent
+            .parent_node
+            .and_then(|id| self.model.field.node(id).map(|node| node.pos));
+        let cursor_anchor = self
+            .input
+            .interaction_state
+            .last_pointer_screen_global
+            .and_then(|(sx, sy)| self.world_from_monitor_screen(target_monitor.as_str(), sx, sy));
+
+        let chosen = match placement {
+            InitialWindowSpawnPlacement::Adjacent => {
+                if let Some(parent_id) = intent.parent_node {
+                    for dir in spawn_cardinal_dirs() {
+                        if let Some(pos) = self.spawn_candidate_for_focus_dir(parent_id, size, dir)
+                            && self.spawn_candidate_fits_with_policy(
+                                target_monitor.as_str(),
+                                pos,
+                                size,
+                                None,
+                                overlap_policy,
+                                intent.parent_node,
+                            )
+                        {
+                            return (target_monitor, pos, false);
+                        }
+                    }
+                    return self.default_pick_spawn_position(size);
+                }
+                if overlap_policy == InitialWindowOverlapPolicy::All {
+                    if let Some(id) = focus_id {
+                        for dir in spawn_cardinal_dirs() {
+                            if let Some(pos) = self.spawn_candidate_for_focus_dir(id, size, dir) {
+                                return (target_monitor, pos, false);
+                            }
+                        }
+                    }
+                    return (target_monitor, focus_pos, false);
+                }
+                return self.default_pick_spawn_position(size);
+            }
+            InitialWindowSpawnPlacement::Center => parent_anchor.unwrap_or(viewport_center),
+            InitialWindowSpawnPlacement::ViewportCenter => viewport_center,
+            InitialWindowSpawnPlacement::Cursor => cursor_anchor.unwrap_or(viewport_center),
+            InitialWindowSpawnPlacement::App => parent_anchor.unwrap_or(viewport_center),
+        };
+
+        let pos = if overlap_policy == InitialWindowOverlapPolicy::All {
+            chosen
+        } else {
+            self.try_spawn_star_with_policy(
+                target_monitor.as_str(),
+                chosen,
+                size,
+                overlap_policy,
+                intent.parent_node,
+            )
+            .unwrap_or(chosen)
+        };
+        let growth_dir = self.pick_cluster_growth_dir(target_monitor.as_str(), chosen);
+        self.update_spawn_patch(
+            target_monitor.as_str(),
+            chosen,
+            intent.parent_node,
+            chosen,
+            growth_dir,
+        );
+        self.spawn_monitor_state_mut(target_monitor.as_str())
+            .spawn_view_anchor = chosen;
+        (target_monitor, pos, false)
+    }
+
+    fn pick_spawn_position_impl(&mut self, size: Vec2) -> (String, Vec2, bool) {
         let target_monitor = self
             .model
             .spawn_state
             .pending_spawn_monitor
             .take()
             .filter(|monitor| self.model.monitor_state.monitors.contains_key(monitor))
-            .unwrap_or_else(|| self.resolve_spawn_target_monitor());
+            .unwrap_or_else(|| read::spawn_read_context(self).resolve_spawn_target_monitor());
         self.spawn_monitor_state_mut(target_monitor.as_str())
             .spawn_cursor += 1;
         let monitor_spawn = self.spawn_monitor_state(target_monitor.as_str());
-        let viewport_center = self.viewport_center_for_monitor(target_monitor.as_str());
-        let (focus_id, focus_pos) = self.current_spawn_focus(target_monitor.as_str());
+        let viewport_center =
+            read::spawn_read_context(self).viewport_center_for_monitor(target_monitor.as_str());
+        let (focus_id, focus_pos) =
+            read::spawn_read_context(self).current_spawn_focus(target_monitor.as_str());
         info!(
             "spawn target resolved: target_monitor={} focused_monitor={} interaction_monitor={} anchor_mode={:?} focus_id={:?}",
             target_monitor,
@@ -544,7 +561,10 @@ impl Halley {
             focus_id.map(|id| id.as_u64())
         );
         let focus_visible = focus_id.is_some_and(|id| {
-            self.viewport_fully_contains_surface_on_monitor(target_monitor.as_str(), id)
+            self.surface_is_fully_visible_on_monitor(
+                target_monitor.as_str(),
+                id,
+            )
         });
 
         if let Some(id) = focus_id {
@@ -633,38 +653,6 @@ impl Halley {
         (target_monitor, fallback_anchor, false)
     }
 
-    pub(crate) fn queue_spawn_pan_to_node(&mut self, id: NodeId, now: Instant) {
-        let monitor = self
-            .model
-            .monitor_state
-            .node_monitor
-            .get(&id)
-            .cloned()
-            .unwrap_or_else(|| self.focused_monitor().to_string());
-        let Some(target_center) = (match self.runtime.tuning.pan_to_new {
-            PanToNewMode::Always => self.model.field.node(id).map(|node| node.pos),
-            PanToNewMode::IfNeeded => {
-                self.minimal_reveal_center_for_surface_on_monitor(monitor.as_str(), id)
-            }
-            PanToNewMode::Never => None,
-        }) else {
-            return;
-        };
-        let _ = self.model.field.set_detached(id, true);
-        self.model
-            .spawn_state
-            .pending_spawn_activate_at_ms
-            .remove(&id);
-        self.model
-            .spawn_state
-            .pending_spawn_pan_queue
-            .push_back(crate::compositor::spawn::state::PendingSpawnPan {
-                node_id: id,
-                target_center,
-            });
-        self.maybe_start_pending_spawn_pan(now);
-    }
-
     pub(crate) fn maybe_start_pending_spawn_pan(&mut self, now: Instant) {
         if self.model.spawn_state.active_spawn_pan.is_some() {
             return;
@@ -679,22 +667,22 @@ impl Halley {
             let did_pan = self.animate_viewport_center_to_delayed(
                 next.target_center,
                 now,
-                Self::VIEWPORT_PAN_PRELOAD_MS,
+                Halley::VIEWPORT_PAN_PRELOAD_MS,
             );
-            self.model.spawn_state.active_spawn_pan = Some(
-                crate::compositor::spawn::state::ActiveSpawnPan {
-                node_id: next.node_id,
-                pan_start_at_ms: now_ms.saturating_add(if did_pan {
-                    Self::VIEWPORT_PAN_PRELOAD_MS
-                } else {
-                    0
-                }),
-                reveal_at_ms: now_ms.saturating_add(if did_pan {
-                    Self::VIEWPORT_PAN_PRELOAD_MS + Self::VIEWPORT_PAN_DURATION_MS
-                } else {
-                    0
-                }),
-            });
+            self.model.spawn_state.active_spawn_pan =
+                Some(crate::compositor::spawn::state::ActiveSpawnPan {
+                    node_id: next.node_id,
+                    pan_start_at_ms: now_ms.saturating_add(if did_pan {
+                        Halley::VIEWPORT_PAN_PRELOAD_MS
+                    } else {
+                        0
+                    }),
+                    reveal_at_ms: now_ms.saturating_add(if did_pan {
+                        Halley::VIEWPORT_PAN_PRELOAD_MS + Halley::VIEWPORT_PAN_DURATION_MS
+                    } else {
+                        0
+                    }),
+                });
             break;
         }
     }
@@ -723,11 +711,16 @@ impl Halley {
             .model
             .field
             .set_decay_level(active.node_id, DecayLevel::Hot);
-        if let Some(node) = self.model.field.node(active.node_id) {
+        let intrinsic_size = self
+            .model
+            .field
+            .node(active.node_id)
+            .map(|node| node.intrinsic_size);
+        if let Some(intrinsic_size) = intrinsic_size {
             self.model
                 .workspace_state
                 .last_active_size
-                .insert(active.node_id, node.intrinsic_size);
+                .insert(active.node_id, intrinsic_size);
         }
         self.mark_active_transition(active.node_id, now, 620);
         self.record_focus_trail_visit(active.node_id);
@@ -743,10 +736,28 @@ impl Halley {
         is_transient: bool,
         now: Instant,
     ) {
-        match self
-            .spawn_read_context()
-            .reveal_new_toplevel_plan(self, id, is_transient)
+        if self.model.spawn_state.pending_initial_reveal.contains(&id) {
+            return;
+        }
+        if self
+            .model
+            .spawn_state
+            .applied_window_rules
+            .get(&id)
+            .is_some_and(|rule| rule.suppress_reveal_pan)
         {
+            self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
+            self.record_focus_trail_visit(id);
+            self.model.focus_state.suppress_trail_record_once = true;
+            self.set_interaction_focus(Some(id), 30_000, now);
+            self.model
+                .spawn_state
+                .pending_spawn_activate_at_ms
+                .remove(&id);
+            self.mark_active_transition(id, now, 620);
+            return;
+        }
+        match self.resolve_spawn_reveal_plan(id, is_transient) {
             RevealNewToplevelPlan::AlreadyQueued => {}
             RevealNewToplevelPlan::ActivateNow => {
                 self.record_focus_trail_visit(id);
@@ -774,11 +785,40 @@ impl Halley {
             }
         }
     }
+
+    fn resolve_spawn_reveal_plan(
+        &self,
+        id: NodeId,
+        is_transient: bool,
+    ) -> read::RevealNewToplevelPlan {
+        read::spawn_read_context(self).reveal_new_toplevel_plan(self, id, is_transient)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compositor::spawn::rules::{InitialWindowIntent, ResolvedInitialWindowRule};
+
+    fn test_intent(
+        overlap_policy: InitialWindowOverlapPolicy,
+        spawn_placement: InitialWindowSpawnPlacement,
+        parent_node: Option<NodeId>,
+    ) -> InitialWindowIntent {
+        InitialWindowIntent {
+            app_id: Some("firefox".to_string()),
+            title: None,
+            parent_node,
+            rule: ResolvedInitialWindowRule {
+                overlap_policy,
+                spawn_placement,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
+            },
+            matched_rule: true,
+            is_transient: parent_node.is_some(),
+            prefer_app_intent: matches!(spawn_placement, InitialWindowSpawnPlacement::App),
+        }
+    }
 
     #[test]
     fn star_offsets_are_center_then_right_left_up_down() {
@@ -1716,5 +1756,157 @@ mod tests {
                 .map(|pan| pan.node_id),
             Some(id)
         );
+    }
+
+    #[test]
+    fn center_all_can_overlap_parent_anchor_directly() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let parent = state
+            .model
+            .field
+            .spawn_surface("parent", Vec2 { x: 0.0, y: 0.0 }, size);
+        let other = state
+            .model
+            .field
+            .spawn_surface("other", Vec2 { x: 0.0, y: 0.0 }, size);
+        for id in [parent, other] {
+            state.assign_node_to_current_monitor(id);
+            let _ = state
+                .model
+                .field
+                .set_state(id, halley_core::field::NodeState::Active);
+        }
+
+        let intent = test_intent(
+            InitialWindowOverlapPolicy::All,
+            InitialWindowSpawnPlacement::Center,
+            Some(parent),
+        );
+        let (_, pos, _) = state.pick_spawn_position_with_intent(size, &intent);
+
+        assert_eq!(pos, Vec2 { x: 0.0, y: 0.0 });
+    }
+
+    #[test]
+    fn adjacent_parent_only_avoids_unrelated_windows() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let parent = state
+            .model
+            .field
+            .spawn_surface("parent", Vec2 { x: 0.0, y: 0.0 }, size);
+        let blocked = state.model.field.spawn_surface(
+            "blocked",
+            state
+                .spawn_candidate_for_focus_dir(parent, size, Vec2 { x: 1.0, y: 0.0 })
+                .expect("right candidate"),
+            size,
+        );
+        for id in [parent, blocked] {
+            state.assign_node_to_current_monitor(id);
+            let _ = state
+                .model
+                .field
+                .set_state(id, halley_core::field::NodeState::Active);
+        }
+
+        let intent = test_intent(
+            InitialWindowOverlapPolicy::ParentOnly,
+            InitialWindowSpawnPlacement::Adjacent,
+            Some(parent),
+        );
+        let (_, pos, _) = state.pick_spawn_position_with_intent(size, &intent);
+
+        assert_eq!(
+            pos,
+            state
+                .spawn_candidate_for_focus_dir(parent, size, Vec2 { x: -1.0, y: 0.0 })
+                .expect("left candidate")
+        );
+    }
+
+    #[test]
+    fn cursor_placement_uses_pointer_monitor() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.input.interaction_state.last_pointer_screen_global = Some((900.0, 120.0));
+
+        let intent = test_intent(
+            InitialWindowOverlapPolicy::None,
+            InitialWindowSpawnPlacement::Cursor,
+            None,
+        );
+
+        assert_eq!(state.spawn_target_monitor_for_intent(&intent), "right");
+    }
+
+    #[test]
+    fn pending_initial_reveal_blocks_initial_reveal() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let id = state.model.field.spawn_surface(
+            "window",
+            Vec2 {
+                x: 5000.0,
+                y: 5000.0,
+            },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(id);
+        let _ = state
+            .model
+            .field
+            .set_state(id, halley_core::field::NodeState::Active);
+        state.model.spawn_state.pending_initial_reveal.insert(id);
+
+        state.reveal_new_toplevel_node(id, false, Instant::now());
+
+        assert!(state.model.spawn_state.active_spawn_pan.is_none());
+        assert!(state.model.spawn_state.pending_spawn_pan_queue.is_empty());
+        assert_ne!(state.model.focus_state.primary_interaction_focus, Some(id));
     }
 }

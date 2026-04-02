@@ -15,7 +15,8 @@ impl XdgDecorationHandler for Halley {
         toplevel.send_configure();
     }
 
-    fn request_mode(&mut self, toplevel: ToplevelSurface, mode: XdgDecorationMode) {
+    fn request_mode(&mut self, toplevel: ToplevelSurface, _mode: XdgDecorationMode) {
+        let mode = self.preferred_xdg_decoration_mode();
         toplevel.with_pending_state(|state| {
             state.decoration_mode = Some(mode);
             self.apply_toplevel_tiled_hint(state);
@@ -24,8 +25,9 @@ impl XdgDecorationHandler for Halley {
     }
 
     fn unset_mode(&mut self, toplevel: ToplevelSurface) {
+        let mode = self.preferred_xdg_decoration_mode();
         toplevel.with_pending_state(|state| {
-            state.decoration_mode = None;
+            state.decoration_mode = Some(mode);
             self.apply_toplevel_tiled_hint(state);
         });
         toplevel.send_configure();
@@ -40,7 +42,8 @@ impl XdgShellHandler for Halley {
     }
 
     fn new_toplevel(&mut self, toplevel: ToplevelSurface) {
-        let initial_size = super::handlers::initial_toplevel_size(self, &toplevel);
+        let intent = spawn::rules::resolve_initial_window_intent(self, &toplevel);
+        let initial_size = super::handlers::initial_toplevel_size(self, &toplevel, &intent);
         toplevel.with_pending_state(|s| {
             s.states.set(xdg_toplevel::State::Activated);
             if let Some((w, h)) = initial_size.configure_size {
@@ -58,6 +61,7 @@ impl XdgShellHandler for Halley {
             &wl,
             "toplevel",
             initial_size.node_size,
+            &intent,
         );
         let now = Instant::now();
         let node_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();

@@ -18,7 +18,8 @@ pub(crate) fn advance_node_move_anim(
     let mut last_id: Option<halley_core::field::NodeId> = None;
     let now_ms = st.now_ms(now);
     for anim in anims {
-        if st.is_recently_resized_node(anim.node_id, now_ms) {
+        if crate::compositor::interaction::state::is_recently_resized_node(st, anim.node_id, now_ms)
+        {
             finished.push(anim.node_id);
             continue;
         }

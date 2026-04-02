@@ -1,17 +1,19 @@
 use super::*;
-use crate::compositor::clusters::state::ClusterState;
-use crate::compositor::interaction::state::InteractionState;
 use crate::compositor::clusters::read::{
     ClusterLayoutPlan, ClusterReadController, ClusterTilePlacement, EnterClusterWorkspacePlan,
     ExitClusterWorkspacePlan,
 };
+use crate::compositor::clusters::state::ClusterState;
+use crate::compositor::interaction::state::InteractionState;
 use halley_core::cluster::{ClusterId, ClusterRemoveMemberOutcome};
 use halley_core::field::RemoveNodeClusterEffect;
+use std::ops::{Deref, DerefMut};
 
 struct ClusterMutationController<'a> {
     field: &'a mut Field,
     cluster_state: &'a mut ClusterState,
     interaction_state: &'a mut InteractionState,
+    tuning: &'a halley_config::RuntimeTuning,
 }
 
 impl<'a> ClusterMutationController<'a> {
@@ -146,6 +148,9 @@ impl<'a> ClusterMutationController<'a> {
         if self.field.add_member_to_cluster(cid, node_id).is_err() {
             return false;
         }
+        if self.tuning.tile_new_on_top {
+            let _ = self.field.promote_cluster_member_to_master(cid, node_id);
+        }
         if active_workspace {
             if !self
                 .field
@@ -173,24 +178,46 @@ impl<'a> ClusterMutationController<'a> {
     }
 }
 
-impl Halley {
-    pub(crate) const CLUSTER_OVERFLOW_REVEAL_EDGE_PX: f32 = 28.0;
-    const CLUSTER_OVERFLOW_REVEAL_MS: u64 = 2200;
+pub(crate) struct ClusterSystemController<T> {
+    st: T,
+}
 
+pub(crate) fn cluster_system_controller<T>(st: T) -> ClusterSystemController<T> {
+    ClusterSystemController { st }
+}
+
+pub(crate) fn active_cluster_workspace_for_monitor(
+    st: &Halley,
+    monitor: &str,
+) -> Option<ClusterId> {
+    st.model
+        .cluster_state
+        .active_cluster_workspaces
+        .get(monitor)
+        .copied()
+}
+
+impl<T: Deref<Target = Halley>> Deref for ClusterSystemController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for ClusterSystemController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
     fn cluster_read_controller(&self) -> ClusterReadController<'_> {
         ClusterReadController {
             field: &self.model.field,
             cluster_state: &self.model.cluster_state,
             monitor_state: &self.model.monitor_state,
             tuning: &self.runtime.tuning,
-        }
-    }
-
-    fn cluster_mutation_controller(&mut self) -> ClusterMutationController<'_> {
-        ClusterMutationController {
-            field: &mut self.model.field,
-            cluster_state: &mut self.model.cluster_state,
-            interaction_state: &mut self.input.interaction_state,
         }
     }
 
@@ -203,23 +230,90 @@ impl Halley {
             .preferred_monitor_for_cluster(cid, preferred)
     }
 
-    fn sync_cluster_core_monitor(
+    pub(crate) fn cluster_overflow_rect_for_monitor(
+        &self,
+        monitor: &str,
+    ) -> Option<halley_core::tiling::Rect> {
+        self.model
+            .cluster_state
+            .cluster_overflow_rects
+            .get(monitor)
+            .copied()
+    }
+
+    pub(crate) fn cluster_spawn_rect_for_new_member(
+        &self,
+        monitor: &str,
+        cid: ClusterId,
+    ) -> Option<halley_core::tiling::Rect> {
+        self.cluster_read_controller()
+            .cluster_spawn_rect_for_new_member(monitor, cid)
+    }
+
+    pub fn has_any_active_cluster_workspace(&self) -> bool {
+        !self
+            .model
+            .cluster_state
+            .active_cluster_workspaces
+            .is_empty()
+    }
+
+    pub fn cluster_mode_active(&self) -> bool {
+        self.cluster_mode_active_for_monitor(self.model.monitor_state.current_monitor.as_str())
+    }
+
+    pub fn cluster_mode_active_for_monitor(&self, monitor: &str) -> bool {
+        self.model
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .contains_key(monitor)
+    }
+
+    pub fn has_active_cluster_workspace(&self) -> bool {
+        self.active_cluster_workspace_for_monitor(self.model.monitor_state.current_monitor.as_str())
+            .is_some()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
+    const CLUSTER_OVERFLOW_REVEAL_MS: u64 = 2200;
+
+    fn cluster_mutation_controller(&mut self) -> ClusterMutationController<'_> {
+        let crate::compositor::root::Halley {
+            model,
+            input,
+            runtime,
+            ..
+        } = &mut **self;
+        ClusterMutationController {
+            field: &mut model.field,
+            cluster_state: &mut model.cluster_state,
+            interaction_state: &mut input.interaction_state,
+            tuning: &runtime.tuning,
+        }
+    }
+
+    pub(crate) fn sync_cluster_monitor(
         &mut self,
         cid: halley_core::cluster::ClusterId,
         preferred: Option<&str>,
     ) -> bool {
-        let Some(core_id) = self
-            .model
-            .field
-            .cluster(cid)
-            .and_then(|cluster| cluster.core)
-        else {
-            return false;
-        };
         let Some(target_monitor) = self.preferred_monitor_for_cluster(cid, preferred) else {
             return false;
         };
-        self.assign_node_to_monitor(core_id, target_monitor.as_str());
+
+        let (core_id, members) = if let Some(cluster) = self.model.field.cluster(cid) {
+            (cluster.core, cluster.members().to_vec())
+        } else {
+            return false;
+        };
+
+        if let Some(core_id) = core_id {
+            self.assign_node_to_monitor(core_id, target_monitor.as_str());
+        }
+        for member_id in members {
+            self.assign_node_to_monitor(member_id, target_monitor.as_str());
+        }
         true
     }
 
@@ -291,7 +385,7 @@ impl Halley {
                 .is_some_and(|preview| preview.monitor == *monitor)
             {
                 self.input.interaction_state.cluster_overflow_drag_preview = None;
-                self.set_cursor_override_icon(None);
+                crate::compositor::interaction::pointer::set_cursor_override_icon(self, None);
             }
             self.restore_cluster_workspace_monitor(monitor.as_str());
         }
@@ -393,7 +487,7 @@ impl Halley {
             }
             Some(RemoveNodeClusterEffect::RemovedCore(cid)) => {
                 self.model.monitor_state.node_monitor.remove(&id);
-                let _ = self.sync_cluster_core_monitor(cid, None);
+                let _ = self.sync_cluster_monitor(cid, None);
             }
             None => {}
         }
@@ -414,7 +508,7 @@ impl Halley {
         monitor: &str,
         cid: halley_core::cluster::ClusterId,
     ) -> bool {
-        let _ = self.sync_cluster_core_monitor(cid, Some(monitor));
+        let _ = self.sync_cluster_monitor(cid, Some(monitor));
         let opened = self
             .cluster_mutation_controller()
             .open_cluster_bloom_for_monitor(monitor, cid);
@@ -489,7 +583,7 @@ impl Halley {
             .model
             .field
             .cluster(cid)
-            .map(|cluster| cluster.overflow_members().len())
+            .map(|cluster| cluster.overflow_members(self.runtime.tuning.tile_max_stack).len())
             .unwrap_or(0);
         if !self
             .cluster_mutation_controller()
@@ -509,7 +603,7 @@ impl Halley {
                     .model
                     .field
                     .cluster(cid)
-                    .map(|cluster| cluster.overflow_members().len())
+                    .map(|cluster| cluster.overflow_members(self.runtime.tuning.tile_max_stack).len())
                     .unwrap_or(0);
                 if overflow_len > previous_overflow_len {
                     self.reveal_cluster_overflow_for_monitor(cluster_monitor.as_str(), now_ms);
@@ -522,7 +616,8 @@ impl Halley {
             .cluster(cid)
             .and_then(|cluster| cluster.core)
         {
-            let _ = self.model.field.touch(core_id, self.now_ms(now));
+            let now_ms = self.now_ms(now);
+            let _ = self.model.field.touch(core_id, now_ms);
         }
         true
     }
@@ -584,7 +679,7 @@ impl Halley {
                 .remove(monitor);
             return;
         };
-        let overflow = cluster.overflow_members().to_vec();
+        let overflow = cluster.overflow_members(self.runtime.tuning.tile_max_stack).to_vec();
         if overflow.is_empty() {
             self.model
                 .cluster_state
@@ -636,34 +731,6 @@ impl Halley {
             .remove(monitor);
     }
 
-    pub(crate) fn cluster_overflow_rect_for_monitor(
-        &self,
-        monitor: &str,
-    ) -> Option<halley_core::tiling::Rect> {
-        self.model
-            .cluster_state
-            .cluster_overflow_rects
-            .get(monitor)
-            .copied()
-    }
-
-    pub(crate) fn cluster_spawn_rect_for_new_member(
-        &self,
-        monitor: &str,
-        cid: ClusterId,
-    ) -> Option<halley_core::tiling::Rect> {
-        self.cluster_read_controller()
-            .cluster_spawn_rect_for_new_member(monitor, cid)
-    }
-
-    pub fn has_any_active_cluster_workspace(&self) -> bool {
-        !self
-            .model
-            .cluster_state
-            .active_cluster_workspaces
-            .is_empty()
-    }
-
     pub(crate) fn swap_cluster_overflow_member_with_visible(
         &mut self,
         monitor: &str,
@@ -675,10 +742,12 @@ impl Halley {
         if self.active_cluster_workspace_for_monitor(monitor) != Some(cid) {
             return false;
         }
+        let max_stack = self.runtime.tuning.tile_max_stack;
         if !self.model.field.swap_cluster_overflow_member_with_visible(
             cid,
             overflow_member,
             visible_member,
+            max_stack,
         ) {
             return false;
         }
@@ -698,10 +767,11 @@ impl Halley {
         if self.active_cluster_workspace_for_monitor(monitor) != Some(cid) {
             return false;
         }
+        let max_stack = self.runtime.tuning.tile_max_stack;
         if !self
             .model
             .field
-            .reorder_cluster_overflow_member(cid, member, target_overflow_index)
+            .reorder_cluster_overflow_member(cid, member, target_overflow_index, max_stack)
         {
             return false;
         }
@@ -722,7 +792,7 @@ impl Halley {
         let Some(cluster) = self.model.field.cluster(cid) else {
             return false;
         };
-        if !cluster.visible_members().contains(&member) {
+        if !cluster.visible_members(self.runtime.tuning.tile_max_stack).contains(&member) {
             return false;
         }
         let Some(target_member) = self
@@ -774,28 +844,18 @@ impl Halley {
         self.exit_cluster_workspace_for_monitor(monitor.as_str(), now)
     }
 
-    pub fn cluster_mode_active(&self) -> bool {
-        self.cluster_mode_active_for_monitor(self.model.monitor_state.current_monitor.as_str())
-    }
-
-    pub fn cluster_mode_active_for_monitor(&self, monitor: &str) -> bool {
-        self.model
-            .cluster_state
-            .cluster_mode_selected_nodes
-            .contains_key(monitor)
-    }
-
     pub fn enter_cluster_mode(&mut self) -> bool {
         let monitor = self.model.monitor_state.current_monitor.clone();
         if self
             .active_cluster_workspace_for_monitor(monitor.as_str())
             .is_some()
         {
+            let now_ms = self.now_ms(Instant::now());
             self.ui.render_state.show_overlay_toast(
                 monitor.as_str(),
                 "Cluster mode unavailable\nExit the workspace first",
                 3200,
-                self.now_ms(Instant::now()),
+                now_ms,
             );
             return false;
         }
@@ -880,12 +940,13 @@ impl Halley {
         else {
             return false;
         };
+        let now_ms = self.now_ms(now);
         if selected_nodes.is_empty() {
             self.ui.render_state.show_overlay_toast(
                 monitor.as_str(),
                 "No selections\nSelect at least two windows",
                 2200,
-                self.now_ms(now),
+                now_ms,
             );
             return false;
         }
@@ -896,7 +957,7 @@ impl Halley {
                 monitor.as_str(),
                 "Not enough selections\nSelect at least two windows",
                 5000,
-                self.now_ms(now),
+                now_ms,
             );
             return false;
         }
@@ -910,7 +971,7 @@ impl Halley {
                 let core = self.model.field.collapse_cluster(cid);
                 if let Some(core_id) = core {
                     self.assign_node_to_current_monitor(core_id);
-                    let _ = self.model.field.touch(core_id, self.now_ms(now));
+                    let _ = self.model.field.touch(core_id, now_ms);
                     self.set_interaction_focus(Some(core_id), 30_000, now);
                 }
                 core
@@ -929,11 +990,6 @@ impl Halley {
         self.enter_cluster_workspace_by_core(core_id, monitor.as_str(), now)
     }
 
-    pub fn has_active_cluster_workspace(&self) -> bool {
-        self.active_cluster_workspace_for_monitor(self.model.monitor_state.current_monitor.as_str())
-            .is_some()
-    }
-
     pub fn exit_cluster_workspace_if_member(&mut self, member: NodeId, now: Instant) -> bool {
         let monitor = self.model.monitor_state.current_monitor.clone();
         let Some(cid) = self.active_cluster_workspace_for_monitor(monitor.as_str()) else {
@@ -948,7 +1004,7 @@ impl Halley {
         self.exit_cluster_workspace_for_monitor(monitor.as_str(), now)
     }
 
-    fn enter_cluster_workspace_by_core(
+    pub(crate) fn enter_cluster_workspace_by_core(
         &mut self,
         core_id: NodeId,
         monitor: &str,
@@ -969,23 +1025,40 @@ impl Halley {
         else {
             return false;
         };
-        let _ = self.sync_cluster_core_monitor(cid, Some(monitor));
+        let _ = self.sync_cluster_monitor(cid, Some(monitor));
+        let previous_full_viewport = if self.model.monitor_state.current_monitor == monitor {
+            self.model.viewport
+        } else {
+            self.model
+                .monitor_state
+                .monitors
+                .get(monitor)
+                .map(|space| space.viewport)
+                .unwrap_or(plan.current_viewport)
+        };
         self.model
             .cluster_state
             .workspace_prev_viewports
-            .insert(monitor.to_string(), plan.current_viewport);
+            .insert(monitor.to_string(), previous_full_viewport);
         self.model
             .cluster_state
             .workspace_core_positions
             .insert(monitor.to_string(), plan.core_pos);
         if self.model.monitor_state.current_monitor == monitor {
+            let live_viewport = self
+                .model
+                .monitor_state
+                .monitors
+                .get(monitor)
+                .map(|space| space.viewport)
+                .unwrap_or(plan.current_viewport);
             self.input.interaction_state.viewport_pan_anim = None;
-            self.model.viewport = plan.current_viewport;
-            self.model.zoom_ref_size = plan.current_viewport.size;
-            self.model.camera_target_center = plan.current_viewport.center;
-            self.model.camera_target_view_size = plan.current_viewport.size;
-            self.runtime.tuning.viewport_center = plan.current_viewport.center;
-            self.runtime.tuning.viewport_size = plan.current_viewport.size;
+            self.model.viewport = live_viewport;
+            self.model.zoom_ref_size = live_viewport.size;
+            self.model.camera_target_center = live_viewport.center;
+            self.model.camera_target_view_size = live_viewport.size;
+            self.runtime.tuning.viewport_center = live_viewport.center;
+            self.runtime.tuning.viewport_size = live_viewport.size;
         }
         for id in &plan.hidden_ids {
             let _ = self.model.field.set_detached(*id, true);
@@ -1013,7 +1086,11 @@ impl Halley {
         true
     }
 
-    fn exit_cluster_workspace_for_monitor(&mut self, monitor: &str, now: Instant) -> bool {
+    pub(crate) fn exit_cluster_workspace_for_monitor(
+        &mut self,
+        monitor: &str,
+        now: Instant,
+    ) -> bool {
         let Some(plan) = self
             .cluster_read_controller()
             .plan_exit_cluster_workspace(monitor)
@@ -1039,7 +1116,8 @@ impl Halley {
             }
             let _ = self.model.field.set_detached(core_id, false);
             self.assign_node_to_monitor(core_id, monitor);
-            let _ = self.model.field.touch(core_id, self.now_ms(now));
+            let now_ms = self.now_ms(now);
+            let _ = self.model.field.touch(core_id, now_ms);
         }
 
         self.restore_cluster_workspace_monitor(monitor);
@@ -1067,7 +1145,7 @@ impl Halley {
             .is_some_and(|preview| preview.monitor == monitor)
         {
             self.input.interaction_state.cluster_overflow_drag_preview = None;
-            self.set_cursor_override_icon(None);
+            crate::compositor::interaction::pointer::set_cursor_override_icon(self, None);
         }
         true
     }
@@ -1128,29 +1206,487 @@ impl Halley {
                 continue;
             }
             let rect = placement.rect;
+            let target_size = Vec2 {
+                x: rect.w.max(64.0),
+                y: rect.h.max(64.0),
+            };
+            let target_pos = Vec2 {
+                x: rect.x + rect.w * 0.5,
+                y: rect.y + rect.h * 0.5,
+            };
+            let layout_changed = self.model.field.node(nid).is_none_or(|node| {
+                (node.intrinsic_size.x - target_size.x).abs() > 0.5
+                    || (node.intrinsic_size.y - target_size.y).abs() > 0.5
+                    || (node.pos.x - target_pos.x).abs() > 0.5
+                    || (node.pos.y - target_pos.y).abs() > 0.5
+                    || node.state != halley_core::field::NodeState::Active
+                    || node.visibility.has(Visibility::DETACHED)
+                    || node.visibility.has(Visibility::HIDDEN_BY_CLUSTER)
+            });
             if let Some(cluster) = self.model.field.cluster_mut(cid)
                 && let Some(node) = cluster.workspace_member_mut(nid)
             {
-                node.visibility.set(Visibility::DETACHED, false);
-                node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, false);
-                node.intrinsic_size.x = rect.w.max(64.0);
-                node.intrinsic_size.y = rect.h.max(64.0);
-                node.state = halley_core::field::NodeState::Active;
-                node.footprint = node.resize_footprint.unwrap_or(node.intrinsic_size);
-                node.pos = Vec2 {
-                    x: rect.x + rect.w * 0.5,
-                    y: rect.y + rect.h * 0.5,
-                };
+                if layout_changed {
+                    node.visibility.set(Visibility::DETACHED, false);
+                    node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, false);
+                    node.intrinsic_size = target_size;
+                    node.state = halley_core::field::NodeState::Active;
+                    node.footprint = node.resize_footprint.unwrap_or(node.intrinsic_size);
+                    node.pos = target_pos;
+                }
             }
-            self.set_last_active_size_now(
-                nid,
-                Vec2 {
-                    x: rect.w.max(64.0),
-                    y: rect.h.max(64.0),
-                },
-            );
-            self.request_toplevel_resize(nid, rect.w.round() as i32, rect.h.round() as i32);
+            if layout_changed {
+                self.set_last_active_size_now(nid, target_size);
+            }
+            let surface_size_changed =
+                crate::compositor::surface_ops::current_surface_size_for_node(self, nid)
+                    .is_none_or(|size| {
+                        (size.x - target_size.x).abs() > 0.5 || (size.y - target_size.y).abs() > 0.5
+                    });
+            if surface_size_changed {
+                self.request_toplevel_resize(nid, rect.w.round() as i32, rect.h.round() as i32);
+            }
         }
         self.refresh_cluster_overflow_for_monitor(monitor, now_ms, false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use halley_core::field::Vec2;
+    use smithay::reexports::wayland_server::Display;
+
+    fn single_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tile_gaps_outer_px = 20.0;
+        tuning.tile_gaps_inner_px = 20.0;
+        tuning.border_size_px = 0;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        tuning
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() <= 0.5,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    fn node_edges(st: &Halley, id: NodeId) -> (f32, f32, f32, f32) {
+        let node = st.model.field.node(id).expect("node");
+        let half_w = node.intrinsic_size.x * 0.5;
+        let half_h = node.intrinsic_size.y * 0.5;
+        (
+            node.pos.x - half_w,
+            node.pos.y - half_h,
+            node.pos.x + half_w,
+            node.pos.y + half_h,
+        )
+    }
+
+    #[test]
+    fn test_cluster_monitor_transfer_reopen() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "monitor_a".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "monitor_b".to_string(),
+                enabled: true,
+                offset_x: 1920,
+                offset_y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        // 1. Create two surfaces on monitor_a
+        let n1 = st.model.field.spawn_surface(
+            "monitor_a",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        let n2 = st.model.field.spawn_surface(
+            "monitor_a",
+            Vec2 { x: 600.0, y: 100.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        st.assign_node_to_monitor(n1, "monitor_a");
+        st.assign_node_to_monitor(n2, "monitor_a");
+
+        // 2. Create a cluster
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![n1, n2])
+            .expect("cluster");
+
+        // 3. Collapse to core
+        let core_id = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core_id, "monitor_a");
+
+        // 4. Move core to monitor_b
+        st.assign_node_to_monitor(core_id, "monitor_b");
+        // Also move its position to monitor_b's space
+        let _ = st.model.field.carry(
+            core_id,
+            Vec2 {
+                x: 1920.0 + 500.0,
+                y: 500.0,
+            },
+        );
+
+        // 5. Reopen/expand cluster on monitor_b
+        // We simulate the double-click/enter behavior
+        let now = Instant::now();
+        st.focus_monitor_view("monitor_b", now);
+        let success = st.enter_cluster_workspace_by_core(core_id, "monitor_b", now);
+        assert!(success);
+
+        // 6. Verify cluster members are now on monitor_b
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&n1)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&n2)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
+
+        // 7. Verify core is also on monitor_b
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&core_id)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
+    }
+
+    #[test]
+    fn test_cluster_monitor_maintenance_sync() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "monitor_a".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "monitor_b".to_string(),
+                enabled: true,
+                offset_x: 1920,
+                offset_y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        let n1 = st.model.field.spawn_surface(
+            "monitor_a",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        let n2 = st.model.field.spawn_surface(
+            "monitor_a",
+            Vec2 { x: 600.0, y: 100.0 },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        st.assign_node_to_monitor(n1, "monitor_a");
+        st.assign_node_to_monitor(n2, "monitor_a");
+
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![n1, n2])
+            .expect("cluster");
+        let core_id = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core_id, "monitor_a");
+
+        // Stale members monitor
+        st.assign_node_to_monitor(n1, "monitor_a");
+        st.assign_node_to_monitor(n2, "monitor_a");
+        // Move core to monitor_b
+        st.assign_node_to_monitor(core_id, "monitor_b");
+
+        // MAINTENANCE SYNC (without preferred monitor)
+        let success = st.sync_cluster_monitor(cid, None);
+        assert!(success);
+
+        // Should have picked monitor_b from core, NOT monitor_a from members
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&n1)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&n2)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&core_id)
+                .map(|s| s.as_str()),
+            Some("monitor_b")
+        );
+    }
+
+    #[test]
+    fn entering_two_window_cluster_keeps_outer_gap_exact() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(master, "monitor_a");
+        st.assign_node_to_monitor(stack, "monitor_a");
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+
+        let now = Instant::now();
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+
+        let (master_left, master_top, master_right, master_bottom) = node_edges(&st, master);
+        let (stack_left, stack_top, stack_right, stack_bottom) = node_edges(&st, stack);
+
+        assert_close(master_left, 20.0);
+        assert_close(master_top, 20.0);
+        assert_close(master_bottom, 580.0);
+        assert_close(stack_top, 20.0);
+        assert_close(stack_bottom, 580.0);
+        assert_close(stack_right, 780.0);
+        assert_close(stack_left - master_right, 20.0);
+    }
+
+    #[test]
+    fn entering_three_window_cluster_keeps_master_outer_gap_exact() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack_a = st.model.field.spawn_surface(
+            "stack-a",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack_b = st.model.field.spawn_surface(
+            "stack-b",
+            Vec2 { x: 500.0, y: 400.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        for id in [master, stack_a, stack_b] {
+            st.assign_node_to_monitor(id, "monitor_a");
+        }
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack_a, stack_b])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+
+        let now = Instant::now();
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+
+        let (_, master_top, master_right, master_bottom) = node_edges(&st, master);
+        let mut stack_edges = [node_edges(&st, stack_a), node_edges(&st, stack_b)];
+        stack_edges.sort_by(|a, b| a.1.partial_cmp(&b.1).expect("finite"));
+        let upper = stack_edges[0];
+        let lower = stack_edges[1];
+
+        assert_close(master_top, 20.0);
+        assert_close(master_bottom, 580.0);
+        assert_close(upper.1, 20.0);
+        assert_close(lower.3, 580.0);
+        assert_close(lower.1 - upper.3, 20.0);
+        assert_close(upper.0 - master_right, 20.0);
+    }
+
+    #[test]
+    fn entering_cluster_keeps_current_monitor_live_viewport_full_size() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let full_viewport = st.model.viewport;
+        st.model
+            .monitor_state
+            .monitors
+            .get_mut("monitor_a")
+            .expect("monitor")
+            .usable_viewport = halley_core::viewport::Viewport::new(
+            Vec2 { x: 400.0, y: 320.0 },
+            Vec2 { x: 800.0, y: 560.0 },
+        );
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(master, "monitor_a");
+        st.assign_node_to_monitor(stack, "monitor_a");
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+        assert_eq!(st.model.viewport, full_viewport);
+        assert_eq!(st.model.camera_target_view_size, full_viewport.size);
+    }
+
+    #[test]
+    fn cluster_exit_restores_full_viewport_not_usable_viewport() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let full_viewport = st.model.viewport;
+        let reduced_usable = halley_core::viewport::Viewport::new(
+            Vec2 { x: 400.0, y: 320.0 },
+            Vec2 { x: 800.0, y: 560.0 },
+        );
+        st.model
+            .monitor_state
+            .monitors
+            .get_mut("monitor_a")
+            .expect("monitor")
+            .usable_viewport = reduced_usable;
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(master, "monitor_a");
+        st.assign_node_to_monitor(stack, "monitor_a");
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+
+        let now = Instant::now();
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+        assert_eq!(
+            st.model
+                .cluster_state
+                .workspace_prev_viewports
+                .get("monitor_a"),
+            Some(&full_viewport)
+        );
+
+        assert!(st.exit_cluster_workspace_for_monitor("monitor_a", now));
+        assert_eq!(st.model.viewport, full_viewport);
+        assert_eq!(
+            st.model
+                .monitor_state
+                .monitors
+                .get("monitor_a")
+                .expect("monitor")
+                .viewport,
+            full_viewport
+        );
+        assert_eq!(
+            st.model
+                .monitor_state
+                .monitors
+                .get("monitor_a")
+                .expect("monitor")
+                .usable_viewport,
+            reduced_usable
+        );
     }
 }

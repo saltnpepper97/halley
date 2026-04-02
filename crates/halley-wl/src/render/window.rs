@@ -13,10 +13,13 @@ use smithay::{
 };
 
 use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_back};
-use crate::input::active_resize_geometry_screen;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::window_geometry_for_node;
+use crate::compositor::spawn::state::is_persistent_rule_top;
+use crate::compositor::surface_ops::{
+    is_active_cluster_workspace_member, window_geometry_for_node,
+};
+use crate::input::active_resize_geometry_screen;
 
 use super::offscreen::render_surface_tree_to_texture;
 use super::utils::{sync_node_size_from_surface, world_to_screen};
@@ -64,10 +67,10 @@ pub(crate) struct OffscreenNodeTexture {
     pub texture: GlesTexture,
     pub alpha: f32,
     pub corner_radius: f32,
-    pub src_x: i32,
-    pub src_y: i32,
-    pub src_w: i32,
-    pub src_h: i32,
+    pub src_x: f64,
+    pub src_y: f64,
+    pub src_w: f64,
+    pub src_h: f64,
     pub dst_x: i32,
     pub dst_y: i32,
     pub dst_w: i32,
@@ -117,43 +120,41 @@ fn offscreen_visual_crop_and_dst(
     clip: Rectangle<i32, Physical>,
     preserve_visual_margin: bool,
     lock_dst_to_geometry: bool,
-) -> (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32) {
+) -> (f64, f64, f64, f64, i32, i32, i32, i32, i32, i32, i32, i32) {
     const VISUAL_MARGIN_CAP: i32 = 4;
 
-    let geo_x = (geo_lx.round() as i32) - bbox_loc_x;
-    let geo_y = (geo_ly.round() as i32) - bbox_loc_y;
-    let geo_w_i = geo_w.round().max(1.0) as i32;
-    let geo_h_i = geo_h.round().max(1.0) as i32;
+    let geo_x = geo_lx - bbox_loc_x as f32;
+    let geo_y = geo_ly - bbox_loc_y as f32;
+    let geo_w_f = geo_w.max(1.0);
+    let geo_h_f = geo_h.max(1.0);
 
-    let bbox_right = bbox_loc_x + bbox_w;
-    let bbox_bottom = bbox_loc_y + bbox_h;
-    let geo_right_abs = (geo_lx + geo_w).round() as i32;
-    let geo_bottom_abs = (geo_ly + geo_h).round() as i32;
+    let bbox_right = (bbox_loc_x + bbox_w) as f32;
+    let bbox_bottom = (bbox_loc_y + bbox_h) as f32;
+    let geo_right_abs = geo_lx + geo_w;
+    let geo_bottom_abs = geo_ly + geo_h;
 
     let (left_extra, top_extra, right_extra, bottom_extra) = if preserve_visual_margin {
         (
-            geo_x.clamp(0, VISUAL_MARGIN_CAP),
-            geo_y.clamp(0, VISUAL_MARGIN_CAP),
-            (bbox_right - geo_right_abs).clamp(0, VISUAL_MARGIN_CAP),
-            (bbox_bottom - geo_bottom_abs).clamp(0, VISUAL_MARGIN_CAP),
+            geo_x.clamp(0.0, VISUAL_MARGIN_CAP as f32),
+            geo_y.clamp(0.0, VISUAL_MARGIN_CAP as f32),
+            (bbox_right - geo_right_abs).clamp(0.0, VISUAL_MARGIN_CAP as f32),
+            (bbox_bottom - geo_bottom_abs).clamp(0.0, VISUAL_MARGIN_CAP as f32),
         )
     } else {
-        (0, 0, 0, 0)
+        (0.0, 0.0, 0.0, 0.0)
     };
 
-    let src_x = (geo_x - left_extra).max(0);
-    let src_y = (geo_y - top_extra).max(0);
-    let src_w = (geo_w_i + left_extra + right_extra)
-        .min(bbox_w.saturating_sub(src_x))
-        .max(1);
-    let src_h = (geo_h_i + top_extra + bottom_extra)
-        .min(bbox_h.saturating_sub(src_y))
-        .max(1);
+    let src_x = (geo_x - left_extra).max(0.0) as f64;
+    let src_y = (geo_y - top_extra).max(0.0) as f64;
+    let src_w = (geo_w_f + left_extra + right_extra) as f64;
+    let src_w = src_w.min(bbox_w as f64 - src_x).max(1.0);
+    let src_h = (geo_h_f + top_extra + bottom_extra) as f64;
+    let src_h = src_h.min(bbox_h as f64 - src_y).max(1.0);
 
-    let dst_expand_l = ((left_extra as f32) * scale).round() as i32;
-    let dst_expand_t = ((top_extra as f32) * scale).round() as i32;
-    let dst_expand_r = ((right_extra as f32) * scale).round() as i32;
-    let dst_expand_b = ((bottom_extra as f32) * scale).round() as i32;
+    let dst_expand_l = (left_extra * scale).round() as i32;
+    let dst_expand_t = (top_extra * scale).round() as i32;
+    let dst_expand_r = (right_extra * scale).round() as i32;
+    let dst_expand_b = (bottom_extra * scale).round() as i32;
 
     let (final_dst_x, final_dst_y, final_dst_w, final_dst_h) = if lock_dst_to_geometry {
         (dst_x, dst_y, dst_w.max(1), dst_h.max(1))
@@ -192,8 +193,12 @@ pub(crate) fn collect_active_surfaces(
 ) -> (
     Vec<CroppedSurfaceElement>,
     Vec<CroppedSurfaceElement>,
+    Vec<CroppedSurfaceElement>,
     Vec<OffscreenNodeTexture>,
     Vec<OffscreenNodeTexture>,
+    Vec<OffscreenNodeTexture>,
+    Vec<OffscreenNodeTexture>,
+    Vec<CroppedSurfaceElement>,
     Vec<OffscreenNodeTexture>,
     Vec<CroppedSurfaceElement>,
     HashMap<
@@ -208,10 +213,14 @@ pub(crate) fn collect_active_surfaces(
 ) {
     let mut active_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut resized_active_elements: Vec<CroppedSurfaceElement> = Vec::new();
+    let mut fullscreen_active_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut resized_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let mut fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let mut fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
+    let mut fullscreen_popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut resized_border_rects: Vec<ActiveBorderRect> = Vec::new();
@@ -271,17 +280,24 @@ pub(crate) fn collect_active_surfaces(
         let node_pos = node.pos;
         let node_state = node.state.clone();
         let node_intrinsic = node.intrinsic_size;
+        let fullscreen_on_current_monitor = st
+            .fullscreen_monitor_for_node(node_id)
+            .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor);
+
+        let active_cluster_member = is_active_cluster_workspace_member(st, node_id);
         let transition_alpha = st.active_transition_alpha(node_id, now);
         let anim = crate::render::anim_style_for(st, node_id, node_state, now);
         let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
         let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
         let resizing_this_node = active_resize.is_some();
+        let persistent_rule_top = is_persistent_rule_top(st, node_id);
         let draw_top_this_node = resizing_this_node
             || recent_top_node == Some(node_id)
-            || st.input.interaction_state.drag_authority_node == Some(node_id);
+            || st.input.interaction_state.drag_authority_node == Some(node_id)
+            || persistent_rule_top;
 
-        let (scale, live_ramp) = if draw_top_this_node {
-            (1.0f32, 1.0f32)
+        let (scale, live_ramp) = if draw_top_this_node || active_cluster_member {
+            (1.0f32 * fullscreen_entry_scale, 1.0f32)
         } else {
             let s = active_surface_render_scale(
                 anim.scale,
@@ -299,8 +315,22 @@ pub(crate) fn collect_active_surfaces(
             (s * fullscreen_entry_scale, live_ramp)
         };
 
+        // Fit scale for fullscreen windows that don't match the physical monitor resolution.
+        let fit_scale = if fullscreen_on_current_monitor {
+            let sw = (output_clip.size.w as f32) / node_intrinsic.x.max(1.0);
+            let sh = (output_clip.size.h as f32) / node_intrinsic.y.max(1.0);
+            sw.min(sh).max(0.1) // aspect-correct fit
+        } else if let Some(monitor) = st.fullscreen_monitor_for_node(node_id) {
+            let (target_w, target_h) = st.fullscreen_target_size_for(monitor);
+            let sw = (target_w as f32) / node_intrinsic.x.max(1.0);
+            let sh = (target_h as f32) / node_intrinsic.y.max(1.0);
+            sw.min(sh).max(0.1) // aspect-correct fit
+        } else {
+            1.0
+        };
+
         let cam_scale = st.camera_render_scale();
-        let render_scale = scale * cam_scale;
+        let render_scale = scale * cam_scale * fit_scale;
 
         let p = node_pos;
         let local_bbox = (
@@ -321,14 +351,25 @@ pub(crate) fn collect_active_surfaces(
             } else {
                 let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
 
-                let (gx, gy, gw, gh) = local_geo;
+                let (_, _, gw, gh) = local_geo;
                 let rw = (gw * render_scale).round().max(1.0) as i32;
                 let rh = (gh * render_scale).round().max(1.0) as i32;
-                let rx = cx - (rw / 2);
-                let ry = cy - (rh / 2);
 
-                let sx = rx - (gx * render_scale).round() as i32;
-                let sy = ry - (gy * render_scale).round() as i32;
+                let (rx, ry, rw, rh) = if fullscreen_on_current_monitor {
+                    (
+                        output_clip.loc.x,
+                        output_clip.loc.y,
+                        output_clip.size.w,
+                        output_clip.size.h,
+                    )
+                } else {
+                    let rx = cx - (rw / 2);
+                    let ry = cy - (rh / 2);
+                    (rx, ry, rw, rh)
+                };
+
+                let sx = rx - (local_geo.0 * render_scale).round() as i32;
+                let sy = ry - (local_geo.1 * render_scale).round() as i32;
 
                 let texture_rect = rect_from_local_geometry(sx, sy, render_scale, local_bbox);
                 let geometry_rect = (rx, ry, rw, rh);
@@ -364,9 +405,6 @@ pub(crate) fn collect_active_surfaces(
         }
 
         let alpha = (anim.alpha * live_ramp).clamp(0.0, 1.0);
-        let fullscreen_on_current_monitor = st
-            .fullscreen_monitor_for_node(node_id)
-            .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor);
         let effective_border_px = if fullscreen_on_current_monitor {
             0
         } else {
@@ -419,14 +457,18 @@ pub(crate) fn collect_active_surfaces(
         } else {
             border_rects.push(border_rect);
         }
-        let use_offscreen_zoom = true;
+
+        // Games/fullscreen processes bypass offscreen zoom for performance and compatibility.
+        let use_offscreen_zoom = !fullscreen_on_current_monitor;
 
         if use_offscreen_zoom {
             let cache_miss = {
-                let cache =
-                    st.ui
-                        .render_state
-                        .ensure_window_offscreen_cache(node_id, bbox.size.w, bbox.size.h, now);
+                let cache = st.ui.render_state.ensure_window_offscreen_cache(
+                    node_id,
+                    bbox.size.w,
+                    bbox.size.h,
+                    now,
+                );
                 cache.dirty || cache.texture.is_none() || cache.bbox.is_none()
             };
 
@@ -494,7 +536,16 @@ pub(crate) fn collect_active_surfaces(
                                 Kind::Unspecified,
                             );
 
-                            let (tx, ty, tw, th) = texture_rect;
+                            let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
+                                (
+                                    output_clip.loc.x,
+                                    output_clip.loc.y,
+                                    output_clip.size.w,
+                                    output_clip.size.h,
+                                )
+                            } else {
+                                texture_rect
+                            };
                             let display_clip = Rectangle::<i32, Physical>::new(
                                 (tx, ty).into(),
                                 (tw.max(1), th.max(1)).into(),
@@ -507,7 +558,9 @@ pub(crate) fn collect_active_surfaces(
                                 })
                                 .collect();
 
-                            if draw_top_this_node {
+                            if fullscreen_on_current_monitor {
+                                fullscreen_active_elements.extend(cropped);
+                            } else if draw_top_this_node {
                                 resized_active_elements.extend(cropped);
                             } else {
                                 active_elements.extend(cropped);
@@ -589,7 +642,7 @@ pub(crate) fn collect_active_surfaces(
                             gy,
                             preview_gw_px,
                             preview_gh_px,
-                            cam_scale,
+                            render_scale,
                             output_clip,
                             preserve_visual_margin,
                             lock_dst_to_geometry,
@@ -608,7 +661,7 @@ pub(crate) fn collect_active_surfaces(
                             gy,
                             gw.max(1),
                             gh.max(1),
-                            cam_scale,
+                            render_scale,
                             output_clip,
                             preserve_visual_margin,
                             lock_dst_to_geometry,
@@ -630,7 +683,7 @@ pub(crate) fn collect_active_surfaces(
                                 texture_rect.3
                             ),
                             rect4_str(gx, gy, gw.max(1), gh.max(1)),
-                            rect4_str(src_x, src_y, src_w, src_h),
+                            rect4f_str(src_x as f32, src_y as f32, src_w as f32, src_h as f32),
                             rect4_str(dst_x, dst_y, dst_w, dst_h),
                             rect4_str(clip_x, clip_y, clip_w, clip_h),
                             preserve_visual_margin,
@@ -663,10 +716,10 @@ pub(crate) fn collect_active_surfaces(
                     let geo_local_x = local_geo.0 - ob.loc.x as f32;
                     let geo_local_y = local_geo.1 - ob.loc.y as f32;
                     // Scale into dst-pixel space (relative to dst top-left).
-                    let geo_offset_x = (geo_local_x * dst_scale_x).round().max(0.0);
-                    let geo_offset_y = (geo_local_y * dst_scale_y).round().max(0.0);
-                    let geo_w_px = (local_geo.2 * dst_scale_x).round().max(1.0);
-                    let geo_h_px = (local_geo.3 * dst_scale_y).round().max(1.0);
+                    let geo_offset_x = (geo_local_x * dst_scale_x).max(0.0);
+                    let geo_offset_y = (geo_local_y * dst_scale_y).max(0.0);
+                    let geo_w_px = (local_geo.2 * dst_scale_x).max(1.0);
+                    let geo_h_px = (local_geo.3 * dst_scale_y).max(1.0);
 
                     let offscreen = OffscreenNodeTexture {
                         texture: texture.clone(),
@@ -690,7 +743,9 @@ pub(crate) fn collect_active_surfaces(
                         geo_w: geo_w_px,
                         geo_h: geo_h_px,
                     };
-                    if draw_top_this_node {
+                    if fullscreen_on_current_monitor {
+                        fullscreen_offscreen_textures.push(offscreen);
+                    } else if draw_top_this_node {
                         resized_offscreen_textures.push(offscreen);
                     } else {
                         offscreen_textures.push(offscreen);
@@ -723,7 +778,16 @@ pub(crate) fn collect_active_surfaces(
                 alpha,
                 Kind::Unspecified,
             );
-            let (tx, ty, tw, th) = texture_rect;
+            let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
+                (
+                    output_clip.loc.x,
+                    output_clip.loc.y,
+                    output_clip.size.w,
+                    output_clip.size.h,
+                )
+            } else {
+                texture_rect
+            };
             let display_clip =
                 Rectangle::<i32, Physical>::new((tx, ty).into(), (tw.max(1), th.max(1)).into());
             let cropped: Vec<_> = elems
@@ -731,7 +795,9 @@ pub(crate) fn collect_active_surfaces(
                 .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
                 .collect();
 
-            if draw_top_this_node {
+            if fullscreen_on_current_monitor {
+                fullscreen_active_elements.extend(cropped);
+            } else if draw_top_this_node {
                 resized_active_elements.extend(cropped);
             } else {
                 active_elements.extend(cropped);
@@ -759,10 +825,10 @@ pub(crate) fn collect_active_surfaces(
             if use_offscreen_zoom {
                 match render_surface_tree_to_texture(renderer, popup.wl_surface(), alpha, None) {
                     Ok(offscreen) => {
-                        let src_x = 0;
-                        let src_y = 0;
-                        let src_w = offscreen.bbox.size.w.max(1);
-                        let src_h = offscreen.bbox.size.h.max(1);
+                        let src_x = 0.0f64;
+                        let src_y = 0.0f64;
+                        let src_w = offscreen.bbox.size.w.max(1) as f64;
+                        let src_h = offscreen.bbox.size.h.max(1) as f64;
                         let dst_x =
                             popup_sx + (offscreen.bbox.loc.x as f32 * element_scale).round() as i32;
                         let dst_y =
@@ -773,7 +839,7 @@ pub(crate) fn collect_active_surfaces(
                         let dst_h = (offscreen.bbox.size.h as f32 * element_scale)
                             .round()
                             .max(1.0) as i32;
-                        popup_offscreen_textures.push(OffscreenNodeTexture {
+                        let offscreen_texture = OffscreenNodeTexture {
                             texture: offscreen.texture,
                             alpha,
                             corner_radius: 0.0,
@@ -794,7 +860,12 @@ pub(crate) fn collect_active_surfaces(
                             geo_offset_y: 0.0,
                             geo_w: 0.0,
                             geo_h: 0.0,
-                        });
+                        };
+                        if fullscreen_on_current_monitor {
+                            fullscreen_popup_offscreen_textures.push(offscreen_texture);
+                        } else {
+                            popup_offscreen_textures.push(offscreen_texture);
+                        }
                     }
                     Err(_) => {
                         let popup_elems: Vec<SurfaceElement> = render_elements_from_surface_tree(
@@ -829,16 +900,24 @@ pub(crate) fn collect_active_surfaces(
             }
         }
 
-        popup_elements.extend(popup_cropped);
+        if fullscreen_on_current_monitor {
+            fullscreen_popup_elements.extend(popup_cropped);
+        } else {
+            popup_elements.extend(popup_cropped);
+        }
     }
 
     (
         active_elements,
         resized_active_elements,
+        fullscreen_active_elements,
         offscreen_textures,
         resized_offscreen_textures,
+        fullscreen_offscreen_textures,
         popup_offscreen_textures,
         popup_elements,
+        fullscreen_popup_offscreen_textures,
+        fullscreen_popup_elements,
         node_surface_map,
         border_rects,
         resized_border_rects,

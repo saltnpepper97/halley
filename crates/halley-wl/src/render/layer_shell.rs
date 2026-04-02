@@ -3,10 +3,10 @@ use std::time::Instant;
 
 use smithay::{
     backend::renderer::{
-        element::{surface::render_elements_from_surface_tree, Kind},
+        element::{Kind, surface::render_elements_from_surface_tree},
         gles::GlesRenderer,
     },
-    desktop::{find_popup_root_surface, utils::bbox_from_surface_tree, PopupKind, PopupManager},
+    desktop::{PopupKind, PopupManager, find_popup_root_surface, utils::bbox_from_surface_tree},
     reexports::wayland_server::Resource,
     utils::{Logical, Physical, Size},
     wayland::shell::wlr_layer::Layer,
@@ -58,7 +58,9 @@ pub(crate) fn collect_layer_surfaces(
 
     let logical_size: Size<i32, Logical> = (size.w, size.h).into();
 
-    for placement in st.layer_shell_placements(logical_size) {
+    for placement in
+        crate::compositor::monitor::layer_shell::layer_shell_placements(st, logical_size)
+    {
         let elements = render_elements_from_surface_tree(
             renderer,
             &placement.wl_surface,

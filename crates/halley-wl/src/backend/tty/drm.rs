@@ -682,8 +682,11 @@ pub(crate) fn queue_tty_drm_frame(
             local_cursor,
             cursor_image,
         ) {
-            None => st.clear_fullscreen_direct_scanout_for_monitor(output_name),
-            Some(Err((node_id, reason))) => st.set_fullscreen_direct_scanout_status(
+            None => st
+                .model
+                .fullscreen_state
+                .clear_direct_scanout_for_monitor(output_name),
+            Some(Err((node_id, reason))) => st.model.fullscreen_state.set_direct_scanout_status(
                 output_name,
                 Some(node_id),
                 None,
@@ -716,7 +719,7 @@ pub(crate) fn queue_tty_drm_frame(
                     Ok(render_res) => {
                         let direct_scanout_active =
                             matches!(render_res.primary_element, PrimaryPlaneElement::Element(_));
-                        st.set_fullscreen_direct_scanout_status(
+                        st.model.fullscreen_state.set_direct_scanout_status(
                             output_name,
                             Some(candidate.node_id),
                             direct_scanout_active.then_some(candidate.node_id),
@@ -739,7 +742,7 @@ pub(crate) fn queue_tty_drm_frame(
                         return Ok(queued);
                     }
                     Err(err) => {
-                        st.set_fullscreen_direct_scanout_status(
+                        st.model.fullscreen_state.set_direct_scanout_status(
                             output_name,
                             Some(candidate.node_id),
                             None,
@@ -750,7 +753,8 @@ pub(crate) fn queue_tty_drm_frame(
             }
         }
 
-        let force_overlay_full_repaint = crate::render::monitor_overlay_requires_full_repaint(st, output_name);
+        let force_overlay_full_repaint =
+            crate::render::monitor_overlay_requires_full_repaint(st, output_name);
         let mut texture: GlesTexture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
             &mut *renderer_ref,
             Fourcc::Abgr8888,
@@ -918,7 +922,7 @@ fn fullscreen_root_surface_for_node(
 }
 
 fn monitor_has_blocking_layer_shell_surfaces(st: &Halley, monitor: &str) -> bool {
-    st.layer_shell_placements_for_monitor(monitor)
+    crate::compositor::monitor::layer_shell::layer_shell_placements_for_monitor(st, monitor)
         .into_iter()
         .any(|placement| {
             matches!(

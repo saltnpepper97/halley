@@ -2,6 +2,7 @@ use super::*;
 use crate::animation::{ease_in_out_cubic, proxy_anim_scale};
 use crate::compositor::interaction::state::InteractionState;
 use crate::compositor::monitor::state::MonitorState;
+use crate::compositor::spawn::state::SpawnState;
 use crate::compositor::workspace::state::WorkspaceState;
 use crate::render::state::RenderState;
 use crate::render::{active_window_frame_pad_px, preview_proxy_size};
@@ -62,6 +63,7 @@ pub(super) struct OverlapReadContext<'a> {
     pub(super) field: &'a Field,
     pub(super) monitor_state: &'a MonitorState,
     pub(super) interaction_state: &'a InteractionState,
+    pub(super) spawn_state: &'a SpawnState,
     pub(super) render_state: &'a RenderState,
     pub(super) workspace_state: &'a WorkspaceState,
     pub(super) tuning: &'a RuntimeTuning,
@@ -119,6 +121,9 @@ impl<'a> OverlapReadContext<'a> {
         if !self.field.participates_in_field_dynamics(id) {
             return false;
         }
+        if self.spawn_state.pending_initial_reveal.contains(&id) {
+            return false;
+        }
         self.field.node(id).is_some_and(|n| {
             self.field.is_visible(id)
                 && matches!(
@@ -153,12 +158,28 @@ impl<'a> OverlapReadContext<'a> {
 
     #[inline]
     pub(crate) fn nodes_share_overlap_group(&self, a: NodeId, b: NodeId) -> bool {
+        if self.node_allows_overlap_with(a, b) || self.node_allows_overlap_with(b, a) {
+            return false;
+        }
         match (
             self.monitor_state.node_monitor.get(&a),
             self.monitor_state.node_monitor.get(&b),
         ) {
             (Some(a_monitor), Some(b_monitor)) => a_monitor == b_monitor,
             _ => true,
+        }
+    }
+
+    fn node_allows_overlap_with(&self, id: NodeId, other: NodeId) -> bool {
+        let Some(rule) = self.spawn_state.applied_window_rules.get(&id) else {
+            return false;
+        };
+        match rule.overlap_policy {
+            halley_config::InitialWindowOverlapPolicy::None => false,
+            halley_config::InitialWindowOverlapPolicy::ParentOnly => {
+                rule.parent_node == Some(other)
+            }
+            halley_config::InitialWindowOverlapPolicy::All => true,
         }
     }
 
@@ -266,32 +287,15 @@ impl<'a> OverlapReadContext<'a> {
                     .map(|(_, _, w, h)| Vec2 { x: *w, y: *h })
             })
             .unwrap_or(n.intrinsic_size);
-        let bbox_w = n.intrinsic_size.x.max(1.0);
-        let bbox_h = n.intrinsic_size.y.max(1.0);
-        let (bbox_lx, bbox_ly) = self
-            .render_state
-            .bbox_loc
-            .get(&n.id)
-            .copied()
-            .unwrap_or((0.0, 0.0));
-        let (geo_lx, geo_ly, geo_w, geo_h) = self
-            .render_state
-            .window_geometry
-            .get(&n.id)
-            .copied()
-            .unwrap_or((bbox_lx, bbox_ly, bbox_w, bbox_h));
-
-        let left = (bbox_w * 0.5 + bbox_lx - geo_lx).max(16.0);
-        let right = (geo_lx + geo_w - bbox_lx - bbox_w * 0.5).max(16.0);
-        let top = (bbox_h * 0.5 + bbox_ly - geo_ly).max(16.0);
-        let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
         let frame_pad = active_window_frame_pad_px(self.tuning) as f32;
+        let half_w = basis.x.max(1.0) * 0.5 + frame_pad;
+        let half_h = basis.y.max(1.0) * 0.5 + frame_pad;
 
         CollisionExtents {
-            left: left * basis.x.max(1.0) / bbox_w + frame_pad,
-            right: right * basis.x.max(1.0) / bbox_w + frame_pad,
-            top: top * basis.y.max(1.0) / bbox_h + frame_pad,
-            bottom: bottom * basis.y.max(1.0) / bbox_h + frame_pad,
+            left: half_w,
+            right: half_w,
+            top: half_h,
+            bottom: half_h,
         }
     }
 

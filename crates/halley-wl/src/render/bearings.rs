@@ -13,8 +13,8 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
-use crate::render::app_icon::{ensure_app_icon_resources_for_node_ids, node_app_icon_entry};
 use crate::compositor::root::Halley;
+use crate::render::app_icon::{ensure_app_icon_resources_for_node_ids, node_app_icon_entry};
 use crate::render::state::NodeAppIconCacheEntry;
 
 use super::utils::{bitmap_text_size, draw_bitmap_text, draw_rect};
@@ -257,7 +257,13 @@ pub(crate) fn bearing_hit_test(
         .bearings_mix
         .get(monitor)
         .copied()
-        .unwrap_or_else(|| if st.ui.render_state.bearings_visible() { 1.0 } else { 0.0 });
+        .unwrap_or_else(|| {
+            if st.ui.render_state.bearings_visible() {
+                1.0
+            } else {
+                0.0
+            }
+        });
     if ui_mix <= 0.05 {
         return None;
     }

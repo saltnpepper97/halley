@@ -88,10 +88,77 @@ pub struct BearingsConfig {
     pub fade_distance: f32,
 }
 
+use regex::Regex;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClusterBloomDirection {
     Clockwise,
     CounterClockwise,
+}
+
+#[derive(Clone, Debug)]
+pub enum WindowRulePattern {
+    Exact(String),
+    Regex(Regex),
+}
+
+impl PartialEq for WindowRulePattern {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Exact(a), Self::Exact(b)) => a == b,
+            (Self::Regex(a), Self::Regex(b)) => a.as_str() == b.as_str(),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for WindowRulePattern {}
+
+impl WindowRulePattern {
+    pub fn matches(&self, value: &str) -> bool {
+        match self {
+            Self::Exact(exact) => exact == value,
+            Self::Regex(regex) => regex.is_match(value),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Exact(exact) => exact.as_str(),
+            Self::Regex(regex) => regex.as_str(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitialWindowOverlapPolicy {
+    None,
+    ParentOnly,
+    All,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitialWindowSpawnPlacement {
+    Center,
+    Adjacent,
+    ViewportCenter,
+    Cursor,
+    App,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitialWindowClusterParticipation {
+    Layout,
+    Float,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WindowRule {
+    pub app_ids: Vec<WindowRulePattern>,
+    pub titles: Vec<WindowRulePattern>,
+    pub overlap_policy: InitialWindowOverlapPolicy,
+    pub spawn_placement: InitialWindowSpawnPlacement,
+    pub cluster_participation: InitialWindowClusterParticipation,
 }
 
 #[derive(Clone, Debug)]
@@ -138,8 +205,9 @@ pub struct RuntimeTuning {
     pub cluster_bloom_direction: ClusterBloomDirection,
     pub tile_gaps_inner_px: f32,
     pub tile_gaps_outer_px: f32,
+    pub tile_new_on_top: bool,
     pub tile_queue_show_icons: bool,
-    pub active_windows_allowed: usize,
+    pub tile_max_stack: usize,
     pub trail_history_length: usize,
     pub trail_wrap: bool,
 
@@ -159,6 +227,7 @@ pub struct RuntimeTuning {
     pub restore_last_active_on_pan_return: bool,
     pub physics_enabled: bool,
     pub no_csd: bool,
+    pub window_rules: Vec<WindowRule>,
 
     pub keybinds: Keybinds,
     pub compositor_bindings: Vec<CompositorBinding>,
@@ -265,8 +334,9 @@ impl Default for RuntimeTuning {
             cluster_bloom_direction: ClusterBloomDirection::Clockwise,
             tile_gaps_inner_px: 20.0,
             tile_gaps_outer_px: 20.0,
+            tile_new_on_top: false,
             tile_queue_show_icons: true,
-            active_windows_allowed: 3,
+            tile_max_stack: 3,
             trail_history_length: 32,
             trail_wrap: true,
 
@@ -286,6 +356,7 @@ impl Default for RuntimeTuning {
             restore_last_active_on_pan_return: true,
             physics_enabled: true,
             no_csd: false,
+            window_rules: Vec::new(),
 
             keybinds: Keybinds::default(),
             compositor_bindings: default_compositor_bindings(Keybinds::default().modifier),
@@ -373,7 +444,7 @@ impl RuntimeTuning {
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);
         self.tile_gaps_inner_px = self.tile_gaps_inner_px.clamp(0.0, 256.0);
         self.tile_gaps_outer_px = self.tile_gaps_outer_px.clamp(0.0, 512.0);
-        self.active_windows_allowed = self.active_windows_allowed.clamp(1, 64);
+        self.tile_max_stack = self.tile_max_stack.clamp(0, 64);
         self.trail_history_length = self.trail_history_length.clamp(1, 512);
 
         self.active_outside_ring_delay_ms = self.active_outside_ring_delay_ms.clamp(0, 7_200_000);

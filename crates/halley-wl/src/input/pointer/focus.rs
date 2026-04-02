@@ -1,14 +1,15 @@
 use std::time::Instant;
 
 use smithay::desktop::{
-    utils::{bbox_from_surface_tree, under_from_surface_tree},
     PopupManager, WindowSurfaceType,
+    utils::{bbox_from_surface_tree, under_from_surface_tree},
 };
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};
 
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
+use crate::compositor::spawn::state::is_persistent_rule_top;
 use crate::spatial::pick_hit_node_at;
 
 use super::resize::active_node_surface_transform_screen_details;
@@ -69,14 +70,13 @@ fn popup_focus_for_screen(
         })
         .collect();
 
-    toplevels.sort_by_key(|(node_id, _, _, _)| node_id.as_u64());
-    if let Some(idx) = toplevels
-        .iter()
-        .position(|(node_id, _, _, _)| Some(*node_id) == recent_top_node)
-    {
-        let top = toplevels.remove(idx);
-        toplevels.push(top);
-    }
+    toplevels.sort_by_key(|(node_id, _, _, _)| {
+        (
+            is_persistent_rule_top(st, *node_id),
+            Some(*node_id) == recent_top_node,
+            node_id.as_u64(),
+        )
+    });
 
     for (node_id, top, wl, intrinsic_size) in toplevels.into_iter().rev() {
         let Some(xform) = active_node_surface_transform_screen_details(
@@ -192,7 +192,10 @@ pub(crate) fn layer_surface_focus_for_screen(
     let block_non_overlay =
         fullscreen_hit_blocks_non_overlay_layers(st, ws_w, ws_h, sx, sy, now, resize_preview);
 
-    let mut placements = st.layer_shell_placements((ws_w.max(1), ws_h.max(1)).into());
+    let mut placements = crate::compositor::monitor::layer_shell::layer_shell_placements(
+        st,
+        (ws_w.max(1), ws_h.max(1)).into(),
+    );
     placements.sort_by_key(|placement| {
         std::cmp::Reverse(match placement.layer {
             smithay::wayland::shell::wlr_layer::Layer::Background => 0u8,

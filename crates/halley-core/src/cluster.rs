@@ -2,8 +2,6 @@ use crate::field::{Node, NodeId};
 use crate::tiling::{MasterStackLayout, Rect, layout_master_stack};
 use std::collections::HashMap;
 
-pub const CLUSTER_VISIBLE_CAPACITY: usize = 4;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ClusterId(u64);
 
@@ -81,16 +79,26 @@ impl Cluster {
         &self.members[1..]
     }
 
-    pub fn visible_members(&self) -> &[NodeId] {
-        let end = self.members.len().min(CLUSTER_VISIBLE_CAPACITY);
-        &self.members[..end]
+    pub fn visible_members(&self, max_stack: usize) -> &[NodeId] {
+        if max_stack == 0 {
+            &self.members
+        } else {
+            let limit = max_stack + 1;
+            let end = self.members.len().min(limit);
+            &self.members[..end]
+        }
     }
 
-    pub fn overflow_members(&self) -> &[NodeId] {
-        if self.members.len() <= CLUSTER_VISIBLE_CAPACITY {
+    pub fn overflow_members(&self, max_stack: usize) -> &[NodeId] {
+        if max_stack == 0 {
             &[]
         } else {
-            &self.members[CLUSTER_VISIBLE_CAPACITY..]
+            let limit = max_stack + 1;
+            if self.members.len() <= limit {
+                &[]
+            } else {
+                &self.members[limit..]
+            }
         }
     }
 
@@ -125,8 +133,8 @@ impl Cluster {
         self.active_workspace = None;
     }
 
-    pub fn workspace_layout(&self, bounds: Rect) -> MasterStackLayout {
-        layout_master_stack(bounds, self.visible_members())
+    pub fn workspace_layout(&self, bounds: Rect, max_stack: usize) -> MasterStackLayout {
+        layout_master_stack(bounds, self.visible_members(max_stack))
     }
 
     pub(crate) fn add_member(&mut self, member: NodeId) -> bool {
@@ -208,6 +216,7 @@ impl Cluster {
         &mut self,
         overflow_member: NodeId,
         visible_member: NodeId,
+        max_stack: usize,
     ) -> bool {
         let Some(overflow_index) = self.members.iter().position(|&id| id == overflow_member) else {
             return false;
@@ -215,7 +224,13 @@ impl Cluster {
         let Some(visible_index) = self.members.iter().position(|&id| id == visible_member) else {
             return false;
         };
-        if overflow_index < CLUSTER_VISIBLE_CAPACITY || visible_index >= CLUSTER_VISIBLE_CAPACITY {
+        if max_stack > 0 {
+            let limit = max_stack + 1;
+            if overflow_index < limit || visible_index >= limit {
+                return false;
+            }
+        } else {
+            // unlimited; no overflow member can exist
             return false;
         }
 
@@ -228,22 +243,27 @@ impl Cluster {
         &mut self,
         member: NodeId,
         target_overflow_index: usize,
+        max_stack: usize,
     ) -> bool {
         let Some(member_index) = self.members.iter().position(|&id| id == member) else {
             return false;
         };
-        if member_index < CLUSTER_VISIBLE_CAPACITY {
+        if max_stack == 0 {
+            return false;
+        }
+        let limit = max_stack + 1;
+        if member_index < limit {
             return false;
         }
 
-        let overflow_len = self.members.len().saturating_sub(CLUSTER_VISIBLE_CAPACITY);
+        let overflow_len = self.members.len().saturating_sub(limit);
         if overflow_len <= 1 {
             return true;
         }
 
         let member = self.members.remove(member_index);
         let clamped_index = target_overflow_index.min(overflow_len - 1);
-        let insert_index = (CLUSTER_VISIBLE_CAPACITY + clamped_index).min(self.members.len());
+        let insert_index = (limit + clamped_index).min(self.members.len());
         self.members.insert(insert_index, member);
         true
     }
@@ -257,4 +277,45 @@ fn has_duplicates(members: &[NodeId]) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ids(n: u64) -> Vec<NodeId> {
+        (0..n).map(NodeId::new).collect()
+    }
+
+    #[test]
+    fn visible_members_respects_max_stack() {
+        let members = ids(10);
+        let cluster = Cluster::new(ClusterId::new(1), members.clone()).unwrap();
+
+        // max_stack 3 means 4 visible (1 master + 3 stack)
+        assert_eq!(cluster.visible_members(3).len(), 4);
+        assert_eq!(cluster.overflow_members(3).len(), 6);
+
+        // max_stack 5 means 6 visible
+        assert_eq!(cluster.visible_members(5).len(), 6);
+        assert_eq!(cluster.overflow_members(5).len(), 4);
+    }
+
+    #[test]
+    fn zero_max_stack_means_unlimited_visible() {
+        let members = ids(10);
+        let cluster = Cluster::new(ClusterId::new(1), members.clone()).unwrap();
+
+        assert_eq!(cluster.visible_members(0).len(), 10);
+        assert_eq!(cluster.overflow_members(0).len(), 0);
+    }
+
+    #[test]
+    fn visible_members_capped_by_total_members() {
+        let members = ids(3);
+        let cluster = Cluster::new(ClusterId::new(1), members.clone()).unwrap();
+
+        assert_eq!(cluster.visible_members(5).len(), 3);
+        assert_eq!(cluster.overflow_members(5).len(), 0);
+    }
 }

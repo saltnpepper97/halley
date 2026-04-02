@@ -1,7 +1,7 @@
 use super::*;
 use crate::compositor::overlap::physics::{
-    resolve_contact_pair, CONTACT_SKIN, MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON,
-    POSITION_SOLVER_ITERS,
+    CONTACT_SKIN, MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON, POSITION_SOLVER_ITERS,
+    resolve_contact_pair,
 };
 pub(crate) use crate::compositor::overlap::read::CollisionExtents;
 use crate::compositor::overlap::read::OverlapReadContext;
@@ -9,448 +9,438 @@ use crate::render::active_window_frame_pad_px;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 
-impl Halley {
-    fn overlap_read_context(&self) -> OverlapReadContext<'_> {
-        OverlapReadContext {
-            field: &self.model.field,
-            monitor_state: &self.model.monitor_state,
-            interaction_state: &self.input.interaction_state,
-            render_state: &self.ui.render_state,
-            workspace_state: &self.model.workspace_state,
-            tuning: &self.runtime.tuning,
-            viewport: self.model.viewport,
-            camera_render_scale: self.camera_render_scale(),
-        }
+fn overlap_read_context(st: &Halley) -> OverlapReadContext<'_> {
+    OverlapReadContext {
+        field: &st.model.field,
+        monitor_state: &st.model.monitor_state,
+        interaction_state: &st.input.interaction_state,
+        spawn_state: &st.model.spawn_state,
+        render_state: &st.ui.render_state,
+        workspace_state: &st.model.workspace_state,
+        tuning: &st.runtime.tuning,
+        viewport: st.model.viewport,
+        camera_render_scale: st.camera_render_scale(),
     }
+}
 
-    #[inline]
-    fn clamp_speed(v: Vec2, max_speed: f32) -> Vec2 {
-        OverlapReadContext::clamp_speed(v, max_speed)
-    }
+#[inline]
+fn clamp_speed(v: Vec2, max_speed: f32) -> Vec2 {
+    OverlapReadContext::clamp_speed(v, max_speed)
+}
 
-    #[inline]
-    fn physics_damping_per_sec(&self) -> f32 {
-        self.overlap_read_context().physics_damping_per_sec()
-    }
+#[inline]
+fn physics_damping_per_sec(st: &Halley) -> f32 {
+    overlap_read_context(st).physics_damping_per_sec()
+}
 
-    #[inline]
-    fn physics_inv_mass(&self, id: NodeId, pinned: bool) -> f32 {
-        self.overlap_read_context().physics_inv_mass(id, pinned)
-    }
+#[inline]
+fn physics_inv_mass(st: &Halley, id: NodeId, pinned: bool) -> f32 {
+    overlap_read_context(st).physics_inv_mass(id, pinned)
+}
 
-    #[inline]
-    fn node_participates_in_overlap(&self, id: NodeId) -> bool {
-        self.overlap_read_context().node_participates_in_overlap(id)
-    }
+#[inline]
+fn node_participates_in_overlap(st: &Halley, id: NodeId) -> bool {
+    overlap_read_context(st).node_participates_in_overlap(id)
+}
 
-    pub(crate) fn non_overlap_gap_world(&self) -> f32 {
-        self.overlap_read_context().non_overlap_gap_world()
-    }
+pub(crate) fn non_overlap_gap_world(st: &Halley) -> f32 {
+    overlap_read_context(st).non_overlap_gap_world()
+}
 
-    #[inline]
-    pub(crate) fn required_sep_x(
-        &self,
-        a_pos_x: f32,
-        a_ext: CollisionExtents,
-        b_pos_x: f32,
-        b_ext: CollisionExtents,
-        gap: f32,
-    ) -> f32 {
-        self.overlap_read_context()
-            .required_sep_x(a_pos_x, a_ext, b_pos_x, b_ext, gap)
-    }
+#[inline]
+pub(crate) fn required_sep_x(
+    st: &Halley,
+    a_pos_x: f32,
+    a_ext: CollisionExtents,
+    b_pos_x: f32,
+    b_ext: CollisionExtents,
+    gap: f32,
+) -> f32 {
+    overlap_read_context(st).required_sep_x(a_pos_x, a_ext, b_pos_x, b_ext, gap)
+}
 
-    #[inline]
-    fn nodes_share_overlap_group(&self, a: NodeId, b: NodeId) -> bool {
-        self.overlap_read_context().nodes_share_overlap_group(a, b)
-    }
+#[inline]
+fn nodes_share_overlap_group(st: &Halley, a: NodeId, b: NodeId) -> bool {
+    overlap_read_context(st).nodes_share_overlap_group(a, b)
+}
 
-    #[inline]
-    pub(crate) fn required_sep_y(
-        &self,
-        a_pos_y: f32,
-        a_ext: CollisionExtents,
-        b_pos_y: f32,
-        b_ext: CollisionExtents,
-        gap: f32,
-    ) -> f32 {
-        self.overlap_read_context()
-            .required_sep_y(a_pos_y, a_ext, b_pos_y, b_ext, gap)
-    }
+#[inline]
+pub(crate) fn required_sep_y(
+    st: &Halley,
+    a_pos_y: f32,
+    a_ext: CollisionExtents,
+    b_pos_y: f32,
+    b_ext: CollisionExtents,
+    gap: f32,
+) -> f32 {
+    overlap_read_context(st).required_sep_y(a_pos_y, a_ext, b_pos_y, b_ext, gap)
+}
 
-    pub(crate) fn carry_surface_non_overlap(
-        &mut self,
-        id: NodeId,
-        to: Vec2,
-        clamp_only: bool,
-    ) -> bool {
-        let carry_direct = |this: &mut Self, id: NodeId, to: Vec2| {
-            if this
-                .model
-                .field
-                .node(id)
-                .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
-            {
-                this.model.field.carry_cluster_by_core(id, to)
-            } else {
-                this.model.field.carry(id, to)
-            }
-        };
-        let moved = if !self.runtime.tuning.physics_enabled {
-            self.carry_surface_no_overlap_static(id, to)
-        } else if clamp_only
-            || self.input.interaction_state.suspend_overlap_resolve
-            || self.input.interaction_state.suspend_state_checks
-        {
-            self.carry_surface_no_overlap_static(id, to)
-        } else {
-            carry_direct(self, id, to)
-        };
-        moved
-    }
-
-    fn carry_surface_no_overlap_static(&mut self, id: NodeId, to: Vec2) -> bool {
-        let Some(n) = self.model.field.node(id) else {
-            return false;
-        };
-
-        let mover_ext = self.collision_extents_for_node(n);
-        let gap = self.non_overlap_gap_world();
-        let mut mover_pos = to;
-
-        for _ in 0..24 {
-            let others: Vec<(NodeId, Vec2, CollisionExtents)> = self
-                .model
-                .field
-                .nodes()
-                .iter()
-                .filter_map(|(&oid, other)| {
-                    if oid == id
-                        || !self.node_participates_in_overlap(oid)
-                        || !self.nodes_share_overlap_group(id, oid)
-                    {
-                        return None;
-                    }
-                    Some((oid, other.pos, self.collision_extents_for_node(other)))
-                })
-                .collect();
-
-            let mut changed = false;
-
-            for (oid, opos, oext) in others {
-                let dx = mover_pos.x - opos.x;
-                let dy = mover_pos.y - opos.y;
-                let req_x = self.required_sep_x(mover_pos.x, mover_ext, opos.x, oext, gap);
-                let req_y = self.required_sep_y(mover_pos.y, mover_ext, opos.y, oext, gap);
-                let ox = req_x - dx.abs();
-                let oy = req_y - dy.abs();
-
-                if ox <= 0.0 || oy <= 0.0 {
-                    continue;
-                }
-
-                if ox < oy {
-                    let s = if dx.abs() > f32::EPSILON {
-                        dx.signum()
-                    } else if oid.as_u64() < id.as_u64() {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    mover_pos.x += s * (ox + 0.3);
-                } else {
-                    let s = if dy.abs() > f32::EPSILON {
-                        dy.signum()
-                    } else {
-                        1.0
-                    };
-                    mover_pos.y += s * (oy + 0.3);
-                }
-
-                changed = true;
-            }
-
-            if !changed {
-                break;
-            }
-        }
-
-        if self
+pub(crate) fn carry_surface_non_overlap(
+    st: &mut Halley,
+    id: NodeId,
+    to: Vec2,
+    clamp_only: bool,
+) -> bool {
+    let carry_direct = |st: &mut Halley, id: NodeId, to: Vec2| {
+        if st
             .model
             .field
             .node(id)
             .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
         {
-            self.model.field.carry_cluster_by_core(id, mover_pos)
+            st.model.field.carry_cluster_by_core(id, to)
         } else {
-            self.model.field.carry(id, mover_pos)
+            st.model.field.carry(id, to)
         }
+    };
+    if !st.runtime.tuning.physics_enabled {
+        carry_surface_no_overlap_static(st, id, to)
+    } else if clamp_only
+        || st.input.interaction_state.suspend_overlap_resolve
+        || st.input.interaction_state.suspend_state_checks
+    {
+        carry_surface_no_overlap_static(st, id, to)
+    } else {
+        carry_direct(st, id, to)
     }
+}
 
-    pub(crate) fn surface_window_collision_extents(
-        &self,
-        n: &halley_core::field::Node,
-    ) -> CollisionExtents {
-        self.overlap_read_context()
-            .surface_window_collision_extents(n)
-    }
+fn carry_surface_no_overlap_static(st: &mut Halley, id: NodeId, to: Vec2) -> bool {
+    let Some(n) = st.model.field.node(id) else {
+        return false;
+    };
 
-    pub(crate) fn spawn_obstacle_extents_for_node(
-        &self,
-        n: &halley_core::field::Node,
-    ) -> CollisionExtents {
-        if n.kind == halley_core::field::NodeKind::Surface {
-            self.overlap_read_context()
-                .spawn_obstacle_extents_for_node(n)
-        } else {
-            self.collision_extents_for_node(n)
-        }
-    }
+    let mover_ext = collision_extents_for_node(st, n);
+    let gap = non_overlap_gap_world(st);
+    let mut mover_pos = to;
 
-    pub(crate) fn collision_extents_for_node(
-        &self,
-        n: &halley_core::field::Node,
-    ) -> CollisionExtents {
-        let anim = crate::render::anim_style_for(self, n.id, n.state.clone(), Instant::now());
-        match n.state {
-            halley_core::field::NodeState::Active => {
-                let basis = self
-                    .model
-                    .workspace_state
-                    .last_active_size
-                    .get(&n.id)
-                    .copied()
-                    .unwrap_or(n.intrinsic_size);
-                let s = OverlapReadContext::active_collision_scale(anim.scale, basis.x, basis.y);
-                let ext = self
-                    .overlap_read_context()
-                    .surface_window_collision_extents(n);
-
-                CollisionExtents {
-                    left: ext.left * s,
-                    right: ext.right * s,
-                    top: ext.top * s,
-                    bottom: ext.bottom * s,
-                }
-            }
-            halley_core::field::NodeState::Node => self
-                .overlap_read_context()
-                .node_collision_extents(n.intrinsic_size, &n.label, anim.scale),
-            halley_core::field::NodeState::Core => self
-                .overlap_read_context()
-                .node_collision_extents(n.intrinsic_size, &n.label, anim.scale),
-            halley_core::field::NodeState::Drifting => CollisionExtents::symmetric(n.footprint),
-        }
-    }
-
-    pub(crate) fn collision_size_for_node(&self, n: &halley_core::field::Node) -> Vec2 {
-        self.collision_extents_for_node(n).size()
-    }
-
-    fn layout_collision_extents_for_node(&self, n: &halley_core::field::Node) -> CollisionExtents {
-        match n.state {
-            halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
-                self.collision_extents_for_node(n)
-            }
-            _ => self.collision_extents_for_node(n),
-        }
-    }
-
-    pub(crate) fn resolve_surface_overlap(&mut self) {
-        if !self.runtime.tuning.physics_enabled {
-            return;
-        }
-        if self.input.interaction_state.suspend_overlap_resolve {
-            return;
-        }
-
-        let mut ids: Vec<NodeId> = self
+    for _ in 0..24 {
+        let others: Vec<(NodeId, Vec2, CollisionExtents)> = st
             .model
             .field
             .nodes()
-            .keys()
-            .copied()
-            .filter(|&id| self.node_participates_in_overlap(id))
+            .iter()
+            .filter_map(|(&oid, other)| {
+                if oid == id
+                    || !node_participates_in_overlap(st, oid)
+                    || !nodes_share_overlap_group(st, id, oid)
+                {
+                    return None;
+                }
+                Some((oid, other.pos, collision_extents_for_node(st, other)))
+            })
             .collect();
 
-        if ids.is_empty() {
-            return;
-        }
+        let mut changed = false;
 
-        ids.sort_by_key(|id| id.as_u64());
+        for (oid, opos, oext) in others {
+            let dx = mover_pos.x - opos.x;
+            let dy = mover_pos.y - opos.y;
+            let req_x = required_sep_x(st, mover_pos.x, mover_ext, opos.x, oext, gap);
+            let req_y = required_sep_y(st, mover_pos.y, mover_ext, opos.y, oext, gap);
+            let ox = req_x - dx.abs();
+            let oy = req_y - dy.abs();
 
-        let now = Instant::now();
-        let dt = now
-            .saturating_duration_since(self.input.interaction_state.physics_last_tick)
-            .as_secs_f32()
-            .clamp(1.0 / 240.0, 1.0 / 30.0);
-        self.input.interaction_state.physics_last_tick = now;
-
-        let gap = self.non_overlap_gap_world();
-        let damping_per_sec = self.physics_damping_per_sec();
-        let damping = (-damping_per_sec * dt).exp();
-        let mut positions: std::collections::HashMap<NodeId, Vec2> =
-            std::collections::HashMap::new();
-        let mut velocities: std::collections::HashMap<NodeId, Vec2> =
-            std::collections::HashMap::new();
-
-        for &id in &ids {
-            let Some(node) = self.model.field.node(id) else {
+            if ox <= 0.0 || oy <= 0.0 {
                 continue;
-            };
-            positions.insert(id, node.pos);
-            let vel = if self.input.interaction_state.drag_authority_node == Some(id) {
-                self.input.interaction_state.drag_authority_velocity
+            }
+
+            if ox < oy {
+                let s = if dx.abs() > f32::EPSILON {
+                    dx.signum()
+                } else if oid.as_u64() < id.as_u64() {
+                    1.0
+                } else {
+                    -1.0
+                };
+                mover_pos.x += s * (ox + 0.3);
             } else {
-                self.input
-                    .interaction_state
-                    .physics_velocity
-                    .get(&id)
-                    .copied()
-                    .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
-            };
-            velocities.insert(id, Self::clamp_speed(vel, MAX_PHYSICS_SPEED));
+                let s = if dy.abs() > f32::EPSILON {
+                    dy.signum()
+                } else {
+                    1.0
+                };
+                mover_pos.y += s * (oy + 0.3);
+            }
+
+            changed = true;
         }
 
-        for &id in &ids {
-            let Some(node) = self.model.field.node(id) else {
-                continue;
-            };
-            let pinned = node.pinned || self.input.interaction_state.resize_static_node == Some(id);
-            if self.physics_inv_mass(id, pinned) <= 0.0 {
-                continue;
-            }
-            if let (Some(pos), Some(vel)) = (positions.get_mut(&id), velocities.get_mut(&id)) {
-                pos.x += vel.x * dt;
-                pos.y += vel.y * dt;
-                vel.x *= damping;
-                vel.y *= damping;
+        if !changed {
+            break;
+        }
+    }
+
+    if st
+        .model
+        .field
+        .node(id)
+        .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
+    {
+        st.model.field.carry_cluster_by_core(id, mover_pos)
+    } else {
+        st.model.field.carry(id, mover_pos)
+    }
+}
+
+pub(crate) fn surface_window_collision_extents(
+    st: &Halley,
+    n: &halley_core::field::Node,
+) -> CollisionExtents {
+    overlap_read_context(st).surface_window_collision_extents(n)
+}
+
+pub(crate) fn spawn_obstacle_extents_for_node(
+    st: &Halley,
+    n: &halley_core::field::Node,
+) -> CollisionExtents {
+    if n.kind == halley_core::field::NodeKind::Surface {
+        overlap_read_context(st).spawn_obstacle_extents_for_node(n)
+    } else {
+        collision_extents_for_node(st, n)
+    }
+}
+
+pub(crate) fn collision_extents_for_node(
+    st: &Halley,
+    n: &halley_core::field::Node,
+) -> CollisionExtents {
+    let anim = crate::render::anim_style_for(st, n.id, n.state.clone(), Instant::now());
+    match n.state {
+        halley_core::field::NodeState::Active => {
+            let basis = st
+                .model
+                .workspace_state
+                .last_active_size
+                .get(&n.id)
+                .copied()
+                .unwrap_or(n.intrinsic_size);
+            let s = OverlapReadContext::active_collision_scale(anim.scale, basis.x, basis.y);
+            let ext = overlap_read_context(st).surface_window_collision_extents(n);
+
+            CollisionExtents {
+                left: ext.left * s,
+                right: ext.right * s,
+                top: ext.top * s,
+                bottom: ext.bottom * s,
             }
         }
+        halley_core::field::NodeState::Node => {
+            overlap_read_context(st).node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
+        }
+        halley_core::field::NodeState::Core => {
+            overlap_read_context(st).node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
+        }
+        halley_core::field::NodeState::Drifting => CollisionExtents::symmetric(n.footprint),
+    }
+}
 
-        for _ in 0..POSITION_SOLVER_ITERS {
-            for i in 0..ids.len() {
-                for j in (i + 1)..ids.len() {
-                    let a = ids[i];
-                    let b = ids[j];
+pub(crate) fn collision_size_for_node(st: &Halley, n: &halley_core::field::Node) -> Vec2 {
+    collision_extents_for_node(st, n).size()
+}
 
-                    let Some(na) = self.model.field.node(a) else {
-                        continue;
-                    };
-                    let Some(nb) = self.model.field.node(b) else {
-                        continue;
-                    };
-                    if !self.nodes_share_overlap_group(a, b) {
-                        continue;
-                    }
+fn layout_collision_extents_for_node(
+    st: &Halley,
+    n: &halley_core::field::Node,
+) -> CollisionExtents {
+    match n.state {
+        halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
+            collision_extents_for_node(st, n)
+        }
+        _ => collision_extents_for_node(st, n),
+    }
+}
 
-                    let a_pinned =
-                        na.pinned || self.input.interaction_state.resize_static_node == Some(a);
-                    let b_pinned =
-                        nb.pinned || self.input.interaction_state.resize_static_node == Some(b);
-                    let inv_mass_a = self.physics_inv_mass(a, a_pinned);
-                    let inv_mass_b = self.physics_inv_mass(b, b_pinned);
-                    if inv_mass_a <= 0.0 && inv_mass_b <= 0.0 {
-                        continue;
-                    }
+pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
+    if !st.runtime.tuning.physics_enabled {
+        return;
+    }
+    if st.input.interaction_state.suspend_overlap_resolve {
+        return;
+    }
 
-                    let Some(a_pos) = positions.get(&a).copied() else {
-                        continue;
-                    };
-                    let Some(b_pos) = positions.get(&b).copied() else {
-                        continue;
-                    };
+    let mut ids: Vec<NodeId> = st
+        .model
+        .field
+        .nodes()
+        .keys()
+        .copied()
+        .filter(|&id| node_participates_in_overlap(st, id))
+        .collect();
 
-                    let ea = self.layout_collision_extents_for_node(na);
-                    let eb = self.layout_collision_extents_for_node(nb);
-                    let dx = b_pos.x - a_pos.x;
-                    let dy = b_pos.y - a_pos.y;
-                    let req_x = self.required_sep_x(a_pos.x, ea, b_pos.x, eb, gap);
-                    let req_y = self.required_sep_y(a_pos.y, ea, b_pos.y, eb, gap);
-                    let gap_x = dx.abs() - req_x;
-                    let gap_y = dy.abs() - req_y;
-                    if gap_x > CONTACT_SKIN || gap_y > CONTACT_SKIN {
-                        continue;
-                    }
+    if ids.is_empty() {
+        return;
+    }
 
-                    resolve_contact_pair(
-                        &mut positions,
-                        &mut velocities,
-                        a,
-                        b,
-                        dx,
-                        dy,
-                        gap_x,
-                        gap_y,
-                        inv_mass_a,
-                        inv_mass_b,
-                    );
+    ids.sort_by_key(|id| id.as_u64());
+
+    let now = Instant::now();
+    let dt = now
+        .saturating_duration_since(st.input.interaction_state.physics_last_tick)
+        .as_secs_f32()
+        .clamp(1.0 / 240.0, 1.0 / 30.0);
+    st.input.interaction_state.physics_last_tick = now;
+
+    let gap = non_overlap_gap_world(st);
+    let damping_per_sec = physics_damping_per_sec(st);
+    let damping = (-damping_per_sec * dt).exp();
+    let mut positions: std::collections::HashMap<NodeId, Vec2> = std::collections::HashMap::new();
+    let mut velocities: std::collections::HashMap<NodeId, Vec2> = std::collections::HashMap::new();
+
+    for &id in &ids {
+        let Some(node) = st.model.field.node(id) else {
+            continue;
+        };
+        positions.insert(id, node.pos);
+        let vel = if st.input.interaction_state.drag_authority_node == Some(id) {
+            st.input.interaction_state.drag_authority_velocity
+        } else {
+            st.input
+                .interaction_state
+                .physics_velocity
+                .get(&id)
+                .copied()
+                .unwrap_or(Vec2 { x: 0.0, y: 0.0 })
+        };
+        velocities.insert(id, clamp_speed(vel, MAX_PHYSICS_SPEED));
+    }
+
+    for &id in &ids {
+        let Some(node) = st.model.field.node(id) else {
+            continue;
+        };
+        let pinned = node.pinned || st.input.interaction_state.resize_static_node == Some(id);
+        if physics_inv_mass(st, id, pinned) <= 0.0 {
+            continue;
+        }
+        if let (Some(pos), Some(vel)) = (positions.get_mut(&id), velocities.get_mut(&id)) {
+            pos.x += vel.x * dt;
+            pos.y += vel.y * dt;
+            vel.x *= damping;
+            vel.y *= damping;
+        }
+    }
+
+    for _ in 0..POSITION_SOLVER_ITERS {
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                let a = ids[i];
+                let b = ids[j];
+
+                let Some(na) = st.model.field.node(a) else {
+                    continue;
+                };
+                let Some(nb) = st.model.field.node(b) else {
+                    continue;
+                };
+                if !nodes_share_overlap_group(st, a, b) {
+                    continue;
                 }
-            }
-        }
 
-        for id in ids {
-            let Some(node) = self.model.field.node(id) else {
-                continue;
-            };
-            let pinned = node.pinned || self.input.interaction_state.resize_static_node == Some(id);
-            // Don't write physics position back to the grabbed window —
-            // carry_surface_non_overlap owns its position each frame.
-            if self.input.interaction_state.drag_authority_node != Some(id) {
-                if let Some(pos) = positions.get(&id).copied() {
-                    let _ = if node.kind == halley_core::field::NodeKind::Core {
-                        self.model.field.carry_cluster_by_core(id, pos)
-                    } else {
-                        self.model.field.carry(id, pos)
-                    };
+                let a_pinned =
+                    na.pinned || st.input.interaction_state.resize_static_node == Some(a);
+                let b_pinned =
+                    nb.pinned || st.input.interaction_state.resize_static_node == Some(b);
+                let inv_mass_a = physics_inv_mass(st, a, a_pinned);
+                let inv_mass_b = physics_inv_mass(st, b, b_pinned);
+                if inv_mass_a <= 0.0 && inv_mass_b <= 0.0 {
+                    continue;
                 }
-            }
-            if self.physics_inv_mass(id, pinned) <= 0.0 {
-                continue;
-            }
-            let vel = Self::clamp_speed(
-                velocities
-                    .get(&id)
-                    .copied()
-                    .unwrap_or(Vec2 { x: 0.0, y: 0.0 }),
-                MAX_PHYSICS_SPEED,
-            );
-            if vel.x.abs() < PHYSICS_REST_EPSILON && vel.y.abs() < PHYSICS_REST_EPSILON {
-                self.input.interaction_state.physics_velocity.remove(&id);
-            } else {
-                self.input
-                    .interaction_state
-                    .physics_velocity
-                    .insert(id, vel);
+
+                let Some(a_pos) = positions.get(&a).copied() else {
+                    continue;
+                };
+                let Some(b_pos) = positions.get(&b).copied() else {
+                    continue;
+                };
+
+                let ea = layout_collision_extents_for_node(st, na);
+                let eb = layout_collision_extents_for_node(st, nb);
+                let dx = b_pos.x - a_pos.x;
+                let dy = b_pos.y - a_pos.y;
+                let req_x = required_sep_x(st, a_pos.x, ea, b_pos.x, eb, gap);
+                let req_y = required_sep_y(st, a_pos.y, ea, b_pos.y, eb, gap);
+                let gap_x = dx.abs() - req_x;
+                let gap_y = dy.abs() - req_y;
+                if gap_x > CONTACT_SKIN || gap_y > CONTACT_SKIN {
+                    continue;
+                }
+
+                resolve_contact_pair(
+                    &mut positions,
+                    &mut velocities,
+                    a,
+                    b,
+                    dx,
+                    dy,
+                    gap_x,
+                    gap_y,
+                    inv_mass_a,
+                    inv_mass_b,
+                );
             }
         }
     }
 
-    pub(crate) fn request_toplevel_resize(&mut self, node_id: NodeId, width: i32, height: i32) {
-        let width = width.max(96);
-        let height = height.max(72);
-        let focused_node = self.last_input_surface_node();
-
-        for top in self.platform.xdg_shell_state.toplevel_surfaces() {
-            let wl = top.wl_surface();
-            let key = wl.id();
-
-            if self.model.surface_to_node.get(&key).copied() != Some(node_id) {
-                continue;
-            }
-
-            top.with_pending_state(|s| {
-                s.size = Some((width, height).into());
-                if focused_node == Some(node_id) {
-                    s.states.set(xdg_toplevel::State::Activated);
+    for id in ids {
+        let Some(node) = st.model.field.node(id) else {
+            continue;
+        };
+        let pinned = node.pinned || st.input.interaction_state.resize_static_node == Some(id);
+        // Don't write physics position back to the grabbed window —
+        // carry_surface_non_overlap owns its position each frame.
+        if st.input.interaction_state.drag_authority_node != Some(id) {
+            if let Some(pos) = positions.get(&id).copied() {
+                let _ = if node.kind == halley_core::field::NodeKind::Core {
+                    st.model.field.carry_cluster_by_core(id, pos)
                 } else {
-                    s.states.unset(xdg_toplevel::State::Activated);
-                }
-                self.apply_toplevel_tiled_hint(s);
-            });
-            top.send_configure();
-            break;
+                    st.model.field.carry(id, pos)
+                };
+            }
         }
+        if physics_inv_mass(st, id, pinned) <= 0.0 {
+            continue;
+        }
+        let vel = clamp_speed(
+            velocities
+                .get(&id)
+                .copied()
+                .unwrap_or(Vec2 { x: 0.0, y: 0.0 }),
+            MAX_PHYSICS_SPEED,
+        );
+        if vel.x.abs() < PHYSICS_REST_EPSILON && vel.y.abs() < PHYSICS_REST_EPSILON {
+            st.input.interaction_state.physics_velocity.remove(&id);
+        } else {
+            st.input.interaction_state.physics_velocity.insert(id, vel);
+        }
+    }
+}
+
+pub(crate) fn request_toplevel_resize(st: &mut Halley, node_id: NodeId, width: i32, height: i32) {
+    let width = width.max(96);
+    let height = height.max(72);
+    let focused_node = st.last_input_surface_node();
+
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let wl = top.wl_surface();
+        let key = wl.id();
+
+        if st.model.surface_to_node.get(&key).copied() != Some(node_id) {
+            continue;
+        }
+
+        top.with_pending_state(|s| {
+            s.size = Some((width, height).into());
+            if focused_node == Some(node_id) {
+                s.states.set(xdg_toplevel::State::Activated);
+            } else {
+                s.states.unset(xdg_toplevel::State::Activated);
+            }
+            st.apply_toplevel_tiled_hint(s);
+        });
+        top.send_configure();
+        break;
     }
 }
 
@@ -716,7 +706,7 @@ mod tests {
             .field
             .set_state(node, halley_core::field::NodeState::Node);
 
-        state.set_drag_authority_node(Some(node));
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(node));
         assert!(state.carry_surface_non_overlap(node, Vec2 { x: 0.0, y: 0.0 }, false));
         state.resolve_surface_overlap();
 
@@ -776,7 +766,7 @@ mod tests {
         let a_before = state.model.field.node(a).expect("a before").pos;
         let b_before = state.model.field.node(b).expect("b before").pos;
 
-        state.set_drag_authority_node(Some(dragged));
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
         assert!(state.carry_surface_non_overlap(dragged, Vec2 { x: 0.0, y: 0.0 }, false));
         state.resolve_surface_overlap();
 
@@ -823,6 +813,40 @@ mod tests {
             node.intrinsic_size.x * 0.5 + active_window_frame_pad_px(&state.runtime.tuning) as f32;
         let expected_half_h =
             node.intrinsic_size.y * 0.5 + active_window_frame_pad_px(&state.runtime.tuning) as f32;
+
+        assert_eq!(ext.left, expected_half_w);
+        assert_eq!(ext.right, expected_half_w);
+        assert_eq!(ext.top, expected_half_h);
+        assert_eq!(ext.bottom, expected_half_h);
+    }
+
+    #[test]
+    fn surface_collision_extents_ignore_asymmetric_bbox_offsets() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let id = state.model.field.spawn_surface(
+            "gtk-like",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 920.0,
+            },
+        );
+        state.ui.render_state.bbox_loc.insert(id, (4.0, 6.0));
+        state
+            .ui
+            .render_state
+            .window_geometry
+            .insert(id, (12.0, 18.0, 840.0, 620.0));
+
+        let node = state.model.field.node(id).expect("surface node");
+        let ext = state.surface_window_collision_extents(node);
+        let expected_half_w = 420.0 + active_window_frame_pad_px(&state.runtime.tuning) as f32;
+        let expected_half_h = 310.0 + active_window_frame_pad_px(&state.runtime.tuning) as f32;
 
         assert_eq!(ext.left, expected_half_w);
         assert_eq!(ext.right, expected_half_w);
@@ -1032,7 +1056,7 @@ mod tests {
             Vec2 { x: 320.0, y: 220.0 },
         );
 
-        state.set_drag_authority_node(Some(dragged));
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
         for step in 0..48 {
             let to = Vec2 {
                 x: -180.0 + step as f32 * 9.0,
@@ -1072,7 +1096,12 @@ mod tests {
             .interaction_state
             .physics_velocity
             .insert(id, Vec2 { x: 480.0, y: 120.0 });
-        state.finalize_mouse_drag_state(id, Vec2 { x: 0.0, y: 0.0 }, Instant::now());
+        crate::compositor::carry::system::finalize_mouse_drag_state(
+            &mut state,
+            id,
+            Vec2 { x: 0.0, y: 0.0 },
+            Instant::now(),
+        );
 
         assert!(
             !state
@@ -1163,7 +1192,7 @@ mod tests {
             },
         );
 
-        state.set_drag_authority_node(Some(dragged));
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
         state.input.interaction_state.drag_authority_velocity = Vec2 { x: 420.0, y: 0.0 };
 
         state.resolve_surface_overlap();
