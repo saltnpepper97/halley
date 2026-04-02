@@ -156,7 +156,13 @@ pub(crate) fn sync_portal_activation_environment(wayland_display: &str) {
     unsafe {
         env::set_var("WAYLAND_DISPLAY", wayland_display);
         env::set_var("XDG_SESSION_TYPE", "wayland");
-        env::set_var("XDG_CURRENT_DESKTOP", "Halley:wlroots");
+
+        // What user-facing apps should see as the desktop
+        env::set_var("XDG_SESSION_DESKTOP", "Halley");
+        env::set_var("DESKTOP_SESSION", "Halley");
+
+        // What portals can use for backend matching
+        env::set_var("XDG_CURRENT_DESKTOP", "Halley");
     }
 
     let vars = activation_environment_vars();

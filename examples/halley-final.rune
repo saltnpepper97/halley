@@ -23,6 +23,7 @@ cursor:
   theme "Adwaita"
   size 24
   hide-while-typing false
+  hide-after-ms 2000
 end
 
 # Shared font for compositor-drawn UI such as labels and overlays.

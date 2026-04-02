@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::rc::Rc;
 
-use smithay::backend::renderer::ImportDma;
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::ImportDma;
 use smithay::backend::winit::WinitGraphicsBackend;
-use smithay::backend::{allocator::Format, allocator::dmabuf::Dmabuf};
+use smithay::backend::{allocator::dmabuf::Dmabuf, allocator::Format};
 
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
@@ -30,6 +30,10 @@ pub(crate) trait RenderBackend: BackendView {
 pub(crate) trait DmabufImportBackend {
     fn dmabuf_formats(&self) -> Vec<Format>;
     fn import_dmabuf(&self, dmabuf: &Dmabuf) -> Result<(), Box<dyn Error>>;
+}
+
+pub(crate) struct CaptureDmabufResult {
+    pub(crate) captured_at: std::time::SystemTime,
 }
 
 #[derive(Clone)]

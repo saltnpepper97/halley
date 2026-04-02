@@ -8,8 +8,8 @@ use smithay::{
             zwlr_screencopy_manager_v1::{self, ZwlrScreencopyManagerV1},
         },
         wayland_server::{
-            Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, Resource,
             protocol::{wl_output::WlOutput, wl_shm},
+            Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, Resource,
         },
     },
     utils::{Logical, Rectangle},
@@ -39,7 +39,7 @@ impl GlobalDispatch<ZwlrScreencopyManagerV1, (), Halley> for Halley {
 
 impl Dispatch<ZwlrScreencopyManagerV1, (), Halley> for Halley {
     fn request(
-        _state: &mut Halley,
+        state: &mut Halley,
         _client: &Client,
         manager: &ZwlrScreencopyManagerV1,
         request: zwlr_screencopy_manager_v1::Request,
@@ -52,9 +52,15 @@ impl Dispatch<ZwlrScreencopyManagerV1, (), Halley> for Halley {
                 frame,
                 overlay_cursor,
                 output,
-            } => {
-                init_screencopy_frame(manager, data_init, frame, overlay_cursor != 0, output, None)
-            }
+            } => init_screencopy_frame(
+                state,
+                manager,
+                data_init,
+                frame,
+                overlay_cursor != 0,
+                output,
+                None,
+            ),
             zwlr_screencopy_manager_v1::Request::CaptureOutputRegion {
                 frame,
                 overlay_cursor,
@@ -64,6 +70,7 @@ impl Dispatch<ZwlrScreencopyManagerV1, (), Halley> for Halley {
                 width,
                 height,
             } => init_screencopy_frame(
+                state,
                 manager,
                 data_init,
                 frame,
@@ -101,6 +108,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ScreencopyFrameData, Halley> for Halley {
 }
 
 fn init_screencopy_frame(
+    state: &Halley,
     manager: &ZwlrScreencopyManagerV1,
     data_init: &mut DataInit<'_, Halley>,
     frame: smithay::reexports::wayland_server::New<ZwlrScreencopyFrameV1>,
@@ -130,6 +138,9 @@ fn init_screencopy_frame(
             spec.height as u32,
             spec.stride as u32,
         );
+        if let Some(format) = portal::screencopy_dmabuf_format(state, logical_region) {
+            resource.linux_dmabuf(format as u32, spec.width as u32, spec.height as u32);
+        }
     }
     if resource.version() >= 3 {
         resource.buffer_done();
@@ -151,6 +162,29 @@ fn perform_copy(
         return;
     }
 
+    match portal::screencopy_buffer_type(buffer) {
+        Some(smithay::backend::renderer::BufferType::Dma) => {
+            perform_copy_dmabuf(state, frame, data, buffer, with_damage);
+        }
+        Some(smithay::backend::renderer::BufferType::Shm) => {
+            perform_copy_shm(state, frame, data, buffer, with_damage);
+        }
+        _ => {
+            frame.post_error(
+                zwlr_screencopy_frame_v1::Error::InvalidBuffer,
+                "unsupported screencopy buffer type",
+            );
+        }
+    }
+}
+
+fn perform_copy_shm(
+    state: &mut Halley,
+    frame: &ZwlrScreencopyFrameV1,
+    data: &ScreencopyFrameData,
+    buffer: &smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer,
+    with_damage: bool,
+) {
     let capture = match portal::capture_output_shm(
         state,
         &data.output,
@@ -169,14 +203,74 @@ fn perform_copy(
         return;
     }
 
+    finish_frame(
+        frame,
+        with_damage,
+        capture.spec.width as u32,
+        capture.spec.height as u32,
+        capture.captured_at,
+    );
+}
+
+fn perform_copy_dmabuf(
+    state: &mut Halley,
+    frame: &ZwlrScreencopyFrameV1,
+    data: &ScreencopyFrameData,
+    buffer: &smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer,
+    with_damage: bool,
+) {
+    let mut dmabuf = match portal::clone_dmabuf_buffer(buffer) {
+        Ok(dmabuf) => dmabuf,
+        Err(err) => {
+            frame.post_error(zwlr_screencopy_frame_v1::Error::InvalidBuffer, err);
+            return;
+        }
+    };
+
+    let capture = match portal::capture_output_dmabuf(
+        state,
+        &data.output,
+        data.overlay_cursor,
+        data.logical_region,
+        &mut dmabuf,
+    ) {
+        Ok(capture) => capture,
+        Err(err) => {
+            frame.post_error(
+                zwlr_screencopy_frame_v1::Error::InvalidBuffer,
+                err.to_string(),
+            );
+            return;
+        }
+    };
+
+    let mode = match data.output.current_mode() {
+        Some(mode) => mode,
+        None => {
+            frame.failed();
+            return;
+        }
+    };
+    finish_frame(
+        frame,
+        with_damage,
+        mode.size.w as u32,
+        mode.size.h as u32,
+        capture.captured_at,
+    );
+}
+
+fn finish_frame(
+    frame: &ZwlrScreencopyFrameV1,
+    with_damage: bool,
+    width: u32,
+    height: u32,
+    captured_at: std::time::SystemTime,
+) {
     if with_damage {
-        frame.damage(0, 0, capture.spec.width as u32, capture.spec.height as u32);
+        frame.damage(0, 0, width, height);
     }
-    let mut flags = zwlr_screencopy_frame_v1::Flags::empty();
-    if capture.y_invert {
-        flags |= zwlr_screencopy_frame_v1::Flags::YInvert;
-    }
-    frame.flags(flags);
-    let stamp = portal::ready_timestamp(capture.captured_at);
+    frame.flags(zwlr_screencopy_frame_v1::Flags::empty());
+    let stamp = portal::ready_timestamp(captured_at);
     frame.ready(stamp.tv_sec_hi, stamp.tv_sec_lo, stamp.tv_nsec);
 }

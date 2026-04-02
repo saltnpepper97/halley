@@ -5,16 +5,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use smithay::{
     backend::{
-        allocator::Fourcc,
+        allocator::{dmabuf::Dmabuf, Format, Fourcc},
         renderer::{
-            Bind, ExportMem, Offscreen, TextureMapping,
+            buffer_type,
             gles::{GlesRenderer, GlesTexture},
+            Bind, BufferType, ExportMem, Offscreen, TextureMapping,
         },
     },
     output::Output,
     reexports::wayland_server::protocol::{wl_buffer, wl_shm},
     utils::{Buffer, Logical, Physical, Rectangle, Size, Transform},
-    wayland::shm::{BufferAccessError, BufferData, with_buffer_contents_mut},
+    wayland::shm::{with_buffer_contents_mut, BufferAccessError, BufferData},
 };
 
 use crate::{
@@ -28,6 +29,8 @@ pub(crate) struct PortalState {
 }
 
 pub(crate) trait OutputCaptureBackend {
+    fn capture_dmabuf_formats(&self) -> Vec<Format>;
+
     fn capture_output_shm(
         &self,
         st: &mut Halley,
@@ -35,6 +38,15 @@ pub(crate) trait OutputCaptureBackend {
         overlay_cursor: bool,
         logical_region: Option<Rectangle<i32, Logical>>,
     ) -> Result<ShmCaptureFrame, Box<dyn std::error::Error>>;
+
+    fn capture_output_dmabuf(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        overlay_cursor: bool,
+        logical_region: Option<Rectangle<i32, Logical>>,
+        dmabuf: &mut Dmabuf,
+    ) -> Result<crate::backend::interface::CaptureDmabufResult, Box<dyn std::error::Error>>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -50,7 +62,6 @@ pub(crate) struct ScreencopyBufferSpec {
 pub(crate) struct ShmCaptureFrame {
     pub(crate) spec: ScreencopyBufferSpec,
     pub(crate) bytes: Vec<u8>,
-    pub(crate) y_invert: bool,
     pub(crate) captured_at: SystemTime,
 }
 
@@ -102,6 +113,53 @@ pub(crate) fn capture_output_shm(
     backend.capture_output_shm(st, output_name.as_str(), overlay_cursor, logical_region)
 }
 
+pub(crate) fn screencopy_dmabuf_format(
+    st: &Halley,
+    logical_region: Option<Rectangle<i32, Logical>>,
+) -> Option<Fourcc> {
+    if logical_region.is_some() {
+        return None;
+    }
+
+    let backend = st.portal.capture_backend.as_ref()?;
+    let formats = backend.capture_dmabuf_formats();
+    [Fourcc::Xrgb8888, Fourcc::Argb8888]
+        .into_iter()
+        .find(|code| formats.iter().any(|format| format.code == *code))
+}
+
+pub(crate) fn capture_output_dmabuf(
+    st: &mut Halley,
+    output: &Output,
+    overlay_cursor: bool,
+    logical_region: Option<Rectangle<i32, Logical>>,
+    dmabuf: &mut Dmabuf,
+) -> Result<crate::backend::interface::CaptureDmabufResult, Box<dyn std::error::Error>> {
+    let output_name = output.name();
+    let backend = st
+        .portal
+        .capture_backend
+        .clone()
+        .ok_or_else(|| io::Error::other("no capture backend configured"))?;
+    backend.capture_output_dmabuf(
+        st,
+        output_name.as_str(),
+        overlay_cursor,
+        logical_region,
+        dmabuf,
+    )
+}
+
+pub(crate) fn screencopy_buffer_type(buffer: &wl_buffer::WlBuffer) -> Option<BufferType> {
+    buffer_type(buffer)
+}
+
+pub(crate) fn clone_dmabuf_buffer(buffer: &wl_buffer::WlBuffer) -> Result<Dmabuf, String> {
+    smithay::wayland::dmabuf::get_dmabuf(buffer)
+        .cloned()
+        .map_err(|_| "buffer is not a managed linux-dmabuf wl_buffer".to_string())
+}
+
 pub(crate) fn write_capture_to_shm_buffer(
     buffer: &wl_buffer::WlBuffer,
     frame: &ShmCaptureFrame,
@@ -112,8 +170,7 @@ pub(crate) fn write_capture_to_shm_buffer(
         if frame.bytes.len() < expected_len {
             return Err("capture buffer shorter than advertised metadata".to_string());
         }
-        // The readback data is already in the advertised format; keep row order unchanged and
-        // report y_invert through protocol flags when needed.
+        // The readback data is already normalized to top-to-bottom row order.
         unsafe {
             ptr::copy_nonoverlapping(frame.bytes.as_ptr(), ptr, expected_len);
         }
@@ -196,11 +253,82 @@ pub(crate) fn capture_output_via_renderer(
         }
 
         let mapping = renderer.copy_texture(&texture, capture_region, Fourcc::Xrgb8888)?;
-        let bytes = renderer.map_texture(&mapping)?.to_vec();
+        let mut bytes = renderer.map_texture(&mapping)?.to_vec();
+        if mapping.flipped() {
+            normalize_frame_rows_top_to_bottom(
+                &mut bytes,
+                spec.stride as usize,
+                spec.height as usize,
+            );
+        }
         Ok(ShmCaptureFrame {
             spec,
             bytes,
-            y_invert: mapping.flipped(),
+            captured_at: SystemTime::now(),
+        })
+    })();
+    st.input.interaction_state.suppress_layer_shell_configure = previous_layer_configure;
+    st.end_temporary_render_monitor(previous_monitor);
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn capture_output_into_dmabuf_via_renderer(
+    renderer: &mut GlesRenderer,
+    st: &mut Halley,
+    output_name: &str,
+    output_size: Size<i32, Physical>,
+    frame_transform: Transform,
+    resize_preview: Option<ResizeCtx>,
+    hover_node: Option<halley_core::field::NodeId>,
+    preview_hover_node: Option<halley_core::field::NodeId>,
+    cursor_screen: Option<(f32, f32)>,
+    overlay_cursor: bool,
+    logical_region: Option<Rectangle<i32, Logical>>,
+    dmabuf: &mut Dmabuf,
+) -> Result<crate::backend::interface::CaptureDmabufResult, Box<dyn std::error::Error>> {
+    if logical_region.is_some() {
+        return Err(
+            io::Error::other("dma-buf screencopy only supports whole-output capture").into(),
+        );
+    }
+
+    validate_dmabuf_capture_target(st, output_name, output_size, dmabuf)?;
+
+    let previous_monitor = st.begin_temporary_render_monitor(output_name);
+    let previous_layer_configure = st.input.interaction_state.suppress_layer_shell_configure;
+    let result = (|| {
+        let cursor_status =
+            overlay_cursor.then(|| crate::compositor::platform::effective_cursor_image_status(st));
+        let local_cursor = overlay_cursor
+            .then(|| {
+                cursor_screen.and_then(|(sx, sy)| {
+                    let target_monitor = st.monitor_for_screen(sx, sy)?;
+                    if target_monitor != output_name {
+                        return None;
+                    }
+                    let (_, _, local_sx, local_sy) =
+                        st.local_screen_in_monitor(output_name, sx, sy);
+                    Some((local_sx, local_sy))
+                })
+            })
+            .flatten();
+
+        st.input.interaction_state.suppress_layer_shell_configure = previous_monitor.is_some();
+        let mut target = renderer.bind(dmabuf)?;
+        draw_debug_frame_to_target(
+            renderer,
+            &mut target,
+            output_size,
+            st,
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            local_cursor,
+            cursor_status.as_ref(),
+            frame_transform,
+        )?;
+        Ok(crate::backend::interface::CaptureDmabufResult {
             captured_at: SystemTime::now(),
         })
     })();
@@ -241,6 +369,50 @@ fn clip_capture_region(
     let width = x2 - x1;
     let height = y2 - y1;
     (width > 0 && height > 0).then(|| Rectangle::new((x1, y1).into(), (width, height).into()))
+}
+
+fn validate_dmabuf_capture_target(
+    st: &Halley,
+    output_name: &str,
+    output_size: Size<i32, Physical>,
+    dmabuf: &Dmabuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use smithay::backend::allocator::Buffer as DmabufBuffer;
+
+    let expected_format = screencopy_dmabuf_format(st, None)
+        .ok_or_else(|| io::Error::other("no supported dma-buf screencopy format available"))?;
+    let buffer_size = dmabuf.size();
+    if buffer_size.w != output_size.w || buffer_size.h != output_size.h {
+        return Err(io::Error::other(format!(
+            "dmabuf size mismatch for output {output_name}: got {}x{}, expected {}x{}",
+            buffer_size.w, buffer_size.h, output_size.w, output_size.h,
+        ))
+        .into());
+    }
+    if dmabuf.format().code != expected_format {
+        return Err(io::Error::other(format!(
+            "dmabuf format mismatch: got {:?}, expected {:?}",
+            dmabuf.format().code,
+            expected_format,
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn normalize_frame_rows_top_to_bottom(bytes: &mut [u8], stride: usize, height: usize) {
+    if stride == 0 || height <= 1 {
+        return;
+    }
+
+    let mut scratch = vec![0u8; stride];
+    for row in 0..(height / 2) {
+        let top = row * stride;
+        let bottom = (height - 1 - row) * stride;
+        scratch.copy_from_slice(&bytes[top..top + stride]);
+        bytes.copy_within(bottom..bottom + stride, top);
+        bytes[bottom..bottom + stride].copy_from_slice(&scratch);
+    }
 }
 
 fn validate_shm_buffer(
@@ -334,5 +506,12 @@ mod tests {
         .expect_err("buffer should be rejected");
 
         assert!(err.contains("mismatch"));
+    }
+
+    #[test]
+    fn normalize_frame_rows_flips_top_and_bottom_rows() {
+        let mut bytes = vec![1u8, 2, 3, 4, 5, 6];
+        normalize_frame_rows_top_to_bottom(&mut bytes, 2, 3);
+        assert_eq!(bytes, vec![5, 6, 3, 4, 1, 2]);
     }
 }

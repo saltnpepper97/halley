@@ -605,6 +605,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let mut ev: EventLoop<Halley> = EventLoop::try_new()?;
             let _signal = ev.get_signal();
             let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
+            let capture_dmabuf_formats = {
+                let renderer = drm_probe.renderer.borrow();
+                <GlesRenderer as smithay::backend::renderer::Bind<
+                    smithay::backend::allocator::dmabuf::Dmabuf,
+                >>::supported_formats(&renderer)
+                .map(|formats| formats.iter().copied().collect())
+                .unwrap_or_default()
+            };
             let outputs = Rc::new(RefCell::new(drm_probe.outputs));
             let dmabuf_importer: Rc<dyn DmabufImportBackend> =
                 Rc::new(TtyDmabufImportBackend::new(drm_probe.renderer.clone()));
@@ -688,6 +696,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     renderer: drm_probe.renderer.clone(),
                     outputs: outputs.clone(),
                     pointer_state: pointer_state.clone(),
+                    dmabuf_formats: capture_dmabuf_formats,
                 }),
             );
             let mod_state_for_timer = mod_state.clone();

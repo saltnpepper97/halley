@@ -6,7 +6,7 @@ use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
 use crate::compositor::interaction::PointerState;
-use calloop::{Interest, Mode, PostAction, generic::Generic};
+use calloop::{generic::Generic, Interest, Mode, PostAction};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
@@ -14,21 +14,28 @@ const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 struct WinitOutputCaptureBackend {
     backend: Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
     pointer_state: Rc<RefCell<PointerState>>,
+    dmabuf_formats: Vec<smithay::backend::allocator::Format>,
 }
 
 impl WinitOutputCaptureBackend {
     fn new(
         backend: Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
         pointer_state: Rc<RefCell<PointerState>>,
+        dmabuf_formats: Vec<smithay::backend::allocator::Format>,
     ) -> Self {
         Self {
             backend,
             pointer_state,
+            dmabuf_formats,
         }
     }
 }
 
 impl crate::portal::OutputCaptureBackend for WinitOutputCaptureBackend {
+    fn capture_dmabuf_formats(&self) -> Vec<smithay::backend::allocator::Format> {
+        self.dmabuf_formats.clone()
+    }
+
     fn capture_output_shm(
         &self,
         st: &mut Halley,
@@ -36,11 +43,17 @@ impl crate::portal::OutputCaptureBackend for WinitOutputCaptureBackend {
         overlay_cursor: bool,
         logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
     ) -> Result<crate::portal::ShmCaptureFrame, Box<dyn Error>> {
-        let mut backend = self.backend.borrow_mut();
+        let mut backend = self
+            .backend
+            .try_borrow_mut()
+            .map_err(|_| io::Error::other("winit renderer already borrowed during screencopy"))?;
         let size = backend.window_size();
         let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
             (size.w.max(1), size.h.max(1)).into();
-        let ps = self.pointer_state.borrow();
+        let ps = self
+            .pointer_state
+            .try_borrow()
+            .map_err(|_| io::Error::other("pointer state already borrowed during screencopy"))?;
         let now = Instant::now();
         let resize_preview = ps.resize;
         let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
@@ -59,6 +72,45 @@ impl crate::portal::OutputCaptureBackend for WinitOutputCaptureBackend {
             cursor_screen,
             overlay_cursor,
             logical_region,
+        )
+    }
+
+    fn capture_output_dmabuf(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        overlay_cursor: bool,
+        logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
+        dmabuf: &mut smithay::backend::allocator::dmabuf::Dmabuf,
+    ) -> Result<crate::backend::interface::CaptureDmabufResult, Box<dyn Error>> {
+        let mut backend = self.backend.try_borrow_mut().map_err(|_| {
+            io::Error::other("winit renderer already borrowed during dma-buf screencopy")
+        })?;
+        let size = backend.window_size();
+        let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
+            (size.w.max(1), size.h.max(1)).into();
+        let ps = self.pointer_state.try_borrow().map_err(|_| {
+            io::Error::other("pointer state already borrowed during dma-buf screencopy")
+        })?;
+        let now = Instant::now();
+        let resize_preview = ps.resize;
+        let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
+        let cursor_screen = overlay_cursor.then_some(ps.screen);
+        drop(ps);
+
+        crate::portal::capture_output_into_dmabuf_via_renderer(
+            backend.renderer(),
+            st,
+            output_name,
+            physical_size,
+            st.output_transform_for(output_name),
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            cursor_screen,
+            overlay_cursor,
+            logical_region,
+            dmabuf,
         )
     }
 }
@@ -313,11 +365,20 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mod_state = Rc::new(RefCell::new(ModState::default()));
             let mod_state_for_winit = mod_state.clone();
             let pointer_state = Rc::new(RefCell::new(PointerState::default()));
+            let capture_dmabuf_formats = {
+                let mut backend_ref = backend.borrow_mut();
+                <GlesRenderer as smithay::backend::renderer::Bind<
+                    smithay::backend::allocator::dmabuf::Dmabuf,
+                >>::supported_formats(backend_ref.renderer())
+                .map(|formats| formats.iter().copied().collect())
+                .unwrap_or_default()
+            };
             crate::portal::configure_output_capture_backend(
                 &mut state,
                 Rc::new(WinitOutputCaptureBackend::new(
                     backend.clone(),
                     pointer_state.clone(),
+                    capture_dmabuf_formats,
                 )),
             );
             let mod_state_for_timer = mod_state.clone();

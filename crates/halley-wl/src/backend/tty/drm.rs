@@ -75,9 +75,14 @@ pub(crate) struct TtyOutputCaptureBackend {
     pub(crate) renderer: Rc<RefCell<GlesRenderer>>,
     pub(crate) outputs: Rc<RefCell<Vec<TtyDrmOutput>>>,
     pub(crate) pointer_state: Rc<RefCell<PointerState>>,
+    pub(crate) dmabuf_formats: Vec<smithay::backend::allocator::Format>,
 }
 
 impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
+    fn capture_dmabuf_formats(&self) -> Vec<smithay::backend::allocator::Format> {
+        self.dmabuf_formats.clone()
+    }
+
     fn capture_output_shm(
         &self,
         st: &mut Halley,
@@ -85,7 +90,10 @@ impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         overlay_cursor: bool,
         logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
     ) -> Result<crate::portal::ShmCaptureFrame, Box<dyn Error>> {
-        let outputs = self.outputs.borrow();
+        let outputs = self
+            .outputs
+            .try_borrow()
+            .map_err(|_| io::Error::other("tty outputs already borrowed during screencopy"))?;
         let output = outputs
             .iter()
             .find(|output| output.connector_name == output_name)
@@ -93,7 +101,10 @@ impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         let (w, h) = output.mode.size();
         let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
             (w as i32, h as i32).into();
-        let ps = self.pointer_state.borrow();
+        let ps = self
+            .pointer_state
+            .try_borrow()
+            .map_err(|_| io::Error::other("pointer state already borrowed during screencopy"))?;
         let now = Instant::now();
         let resize_preview = ps.resize;
         let (hover_node, preview_hover_node) =
@@ -101,8 +112,12 @@ impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         let cursor_screen = overlay_cursor.then_some(ps.screen);
         drop(ps);
 
+        let mut renderer = self
+            .renderer
+            .try_borrow_mut()
+            .map_err(|_| io::Error::other("tty renderer already borrowed during screencopy"))?;
         crate::portal::capture_output_via_renderer(
-            &mut self.renderer.borrow_mut(),
+            &mut renderer,
             st,
             output_name,
             physical_size,
@@ -113,6 +128,56 @@ impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
             cursor_screen,
             overlay_cursor,
             logical_region,
+        )
+    }
+
+    fn capture_output_dmabuf(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        overlay_cursor: bool,
+        logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
+        dmabuf: &mut smithay::backend::allocator::dmabuf::Dmabuf,
+    ) -> Result<crate::backend::interface::CaptureDmabufResult, Box<dyn Error>> {
+        let outputs = self
+            .outputs
+            .try_borrow()
+            .map_err(|_| io::Error::other("tty outputs already borrowed during dma-buf screencopy"))?;
+        let output = outputs
+            .iter()
+            .find(|output| output.connector_name == output_name)
+            .ok_or_else(|| io::Error::other(format!("unknown tty output {output_name}")))?;
+        let (w, h) = output.mode.size();
+        let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
+            (w as i32, h as i32).into();
+        let ps = self
+            .pointer_state
+            .try_borrow()
+            .map_err(|_| io::Error::other("pointer state already borrowed during dma-buf screencopy"))?;
+        let now = Instant::now();
+        let resize_preview = ps.resize;
+        let (hover_node, preview_hover_node) =
+            resolve_hover_targets_for_monitor(st, &ps, now, output_name);
+        let cursor_screen = overlay_cursor.then_some(ps.screen);
+        drop(ps);
+
+        let mut renderer = self
+            .renderer
+            .try_borrow_mut()
+            .map_err(|_| io::Error::other("tty renderer already borrowed during dma-buf screencopy"))?;
+        crate::portal::capture_output_into_dmabuf_via_renderer(
+            &mut renderer,
+            st,
+            output_name,
+            physical_size,
+            st.output_transform_for(output_name),
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            cursor_screen,
+            overlay_cursor,
+            logical_region,
+            dmabuf,
         )
     }
 }
