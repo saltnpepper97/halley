@@ -988,6 +988,28 @@ fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["field.close-restore-pan", "field.close_restore_pan"],
         out.close_restore_pan,
     );
+    out.zoom_enabled = pick_bool(
+        cfg,
+        &["field.zoom.enabled", "field.zoom_enabled"],
+        out.zoom_enabled,
+    );
+    out.zoom_step = pick_f32(cfg, &["field.zoom.step", "field.zoom_step"], out.zoom_step);
+    out.zoom_min = pick_f32(cfg, &["field.zoom.min", "field.zoom_min"], out.zoom_min);
+    out.zoom_max = pick_f32(cfg, &["field.zoom.max", "field.zoom_max"], out.zoom_max);
+    out.zoom_smooth = pick_bool(
+        cfg,
+        &["field.zoom.smooth", "field.zoom_smooth"],
+        out.zoom_smooth,
+    );
+    out.zoom_smooth_rate = pick_f32(
+        cfg,
+        &[
+            "field.zoom.smooth-rate",
+            "field.zoom.smooth_rate",
+            "field.zoom_smooth_rate",
+        ],
+        out.zoom_smooth_rate,
+    );
 }
 
 fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -2066,6 +2088,7 @@ end
                 theme: "Bibata-Modern-Ice".to_string(),
                 size: 32,
                 hide_while_typing: true,
+                hide_after_ms: 2000,
             }
         );
     }
@@ -2326,6 +2349,42 @@ end
         assert_eq!(tuning.pan_to_new, PanToNewMode::IfNeeded);
         assert!(tuning.close_restore_focus);
         assert_eq!(tuning.close_restore_pan, CloseRestorePanMode::IfOffscreen);
+    }
+
+    #[test]
+    fn field_zoom_loads_from_field_section() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-field-zoom-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+field:
+  zoom:
+    enabled true
+    step 1.10
+    min 0.35
+    max 2.00
+    smooth true
+    smooth-rate 12.5
+  end
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert!(tuning.zoom_enabled);
+        assert_eq!(tuning.zoom_step, 1.10);
+        assert_eq!(tuning.zoom_min, 0.35);
+        assert_eq!(tuning.zoom_max, 2.00);
+        assert!(tuning.zoom_smooth);
+        assert_eq!(tuning.zoom_smooth_rate, 12.5);
     }
 
     #[test]

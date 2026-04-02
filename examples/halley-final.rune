@@ -105,12 +105,12 @@ field:
     step 1.10
 
     # Minimum and maximum zoom limits.
-    min 0.35
-    max 2.00
+    min 0.25
+    max 1.35
 
     # Smoothing values for camera movement and zoom interpolation.
-    smooth-center-rate 11.0
-    smooth-zoom-rate 12.5
+    smooth true
+    smooth-rate 12.5
   end
 end
 

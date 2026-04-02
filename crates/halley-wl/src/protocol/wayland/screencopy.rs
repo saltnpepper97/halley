@@ -8,8 +8,8 @@ use smithay::{
             zwlr_screencopy_manager_v1::{self, ZwlrScreencopyManagerV1},
         },
         wayland_server::{
-            protocol::{wl_output::WlOutput, wl_shm},
             Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, Resource,
+            protocol::{wl_output::WlOutput, wl_shm},
         },
     },
     utils::{Logical, Rectangle},

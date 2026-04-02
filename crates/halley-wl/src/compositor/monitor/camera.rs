@@ -1,8 +1,21 @@
 use super::*;
 
-const ZOOM_PER_STEP: f32 = 1.10;
-const CAMERA_SMOOTH_CENTER_RATE: f32 = 11.0;
-const CAMERA_SMOOTH_ZOOM_RATE: f32 = 12.5;
+#[inline]
+fn zoom_step(st: &Halley) -> f32 {
+    st.runtime.tuning.zoom_step.max(1.001)
+}
+
+#[inline]
+fn zoom_scale_bounds(st: &Halley) -> (f32, f32) {
+    let min = st.runtime.tuning.zoom_min.clamp(0.05, 1.0);
+    let max = st.runtime.tuning.zoom_max.max(min).clamp(1.0, 16.0);
+    (min, max)
+}
+
+#[inline]
+fn zoom_smooth_rate(st: &Halley) -> f32 {
+    st.runtime.tuning.zoom_smooth_rate.clamp(0.1, 120.0)
+}
 
 #[inline]
 pub(crate) fn camera_view_size(st: &Halley) -> Vec2 {
@@ -33,9 +46,10 @@ pub(crate) fn snap_camera_targets_to_live(st: &mut Halley) {
 #[inline]
 pub(crate) fn clamp_camera_view_size(st: &Halley, size: Vec2) -> Vec2 {
     let base = st.model.viewport.size;
+    let (min_zoom, max_zoom) = zoom_scale_bounds(st);
     Vec2 {
-        x: size.x.clamp(base.x * 0.82, base.x * 4.0),
-        y: size.y.clamp(base.y * 0.82, base.y * 4.0),
+        x: size.x.clamp(base.x / max_zoom, base.x / min_zoom),
+        y: size.y.clamp(base.y / max_zoom, base.y / min_zoom),
     }
 }
 
@@ -66,6 +80,9 @@ pub(crate) fn update_zoom_live_surface_sizes(st: &mut Halley) {
 }
 
 pub(crate) fn zoom_by_steps(st: &mut Halley, steps: f32) {
+    if !st.runtime.tuning.zoom_enabled {
+        return;
+    }
     if zoom_blocked_by_interaction(st) {
         return;
     }
@@ -74,7 +91,7 @@ pub(crate) fn zoom_by_steps(st: &mut Halley, steps: f32) {
         return;
     }
 
-    let factor = ZOOM_PER_STEP.powf(steps);
+    let factor = zoom_step(st).powf(steps);
     set_camera_target_view_size(
         st,
         Vec2 {
@@ -85,6 +102,9 @@ pub(crate) fn zoom_by_steps(st: &mut Halley, steps: f32) {
 }
 
 pub(crate) fn reset_zoom(st: &mut Halley) {
+    if !st.runtime.tuning.zoom_enabled {
+        return;
+    }
     if zoom_blocked_by_interaction(st) {
         return;
     }
@@ -118,8 +138,21 @@ pub(crate) fn tick_camera_smoothing(st: &mut Halley, now: Instant) {
         .saturating_duration_since(st.ui.render_state.render_last_tick)
         .as_secs_f32()
         .clamp(1.0 / 240.0, 1.0 / 20.0);
-    let center_alpha = (dt * CAMERA_SMOOTH_CENTER_RATE).clamp(0.08, 0.55);
-    let zoom_alpha = (dt * CAMERA_SMOOTH_ZOOM_RATE).clamp(0.08, 0.60);
+    if !st.runtime.tuning.zoom_enabled {
+        st.model.camera_target_view_size = st.model.viewport.size;
+    }
+
+    let smooth_rate = zoom_smooth_rate(st);
+    let center_alpha = if st.runtime.tuning.zoom_smooth {
+        (dt * smooth_rate).clamp(0.08, 0.60)
+    } else {
+        1.0
+    };
+    let zoom_alpha = if st.runtime.tuning.zoom_smooth {
+        (dt * smooth_rate).clamp(0.08, 0.60)
+    } else {
+        1.0
+    };
 
     let mut changed = false;
 
@@ -279,5 +312,47 @@ mod tests {
 
         assert!(state.model.camera_target_view_size.x > before.x);
         assert!(state.model.camera_target_view_size.y > before.y);
+    }
+
+    #[test]
+    fn zoom_disabled_ignores_zoom_inputs() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.zoom_enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let before = state.model.camera_target_view_size;
+        state.zoom_by_steps(1.0);
+        state.reset_zoom();
+
+        assert_eq!(state.model.camera_target_view_size, before);
+    }
+
+    #[test]
+    fn camera_view_size_clamps_to_configured_zoom_limits() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.zoom_min = 0.5;
+        tuning.zoom_max = 1.5;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let base = state.model.viewport.size;
+
+        state.set_camera_target_view_size(Vec2 {
+            x: base.x * 10.0,
+            y: base.y * 10.0,
+        });
+        assert_eq!(state.model.camera_target_view_size.x, base.x / 0.5);
+        assert_eq!(state.model.camera_target_view_size.y, base.y / 0.5);
+
+        state.set_camera_target_view_size(Vec2 {
+            x: base.x * 0.1,
+            y: base.y * 0.1,
+        });
+        assert_eq!(state.model.camera_target_view_size.x, base.x / 1.5);
+        assert_eq!(state.model.camera_target_view_size.y, base.y / 1.5);
     }
 }

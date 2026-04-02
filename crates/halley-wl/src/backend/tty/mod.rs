@@ -1210,10 +1210,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)),
             );
             let portal_sync_timer = Timer::from_duration(Duration::from_millis(750));
-            ev.handle().insert_source(portal_sync_timer, move |_tick, _, _st| {
-                refresh_portal_services_nonblocking();
-                TimeoutAction::Drop
-            })?;
+            ev.handle()
+                .insert_source(portal_sync_timer, move |_tick, _, _st| {
+                    refresh_portal_services_nonblocking();
+                    TimeoutAction::Drop
+                })?;
             let timer = Timer::from_duration(initial_frame_interval);
             let renderer_for_timer = drm_probe.renderer.clone();
 

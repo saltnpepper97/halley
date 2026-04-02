@@ -255,6 +255,12 @@ pub struct RuntimeTuning {
     pub pan_to_new: PanToNewMode,
     pub close_restore_focus: bool,
     pub close_restore_pan: CloseRestorePanMode,
+    pub zoom_enabled: bool,
+    pub zoom_step: f32,
+    pub zoom_min: f32,
+    pub zoom_max: f32,
+    pub zoom_smooth: bool,
+    pub zoom_smooth_rate: f32,
     pub non_overlap_active_gap_scale: f32,
     pub non_overlap_bump_newer: bool,
     pub non_overlap_bump_damping: f32,
@@ -386,6 +392,12 @@ impl Default for RuntimeTuning {
             pan_to_new: PanToNewMode::IfNeeded,
             close_restore_focus: true,
             close_restore_pan: CloseRestorePanMode::IfOffscreen,
+            zoom_enabled: true,
+            zoom_step: 1.10,
+            zoom_min: 0.25,
+            zoom_max: 1.35,
+            zoom_smooth: true,
+            zoom_smooth_rate: 12.5,
             non_overlap_active_gap_scale: 0.22,
             non_overlap_bump_newer: false,
             non_overlap_bump_damping: 0.65,
@@ -499,6 +511,13 @@ impl RuntimeTuning {
         self.docked_offscreen_delay_ms = self.docked_offscreen_delay_ms.clamp(0, 7_200_000);
 
         self.non_overlap_gap_px = self.non_overlap_gap_px.clamp(0.0, 256.0);
+        self.zoom_step = self.zoom_step.clamp(1.001, 4.0);
+        self.zoom_min = self.zoom_min.clamp(0.05, 1.0);
+        self.zoom_max = self.zoom_max.clamp(1.0, 16.0);
+        if self.zoom_max < self.zoom_min {
+            self.zoom_max = self.zoom_min;
+        }
+        self.zoom_smooth_rate = self.zoom_smooth_rate.clamp(0.1, 120.0);
         self.non_overlap_active_gap_scale = self.non_overlap_active_gap_scale.clamp(0.0, 1.2);
         self.non_overlap_bump_damping = self.non_overlap_bump_damping.clamp(0.05, 1.0);
         self.drag_smoothing_boost = self.drag_smoothing_boost.clamp(0.1, 20.0);

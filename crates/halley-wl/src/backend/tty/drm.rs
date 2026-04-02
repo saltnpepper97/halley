@@ -139,10 +139,9 @@ impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
         dmabuf: &mut smithay::backend::allocator::dmabuf::Dmabuf,
     ) -> Result<crate::backend::interface::CaptureDmabufResult, Box<dyn Error>> {
-        let outputs = self
-            .outputs
-            .try_borrow()
-            .map_err(|_| io::Error::other("tty outputs already borrowed during dma-buf screencopy"))?;
+        let outputs = self.outputs.try_borrow().map_err(|_| {
+            io::Error::other("tty outputs already borrowed during dma-buf screencopy")
+        })?;
         let output = outputs
             .iter()
             .find(|output| output.connector_name == output_name)
@@ -150,10 +149,9 @@ impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         let (w, h) = output.mode.size();
         let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
             (w as i32, h as i32).into();
-        let ps = self
-            .pointer_state
-            .try_borrow()
-            .map_err(|_| io::Error::other("pointer state already borrowed during dma-buf screencopy"))?;
+        let ps = self.pointer_state.try_borrow().map_err(|_| {
+            io::Error::other("pointer state already borrowed during dma-buf screencopy")
+        })?;
         let now = Instant::now();
         let resize_preview = ps.resize;
         let (hover_node, preview_hover_node) =
@@ -161,10 +159,9 @@ impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         let cursor_screen = overlay_cursor.then_some(ps.screen);
         drop(ps);
 
-        let mut renderer = self
-            .renderer
-            .try_borrow_mut()
-            .map_err(|_| io::Error::other("tty renderer already borrowed during dma-buf screencopy"))?;
+        let mut renderer = self.renderer.try_borrow_mut().map_err(|_| {
+            io::Error::other("tty renderer already borrowed during dma-buf screencopy")
+        })?;
         crate::portal::capture_output_into_dmabuf_via_renderer(
             &mut renderer,
             st,
