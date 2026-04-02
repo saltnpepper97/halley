@@ -13,6 +13,24 @@ use halley_config::{
     MonitorBindingTarget, NodeBindingAction, RuntimeTuning, TrailBindingAction,
 };
 use halley_ipc::NodeMoveDirection;
+use std::time::Instant;
+
+fn spawn_launch_binding(st: &mut Halley, command: &str, wayland_display: &str) -> bool {
+    let activation_token =
+        crate::protocol::wayland::activation::issue_external_token(st, st.now_ms(Instant::now()));
+    match super::spawn::spawn_command(
+        command,
+        wayland_display,
+        Some(activation_token.as_str()),
+        "command",
+    ) {
+        Some(child) => {
+            st.runtime.spawned_children.push(child);
+            true
+        }
+        None => false,
+    }
+}
 
 pub(crate) fn input_matches_binding(actual: u32, binding_key: u32) -> bool {
     if is_pointer_button_code(binding_key) || is_wheel_code(binding_key) {
@@ -233,20 +251,7 @@ pub(crate) fn apply_bound_key(
 
     for binding in st.runtime.tuning.launch_bindings.clone() {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            // FIX: store the child so it's tracked for cleanup on WM exit,
-            // rather than dropping it immediately (which orphaned the process).
-            let ok = match super::spawn::spawn_command(
-                binding.command.as_str(),
-                wayland_display,
-                "command",
-            ) {
-                Some(child) => {
-                    st.runtime.spawned_children.push(child);
-                    true
-                }
-                None => false,
-            };
-            return ok;
+            return spawn_launch_binding(st, binding.command.as_str(), wayland_display);
         }
     }
     false
@@ -265,18 +270,7 @@ pub(crate) fn apply_bound_pointer_input(
 
     for binding in st.runtime.tuning.launch_bindings.clone() {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            let ok = match super::spawn::spawn_command(
-                binding.command.as_str(),
-                wayland_display,
-                "command",
-            ) {
-                Some(child) => {
-                    st.runtime.spawned_children.push(child);
-                    true
-                }
-                None => false,
-            };
-            return ok;
+            return spawn_launch_binding(st, binding.command.as_str(), wayland_display);
         }
     }
     false

@@ -1487,12 +1487,15 @@ mod tests {
 
         let cid = f.create_cluster(members.clone()).unwrap();
         let cluster = f.cluster(cid).unwrap();
-        let layout = cluster.workspace_layout(crate::tiling::Rect {
-            x: 0.0,
-            y: 0.0,
-            w: 1000.0,
-            h: 600.0,
-        }, 3);
+        let layout = cluster.workspace_layout(
+            crate::tiling::Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 1000.0,
+                h: 600.0,
+            },
+            3,
+        );
 
         assert_eq!(cluster.visible_members(3), &members[..4]);
         assert_eq!(cluster.overflow_members(3), &members[4..]);

@@ -631,7 +631,9 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 if overflow_drag.monitor == target_monitor
                     && let Some(hit) = release_hit
                     && let Some(cluster) = st.model.field.cluster(overflow_drag.cluster_id)
-                    && cluster.visible_members(st.runtime.tuning.tile_max_stack).contains(&hit.node_id)
+                    && cluster
+                        .visible_members(st.runtime.tuning.tile_max_stack)
+                        .contains(&hit.node_id)
                 {
                     let swapped = st.swap_cluster_overflow_member_with_visible(
                         overflow_drag.monitor.as_str(),
@@ -900,6 +902,11 @@ pub(super) fn dispatch_pointer_button(
     );
     let motion_serial = SERIAL_COUNTER.next_serial();
     let button_serial = SERIAL_COUNTER.next_serial();
+    crate::protocol::wayland::activation::note_input_serial(
+        st,
+        button_serial,
+        st.now_ms(Instant::now()),
+    );
     let location = if focus.as_ref().is_some_and(|(surface, _)| {
         crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
     }) {

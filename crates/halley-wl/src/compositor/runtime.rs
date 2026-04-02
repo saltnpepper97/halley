@@ -10,6 +10,7 @@ use smithay::reexports::wayland_server::backend::ObjectId;
 use super::root::Halley;
 use crate::activity::CommitActivity;
 use crate::animation::AnimSpec;
+use crate::protocol::wayland::activation::ActivationRuntimeState;
 
 pub(crate) struct RuntimeState {
     pub(crate) tuning: RuntimeTuning,
@@ -20,6 +21,7 @@ pub(crate) struct RuntimeState {
     pub(crate) maintenance_dirty: bool,
     pub(crate) maintenance_ping: Option<Ping>,
     pub(crate) pending_drm_syncobj_surfaces: Arc<Mutex<Vec<ObjectId>>>,
+    pub(crate) activation: ActivationRuntimeState,
     pub(crate) spawned_children: Vec<std::process::Child>,
 }
 
@@ -259,6 +261,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
         crate::compositor::workspace::lifecycle::reconcile_surface_bindings(self);
         let now_ms = now.duration_since(self.runtime.started_at).as_millis() as u64;
+        crate::protocol::wayland::activation::prune_expired(self, now, now_ms);
         let _ = self.recent_top_node_active(now);
         if let Some(pending) = self.input.interaction_state.pending_core_click.clone()
             && now_ms >= pending.deadline_ms

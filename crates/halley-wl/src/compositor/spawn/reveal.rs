@@ -561,10 +561,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             focus_id.map(|id| id.as_u64())
         );
         let focus_visible = focus_id.is_some_and(|id| {
-            self.surface_is_fully_visible_on_monitor(
-                target_monitor.as_str(),
-                id,
-            )
+            self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), id)
         });
 
         if let Some(id) = focus_id {

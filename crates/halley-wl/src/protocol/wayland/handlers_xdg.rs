@@ -45,7 +45,6 @@ impl XdgShellHandler for Halley {
         let intent = spawn::rules::resolve_initial_window_intent(self, &toplevel);
         let initial_size = super::handlers::initial_toplevel_size(self, &toplevel, &intent);
         toplevel.with_pending_state(|s| {
-            s.states.set(xdg_toplevel::State::Activated);
             if let Some((w, h)) = initial_size.configure_size {
                 s.size = Some((w, h).into());
             }
@@ -64,6 +63,7 @@ impl XdgShellHandler for Halley {
             &intent,
         );
         let now = Instant::now();
+        let _ = crate::protocol::wayland::activation::consume_pending_surface_activation(self, &wl);
         let node_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
         let handled_by_active_cluster = self
             .model
@@ -180,6 +180,29 @@ impl XdgShellHandler for Halley {
 }
 
 delegate_xdg_shell!(Halley);
+
+impl XdgActivationHandler for Halley {
+    fn activation_state(&mut self) -> &mut XdgActivationState {
+        &mut self.platform.xdg_activation_state
+    }
+
+    fn request_activation(
+        &mut self,
+        token: XdgActivationToken,
+        token_data: XdgActivationTokenData,
+        surface: WlSurface,
+    ) {
+        crate::protocol::wayland::activation::request_surface_activation(
+            self,
+            &surface,
+            token.as_str(),
+            &token_data,
+            Instant::now(),
+        );
+    }
+}
+
+delegate_xdg_activation!(Halley);
 
 impl WlrLayerShellHandler for Halley {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {

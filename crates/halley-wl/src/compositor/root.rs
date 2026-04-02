@@ -180,6 +180,9 @@ impl Halley {
                 compositor_state: CompositorState::new::<Halley>(dh),
                 viewporter_state: ViewporterState::new::<Halley>(dh),
                 xdg_shell_state: XdgShellState::new::<Halley>(dh),
+                xdg_activation_state: smithay::wayland::xdg_activation::XdgActivationState::new::<
+                    Halley,
+                >(dh),
                 xdg_decoration_state: XdgDecorationState::new::<Halley>(dh),
                 popup_manager: PopupManager::default(),
                 wlr_layer_shell_state: WlrLayerShellState::new::<Halley>(dh),
@@ -351,6 +354,7 @@ impl Halley {
                 maintenance_dirty: true,
                 maintenance_ping: None,
                 pending_drm_syncobj_surfaces: Arc::new(Mutex::new(Vec::new())),
+                activation: Default::default(),
                 spawned_children: Vec::new(),
             },
         };
@@ -961,11 +965,7 @@ impl Halley {
         super::focus::system::focus_system_controller(self).tick_viewport_pan_animation(now_ms)
     }
 
-    pub(crate) fn surface_is_fully_visible_on_monitor(
-        &self,
-        monitor: &str,
-        id: NodeId,
-    ) -> bool {
+    pub(crate) fn surface_is_fully_visible_on_monitor(&self, monitor: &str, id: NodeId) -> bool {
         super::focus::system::surface_is_fully_visible_on_monitor(self, monitor, id)
     }
 

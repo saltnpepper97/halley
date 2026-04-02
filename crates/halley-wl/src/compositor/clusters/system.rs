@@ -583,7 +583,11 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .model
             .field
             .cluster(cid)
-            .map(|cluster| cluster.overflow_members(self.runtime.tuning.tile_max_stack).len())
+            .map(|cluster| {
+                cluster
+                    .overflow_members(self.runtime.tuning.tile_max_stack)
+                    .len()
+            })
             .unwrap_or(0);
         if !self
             .cluster_mutation_controller()
@@ -603,7 +607,11 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     .model
                     .field
                     .cluster(cid)
-                    .map(|cluster| cluster.overflow_members(self.runtime.tuning.tile_max_stack).len())
+                    .map(|cluster| {
+                        cluster
+                            .overflow_members(self.runtime.tuning.tile_max_stack)
+                            .len()
+                    })
                     .unwrap_or(0);
                 if overflow_len > previous_overflow_len {
                     self.reveal_cluster_overflow_for_monitor(cluster_monitor.as_str(), now_ms);
@@ -679,7 +687,9 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .remove(monitor);
             return;
         };
-        let overflow = cluster.overflow_members(self.runtime.tuning.tile_max_stack).to_vec();
+        let overflow = cluster
+            .overflow_members(self.runtime.tuning.tile_max_stack)
+            .to_vec();
         if overflow.is_empty() {
             self.model
                 .cluster_state
@@ -768,11 +778,12 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return false;
         }
         let max_stack = self.runtime.tuning.tile_max_stack;
-        if !self
-            .model
-            .field
-            .reorder_cluster_overflow_member(cid, member, target_overflow_index, max_stack)
-        {
+        if !self.model.field.reorder_cluster_overflow_member(
+            cid,
+            member,
+            target_overflow_index,
+            max_stack,
+        ) {
             return false;
         }
         self.refresh_cluster_overflow_for_monitor(monitor, now_ms, true);
@@ -792,7 +803,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         let Some(cluster) = self.model.field.cluster(cid) else {
             return false;
         };
-        if !cluster.visible_members(self.runtime.tuning.tile_max_stack).contains(&member) {
+        if !cluster
+            .visible_members(self.runtime.tuning.tile_max_stack)
+            .contains(&member)
+        {
             return false;
         }
         let Some(target_member) = self

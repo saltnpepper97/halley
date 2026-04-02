@@ -169,7 +169,9 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     };
 
     if let Some(keyboard) = st.platform.seat.get_keyboard() {
+        let now = Instant::now();
         let serial = SERIAL_COUNTER.next_serial();
+        crate::protocol::wayland::activation::note_input_serial(st, serial, st.now_ms(now));
         let key_state = if pressed {
             KeyState::Pressed
         } else {

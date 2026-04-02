@@ -184,6 +184,10 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
                 .spawn_state
                 .pending_spawn_activate_at_ms
                 .remove(&id);
+            crate::protocol::wayland::activation::clear_surface_activation_for_root(
+                st,
+                key.clone(),
+            );
             st.model.spawn_state.applied_window_rules.remove(&id);
             st.model.spawn_state.pending_rule_rechecks.remove(&id);
             st.model.spawn_state.pending_initial_reveal.remove(&id);
@@ -424,7 +428,8 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         st.model.monitor_state.node_monitor.get(node_id).cloned()
     } else {
         None
-    }.unwrap_or_else(|| st.model.monitor_state.focused_monitor.clone());
+    }
+    .unwrap_or_else(|| st.model.monitor_state.focused_monitor.clone());
 
     for (name, output) in &st.model.monitor_state.outputs {
         if *name == target_monitor {
@@ -559,10 +564,12 @@ fn ensure_node_for_surface_impl(
     let active_cluster = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str());
     let previous_overflow_len = active_cluster
         .and_then(|cid| {
-            st.model
-                .field
-                .cluster(cid)
-                .map(|cluster| cluster.overflow_members(st.runtime.tuning.tile_max_stack).len())        })
+            st.model.field.cluster(cid).map(|cluster| {
+                cluster
+                    .overflow_members(st.runtime.tuning.tile_max_stack)
+                    .len()
+            })
+        })
         .unwrap_or(0);
     let join_cluster_layout = should_join_active_cluster_layout(
         active_cluster.is_some(),
@@ -628,7 +635,12 @@ fn ensure_node_for_surface_impl(
             .model
             .field
             .cluster(cid)
-            .map(|cluster| cluster.overflow_members(st.runtime.tuning.tile_max_stack).len())            .unwrap_or(0);
+            .map(|cluster| {
+                cluster
+                    .overflow_members(st.runtime.tuning.tile_max_stack)
+                    .len()
+            })
+            .unwrap_or(0);
         if overflow_len > previous_overflow_len {
             st.reveal_cluster_overflow_for_monitor(monitor.as_str(), st.now_ms(now));
         }
@@ -654,6 +666,7 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
     }
     let key = surface_key(surface);
     st.runtime.surface_activity.remove(&key);
+    crate::protocol::wayland::activation::clear_surface_activation(st, surface);
     if let Some(id) = st.model.surface_to_node.remove(&key) {
         st.drop_fullscreen_surface(id, Instant::now());
         if st.model.focus_state.pan_restore_active_focus == Some(id) {

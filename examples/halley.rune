@@ -14,6 +14,20 @@ autostart:
   #on-reload "thunderbird"
 end
 
+#todo
+cursor:
+  theme "Adwaita"
+  size 24
+  hide-while-typing false
+end
+
+#todo
+font:
+  family "monospace"
+  size 11
+  weight 500
+end
+
 viewport:
   DP-1:
     enabled true
@@ -65,12 +79,29 @@ field:
   pan-to-new "if-needed"
   close-restore-focus true
   close-restore-pan "if-offscreen"
+
+  #todo
+  zoom:
+    enabled true
+
+    step 1.10
+    min 0.35
+    max 2.00
+
+    smooth-center-rate 11.0
+    smooth-zoom-rate 12.5
+  end
 end
 
 node:
   # Keep nodes recognizable without making the field too noisy.
   show-labels "hover"
   show-app-icons "always"
+
+  #todo
+  node-shape "square"
+  node-label-shape "square"
+
   # Size is a fraction of the node diameter.
   icon-size 0.72
 
@@ -94,7 +125,7 @@ trail:
   wrap true
 end
 
-bearings:
+bearsssssngs:
   show-distance true
   show-icons true
   fade-distance 1200
@@ -104,32 +135,42 @@ clusters:
   distance-px 280.0
   bloom-direction "clockwise"
   show-icons true
+
+  #todo
+  default-layout "stacking"
 end
 
 tile:
   new-on-top false
   gaps-inner 20
   gaps-outer 20
-  queue-show-icons true
   max-stack 5
+  queue-show-icons true
 end
 
+#todo
 stacking:
+  max-stack 0
 end
 
 physics:
   enabled true
-  damping 0.35
+  damping 0.45
 end
 
+#todo
 animations:
   enabled true
 
   window-open:
     enabled true
+    duration-ms 160
   end
 
   window-close:
+    enabled false
+    duration-ms 140
+    style "shrink-fade"
   end
 
   layer-open:
@@ -144,8 +185,8 @@ end
 
 decorations:
   border-size 3
-  border-radius 6
-  border-colour-focused "#fd5e53"
+  border-radius 0
+  border-colour-focused "#d65d26"
   border-colour-unfocused "#333333"
   resize-using-border true
 
@@ -204,12 +245,13 @@ keybinds:
   "$var.mod+up" "tile-focus up"
   "$var.mod+down" "tile-focus down"
 
+  #todo
   "$var.mod+shift+left" "tile-swap left"
   "$var.mod+shift" "tile-swap right"
   "$var.mod+shift+up" "tile-swap up"
   "$var.mod+shift+sdown" "tile-swap down"
 
-  # Stacking + Field
+  # Stacking + Field (todo)
   "alt+tab" "node-focus-cycle"
 
   # media
@@ -224,9 +266,13 @@ rules:
     overlap-policy "all"
     spawn-position "app"
     cluster-participation "float"
+    #todo
+    width 800
+    height 650
   end
 end
 
+#todo
 debug:
   # Post v0.1.0
   overlay-fps false

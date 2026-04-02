@@ -26,6 +26,7 @@ use smithay::{
         shell::xdg::{ToplevelState, XdgShellState, decoration::XdgDecorationState},
         shm::ShmState,
         viewporter::ViewporterState,
+        xdg_activation::XdgActivationState,
     },
 };
 
@@ -39,6 +40,7 @@ pub(crate) struct PlatformState {
     pub(crate) compositor_state: CompositorState,
     pub(crate) viewporter_state: ViewporterState,
     pub(crate) xdg_shell_state: XdgShellState,
+    pub(crate) xdg_activation_state: XdgActivationState,
     pub(crate) xdg_decoration_state: XdgDecorationState,
     pub(crate) popup_manager: PopupManager,
     pub(crate) wlr_layer_shell_state: WlrLayerShellState,
