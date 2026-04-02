@@ -6,6 +6,7 @@ pub(crate) mod compositor;
 pub(crate) mod input;
 pub(crate) mod ipc;
 pub(crate) mod overlay;
+pub(crate) mod portal;
 pub(crate) mod protocol;
 pub mod render;
 pub(crate) mod spatial;

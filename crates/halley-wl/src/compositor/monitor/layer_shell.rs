@@ -1,8 +1,8 @@
 use smithay::{
     reexports::wayland_server::{
-        Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
+        protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface, Resource,
     },
-    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size},
+    utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER},
     wayland::{
         compositor::with_states,
         shell::wlr_layer::{
@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use super::Halley;
 use crate::compositor::ctx::LayerShellCtx;
-use smithay::desktop::{PopupKind, find_popup_root_surface};
+use smithay::desktop::{find_popup_root_surface, PopupKind};
 use smithay::wayland::shell::xdg::PopupSurface;
 use smithay::wayland::shell::xdg::PositionerState;
 
@@ -242,6 +242,7 @@ fn register_layer_surface_impl(
         state.size = Some(size);
     });
     surface.send_configure();
+    record_layer_surface_configured_size(st, surface.wl_surface(), size);
 
     st.assign_layer_surface_to_monitor(surface.wl_surface(), assigned_monitor.clone());
 
@@ -297,6 +298,10 @@ fn remove_layer_surface_impl(st: &mut Halley, surface: &LayerSurface) {
     st.model
         .monitor_state
         .layer_surface_monitor
+        .remove(&surface.wl_surface().id());
+    st.model
+        .monitor_state
+        .layer_surface_last_configured_size
         .remove(&surface.wl_surface().id());
     if removed_focused_layer {
         st.model.monitor_state.layer_keyboard_focus = None;
@@ -367,16 +372,39 @@ pub(crate) fn configure_layer_shell_surfaces(st: &mut Halley, _output_size: Size
             }
             let data = layer_cached_state(&surface);
             let (_, size) = compute_layer_placement(output_rect, &mut zone, data);
-            if data.size == size {
+            if last_configured_layer_surface_size(st, surface.wl_surface()) == Some(size) {
                 continue;
             }
             surface.with_pending_state(|state| {
                 state.size = Some(size);
             });
-            let _ = surface.send_pending_configure();
+            surface.send_configure();
+            record_layer_surface_configured_size(st, surface.wl_surface(), size);
         }
     }
     refresh_monitor_usable_viewports(st);
+}
+
+fn last_configured_layer_surface_size(
+    st: &Halley,
+    surface: &WlSurface,
+) -> Option<Size<i32, Logical>> {
+    st.model
+        .monitor_state
+        .layer_surface_last_configured_size
+        .get(&surface.id())
+        .copied()
+}
+
+fn record_layer_surface_configured_size(
+    st: &mut Halley,
+    surface: &WlSurface,
+    size: Size<i32, Logical>,
+) {
+    st.model
+        .monitor_state
+        .layer_surface_last_configured_size
+        .insert(surface.id(), size);
 }
 
 pub(crate) fn layer_shell_placements(

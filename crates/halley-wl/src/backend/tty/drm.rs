@@ -71,6 +71,52 @@ pub(crate) struct TtyDrmOutput {
     pub(crate) compositor: Rc<RefCell<HalleyDrmCompositor>>,
 }
 
+pub(crate) struct TtyOutputCaptureBackend {
+    pub(crate) renderer: Rc<RefCell<GlesRenderer>>,
+    pub(crate) outputs: Rc<RefCell<Vec<TtyDrmOutput>>>,
+    pub(crate) pointer_state: Rc<RefCell<PointerState>>,
+}
+
+impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
+    fn capture_output_shm(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        overlay_cursor: bool,
+        logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
+    ) -> Result<crate::portal::ShmCaptureFrame, Box<dyn Error>> {
+        let outputs = self.outputs.borrow();
+        let output = outputs
+            .iter()
+            .find(|output| output.connector_name == output_name)
+            .ok_or_else(|| io::Error::other(format!("unknown tty output {output_name}")))?;
+        let (w, h) = output.mode.size();
+        let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
+            (w as i32, h as i32).into();
+        let ps = self.pointer_state.borrow();
+        let now = Instant::now();
+        let resize_preview = ps.resize;
+        let (hover_node, preview_hover_node) =
+            resolve_hover_targets_for_monitor(st, &ps, now, output_name);
+        let cursor_screen = overlay_cursor.then_some(ps.screen);
+        drop(ps);
+
+        crate::portal::capture_output_via_renderer(
+            &mut self.renderer.borrow_mut(),
+            st,
+            output_name,
+            physical_size,
+            st.output_transform_for(output_name),
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            cursor_screen,
+            overlay_cursor,
+            logical_region,
+        )
+    }
+}
+
 pub(crate) fn probe_tty_drm_device_via_session(
     seat: &str,
     session: Rc<RefCell<LibSeatSession>>,

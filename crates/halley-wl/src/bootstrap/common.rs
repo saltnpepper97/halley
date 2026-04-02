@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use eventline::{debug, info, warn};
 use rustix::net::{
-    AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
+    bind, listen, socket_with, AddressFamily, SocketAddrUnix, SocketFlags, SocketType,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -149,6 +149,100 @@ pub(crate) fn ensure_dbus_session_bus_address() {
     let addr = format!("unix:path={}", bus_path.display());
     // SAFETY: Called during startup before worker threads are spawned.
     unsafe { env::set_var("DBUS_SESSION_BUS_ADDRESS", addr) };
+}
+
+pub(crate) fn sync_portal_activation_environment(wayland_display: &str) {
+    // SAFETY: Called during tty compositor startup before worker threads are spawned.
+    unsafe {
+        env::set_var("WAYLAND_DISPLAY", wayland_display);
+        env::set_var("XDG_SESSION_TYPE", "wayland");
+        env::set_var("XDG_CURRENT_DESKTOP", "Halley:wlroots");
+    }
+
+    let vars = activation_environment_vars();
+    if vars.is_empty() {
+        return;
+    }
+
+    run_activation_env_sync(
+        "dbus-update-activation-environment",
+        Command::new("dbus-update-activation-environment")
+            .arg("--systemd")
+            .args(vars.iter().map(String::as_str)),
+    );
+    run_activation_env_sync(
+        "systemctl import-environment",
+        Command::new("systemctl")
+            .arg("--user")
+            .arg("import-environment")
+            .args(vars.iter().map(String::as_str)),
+    );
+}
+
+pub(crate) fn refresh_portal_services_nonblocking() {
+    run_portal_service_command(
+        "restart xdg-desktop-portal.service",
+        Command::new("systemctl")
+            .arg("--user")
+            .arg("restart")
+            .arg("--no-block")
+            .arg("xdg-desktop-portal.service"),
+    );
+    run_portal_service_command(
+        "start xdg-desktop-portal-wlr.service",
+        Command::new("systemctl")
+            .arg("--user")
+            .arg("start")
+            .arg("--no-block")
+            .arg("xdg-desktop-portal-wlr.service"),
+    );
+}
+
+fn activation_environment_vars() -> Vec<String> {
+    [
+        "WAYLAND_DISPLAY",
+        "XDG_CURRENT_DESKTOP",
+        "XDG_SESSION_TYPE",
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "PATH",
+    ]
+    .into_iter()
+    .filter(|name| {
+        env::var(name)
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty())
+    })
+    .map(str::to_string)
+    .collect()
+}
+
+fn run_activation_env_sync(label: &str, command: &mut Command) {
+    match command.status() {
+        Ok(status) if status.success() => {
+            debug!("{} completed successfully", label);
+        }
+        Ok(status) => {
+            warn!("{} exited with status {}", label, status);
+        }
+        Err(err) => {
+            warn!("{} failed: {}", label, err);
+        }
+    }
+}
+
+fn run_portal_service_command(label: &str, command: &mut Command) {
+    match command.status() {
+        Ok(status) if status.success() => {
+            info!("portal sync: {} queued", label);
+        }
+        Ok(status) => {
+            warn!("portal sync failed: {} exited with {}", label, status);
+        }
+        Err(err) => {
+            warn!("portal sync failed: {}: {}", label, err);
+        }
+    }
 }
 
 fn terminate_child_with_timeout(child: &mut Child, label: &str, timeout: Duration) {

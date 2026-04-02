@@ -5,10 +5,63 @@ use crate::input::ctx::InputCtx;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
+use crate::compositor::interaction::PointerState;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
+
+struct WinitOutputCaptureBackend {
+    backend: Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
+    pointer_state: Rc<RefCell<PointerState>>,
+}
+
+impl WinitOutputCaptureBackend {
+    fn new(
+        backend: Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
+        pointer_state: Rc<RefCell<PointerState>>,
+    ) -> Self {
+        Self {
+            backend,
+            pointer_state,
+        }
+    }
+}
+
+impl crate::portal::OutputCaptureBackend for WinitOutputCaptureBackend {
+    fn capture_output_shm(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        overlay_cursor: bool,
+        logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
+    ) -> Result<crate::portal::ShmCaptureFrame, Box<dyn Error>> {
+        let mut backend = self.backend.borrow_mut();
+        let size = backend.window_size();
+        let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
+            (size.w.max(1), size.h.max(1)).into();
+        let ps = self.pointer_state.borrow();
+        let now = Instant::now();
+        let resize_preview = ps.resize;
+        let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
+        let cursor_screen = overlay_cursor.then_some(ps.screen);
+        drop(ps);
+
+        crate::portal::capture_output_via_renderer(
+            backend.renderer(),
+            st,
+            output_name,
+            physical_size,
+            st.output_transform_for(output_name),
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            cursor_screen,
+            overlay_cursor,
+            logical_region,
+        )
+    }
+}
 
 fn apply_host_cursor(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
@@ -260,6 +313,13 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mod_state = Rc::new(RefCell::new(ModState::default()));
             let mod_state_for_winit = mod_state.clone();
             let pointer_state = Rc::new(RefCell::new(PointerState::default()));
+            crate::portal::configure_output_capture_backend(
+                &mut state,
+                Rc::new(WinitOutputCaptureBackend::new(
+                    backend.clone(),
+                    pointer_state.clone(),
+                )),
+            );
             let mod_state_for_timer = mod_state.clone();
             {
                 let ws = backend.borrow().window_size();

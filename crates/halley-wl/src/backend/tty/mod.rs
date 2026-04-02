@@ -15,8 +15,9 @@ use crate::backend::tty::dpms::{
     sync_tty_dpms_state, tty_output_dpms_enabled, wake_tty_dpms_on_input,
 };
 use crate::backend::tty::drm::{
-    TtyDrmOutput, current_tty_output_signature, probe_tty_drm_device_via_session,
-    queue_tty_drm_frame, rebuild_tty_outputs, selected_tty_scanout_signature,
+    TtyDrmOutput, TtyOutputCaptureBackend, current_tty_output_signature,
+    probe_tty_drm_device_via_session, queue_tty_drm_frame, rebuild_tty_outputs,
+    selected_tty_scanout_signature,
 };
 use crate::backend::vblank_throttle::VBlankThrottle;
 use crate::compositor::interaction::ResizeCtx;
@@ -592,6 +593,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             })?;
             let sock_name = listening.socket_name().to_string_lossy().to_string();
             info!("WAYLAND_DISPLAY={}", sock_name);
+            sync_portal_activation_environment(sock_name.as_str());
             let xwayland = Rc::new(RefCell::new(ensure_xwayland_satellite(sock_name.as_str())?));
             let (xwayland_request_tx, xwayland_request_rx) = mpsc::channel::<()>();
             register_xwayland_request_channel(xwayland_request_tx);
@@ -680,6 +682,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let mod_state = Rc::new(RefCell::new(ModState::default()));
             let mod_state_for_input = mod_state.clone();
             let pointer_state = Rc::new(RefCell::new(PointerState::default()));
+            crate::portal::configure_output_capture_backend(
+                &mut state,
+                Rc::new(TtyOutputCaptureBackend {
+                    renderer: drm_probe.renderer.clone(),
+                    outputs: outputs.clone(),
+                    pointer_state: pointer_state.clone(),
+                }),
+            );
             let mod_state_for_timer = mod_state.clone();
             let pointer_state_for_input = pointer_state.clone();
             let pointer_state_for_timer = pointer_state.clone();
@@ -1190,6 +1200,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     .map(|mode| mode.vrefresh() as f64)
                     .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)),
             );
+            let portal_sync_timer = Timer::from_duration(Duration::from_millis(750));
+            ev.handle().insert_source(portal_sync_timer, move |_tick, _, _st| {
+                refresh_portal_services_nonblocking();
+                TimeoutAction::Drop
+            })?;
             let timer = Timer::from_duration(initial_frame_interval);
             let renderer_for_timer = drm_probe.renderer.clone();
 

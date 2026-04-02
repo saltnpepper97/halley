@@ -10,8 +10,8 @@ use halley_core::viewport::Viewport;
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
-    input::{SeatState, pointer::CursorImageStatus},
-    reexports::wayland_server::{DisplayHandle, backend::ObjectId},
+    input::{pointer::CursorImageStatus, SeatState},
+    reexports::wayland_server::{backend::ObjectId, DisplayHandle},
     wayland::{
         compositor::CompositorState,
         dmabuf::DmabufState,
@@ -24,7 +24,7 @@ use smithay::{
             wlr_data_control::DataControlState,
         },
         shell::wlr_layer::WlrLayerShellState,
-        shell::xdg::{XdgShellState, decoration::XdgDecorationState},
+        shell::xdg::{decoration::XdgDecorationState, XdgShellState},
         shm::ShmState,
         viewporter::ViewporterState,
     },
@@ -73,6 +73,7 @@ pub struct Halley {
     pub(crate) model: ModelState,
     pub(crate) ui: UiState,
     pub(crate) input: InputState,
+    pub(crate) portal: crate::portal::PortalState,
     pub(crate) runtime: RuntimeState,
 }
 
@@ -220,6 +221,7 @@ impl Halley {
                     monitors,
                     node_monitor: HashMap::new(),
                     layer_surface_monitor: HashMap::new(),
+                    layer_surface_last_configured_size: HashMap::new(),
                     layer_keyboard_focus: None,
                 },
                 focus_state: FocusState {
@@ -347,6 +349,7 @@ impl Halley {
                     cursor_hidden_by_typing: false,
                 },
             },
+            portal: crate::portal::PortalState::default(),
             runtime: RuntimeState {
                 tuning,
                 surface_activity: HashMap::new(),
@@ -381,6 +384,11 @@ impl Halley {
             .collect();
         let current_monitor = out.model.monitor_state.current_monitor.clone();
         let _ = out.load_monitor_state(current_monitor.as_str());
+        let _ = out.platform.display_handle.create_global::<
+            Halley,
+            smithay::reexports::wayland_protocols_wlr::screencopy::v1::server::zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
+            _,
+        >(3, ());
         out
     }
 
