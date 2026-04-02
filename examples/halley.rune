@@ -123,7 +123,7 @@ trail:
   wrap true
 end
 
-bearsssssngs:
+bearings:
   show-distance true
   show-icons true
   fade-distance 1200
@@ -253,7 +253,6 @@ keybinds:
   "$var.mod+left" "stack-cycle forward"
   "$var.mod+right" "stack-cycle backward"
 
-  #todo
   "alt+tab" "cycle-focus"
 
   # media

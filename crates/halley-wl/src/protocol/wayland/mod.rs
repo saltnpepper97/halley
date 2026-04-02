@@ -57,6 +57,7 @@ pub(crate) mod activation;
 pub(crate) mod client_state;
 mod handlers;
 mod handlers_xdg;
+pub(crate) mod portal;
 mod screencopy;
 
 pub use client_state::ClientState;

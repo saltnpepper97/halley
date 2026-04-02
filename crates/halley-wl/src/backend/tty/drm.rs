@@ -2,6 +2,7 @@ use super::*;
 use std::collections::HashMap;
 
 use crate::compositor::interaction::ResizeCtx;
+use crate::protocol::wayland::portal;
 use halley_ipc::{ModeInfo, OutputInfo, OutputStatus};
 
 use smithay::backend::allocator::Fourcc;
@@ -78,7 +79,7 @@ pub(crate) struct TtyOutputCaptureBackend {
     pub(crate) dmabuf_formats: Vec<smithay::backend::allocator::Format>,
 }
 
-impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
+impl portal::OutputCaptureBackend for TtyOutputCaptureBackend {
     fn capture_dmabuf_formats(&self) -> Vec<smithay::backend::allocator::Format> {
         self.dmabuf_formats.clone()
     }
@@ -89,7 +90,7 @@ impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         output_name: &str,
         overlay_cursor: bool,
         logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
-    ) -> Result<crate::portal::ShmCaptureFrame, Box<dyn Error>> {
+    ) -> Result<portal::ShmCaptureFrame, Box<dyn Error>> {
         let outputs = self
             .outputs
             .try_borrow()
@@ -116,7 +117,7 @@ impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
             .renderer
             .try_borrow_mut()
             .map_err(|_| io::Error::other("tty renderer already borrowed during screencopy"))?;
-        crate::portal::capture_output_via_renderer(
+        portal::capture_output_via_renderer(
             &mut renderer,
             st,
             output_name,
@@ -162,7 +163,7 @@ impl crate::portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         let mut renderer = self.renderer.try_borrow_mut().map_err(|_| {
             io::Error::other("tty renderer already borrowed during dma-buf screencopy")
         })?;
-        crate::portal::capture_output_into_dmabuf_via_renderer(
+        portal::capture_output_into_dmabuf_via_renderer(
             &mut renderer,
             st,
             output_name,

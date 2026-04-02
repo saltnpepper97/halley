@@ -15,7 +15,9 @@ use smithay::{
     utils::{Logical, Rectangle},
 };
 
-use crate::{compositor::root::Halley, portal};
+use crate::compositor::root::Halley;
+
+use super::portal;
 
 pub(crate) struct ScreencopyFrameData {
     pub(crate) output: Output,

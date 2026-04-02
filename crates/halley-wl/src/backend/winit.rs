@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::input::ctx::InputCtx;
+use crate::protocol::wayland::portal;
 
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
@@ -31,7 +32,7 @@ impl WinitOutputCaptureBackend {
     }
 }
 
-impl crate::portal::OutputCaptureBackend for WinitOutputCaptureBackend {
+impl portal::OutputCaptureBackend for WinitOutputCaptureBackend {
     fn capture_dmabuf_formats(&self) -> Vec<smithay::backend::allocator::Format> {
         self.dmabuf_formats.clone()
     }
@@ -42,7 +43,7 @@ impl crate::portal::OutputCaptureBackend for WinitOutputCaptureBackend {
         output_name: &str,
         overlay_cursor: bool,
         logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
-    ) -> Result<crate::portal::ShmCaptureFrame, Box<dyn Error>> {
+    ) -> Result<portal::ShmCaptureFrame, Box<dyn Error>> {
         let mut backend = self
             .backend
             .try_borrow_mut()
@@ -60,7 +61,7 @@ impl crate::portal::OutputCaptureBackend for WinitOutputCaptureBackend {
         let cursor_screen = overlay_cursor.then_some(ps.screen);
         drop(ps);
 
-        crate::portal::capture_output_via_renderer(
+        portal::capture_output_via_renderer(
             backend.renderer(),
             st,
             output_name,
@@ -98,7 +99,7 @@ impl crate::portal::OutputCaptureBackend for WinitOutputCaptureBackend {
         let cursor_screen = overlay_cursor.then_some(ps.screen);
         drop(ps);
 
-        crate::portal::capture_output_into_dmabuf_via_renderer(
+        portal::capture_output_into_dmabuf_via_renderer(
             backend.renderer(),
             st,
             output_name,
@@ -373,7 +374,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 .map(|formats| formats.iter().copied().collect())
                 .unwrap_or_default()
             };
-            crate::portal::configure_output_capture_backend(
+            portal::configure_output_capture_backend(
                 &mut state,
                 Rc::new(WinitOutputCaptureBackend::new(
                     backend.clone(),

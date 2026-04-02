@@ -690,7 +690,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let mod_state = Rc::new(RefCell::new(ModState::default()));
             let mod_state_for_input = mod_state.clone();
             let pointer_state = Rc::new(RefCell::new(PointerState::default()));
-            crate::portal::configure_output_capture_backend(
+            crate::protocol::wayland::portal::configure_output_capture_backend(
                 &mut state,
                 Rc::new(TtyOutputCaptureBackend {
                     renderer: drm_probe.renderer.clone(),

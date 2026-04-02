@@ -73,7 +73,7 @@ pub struct Halley {
     pub(crate) model: ModelState,
     pub(crate) ui: UiState,
     pub(crate) input: InputState,
-    pub(crate) portal: crate::portal::PortalState,
+    pub(crate) portal: crate::protocol::wayland::portal::PortalState,
     pub(crate) runtime: RuntimeState,
 }
 
@@ -350,7 +350,7 @@ impl Halley {
                     last_cursor_activity_at_ms: 0,
                 },
             },
-            portal: crate::portal::PortalState::default(),
+            portal: crate::protocol::wayland::portal::PortalState::default(),
             runtime: RuntimeState {
                 tuning,
                 surface_activity: HashMap::new(),
