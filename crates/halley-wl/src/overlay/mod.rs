@@ -15,7 +15,7 @@ use smithay::{
 use crate::compositor::root::Halley;
 use crate::render::state::RenderState;
 
-use crate::render::utils::{bitmap_text_size, draw_bitmap_text};
+use crate::render::text::{draw_ui_text, draw_ui_text_in, ui_text_size, ui_text_size_in};
 
 pub(crate) use cluster_bloom::{
     bloom_token_hit_test, draw_cluster_bloom, ensure_cluster_bloom_icon_resources,
@@ -245,9 +245,12 @@ pub(crate) fn draw_cluster_overflow_strip(
             .unwrap_or('?')
             .to_ascii_uppercase()
             .to_string();
-        let (text_w, text_h) = bitmap_text_size(&glyph, 2);
-        draw_bitmap_text(
+        let (text_w, text_h) =
+            ui_text_size_in(overlay.render_state, &overlay.tuning.font, &glyph, 2);
+        draw_ui_text_in(
             frame,
+            overlay.render_state,
+            &overlay.tuning.font,
             icon_rect.loc.x + (icon_rect.size.w - text_w) / 2,
             icon_rect.loc.y + (icon_rect.size.h - text_h) / 2,
             &glyph,
@@ -311,9 +314,12 @@ pub(crate) fn draw_cluster_overflow_strip(
                 .unwrap_or('?')
                 .to_ascii_uppercase()
                 .to_string();
-            let (text_w, text_h) = bitmap_text_size(&glyph, 2);
-            draw_bitmap_text(
+            let (text_w, text_h) =
+                ui_text_size_in(overlay.render_state, &overlay.tuning.font, &glyph, 2);
+            draw_ui_text_in(
                 frame,
+                overlay.render_state,
+                &overlay.tuning.font,
                 icon_rect.loc.x + (icon_rect.size.w - text_w) / 2,
                 icon_rect.loc.y + (icon_rect.size.h - text_h) / 2,
                 &glyph,
@@ -330,15 +336,21 @@ pub(crate) fn draw_cluster_overflow_strip(
 pub(crate) fn draw_persistent_banner(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
+    font: &halley_config::FontConfig,
     damage: Rectangle<i32, Physical>,
     banner: &OverlayBannerSnapshot,
 ) -> Result<(), Box<dyn Error>> {
     let text_mix = overlay_text_mix(banner.mix);
-    let (title_w, title_h) = bitmap_text_size(banner.title.as_str(), BANNER_TITLE_SCALE);
+    let (title_w, title_h) = ui_text_size_in(
+        render_state,
+        font,
+        banner.title.as_str(),
+        BANNER_TITLE_SCALE,
+    );
     let (meta_w, meta_h) = banner
         .subtitle
         .as_ref()
-        .map(|text| bitmap_text_size(text.as_str(), BANNER_META_SCALE))
+        .map(|text| ui_text_size_in(render_state, font, text.as_str(), BANNER_META_SCALE))
         .unwrap_or((0, 0));
     let width: i32 = title_w.max(meta_w) + BANNER_PAD_X * 2;
     let height: i32 = BANNER_PAD_Y * 2
@@ -362,8 +374,10 @@ pub(crate) fn draw_persistent_banner(
         damage,
         banner.mix,
     )?;
-    draw_bitmap_text(
+    draw_ui_text_in(
         frame,
+        render_state,
+        font,
         rect.loc.x + BANNER_PAD_X,
         rect.loc.y + BANNER_PAD_Y,
         banner.title.as_str(),
@@ -372,8 +386,10 @@ pub(crate) fn draw_persistent_banner(
         damage,
     )?;
     if let Some(subtitle) = banner.subtitle.as_ref() {
-        draw_bitmap_text(
+        draw_ui_text_in(
             frame,
+            render_state,
+            font,
             rect.loc.x + BANNER_PAD_X,
             rect.loc.y + BANNER_PAD_Y + title_h + BANNER_GAP,
             subtitle.as_str(),
@@ -388,6 +404,7 @@ pub(crate) fn draw_persistent_banner(
 pub(crate) fn draw_toast(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
+    font: &halley_config::FontConfig,
     screen_w: i32,
     screen_h: i32,
     damage: Rectangle<i32, Physical>,
@@ -398,10 +415,10 @@ pub(crate) fn draw_toast(
     let title = lines.next().unwrap_or_default();
     let body = lines.collect::<Vec<_>>().join(" ");
     let body = (!body.is_empty()).then_some(body);
-    let (title_w, title_h) = bitmap_text_size(title, TOAST_SCALE);
+    let (title_w, title_h) = ui_text_size_in(render_state, font, title, TOAST_SCALE);
     let (body_w, body_h) = body
         .as_ref()
-        .map(|text| bitmap_text_size(text.as_str(), TOAST_META_SCALE))
+        .map(|text| ui_text_size_in(render_state, font, text.as_str(), TOAST_META_SCALE))
         .unwrap_or((0, 0));
     let rect_w: i32 = (title_w.max(body_w) + TOAST_PAD_X * 2).max(180);
     let rect_h: i32 = (TOAST_PAD_Y * 2
@@ -425,8 +442,10 @@ pub(crate) fn draw_toast(
         damage,
         toast.mix,
     )?;
-    draw_bitmap_text(
+    draw_ui_text_in(
         frame,
+        render_state,
+        font,
         rect.loc.x + TOAST_PAD_X,
         rect.loc.y + TOAST_PAD_Y,
         title,
@@ -435,8 +454,10 @@ pub(crate) fn draw_toast(
         damage,
     )?;
     if let Some(body) = body.as_ref() {
-        draw_bitmap_text(
+        draw_ui_text_in(
             frame,
+            render_state,
+            font,
             rect.loc.x + TOAST_PAD_X,
             rect.loc.y + TOAST_PAD_Y + title_h + BANNER_GAP,
             body.as_str(),
@@ -462,7 +483,13 @@ pub(crate) fn draw_monitor_hud(
         .render_state
         .persistent_mode_banner_snapshot(overlay_monitor.as_str())
     {
-        draw_persistent_banner(frame, &st.ui.render_state, damage, &banner)?;
+        draw_persistent_banner(
+            frame,
+            &st.ui.render_state,
+            &st.runtime.tuning.font,
+            damage,
+            &banner,
+        )?;
     }
     if let Some(toast) = st
         .ui
@@ -472,6 +499,7 @@ pub(crate) fn draw_monitor_hud(
         draw_toast(
             frame,
             &st.ui.render_state,
+            &st.runtime.tuning.font,
             screen_w,
             screen_h,
             damage,
@@ -532,7 +560,7 @@ pub(crate) fn draw_overlay_hover_label(
         text = text.chars().take(keep).collect::<String>();
         text.push_str("...");
     }
-    let (text_w, text_h) = bitmap_text_size(&text, text_scale);
+    let (text_w, text_h) = ui_text_size(st, &text, text_scale);
     let label_w = (text_w + 24).clamp(96, 240);
     let label_h = (text_h + 18).clamp(28, 44);
     let side_gap = 18;
@@ -563,8 +591,9 @@ pub(crate) fn draw_overlay_hover_label(
         damage,
         label_fade,
     )?;
-    draw_bitmap_text(
+    draw_ui_text(
         frame,
+        st,
         rect.loc.x + ((rect.size.w - text_w).max(0) / 2),
         rect.loc.y + ((rect.size.h - text_h).max(0) / 2),
         &text,
@@ -609,9 +638,16 @@ pub(crate) fn draw_cluster_selection_markers(
             damage,
             1.0,
         )?;
-        let (_, text_h) = bitmap_text_size("SEL", BANNER_META_SCALE);
-        draw_bitmap_text(
+        let (_, text_h) = ui_text_size_in(
+            overlay.render_state,
+            &overlay.tuning.font,
+            "SEL",
+            BANNER_META_SCALE,
+        );
+        draw_ui_text_in(
             frame,
+            overlay.render_state,
+            &overlay.tuning.font,
             rect.loc.x + 8,
             rect.loc.y + (rect.size.h - text_h) / 2,
             "SEL",

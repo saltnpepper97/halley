@@ -13,6 +13,7 @@ pub mod layer_shell;
 mod node;
 mod offscreen;
 pub(crate) mod state;
+pub(crate) mod text;
 pub(crate) mod utils;
 mod window;
 

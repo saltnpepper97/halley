@@ -105,6 +105,23 @@ impl Default for CursorConfig {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FontConfig {
+    pub family: String,
+    pub size: u32,
+    pub weight: u16,
+}
+
+impl Default for FontConfig {
+    fn default() -> Self {
+        Self {
+            family: "monospace".to_string(),
+            size: 11,
+            weight: 500,
+        }
+    }
+}
+
 use regex::Regex;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -255,6 +272,7 @@ pub struct RuntimeTuning {
     pub autostart_once: Vec<String>,
     pub autostart_on_reload: Vec<String>,
     pub cursor: CursorConfig,
+    pub font: FontConfig,
     pub env: HashMap<String, String>,
 }
 
@@ -385,6 +403,7 @@ impl Default for RuntimeTuning {
             autostart_once: Vec::new(),
             autostart_on_reload: Vec::new(),
             cursor: CursorConfig::default(),
+            font: FontConfig::default(),
             env: HashMap::new(),
         }
     }
@@ -465,6 +484,11 @@ impl RuntimeTuning {
         self.cursor.size = self.cursor.size.clamp(8, 128);
         if self.cursor.theme.trim().is_empty() {
             self.cursor.theme = CursorConfig::default().theme;
+        }
+        self.font.size = self.font.size.clamp(8, 32);
+        self.font.weight = self.font.weight.clamp(100, 900);
+        if self.font.family.trim().is_empty() {
+            self.font.family = FontConfig::default().family;
         }
 
         self.active_outside_ring_delay_ms = self.active_outside_ring_delay_ms.clamp(0, 7_200_000);

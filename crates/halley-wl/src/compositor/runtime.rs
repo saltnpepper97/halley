@@ -147,6 +147,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         let prev_runtime_viewport = self.model.viewport;
         let prev_config_viewport = self.runtime.tuning.viewport();
         let prev_effective_no_csd = self.runtime.tuning.effective_no_csd();
+        let prev_font = self.runtime.tuning.font.clone();
         let prev_physics_enabled = self.runtime.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
         let previous_output_names: std::collections::HashSet<String> = self
@@ -221,6 +222,9 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
 
         self.runtime.tuning = tuning;
+        if self.runtime.tuning.font != prev_font {
+            self.ui.render_state.invalidate_ui_text_cache();
+        }
         if !self.runtime.tuning.cursor.hide_while_typing {
             self.input.interaction_state.cursor_hidden_by_typing = false;
         }

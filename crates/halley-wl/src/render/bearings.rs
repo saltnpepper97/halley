@@ -17,7 +17,8 @@ use crate::compositor::root::Halley;
 use crate::render::app_icon::{ensure_app_icon_resources_for_node_ids, node_app_icon_entry};
 use crate::render::state::NodeAppIconCacheEntry;
 
-use super::utils::{bitmap_text_size, draw_bitmap_text, draw_rect};
+use super::text::{draw_ui_text, ui_text_size};
+use super::utils::draw_rect;
 
 #[derive(Clone, Debug)]
 pub(crate) struct BearingChipLayout {
@@ -204,6 +205,7 @@ pub(crate) fn collect_bearing_layouts(
             .show_distance
             .then(|| format!("{:.0}px", distance.round()));
         let size = bearing_size(
+            st,
             label.as_str(),
             st.runtime.tuning.bearings.show_icons,
             distance_text.as_deref(),
@@ -319,8 +321,9 @@ pub(crate) fn draw_bearings(
                 Color32F::new(0.10, 0.14, 0.18, 0.84 * layout.alpha),
                 damage,
             )?;
-            draw_bitmap_text(
+            draw_ui_text(
                 frame,
+                st,
                 distance_x,
                 distance_y,
                 distance_text,
@@ -337,10 +340,11 @@ pub(crate) fn draw_bearings(
             } else {
                 0
             };
-        let (_, label_h) = bitmap_text_size(layout.label.as_str(), LABEL_SCALE);
+        let (_, label_h) = ui_text_size(st, layout.label.as_str(), LABEL_SCALE);
         let text_y = layout.chip_rect.loc.y + (layout.chip_rect.size.h - label_h) / 2;
-        draw_bitmap_text(
+        draw_ui_text(
             frame,
+            st,
             text_x,
             text_y,
             layout.label.as_str(),
@@ -412,6 +416,7 @@ fn finalize_group(st: &Halley, members: Vec<BearingCandidate>, ui_mix: f32) -> B
         .show_distance
         .then(|| format!("{:.0}px", distance.round()));
     let size = bearing_size(
+        st,
         label.as_str(),
         member_count == 1 && st.runtime.tuning.bearings.show_icons,
         distance_text.as_deref(),
@@ -548,7 +553,7 @@ fn build_layout_from_group(
         .as_ref()
         .zip(distance_rect)
         .map(|(text, rect)| {
-            let (_, text_h) = bitmap_text_size(text, META_SCALE);
+            let (_, text_h) = ui_text_size(st, text, META_SCALE);
             (
                 rect.loc.x + META_PAD_X,
                 rect.loc.y + (rect.size.h - text_h) / 2,
@@ -567,8 +572,13 @@ fn build_layout_from_group(
     }
 }
 
-fn bearing_size(label: &str, show_icon: bool, distance_text: Option<&str>) -> BearingSize {
-    let (label_w, label_h) = bitmap_text_size(label, LABEL_SCALE);
+fn bearing_size(
+    st: &Halley,
+    label: &str,
+    show_icon: bool,
+    distance_text: Option<&str>,
+) -> BearingSize {
+    let (label_w, label_h) = ui_text_size(st, label, LABEL_SCALE);
     let icon_gap = if show_icon {
         ICON_SIZE + ICON_TEXT_GAP
     } else {
@@ -578,7 +588,7 @@ fn bearing_size(label: &str, show_icon: bool, distance_text: Option<&str>) -> Be
     let chip_h = (CHIP_PAD_Y * 2 + label_h.max(if show_icon { ICON_SIZE } else { 0 })).max(24);
     let (distance_rect_w, distance_rect_h, distance_block_h) = distance_text
         .map(|text| {
-            let (text_w, text_h) = bitmap_text_size(text, META_SCALE);
+            let (text_w, text_h) = ui_text_size(st, text, META_SCALE);
             let rect_w = text_w + META_PAD_X * 2;
             let rect_h = text_h + META_PAD_Y * 2;
             (rect_w, rect_h, rect_h + DISTANCE_GAP)

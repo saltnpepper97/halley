@@ -49,3 +49,4 @@ xcursor = "0.3.10"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 resvg = "0.47.0"
 regex = "1.12.3"
+cosmic-text = { version = "0.18.2", features = ["swash"] }

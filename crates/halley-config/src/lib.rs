@@ -10,8 +10,8 @@ pub use keybinds::{
 };
 pub use layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    ClusterBloomDirection, CursorConfig, DecorationBorderColor, InitialWindowClusterParticipation,
-    InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, NodeBackgroundColorMode,
-    NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode, RuntimeTuning, ViewportOutputConfig,
-    ViewportVrrMode, WindowRule, WindowRulePattern,
+    ClusterBloomDirection, CursorConfig, DecorationBorderColor, FontConfig,
+    InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode, RuntimeTuning,
+    ViewportOutputConfig, ViewportVrrMode, WindowRule, WindowRulePattern,
 };

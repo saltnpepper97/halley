@@ -26,6 +26,13 @@ cursor:
   hide-while-typing false
 end
 
+# Font family, size, and weight used for Halley's own UI text.
+font:
+  family "monospace"
+  size 11
+  weight 500
+end
+
 # Viewports describe physical monitors and the visible
 # region Halley should manage on each one.
 #

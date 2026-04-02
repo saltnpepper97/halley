@@ -291,6 +291,7 @@ impl Halley {
                     cluster_bloom_mix: HashMap::new(),
                     overlay_banner: HashMap::new(),
                     overlay_toast: HashMap::new(),
+                    ui_text: std::cell::RefCell::new(crate::render::text::UiTextRenderer::default()),
                     node_circle_texture: None,
                     node_circle_program: None,
                     node_squircle_program: None,

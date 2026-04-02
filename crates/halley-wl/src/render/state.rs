@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -12,6 +13,7 @@ use crate::overlay::{
     ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot, OverlayBannerState,
     OverlayToastSnapshot, OverlayToastState,
 };
+use crate::render::text::UiTextRenderer;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct WindowOffscreenKey {
@@ -95,6 +97,7 @@ pub(crate) struct RenderState {
     pub(crate) cluster_bloom_mix: HashMap<String, ClusterBloomAnimState>,
     pub(crate) overlay_banner: HashMap<String, OverlayBannerState>,
     pub(crate) overlay_toast: HashMap<String, OverlayToastState>,
+    pub(crate) ui_text: RefCell<UiTextRenderer>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
     pub(crate) node_circle_program: Option<GlesTexProgram>,
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
@@ -377,5 +380,13 @@ impl RenderState {
                     .last_used_at
                     .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5)
         });
+    }
+
+    pub(crate) fn invalidate_ui_text_cache(&mut self) {
+        self.ui_text.get_mut().clear();
+    }
+
+    pub(crate) fn prune_ui_text_cache(&mut self, now: Instant) {
+        self.ui_text.get_mut().prune(now);
     }
 }

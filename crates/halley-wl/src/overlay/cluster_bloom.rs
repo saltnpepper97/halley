@@ -12,7 +12,7 @@ use smithay::{
 use crate::compositor::root::Halley;
 use crate::overlay::{ClusterBloomAnimSnapshot, OverlayView};
 use crate::render::app_icon::ensure_app_icon_resources_for_node_ids;
-use crate::render::utils::{bitmap_text_size, draw_bitmap_text};
+use crate::render::text::{draw_ui_text_in, ui_text_size_in};
 
 #[derive(Clone, Copy)]
 pub(crate) struct BloomTokenLayout {
@@ -280,9 +280,12 @@ fn draw_bloom_token(
         .to_ascii_uppercase()
         .to_string();
     let scale = 2;
-    let (text_w, text_h) = bitmap_text_size(&glyph, scale);
-    draw_bitmap_text(
+    let (text_w, text_h) =
+        ui_text_size_in(overlay.render_state, &overlay.tuning.font, &glyph, scale);
+    draw_ui_text_in(
         frame,
+        overlay.render_state,
+        &overlay.tuning.font,
         layout.center_sx - text_w / 2,
         layout.center_sy - text_h / 2,
         &glyph,

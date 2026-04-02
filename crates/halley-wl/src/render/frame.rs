@@ -87,6 +87,7 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
             st.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
         });
     st.ui.render_state.prune_window_offscreen_cache(&alive, now);
+    st.ui.render_state.prune_ui_text_cache(now);
 }
 
 pub(crate) fn anim_style_for(

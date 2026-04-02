@@ -41,6 +41,7 @@ impl RuntimeTuning {
         load_dev_section(&cfg, &mut out);
         load_env_section(&cfg, &mut out);
         load_cursor_section(&cfg, &mut out);
+        load_font_section(&cfg, &mut out);
         load_viewport_section(&cfg, &mut out);
         load_focus_ring_section(&cfg, &mut out);
         load_bearings_section(&cfg, &mut out);
@@ -589,6 +590,17 @@ fn load_cursor_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["cursor.hide-while-typing", "cursor.hide_while_typing"],
         out.cursor.hide_while_typing,
     );
+}
+
+fn load_font_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    if let Some(family) = pick_string(cfg, &["font.family"]) {
+        let family = family.trim();
+        if !family.is_empty() {
+            out.font.family = family.to_string();
+        }
+    }
+    out.font.size = pick_u32(cfg, &["font.size"], out.font.size);
+    out.font.weight = pick_u16(cfg, &["font.weight"], out.font.weight);
 }
 
 fn load_viewport_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -1369,6 +1381,18 @@ fn pick_u32(cfg: &RuneConfig, paths: &[&str], default: u32) -> u32 {
     default
 }
 
+fn pick_u16(cfg: &RuneConfig, paths: &[&str], default: u16) -> u16 {
+    for path in paths {
+        if let Ok(Some(v)) = cfg.get_optional::<u16>(path) {
+            return v;
+        }
+        if let Ok(Some(v)) = cfg.get_optional::<u32>(path) {
+            return v.min(u16::MAX as u32) as u16;
+        }
+    }
+    default
+}
+
 fn pick_i32(cfg: &RuneConfig, paths: &[&str], default: i32) -> i32 {
     for path in paths {
         if let Ok(Some(v)) = cfg.get_optional::<i32>(path) {
@@ -1783,10 +1807,11 @@ mod tests {
     use crate::{
         BearingsBindingAction, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
         CloseRestorePanMode, ClusterBloomDirection, CompositorBindingAction, CursorConfig,
-        DirectionalAction, InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
-        InitialWindowSpawnPlacement, MonitorBindingAction, MonitorBindingTarget,
-        NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy, PanToNewMode, RuntimeTuning,
-        WHEEL_DOWN_CODE, WHEEL_UP_CODE, WindowRulePattern, keybinds::key_name_to_evdev,
+        DirectionalAction, FontConfig, InitialWindowClusterParticipation,
+        InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, MonitorBindingAction,
+        MonitorBindingTarget, NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy,
+        PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE, WindowRulePattern,
+        keybinds::key_name_to_evdev,
     };
 
     fn write_temp_config(prefix: &str, content: &str) -> std::path::PathBuf {
@@ -2047,6 +2072,40 @@ end
         assert!(!tuning.env.contains_key("XCURSOR_THEME"));
         assert!(!tuning.env.contains_key("XCURSOR_SIZE"));
         assert_eq!(tuning.cursor, CursorConfig::default());
+    }
+
+    #[test]
+    fn font_section_parses_family_size_and_weight() {
+        let path = write_temp_config(
+            "halley-font",
+            r#"
+font:
+  family "Iosevka Term"
+  size 13
+  weight 600
+end
+"#,
+        );
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(
+            tuning.font,
+            FontConfig {
+                family: "Iosevka Term".to_string(),
+                size: 13,
+                weight: 600,
+            }
+        );
+    }
+
+    #[test]
+    fn font_defaults_are_runtime_owned() {
+        let tuning = RuntimeTuning::default();
+
+        assert_eq!(tuning.font, FontConfig::default());
     }
 
     #[test]

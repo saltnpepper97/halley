@@ -19,9 +19,9 @@ use crate::compositor::root::Halley;
 use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy};
 
 use super::log_rounded_shader_failure;
+use super::text::{draw_ui_text, ui_text_size};
 use super::utils::{
-    bitmap_text_size, draw_bitmap_text, node_marker_bounds, node_marker_metrics,
-    node_render_diameter_px, world_to_screen,
+    node_marker_bounds, node_marker_metrics, node_render_diameter_px, world_to_screen,
 };
 use crate::animation::ease_in_out_cubic;
 
@@ -621,11 +621,12 @@ pub(crate) fn draw_node_markers(
             {
                 let scale = if render_radius >= 24 { 3 } else { 2 };
                 let icon_text = icon.to_string();
-                let (tw, th) = bitmap_text_size(&icon_text, scale);
+                let (tw, th) = ui_text_size(st, &icon_text, scale);
                 let text_x = sx - (tw / 2);
                 let text_y = sy - (th / 2);
-                draw_bitmap_text(
+                draw_ui_text(
                     frame,
+                    st,
                     text_x,
                     text_y,
                     &icon_text,
@@ -746,11 +747,12 @@ pub(crate) fn draw_node_hover_labels(
             text = text.chars().take(keep).collect::<String>();
             text.push_str("...");
         }
-        let (text_w, text_h) = bitmap_text_size(&text, text_scale);
+        let (text_w, text_h) = ui_text_size(st, &text, text_scale);
         let text_x = final_x + ((label_w - text_w).max(0) / 2);
         let text_y = final_y + ((label_h - text_h).max(0) / 2);
-        draw_bitmap_text(
+        draw_ui_text(
             frame,
+            st,
             text_x,
             text_y,
             &text,
