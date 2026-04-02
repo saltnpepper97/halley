@@ -221,6 +221,9 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
 
         self.runtime.tuning = tuning;
+        if !self.runtime.tuning.cursor.hide_while_typing {
+            self.input.interaction_state.cursor_hidden_by_typing = false;
+        }
         if prev_effective_no_csd != self.runtime.tuning.effective_no_csd() {
             self.refresh_xdg_decoration_mode();
         }

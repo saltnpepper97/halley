@@ -21,6 +21,7 @@ fn spawn_launch_binding(st: &mut Halley, command: &str, wayland_display: &str) -
     match super::spawn::spawn_command(
         command,
         wayland_display,
+        &st.runtime.tuning.cursor,
         Some(activation_token.as_str()),
         "command",
     ) {

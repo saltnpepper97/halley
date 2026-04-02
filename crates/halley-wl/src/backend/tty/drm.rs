@@ -709,6 +709,7 @@ pub(crate) fn queue_tty_drm_frame(
                     &mut *renderer_ref,
                     local_cursor,
                     cursor_image,
+                    &st.runtime.tuning.cursor,
                 )?);
                 match compositor.render_frame(
                     &mut *renderer_ref,
@@ -844,6 +845,7 @@ fn direct_scanout_cursor_elements(
     renderer: &mut GlesRenderer,
     local_cursor: Option<(f32, f32)>,
     cursor_image: Option<&CursorImageStatus>,
+    cursor_config: &halley_config::CursorConfig,
 ) -> Result<Vec<HalleyDirectScanoutElement>, Box<dyn Error>> {
     let Some((sx, sy)) = local_cursor else {
         return Ok(Vec::new());
@@ -878,7 +880,9 @@ fn direct_scanout_cursor_elements(
             )
         }
         CursorImageStatus::Named(icon) => {
-            let Some(sprite) = crate::render::themed_cursor_sprite_with_fallback(icon) else {
+            let Some(sprite) =
+                crate::render::themed_cursor_sprite_with_fallback(cursor_config, icon)
+            else {
                 return Ok(Vec::new());
             };
             let loc = (

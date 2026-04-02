@@ -88,6 +88,23 @@ pub struct BearingsConfig {
     pub fade_distance: f32,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CursorConfig {
+    pub theme: String,
+    pub size: u32,
+    pub hide_while_typing: bool,
+}
+
+impl Default for CursorConfig {
+    fn default() -> Self {
+        Self {
+            theme: "Adwaita".to_string(),
+            size: 24,
+            hide_while_typing: false,
+        }
+    }
+}
+
 use regex::Regex;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -237,6 +254,7 @@ pub struct RuntimeTuning {
     pub tty_viewports: Vec<ViewportOutputConfig>,
     pub autostart_once: Vec<String>,
     pub autostart_on_reload: Vec<String>,
+    pub cursor: CursorConfig,
     pub env: HashMap<String, String>,
 }
 
@@ -366,10 +384,8 @@ impl Default for RuntimeTuning {
             tty_viewports: Vec::new(),
             autostart_once: Vec::new(),
             autostart_on_reload: Vec::new(),
-            env: HashMap::from([
-                ("XCURSOR_THEME".to_string(), "Adwaita".to_string()),
-                ("XCURSOR_SIZE".to_string(), "24".to_string()),
-            ]),
+            cursor: CursorConfig::default(),
+            env: HashMap::new(),
         }
     }
 }
@@ -446,6 +462,10 @@ impl RuntimeTuning {
         self.tile_gaps_outer_px = self.tile_gaps_outer_px.clamp(0.0, 512.0);
         self.tile_max_stack = self.tile_max_stack.clamp(0, 64);
         self.trail_history_length = self.trail_history_length.clamp(1, 512);
+        self.cursor.size = self.cursor.size.clamp(8, 128);
+        if self.cursor.theme.trim().is_empty() {
+            self.cursor.theme = CursorConfig::default().theme;
+        }
 
         self.active_outside_ring_delay_ms = self.active_outside_ring_delay_ms.clamp(0, 7_200_000);
         self.inactive_outside_ring_delay_ms =

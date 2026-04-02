@@ -100,6 +100,9 @@ pub(crate) fn refresh_xdg_decoration_mode(st: &mut Halley) {
 }
 
 pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
+    if st.input.interaction_state.cursor_hidden_by_typing {
+        return CursorImageStatus::Hidden;
+    }
     st.input
         .interaction_state
         .cursor_override_icon

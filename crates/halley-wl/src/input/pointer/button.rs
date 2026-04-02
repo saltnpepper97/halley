@@ -301,6 +301,10 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     button_code: u32,
     button_state: ButtonState,
 ) {
+    if crate::compositor::interaction::state::reveal_cursor_from_pointer_activity(st) {
+        ctx.backend.request_redraw();
+    }
+
     let left = button_code == 0x110;
     let right = button_code == 0x111;
     let mut ps = ctx.pointer_state.borrow_mut();

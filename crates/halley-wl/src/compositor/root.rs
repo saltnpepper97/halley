@@ -343,6 +343,7 @@ impl Halley {
                     grabbed_edge_pan_pressure: Vec2 { x: 0.0, y: 0.0 },
                     grabbed_edge_pan_monitor: None,
                     cursor_override_icon: None,
+                    cursor_hidden_by_typing: false,
                 },
             },
             runtime: RuntimeState {

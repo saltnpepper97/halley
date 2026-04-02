@@ -1,16 +1,6 @@
 @author "Dustin Pilgrim"
 @description "Spatial Wayland compositor built around infinite workspace navigation"
 
-# Environment variables exported to processes launched
-# inside Halley's session.
-#
-# This is commonly used for cursor theme/size and other
-# desktop-session level defaults inherited by child apps.
-env:
-  XCURSOR_THEME "Adwaita"
-  XCURSOR_SIZE "24"
-end
-
 # Programs started automatically by Halley.
 #
 # `once` runs only during compositor startup.
@@ -24,6 +14,16 @@ autostart:
 
   # Example:
   #on-reload "thunderbird"
+end
+
+# Cursor theme and visibility behavior used by Halley.
+#
+# Spawned child applications inherit this theme/size through
+# `XCURSOR_THEME` and `XCURSOR_SIZE`.
+cursor:
+  theme "Adwaita"
+  size 24
+  hide-while-typing false
 end
 
 # Viewports describe physical monitors and the visible

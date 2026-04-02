@@ -3,12 +3,14 @@ use std::process::Child;
 use std::process::Command;
 
 use eventline::{debug, warn};
+use halley_config::CursorConfig;
 
 use crate::bootstrap::request_xwayland_start;
 
 fn apply_spawn_environment(
     cmd: &mut Command,
     wayland_display: &str,
+    cursor: &CursorConfig,
     activation_token: Option<&str>,
 ) {
     cmd.env("WAYLAND_DISPLAY", wayland_display)
@@ -18,7 +20,9 @@ fn apply_spawn_environment(
         .env("SDL_VIDEODRIVER", "wayland")
         .env("CLUTTER_BACKEND", "wayland")
         .env("MOZ_ENABLE_WAYLAND", "1")
-        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto");
+        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
+        .env("XCURSOR_THEME", cursor.theme.trim())
+        .env("XCURSOR_SIZE", cursor.size.to_string());
     if let Some(token) = activation_token {
         cmd.env("XDG_ACTIVATION_TOKEN", token);
     }
@@ -27,6 +31,7 @@ fn apply_spawn_environment(
 pub(crate) fn spawn_command(
     command: &str,
     wayland_display: &str,
+    cursor: &CursorConfig,
     activation_token: Option<&str>,
     label: &str,
 ) -> Option<Child> {
@@ -37,7 +42,7 @@ pub(crate) fn spawn_command(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    apply_spawn_environment(&mut cmd, wayland_display, activation_token);
+    apply_spawn_environment(&mut cmd, wayland_display, cursor, activation_token);
 
     // Give each spawned app its own process group so we can kill
     // the whole group (including any children it forks) on WM exit.
@@ -69,11 +74,21 @@ pub(crate) fn spawn_command(
 #[cfg(test)]
 mod tests {
     use super::apply_spawn_environment;
+    use halley_config::CursorConfig;
 
     #[test]
     fn spawn_environment_sets_activation_token_when_present() {
         let mut cmd = std::process::Command::new("sh");
-        apply_spawn_environment(&mut cmd, "wayland-7", Some("token-123"));
+        apply_spawn_environment(
+            &mut cmd,
+            "wayland-7",
+            &CursorConfig {
+                theme: "Bibata".to_string(),
+                size: 32,
+                hide_while_typing: false,
+            },
+            Some("token-123"),
+        );
 
         let envs = cmd
             .get_envs()
@@ -89,6 +104,8 @@ mod tests {
             envs.get("WAYLAND_DISPLAY"),
             Some(&Some("wayland-7".to_string()))
         );
+        assert_eq!(envs.get("XCURSOR_THEME"), Some(&Some("Bibata".to_string())));
+        assert_eq!(envs.get("XCURSOR_SIZE"), Some(&Some("32".to_string())));
         assert_eq!(
             envs.get("XDG_ACTIVATION_TOKEN"),
             Some(&Some("token-123".to_string()))
@@ -98,7 +115,7 @@ mod tests {
     #[test]
     fn spawn_environment_skips_activation_token_when_absent() {
         let mut cmd = std::process::Command::new("sh");
-        apply_spawn_environment(&mut cmd, "wayland-7", None);
+        apply_spawn_environment(&mut cmd, "wayland-7", &CursorConfig::default(), None);
 
         let has_activation_token = cmd
             .get_envs()

@@ -36,6 +36,10 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     relative_direction_horizontal: AxisRelativeDirection,
     relative_direction_vertical: AxisRelativeDirection,
 ) {
+    if crate::compositor::interaction::state::reveal_cursor_from_pointer_activity(st) {
+        ctx.backend.request_redraw();
+    }
+
     let mut steps = (amount_v120_vertical.unwrap_or(0.0) as f32) / 120.0;
     if steps.abs() < f32::EPSILON {
         let px = amount_vertical.unwrap_or(0.0) as f32;

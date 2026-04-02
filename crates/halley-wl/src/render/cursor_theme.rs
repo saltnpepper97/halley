@@ -1,7 +1,7 @@
-use std::env;
 use std::fs;
 use std::sync::{Arc, Mutex};
 
+use halley_config::CursorConfig;
 use once_cell::sync::Lazy;
 use xcursor::{CursorTheme, parser::Image};
 
@@ -32,23 +32,6 @@ struct CachedCursorSprite {
 
 static CURSOR_SPRITE_CACHE: Lazy<Mutex<Option<CachedCursorSprite>>> =
     Lazy::new(|| Mutex::new(None));
-
-// ---------------------------------------------------------------------------
-// Environment
-// ---------------------------------------------------------------------------
-
-pub(crate) fn env_cursor_theme_and_size() -> (String, u32) {
-    let theme = env::var("XCURSOR_THEME")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "Adwaita".to_string());
-    let size = env::var("XCURSOR_SIZE")
-        .ok()
-        .and_then(|v| v.trim().parse::<u32>().ok())
-        .map(|v| v.clamp(8, 128))
-        .unwrap_or(24);
-    (theme, size)
-}
 
 // ---------------------------------------------------------------------------
 // Theme loading
@@ -210,9 +193,12 @@ fn cursor_icon_fallback_chain(
 // ---------------------------------------------------------------------------
 
 fn themed_cursor_sprite(
+    cursor: &CursorConfig,
     icon: smithay::input::pointer::CursorIcon,
 ) -> Option<Arc<SoftwareCursorSprite>> {
-    let (theme, size) = env_cursor_theme_and_size();
+    let theme = cursor.theme.trim();
+    let theme = if theme.is_empty() { "Adwaita" } else { theme };
+    let size = cursor.size.clamp(8, 128);
     let icon_key = format!("{:?}", icon);
     let names = cursor_icon_candidates(icon);
 
@@ -225,7 +211,7 @@ fn themed_cursor_sprite(
         return cached.sprite.clone();
     }
 
-    let sprite = load_cursor_from_theme(theme.as_str(), size, names).or_else(|| {
+    let sprite = load_cursor_from_theme(theme, size, names).or_else(|| {
         if theme == "Adwaita" {
             None
         } else {
@@ -234,7 +220,7 @@ fn themed_cursor_sprite(
     });
 
     *cache = Some(CachedCursorSprite {
-        theme,
+        theme: theme.to_string(),
         size,
         icon_key,
         sprite: sprite.clone(),
@@ -243,14 +229,15 @@ fn themed_cursor_sprite(
 }
 
 pub(crate) fn themed_cursor_sprite_with_fallback(
+    cursor: &CursorConfig,
     icon: smithay::input::pointer::CursorIcon,
 ) -> Option<Arc<SoftwareCursorSprite>> {
-    themed_cursor_sprite(icon).or_else(|| {
+    themed_cursor_sprite(cursor, icon).or_else(|| {
         for fallback in cursor_icon_fallback_chain(icon) {
             if *fallback == icon {
                 continue;
             }
-            if let Some(sprite) = themed_cursor_sprite(*fallback) {
+            if let Some(sprite) = themed_cursor_sprite(cursor, *fallback) {
                 return Some(sprite);
             }
         }

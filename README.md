@@ -129,12 +129,6 @@ Handled by `crates/hally-config`. Covers keybinds, focus ring shape and size, de
 
 ---
 
-## Testing
-
-Tiling geometry, focus decay, cluster entry/exit, core expand/collapse, stack navigation, jump across monitors.
-
----
-
 ## License
 
 **GPL-3.0-only**

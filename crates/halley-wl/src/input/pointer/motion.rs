@@ -178,6 +178,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     delta_unaccel: (f64, f64),
     time_usec: u64,
 ) {
+    if crate::compositor::interaction::state::reveal_cursor_from_pointer_activity(st) {
+        ctx.backend.request_redraw();
+    }
+
     let allow_unbounded_screen = {
         let ps = ctx.pointer_state.borrow();
         ps.drag.is_some() || ps.resize.is_some() || ps.panning

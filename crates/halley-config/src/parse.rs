@@ -40,6 +40,7 @@ impl RuntimeTuning {
         }
         load_dev_section(&cfg, &mut out);
         load_env_section(&cfg, &mut out);
+        load_cursor_section(&cfg, &mut out);
         load_viewport_section(&cfg, &mut out);
         load_focus_ring_section(&cfg, &mut out);
         load_bearings_section(&cfg, &mut out);
@@ -573,6 +574,21 @@ fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
 fn load_env_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     merge_env_map(cfg, &mut out.env, "env");
+}
+
+fn load_cursor_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    if let Some(theme) = pick_string(cfg, &["cursor.theme"]) {
+        let theme = theme.trim();
+        if !theme.is_empty() {
+            out.cursor.theme = theme.to_string();
+        }
+    }
+    out.cursor.size = pick_u32(cfg, &["cursor.size"], out.cursor.size);
+    out.cursor.hide_while_typing = pick_bool(
+        cfg,
+        &["cursor.hide-while-typing", "cursor.hide_while_typing"],
+        out.cursor.hide_while_typing,
+    );
 }
 
 fn load_viewport_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -1766,11 +1782,11 @@ mod tests {
     use super::apply_explicit_keybind_overrides_map;
     use crate::{
         BearingsBindingAction, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-        CloseRestorePanMode, ClusterBloomDirection, CompositorBindingAction, DirectionalAction,
-        InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
-        MonitorBindingAction, MonitorBindingTarget, NodeBackgroundColorMode, NodeBindingAction,
-        NodeDisplayPolicy, PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
-        WindowRulePattern, keybinds::key_name_to_evdev,
+        CloseRestorePanMode, ClusterBloomDirection, CompositorBindingAction, CursorConfig,
+        DirectionalAction, InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
+        InitialWindowSpawnPlacement, MonitorBindingAction, MonitorBindingTarget,
+        NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy, PanToNewMode, RuntimeTuning,
+        WHEEL_DOWN_CODE, WHEEL_UP_CODE, WindowRulePattern, keybinds::key_name_to_evdev,
     };
 
     fn write_temp_config(prefix: &str, content: &str) -> std::path::PathBuf {
@@ -1995,6 +2011,42 @@ end
 
         assert_eq!(tuning.autostart_once, vec!["waybar", "mako"]);
         assert_eq!(tuning.autostart_on_reload, vec!["thunderbird"]);
+    }
+
+    #[test]
+    fn cursor_section_parses_theme_size_and_hide_while_typing() {
+        let path = write_temp_config(
+            "halley-cursor",
+            r#"
+cursor:
+  theme "Bibata-Modern-Ice"
+  size 32
+  hide-while-typing true
+end
+"#,
+        );
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(
+            tuning.cursor,
+            CursorConfig {
+                theme: "Bibata-Modern-Ice".to_string(),
+                size: 32,
+                hide_while_typing: true,
+            }
+        );
+    }
+
+    #[test]
+    fn default_env_no_longer_injects_cursor_theme_or_size() {
+        let tuning = RuntimeTuning::default();
+
+        assert!(!tuning.env.contains_key("XCURSOR_THEME"));
+        assert!(!tuning.env.contains_key("XCURSOR_SIZE"));
+        assert_eq!(tuning.cursor, CursorConfig::default());
     }
 
     #[test]

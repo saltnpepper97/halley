@@ -44,6 +44,10 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     code: u32,
     pressed: bool,
 ) {
+    if pressed && crate::compositor::interaction::state::hide_cursor_for_typing(st) {
+        ctx.backend.request_redraw();
+    }
+
     update_mod_state(&mut ctx.mod_state.borrow_mut(), code, pressed);
 
     let cluster_escape = key_name_to_evdev("escape").map(|code| code + 8);

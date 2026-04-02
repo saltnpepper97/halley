@@ -68,7 +68,13 @@ pub(crate) fn run_autostart_commands(
         if command.is_empty() {
             continue;
         }
-        if let Some(child) = spawn_command(command, wayland_display, None, label) {
+        if let Some(child) = spawn_command(
+            command,
+            wayland_display,
+            &st.runtime.tuning.cursor,
+            None,
+            label,
+        ) {
             st.runtime.spawned_children.push(child);
         }
     }

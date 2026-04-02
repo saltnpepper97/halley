@@ -1,7 +1,5 @@
-env:
-  XCURSOR_THEME "Adwaita"
-  XCURSOR_SIZE "24"
-end
+@author "Dustin Pilgrim"
+@description "Spatial Wayland compositor built around infinite workspace navigation"
 
 autostart:
   once "waybar"
@@ -14,14 +12,12 @@ autostart:
   #on-reload "thunderbird"
 end
 
-#todo
 cursor:
   theme "Adwaita"
   size 24
   hide-while-typing false
 end
 
-#todo
 font:
   family "monospace"
   size 11
