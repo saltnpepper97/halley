@@ -253,6 +253,7 @@ keybinds:
   "$var.mod+left" "stack-cycle forward"
   "$var.mod+right" "stack-cycle backward"
 
+  #todo
   "alt+tab" "cycle-focus"
 
   # media
@@ -263,13 +264,19 @@ end
 
 rules:
   rule:
-    title ["Picture-in-Picture", r"File Upload.*"]
+    app-id "xdg-desktop-portal-gtk"
+    title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
     overlap-policy "all"
-    spawn-position "app"
+    spawn-placement "center"
     cluster-participation "float"
-    #todo
-    width 800
-    height 650
+  end
+
+  rule:
+    app-id "firefox"
+    title "Picture-in-Picture"
+    overlap-policy "all"
+    spawn-placement "center"
+    cluster-participation "float"
   end
 end
 

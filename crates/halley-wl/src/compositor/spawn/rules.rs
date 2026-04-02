@@ -110,16 +110,16 @@ pub(crate) fn resolve_initial_window_intent_from_identity(
     title: Option<String>,
     parent_node: Option<NodeId>,
 ) -> InitialWindowIntent {
-    let matched_rule = matching_window_rule(st, app_id.as_deref(), title.as_deref());
-    let rule = matched_rule.map(rule_match).unwrap_or_default();
+    let rule = matching_window_rule(st, app_id.as_deref(), title.as_deref());
     InitialWindowIntent {
         app_id,
         title,
         parent_node,
-        rule,
-        matched_rule: matched_rule.is_some(),
+        rule: rule.unwrap_or_default(),
+        matched_rule: rule.is_some(),
         is_transient: parent_node.is_some(),
-        prefer_app_intent: matches!(rule.spawn_placement, InitialWindowSpawnPlacement::App),
+        prefer_app_intent: rule
+            .is_some_and(|rule| matches!(rule.spawn_placement, InitialWindowSpawnPlacement::App)),
     }
 }
 
@@ -141,7 +141,9 @@ pub(crate) fn needs_deferred_rule_recheck(st: &Halley, intent: &InitialWindowInt
             .window_rules
             .iter()
             .any(|rule| !rule.app_ids.is_empty());
-    missing_title || missing_app_id
+    missing_title
+        || missing_app_id
+        || builtin_window_rule_may_match_later(intent.app_id.as_deref(), intent.title.as_deref())
 }
 
 fn rule_match(rule: &WindowRule) -> ResolvedInitialWindowRule {
@@ -152,7 +154,21 @@ fn rule_match(rule: &WindowRule) -> ResolvedInitialWindowRule {
     }
 }
 
-fn matching_window_rule<'a>(
+fn builtin_float_center_overlap_rule() -> ResolvedInitialWindowRule {
+    ResolvedInitialWindowRule {
+        overlap_policy: InitialWindowOverlapPolicy::All,
+        spawn_placement: InitialWindowSpawnPlacement::Center,
+        cluster_participation: InitialWindowClusterParticipation::Float,
+    }
+}
+
+fn portal_dialog_title_matches(title: &str) -> bool {
+    ["File Upload", "Open File", "Save File", "Choose"]
+        .into_iter()
+        .any(|prefix| title.starts_with(prefix))
+}
+
+fn matching_user_window_rule<'a>(
     st: &'a Halley,
     app_id: Option<&str>,
     title: Option<&str>,
@@ -174,6 +190,35 @@ fn matching_window_rule<'a>(
         };
         app_matches && title_matches
     })
+}
+
+fn matching_builtin_window_rule(
+    app_id: Option<&str>,
+    title: Option<&str>,
+) -> Option<ResolvedInitialWindowRule> {
+    if app_id == Some("xdg-desktop-portal-gtk") && title.is_some_and(portal_dialog_title_matches) {
+        return Some(builtin_float_center_overlap_rule());
+    }
+
+    if title == Some("Picture-in-Picture") {
+        return Some(builtin_float_center_overlap_rule());
+    }
+
+    None
+}
+
+fn matching_window_rule(
+    st: &Halley,
+    app_id: Option<&str>,
+    title: Option<&str>,
+) -> Option<ResolvedInitialWindowRule> {
+    matching_user_window_rule(st, app_id, title)
+        .map(rule_match)
+        .or_else(|| matching_builtin_window_rule(app_id, title))
+}
+
+fn builtin_window_rule_may_match_later(app_id: Option<&str>, title: Option<&str>) -> bool {
+    title.is_none() || (app_id.is_none() && title.is_some_and(portal_dialog_title_matches))
 }
 
 fn parent_node_for_surface(st: &Halley, surface: &WlSurface) -> Option<NodeId> {
@@ -281,6 +326,63 @@ mod tests {
     }
 
     #[test]
+    fn user_rule_overrides_builtin_pip() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = RuntimeTuning::default();
+        tuning.window_rules = vec![WindowRule {
+            app_ids: Vec::new(),
+            titles: vec![WindowRulePattern::Exact("Picture-in-Picture".to_string())],
+            overlap_policy: InitialWindowOverlapPolicy::None,
+            spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+            cluster_participation: InitialWindowClusterParticipation::Layout,
+        }];
+        let state = Halley::new_for_test(&dh, tuning);
+
+        let matched =
+            matching_window_rule(&state, None, Some("Picture-in-Picture")).expect("match");
+        assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::None);
+        assert_eq!(
+            matched.spawn_placement,
+            InitialWindowSpawnPlacement::Adjacent
+        );
+        assert_eq!(
+            matched.cluster_participation,
+            InitialWindowClusterParticipation::Layout
+        );
+    }
+
+    #[test]
+    fn builtin_portal_dialog_matches() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+
+        let matched =
+            matching_window_rule(&state, Some("xdg-desktop-portal-gtk"), Some("Open File"))
+                .expect("match");
+        assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::All);
+        assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
+        assert_eq!(
+            matched.cluster_participation,
+            InitialWindowClusterParticipation::Float
+        );
+    }
+
+    #[test]
+    fn builtin_pip_matches() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+
+        let matched =
+            matching_window_rule(&state, None, Some("Picture-in-Picture")).expect("match");
+        assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::All);
+        assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
+        assert_eq!(
+            matched.cluster_participation,
+            InitialWindowClusterParticipation::Float
+        );
+    }
+
+    #[test]
     fn app_id_and_title_match_as_and_condition() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut tuning = RuntimeTuning::default();
@@ -294,10 +396,11 @@ mod tests {
         let state = Halley::new_for_test(&dh, tuning);
 
         assert!(
-            matching_window_rule(&state, Some("firefox"), Some("Picture-in-Picture")).is_some()
+            matching_user_window_rule(&state, Some("firefox"), Some("Picture-in-Picture"))
+                .is_some()
         );
-        assert!(matching_window_rule(&state, Some("firefox"), Some("Other")).is_none());
-        assert!(matching_window_rule(&state, None, Some("Picture-in-Picture")).is_none());
+        assert!(matching_user_window_rule(&state, Some("firefox"), Some("Other")).is_none());
+        assert!(matching_user_window_rule(&state, None, Some("Picture-in-Picture")).is_none());
     }
 
     #[test]
@@ -316,6 +419,23 @@ mod tests {
         let state = Halley::new_for_test(&dh, tuning);
 
         assert!(matching_window_rule(&state, None, Some("File Upload - Firefox")).is_some());
+    }
+
+    #[test]
+    fn deferred_recheck_considers_builtin_title_rules() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+        let intent = InitialWindowIntent {
+            app_id: Some("xdg-desktop-portal-gtk".to_string()),
+            title: None,
+            parent_node: None,
+            rule: ResolvedInitialWindowRule::default(),
+            matched_rule: false,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+
+        assert!(needs_deferred_rule_recheck(&state, &intent));
     }
 
     #[test]
