@@ -56,6 +56,7 @@ impl SeatHandler for Halley {
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
         self.platform.cursor_image_status = image;
+        self.request_maintenance();
     }
 }
 

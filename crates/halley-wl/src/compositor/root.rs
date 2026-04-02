@@ -347,6 +347,7 @@ impl Halley {
                     grabbed_edge_pan_monitor: None,
                     cursor_override_icon: None,
                     cursor_hidden_by_typing: false,
+                    last_cursor_activity_at_ms: 0,
                 },
             },
             portal: crate::portal::PortalState::default(),

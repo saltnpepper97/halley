@@ -138,6 +138,38 @@ pub(crate) struct InteractionState {
     pub(crate) grabbed_edge_pan_monitor: Option<String>,
     pub(crate) cursor_override_icon: Option<CursorIcon>,
     pub(crate) cursor_hidden_by_typing: bool,
+    pub(crate) last_cursor_activity_at_ms: u64,
+}
+
+pub(crate) fn note_cursor_activity(st: &mut Halley, now_ms: u64) -> bool {
+    let hide_after_ms = st.runtime.tuning.cursor.hide_after_ms;
+    let was_idle_hidden = hide_after_ms > 0
+        && now_ms.saturating_sub(st.input.interaction_state.last_cursor_activity_at_ms)
+            >= hide_after_ms;
+
+    st.input.interaction_state.last_cursor_activity_at_ms = now_ms;
+
+    let was_typing_hidden = std::mem::take(&mut st.input.interaction_state.cursor_hidden_by_typing);
+
+    was_idle_hidden || was_typing_hidden
+}
+
+pub(crate) fn note_typing_activity(st: &mut Halley, now_ms: u64) -> bool {
+    if !st.runtime.tuning.cursor.hide_while_typing {
+        return false;
+    }
+
+    let hide_after_ms = st.runtime.tuning.cursor.hide_after_ms;
+    if hide_after_ms > 0
+        && now_ms.saturating_sub(st.input.interaction_state.last_cursor_activity_at_ms)
+            < hide_after_ms
+    {
+        return false;
+    }
+
+    let changed = !st.input.interaction_state.cursor_hidden_by_typing;
+    st.input.interaction_state.cursor_hidden_by_typing = true;
+    changed
 }
 
 pub(crate) fn take_input_state_reset_request(st: &mut Halley) -> bool {
@@ -179,21 +211,6 @@ pub(crate) fn clear_grabbed_edge_pan_state(st: &mut Halley) {
     st.input.interaction_state.grabbed_edge_pan_direction = Vec2 { x: 0.0, y: 0.0 };
     st.input.interaction_state.grabbed_edge_pan_pressure = Vec2 { x: 0.0, y: 0.0 };
     st.input.interaction_state.grabbed_edge_pan_monitor = None;
-}
-
-#[inline]
-pub(crate) fn hide_cursor_for_typing(st: &mut Halley) -> bool {
-    if !st.runtime.tuning.cursor.hide_while_typing {
-        return false;
-    }
-    let changed = !st.input.interaction_state.cursor_hidden_by_typing;
-    st.input.interaction_state.cursor_hidden_by_typing = true;
-    changed
-}
-
-#[inline]
-pub(crate) fn reveal_cursor_from_pointer_activity(st: &mut Halley) -> bool {
-    std::mem::take(&mut st.input.interaction_state.cursor_hidden_by_typing)
 }
 
 #[inline]
@@ -470,19 +487,52 @@ mod tests {
     }
 
     #[test]
-    fn hide_cursor_for_typing_respects_config_and_pointer_reveals_it() {
+    fn hide_cursor_for_typing_waits_for_delay_and_pointer_reveals_it() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.cursor.hide_while_typing = true;
+        tuning.cursor.hide_after_ms = 2_000;
         let mut state = Halley::new_for_test(&dh, tuning);
+        state.input.interaction_state.last_cursor_activity_at_ms = 10_000;
 
-        assert!(hide_cursor_for_typing(&mut state));
-        assert!(state.input.interaction_state.cursor_hidden_by_typing);
-        assert!(!hide_cursor_for_typing(&mut state));
-        assert!(reveal_cursor_from_pointer_activity(&mut state));
+        assert!(!note_typing_activity(&mut state, 11_999));
         assert!(!state.input.interaction_state.cursor_hidden_by_typing);
-        assert!(!reveal_cursor_from_pointer_activity(&mut state));
+        assert!(note_typing_activity(&mut state, 12_000));
+        assert!(state.input.interaction_state.cursor_hidden_by_typing);
+        assert!(!note_typing_activity(&mut state, 12_100));
+        assert!(note_cursor_activity(&mut state, 20_001));
+        assert!(!state.input.interaction_state.cursor_hidden_by_typing);
+        assert!(!note_cursor_activity(&mut state, 20_002));
+    }
+
+    #[test]
+    fn effective_cursor_image_status_respects_client_hide_when_disabled() {
+        use crate::compositor::platform::effective_cursor_image_status;
+        use smithay::input::pointer::CursorImageStatus;
+
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+
+        // Case 1: hide-while-typing is false, client requests hidden
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cursor.hide_while_typing = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.platform.cursor_image_status = CursorImageStatus::Hidden;
+
+        // Should return hidden (respecting the client)
+        assert!(matches!(
+            effective_cursor_image_status(&state),
+            CursorImageStatus::Hidden
+        ));
+
+        // Case 2: hide-while-typing is true, client requests hidden
+        state.runtime.tuning.cursor.hide_while_typing = true;
+        assert!(matches!(
+            effective_cursor_image_status(&state),
+            CursorImageStatus::Hidden
+        ));
     }
 }

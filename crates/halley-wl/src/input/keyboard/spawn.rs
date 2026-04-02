@@ -86,6 +86,7 @@ mod tests {
                 theme: "Bibata".to_string(),
                 size: 32,
                 hide_while_typing: false,
+                hide_after_ms: 2_000,
             },
             Some("token-123"),
         );

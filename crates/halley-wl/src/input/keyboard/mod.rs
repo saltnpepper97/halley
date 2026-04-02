@@ -44,8 +44,11 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     code: u32,
     pressed: bool,
 ) {
-    if pressed && crate::compositor::interaction::state::hide_cursor_for_typing(st) {
-        ctx.backend.request_redraw();
+    if pressed {
+        let now_ms = st.now_ms(Instant::now());
+        if crate::compositor::interaction::state::note_typing_activity(st, now_ms) {
+            ctx.backend.request_redraw();
+        }
     }
 
     update_mod_state(&mut ctx.mod_state.borrow_mut(), code, pressed);

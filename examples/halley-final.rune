@@ -1,0 +1,352 @@
+@author "Dustin Pilgrim"
+@description "Halley v0.1.0 — spatial Wayland compositor built around infinite workspace navigation"
+
+# Commands started by Halley.
+#
+# `once` runs only when the compositor starts.
+# `on-reload` can be used for commands you want to rerun after a config reload.
+autostart:
+  once "waybar"
+
+  # Optional session helpers:
+  # once "mako"
+  # once "gessod"
+  # once "capitd"
+
+  # Example:
+  # on-reload "thunderbird"
+end
+
+# Cursor theme and size.
+# `hide-while-typing` controls whether the cursor is hidden during keyboard input.
+cursor:
+  theme "Adwaita"
+  size 24
+  hide-while-typing false
+end
+
+# Shared font for compositor-drawn UI such as labels and overlays.
+font:
+  family "monospace"
+  size 11
+  weight 500
+end
+
+# Output and viewport configuration.
+#
+# Each output defines its logical size, placement, refresh preferences,
+# and focus ring. In Halley, each monitor has its own viewport into its field.
+viewport:
+  DP-1:
+    enabled true
+
+    offset-x 0
+    offset-y 0
+
+    width 2560
+    height 1440
+
+    rate 180.0
+    transform 0
+    vrr "on"
+
+    # The focus ring defines the main active region on this output.
+    # Windows inside it are eligible to remain expanded; windows outside
+    # it are more likely to decay back into nodes depending on other rules.
+    focus-ring:
+      primary-rx 820.0
+      primary-ry 420.0
+      offset-x 0
+      offset-y 0
+    end
+  end
+
+  # Example secondary output:
+  #
+  # DP-2:
+  #   enabled true
+  #
+  #   offset-x 0
+  #   offset-y 0
+  #
+  #   width 1920
+  #   height 1200
+  #
+  #   rate 75.0
+  #   transform 0
+  #   vrr "off"
+  #
+  #   focus-ring:
+  #     primary-rx 820.0
+  #     primary-ry 420.0
+  #     offset-x 0
+  #     offset-y 0
+  #   end
+  # end
+end
+
+# Global field behavior.
+#
+# The field is Halley’s larger spatial workspace. These options control spacing,
+# how many windows may remain active, how new windows affect camera movement,
+# and how zoom behaves.
+field:
+  gap 20.0
+  active-windows-allowed 5
+  pan-to-new "if-needed"
+  close-restore-focus true
+  close-restore-pan "if-offscreen"
+
+  zoom:
+    enabled true
+
+    # Multiplicative zoom step per input tick.
+    step 1.10
+
+    # Minimum and maximum zoom limits.
+    min 0.35
+    max 2.00
+
+    # Smoothing values for camera movement and zoom interpolation.
+    smooth-center-rate 11.0
+    smooth-zoom-rate 12.5
+  end
+end
+
+# Collapsed window (node) appearance and interaction rules.
+#
+# Nodes are the compact representation of windows in the field.
+# These settings control label visibility, icon display, node styling,
+# and what happens when a collapsed node is clicked.
+node:
+  # Keep the field readable without making it visually noisy.
+  show-labels "hover"
+  show-app-icons "always"
+
+  # Planned styling controls.
+  node-shape "square"
+  node-label-shape "square"
+
+  # Fraction of node diameter used by the app icon.
+  icon-size 0.72
+
+  # Automatically derive the node background from border colour.
+  background-colour "auto"
+
+  border-colour-hover "use-window-active"
+  border-colour-inactive "use-window-inactive"
+
+  # Clicking a collapsed node outside the focus area may activate it,
+  # and optionally pan to it if it is offscreen.
+  click-collapsed-outside-focus "activate"
+  click-collapsed-pan "if-offscreen"
+end
+
+# Delay before active and inactive windows decay.
+#
+# Halley uses decay to reduce visual clutter by collapsing windows back into nodes
+# after they leave the active area or stop qualifying to remain expanded.
+decay:
+  active-delay 120
+  inactive-delay 30
+end
+
+# Trail history controls.
+#
+# Trails track navigation history so you can move backward and forward
+# through previously focused windows or locations.
+trail:
+  history-length 25
+  wrap true
+end
+
+# Bearings are directional indicators for offscreen items.
+#
+# They help show where windows or clusters are relative to the current view.
+bearings:
+  show-distance true
+  show-icons true
+  fade-distance 1200
+end
+
+# Cluster behavior.
+#
+# Clusters are Halley’s spatial grouping mechanism and act as the system’s
+# workspace-like structure. These options control cluster formation distance,
+# bloom arrangement, and default internal presentation.
+clusters:
+  distance-px 280.0
+  bloom-direction "clockwise"
+  show-icons true
+
+  # Planned default layout selection for cluster internals.
+  default-layout "stacking"
+end
+
+# Tiling behavior used when a cluster enters a tiled presentation.
+tile:
+  new-on-top false
+  gaps-inner 20
+  gaps-outer 20
+  max-stack 5
+  queue-show-icons true
+end
+
+# Reserved stacking configuration.
+stacking:
+  max-stack 0
+end
+
+# Physics controls for motion and damping.
+#
+# When enabled, Halley uses softened physical motion to make field navigation
+# and object movement feel less abrupt.
+physics:
+  enabled true
+  damping 0.45
+end
+
+# Animation settings.
+#
+# These control compositor-driven transitions. Some entries are placeholders
+# for features planned just after the initial release.
+animations:
+  enabled true
+
+  window-open:
+    enabled true
+    duration-ms 160
+  end
+
+  window-close:
+    enabled false
+    duration-ms 140
+    style "shrink-fade"
+  end
+
+  layer-open:
+  end
+
+  layer-close:
+  end
+
+  tile-rearrange:
+  end
+end
+
+# Window border and decoration behavior.
+decorations:
+  border-size 3
+  border-radius 0
+  border-colour-focused "#d65d26"
+  border-colour-unfocused "#333333"
+  resize-using-border true
+
+  # Rounded borders force server-side decorations so applications do not
+  # draw square client-side frames inside compositor-rounded shapes.
+  no-csd true
+end
+
+# Keybindings.
+#
+# `mod` defines the main modifier used throughout this section.
+# Bind strings are matched to compositor actions or spawned commands.
+keybinds:
+  mod "super"
+
+  # Basic compositor controls.
+  "$var.mod+shift+r" "reload"
+  "$var.mod+n" "toggle-state"
+  "$var.mod+q" "close-focused"
+
+  # Zoom controls.
+  "$var.mod+mousewheelup" "zoom-in"
+  "$var.mod+mousewheeldown" "zoom-out"
+  "$var.mod+middlemouse" "zoom-reset"
+
+  # Quit Halley.
+  "$var.mod+shift+e" "quit"
+
+  # Move the selected or latest node in the field.
+  "$var.mod+left" "node-move left"
+  "$var.mod+right" "node-move right"
+  "$var.mod+up" "node-move up"
+  "$var.mod+down" "node-move down"
+
+  # Change monitor focus.
+  "$var.mod+shift+left" "monitor-focus left"
+  "$var.mod+shift+right" "monitor-focus right"
+  "$var.mod+shift+up" "monitor-focus up"
+  "$var.mod+shift+down" "monitor-focus down"
+
+  # Cluster mode.
+  "$var.mod+shift+c" "cluster-mode"
+
+  # Bearings controls.
+  "$var.mod+z" "bearings-show"
+  "$var.mod+shift+z" "bearings-toggle"
+
+  # Trail navigation.
+  "$var.mod+," "trail-prev"
+  "$var.mod+." "trail-next"
+
+  # Application launchers.
+  "$var.mod+return" "kitty"
+  "$var.mod+d" "fuzzel"
+
+  # Pointer-driven window interaction.
+  "$var.mod+leftmouse" "move-window"
+  "$var.mod+rightmouse" "resize-window"
+  "$var.mod+shift+leftmouse" "field-jump"
+
+  # Tile layout focus.
+  "$var.mod+left" "tile-focus left"
+  "$var.mod+right" "tile-focus right"
+  "$var.mod+up" "tile-focus up"
+  "$var.mod+down" "tile-focus down"
+
+  # Planned tile swapping.
+  "$var.mod+shift+left" "tile-swap left"
+  "$var.mod+shift+right" "tile-swap right"
+  "$var.mod+shift+up" "tile-swap up"
+  "$var.mod+shift+down" "tile-swap down"
+
+  # Planned stack cycling.
+  "$var.mod+left" "stack-cycle forward"
+  "$var.mod+right" "stack-cycle backward"
+
+  # Traditional app/window cycling.
+  "alt+tab" "cycle-focus"
+
+  # Media controls.
+  "xf86audioraisevolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
+  "xf86audiolowervolume" "wpctl set-volume @default_audio_sink@ 5%-"
+  "xf86audiomute" "wpctl set-mute @default_audio_sink@ toggle"
+end
+
+# Window rules.
+#
+# Rules match windows and apply special handling for spawning, overlap,
+# clustering, and optional size hints.
+rules:
+  rule:
+    title ["Picture-in-Picture", r"File Upload.*"]
+    overlap-policy "all"
+    spawn-position "app"
+    cluster-participation "float"
+    width 800
+    height 650
+  end
+end
+
+# Debug and development options.
+#
+# Most users can leave this section alone. These switches are mainly useful
+# while tuning compositor behavior.
+debug:
+  # Planned post-v0.1.0 overlay.
+  overlay-fps false
+
+  # Show the focus ring while resizing it, including after config changes.
+  show-ring-when-resizing true
+end

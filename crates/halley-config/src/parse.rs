@@ -590,6 +590,11 @@ fn load_cursor_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["cursor.hide-while-typing", "cursor.hide_while_typing"],
         out.cursor.hide_while_typing,
     );
+    out.cursor.hide_after_ms = pick_u64(
+        cfg,
+        &["cursor.hide-after-ms", "cursor.hide_after_ms"],
+        out.cursor.hide_after_ms,
+    );
 }
 
 fn load_font_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {

@@ -103,6 +103,17 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
     if st.input.interaction_state.cursor_hidden_by_typing {
         return CursorImageStatus::Hidden;
     }
+
+    let hide_after_ms = st.runtime.tuning.cursor.hide_after_ms;
+    if hide_after_ms > 0 {
+        let now_ms = st.now_ms(std::time::Instant::now());
+        if now_ms.saturating_sub(st.input.interaction_state.last_cursor_activity_at_ms)
+            >= hide_after_ms
+        {
+            return CursorImageStatus::Hidden;
+        }
+    }
+
     st.input
         .interaction_state
         .cursor_override_icon

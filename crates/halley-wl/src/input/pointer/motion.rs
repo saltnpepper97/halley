@@ -178,7 +178,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     delta_unaccel: (f64, f64),
     time_usec: u64,
 ) {
-    if crate::compositor::interaction::state::reveal_cursor_from_pointer_activity(st) {
+    if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
         ctx.backend.request_redraw();
     }
 

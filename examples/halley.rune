@@ -7,6 +7,7 @@ autostart:
   #once "mako"
   #once "gessod"
   #once "capitd"
+  #once "stasis"
 
   # Example:
   #on-reload "thunderbird"
@@ -15,7 +16,8 @@ end
 cursor:
   theme "Adwaita"
   size 24
-  hide-while-typing false
+  hide-when-typing true
+  hide-after-ms 2000
 end
 
 font:

@@ -93,6 +93,7 @@ pub struct CursorConfig {
     pub theme: String,
     pub size: u32,
     pub hide_while_typing: bool,
+    pub hide_after_ms: u64,
 }
 
 impl Default for CursorConfig {
@@ -101,6 +102,7 @@ impl Default for CursorConfig {
             theme: "Adwaita".to_string(),
             size: 24,
             hide_while_typing: false,
+            hide_after_ms: 2000,
         }
     }
 }
