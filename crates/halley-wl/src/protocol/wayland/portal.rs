@@ -5,16 +5,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use smithay::{
     backend::{
-        allocator::{Format, Fourcc, dmabuf::Dmabuf},
+        allocator::{dmabuf::Dmabuf, Format, Fourcc},
         renderer::{
-            Bind, BufferType, ExportMem, Offscreen, TextureMapping, buffer_type,
+            buffer_type,
             gles::{GlesRenderer, GlesTexture},
+            Bind, BufferType, ExportMem, Offscreen, TextureMapping,
         },
     },
     output::Output,
     reexports::wayland_server::protocol::{wl_buffer, wl_shm},
     utils::{Buffer, Logical, Physical, Rectangle, Size, Transform},
-    wayland::shm::{BufferAccessError, BufferData, with_buffer_contents_mut},
+    wayland::shm::{with_buffer_contents_mut, BufferAccessError, BufferData},
 };
 
 use crate::{
@@ -252,14 +253,7 @@ pub(crate) fn capture_output_via_renderer(
         }
 
         let mapping = renderer.copy_texture(&texture, capture_region, Fourcc::Xrgb8888)?;
-        let mut bytes = renderer.map_texture(&mapping)?.to_vec();
-        if mapping.flipped() {
-            normalize_frame_rows_top_to_bottom(
-                &mut bytes,
-                spec.stride as usize,
-                spec.height as usize,
-            );
-        }
+        let bytes = renderer.map_texture(&mapping)?.to_vec();
         Ok(ShmCaptureFrame {
             spec,
             bytes,
@@ -399,21 +393,6 @@ fn validate_dmabuf_capture_target(
     Ok(())
 }
 
-fn normalize_frame_rows_top_to_bottom(bytes: &mut [u8], stride: usize, height: usize) {
-    if stride == 0 || height <= 1 {
-        return;
-    }
-
-    let mut scratch = vec![0u8; stride];
-    for row in 0..(height / 2) {
-        let top = row * stride;
-        let bottom = (height - 1 - row) * stride;
-        scratch.copy_from_slice(&bytes[top..top + stride]);
-        bytes.copy_within(bottom..bottom + stride, top);
-        bytes[bottom..bottom + stride].copy_from_slice(&scratch);
-    }
-}
-
 fn validate_shm_buffer(
     metadata: BufferData,
     spec: ScreencopyBufferSpec,
@@ -505,12 +484,5 @@ mod tests {
         .expect_err("buffer should be rejected");
 
         assert!(err.contains("mismatch"));
-    }
-
-    #[test]
-    fn normalize_frame_rows_flips_top_and_bottom_rows() {
-        let mut bytes = vec![1u8, 2, 3, 4, 5, 6];
-        normalize_frame_rows_top_to_bottom(&mut bytes, 2, 3);
-        assert_eq!(bytes, vec![5, 6, 3, 4, 1, 2]);
     }
 }
