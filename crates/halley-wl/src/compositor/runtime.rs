@@ -92,6 +92,16 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
         }
         if let Some(at_ms) = self
             .model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .values()
+            .copied()
+            .min()
+        {
+            consider(at_ms);
+        }
+        if let Some(at_ms) = self
+            .model
             .workspace_state
             .active_transition_until_ms
             .values()
@@ -351,6 +361,10 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             .workspace_state
             .manual_collapsed_nodes
             .retain(|id| alive_ids.contains(id));
+        self.model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .retain(|id, _| alive_ids.contains(id));
 
         self.process_pending_spawn_activations(now, now_ms);
         let resize_settling = self

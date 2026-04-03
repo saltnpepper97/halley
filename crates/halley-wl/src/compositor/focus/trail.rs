@@ -58,6 +58,12 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
             .get(&id)
             .cloned()
             .unwrap_or_else(|| self.focused_monitor().to_string());
+        if self
+            .active_cluster_workspace_for_monitor(monitor.as_str())
+            .is_some()
+        {
+            return;
+        }
         let trail_history_length = self.runtime.tuning.trail_history_length;
         let trail = self.trail_for_monitor_mut(monitor.as_str());
         if trail.cursor() == Some(id) {
@@ -126,6 +132,12 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
         now: Instant,
     ) -> bool {
         let monitor = self.focused_monitor().to_string();
+        if self
+            .active_cluster_workspace_for_monitor(monitor.as_str())
+            .is_some()
+        {
+            return false;
+        }
         let trail_wrap = self.runtime.tuning.trail_wrap;
         let current_focus = self.model.focus_state.primary_interaction_focus;
         let mut remaining = self
@@ -180,6 +192,9 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
         monitor: &str,
         closing_id: NodeId,
     ) -> Option<NodeId> {
+        if self.active_cluster_workspace_for_monitor(monitor).is_some() {
+            return None;
+        }
         let mut remaining = self
             .model
             .focus_state
@@ -234,6 +249,9 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
         id: NodeId,
         now: Instant,
     ) -> bool {
+        if self.active_cluster_workspace_for_monitor(monitor).is_some() {
+            return false;
+        }
         let Some(node) = self.model.field.node(id).cloned() else {
             return false;
         };

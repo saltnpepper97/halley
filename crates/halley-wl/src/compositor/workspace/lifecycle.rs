@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use halley_core::decay::DecayLevel;
-use halley_core::field::{NodeId, Vec2};
+use halley_core::field::{NodeId, Vec2, Visibility};
 use smithay::reexports::wayland_server::{
     Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
 };
@@ -183,6 +183,10 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
             st.model
                 .spawn_state
                 .pending_spawn_activate_at_ms
+                .remove(&id);
+            st.model
+                .spawn_state
+                .pending_tiled_insert_reveal_at_ms
                 .remove(&id);
             crate::protocol::wayland::activation::clear_surface_activation_for_root(
                 st,
@@ -384,6 +388,11 @@ fn maybe_apply_pending_initial_window_rule(
         .get(&node_id)
         .cloned()
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let mut cluster_local = st
+        .model
+        .field
+        .cluster_id_for_member_public(node_id)
+        .is_some_and(|cid| st.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(cid));
     if st.cluster_bloom_for_monitor(monitor.as_str()).is_some() {
         st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
         st.model.spawn_state.pending_initial_reveal.remove(&node_id);
@@ -392,15 +401,18 @@ fn maybe_apply_pending_initial_window_rule(
     }
 
     if intent.rule.cluster_participation == halley_config::InitialWindowClusterParticipation::Float
+        && cluster_local
         && let Some(cid) = st.model.field.cluster_id_for_member_public(node_id)
-        && st.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(cid)
         && let Some(pos) = st.model.field.node(node_id).map(|node| node.pos)
     {
         let _ = st.detach_member_from_cluster(cid, node_id, pos, now);
         st.assign_node_to_monitor(node_id, monitor.as_str());
+        cluster_local = false;
     }
 
-    if let Some(size) = st.model.field.node(node_id).map(|node| node.intrinsic_size) {
+    if !cluster_local
+        && let Some(size) = st.model.field.node(node_id).map(|node| node.intrinsic_size)
+    {
         let (_, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
         let _ = st.model.field.carry(node_id, pos);
     }
@@ -665,6 +677,20 @@ fn ensure_node_for_surface_impl(
             .observe_field(&st.model.field, now);
     }
     if let Some(cid) = active_cluster.filter(|_| joined_active_cluster) {
+        if matches!(
+            st.runtime.tuning.cluster_layout_kind(),
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+        ) {
+            st.model
+                .spawn_state
+                .pending_tiled_insert_reveal_at_ms
+                .insert(id, st.now_ms(now).saturating_add(140));
+            if let Some(node) = st.model.field.node_mut(id) {
+                node.visibility.set(Visibility::DETACHED, true);
+                node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, true);
+            }
+            st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), st.now_ms(now));
+        }
         if let Some(old_visible) = stack_spawn_transition.as_ref()
             && matches!(
                 st.runtime.tuning.cluster_layout_kind(),
@@ -748,6 +774,10 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         st.model
             .spawn_state
             .pending_spawn_activate_at_ms
+            .remove(&id);
+        st.model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
             .remove(&id);
         st.model.spawn_state.applied_window_rules.remove(&id);
         st.model.spawn_state.pending_rule_rechecks.remove(&id);

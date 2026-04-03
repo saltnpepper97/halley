@@ -9,7 +9,7 @@ use halley_core::field::{Field, NodeId, Vec2};
 use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
 use smithay::utils::{Logical, Rectangle};
 
-use crate::animation::Animator;
+use crate::animation::{Animator, ClusterTileTracks};
 use crate::overlay::{
     ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot, OverlayBannerState,
     OverlayToastSnapshot, OverlayToastState,
@@ -116,6 +116,9 @@ pub(crate) struct RenderState {
     pub(crate) node_preview_hover: HashMap<String, PreviewHoverState>,
     pub(crate) bearings_visible: bool,
     pub(crate) bearings_mix: HashMap<String, f32>,
+    pub(crate) cluster_tile_tracks: ClusterTileTracks,
+    pub(crate) cluster_tile_entry_pending: HashSet<NodeId>,
+    pub(crate) cluster_tile_frozen_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) cluster_bloom_mix: HashMap<String, ClusterBloomAnimState>,
     pub(crate) overlay_banner: HashMap<String, OverlayBannerState>,
     pub(crate) overlay_toast: HashMap<String, OverlayToastState>,

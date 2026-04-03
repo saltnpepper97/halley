@@ -1222,6 +1222,12 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             self.runtime.tuning.viewport_center = live_viewport.center;
             self.runtime.tuning.viewport_size = live_viewport.size;
         }
+        self.model.spawn_state.pending_spawn_pan_queue.clear();
+        self.model.spawn_state.active_spawn_pan = None;
+        self.input.interaction_state.viewport_pan_anim = None;
+        self.model.spawn_state.pending_spawn_monitor = None;
+        let spawn = self.spawn_monitor_state_mut(monitor);
+        spawn.spawn_pan_start_center = None;
         for id in &plan.hidden_ids {
             let _ = self.model.field.set_detached(*id, true);
         }
@@ -1361,10 +1367,92 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         else {
             return;
         };
+        let now = Instant::now();
+        if matches!(plan.kind, ClusterWorkspaceLayoutKind::Tiling) {
+            for placement in &plan.tiles {
+                if self
+                    .model
+                    .spawn_state
+                    .pending_tiled_insert_reveal_at_ms
+                    .contains_key(&placement.node_id)
+                {
+                    self.ui
+                        .render_state
+                        .cluster_tile_tracks
+                        .remove(&placement.node_id);
+                    self.ui
+                        .render_state
+                        .cluster_tile_entry_pending
+                        .remove(&placement.node_id);
+                    self.ui
+                        .render_state
+                        .cluster_tile_frozen_geometry
+                        .remove(&placement.node_id);
+                    continue;
+                }
+                if Some(placement.node_id) == dragged_member {
+                    self.ui
+                        .render_state
+                        .cluster_tile_tracks
+                        .remove(&placement.node_id);
+                    self.ui
+                        .render_state
+                        .cluster_tile_entry_pending
+                        .remove(&placement.node_id);
+                    self.ui
+                        .render_state
+                        .cluster_tile_frozen_geometry
+                        .remove(&placement.node_id);
+                    continue;
+                }
+                let current_rect = if self
+                    .ui
+                    .render_state
+                    .cluster_tile_entry_pending
+                    .remove(&placement.node_id)
+                {
+                    None
+                } else {
+                    crate::animation::cluster_tile_rect_from_field(
+                        &self.model.field,
+                        placement.node_id,
+                    )
+                };
+                let frozen_geo = self
+                    .ui
+                    .render_state
+                    .window_geometry
+                    .get(&placement.node_id)
+                    .copied();
+                if current_rect.is_some_and(|rect| rect.alpha > 0.01)
+                    && let Some(geo) = frozen_geo
+                {
+                    self.ui
+                        .render_state
+                        .cluster_tile_frozen_geometry
+                        .entry(placement.node_id)
+                        .or_insert(geo);
+                }
+                crate::animation::set_cluster_tile_target(
+                    &mut self.ui.render_state.cluster_tile_tracks,
+                    current_rect,
+                    placement.node_id,
+                    placement.rect,
+                    now,
+                );
+            }
+        }
         let visible_members = plan
             .tiles
             .iter()
             .map(|tile| tile.node_id)
+            .filter(|id| {
+                !self
+                    .model
+                    .spawn_state
+                    .pending_tiled_insert_reveal_at_ms
+                    .contains_key(id)
+            })
             .collect::<std::collections::HashSet<_>>();
         for member_id in &members {
             if let Some(cluster) = self.model.field.cluster_mut(cid)
@@ -1377,7 +1465,13 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         }
         for placement in plan.tiles {
             let nid = placement.node_id;
-            if Some(nid) == dragged_member {
+            if Some(nid) == dragged_member
+                || self
+                    .model
+                    .spawn_state
+                    .pending_tiled_insert_reveal_at_ms
+                    .contains_key(&nid)
+            {
                 continue;
             }
             let rect = placement.rect;

@@ -535,7 +535,7 @@ fn offscreen_visual_crop_and_dst(
     preserve_visual_margin: bool,
     lock_dst_to_geometry: bool,
 ) -> (f64, f64, f64, f64, i32, i32, i32, i32, i32, i32, i32, i32) {
-    const VISUAL_MARGIN_CAP: f32 = 1.1;
+    const VISUAL_MARGIN_CAP: f32 = 4.0;
 
     let geo_x = geo_lx - bbox_loc_x as f32;
     let geo_y = geo_ly - bbox_loc_y as f32;
@@ -637,6 +637,15 @@ pub(crate) fn collect_active_surfaces(
     let mut popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut fullscreen_popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
+    crate::animation::retain_live_cluster_tile_tracks(
+        &mut st.ui.render_state.cluster_tile_tracks,
+        &st.model.field,
+        now,
+    );
+    if crate::animation::cluster_tile_tracks_animating(&st.ui.render_state.cluster_tile_tracks, now)
+    {
+        st.request_maintenance();
+    }
     let current_monitor = st.model.monitor_state.current_monitor.clone();
     let stack_visible_front_to_back =
         active_stacking_visible_members_for_monitor(st, current_monitor.as_str());
@@ -738,6 +747,28 @@ pub(crate) fn collect_active_surfaces(
             .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor);
 
         let active_cluster_member = is_active_cluster_workspace_member(st, node_id);
+        let dragging_this_node = st.input.interaction_state.drag_authority_node == Some(node_id);
+        let tiling_tile_transition = (active_cluster_member
+            && !dragging_this_node
+            && matches!(
+                st.runtime.tuning.cluster_layout_kind(),
+                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+            ))
+        .then(|| {
+            crate::animation::cluster_tile_rect_for(
+                &st.ui.render_state.cluster_tile_tracks,
+                node_id,
+                now,
+            )
+        })
+        .flatten();
+        let frozen_tiling_geometry = tiling_tile_transition.and_then(|_| {
+            st.ui
+                .render_state
+                .cluster_tile_frozen_geometry
+                .get(&node_id)
+                .copied()
+        });
         let transition_alpha = st.active_transition_alpha(node_id, now);
         let anim = crate::render::anim_style_for(st, node_id, node_state.clone(), now);
         let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
@@ -787,6 +818,7 @@ pub(crate) fn collect_active_surfaces(
 
         let p = stack_transition_pose
             .map(|pose| pose.center)
+            .or_else(|| tiling_tile_transition.map(|rect| rect.center))
             .unwrap_or(node_pos);
         let local_bbox = (
             bbox.loc.x as f32,
@@ -811,7 +843,8 @@ pub(crate) fn collect_active_surfaces(
                 target_size.y.max(1.0),
             )
         } else {
-            window_geometry_for_node(st, node_id).unwrap_or(local_bbox)
+            frozen_tiling_geometry
+                .unwrap_or_else(|| window_geometry_for_node(st, node_id).unwrap_or(local_bbox))
         };
 
         let (cx, cy, sx, sy, texture_rect, geometry_rect) =
@@ -823,9 +856,11 @@ pub(crate) fn collect_active_surfaces(
             } else {
                 let (cx, cy) = world_to_screen(st, size.w, size.h, p.x, p.y);
 
-                let (_, _, gw, gh) = local_geo;
-                let rw = (gw * render_scale).round().max(1.0) as i32;
-                let rh = (gh * render_scale).round().max(1.0) as i32;
+                let (render_geo_w, render_geo_h) = tiling_tile_transition
+                    .map(|rect| (rect.size.x, rect.size.y))
+                    .unwrap_or((local_geo.2, local_geo.3));
+                let rw = (render_geo_w * render_scale).round().max(1.0) as i32;
+                let rh = (render_geo_h * render_scale).round().max(1.0) as i32;
 
                 let (rx, ry, rw, rh) = if fullscreen_on_current_monitor {
                     (
@@ -876,9 +911,11 @@ pub(crate) fn collect_active_surfaces(
             }
         }
 
-        let alpha =
-            (anim.alpha * live_ramp * stack_transition_pose.map(|pose| pose.alpha).unwrap_or(1.0))
-                .clamp(0.0, 1.0);
+        let alpha = (anim.alpha
+            * live_ramp
+            * stack_transition_pose.map(|pose| pose.alpha).unwrap_or(1.0)
+            * tiling_tile_transition.map(|rect| rect.alpha).unwrap_or(1.0))
+        .clamp(0.0, 1.0);
         let background_fill_animation_ready = transition_alpha <= 0.01 && live_ramp >= 0.995;
         let effective_border_px = if fullscreen_on_current_monitor {
             0
@@ -949,7 +986,16 @@ pub(crate) fn collect_active_surfaces(
         let use_offscreen_zoom = !fullscreen_on_current_monitor;
 
         if use_offscreen_zoom {
-            let cache_miss = {
+            let defer_offscreen_rebuild = tiling_tile_transition.is_some();
+            let stale_cache_available = st
+                .ui
+                .render_state
+                .window_offscreen_cache
+                .get(&node_id)
+                .is_some_and(|cache| cache.texture.is_some() && cache.bbox.is_some());
+            let cache_miss = if defer_offscreen_rebuild {
+                !stale_cache_available
+            } else {
                 let cache = st.ui.render_state.ensure_window_offscreen_cache(
                     node_id,
                     bbox.size.w,
@@ -960,6 +1006,90 @@ pub(crate) fn collect_active_surfaces(
             };
 
             if cache_miss {
+                if defer_offscreen_rebuild {
+                    log_window_render_path(
+                        st,
+                        node_id,
+                        "direct-surface-transition",
+                        &format!(
+                            "texture_rect=({},{} {}x{}) geo_rect=({},{} {}x{})",
+                            texture_rect.0,
+                            texture_rect.1,
+                            texture_rect.2,
+                            texture_rect.3,
+                            gx,
+                            gy,
+                            gw.max(1),
+                            gh.max(1)
+                        ),
+                    );
+                    let elems = render_elements_from_surface_tree(
+                        renderer,
+                        &wl,
+                        (sx, sy),
+                        element_scale as f64,
+                        alpha,
+                        Kind::Unspecified,
+                    );
+                    let has_content = !elems.is_empty();
+
+                    let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
+                        (
+                            output_clip.loc.x,
+                            output_clip.loc.y,
+                            output_clip.size.w,
+                            output_clip.size.h,
+                        )
+                    } else {
+                        texture_rect
+                    };
+                    let display_clip = Rectangle::<i32, Physical>::new(
+                        (tx, ty).into(),
+                        (tw.max(1), th.max(1)).into(),
+                    );
+
+                    let cropped: Vec<_> = elems
+                        .into_iter()
+                        .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
+                        .collect();
+
+                    if stack_render_set.contains(&node_id) {
+                        stack_window_units
+                            .entry(node_id)
+                            .or_insert_with(|| {
+                                StackWindowDrawUnit::new(
+                                    node_id,
+                                    stack_draw_orders.get(&node_id).copied().unwrap_or_default(),
+                                )
+                            })
+                            .active_elements
+                            .extend(cropped);
+                    } else if fullscreen_on_current_monitor {
+                        fullscreen_active_elements.extend(cropped);
+                    } else if draw_top_this_node {
+                        resized_active_elements.extend(cropped);
+                    } else {
+                        active_elements.extend(cropped);
+                    }
+                    set_border_fill_background_for_node(
+                        node_id,
+                        draw_top_this_node,
+                        &mut border_rects,
+                        &mut resized_border_rects,
+                        &stack_render_set,
+                        &mut stack_window_units,
+                        border_background_fill_ready(
+                            st,
+                            node_id,
+                            now,
+                            allow_border_background,
+                            background_fill_animation_ready,
+                            has_content,
+                        ),
+                    );
+                    continue;
+                }
+
                 match render_surface_tree_to_texture(renderer, &wl, 1.0, offscreen_clip.clone()) {
                     Ok(offscreen) => {
                         log_window_render_path(

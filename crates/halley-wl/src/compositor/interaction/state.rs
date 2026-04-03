@@ -229,6 +229,7 @@ fn field_viewport_for_monitor(st: &Halley, monitor_name: &str) -> Option<Viewpor
         .map(|space| Viewport::new(space.viewport.center, space.zoom_ref_size))
 }
 
+#[cfg(test)]
 pub(crate) fn node_fully_visible_on_monitor(
     st: &Halley,
     monitor_name: &str,

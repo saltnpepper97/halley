@@ -266,6 +266,7 @@ impl Halley {
                 },
                 spawn_state: SpawnState {
                     pending_spawn_activate_at_ms: HashMap::new(),
+                    pending_tiled_insert_reveal_at_ms: HashMap::new(),
                     pending_spawn_monitor: None,
                     per_monitor: HashMap::new(),
                     pending_spawn_pan_queue: VecDeque::new(),
@@ -290,6 +291,9 @@ impl Halley {
                     node_preview_hover: HashMap::new(),
                     bearings_visible: false,
                     bearings_mix: HashMap::new(),
+                    cluster_tile_tracks: HashMap::new(),
+                    cluster_tile_entry_pending: HashSet::new(),
+                    cluster_tile_frozen_geometry: HashMap::new(),
                     cluster_bloom_mix: HashMap::new(),
                     overlay_banner: HashMap::new(),
                     overlay_toast: HashMap::new(),

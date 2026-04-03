@@ -89,6 +89,16 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
         .retain(|monitor, state| {
             st.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
         });
+    st.ui
+        .render_state
+        .cluster_tile_entry_pending
+        .retain(|id| alive.contains(id));
+    st.ui
+        .render_state
+        .cluster_tile_frozen_geometry
+        .retain(|id, _| {
+            alive.contains(id) && st.ui.render_state.cluster_tile_tracks.contains_key(id)
+        });
     st.ui.render_state.prune_window_offscreen_cache(&alive, now);
     st.ui.render_state.prune_window_fill_ready_after(&alive);
     st.ui.render_state.prune_ui_text_cache(now);

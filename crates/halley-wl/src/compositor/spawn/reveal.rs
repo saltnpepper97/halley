@@ -733,6 +733,38 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         is_transient: bool,
         now: Instant,
     ) {
+        let node_monitor = self
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
+        let cluster_local = self
+            .model
+            .field
+            .cluster_id_for_member_public(id)
+            .is_some_and(|cid| {
+                self.active_cluster_workspace_for_monitor(node_monitor.as_str()) == Some(cid)
+            });
+        if self
+            .model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .contains_key(&id)
+        {
+            return;
+        }
+        if cluster_local {
+            self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
+            self.set_interaction_focus(Some(id), 30_000, now);
+            self.model
+                .spawn_state
+                .pending_spawn_activate_at_ms
+                .remove(&id);
+            self.mark_active_transition(id, now, 620);
+            return;
+        }
         if self.model.spawn_state.pending_initial_reveal.contains(&id) {
             return;
         }

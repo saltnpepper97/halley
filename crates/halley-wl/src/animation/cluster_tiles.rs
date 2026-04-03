@@ -46,7 +46,25 @@ fn anim_rect_from_tile_rect(rect: Rect, alpha: f32) -> ClusterTileAnimRect {
 }
 
 #[inline]
-fn anim_rect_from_field(field: &Field, id: NodeId) -> Option<ClusterTileAnimRect> {
+fn entry_rect_for_target(target: ClusterTileAnimRect) -> ClusterTileAnimRect {
+    ClusterTileAnimRect {
+        center: Vec2 {
+            x: target.center.x - target.size.x * 0.12,
+            y: target.center.y,
+        },
+        size: Vec2 {
+            x: target.size.x * 0.98,
+            y: target.size.y * 0.98,
+        },
+        alpha: 0.0,
+    }
+}
+
+#[inline]
+pub(crate) fn cluster_tile_rect_from_field(
+    field: &Field,
+    id: NodeId,
+) -> Option<ClusterTileAnimRect> {
     let node = field.node(id)?;
     Some(ClusterTileAnimRect {
         center: node.pos,
@@ -103,7 +121,7 @@ pub(crate) fn cluster_tile_rect_for_track(
 
 pub(crate) fn set_cluster_tile_target(
     tracks: &mut ClusterTileTracks,
-    field: &Field,
+    current_rect: Option<ClusterTileAnimRect>,
     node_id: NodeId,
     target_rect: Rect,
     now: Instant,
@@ -112,8 +130,16 @@ pub(crate) fn set_cluster_tile_target(
     let current = tracks
         .get(&node_id)
         .map(|track| cluster_tile_rect_for_track(track, now))
-        .or_else(|| anim_rect_from_field(field, node_id))
-        .unwrap_or(target);
+        .or_else(|| {
+            current_rect.map(|current| {
+                if current.alpha <= 0.01 {
+                    entry_rect_for_target(target)
+                } else {
+                    current
+                }
+            })
+        })
+        .unwrap_or_else(|| entry_rect_for_target(target));
 
     if tracks
         .get(&node_id)
@@ -147,29 +173,18 @@ pub(crate) fn cluster_tile_rect_for(
         .map(|track| cluster_tile_rect_for_track(track, now))
 }
 
-pub(crate) fn clear_cluster_tile_tracks_for_nodes(
-    tracks: &mut ClusterTileTracks,
-    ids: impl IntoIterator<Item = NodeId>,
-) {
-    for id in ids {
-        tracks.remove(&id);
-    }
-}
-
 pub(crate) fn retain_live_cluster_tile_tracks(
     tracks: &mut ClusterTileTracks,
     field: &Field,
     now: Instant,
 ) {
     tracks.retain(|id, track| {
-        field.node(*id).is_some() && now.saturating_duration_since(track.started_at) < track.duration
+        field.node(*id).is_some()
+            && now.saturating_duration_since(track.started_at) < track.duration
     });
 }
 
-pub(crate) fn cluster_tile_tracks_animating(
-    tracks: &ClusterTileTracks,
-    now: Instant,
-) -> bool {
+pub(crate) fn cluster_tile_tracks_animating(tracks: &ClusterTileTracks, now: Instant) -> bool {
     tracks
         .values()
         .any(|track| now.saturating_duration_since(track.started_at) < track.duration)

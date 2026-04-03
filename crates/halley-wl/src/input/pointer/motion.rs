@@ -54,12 +54,7 @@ pub(crate) fn begin_drag(
         .get(&hit.node_id)
         .cloned()
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
-    let edge_pan_eligible = crate::compositor::interaction::state::node_fully_visible_on_monitor(
-        st,
-        drag_monitor.as_str(),
-        hit.node_id,
-    )
-    .unwrap_or(false);
+    let edge_pan_eligible = false;
     let mut drag_ctx = DragCtx {
         node_id: hit.node_id,
         allow_monitor_transfer,
@@ -118,13 +113,11 @@ pub(crate) fn begin_drag(
         );
         st.set_interaction_focus(Some(focus_target), 30_000, Instant::now());
     }
-    if edge_pan_eligible {
-        let to = halley_core::field::Vec2 {
-            x: world_now.x - drag_ctx.current_offset.x,
-            y: world_now.y - drag_ctx.current_offset.y,
-        };
-        let _ = st.carry_surface_non_overlap(hit.node_id, to, false);
-    }
+    let to = halley_core::field::Vec2 {
+        x: world_now.x - drag_ctx.current_offset.x,
+        y: world_now.y - drag_ctx.current_offset.y,
+    };
+    let _ = st.carry_surface_non_overlap(hit.node_id, to, false);
     backend.request_redraw();
 }
 

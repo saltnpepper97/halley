@@ -137,10 +137,18 @@ pub(crate) fn focus_or_reveal_surface_node(
         halley_core::field::NodeState::Node => promote_node_level(st, node_id, now),
         halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting => {
             st.set_interaction_focus(Some(node_id), 30_000, now);
-            let panned = st
-                .minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
-                .map(|target| st.animate_viewport_center_to(target, now))
-                .unwrap_or(false);
+            let is_pending_tiled = st
+                .model
+                .spawn_state
+                .pending_tiled_insert_reveal_at_ms
+                .contains_key(&node_id);
+            let panned = if is_pending_tiled {
+                false
+            } else {
+                st.minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
+                    .map(|target| st.animate_viewport_center_to(target, now))
+                    .unwrap_or(false)
+            };
             panned || true
         }
         halley_core::field::NodeState::Core => false,
