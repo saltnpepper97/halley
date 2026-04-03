@@ -1220,7 +1220,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
             ev.handle().insert_source(timer, move |_tick, _, st| {
                 if crate::compositor::interaction::state::take_input_state_reset_request(st) {
-                    *mod_state_for_timer.borrow_mut() = ModState::default();
+                    mod_state_for_timer.borrow_mut().clear_intercepts();
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     ps.intercepted_buttons.clear();
                     ps.intercepted_binding_buttons.clear();

@@ -28,6 +28,13 @@ pub(crate) struct ModState {
     pub(crate) intercepted_compositor_actions: HashMap<u32, CompositorBindingAction>,
 }
 
+impl ModState {
+    pub(crate) fn clear_intercepts(&mut self) {
+        self.intercepted_keys.clear();
+        self.intercepted_compositor_actions.clear();
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct NodeMoveAnim {
     pub(crate) node_id: NodeId,
