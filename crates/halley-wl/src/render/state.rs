@@ -87,6 +87,7 @@ pub(crate) enum NodeAppIconCacheEntry {
 pub(crate) struct PreviewHoverState {
     pub(crate) node: Option<NodeId>,
     pub(crate) mix: f32,
+    pub(crate) overlay_anchor: Option<((i32, i32), bool)>,
 }
 
 pub(crate) struct RenderState {
@@ -161,6 +162,7 @@ impl RenderState {
         if hovered.is_some() && hovered != state.node {
             state.node = hovered;
             state.mix = 0.0;
+            state.overlay_anchor = None;
         }
         let target = if hovered.is_some() { 1.0 } else { 0.0 };
         let k = if target > 0.5 { 0.30 } else { 0.14 };
@@ -171,6 +173,7 @@ impl RenderState {
         if target <= 0.0 && state.mix <= 0.002 {
             state.mix = 0.0;
             state.node = None;
+            state.overlay_anchor = None;
         }
         state.node.map(|id| (id, state.mix))
     }

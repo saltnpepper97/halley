@@ -362,9 +362,31 @@ pub(crate) fn collect_hover_preview(
         return (None, Vec::new());
     };
 
-    let overlay_anchor = overlay_hover_preview
+    let live_overlay_anchor = overlay_hover_preview
         .filter(|preview| preview.0 == preview_id)
         .map(|preview| (preview.1, preview.2));
+    let fading_overlay_preview = hovered_preview_id.is_none() && overlay_hover_preview.is_none();
+    let overlay_anchor = {
+        let preview_state = st
+            .ui
+            .render_state
+            .node_preview_hover
+            .entry(monitor.to_string())
+            .or_default();
+        if preview_state.node != Some(preview_id) {
+            preview_state.overlay_anchor = None;
+        }
+        if let Some(anchor) = live_overlay_anchor {
+            preview_state.overlay_anchor = Some(anchor);
+        }
+        if live_overlay_anchor.is_some() {
+            live_overlay_anchor
+        } else if fading_overlay_preview && preview_state.node == Some(preview_id) {
+            preview_state.overlay_anchor
+        } else {
+            None
+        }
+    };
     if overlay_anchor.is_none()
         && !matches!(
             node_state,

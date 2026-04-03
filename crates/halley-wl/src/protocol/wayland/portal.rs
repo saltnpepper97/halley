@@ -5,17 +5,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use smithay::{
     backend::{
-        allocator::{dmabuf::Dmabuf, Format, Fourcc},
+        allocator::{Format, Fourcc, dmabuf::Dmabuf},
         renderer::{
-            buffer_type,
+            Bind, BufferType, ExportMem, Offscreen, TextureMapping, buffer_type,
             gles::{GlesRenderer, GlesTexture},
-            Bind, BufferType, ExportMem, Offscreen, TextureMapping,
         },
     },
     output::Output,
     reexports::wayland_server::protocol::{wl_buffer, wl_shm},
     utils::{Buffer, Logical, Physical, Rectangle, Size, Transform},
-    wayland::shm::{with_buffer_contents_mut, BufferAccessError, BufferData},
+    wayland::shm::{BufferAccessError, BufferData, with_buffer_contents_mut},
 };
 
 use crate::{
