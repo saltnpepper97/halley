@@ -141,11 +141,11 @@ fn init_screencopy_frame(
             spec.stride as u32,
         );
         if resource.version() >= 3 {
+            if let Some(format) = portal::screencopy_dmabuf_format(state, logical_region) {
+                resource.linux_dmabuf(format as u32, spec.width as u32, spec.height as u32);
+            }
             resource.buffer_done();
         }
-    }
-    if resource.version() >= 3 {
-        resource.buffer_done();
     }
 }
 
