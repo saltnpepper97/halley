@@ -221,7 +221,7 @@ fn offscreen_visual_crop_and_dst(
     preserve_visual_margin: bool,
     lock_dst_to_geometry: bool,
 ) -> (f64, f64, f64, f64, i32, i32, i32, i32, i32, i32, i32, i32) {
-    const VISUAL_MARGIN_CAP: i32 = 4;
+    const VISUAL_MARGIN_CAP: f32 = 1.1;
 
     let geo_x = geo_lx - bbox_loc_x as f32;
     let geo_y = geo_ly - bbox_loc_y as f32;
@@ -235,10 +235,10 @@ fn offscreen_visual_crop_and_dst(
 
     let (left_extra, top_extra, right_extra, bottom_extra) = if preserve_visual_margin {
         (
-            geo_x.clamp(0.0, VISUAL_MARGIN_CAP as f32),
-            geo_y.clamp(0.0, VISUAL_MARGIN_CAP as f32),
-            (bbox_right - geo_right_abs).clamp(0.0, VISUAL_MARGIN_CAP as f32),
-            (bbox_bottom - geo_bottom_abs).clamp(0.0, VISUAL_MARGIN_CAP as f32),
+            geo_x.clamp(0.0, VISUAL_MARGIN_CAP),
+            geo_y.clamp(0.0, VISUAL_MARGIN_CAP),
+            (bbox_right - geo_right_abs).clamp(0.0, VISUAL_MARGIN_CAP),
+            (bbox_bottom - geo_bottom_abs).clamp(0.0, VISUAL_MARGIN_CAP),
         )
     } else {
         (0.0, 0.0, 0.0, 0.0)
