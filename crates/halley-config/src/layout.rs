@@ -34,6 +34,12 @@ pub enum NodeBackgroundColorMode {
     Fixed { r: f32, g: f32, b: f32 },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShapeStyle {
+    Square,
+    Squircle,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DecorationBorderColor {
     pub r: f32,
@@ -228,6 +234,8 @@ pub struct RuntimeTuning {
     pub primary_to_node_ms: u64,
     pub node_show_labels: NodeDisplayPolicy,
     pub node_show_app_icons: NodeDisplayPolicy,
+    pub node_shape: ShapeStyle,
+    pub node_label_shape: ShapeStyle,
     pub node_icon_size: f32,
     pub node_background_color: NodeBackgroundColorMode,
     pub node_border_color_hover: NodeBorderColorMode,
@@ -355,6 +363,8 @@ impl Default for RuntimeTuning {
             primary_to_node_ms: 1_260_000,
             node_show_labels: NodeDisplayPolicy::Hover,
             node_show_app_icons: NodeDisplayPolicy::Always,
+            node_shape: ShapeStyle::Squircle,
+            node_label_shape: ShapeStyle::Squircle,
             node_icon_size: 0.72,
             node_background_color: NodeBackgroundColorMode::Auto,
             node_border_color_hover: NodeBorderColorMode::UseWindowActive,

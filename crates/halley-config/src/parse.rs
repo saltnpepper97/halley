@@ -17,7 +17,7 @@ use crate::layout::{
 };
 use crate::{
     DecorationBorderColor, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    RuntimeTuning,
+    RuntimeTuning, ShapeStyle,
 };
 
 use rune_cfg::RuneConfig;
@@ -792,6 +792,32 @@ fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.node_show_app_icons,
     );
+    out.node_shape = pick_shape_style(
+        cfg,
+        &[
+            "node.node-shape",
+            "node.node_shape",
+            "node.shape",
+            "nodes.node-shape",
+            "nodes.node_shape",
+            "nodes.shape",
+        ],
+        out.node_shape,
+    );
+    out.node_label_shape = pick_shape_style(
+        cfg,
+        &[
+            "node.node-label-shape",
+            "node.node_label_shape",
+            "node.label-shape",
+            "node.label_shape",
+            "nodes.node-label-shape",
+            "nodes.node_label_shape",
+            "nodes.label-shape",
+            "nodes.label_shape",
+        ],
+        out.node_label_shape,
+    );
     out.node_icon_size = pick_f32(
         cfg,
         &[
@@ -1542,6 +1568,17 @@ fn pick_node_background_color_mode(
     }
 }
 
+fn pick_shape_style(cfg: &RuneConfig, paths: &[&str], default: ShapeStyle) -> ShapeStyle {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "square" => ShapeStyle::Square,
+        "squircle" => ShapeStyle::Squircle,
+        _ => default,
+    }
+}
+
 fn pick_decoration_border_color(
     cfg: &RuneConfig,
     paths: &[&str],
@@ -1934,8 +1971,9 @@ mod tests {
         CompositorBindingScope, CursorConfig, DirectionalAction, FontConfig,
         InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
         MonitorBindingAction, MonitorBindingTarget, NodeBackgroundColorMode, NodeBindingAction,
-        NodeDisplayPolicy, PanToNewMode, RuntimeTuning, StackBindingAction, StackCycleDirection,
-        WHEEL_DOWN_CODE, WHEEL_UP_CODE, WindowRulePattern, keybinds::key_name_to_evdev,
+        NodeDisplayPolicy, PanToNewMode, RuntimeTuning, ShapeStyle, StackBindingAction,
+        StackCycleDirection, WHEEL_DOWN_CODE, WHEEL_UP_CODE, WindowRulePattern,
+        keybinds::key_name_to_evdev,
     };
 
     fn write_temp_config(prefix: &str, content: &str) -> std::path::PathBuf {
@@ -2750,6 +2788,8 @@ end
 
         assert_eq!(tuning.node_show_labels, NodeDisplayPolicy::Hover);
         assert_eq!(tuning.node_show_app_icons, NodeDisplayPolicy::Always);
+        assert_eq!(tuning.node_shape, ShapeStyle::Squircle);
+        assert_eq!(tuning.node_label_shape, ShapeStyle::Squircle);
         assert_eq!(tuning.node_icon_size, 0.72);
         assert_eq!(
             tuning.click_collapsed_outside_focus,
@@ -2791,6 +2831,32 @@ end
         let _ = fs::remove_file(&path);
 
         assert_eq!(tuning.node_show_labels, NodeDisplayPolicy::Always);
+    }
+
+    #[test]
+    fn node_shape_settings_parse_from_node_section() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-node-shape-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+node:
+  node-shape "square"
+  node-label-shape "square"
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.node_shape, ShapeStyle::Square);
+        assert_eq!(tuning.node_label_shape, ShapeStyle::Square);
     }
 
     #[test]

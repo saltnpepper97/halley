@@ -1041,7 +1041,7 @@ fn draw_window_borders(
     st: &Halley,
 ) -> Result<(), Box<dyn Error>> {
     let border_texture = st.ui.render_state.node_circle_texture.as_ref();
-    let border_program = st.ui.render_state.node_label_program.as_ref();
+    let border_program = st.ui.render_state.ui_rect_rounded_program.as_ref();
     let window_program = st.ui.render_state.window_texture_program.as_ref();
     let framebuffer = Rectangle::<i32, Physical>::from_size(size);
 

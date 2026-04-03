@@ -153,6 +153,7 @@ pub(crate) fn draw_cluster_overflow_strip(
     if !overlay.cluster_overflow_visible_for_monitor(monitor, now_ms) {
         return Ok(());
     }
+    let rounded = overlay.tuning.border_radius_px > 0;
     let Some(rect) = overlay.cluster_overflow_rect_for_monitor(monitor) else {
         return Ok(());
     };
@@ -175,6 +176,7 @@ pub(crate) fn draw_cluster_overflow_strip(
     draw_overlay_chip(
         frame,
         overlay.render_state,
+        rounded,
         strip,
         18.0,
         Color32F::new(0.10, 0.14, 0.18, 0.92),
@@ -205,6 +207,7 @@ pub(crate) fn draw_cluster_overflow_strip(
         draw_overlay_chip(
             frame,
             overlay.render_state,
+            rounded,
             icon_rect,
             12.0,
             Color32F::new(0.93, 0.96, 0.99, 0.12),
@@ -276,6 +279,7 @@ pub(crate) fn draw_cluster_overflow_strip(
         draw_overlay_chip(
             frame,
             overlay.render_state,
+            rounded,
             icon_rect,
             12.0,
             Color32F::new(0.10, 0.14, 0.18, 0.96),
@@ -340,6 +344,7 @@ pub(crate) fn draw_cluster_overflow_strip(
 pub(crate) fn draw_persistent_banner(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
+    rounded: bool,
     font: &halley_config::FontConfig,
     damage: Rectangle<i32, Physical>,
     banner: &OverlayBannerSnapshot,
@@ -372,6 +377,7 @@ pub(crate) fn draw_persistent_banner(
     draw_overlay_chip(
         frame,
         render_state,
+        rounded,
         rect,
         14.0,
         Color32F::new(0.95, 0.97, 0.99, 0.94 * banner.mix),
@@ -418,6 +424,7 @@ pub(crate) fn draw_persistent_banner(
 pub(crate) fn draw_toast(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
+    rounded: bool,
     font: &halley_config::FontConfig,
     screen_w: i32,
     screen_h: i32,
@@ -450,6 +457,7 @@ pub(crate) fn draw_toast(
     draw_overlay_chip(
         frame,
         render_state,
+        rounded,
         rect,
         14.0,
         Color32F::new(0.95, 0.97, 0.99, 0.94 * toast.mix),
@@ -502,6 +510,7 @@ pub(crate) fn draw_monitor_hud(
     now: std::time::Instant,
 ) -> Result<(), Box<dyn Error>> {
     let overlay_monitor = st.model.monitor_state.current_monitor.clone();
+    let rounded = st.runtime.tuning.border_radius_px > 0;
     if let Some(banner) = st
         .ui
         .render_state
@@ -510,6 +519,7 @@ pub(crate) fn draw_monitor_hud(
         draw_persistent_banner(
             frame,
             &st.ui.render_state,
+            rounded,
             &st.runtime.tuning.font,
             damage,
             &banner,
@@ -523,6 +533,7 @@ pub(crate) fn draw_monitor_hud(
         draw_toast(
             frame,
             &st.ui.render_state,
+            rounded,
             &st.runtime.tuning.font,
             screen_w,
             screen_h,
@@ -609,6 +620,7 @@ pub(crate) fn draw_overlay_hover_label(
     draw_overlay_chip(
         frame,
         &st.ui.render_state,
+        st.runtime.tuning.border_radius_px > 0,
         rect,
         (label_h as f32) * 0.32,
         Color32F::new(
@@ -645,6 +657,7 @@ pub(crate) fn draw_cluster_selection_markers(
     screen_h: i32,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
+    let rounded = overlay.tuning.border_radius_px > 0;
     let selected = overlay
         .cluster_state
         .cluster_mode_selected_nodes
@@ -680,6 +693,7 @@ pub(crate) fn draw_cluster_selection_markers(
         draw_overlay_chip(
             frame,
             overlay.render_state,
+            rounded,
             rect,
             10.0,
             Color32F::new(0.87, 0.94, 0.91, 0.96),
@@ -704,6 +718,7 @@ pub(crate) fn draw_cluster_selection_markers(
 fn draw_overlay_chip(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
+    rounded: bool,
     rect: Rectangle<i32, Physical>,
     corner_radius: f32,
     fill_color: Color32F,
@@ -713,7 +728,7 @@ fn draw_overlay_chip(
     let Some(texture) = render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = render_state.node_label_program.as_ref() else {
+    let Some(program) = render_state.ui_rect_program(rounded) else {
         return Ok(());
     };
     let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();

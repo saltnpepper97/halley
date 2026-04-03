@@ -16,7 +16,7 @@ use smithay::{
 };
 
 use crate::compositor::root::Halley;
-use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy};
+use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, ShapeStyle};
 
 use super::log_rounded_shader_failure;
 use super::text::{draw_ui_text, ui_text_size};
@@ -25,10 +25,11 @@ use super::utils::{
 };
 use crate::animation::ease_in_out_cubic;
 
+const NODE_SQUARE_SHADER: &str = include_str!("shaders/node_square_shader.frag");
 const NODE_SQUIRCLE_SHADER: &str = include_str!("shaders/node_squircle_shader.frag");
 const NODE_CIRCLE_SHADER: &str = include_str!("shaders/node_circle_shader.frag");
-
-const NODE_LABEL_SHADER: &str = include_str!("shaders/node_label_rounded_shader.frag");
+const UI_RECT_ROUNDED_SHADER: &str = include_str!("shaders/ui_rect_rounded_shader.frag");
+const UI_RECT_SQUARE_SHADER: &str = include_str!("shaders/ui_rect_square_shader.frag");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,6 +70,16 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
+    if st.ui.render_state.node_square_program.is_none() {
+        st.ui.render_state.node_square_program = Some(renderer.compile_custom_texture_shader(
+            NODE_SQUARE_SHADER,
+            &[
+                UniformName::new("node_color", UniformType::_4f),
+                UniformName::new("fill_color", UniformType::_4f),
+            ],
+        )?);
+    }
+
     if st.ui.render_state.node_circle_program.is_none() {
         st.ui.render_state.node_circle_program = Some(renderer.compile_custom_texture_shader(
             NODE_CIRCLE_SHADER,
@@ -79,11 +90,11 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.ui.render_state.node_label_program.is_none()
-        && !st.ui.render_state.node_label_program_failed
+    if st.ui.render_state.ui_rect_rounded_program.is_none()
+        && !st.ui.render_state.ui_rect_rounded_program_failed
     {
         match renderer.compile_custom_texture_shader(
-            NODE_LABEL_SHADER,
+            UI_RECT_ROUNDED_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
                 UniformName::new("fill_color", UniformType::_4f),
@@ -95,11 +106,39 @@ pub(crate) fn ensure_node_circle_resources(
                 UniformName::new("border_px", UniformType::_1f),
             ],
         ) {
-            Ok(program) => st.ui.render_state.node_label_program = Some(program),
+            Ok(program) => st.ui.render_state.ui_rect_rounded_program = Some(program),
             Err(err) => {
-                st.ui.render_state.node_label_program_failed = true;
+                st.ui.render_state.ui_rect_rounded_program_failed = true;
                 log_rounded_shader_failure(
-                    "render/shaders/node_label_rounded_shader.frag",
+                    "render/shaders/ui_rect_rounded_shader.frag",
+                    "border-mask",
+                    &err,
+                );
+            }
+        }
+    }
+
+    if st.ui.render_state.ui_rect_square_program.is_none()
+        && !st.ui.render_state.ui_rect_square_program_failed
+    {
+        match renderer.compile_custom_texture_shader(
+            UI_RECT_SQUARE_SHADER,
+            &[
+                UniformName::new("node_color", UniformType::_4f),
+                UniformName::new("fill_color", UniformType::_4f),
+                UniformName::new("rect_size", UniformType::_2f),
+                UniformName::new("inner_rect_size", UniformType::_2f),
+                UniformName::new("inner_rect_offset", UniformType::_2f),
+                UniformName::new("corner_radius", UniformType::_1f),
+                UniformName::new("inner_corner_radius", UniformType::_1f),
+                UniformName::new("border_px", UniformType::_1f),
+            ],
+        ) {
+            Ok(program) => st.ui.render_state.ui_rect_square_program = Some(program),
+            Err(err) => {
+                st.ui.render_state.ui_rect_square_program_failed = true;
+                log_rounded_shader_failure(
+                    "render/shaders/ui_rect_square_shader.frag",
                     "border-mask",
                     &err,
                 );
@@ -127,6 +166,7 @@ fn draw_shader_circle(
     };
     let program = match round_shape {
         NodeRoundShape::Circle => st.ui.render_state.node_circle_program.as_ref(),
+        NodeRoundShape::Square => st.ui.render_state.node_square_program.as_ref(),
         NodeRoundShape::Squircle => st.ui.render_state.node_squircle_program.as_ref(),
     };
     let Some(program) = program else {
@@ -183,12 +223,14 @@ fn draw_shader_circle(
 #[derive(Clone, Copy)]
 enum NodeRoundShape {
     Circle,
+    Square,
     Squircle,
 }
 
 fn draw_shader_label(
     frame: &mut GlesFrame<'_, '_>,
     st: &Halley,
+    rounded: bool,
     x: i32,
     y: i32,
     w: i32,
@@ -203,7 +245,7 @@ fn draw_shader_label(
     let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.ui.render_state.node_label_program.as_ref() else {
+    let Some(program) = st.ui.render_state.ui_rect_program(rounded) else {
         return Ok(());
     };
 
@@ -545,7 +587,10 @@ pub(crate) fn draw_node_markers(
         let round_shape = if is_core {
             NodeRoundShape::Circle
         } else {
-            NodeRoundShape::Squircle
+            match st.runtime.tuning.node_shape {
+                ShapeStyle::Square => NodeRoundShape::Square,
+                ShapeStyle::Squircle => NodeRoundShape::Squircle,
+            }
         };
 
         if proxy_mix > 0.01 && border_mix < 0.99 {
@@ -748,6 +793,7 @@ pub(crate) fn draw_node_hover_labels(
         draw_shader_label(
             frame,
             st,
+            st.runtime.tuning.node_label_shape == ShapeStyle::Squircle,
             final_x,
             final_y,
             label_w.max(1),

@@ -77,7 +77,6 @@ field:
   close-restore-focus true
   close-restore-pan "if-offscreen"
 
-  #todo
   zoom:
     enabled true
 
@@ -95,7 +94,6 @@ node:
   show-labels "hover"
   show-app-icons "always"
 
-  #todo
   node-shape "square"
   node-label-shape "square"
 
@@ -209,7 +207,7 @@ keybinds:
   "$var.mod+up" "node-move up"
   "$var.mod+down" "node-move down"
 
-  # switch monitor focus
+  # switch monitor focus (field + clusters)
   "$var.mod+shift+left" "monitor-focus left"
   "$var.mod+shift+right" "monitor-focus right"
   "$var.mod+shift+up" "monitor-focus up"
@@ -240,10 +238,10 @@ keybinds:
   "$var.mod+down" "tile-focus down"
 
   #todo
-  "$var.mod+shift+left" "tile-swap left"
-  "$var.mod+shift" "tile-swap right"
-  "$var.mod+shift+up" "tile-swap up"
-  "$var.mod+shift+sdown" "tile-swap down"
+  "$var.mod+ctrl+left" "tile-swap left"
+  "$var.mod+ctrl+right" "tile-swap right"
+  "$var.mod+ctrl+up" "tile-swap up"
+  "$var.mod+ctrl+down" "tile-swap down"
 
   # stacking layout
   "$var.mod+left" "stack-cycle forward"

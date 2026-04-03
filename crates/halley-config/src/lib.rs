@@ -13,5 +13,5 @@ pub use layout::{
     ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DecorationBorderColor, FontConfig,
     InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
     NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode, RuntimeTuning,
-    ViewportOutputConfig, ViewportVrrMode, WindowRule, WindowRulePattern,
+    ShapeStyle, ViewportOutputConfig, ViewportVrrMode, WindowRule, WindowRulePattern,
 };

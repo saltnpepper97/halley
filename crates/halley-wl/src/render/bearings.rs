@@ -285,6 +285,7 @@ pub(crate) fn draw_bearings(
     damage: Rectangle<i32, Physical>,
     layouts: &[BearingChipLayout],
 ) -> Result<(), Box<dyn Error>> {
+    let rounded = st.runtime.tuning.border_radius_px > 0;
     for layout in layouts {
         if layout.alpha <= 0.002 {
             continue;
@@ -293,6 +294,7 @@ pub(crate) fn draw_bearings(
         draw_shader_label(
             frame,
             st,
+            rounded,
             layout.chip_rect.loc.x,
             layout.chip_rect.loc.y,
             layout.chip_rect.size.w,
@@ -322,6 +324,7 @@ pub(crate) fn draw_bearings(
             draw_shader_label(
                 frame,
                 st,
+                rounded,
                 distance_rect.loc.x,
                 distance_rect.loc.y,
                 distance_rect.size.w,
@@ -912,6 +915,7 @@ fn draw_bearing_icon(
 fn draw_shader_label(
     frame: &mut GlesFrame<'_, '_>,
     st: &Halley,
+    rounded: bool,
     x: i32,
     y: i32,
     w: i32,
@@ -926,7 +930,7 @@ fn draw_shader_label(
     let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.ui.render_state.node_label_program.as_ref() else {
+    let Some(program) = st.ui.render_state.ui_rect_program(rounded) else {
         return Ok(());
     };
 
