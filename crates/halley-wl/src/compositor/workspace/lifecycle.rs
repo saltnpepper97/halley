@@ -583,6 +583,20 @@ fn ensure_node_for_surface_impl(
         stack_mode_open,
         &effective_intent,
     );
+    let stack_spawn_transition = active_cluster
+        .filter(|_| {
+            join_cluster_layout
+                && matches!(
+                    st.runtime.tuning.cluster_layout_kind(),
+                    halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
+                )
+        })
+        .map(|_| {
+            crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                st,
+                predicted_monitor.as_str(),
+            )
+        });
     let (monitor, id, spawned_in_active_cluster) = if join_cluster_layout {
         let cid = active_cluster.expect("checked");
         let spawn_result = if matches!(
@@ -651,6 +665,27 @@ fn ensure_node_for_surface_impl(
             .observe_field(&st.model.field, now);
     }
     if let Some(cid) = active_cluster.filter(|_| joined_active_cluster) {
+        if let Some(old_visible) = stack_spawn_transition.as_ref()
+            && matches!(
+                st.runtime.tuning.cluster_layout_kind(),
+                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
+            )
+        {
+            let new_visible =
+                crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                    st,
+                    monitor.as_str(),
+                );
+            st.ui.render_state.start_stack_cycle_transition(
+                monitor.as_str(),
+                halley_core::cluster_layout::ClusterCycleDirection::Prev,
+                old_visible.clone(),
+                new_visible,
+                now,
+                220,
+            );
+            st.request_maintenance();
+        }
         let overflow_len = st
             .model
             .field

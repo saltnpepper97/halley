@@ -293,6 +293,7 @@ impl Halley {
                     cluster_bloom_mix: HashMap::new(),
                     overlay_banner: HashMap::new(),
                     overlay_toast: HashMap::new(),
+                    stack_cycle_transition: HashMap::new(),
                     ui_text: std::cell::RefCell::new(crate::render::text::UiTextRenderer::default()),
                     node_circle_texture: None,
                     node_circle_program: None,
@@ -1307,6 +1308,14 @@ impl Halley {
         monitor: &str,
     ) -> Option<halley_core::cluster::ClusterId> {
         super::clusters::system::active_cluster_workspace_for_monitor(self, monitor)
+    }
+
+    pub(crate) fn stack_layout_rects_for_members(
+        &self,
+        monitor: &str,
+        members: &[NodeId],
+    ) -> Option<std::collections::HashMap<NodeId, halley_core::tiling::Rect>> {
+        super::clusters::system::stack_layout_rects_for_members(self, monitor, members)
     }
 
     pub(crate) fn reveal_cluster_overflow_for_monitor(&mut self, monitor: &str, now_ms: u64) {

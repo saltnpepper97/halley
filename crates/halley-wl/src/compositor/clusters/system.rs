@@ -211,6 +211,14 @@ pub(crate) fn active_cluster_workspace_for_monitor(
         .copied()
 }
 
+pub(crate) fn stack_layout_rects_for_members(
+    st: &Halley,
+    monitor: &str,
+    members: &[NodeId],
+) -> Option<std::collections::HashMap<NodeId, halley_core::tiling::Rect>> {
+    cluster_system_controller(st).stack_layout_rects_for_members(monitor, members)
+}
+
 impl<T: Deref<Target = Halley>> Deref for ClusterSystemController<T> {
     type Target = Halley;
 
@@ -262,6 +270,15 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
     ) -> Option<halley_core::tiling::Rect> {
         self.cluster_read_controller()
             .cluster_spawn_rect_for_new_member(monitor, cid)
+    }
+
+    pub(crate) fn stack_layout_rects_for_members(
+        &self,
+        monitor: &str,
+        members: &[NodeId],
+    ) -> Option<std::collections::HashMap<NodeId, halley_core::tiling::Rect>> {
+        self.cluster_read_controller()
+            .stack_layout_rects_for_members(monitor, members)
     }
 
     pub fn has_any_active_cluster_workspace(&self) -> bool {
@@ -616,6 +633,25 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         now: Instant,
     ) -> bool {
         let previous_overflow_len = self.cluster_overflow_len(cid);
+        let stack_insert_transition = self
+            .preferred_monitor_for_cluster(cid, None)
+            .filter(|monitor| {
+                self.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(cid)
+            })
+            .filter(|_| {
+                matches!(
+                    self.active_cluster_layout_kind(),
+                    ClusterWorkspaceLayoutKind::Stacking
+                )
+            })
+            .map(|monitor| {
+                let old_visible =
+                    crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                        self,
+                        monitor.as_str(),
+                    );
+                (monitor, old_visible)
+            });
         if !self
             .cluster_mutation_controller()
             .absorb_node_into_cluster(cid, node_id)
@@ -634,6 +670,24 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     self.active_cluster_layout_kind(),
                     ClusterWorkspaceLayoutKind::Stacking
                 ) {
+                    if let Some((transition_monitor, old_visible)) =
+                        stack_insert_transition.as_ref()
+                        && transition_monitor == &cluster_monitor
+                    {
+                        let new_visible = crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                            self,
+                            cluster_monitor.as_str(),
+                        );
+                        self.ui.render_state.start_stack_cycle_transition(
+                            cluster_monitor.as_str(),
+                            ClusterCycleDirection::Prev,
+                            old_visible.clone(),
+                            new_visible,
+                            now,
+                            220,
+                        );
+                        self.request_maintenance();
+                    }
                     self.set_recent_top_node(node_id, now + std::time::Duration::from_millis(1200));
                     self.set_interaction_focus(Some(node_id), 30_000, now);
                     self.update_focus_tracking_for_surface(node_id, now_ms);
@@ -912,6 +966,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         let Some(cid) = self.active_cluster_workspace_for_monitor(monitor) else {
             return false;
         };
+        let old_visible =
+            crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                self, monitor,
+            );
         let Some(front) = self
             .model
             .field
@@ -924,6 +982,19 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         }
         let now_ms = self.now_ms(now);
         self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
+        let new_visible =
+            crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                self, monitor,
+            );
+        self.ui.render_state.start_stack_cycle_transition(
+            monitor,
+            direction,
+            old_visible,
+            new_visible,
+            now,
+            220,
+        );
+        self.request_maintenance();
         self.set_recent_top_node(front, now + std::time::Duration::from_millis(1200));
         self.set_interaction_focus(Some(front), 30_000, now);
         self.update_focus_tracking_for_surface(front, now_ms);

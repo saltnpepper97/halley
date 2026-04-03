@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use halley_core::cluster_layout::ClusterCycleDirection;
+use halley_core::field::{NodeId, Vec2};
+use halley_core::tiling::Rect;
 use smithay::{
     backend::renderer::{
         Color32F, Texture,
@@ -50,6 +53,7 @@ fn rect4f_str(x: f32, y: f32, w: f32, h: f32) -> String {
     format!("({:.1},{:.1} {:.1}x{:.1})", x, y, w, h)
 }
 
+#[derive(Clone)]
 pub(crate) struct ActiveBorderRect {
     pub x: i32,
     pub y: i32,
@@ -67,6 +71,7 @@ pub(crate) struct ActiveBorderRect {
     pub fill_background: bool,
 }
 
+#[derive(Clone)]
 pub(crate) struct OffscreenNodeTexture {
     pub texture: GlesTexture,
     pub alpha: f32,
@@ -93,19 +98,328 @@ pub(crate) struct OffscreenNodeTexture {
 }
 
 pub(crate) struct StackWindowDrawUnit {
+    pub node_id: NodeId,
+    pub draw_order: i32,
     pub border_rect: Option<ActiveBorderRect>,
     pub active_elements: Vec<CroppedSurfaceElement>,
     pub offscreen_textures: Vec<OffscreenNodeTexture>,
 }
 
 impl StackWindowDrawUnit {
-    fn new() -> Self {
+    fn new(node_id: NodeId, draw_order: i32) -> Self {
         Self {
+            node_id,
+            draw_order,
             border_rect: None,
             active_elements: Vec::new(),
             offscreen_textures: Vec::new(),
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct StackTransitionPose {
+    center: Vec2,
+    size: Vec2,
+    alpha: f32,
+    draw_order: i32,
+}
+
+struct StackTransitionExtraInstance {
+    node_id: NodeId,
+    pose: StackTransitionPose,
+}
+
+struct StackTransitionPlan {
+    poses: HashMap<NodeId, StackTransitionPose>,
+    extra_instances: Vec<StackTransitionExtraInstance>,
+}
+
+fn lerp_f32(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+fn lerp_vec2(a: Vec2, b: Vec2, t: f32) -> Vec2 {
+    Vec2 {
+        x: lerp_f32(a.x, b.x, t),
+        y: lerp_f32(a.y, b.y, t),
+    }
+}
+
+fn rect_center(rect: Rect) -> Vec2 {
+    Vec2 {
+        x: rect.x + rect.w * 0.5,
+        y: rect.y + rect.h * 0.5,
+    }
+}
+
+fn rect_size(rect: Rect) -> Vec2 {
+    Vec2 {
+        x: rect.w.max(1.0),
+        y: rect.h.max(1.0),
+    }
+}
+
+fn stack_draw_order_map(front_to_back: &[NodeId]) -> HashMap<NodeId, i32> {
+    let len = front_to_back.len() as i32;
+    front_to_back
+        .iter()
+        .enumerate()
+        .map(|(index, &node_id)| (node_id, len - index as i32 - 1))
+        .collect()
+}
+
+fn build_stack_transition_plan(
+    st: &Halley,
+    monitor: &str,
+    transition: &crate::render::state::StackCycleTransitionSnapshot,
+) -> Option<StackTransitionPlan> {
+    let old_rects = st.stack_layout_rects_for_members(monitor, &transition.old_visible)?;
+    let new_rects = st.stack_layout_rects_for_members(monitor, &transition.new_visible)?;
+    let t = ease_in_out_cubic(transition.progress);
+    let draw_orders = stack_draw_order_map(&transition.new_visible);
+    let topmost_order = transition.new_visible.len() as i32 + 1;
+    let old_top = transition.old_visible.first().copied();
+    let old_bottom = transition.old_visible.last().copied();
+    let new_top = transition.new_visible.first().copied();
+    let wrapped_same_set = transition.old_visible.len() == transition.new_visible.len()
+        && transition
+            .old_visible
+            .iter()
+            .all(|id| transition.new_visible.contains(id));
+    let wrapped_node = match transition.direction {
+        ClusterCycleDirection::Next
+            if wrapped_same_set && old_top == transition.new_visible.last().copied() =>
+        {
+            old_top
+        }
+        ClusterCycleDirection::Prev if wrapped_same_set && old_bottom == new_top => old_bottom,
+        _ => None,
+    };
+
+    let mut ids = transition.old_visible.clone();
+    for &node_id in &transition.new_visible {
+        if !ids.contains(&node_id) {
+            ids.push(node_id);
+        }
+    }
+
+    let mut poses = HashMap::new();
+    let mut extra_instances = Vec::new();
+    for node_id in ids {
+        if wrapped_node == Some(node_id)
+            && let (Some(old_rect), Some(new_rect)) = (
+                old_rects.get(&node_id).copied(),
+                new_rects.get(&node_id).copied(),
+            )
+        {
+            let canonical_pose = match transition.direction {
+                ClusterCycleDirection::Next => StackTransitionPose {
+                    center: rect_center(new_rect),
+                    size: rect_size(new_rect),
+                    alpha: t,
+                    draw_order: draw_orders.get(&node_id).copied().unwrap_or_default(),
+                },
+                ClusterCycleDirection::Prev => {
+                    let end_center = rect_center(new_rect);
+                    let mut start_center = end_center;
+                    start_center.x -= new_rect.w * 0.55;
+                    StackTransitionPose {
+                        center: lerp_vec2(start_center, end_center, t),
+                        size: rect_size(new_rect),
+                        alpha: t,
+                        draw_order: topmost_order,
+                    }
+                }
+            };
+            poses.insert(node_id, canonical_pose);
+
+            if matches!(transition.direction, ClusterCycleDirection::Next) {
+                let mut end_center = rect_center(old_rect);
+                end_center.x -= old_rect.w * 0.55;
+                extra_instances.push(StackTransitionExtraInstance {
+                    node_id,
+                    pose: StackTransitionPose {
+                        center: lerp_vec2(rect_center(old_rect), end_center, t),
+                        size: rect_size(old_rect),
+                        alpha: 1.0 - t,
+                        draw_order: topmost_order,
+                    },
+                });
+            }
+            continue;
+        }
+
+        let pose = match (
+            old_rects.get(&node_id).copied(),
+            new_rects.get(&node_id).copied(),
+        ) {
+            (Some(old_rect), Some(new_rect)) => StackTransitionPose {
+                center: lerp_vec2(rect_center(old_rect), rect_center(new_rect), t),
+                size: lerp_vec2(rect_size(old_rect), rect_size(new_rect), t),
+                alpha: 1.0,
+                draw_order: draw_orders.get(&node_id).copied().unwrap_or_default(),
+            },
+            (Some(old_rect), None) => {
+                let mut end_center = rect_center(old_rect);
+                let draw_order = match transition.direction {
+                    ClusterCycleDirection::Next if Some(node_id) == old_top => {
+                        end_center.x -= old_rect.w * 0.55;
+                        topmost_order
+                    }
+                    ClusterCycleDirection::Prev if Some(node_id) == old_bottom => {
+                        end_center.x += old_rect.w * 0.08;
+                        end_center.y += old_rect.h * 0.04;
+                        0
+                    }
+                    _ => 0,
+                };
+                StackTransitionPose {
+                    center: lerp_vec2(rect_center(old_rect), end_center, t),
+                    size: rect_size(old_rect),
+                    alpha: 1.0 - t,
+                    draw_order,
+                }
+            }
+            (None, Some(new_rect)) => {
+                let end_center = rect_center(new_rect);
+                let mut start_center = end_center;
+                let draw_order = match transition.direction {
+                    ClusterCycleDirection::Prev if Some(node_id) == new_top => {
+                        start_center.x -= new_rect.w * 0.55;
+                        topmost_order
+                    }
+                    _ => draw_orders.get(&node_id).copied().unwrap_or_default(),
+                };
+                StackTransitionPose {
+                    center: lerp_vec2(start_center, end_center, t),
+                    size: rect_size(new_rect),
+                    alpha: t,
+                    draw_order,
+                }
+            }
+            (None, None) => continue,
+        };
+        poses.insert(node_id, pose);
+    }
+
+    Some(StackTransitionPlan {
+        poses,
+        extra_instances,
+    })
+}
+
+fn transform_rect_about_center(
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    from_center: (f32, f32),
+    to_center: (f32, f32),
+    scale_x: f32,
+    scale_y: f32,
+) -> (i32, i32, i32, i32) {
+    let rect_center_x = x as f32 + w as f32 * 0.5;
+    let rect_center_y = y as f32 + h as f32 * 0.5;
+    let new_center_x = to_center.0 + (rect_center_x - from_center.0) * scale_x;
+    let new_center_y = to_center.1 + (rect_center_y - from_center.1) * scale_y;
+    let new_w = (w as f32 * scale_x).round().max(1.0) as i32;
+    let new_h = (h as f32 * scale_y).round().max(1.0) as i32;
+    (
+        (new_center_x - new_w as f32 * 0.5).round() as i32,
+        (new_center_y - new_h as f32 * 0.5).round() as i32,
+        new_w,
+        new_h,
+    )
+}
+
+fn clone_stack_window_unit_for_pose(
+    st: &Halley,
+    size: Size<i32, Physical>,
+    unit: &StackWindowDrawUnit,
+    from_pose: StackTransitionPose,
+    to_pose: StackTransitionPose,
+) -> Option<StackWindowDrawUnit> {
+    let (from_cx, from_cy) =
+        world_to_screen(st, size.w, size.h, from_pose.center.x, from_pose.center.y);
+    let (to_cx, to_cy) = world_to_screen(st, size.w, size.h, to_pose.center.x, to_pose.center.y);
+    let scale_x = (to_pose.size.x / from_pose.size.x.max(1.0)).max(0.01);
+    let scale_y = (to_pose.size.y / from_pose.size.y.max(1.0)).max(0.01);
+
+    let border_rect = unit.border_rect.as_ref().cloned().map(|mut rect| {
+        let (x, y, w, h) = transform_rect_about_center(
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            (from_cx as f32, from_cy as f32),
+            (to_cx as f32, to_cy as f32),
+            scale_x,
+            scale_y,
+        );
+        rect.x = x;
+        rect.y = y;
+        rect.w = w;
+        rect.h = h;
+        rect.inner_w = w as f32;
+        rect.inner_h = h as f32;
+        rect.alpha *= to_pose.alpha.clamp(0.0, 1.0);
+        rect
+    });
+
+    let offscreen_textures = unit
+        .offscreen_textures
+        .iter()
+        .cloned()
+        .map(|mut tex| {
+            let (dst_x, dst_y, dst_w, dst_h) = transform_rect_about_center(
+                tex.dst_x,
+                tex.dst_y,
+                tex.dst_w,
+                tex.dst_h,
+                (from_cx as f32, from_cy as f32),
+                (to_cx as f32, to_cy as f32),
+                scale_x,
+                scale_y,
+            );
+            let (clip_x, clip_y, clip_w, clip_h) = transform_rect_about_center(
+                tex.clip_x,
+                tex.clip_y,
+                tex.clip_w,
+                tex.clip_h,
+                (from_cx as f32, from_cy as f32),
+                (to_cx as f32, to_cy as f32),
+                scale_x,
+                scale_y,
+            );
+            tex.dst_x = dst_x;
+            tex.dst_y = dst_y;
+            tex.dst_w = dst_w;
+            tex.dst_h = dst_h;
+            tex.clip_x = clip_x;
+            tex.clip_y = clip_y;
+            tex.clip_w = clip_w;
+            tex.clip_h = clip_h;
+            tex.geo_offset_x *= scale_x;
+            tex.geo_offset_y *= scale_y;
+            tex.geo_w *= scale_x;
+            tex.geo_h *= scale_y;
+            tex.alpha *= to_pose.alpha.clamp(0.0, 1.0);
+            tex
+        })
+        .collect::<Vec<_>>();
+
+    if border_rect.is_none() && offscreen_textures.is_empty() {
+        return None;
+    }
+
+    Some(StackWindowDrawUnit {
+        node_id: unit.node_id,
+        draw_order: to_pose.draw_order,
+        border_rect,
+        active_elements: Vec::new(),
+        offscreen_textures,
+    })
 }
 
 fn rect_from_local_geometry(
@@ -144,11 +458,11 @@ fn set_border_fill_background_for_node(
     draw_top_this_node: bool,
     border_rects: &mut Vec<ActiveBorderRect>,
     resized_border_rects: &mut Vec<ActiveBorderRect>,
-    stack_visible_set: &HashSet<halley_core::field::NodeId>,
+    stack_render_set: &HashSet<halley_core::field::NodeId>,
     stack_window_units: &mut HashMap<halley_core::field::NodeId, StackWindowDrawUnit>,
     fill_background: bool,
 ) {
-    if stack_visible_set.contains(&node_id) {
+    if stack_render_set.contains(&node_id) {
         if let Some(rect) = stack_window_units
             .get_mut(&node_id)
             .and_then(|unit| unit.border_rect.as_mut())
@@ -326,9 +640,37 @@ pub(crate) fn collect_active_surfaces(
     let current_monitor = st.model.monitor_state.current_monitor.clone();
     let stack_visible_front_to_back =
         active_stacking_visible_members_for_monitor(st, current_monitor.as_str());
-    let stack_visible_set: HashSet<_> = stack_visible_front_to_back.iter().copied().collect();
-    let mut stack_window_units: HashMap<halley_core::field::NodeId, StackWindowDrawUnit> =
-        HashMap::new();
+    let stack_cycle_transition = st
+        .ui
+        .render_state
+        .stack_cycle_transition_for_monitor(current_monitor.as_str(), now);
+    if stack_cycle_transition.is_some() {
+        st.request_maintenance();
+    }
+    let stack_transition_plan = stack_cycle_transition.as_ref().and_then(|transition| {
+        build_stack_transition_plan(st, current_monitor.as_str(), transition)
+    });
+    let stack_render_front_to_back = if let Some(transition) = stack_cycle_transition.as_ref() {
+        let mut ids = transition.old_visible.clone();
+        for &node_id in &transition.new_visible {
+            if !ids.contains(&node_id) {
+                ids.push(node_id);
+            }
+        }
+        ids
+    } else {
+        stack_visible_front_to_back.clone()
+    };
+    let stack_render_set: HashSet<_> = stack_render_front_to_back.iter().copied().collect();
+    let stack_draw_orders = if let Some(plan) = stack_transition_plan.as_ref() {
+        plan.poses
+            .iter()
+            .map(|(&node_id, pose)| (node_id, pose.draw_order))
+            .collect::<HashMap<_, _>>()
+    } else {
+        stack_draw_order_map(&stack_visible_front_to_back)
+    };
+    let mut stack_window_units: HashMap<NodeId, StackWindowDrawUnit> = HashMap::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut resized_border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut overlay_rects: Vec<(i32, i32, i32, i32, Color32F)> = Vec::new();
@@ -376,9 +718,14 @@ pub(crate) fn collect_active_surfaces(
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };
+        let stack_transition_pose = stack_transition_plan
+            .as_ref()
+            .and_then(|plan| plan.poses.get(&node_id).copied());
+        let stack_member_rendered = stack_render_set.contains(&node_id);
         if node.state != halley_core::field::NodeState::Active
-            || !st.model.field.is_visible(node_id)
-            || !st.node_visible_on_current_monitor(node_id)
+            || (!stack_member_rendered
+                && (!st.model.field.is_visible(node_id)
+                    || !st.node_visible_on_current_monitor(node_id)))
         {
             continue;
         }
@@ -438,7 +785,9 @@ pub(crate) fn collect_active_surfaces(
         let cam_scale = st.camera_render_scale();
         let render_scale = scale * cam_scale * fit_scale;
 
-        let p = node_pos;
+        let p = stack_transition_pose
+            .map(|pose| pose.center)
+            .unwrap_or(node_pos);
         let local_bbox = (
             bbox.loc.x as f32,
             bbox.loc.y as f32,
@@ -446,14 +795,12 @@ pub(crate) fn collect_active_surfaces(
             bbox.size.h.max(1) as f32,
         );
 
-        let local_geo = if stack_visible_set.contains(&node_id) {
+        let local_geo = if stack_member_rendered {
             let base_geo = window_geometry_for_node(st, node_id).unwrap_or(local_bbox);
-            let target_size = st
-                .model
-                .field
-                .node(node_id)
-                .map(|node| node.intrinsic_size)
-                .unwrap_or(halley_core::field::Vec2 {
+            let target_size = stack_transition_pose
+                .map(|pose| pose.size)
+                .or_else(|| st.model.field.node(node_id).map(|node| node.intrinsic_size))
+                .unwrap_or(Vec2 {
                     x: base_geo.2,
                     y: base_geo.3,
                 });
@@ -529,7 +876,9 @@ pub(crate) fn collect_active_surfaces(
             }
         }
 
-        let alpha = (anim.alpha * live_ramp).clamp(0.0, 1.0);
+        let alpha =
+            (anim.alpha * live_ramp * stack_transition_pose.map(|pose| pose.alpha).unwrap_or(1.0))
+                .clamp(0.0, 1.0);
         let background_fill_animation_ready = transition_alpha <= 0.01 && live_ramp >= 0.995;
         let effective_border_px = if fullscreen_on_current_monitor {
             0
@@ -579,10 +928,15 @@ pub(crate) fn collect_active_surfaces(
             border_color,
             fill_background: false,
         };
-        if stack_visible_set.contains(&node_id) {
+        if stack_render_set.contains(&node_id) {
             stack_window_units
                 .entry(node_id)
-                .or_insert_with(StackWindowDrawUnit::new)
+                .or_insert_with(|| {
+                    StackWindowDrawUnit::new(
+                        node_id,
+                        stack_draw_orders.get(&node_id).copied().unwrap_or_default(),
+                    )
+                })
                 .border_rect = Some(border_rect);
         } else if draw_top_this_node {
             resized_border_rects.push(border_rect);
@@ -693,10 +1047,18 @@ pub(crate) fn collect_active_surfaces(
                                 })
                                 .collect();
 
-                            if stack_visible_set.contains(&node_id) {
+                            if stack_render_set.contains(&node_id) {
                                 stack_window_units
                                     .entry(node_id)
-                                    .or_insert_with(StackWindowDrawUnit::new)
+                                    .or_insert_with(|| {
+                                        StackWindowDrawUnit::new(
+                                            node_id,
+                                            stack_draw_orders
+                                                .get(&node_id)
+                                                .copied()
+                                                .unwrap_or_default(),
+                                        )
+                                    })
                                     .active_elements
                                     .extend(cropped);
                             } else if fullscreen_on_current_monitor {
@@ -711,7 +1073,7 @@ pub(crate) fn collect_active_surfaces(
                                 draw_top_this_node,
                                 &mut border_rects,
                                 &mut resized_border_rects,
-                                &stack_visible_set,
+                                &stack_render_set,
                                 &mut stack_window_units,
                                 border_background_fill_ready(
                                     st,
@@ -746,7 +1108,7 @@ pub(crate) fn collect_active_surfaces(
                             draw_top_this_node,
                             &mut border_rects,
                             &mut resized_border_rects,
-                            &stack_visible_set,
+                            &stack_render_set,
                             &mut stack_window_units,
                             false,
                         );
@@ -758,7 +1120,7 @@ pub(crate) fn collect_active_surfaces(
                             draw_top_this_node,
                             &mut border_rects,
                             &mut resized_border_rects,
-                            &stack_visible_set,
+                            &stack_render_set,
                             &mut stack_window_units,
                             false,
                         );
@@ -769,7 +1131,7 @@ pub(crate) fn collect_active_surfaces(
                         draw_top_this_node,
                         &mut border_rects,
                         &mut resized_border_rects,
-                        &stack_visible_set,
+                        &stack_render_set,
                         &mut stack_window_units,
                         border_background_fill_ready(
                             st,
@@ -961,10 +1323,15 @@ pub(crate) fn collect_active_surfaces(
                         geo_w: geo_w_px,
                         geo_h: geo_h_px,
                     };
-                    if stack_visible_set.contains(&node_id) {
+                    if stack_render_set.contains(&node_id) {
                         stack_window_units
                             .entry(node_id)
-                            .or_insert_with(StackWindowDrawUnit::new)
+                            .or_insert_with(|| {
+                                StackWindowDrawUnit::new(
+                                    node_id,
+                                    stack_draw_orders.get(&node_id).copied().unwrap_or_default(),
+                                )
+                            })
                             .offscreen_textures
                             .push(offscreen);
                     } else if fullscreen_on_current_monitor {
@@ -981,7 +1348,7 @@ pub(crate) fn collect_active_surfaces(
                         draw_top_this_node,
                         &mut border_rects,
                         &mut resized_border_rects,
-                        &stack_visible_set,
+                        &stack_render_set,
                         &mut stack_window_units,
                         false,
                     );
@@ -1031,10 +1398,15 @@ pub(crate) fn collect_active_surfaces(
                 .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
                 .collect();
 
-            if stack_visible_set.contains(&node_id) {
+            if stack_render_set.contains(&node_id) {
                 stack_window_units
                     .entry(node_id)
-                    .or_insert_with(StackWindowDrawUnit::new)
+                    .or_insert_with(|| {
+                        StackWindowDrawUnit::new(
+                            node_id,
+                            stack_draw_orders.get(&node_id).copied().unwrap_or_default(),
+                        )
+                    })
                     .active_elements
                     .extend(cropped);
             } else if fullscreen_on_current_monitor {
@@ -1049,7 +1421,7 @@ pub(crate) fn collect_active_surfaces(
                 draw_top_this_node,
                 &mut border_rects,
                 &mut resized_border_rects,
-                &stack_visible_set,
+                &stack_render_set,
                 &mut stack_window_units,
                 border_background_fill_ready(
                     st,
@@ -1165,11 +1537,26 @@ pub(crate) fn collect_active_surfaces(
         }
     }
 
-    let stack_window_units = stack_visible_front_to_back
-        .iter()
-        .rev()
-        .filter_map(|node_id| stack_window_units.remove(node_id))
-        .collect::<Vec<_>>();
+    let mut stack_window_units = stack_window_units.into_values().collect::<Vec<_>>();
+    if let Some(plan) = stack_transition_plan.as_ref() {
+        for extra in &plan.extra_instances {
+            let Some(from_pose) = plan.poses.get(&extra.node_id).copied() else {
+                continue;
+            };
+            let Some(unit) = stack_window_units
+                .iter()
+                .find(|unit| unit.node_id == extra.node_id)
+            else {
+                continue;
+            };
+            if let Some(extra_unit) =
+                clone_stack_window_unit_for_pose(st, size, unit, from_pose, extra.pose)
+            {
+                stack_window_units.push(extra_unit);
+            }
+        }
+    }
+    stack_window_units.sort_by_key(|unit| unit.draw_order);
 
     (
         active_elements,

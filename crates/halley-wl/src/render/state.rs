@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use halley_core::cluster::ClusterId;
+use halley_core::cluster_layout::ClusterCycleDirection;
 use halley_core::field::{Field, NodeId, Vec2};
 
 use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
@@ -90,6 +91,23 @@ pub(crate) struct PreviewHoverState {
     pub(crate) overlay_anchor: Option<((i32, i32), bool)>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct StackCycleTransitionState {
+    pub(crate) direction: ClusterCycleDirection,
+    pub(crate) started_at: Instant,
+    pub(crate) duration_ms: u64,
+    pub(crate) old_visible: Vec<NodeId>,
+    pub(crate) new_visible: Vec<NodeId>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StackCycleTransitionSnapshot {
+    pub(crate) direction: ClusterCycleDirection,
+    pub(crate) progress: f32,
+    pub(crate) old_visible: Vec<NodeId>,
+    pub(crate) new_visible: Vec<NodeId>,
+}
+
 pub(crate) struct RenderState {
     pub animator: Animator,
 
@@ -101,6 +119,7 @@ pub(crate) struct RenderState {
     pub(crate) cluster_bloom_mix: HashMap<String, ClusterBloomAnimState>,
     pub(crate) overlay_banner: HashMap<String, OverlayBannerState>,
     pub(crate) overlay_toast: HashMap<String, OverlayToastState>,
+    pub(crate) stack_cycle_transition: HashMap<String, StackCycleTransitionState>,
     pub(crate) ui_text: RefCell<UiTextRenderer>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
     pub(crate) node_circle_program: Option<GlesTexProgram>,
@@ -133,6 +152,50 @@ pub(crate) struct RenderState {
 }
 
 impl RenderState {
+    pub(crate) fn start_stack_cycle_transition(
+        &mut self,
+        monitor: &str,
+        direction: ClusterCycleDirection,
+        old_visible: Vec<NodeId>,
+        new_visible: Vec<NodeId>,
+        now: Instant,
+        duration_ms: u64,
+    ) {
+        if old_visible == new_visible {
+            self.stack_cycle_transition.remove(monitor);
+            return;
+        }
+        self.stack_cycle_transition.insert(
+            monitor.to_string(),
+            StackCycleTransitionState {
+                direction,
+                started_at: now,
+                duration_ms: duration_ms.max(1),
+                old_visible,
+                new_visible,
+            },
+        );
+    }
+
+    pub(crate) fn stack_cycle_transition_for_monitor(
+        &mut self,
+        monitor: &str,
+        now: Instant,
+    ) -> Option<StackCycleTransitionSnapshot> {
+        let state = self.stack_cycle_transition.get(monitor)?.clone();
+        let elapsed_ms = now.saturating_duration_since(state.started_at).as_millis() as u64;
+        if elapsed_ms >= state.duration_ms {
+            self.stack_cycle_transition.remove(monitor);
+            return None;
+        }
+        Some(StackCycleTransitionSnapshot {
+            direction: state.direction,
+            progress: (elapsed_ms as f32 / state.duration_ms as f32).clamp(0.0, 1.0),
+            old_visible: state.old_visible,
+            new_visible: state.new_visible,
+        })
+    }
+
     pub(crate) fn ui_rect_program(&self, rounded: bool) -> Option<&GlesTexProgram> {
         if rounded {
             self.ui_rect_rounded_program.as_ref()

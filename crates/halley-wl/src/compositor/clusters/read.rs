@@ -4,6 +4,7 @@ use crate::compositor::monitor::state::MonitorState;
 use crate::render::active_window_frame_pad_px;
 use halley_core::cluster::ClusterId;
 use halley_core::cluster_layout::{ClusterWorkspaceLayoutKind, layout_cluster_workspace};
+use halley_core::tiling::Rect;
 
 pub(super) struct ClusterReadController<'a> {
     pub(super) field: &'a Field,
@@ -283,6 +284,21 @@ impl<'a> ClusterReadController<'a> {
         let cluster = self.field.cluster(cid)?;
         let viewport = self.workspace_viewport_for_monitor(monitor)?;
         Some(self.cluster_layout_plan_for_members(viewport, cluster.members()))
+    }
+
+    pub(super) fn stack_layout_rects_for_members(
+        &self,
+        monitor: &str,
+        members: &[NodeId],
+    ) -> Option<std::collections::HashMap<NodeId, Rect>> {
+        let viewport = self.workspace_viewport_for_monitor(monitor)?;
+        Some(
+            self.cluster_layout_plan_for_members(viewport, members)
+                .tiles
+                .into_iter()
+                .map(|tile| (tile.node_id, tile.rect))
+                .collect(),
+        )
     }
 }
 
