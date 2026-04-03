@@ -13,6 +13,7 @@ use crate::compositor::interaction::{
     TitleClickCtx,
 };
 use crate::compositor::root::Halley;
+use crate::compositor::surface_ops::stack_focus_target_for_node;
 use crate::input::ctx::InputCtx;
 use crate::input::keyboard::modkeys::modifier_active;
 use crate::overlay::{
@@ -90,7 +91,12 @@ fn handle_left_press(
                 && st.model.field.is_visible(hit.node_id)
         })
     {
-        st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
+        let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
+        st.set_recent_top_node(
+            focus_target,
+            Instant::now() + std::time::Duration::from_millis(1200),
+        );
+        st.set_interaction_focus(Some(focus_target), 30_000, Instant::now());
     }
 
     let mut handled_node_click = false;
@@ -129,7 +135,9 @@ fn handle_left_press(
 
     if hit.on_titlebar || hit.is_core {
         let now = Instant::now();
-        st.set_interaction_focus(Some(hit.node_id), 700, now);
+        let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
+        st.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
+        st.set_interaction_focus(Some(focus_target), 700, now);
         if !hit.is_core && title_click_is_double(ps, hit.node_id, now) {
             ps.last_title_click = None;
             backend.request_redraw();
@@ -868,7 +876,9 @@ pub(super) fn handle_workspace_left_press(
     } else {
         30_000
     };
-    st.set_interaction_focus(Some(hit.node_id), focus_hold_ms, now);
+    let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
+    st.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
+    st.set_interaction_focus(Some(focus_target), focus_hold_ms, now);
     if hit.on_titlebar || hit.is_core {
         if title_click_is_double(ps, hit.node_id, now) {
             let _ = st.exit_cluster_workspace_if_member(hit.node_id, now);

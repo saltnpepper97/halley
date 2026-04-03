@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::time::Instant;
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use smithay::{
     backend::renderer::{
@@ -17,7 +17,8 @@ use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::state::is_persistent_rule_top;
 use crate::compositor::surface_ops::{
-    is_active_cluster_workspace_member, window_geometry_for_node,
+    active_stacking_visible_members_for_monitor, is_active_cluster_workspace_member,
+    window_geometry_for_node,
 };
 use crate::input::active_resize_geometry_screen;
 
@@ -27,6 +28,8 @@ use super::utils::{sync_node_size_from_surface, world_to_screen};
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
 type CroppedSurfaceElement = CropRenderElement<SurfaceElement>;
+
+const WINDOW_BACKGROUND_FILL_DELAY_MS: u64 = 80;
 
 fn log_window_render_path(
     st: &Halley,
@@ -61,6 +64,7 @@ pub(crate) struct ActiveBorderRect {
     pub corner_radius: f32,
     pub inner_corner_radius: f32,
     pub border_color: Color32F,
+    pub fill_background: bool,
 }
 
 pub(crate) struct OffscreenNodeTexture {
@@ -88,6 +92,22 @@ pub(crate) struct OffscreenNodeTexture {
     pub geo_h: f32,
 }
 
+pub(crate) struct StackWindowDrawUnit {
+    pub border_rect: Option<ActiveBorderRect>,
+    pub active_elements: Vec<CroppedSurfaceElement>,
+    pub offscreen_textures: Vec<OffscreenNodeTexture>,
+}
+
+impl StackWindowDrawUnit {
+    fn new() -> Self {
+        Self {
+            border_rect: None,
+            active_elements: Vec::new(),
+            offscreen_textures: Vec::new(),
+        }
+    }
+}
+
 fn rect_from_local_geometry(
     origin_x: i32,
     origin_y: i32,
@@ -101,6 +121,73 @@ fn rect_from_local_geometry(
         (local_w * scale).round().max(1.0) as i32,
         (local_h * scale).round().max(1.0) as i32,
     )
+}
+
+fn set_latest_border_fill_background(
+    draw_top_this_node: bool,
+    border_rects: &mut Vec<ActiveBorderRect>,
+    resized_border_rects: &mut Vec<ActiveBorderRect>,
+    fill_background: bool,
+) {
+    let target = if draw_top_this_node {
+        resized_border_rects.last_mut()
+    } else {
+        border_rects.last_mut()
+    };
+    if let Some(rect) = target {
+        rect.fill_background = fill_background;
+    }
+}
+
+fn set_border_fill_background_for_node(
+    node_id: halley_core::field::NodeId,
+    draw_top_this_node: bool,
+    border_rects: &mut Vec<ActiveBorderRect>,
+    resized_border_rects: &mut Vec<ActiveBorderRect>,
+    stack_visible_set: &HashSet<halley_core::field::NodeId>,
+    stack_window_units: &mut HashMap<halley_core::field::NodeId, StackWindowDrawUnit>,
+    fill_background: bool,
+) {
+    if stack_visible_set.contains(&node_id) {
+        if let Some(rect) = stack_window_units
+            .get_mut(&node_id)
+            .and_then(|unit| unit.border_rect.as_mut())
+        {
+            rect.fill_background = fill_background;
+        }
+    } else {
+        set_latest_border_fill_background(
+            draw_top_this_node,
+            border_rects,
+            resized_border_rects,
+            fill_background,
+        );
+    }
+}
+
+fn border_background_fill_ready(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+    allow_border_background: bool,
+    animation_ready: bool,
+    has_content: bool,
+) -> bool {
+    if !allow_border_background || !has_content {
+        st.ui.render_state.clear_window_fill_ready_after(node_id);
+        return false;
+    }
+
+    let ready_after = st.ui.render_state.window_fill_ready_after(
+        node_id,
+        now,
+        Duration::from_millis(WINDOW_BACKGROUND_FILL_DELAY_MS),
+    );
+    let ready = animation_ready && now >= ready_after;
+    if !ready {
+        st.request_maintenance();
+    }
+    ready
 }
 
 fn offscreen_visual_crop_and_dst(
@@ -205,6 +292,7 @@ pub(crate) fn collect_active_surfaces(
         halley_core::field::NodeId,
         smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     >,
+    Vec<StackWindowDrawUnit>,
     Vec<ActiveBorderRect>,
     Vec<ActiveBorderRect>,
     Vec<(i32, i32, i32, i32, Color32F)>,
@@ -222,6 +310,12 @@ pub(crate) fn collect_active_surfaces(
     let mut popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut fullscreen_popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
+    let current_monitor = st.model.monitor_state.current_monitor.clone();
+    let stack_visible_front_to_back =
+        active_stacking_visible_members_for_monitor(st, current_monitor.as_str());
+    let stack_visible_set: HashSet<_> = stack_visible_front_to_back.iter().copied().collect();
+    let mut stack_window_units: HashMap<halley_core::field::NodeId, StackWindowDrawUnit> =
+        HashMap::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut resized_border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut overlay_rects: Vec<(i32, i32, i32, i32, Color32F)> = Vec::new();
@@ -230,7 +324,6 @@ pub(crate) fn collect_active_surfaces(
 
     let recent_top_node = st.recent_top_node_active(now);
     let output_clip = Rectangle::<i32, Physical>::new((0, 0).into(), size);
-
     let resize_rect_px = resize_preview.and_then(|rz| {
         if !st.node_visible_on_current_monitor(rz.node_id) {
             return None;
@@ -286,7 +379,7 @@ pub(crate) fn collect_active_surfaces(
 
         let active_cluster_member = is_active_cluster_workspace_member(st, node_id);
         let transition_alpha = st.active_transition_alpha(node_id, now);
-        let anim = crate::render::anim_style_for(st, node_id, node_state, now);
+        let anim = crate::render::anim_style_for(st, node_id, node_state.clone(), now);
         let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
         let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
         let resizing_this_node = active_resize.is_some();
@@ -340,7 +433,26 @@ pub(crate) fn collect_active_surfaces(
             bbox.size.h.max(1) as f32,
         );
 
-        let local_geo = window_geometry_for_node(st, node_id).unwrap_or(local_bbox);
+        let local_geo = if stack_visible_set.contains(&node_id) {
+            let base_geo = window_geometry_for_node(st, node_id).unwrap_or(local_bbox);
+            let target_size = st
+                .model
+                .field
+                .node(node_id)
+                .map(|node| node.intrinsic_size)
+                .unwrap_or(halley_core::field::Vec2 {
+                    x: base_geo.2,
+                    y: base_geo.3,
+                });
+            (
+                base_geo.0,
+                base_geo.1,
+                target_size.x.max(1.0),
+                target_size.y.max(1.0),
+            )
+        } else {
+            window_geometry_for_node(st, node_id).unwrap_or(local_bbox)
+        };
 
         let (cx, cy, sx, sy, texture_rect, geometry_rect) =
             if let Some(active_resize) = active_resize {
@@ -405,6 +517,7 @@ pub(crate) fn collect_active_surfaces(
         }
 
         let alpha = (anim.alpha * live_ramp).clamp(0.0, 1.0);
+        let background_fill_animation_ready = transition_alpha <= 0.01 && live_ramp >= 0.995;
         let effective_border_px = if fullscreen_on_current_monitor {
             0
         } else {
@@ -451,12 +564,19 @@ pub(crate) fn collect_active_surfaces(
             corner_radius: effective_corner_radius_px as f32,
             inner_corner_radius: (effective_corner_radius_px - effective_border_px).max(0) as f32,
             border_color,
+            fill_background: false,
         };
-        if draw_top_this_node {
+        if stack_visible_set.contains(&node_id) {
+            stack_window_units
+                .entry(node_id)
+                .or_insert_with(StackWindowDrawUnit::new)
+                .border_rect = Some(border_rect);
+        } else if draw_top_this_node {
             resized_border_rects.push(border_rect);
         } else {
             border_rects.push(border_rect);
         }
+        let allow_border_background = !st.runtime.tuning.no_csd;
 
         // Games/fullscreen processes bypass offscreen zoom for performance and compatibility.
         let use_offscreen_zoom = !fullscreen_on_current_monitor;
@@ -495,6 +615,7 @@ pub(crate) fn collect_active_surfaces(
                             .expect("offscreen cache should exist after ensure");
                         cache.texture = Some(offscreen.texture);
                         cache.bbox = Some(offscreen.bbox);
+                        cache.has_content = offscreen.has_content;
                         cache.mark_clean(now);
                     }
                     Err(err) => {
@@ -535,6 +656,7 @@ pub(crate) fn collect_active_surfaces(
                                 alpha,
                                 Kind::Unspecified,
                             );
+                            let has_content = !elems.is_empty();
 
                             let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
                                 (
@@ -558,13 +680,35 @@ pub(crate) fn collect_active_surfaces(
                                 })
                                 .collect();
 
-                            if fullscreen_on_current_monitor {
+                            if stack_visible_set.contains(&node_id) {
+                                stack_window_units
+                                    .entry(node_id)
+                                    .or_insert_with(StackWindowDrawUnit::new)
+                                    .active_elements
+                                    .extend(cropped);
+                            } else if fullscreen_on_current_monitor {
                                 fullscreen_active_elements.extend(cropped);
                             } else if draw_top_this_node {
                                 resized_active_elements.extend(cropped);
                             } else {
                                 active_elements.extend(cropped);
                             }
+                            set_border_fill_background_for_node(
+                                node_id,
+                                draw_top_this_node,
+                                &mut border_rects,
+                                &mut resized_border_rects,
+                                &stack_visible_set,
+                                &mut stack_window_units,
+                                border_background_fill_ready(
+                                    st,
+                                    node_id,
+                                    now,
+                                    allow_border_background,
+                                    background_fill_animation_ready,
+                                    has_content,
+                                ),
+                            );
                             continue;
                         }
                     }
@@ -575,14 +719,54 @@ pub(crate) fn collect_active_surfaces(
                 cache.touch(now);
             }
 
-            match st.ui.render_state.window_offscreen_cache.get(&node_id) {
-                Some(cache) => {
-                    let Some(texture) = cache.texture.as_ref() else {
+            match st
+                .ui
+                .render_state
+                .window_offscreen_cache
+                .get(&node_id)
+                .map(|cache| (cache.texture.clone(), cache.bbox, cache.has_content))
+            {
+                Some((texture, bbox, has_content)) => {
+                    let Some(texture) = texture else {
+                        set_border_fill_background_for_node(
+                            node_id,
+                            draw_top_this_node,
+                            &mut border_rects,
+                            &mut resized_border_rects,
+                            &stack_visible_set,
+                            &mut stack_window_units,
+                            false,
+                        );
                         continue;
                     };
-                    let Some(ob) = cache.bbox else {
+                    let Some(ob) = bbox else {
+                        set_border_fill_background_for_node(
+                            node_id,
+                            draw_top_this_node,
+                            &mut border_rects,
+                            &mut resized_border_rects,
+                            &stack_visible_set,
+                            &mut stack_window_units,
+                            false,
+                        );
                         continue;
                     };
+                    set_border_fill_background_for_node(
+                        node_id,
+                        draw_top_this_node,
+                        &mut border_rects,
+                        &mut resized_border_rects,
+                        &stack_visible_set,
+                        &mut stack_window_units,
+                        border_background_fill_ready(
+                            st,
+                            node_id,
+                            now,
+                            allow_border_background,
+                            background_fill_animation_ready,
+                            has_content,
+                        ),
+                    );
                     // src = full bbox, dst = bbox scaled to screen positioned so geo
                     // lands on frame, clip = frame rect to discard CSD shadow bleed.
                     let (
@@ -722,7 +906,7 @@ pub(crate) fn collect_active_surfaces(
                     let geo_h_px = (local_geo.3 * dst_scale_y).max(1.0);
 
                     let offscreen = OffscreenNodeTexture {
-                        texture: texture.clone(),
+                        texture,
                         alpha,
                         corner_radius: (effective_corner_radius_px - effective_border_px).max(0)
                             as f32,
@@ -743,7 +927,13 @@ pub(crate) fn collect_active_surfaces(
                         geo_w: geo_w_px,
                         geo_h: geo_h_px,
                     };
-                    if fullscreen_on_current_monitor {
+                    if stack_visible_set.contains(&node_id) {
+                        stack_window_units
+                            .entry(node_id)
+                            .or_insert_with(StackWindowDrawUnit::new)
+                            .offscreen_textures
+                            .push(offscreen);
+                    } else if fullscreen_on_current_monitor {
                         fullscreen_offscreen_textures.push(offscreen);
                     } else if draw_top_this_node {
                         resized_offscreen_textures.push(offscreen);
@@ -751,7 +941,18 @@ pub(crate) fn collect_active_surfaces(
                         offscreen_textures.push(offscreen);
                     }
                 }
-                None => continue,
+                None => {
+                    set_border_fill_background_for_node(
+                        node_id,
+                        draw_top_this_node,
+                        &mut border_rects,
+                        &mut resized_border_rects,
+                        &stack_visible_set,
+                        &mut stack_window_units,
+                        false,
+                    );
+                    continue;
+                }
             }
         } else {
             log_window_render_path(
@@ -778,6 +979,7 @@ pub(crate) fn collect_active_surfaces(
                 alpha,
                 Kind::Unspecified,
             );
+            let has_content = !elems.is_empty();
             let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
                 (
                     output_clip.loc.x,
@@ -795,13 +997,35 @@ pub(crate) fn collect_active_surfaces(
                 .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
                 .collect();
 
-            if fullscreen_on_current_monitor {
+            if stack_visible_set.contains(&node_id) {
+                stack_window_units
+                    .entry(node_id)
+                    .or_insert_with(StackWindowDrawUnit::new)
+                    .active_elements
+                    .extend(cropped);
+            } else if fullscreen_on_current_monitor {
                 fullscreen_active_elements.extend(cropped);
             } else if draw_top_this_node {
                 resized_active_elements.extend(cropped);
             } else {
                 active_elements.extend(cropped);
             }
+            set_border_fill_background_for_node(
+                node_id,
+                draw_top_this_node,
+                &mut border_rects,
+                &mut resized_border_rects,
+                &stack_visible_set,
+                &mut stack_window_units,
+                border_background_fill_ready(
+                    st,
+                    node_id,
+                    now,
+                    allow_border_background,
+                    background_fill_animation_ready,
+                    has_content,
+                ),
+            );
         }
 
         let parent_geo = window_geometry_for_node(st, node_id).unwrap_or((
@@ -907,6 +1131,12 @@ pub(crate) fn collect_active_surfaces(
         }
     }
 
+    let stack_window_units = stack_visible_front_to_back
+        .iter()
+        .rev()
+        .filter_map(|node_id| stack_window_units.remove(node_id))
+        .collect::<Vec<_>>();
+
     (
         active_elements,
         resized_active_elements,
@@ -919,10 +1149,33 @@ pub(crate) fn collect_active_surfaces(
         fullscreen_popup_offscreen_textures,
         fullscreen_popup_elements,
         node_surface_map,
+        stack_window_units,
         border_rects,
         resized_border_rects,
         overlay_rects,
         overlay_points,
         overlap_overlay_rects,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::compositor::surface_ops::stacking_render_order_map;
+    use halley_core::field::NodeId;
+
+    #[test]
+    fn stacking_render_order_keeps_front_card_last() {
+        let members = vec![
+            NodeId::new(1),
+            NodeId::new(2),
+            NodeId::new(3),
+            NodeId::new(4),
+        ];
+        let ranks = stacking_render_order_map(&members, 3);
+
+        assert_eq!(ranks.get(&NodeId::new(1)), Some(&2));
+        assert_eq!(ranks.get(&NodeId::new(2)), Some(&1));
+        assert_eq!(ranks.get(&NodeId::new(3)), Some(&0));
+        assert_eq!(ranks.get(&NodeId::new(4)), None);
+    }
 }

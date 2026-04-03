@@ -7,7 +7,8 @@ use crate::backend::interface::BackendView;
 use crate::compositor::interaction::{HitNode, PointerState, ResizeCtx, ResizeHandle};
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::{
-    current_surface_size_for_node, request_toplevel_resize_mode, window_geometry_for_node,
+    active_stacking_render_order_for_monitor, current_surface_size_for_node,
+    is_active_stacking_workspace_member, request_toplevel_resize_mode, window_geometry_for_node,
 };
 use crate::render::active_window_frame_pad_px;
 use crate::render::world_to_screen;
@@ -25,6 +26,9 @@ pub(super) fn begin_resize(
     hit: HitNode,
     frame: ButtonFrame,
 ) {
+    if is_active_stacking_workspace_member(st, hit.node_id) {
+        return;
+    }
     let Some(n) = st.model.field.node(hit.node_id) else {
         return;
     };
@@ -707,9 +711,24 @@ pub(crate) fn active_node_screen_rect(
     let (gx, gy, gw, gh) = local_geo;
     let rw = (gw * xform.scale).round().max(1.0);
     let rh = (gh * xform.scale).round().max(1.0);
-    let rx = xform.origin_x + (gx * xform.scale).round();
-    let ry = xform.origin_y + (gy * xform.scale).round();
-    Some((rx, ry, rx + rw, ry + rh))
+    let mut rx = xform.origin_x + (gx * xform.scale).round();
+    let mut ry = xform.origin_y + (gy * xform.scale).round();
+    let mut rr = rx + rw;
+    let mut rb = ry + rh;
+
+    let stack_render_order = active_stacking_render_order_for_monitor(
+        st,
+        st.model.monitor_state.current_monitor.as_str(),
+    );
+    if stack_render_order.contains_key(&node_id) {
+        let frame_pad_px = active_window_frame_pad_px(&st.runtime.tuning) as f32 * xform.scale;
+        rx -= frame_pad_px;
+        ry -= frame_pad_px;
+        rr += frame_pad_px;
+        rb += frame_pad_px;
+    }
+
+    Some((rx, ry, rr, rb))
 }
 
 /// Compute the screen-space surface-tree origin and scale for an active node,

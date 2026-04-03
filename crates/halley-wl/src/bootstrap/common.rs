@@ -162,7 +162,7 @@ pub(crate) fn sync_portal_activation_environment(wayland_display: &str) {
         env::set_var("DESKTOP_SESSION", "Halley");
 
         // What portals can use for backend matching
-        env::set_var("XDG_CURRENT_DESKTOP", "Halley");
+        env::set_var("XDG_CURRENT_DESKTOP", "Halley:wlroots");
     }
 
     let vars = activation_environment_vars();

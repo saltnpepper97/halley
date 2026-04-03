@@ -163,6 +163,9 @@ pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
     let Some(id) = latest_surface_node(st) else {
         return false;
     };
+    if crate::compositor::surface_ops::is_active_stacking_workspace_member(st, id) {
+        return false;
+    }
     let Some(n) = st.model.field.node(id) else {
         return false;
     };

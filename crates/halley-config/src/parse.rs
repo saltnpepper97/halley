@@ -1,17 +1,19 @@
 use std::collections::HashMap;
 
 use super::{
-    BearingsBindingAction, CompositorBinding, CompositorBindingAction, DirectionalAction,
-    KeyModifiers, LaunchBinding, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction,
-    PointerBinding, PointerBindingAction, TrailBindingAction,
+    BearingsBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
+    DirectionalAction, KeyModifiers, LaunchBinding, MonitorBindingAction, MonitorBindingTarget,
+    NodeBindingAction, PointerBinding, PointerBindingAction, StackBindingAction,
+    StackCycleDirection, TrailBindingAction,
 };
 use crate::keybinds::{is_pointer_button_code, parse_chord, parse_modifiers};
 use crate::layout::FocusRingConfig;
 use crate::layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    ClusterBloomDirection, InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
-    InitialWindowSpawnPlacement, PanToNewMode, ViewportOutputConfig, ViewportVrrMode, WindowRule,
-    WindowRulePattern, default_compositor_bindings, default_pointer_bindings,
+    ClusterBloomDirection, ClusterDefaultLayout, InitialWindowClusterParticipation,
+    InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, PanToNewMode, ViewportOutputConfig,
+    ViewportVrrMode, WindowRule, WindowRulePattern, default_compositor_bindings,
+    default_pointer_bindings,
 };
 use crate::{
     DecorationBorderColor, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
@@ -49,6 +51,7 @@ impl RuntimeTuning {
         load_nodes_section(&cfg, &mut out);
         load_clusters_section(&cfg, &mut out);
         load_tile_section(&cfg, &mut out);
+        load_stacking_section(&cfg, &mut out);
         load_decay_section(&cfg, &mut out);
         load_field_section(&cfg, &mut out);
         load_physics_section(&cfg, &mut out);
@@ -895,6 +898,11 @@ fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["clusters.bloom-direction", "clusters.bloom_direction"],
         out.cluster_bloom_direction,
     );
+    out.cluster_default_layout = pick_cluster_default_layout(
+        cfg,
+        &["clusters.default-layout", "clusters.default_layout"],
+        out.cluster_default_layout,
+    );
 }
 
 fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -943,6 +951,19 @@ fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
             "field.active_windows_allowed",
         ],
         out.tile_max_stack as u64,
+    ) as usize;
+}
+
+fn load_stacking_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    out.stacking_max_visible = pick_u64(
+        cfg,
+        &[
+            "stacking.max-visible",
+            "stacking.max_visible",
+            "stacking.visible-limit",
+            "stacking.visible_limit",
+        ],
+        out.stacking_max_visible as u64,
     ) as usize;
 }
 
@@ -1332,6 +1353,21 @@ fn pick_cluster_bloom_direction(
     }
 }
 
+fn pick_cluster_default_layout(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: ClusterDefaultLayout,
+) -> ClusterDefaultLayout {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "tiling" | "tile" => ClusterDefaultLayout::Tiling,
+        "stacking" | "stack" => ClusterDefaultLayout::Stacking,
+        _ => default,
+    }
+}
+
 fn parse_viewport_focus_ring(cfg: &RuneConfig, root: &str, key: &str) -> Option<FocusRingConfig> {
     let ring_root = format!("{root}.{key}.focus-ring");
     let rx = pick_f32(
@@ -1609,20 +1645,45 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
 
     match action_key.as_str() {
         "reload" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::Reload);
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::Reload,
+            );
         }
         "toggle_state" | "toggle-state" | "minimize_focused" | "minimize-focused" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ToggleState);
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::ToggleState,
+            );
         }
         "close_focused" | "close-focused" | "close_window" | "close-window" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::CloseFocusedWindow);
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::CloseFocusedWindow,
+            );
         }
         "cluster_mode" | "cluster-mode" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ClusterMode);
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::ClusterMode,
+            );
         }
         "bearings_show" | "bearings-show" => {
             upsert_compositor_binding(
                 out,
+                CompositorBindingScope::Global,
                 mods,
                 key,
                 CompositorBindingAction::Bearings(BearingsBindingAction::Show),
@@ -1631,6 +1692,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "bearings_toggle" | "bearings-toggle" => {
             upsert_compositor_binding(
                 out,
+                CompositorBindingScope::Global,
                 mods,
                 key,
                 CompositorBindingAction::Bearings(BearingsBindingAction::Toggle),
@@ -1639,6 +1701,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "quit" => {
             upsert_compositor_binding(
                 out,
+                CompositorBindingScope::Global,
                 mods,
                 key,
                 CompositorBindingAction::Quit {
@@ -1649,6 +1712,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "move_left" | "move-left" => {
             upsert_compositor_binding(
                 out,
+                CompositorBindingScope::Field,
                 mods,
                 key,
                 CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Left)),
@@ -1657,6 +1721,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "move_right" | "move-right" => {
             upsert_compositor_binding(
                 out,
+                CompositorBindingScope::Field,
                 mods,
                 key,
                 CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Right)),
@@ -1665,6 +1730,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "move_up" | "move-up" => {
             upsert_compositor_binding(
                 out,
+                CompositorBindingScope::Field,
                 mods,
                 key,
                 CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Up)),
@@ -1673,6 +1739,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "move_down" | "move-down" => {
             upsert_compositor_binding(
                 out,
+                CompositorBindingScope::Field,
                 mods,
                 key,
                 CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Down)),
@@ -1681,6 +1748,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "trail_prev" | "trail-prev" | "trail prev" => {
             upsert_compositor_binding(
                 out,
+                CompositorBindingScope::Global,
                 mods,
                 key,
                 CompositorBindingAction::Trail(TrailBindingAction::Prev),
@@ -1689,19 +1757,38 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
         "trail_next" | "trail-next" | "trail next" => {
             upsert_compositor_binding(
                 out,
+                CompositorBindingScope::Global,
                 mods,
                 key,
                 CompositorBindingAction::Trail(TrailBindingAction::Next),
             );
         }
         "zoom_in" | "zoom-in" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomIn);
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::ZoomIn,
+            );
         }
         "zoom_out" | "zoom-out" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomOut);
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::ZoomOut,
+            );
         }
         "zoom_reset" | "zoom-reset" => {
-            upsert_compositor_binding(out, mods, key, CompositorBindingAction::ZoomReset);
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::ZoomReset,
+            );
         }
         "move_window" | "move-window" if is_pointer_button_code(key) => {
             upsert_pointer_binding(out, mods, key, PointerBindingAction::MoveWindow);
@@ -1713,8 +1800,8 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
             upsert_pointer_binding(out, mods, key, PointerBindingAction::ResizeWindow);
         }
         _ => {
-            if let Some(action) = parse_parameterized_compositor_action(action_trimmed) {
-                upsert_compositor_binding(out, mods, key, action);
+            if let Some((scope, action)) = parse_parameterized_compositor_action(action_trimmed) {
+                upsert_compositor_binding(out, scope, mods, key, action);
             } else {
                 upsert_launch_binding(out, mods, key, action_trimmed);
             }
@@ -1722,7 +1809,9 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
     }
 }
 
-fn parse_parameterized_compositor_action(action: &str) -> Option<CompositorBindingAction> {
+fn parse_parameterized_compositor_action(
+    action: &str,
+) -> Option<(CompositorBindingScope, CompositorBindingAction)> {
     let mut parts = action.split_whitespace();
     let command = parts.next()?.to_ascii_lowercase();
     let arg = parts.collect::<Vec<_>>().join(" ");
@@ -1732,15 +1821,34 @@ fn parse_parameterized_compositor_action(action: &str) -> Option<CompositorBindi
     }
 
     match command.as_str() {
-        "node-move" | "node_move" => parse_directional_action(arg)
-            .map(|direction| CompositorBindingAction::Node(NodeBindingAction::Move(direction))),
-        "monitor-focus" | "monitor_focus" => Some(CompositorBindingAction::Monitor(
-            MonitorBindingAction::Focus(
+        "node-move" | "node_move" => parse_directional_action(arg).map(|direction| {
+            (
+                CompositorBindingScope::Field,
+                CompositorBindingAction::Node(NodeBindingAction::Move(direction)),
+            )
+        }),
+        "monitor-focus" | "monitor_focus" => Some((
+            CompositorBindingScope::Global,
+            CompositorBindingAction::Monitor(MonitorBindingAction::Focus(
                 parse_directional_action(arg)
                     .map(MonitorBindingTarget::Direction)
                     .unwrap_or_else(|| MonitorBindingTarget::Output(arg.to_string())),
-            ),
+            )),
         )),
+        "stack-cycle" | "stack_cycle" => parse_stack_cycle_direction(arg).map(|direction| {
+            (
+                CompositorBindingScope::Stack,
+                CompositorBindingAction::Stack(StackBindingAction::Cycle(direction)),
+            )
+        }),
+        _ => None,
+    }
+}
+
+fn parse_stack_cycle_direction(text: &str) -> Option<StackCycleDirection> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "forward" | "next" => Some(StackCycleDirection::Forward),
+        "backward" | "back" | "prev" | "previous" => Some(StackCycleDirection::Backward),
         _ => None,
     }
 }
@@ -1757,6 +1865,7 @@ fn parse_directional_action(text: &str) -> Option<DirectionalAction> {
 
 fn upsert_compositor_binding(
     out: &mut RuntimeTuning,
+    scope: CompositorBindingScope,
     mods: KeyModifiers,
     key: u32,
     action: CompositorBindingAction,
@@ -1772,13 +1881,14 @@ fn upsert_compositor_binding(
     if let Some(existing) = out
         .compositor_bindings
         .iter_mut()
-        .find(|b| b.key == key && b.modifiers == mods)
+        .find(|b| b.scope == scope && b.key == key && b.modifiers == mods)
     {
         existing.action = action;
         return;
     }
 
     out.compositor_bindings.push(CompositorBinding {
+        scope,
         modifiers: mods,
         key,
         action,
@@ -1830,15 +1940,15 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::apply_explicit_keybind_overrides_map;
+    use super::{apply_explicit_binding, apply_explicit_keybind_overrides_map};
     use crate::{
         BearingsBindingAction, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-        CloseRestorePanMode, ClusterBloomDirection, CompositorBindingAction, CursorConfig,
-        DirectionalAction, FontConfig, InitialWindowClusterParticipation,
-        InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, MonitorBindingAction,
-        MonitorBindingTarget, NodeBackgroundColorMode, NodeBindingAction, NodeDisplayPolicy,
-        PanToNewMode, RuntimeTuning, WHEEL_DOWN_CODE, WHEEL_UP_CODE, WindowRulePattern,
-        keybinds::key_name_to_evdev,
+        CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CompositorBindingAction,
+        CompositorBindingScope, CursorConfig, DirectionalAction, FontConfig,
+        InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
+        MonitorBindingAction, MonitorBindingTarget, NodeBackgroundColorMode, NodeBindingAction,
+        NodeDisplayPolicy, PanToNewMode, RuntimeTuning, StackBindingAction, StackCycleDirection,
+        WHEEL_DOWN_CODE, WHEEL_UP_CODE, WindowRulePattern, keybinds::key_name_to_evdev,
     };
 
     fn write_temp_config(prefix: &str, content: &str) -> std::path::PathBuf {
@@ -1887,6 +1997,29 @@ mod tests {
         assert!(tuning.compositor_bindings.iter().any(|binding| {
             binding.action
                 == CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Left))
+        }));
+    }
+
+    #[test]
+    fn field_and_stack_bindings_can_share_same_chord() {
+        let mut tuning = RuntimeTuning::default();
+
+        apply_explicit_binding(&mut tuning, "super", "$mod+left", "move-left");
+        apply_explicit_binding(&mut tuning, "super", "$mod+left", "stack-cycle backward");
+
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Field
+                && binding.action
+                    == CompositorBindingAction::Node(NodeBindingAction::Move(
+                        DirectionalAction::Left,
+                    ))
+        }));
+        assert!(tuning.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Stack
+                && binding.action
+                    == CompositorBindingAction::Stack(StackBindingAction::Cycle(
+                        StackCycleDirection::Backward,
+                    ))
         }));
     }
 
@@ -2504,6 +2637,55 @@ end
         let _ = fs::remove_file(&path);
 
         assert_eq!(tuning.tile_max_stack, 5);
+    }
+
+    #[test]
+    fn cluster_default_layout_parses_from_config() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("halley-cluster-default-layout-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+clusters:
+  default-layout "tiling"
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.cluster_default_layout, ClusterDefaultLayout::Tiling);
+    }
+
+    #[test]
+    fn stacking_max_visible_parses_from_config() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("halley-stacking-max-visible-{unique}.rune"));
+        fs::write(
+            &path,
+            r#"
+stacking:
+  max-visible 7
+end
+"#,
+        )
+        .expect("write temp config");
+
+        let tuning = RuntimeTuning::from_rune_file(path.to_str().expect("utf8 path"))
+            .expect("config should parse");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(tuning.stacking_max_visible, 7);
     }
 
     #[test]

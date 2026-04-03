@@ -145,6 +145,14 @@ impl Cluster {
         true
     }
 
+    pub(crate) fn add_member_front(&mut self, member: NodeId) -> bool {
+        if self.members.contains(&member) {
+            return false;
+        }
+        self.members.insert(0, member);
+        true
+    }
+
     pub fn workspace_member(&self, id: NodeId) -> Option<&Node> {
         self.active_workspace.as_ref()?.nodes.get(&id)
     }

@@ -17,7 +17,7 @@ use smithay::{
         utils::draw_render_elements,
     },
     backend::winit::WinitGraphicsBackend,
-    utils::{Buffer, Physical, Rectangle, Transform},
+    utils::{Buffer, Physical, Rectangle, Size, Transform},
 };
 
 use crate::animation::AnimStyle;
@@ -41,7 +41,9 @@ use super::node::{
     ensure_node_circle_resources,
 };
 use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
-use super::window::{ActiveBorderRect, OffscreenNodeTexture, collect_active_surfaces};
+use super::window::{
+    ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit, collect_active_surfaces,
+};
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
@@ -87,6 +89,7 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
             st.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
         });
     st.ui.render_state.prune_window_offscreen_cache(&alive, now);
+    st.ui.render_state.prune_window_fill_ready_after(&alive);
     st.ui.render_state.prune_ui_text_cache(now);
 }
 
@@ -410,6 +413,7 @@ struct SceneCollections {
     popup_elements: Vec<CroppedSurfaceElement>,
     fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
     fullscreen_popup_elements: Vec<CroppedSurfaceElement>,
+    stack_window_units: Vec<StackWindowDrawUnit>,
     border_rects: Vec<ActiveBorderRect>,
     resized_border_rects: Vec<ActiveBorderRect>,
     overlay_rects: Vec<(i32, i32, i32, i32, Color32F)>,
@@ -610,6 +614,7 @@ fn collect_debug_frame_scene(
         fullscreen_popup_offscreen_textures,
         fullscreen_popup_elements,
         node_surface_map,
+        stack_window_units,
         border_rects,
         resized_border_rects,
         overlay_rects,
@@ -696,6 +701,7 @@ fn collect_debug_frame_scene(
         popup_elements,
         fullscreen_popup_offscreen_textures,
         fullscreen_popup_elements,
+        stack_window_units,
         border_rects,
         resized_border_rects,
         overlay_rects,
@@ -789,6 +795,7 @@ fn draw_debug_frame_scene(
         &scene.offscreen_textures,
         st.ui.render_state.window_texture_program.as_ref(),
     )?;
+    draw_stack_window_units(frame, size, prepared.damage, &scene.stack_window_units, st)?;
     draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
     draw_window_borders(
         frame,
@@ -969,7 +976,6 @@ fn draw_offscreen_textures(
             (visible.loc.x - dst.loc.x, visible.loc.y - dst.loc.y).into(),
             visible.size,
         );
-
         let uniforms = [
             Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
             Uniform::new("corner_radius", tex.corner_radius.max(0.0)),
@@ -998,6 +1004,30 @@ fn draw_offscreen_textures(
         )?;
     }
 
+    Ok(())
+}
+
+fn draw_stack_window_units(
+    frame: &mut GlesFrame<'_, '_>,
+    size: Size<i32, Physical>,
+    damage: Rectangle<i32, Physical>,
+    stack_window_units: &[StackWindowDrawUnit],
+    st: &mut Halley,
+) -> Result<(), Box<dyn Error>> {
+    for unit in stack_window_units {
+        if let Some(border_rect) = unit.border_rect.as_ref() {
+            draw_window_borders(frame, size, damage, std::slice::from_ref(border_rect), st)?;
+        }
+        if !unit.active_elements.is_empty() {
+            let _ = draw_render_elements(frame, 1.0, &unit.active_elements, &[damage]);
+        }
+        draw_offscreen_textures(
+            frame,
+            damage,
+            &unit.offscreen_textures,
+            st.ui.render_state.window_texture_program.as_ref(),
+        )?;
+    }
     Ok(())
 }
 
@@ -1037,6 +1067,16 @@ fn draw_window_borders(
             (visible.loc.x - dst.loc.x, visible.loc.y - dst.loc.y).into(),
             visible.size,
         );
+        let fill_color = if rect.fill_background {
+            (
+                rect.border_color.r(),
+                rect.border_color.g(),
+                rect.border_color.b(),
+                rect.border_color.a(),
+            )
+        } else {
+            (0.0f32, 0.0f32, 0.0f32, 0.0f32)
+        };
 
         if rect.corner_radius > 0.0 {
             if let (Some(texture), Some(program)) = (border_texture, border_program) {
@@ -1055,7 +1095,7 @@ fn draw_window_borders(
                             rect.border_color.a(),
                         ),
                     ),
-                    Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+                    Uniform::new("fill_color", fill_color),
                     Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
                     Uniform::new("inner_rect_size", (rect.inner_w, rect.inner_h)),
                     Uniform::new(
@@ -1100,7 +1140,7 @@ fn draw_window_borders(
                             rect.border_color.a(),
                         ),
                     ),
-                    Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+                    Uniform::new("fill_color", fill_color),
                     Uniform::new("content_alpha_scale", 0.0f32),
                     // Border-only draw: no content geo offset needed.
                     Uniform::new("geo_offset", (0.0f32, 0.0f32)),
@@ -1122,20 +1162,36 @@ fn draw_window_borders(
             }
         }
 
-        draw_rect(
-            frame,
-            visible.loc.x,
-            visible.loc.y,
-            visible.size.w,
-            visible.size.h,
-            Color32F::new(
-                rect.border_color.r(),
-                rect.border_color.g(),
-                rect.border_color.b(),
-                rect.border_color.a() * rect.alpha.clamp(0.0, 1.0),
-            ),
-            damage,
-        )?;
+        if rect.fill_background {
+            draw_rect(
+                frame,
+                visible.loc.x,
+                visible.loc.y,
+                visible.size.w,
+                visible.size.h,
+                Color32F::new(
+                    rect.border_color.r(),
+                    rect.border_color.g(),
+                    rect.border_color.b(),
+                    rect.border_color.a() * rect.alpha.clamp(0.0, 1.0),
+                ),
+                damage,
+            )?;
+        } else {
+            draw_clamped_outline_rect(
+                frame,
+                (dst.loc.x, dst.loc.y, dst.size.w, dst.size.h),
+                border_px,
+                Color32F::new(
+                    rect.border_color.r(),
+                    rect.border_color.g(),
+                    rect.border_color.b(),
+                    rect.border_color.a() * rect.alpha.clamp(0.0, 1.0),
+                ),
+                damage,
+                size,
+            )?;
+        }
     }
 
     Ok(())

@@ -25,6 +25,8 @@ pub(crate) enum HelpTopic {
     BearingsHide,
     BearingsToggle,
     BearingsStatus,
+    Stack,
+    StackCycle,
 }
 
 pub(crate) fn exit_usage(error: UsageError) -> ! {
@@ -51,6 +53,7 @@ pub(crate) fn print_help(topic: HelpTopic) {
                 ("trail", "Trail navigation and inspection"),
                 ("monitor", "Monitor-related actions"),
                 ("bearings", "Bearings visibility controls"),
+                ("stack", "Stack layout actions"),
             ],
         ),
         HelpTopic::Quit => print_help_page(
@@ -221,6 +224,25 @@ pub(crate) fn print_help(topic: HelpTopic) {
             "halleyctl bearings status",
             &["halleyctl bearings status"],
             &[("status", "Print current bearings visibility")],
+        ),
+        HelpTopic::Stack => print_help_page(
+            "halleyctl stack",
+            &[
+                "halleyctl stack cycle forward [-o OUTPUT]",
+                "halleyctl stack cycle backward [-o OUTPUT]",
+            ],
+            &[(
+                "cycle",
+                "Rotate the active stacking deck forward or backward",
+            )],
+        ),
+        HelpTopic::StackCycle => print_help_page(
+            "halleyctl stack cycle",
+            &[
+                "halleyctl stack cycle forward [-o OUTPUT]",
+                "halleyctl stack cycle backward [-o OUTPUT]",
+            ],
+            &[("forward|backward", "Cycle the active stacking deck")],
         ),
     }
 }

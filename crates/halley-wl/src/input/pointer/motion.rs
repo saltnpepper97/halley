@@ -8,6 +8,9 @@ use crate::backend::interface::BackendView;
 use crate::compositor::interaction::state::ActiveDragState;
 use crate::compositor::interaction::{DragAxisMode, DragCtx, HitNode, ModState, PointerState};
 use crate::compositor::root::Halley;
+use crate::compositor::surface_ops::{
+    is_active_stacking_workspace_member, stack_focus_target_for_node,
+};
 use crate::input::ctx::InputCtx;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
 use halley_config::PointerBindingAction;
@@ -22,6 +25,9 @@ use crate::input::keyboard::modkeys::modifier_active;
 
 pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
     if st.is_fullscreen_active(node_id) {
+        return false;
+    }
+    if is_active_stacking_workspace_member(st, node_id) {
         return false;
     }
     st.model.field.node(node_id).is_some_and(|n| match n.kind {
@@ -105,7 +111,12 @@ pub(crate) fn begin_drag(
     crate::compositor::carry::system::set_drag_authority_node(st, Some(hit.node_id));
     crate::compositor::carry::system::begin_carry_state_tracking(st, hit.node_id);
     if !hit.is_core {
-        st.set_interaction_focus(Some(hit.node_id), 30_000, Instant::now());
+        let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
+        st.set_recent_top_node(
+            focus_target,
+            Instant::now() + std::time::Duration::from_millis(1200),
+        );
+        st.set_interaction_focus(Some(focus_target), 30_000, Instant::now());
     }
     if edge_pan_eligible {
         let to = halley_core::field::Vec2 {

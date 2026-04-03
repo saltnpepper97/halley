@@ -1,5 +1,7 @@
 use crate::cluster::{Cluster, ClusterId, ClusterRemoveMemberOutcome};
+use crate::cluster_layout::ClusterCycleDirection;
 use crate::decay::DecayLevel;
+use crate::stacking::cycle_stacking_members;
 use crate::viewport::Viewport;
 use crate::visual::{NodeVisual, VisualParams, build_visuals, build_visuals_in_view};
 
@@ -270,6 +272,33 @@ impl Field {
         let node_id = NodeId(self.next_node);
         self.next_node += 1;
         if !cluster.add_member(node_id) {
+            return Err(ClusterWorkspaceSpawnError::ClusterNotActive);
+        }
+
+        let node = Self::make_surface_node(node_id, label, Vec2 { x: 0.0, y: 0.0 }, size);
+        if !cluster.insert_workspace_member(node) {
+            return Err(ClusterWorkspaceSpawnError::ClusterNotActive);
+        }
+        Ok(node_id)
+    }
+
+    pub fn spawn_surface_in_active_cluster_front(
+        &mut self,
+        id: ClusterId,
+        label: impl Into<String>,
+        size: Vec2,
+    ) -> Result<NodeId, ClusterWorkspaceSpawnError> {
+        let label = label.into();
+        let Some(cluster) = self.clusters.get_mut(&id) else {
+            return Err(ClusterWorkspaceSpawnError::MissingCluster);
+        };
+        if !cluster.is_active() {
+            return Err(ClusterWorkspaceSpawnError::ClusterNotActive);
+        }
+
+        let node_id = NodeId(self.next_node);
+        self.next_node += 1;
+        if !cluster.add_member_front(node_id) {
             return Err(ClusterWorkspaceSpawnError::ClusterNotActive);
         }
 
@@ -708,6 +737,26 @@ impl Field {
         Ok(())
     }
 
+    pub fn add_member_to_cluster_front(
+        &mut self,
+        id: ClusterId,
+        member: NodeId,
+    ) -> Result<(), ClusterAddMemberError> {
+        if self.node(member).is_none() {
+            return Err(ClusterAddMemberError::MissingNode(member));
+        }
+        if self.cluster_id_for_member_public(member).is_some() {
+            return Err(ClusterAddMemberError::AlreadyClustered(member));
+        }
+        let Some(cluster) = self.clusters.get_mut(&id) else {
+            return Err(ClusterAddMemberError::MissingCluster);
+        };
+        if !cluster.add_member_front(member) {
+            return Err(ClusterAddMemberError::AlreadyClustered(member));
+        }
+        Ok(())
+    }
+
     pub fn remove_member_from_cluster(
         &mut self,
         id: ClusterId,
@@ -779,6 +828,15 @@ impl Field {
             return false;
         };
         cluster.reorder_overflow_member(member, target_overflow_index, max_stack)
+    }
+
+    pub fn cycle_cluster_stacking_members(
+        &mut self,
+        id: ClusterId,
+        direction: ClusterCycleDirection,
+    ) -> Option<NodeId> {
+        let cluster = self.clusters.get_mut(&id)?;
+        cycle_stacking_members(&mut cluster.members, direction)
     }
 
     pub fn dissolve_cluster(&mut self, id: ClusterId) -> bool {
@@ -1449,6 +1507,35 @@ mod tests {
         assert!(!f.nodes().contains_key(&c));
         assert!(f.is_active_cluster_member(c));
         assert_eq!(f.cluster(cid).unwrap().members(), &[a, b, c]);
+    }
+
+    #[test]
+    fn spawning_into_active_cluster_workspace_front_inserts_new_member_first() {
+        let mut f = Field::new();
+        let a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
+        let b = f.spawn_surface("B", Vec2 { x: 10.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
+
+        let cid = f.create_cluster(vec![a, b]).unwrap();
+        assert!(f.activate_cluster_workspace(cid));
+
+        let c = f
+            .spawn_surface_in_active_cluster_front(cid, "C", Vec2 { x: 30.0, y: 20.0 })
+            .unwrap();
+
+        assert_eq!(f.cluster(cid).unwrap().members(), &[c, a, b]);
+    }
+
+    #[test]
+    fn adding_member_to_cluster_front_inserts_new_member_first() {
+        let mut f = Field::new();
+        let a = f.spawn_surface("A", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
+        let b = f.spawn_surface("B", Vec2 { x: 10.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
+        let c = f.spawn_surface("C", Vec2 { x: 20.0, y: 0.0 }, Vec2 { x: 10.0, y: 10.0 });
+
+        let cid = f.create_cluster(vec![a, b]).unwrap();
+        f.add_member_to_cluster_front(cid, c).unwrap();
+
+        assert_eq!(f.cluster(cid).unwrap().members(), &[c, a, b]);
     }
 
     #[test]

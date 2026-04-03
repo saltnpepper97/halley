@@ -10,7 +10,7 @@ pub use error::{CodecError, IpcError};
 pub use protocol::{
     BearingsRequest, CompositorRequest, DpmsCommand, MonitorFocusDirection, MonitorFocusTarget,
     MonitorRequest, NodeMoveDirection, NodeRequest, NodeSelector, Request, Response,
-    TrailDirection, TrailRequest, TrailTarget,
+    StackCycleDirection, StackRequest, TrailDirection, TrailRequest, TrailTarget,
 };
 pub use types::{
     BearingsStatusResponse, LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse,

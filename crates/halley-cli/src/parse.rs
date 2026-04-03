@@ -5,7 +5,7 @@ use halley_ipc::{
 
 use crate::cmd::{
     bearings::parse_bearings_request, monitor::parse_monitor_request, node::parse_node_request,
-    trail::parse_trail_request,
+    stack::parse_stack_request, trail::parse_trail_request,
 };
 use crate::help::HelpTopic;
 
@@ -55,6 +55,7 @@ pub(crate) fn parse_request(args: &[String]) -> Result<ParseOutcome, UsageError>
         "trail" => parse_trail_request(&args[1..]),
         "monitor" => parse_monitor_request(&args[1..]),
         "bearings" => parse_bearings_request(&args[1..]),
+        "stack" => parse_stack_request(&args[1..]),
         other => Err(UsageError::new(
             format!("unknown command: {other}"),
             HelpTopic::Top,
@@ -198,6 +199,34 @@ pub(crate) fn parse_selector_flags(
         index += 1;
     }
     Ok((selector, output, json))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ParseOutcome, parse_request};
+
+    #[test]
+    fn stack_cycle_request_parses() {
+        let args = vec![
+            "stack".to_string(),
+            "cycle".to_string(),
+            "forward".to_string(),
+        ];
+        let outcome = match parse_request(&args) {
+            Ok(outcome) => outcome,
+            Err(err) => panic!("stack request should parse: {}", err.message),
+        };
+
+        match outcome {
+            ParseOutcome::Request(halley_ipc::Request::Stack(
+                halley_ipc::StackRequest::Cycle { direction, output },
+            )) => {
+                assert_eq!(direction, halley_ipc::StackCycleDirection::Forward);
+                assert_eq!(output, None);
+            }
+            _ => panic!("unexpected parse outcome"),
+        }
+    }
 }
 
 pub(crate) fn parse_node_selector(text: &str) -> Result<NodeSelector, UsageError> {

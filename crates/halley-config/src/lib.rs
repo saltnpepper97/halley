@@ -3,14 +3,14 @@ pub mod layout;
 pub mod parse;
 
 pub use keybinds::{
-    BearingsBindingAction, CompositorBinding, CompositorBindingAction, DirectionalAction,
-    KeyModifiers, Keybinds, LaunchBinding, MonitorBindingAction, MonitorBindingTarget,
-    NodeBindingAction, PointerBinding, PointerBindingAction, TrailBindingAction, WHEEL_DOWN_CODE,
-    WHEEL_UP_CODE,
+    BearingsBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
+    DirectionalAction, KeyModifiers, Keybinds, LaunchBinding, MonitorBindingAction,
+    MonitorBindingTarget, NodeBindingAction, PointerBinding, PointerBindingAction,
+    StackBindingAction, StackCycleDirection, TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
 };
 pub use layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    ClusterBloomDirection, CursorConfig, DecorationBorderColor, FontConfig,
+    ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DecorationBorderColor, FontConfig,
     InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
     NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode, RuntimeTuning,
     ViewportOutputConfig, ViewportVrrMode, WindowRule, WindowRulePattern,

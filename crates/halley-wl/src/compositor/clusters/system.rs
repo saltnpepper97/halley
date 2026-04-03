@@ -6,6 +6,7 @@ use crate::compositor::clusters::read::{
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::interaction::state::InteractionState;
 use halley_core::cluster::{ClusterId, ClusterRemoveMemberOutcome};
+use halley_core::cluster_layout::{ClusterCycleDirection, ClusterWorkspaceLayoutKind};
 use halley_core::field::RemoveNodeClusterEffect;
 use std::ops::{Deref, DerefMut};
 
@@ -145,10 +146,23 @@ impl<'a> ClusterMutationController<'a> {
             .field
             .cluster(cid)
             .is_some_and(|cluster| cluster.is_active());
-        if self.field.add_member_to_cluster(cid, node_id).is_err() {
+        let add_result = if matches!(
+            self.tuning.cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Stacking
+        ) {
+            self.field.add_member_to_cluster_front(cid, node_id)
+        } else {
+            self.field.add_member_to_cluster(cid, node_id)
+        };
+        if add_result.is_err() {
             return false;
         }
-        if self.tuning.tile_new_on_top {
+        if self.tuning.tile_new_on_top
+            && matches!(
+                self.tuning.cluster_layout_kind(),
+                ClusterWorkspaceLayoutKind::Tiling
+            )
+        {
             let _ = self.field.promote_cluster_member_to_master(cid, node_id);
         }
         if active_workspace {
@@ -272,6 +286,28 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
     pub fn has_active_cluster_workspace(&self) -> bool {
         self.active_cluster_workspace_for_monitor(self.model.monitor_state.current_monitor.as_str())
             .is_some()
+    }
+
+    fn active_cluster_layout_kind(&self) -> ClusterWorkspaceLayoutKind {
+        self.runtime.tuning.cluster_layout_kind()
+    }
+
+    fn cluster_overflow_len(&self, cid: ClusterId) -> usize {
+        if !matches!(
+            self.active_cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Tiling
+        ) {
+            return 0;
+        }
+        self.model
+            .field
+            .cluster(cid)
+            .map(|cluster| {
+                cluster
+                    .overflow_members(self.runtime.tuning.tile_max_stack)
+                    .len()
+            })
+            .unwrap_or(0)
     }
 }
 
@@ -579,16 +615,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         node_id: NodeId,
         now: Instant,
     ) -> bool {
-        let previous_overflow_len = self
-            .model
-            .field
-            .cluster(cid)
-            .map(|cluster| {
-                cluster
-                    .overflow_members(self.runtime.tuning.tile_max_stack)
-                    .len()
-            })
-            .unwrap_or(0);
+        let previous_overflow_len = self.cluster_overflow_len(cid);
         if !self
             .cluster_mutation_controller()
             .absorb_node_into_cluster(cid, node_id)
@@ -603,16 +630,15 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 }
                 let now_ms = self.now_ms(now);
                 self.layout_active_cluster_workspace_for_monitor(cluster_monitor.as_str(), now_ms);
-                let overflow_len = self
-                    .model
-                    .field
-                    .cluster(cid)
-                    .map(|cluster| {
-                        cluster
-                            .overflow_members(self.runtime.tuning.tile_max_stack)
-                            .len()
-                    })
-                    .unwrap_or(0);
+                if matches!(
+                    self.active_cluster_layout_kind(),
+                    ClusterWorkspaceLayoutKind::Stacking
+                ) {
+                    self.set_recent_top_node(node_id, now + std::time::Duration::from_millis(1200));
+                    self.set_interaction_focus(Some(node_id), 30_000, now);
+                    self.update_focus_tracking_for_surface(node_id, now_ms);
+                }
+                let overflow_len = self.cluster_overflow_len(cid);
                 if overflow_len > previous_overflow_len {
                     self.reveal_cluster_overflow_for_monitor(cluster_monitor.as_str(), now_ms);
                 }
@@ -657,7 +683,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
     }
 
     fn refresh_cluster_overflow_for_monitor(&mut self, monitor: &str, now_ms: u64, reveal: bool) {
-        let Some(cid) = self.active_cluster_workspace_for_monitor(monitor) else {
+        let Some(_cid) = self.active_cluster_workspace_for_monitor(monitor) else {
             self.model
                 .cluster_state
                 .cluster_overflow_members
@@ -672,7 +698,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .remove(monitor);
             return;
         };
-        let Some(cluster) = self.model.field.cluster(cid) else {
+        let Some(plan) = self
+            .cluster_read_controller()
+            .plan_active_cluster_layout(monitor)
+        else {
             self.model
                 .cluster_state
                 .cluster_overflow_members
@@ -687,9 +716,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .remove(monitor);
             return;
         };
-        let overflow = cluster
-            .overflow_members(self.runtime.tuning.tile_max_stack)
-            .to_vec();
+        let overflow = plan.overflow_members;
         if overflow.is_empty() {
             self.model
                 .cluster_state
@@ -752,6 +779,12 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         if self.active_cluster_workspace_for_monitor(monitor) != Some(cid) {
             return false;
         }
+        if !matches!(
+            self.active_cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Tiling
+        ) {
+            return false;
+        }
         let max_stack = self.runtime.tuning.tile_max_stack;
         if !self.model.field.swap_cluster_overflow_member_with_visible(
             cid,
@@ -777,6 +810,12 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         if self.active_cluster_workspace_for_monitor(monitor) != Some(cid) {
             return false;
         }
+        if !matches!(
+            self.active_cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Tiling
+        ) {
+            return false;
+        }
         let max_stack = self.runtime.tuning.tile_max_stack;
         if !self.model.field.reorder_cluster_overflow_member(
             cid,
@@ -800,29 +839,27 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         let Some(cid) = self.active_cluster_workspace_for_monitor(monitor) else {
             return false;
         };
-        let Some(cluster) = self.model.field.cluster(cid) else {
+        let Some(plan) = self
+            .cluster_read_controller()
+            .plan_active_cluster_layout(monitor)
+        else {
             return false;
         };
-        if !cluster
-            .visible_members(self.runtime.tuning.tile_max_stack)
-            .contains(&member)
+        if !matches!(plan.kind, ClusterWorkspaceLayoutKind::Tiling)
+            || !plan.tiles.iter().any(|tile| tile.node_id == member)
         {
             return false;
         }
-        let Some(target_member) = self
-            .cluster_read_controller()
-            .plan_active_cluster_layout(monitor)
-            .and_then(|plan| {
-                plan.tiles
-                    .into_iter()
-                    .find(|tile| {
-                        world_pos.x >= tile.rect.x
-                            && world_pos.x <= tile.rect.x + tile.rect.w
-                            && world_pos.y >= tile.rect.y
-                            && world_pos.y <= tile.rect.y + tile.rect.h
-                    })
-                    .map(|tile| tile.node_id)
+        let Some(target_member) = plan
+            .tiles
+            .into_iter()
+            .find(|tile| {
+                world_pos.x >= tile.rect.x
+                    && world_pos.x <= tile.rect.x + tile.rect.w
+                    && world_pos.y >= tile.rect.y
+                    && world_pos.y <= tile.rect.y + tile.rect.h
             })
+            .map(|tile| tile.node_id)
         else {
             return false;
         };
@@ -830,7 +867,14 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return false;
         }
 
-        let members = cluster.members().to_vec();
+        let Some(members) = self
+            .model
+            .field
+            .cluster(cid)
+            .map(|cluster| cluster.members().to_vec())
+        else {
+            return false;
+        };
         let Some(from_index) = members.iter().position(|&id| id == member) else {
             return false;
         };
@@ -850,6 +894,39 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return false;
         }
         self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
+        true
+    }
+
+    pub(crate) fn cycle_active_stack_for_monitor(
+        &mut self,
+        monitor: &str,
+        direction: ClusterCycleDirection,
+        now: Instant,
+    ) -> bool {
+        if !matches!(
+            self.active_cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Stacking
+        ) {
+            return false;
+        }
+        let Some(cid) = self.active_cluster_workspace_for_monitor(monitor) else {
+            return false;
+        };
+        let Some(front) = self
+            .model
+            .field
+            .cycle_cluster_stacking_members(cid, direction)
+        else {
+            return false;
+        };
+        if self.focused_monitor() != monitor {
+            self.focus_monitor_view(monitor, now);
+        }
+        let now_ms = self.now_ms(now);
+        self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
+        self.set_recent_top_node(front, now + std::time::Duration::from_millis(1200));
+        self.set_interaction_focus(Some(front), 30_000, now);
+        self.update_focus_tracking_for_surface(front, now_ms);
         true
     }
 
@@ -1096,6 +1173,19 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         self.set_interaction_focus(None, 0, now);
         let now_ms = self.now_ms(now);
         self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
+        if matches!(
+            self.active_cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Stacking
+        ) && let Some(front) = self
+            .model
+            .field
+            .cluster(plan.cid)
+            .and_then(|cluster| cluster.members().first().copied())
+        {
+            self.set_recent_top_node(front, now + std::time::Duration::from_millis(1200));
+            self.set_interaction_focus(Some(front), 30_000, now);
+            self.update_focus_tracking_for_surface(front, now_ms);
+        }
         self.refresh_cluster_overflow_for_monitor(monitor, now_ms, false);
         true
     }
@@ -1273,6 +1363,7 @@ mod tests {
 
     fn single_monitor_tuning() -> halley_config::RuntimeTuning {
         let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
         tuning.tile_gaps_outer_px = 20.0;
         tuning.tile_gaps_inner_px = 20.0;
         tuning.border_size_px = 0;

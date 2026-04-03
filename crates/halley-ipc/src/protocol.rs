@@ -19,6 +19,12 @@ pub enum TrailDirection {
     Next,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StackCycleDirection {
+    Forward,
+    Backward,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum DpmsCommand {
     Off,
@@ -61,6 +67,14 @@ pub enum BearingsRequest {
     Hide,
     Toggle,
     Status,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StackRequest {
+    Cycle {
+        direction: StackCycleDirection,
+        output: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +141,7 @@ pub enum Request {
     Trail(TrailRequest),
     Monitor(MonitorRequest),
     Bearings(BearingsRequest),
+    Stack(StackRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -6,7 +6,7 @@ use halley_ipc::{
     BearingsRequest, BearingsStatusResponse, CompositorRequest, IpcError, MonitorFocusDirection,
     MonitorFocusTarget, MonitorRequest, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup,
     NodeProtocolFamily, NodeRelationInfo, NodeRequest, NodeRole, NodeSelector, NodeState, Request,
-    Response, TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
+    Response, StackRequest, TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
 };
 use smithay::desktop::PopupManager;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
@@ -23,6 +23,7 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Trail(request) => handle_trail_request(st, request),
         Request::Monitor(request) => handle_monitor_request(st, request),
         Request::Bearings(request) => handle_bearings_request(st, request),
+        Request::Stack(request) => handle_stack_request(st, request),
         Request::Compositor(CompositorRequest::Outputs) => Response::Error(IpcError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
@@ -160,6 +161,36 @@ fn handle_bearings_request(st: &mut Halley, request: BearingsRequest) -> Respons
         BearingsRequest::Status => Response::BearingsStatus(BearingsStatusResponse {
             visible: st.ui.render_state.bearings_visible(),
         }),
+    }
+}
+
+fn handle_stack_request(st: &mut Halley, request: StackRequest) -> Response {
+    match request {
+        StackRequest::Cycle { direction, output } => {
+            match resolve_output_context(st, output.as_deref()).and_then(|monitor| {
+                let now = Instant::now();
+                focus_output_if_needed(st, monitor.as_str(), now);
+                let direction = match direction {
+                    halley_ipc::StackCycleDirection::Forward => {
+                        halley_core::cluster_layout::ClusterCycleDirection::Next
+                    }
+                    halley_ipc::StackCycleDirection::Backward => {
+                        halley_core::cluster_layout::ClusterCycleDirection::Prev
+                    }
+                };
+                if st.cycle_active_stack_for_monitor(monitor.as_str(), direction, now) {
+                    Ok(())
+                } else {
+                    Err(IpcError::Unsupported(format!(
+                        "stack layout is not active on output {}",
+                        monitor
+                    )))
+                }
+            }) {
+                Ok(()) => Response::Ok,
+                Err(err) => Response::Error(err),
+            }
+        }
     }
 }
 

@@ -564,11 +564,18 @@ fn ensure_node_for_surface_impl(
     let active_cluster = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str());
     let previous_overflow_len = active_cluster
         .and_then(|cid| {
-            st.model.field.cluster(cid).map(|cluster| {
-                cluster
-                    .overflow_members(st.runtime.tuning.tile_max_stack)
-                    .len()
+            matches!(
+                st.runtime.tuning.cluster_layout_kind(),
+                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+            )
+            .then(|| {
+                st.model.field.cluster(cid).map(|cluster| {
+                    cluster
+                        .overflow_members(st.runtime.tuning.tile_max_stack)
+                        .len()
+                })
             })
+            .flatten()
         })
         .unwrap_or(0);
     let join_cluster_layout = should_join_active_cluster_layout(
@@ -578,13 +585,26 @@ fn ensure_node_for_surface_impl(
     );
     let (monitor, id, spawned_in_active_cluster) = if join_cluster_layout {
         let cid = active_cluster.expect("checked");
-        match st
-            .model
-            .field
-            .spawn_surface_in_active_cluster(cid, label.to_string(), size)
-        {
+        let spawn_result = if matches!(
+            st.runtime.tuning.cluster_layout_kind(),
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
+        ) {
+            st.model
+                .field
+                .spawn_surface_in_active_cluster_front(cid, label.to_string(), size)
+        } else {
+            st.model
+                .field
+                .spawn_surface_in_active_cluster(cid, label.to_string(), size)
+        };
+        match spawn_result {
             Ok(id) => {
-                if st.runtime.tuning.tile_new_on_top {
+                if st.runtime.tuning.tile_new_on_top
+                    && matches!(
+                        st.runtime.tuning.cluster_layout_kind(),
+                        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+                    )
+                {
                     let _ = st.model.field.promote_cluster_member_to_master(cid, id);
                 }
                 (predicted_monitor, id, true)
@@ -635,10 +655,16 @@ fn ensure_node_for_surface_impl(
             .model
             .field
             .cluster(cid)
-            .map(|cluster| {
-                cluster
-                    .overflow_members(st.runtime.tuning.tile_max_stack)
-                    .len()
+            .and_then(|cluster| {
+                matches!(
+                    st.runtime.tuning.cluster_layout_kind(),
+                    halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+                )
+                .then(|| {
+                    cluster
+                        .overflow_members(st.runtime.tuning.tile_max_stack)
+                        .len()
+                })
             })
             .unwrap_or(0);
         if overflow_len > previous_overflow_len {

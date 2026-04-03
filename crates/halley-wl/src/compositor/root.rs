@@ -312,6 +312,7 @@ impl Halley {
                     bbox_loc: HashMap::new(),
                     window_geometry: HashMap::new(),
                     window_offscreen_cache: HashMap::new(),
+                    window_fill_ready_after: HashMap::new(),
                 },
             },
             input: InputState {
@@ -1377,6 +1378,16 @@ impl Halley {
     ) -> bool {
         super::clusters::system::cluster_system_controller(self)
             .move_active_cluster_member_to_drop_tile(monitor, member, world_pos, now_ms)
+    }
+
+    pub(crate) fn cycle_active_stack_for_monitor(
+        &mut self,
+        monitor: &str,
+        direction: halley_core::cluster_layout::ClusterCycleDirection,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .cycle_active_stack_for_monitor(monitor, direction, now)
     }
 
     pub fn collapse_active_cluster_workspace(&mut self, now: Instant) -> bool {

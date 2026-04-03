@@ -37,6 +37,9 @@ pub(crate) struct WindowOffscreenCache {
 
     /// Logical bbox paired with the cached texture.
     pub bbox: Option<Rectangle<i32, Logical>>,
+
+    /// True once the cached offscreen image contains actual surface content.
+    pub has_content: bool,
 }
 
 impl WindowOffscreenCache {
@@ -119,6 +122,7 @@ pub(crate) struct RenderState {
     pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
     pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
+    pub(crate) window_fill_ready_after: HashMap<NodeId, Instant>,
 }
 
 impl RenderState {
@@ -356,6 +360,8 @@ impl RenderState {
             cache.set_size(width, height);
             cache.texture = None;
             cache.bbox = None;
+            cache.has_content = false;
+            self.window_fill_ready_after.remove(&node_id);
             cache.mark_dirty();
         }
 
@@ -371,6 +377,7 @@ impl RenderState {
 
     pub(crate) fn clear_window_offscreen_cache_for(&mut self, node_id: NodeId) {
         self.window_offscreen_cache.remove(&node_id);
+        self.window_fill_ready_after.remove(&node_id);
     }
 
     pub(crate) fn prune_window_offscreen_cache(&mut self, alive: &HashSet<NodeId>, now: Instant) {
@@ -380,6 +387,27 @@ impl RenderState {
                     .last_used_at
                     .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5)
         });
+    }
+
+    pub(crate) fn window_fill_ready_after(
+        &mut self,
+        node_id: NodeId,
+        now: Instant,
+        delay: std::time::Duration,
+    ) -> Instant {
+        *self
+            .window_fill_ready_after
+            .entry(node_id)
+            .or_insert_with(|| now + delay)
+    }
+
+    pub(crate) fn clear_window_fill_ready_after(&mut self, node_id: NodeId) {
+        self.window_fill_ready_after.remove(&node_id);
+    }
+
+    pub(crate) fn prune_window_fill_ready_after(&mut self, alive: &HashSet<NodeId>) {
+        self.window_fill_ready_after
+            .retain(|id, _| alive.contains(id));
     }
 
     pub(crate) fn invalidate_ui_text_cache(&mut self) {

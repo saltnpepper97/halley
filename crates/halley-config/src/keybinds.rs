@@ -59,6 +59,25 @@ pub enum MonitorBindingAction {
     Focus(MonitorBindingTarget),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StackCycleDirection {
+    Forward,
+    Backward,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StackBindingAction {
+    Cycle(StackCycleDirection),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompositorBindingScope {
+    Global,
+    Field,
+    Tile,
+    Stack,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BearingsBindingAction {
     Show,
@@ -79,10 +98,12 @@ pub enum CompositorBindingAction {
     Trail(TrailBindingAction),
     Monitor(MonitorBindingAction),
     Bearings(BearingsBindingAction),
+    Stack(StackBindingAction),
 }
 
 #[derive(Clone, Debug)]
 pub struct CompositorBinding {
+    pub scope: CompositorBindingScope,
     pub modifiers: KeyModifiers,
     pub key: u32,
     pub action: CompositorBindingAction,

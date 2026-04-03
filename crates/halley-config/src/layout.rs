@@ -3,14 +3,15 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 use crate::keybinds::{WHEEL_DOWN_CODE, WHEEL_UP_CODE, key_name_to_evdev};
+use halley_core::cluster_layout::ClusterWorkspaceLayoutKind;
 use halley_core::decay::FocusRingDecayPolicy;
 use halley_core::field::Vec2;
 use halley_core::viewport::{FocusRing, Viewport};
 
 use super::{
-    BearingsBindingAction, CompositorBinding, CompositorBindingAction, DirectionalAction,
-    KeyModifiers, Keybinds, LaunchBinding, NodeBindingAction, PointerBinding, PointerBindingAction,
-    TrailBindingAction,
+    BearingsBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
+    DirectionalAction, KeyModifiers, Keybinds, LaunchBinding, NodeBindingAction, PointerBinding,
+    PointerBindingAction, TrailBindingAction,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -132,6 +133,21 @@ pub enum ClusterBloomDirection {
     CounterClockwise,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClusterDefaultLayout {
+    Tiling,
+    Stacking,
+}
+
+impl ClusterDefaultLayout {
+    pub fn to_workspace_layout_kind(self) -> ClusterWorkspaceLayoutKind {
+        match self {
+            Self::Tiling => ClusterWorkspaceLayoutKind::Tiling,
+            Self::Stacking => ClusterWorkspaceLayoutKind::Stacking,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum WindowRulePattern {
     Exact(String),
@@ -239,11 +255,13 @@ pub struct RuntimeTuning {
     pub cluster_dwell_ms: u64,
     pub cluster_show_icons: bool,
     pub cluster_bloom_direction: ClusterBloomDirection,
+    pub cluster_default_layout: ClusterDefaultLayout,
     pub tile_gaps_inner_px: f32,
     pub tile_gaps_outer_px: f32,
     pub tile_new_on_top: bool,
     pub tile_queue_show_icons: bool,
     pub tile_max_stack: usize,
+    pub stacking_max_visible: usize,
     pub trail_history_length: usize,
     pub trail_wrap: bool,
 
@@ -376,11 +394,13 @@ impl Default for RuntimeTuning {
             cluster_dwell_ms: 900,
             cluster_show_icons: true,
             cluster_bloom_direction: ClusterBloomDirection::Clockwise,
+            cluster_default_layout: ClusterDefaultLayout::Stacking,
             tile_gaps_inner_px: 20.0,
             tile_gaps_outer_px: 20.0,
             tile_new_on_top: false,
             tile_queue_show_icons: true,
             tile_max_stack: 3,
+            stacking_max_visible: 5,
             trail_history_length: 32,
             trail_wrap: true,
 
@@ -426,6 +446,17 @@ impl Default for RuntimeTuning {
 impl RuntimeTuning {
     pub fn effective_no_csd(&self) -> bool {
         self.no_csd || self.border_radius_px > 0
+    }
+
+    pub fn cluster_layout_kind(&self) -> ClusterWorkspaceLayoutKind {
+        self.cluster_default_layout.to_workspace_layout_kind()
+    }
+
+    pub fn active_cluster_visible_limit(&self) -> usize {
+        match self.cluster_layout_kind() {
+            ClusterWorkspaceLayoutKind::Tiling => self.tile_max_stack,
+            ClusterWorkspaceLayoutKind::Stacking => self.stacking_max_visible,
+        }
     }
 
     pub fn config_path() -> String {
@@ -494,6 +525,7 @@ impl RuntimeTuning {
         self.tile_gaps_inner_px = self.tile_gaps_inner_px.clamp(0.0, 256.0);
         self.tile_gaps_outer_px = self.tile_gaps_outer_px.clamp(0.0, 512.0);
         self.tile_max_stack = self.tile_max_stack.clamp(0, 64);
+        self.stacking_max_visible = self.stacking_max_visible.clamp(0, 64);
         self.trail_history_length = self.trail_history_length.clamp(1, 512);
         self.cursor.size = self.cursor.size.clamp(8, 128);
         if self.cursor.theme.trim().is_empty() {
@@ -599,16 +631,19 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
 
     vec![
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: modifier,
             key: key("r"),
             action: CompositorBindingAction::Reload,
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: modifier,
             key: key("n"),
             action: CompositorBindingAction::ToggleState,
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: KeyModifiers {
                 shift: true,
                 ..modifier
@@ -617,11 +652,13 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
             action: CompositorBindingAction::ClusterMode,
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: modifier,
             key: key("z"),
             action: CompositorBindingAction::Bearings(BearingsBindingAction::Show),
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: KeyModifiers {
                 shift: true,
                 ..modifier
@@ -630,21 +667,25 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
             action: CompositorBindingAction::Bearings(BearingsBindingAction::Toggle),
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: modifier,
             key: WHEEL_UP_CODE,
             action: CompositorBindingAction::ZoomIn,
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: modifier,
             key: WHEEL_DOWN_CODE,
             action: CompositorBindingAction::ZoomOut,
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: modifier,
             key: key("mousemiddle"),
             action: CompositorBindingAction::ZoomReset,
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: KeyModifiers {
                 shift: true,
                 ..modifier
@@ -655,16 +696,19 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
             },
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Field,
             modifiers: modifier,
             key: key("h"),
             action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Left)),
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Field,
             modifiers: modifier,
             key: key("k"),
             action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Up)),
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Field,
             modifiers: modifier,
             key: key("l"),
             action: CompositorBindingAction::Node(NodeBindingAction::Move(
@@ -672,11 +716,13 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
             )),
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Field,
             modifiers: modifier,
             key: key("j"),
             action: CompositorBindingAction::Node(NodeBindingAction::Move(DirectionalAction::Down)),
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: KeyModifiers {
                 shift: true,
                 ..modifier
@@ -685,6 +731,7 @@ pub(crate) fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<Composi
             action: CompositorBindingAction::Trail(TrailBindingAction::Prev),
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Global,
             modifiers: KeyModifiers {
                 shift: true,
                 ..modifier
