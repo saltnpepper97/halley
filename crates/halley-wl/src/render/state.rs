@@ -123,6 +123,7 @@ pub(crate) struct RenderState {
     pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
     pub(crate) window_fill_ready_after: HashMap<NodeId, Instant>,
+    pub(crate) window_fill_armed: HashSet<NodeId>,
 }
 
 impl RenderState {
@@ -361,7 +362,6 @@ impl RenderState {
             cache.texture = None;
             cache.bbox = None;
             cache.has_content = false;
-            self.window_fill_ready_after.remove(&node_id);
             cache.mark_dirty();
         }
 
@@ -378,6 +378,7 @@ impl RenderState {
     pub(crate) fn clear_window_offscreen_cache_for(&mut self, node_id: NodeId) {
         self.window_offscreen_cache.remove(&node_id);
         self.window_fill_ready_after.remove(&node_id);
+        self.window_fill_armed.remove(&node_id);
     }
 
     pub(crate) fn prune_window_offscreen_cache(&mut self, alive: &HashSet<NodeId>, now: Instant) {
@@ -405,9 +406,18 @@ impl RenderState {
         self.window_fill_ready_after.remove(&node_id);
     }
 
+    pub(crate) fn window_fill_armed(&self, node_id: NodeId) -> bool {
+        self.window_fill_armed.contains(&node_id)
+    }
+
+    pub(crate) fn arm_window_fill(&mut self, node_id: NodeId) {
+        self.window_fill_armed.insert(node_id);
+    }
+
     pub(crate) fn prune_window_fill_ready_after(&mut self, alive: &HashSet<NodeId>) {
         self.window_fill_ready_after
             .retain(|id, _| alive.contains(id));
+        self.window_fill_armed.retain(|id| alive.contains(id));
     }
 
     pub(crate) fn invalidate_ui_text_cache(&mut self) {

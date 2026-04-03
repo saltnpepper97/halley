@@ -173,7 +173,16 @@ fn border_background_fill_ready(
     animation_ready: bool,
     has_content: bool,
 ) -> bool {
-    if !allow_border_background || !has_content {
+    if !allow_border_background {
+        st.ui.render_state.clear_window_fill_ready_after(node_id);
+        return false;
+    }
+
+    if st.ui.render_state.window_fill_armed(node_id) {
+        return true;
+    }
+
+    if !has_content {
         st.ui.render_state.clear_window_fill_ready_after(node_id);
         return false;
     }
@@ -184,10 +193,14 @@ fn border_background_fill_ready(
         Duration::from_millis(WINDOW_BACKGROUND_FILL_DELAY_MS),
     );
     let ready = animation_ready && now >= ready_after;
+    if ready {
+        st.ui.render_state.arm_window_fill(node_id);
+        return true;
+    }
     if !ready {
         st.request_maintenance();
     }
-    ready
+    false
 }
 
 fn offscreen_visual_crop_and_dst(
@@ -542,7 +555,7 @@ pub(crate) fn collect_active_surfaces(
         };
         let lock_dst_to_geometry = effective_corner_radius_px > 0;
         let offscreen_clip = None;
-        let preserve_visual_margin = false;
+        let preserve_visual_margin = !st.runtime.tuning.no_csd && effective_corner_radius_px == 0;
         let border_color = if st.model.focus_state.primary_interaction_focus == Some(node_id) {
             let color = st.runtime.tuning.border_color_focused;
             Color32F::new(color.r, color.g, color.b, 1.0)
@@ -895,15 +908,35 @@ pub(crate) fn collect_active_surfaces(
                     } else {
                         1.0
                     };
+                    // Square CSD windows rely on the tiny GTK edge pixels around the
+                    // geometry rect. Preserve those by disabling the final geometry clip
+                    // in the offscreen composite shader for this path only.
+                    let disable_geo_clip = !st.runtime.tuning.no_csd && effective_corner_radius_px == 0;
                     // local_geo is (geo_lx, geo_ly, geo_w, geo_h) in surface-local logical px.
                     // In bbox-local space the geo origin is (geo_lx - ob.loc.x, geo_ly - ob.loc.y).
                     let geo_local_x = local_geo.0 - ob.loc.x as f32;
                     let geo_local_y = local_geo.1 - ob.loc.y as f32;
                     // Scale into dst-pixel space (relative to dst top-left).
-                    let geo_offset_x = (geo_local_x * dst_scale_x).max(0.0);
-                    let geo_offset_y = (geo_local_y * dst_scale_y).max(0.0);
-                    let geo_w_px = (local_geo.2 * dst_scale_x).max(1.0);
-                    let geo_h_px = (local_geo.3 * dst_scale_y).max(1.0);
+                    let geo_offset_x = if disable_geo_clip {
+                        0.0
+                    } else {
+                        (geo_local_x * dst_scale_x).max(0.0)
+                    };
+                    let geo_offset_y = if disable_geo_clip {
+                        0.0
+                    } else {
+                        (geo_local_y * dst_scale_y).max(0.0)
+                    };
+                    let geo_w_px = if disable_geo_clip {
+                        0.0
+                    } else {
+                        (local_geo.2 * dst_scale_x).max(1.0)
+                    };
+                    let geo_h_px = if disable_geo_clip {
+                        0.0
+                    } else {
+                        (local_geo.3 * dst_scale_y).max(1.0)
+                    };
 
                     let offscreen = OffscreenNodeTexture {
                         texture,
