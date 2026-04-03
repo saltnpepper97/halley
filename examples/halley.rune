@@ -23,7 +23,6 @@ end
 font:
   family "monospace"
   size 11
-  weight 500
 end
 
 viewport:
@@ -133,8 +132,6 @@ clusters:
   distance-px 280.0
   bloom-direction "clockwise"
   show-icons true
-
-  #todo
   default-layout "stacking"
 end
 
@@ -146,7 +143,6 @@ tile:
   queue-show-icons true
 end
 
-#todo
 stacking:
   max-stack 0
 end
@@ -190,7 +186,7 @@ decorations:
 
   # Rounded borders force server-side decorations so clients like GTK/Firefox
   # do not draw their own square CSD frame inside the compositor-rounded shape.
-  no-csd true
+  no-csd false
 end
 
 keybinds:
@@ -249,30 +245,23 @@ keybinds:
   "$var.mod+shift+up" "tile-swap up"
   "$var.mod+shift+sdown" "tile-swap down"
 
-  #todo
+  # stacking layout
   "$var.mod+left" "stack-cycle forward"
   "$var.mod+right" "stack-cycle backward"
 
+  #todo
   "alt+tab" "cycle-focus"
 
   # media
-  "xf86audioraisevolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
-  "xf86audiolowervolume" "wpctl set-volume @default_audio_sink@ 5%-"
-  "xf86audiomute" "wpctl set-mute @default_audio_sink@ toggle"
+  "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
+  "XF86AudioLowerVolume" "wpctl set-volume @default_audio_sink@ 5%-"
+  "XF86AudioMute" "wpctl set-mute @default_audio_sink@ toggle"
 end
 
 rules:
   rule:
-    app-id "xdg-desktop-portal-gtk"
-    title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
-    overlap-policy "all"
-    spawn-placement "center"
-    cluster-participation "float"
-  end
-
-  rule:
     app-id "firefox"
-    title "Picture-in-Picture"
+    title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
     overlap-policy "all"
     spawn-placement "center"
     cluster-participation "float"

@@ -110,6 +110,8 @@ pub(crate) struct RenderState {
     pub(crate) window_texture_program_failed: bool,
     pub(crate) surface_clip_program: Option<GlesTexProgram>,
     pub(crate) surface_clip_program_failed: bool,
+    pub(crate) ui_text_program: Option<GlesTexProgram>,
+    pub(crate) ui_text_program_failed: bool,
 
     pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_fallback: HashSet<NodeId>,

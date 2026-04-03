@@ -722,7 +722,7 @@ pub(crate) fn draw_node_hover_labels(
         let final_x = label_x.clamp(margin, (size.w - label_w - margin).max(margin));
         let final_y = label_y.clamp(margin, (size.h - label_h - margin).max(margin));
 
-        let fill_color = Color32F::new(0.96, 0.98, 1.0, 1.0);
+        let fill_color = Color32F::new(0.92, 0.95, 0.98, 1.0);
         draw_shader_label(
             frame,
             st,
@@ -741,7 +741,7 @@ pub(crate) fn draw_node_hover_labels(
         let text_scale = 2;
         let char_advance = 5 * text_scale + text_scale;
         let max_chars = ((label_w - 20).max(0) / char_advance).max(1) as usize;
-        let mut text = node.label.to_ascii_uppercase();
+        let mut text = node.label.clone();
         if text.chars().count() > max_chars {
             let keep = max_chars.saturating_sub(3);
             text = text.chars().take(keep).collect::<String>();
@@ -757,7 +757,7 @@ pub(crate) fn draw_node_hover_labels(
             text_y,
             &text,
             text_scale,
-            Color32F::new(0.16, 0.18, 0.22, 0.94 * dot_alpha * label_fade),
+            Color32F::new(0.08, 0.10, 0.12, 0.94 * dot_alpha * label_fade),
             damage,
         )?;
     }

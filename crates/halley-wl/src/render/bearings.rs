@@ -36,7 +36,7 @@ const CHIP_PAD_X: i32 = 10;
 const CHIP_PAD_Y: i32 = 7;
 const EDGE_PAD: i32 = 16;
 const LABEL_SCALE: i32 = 2;
-const META_SCALE: i32 = 1;
+const META_SCALE: i32 = 2;
 const ICON_SIZE: i32 = 16;
 const ICON_TEXT_GAP: i32 = 6;
 const DISTANCE_GAP: i32 = 4;
@@ -45,6 +45,8 @@ const META_PAD_Y: i32 = 4;
 const GROUP_GAP: i32 = 10;
 const MAX_LABEL_CHARS: usize = 24;
 const MIN_DISTANCE_ALPHA: f32 = 0.34;
+const CHIP_TEXT_COLOR: Color32F = Color32F::new(0.08, 0.10, 0.12, 1.0);
+const CHIP_FILL_COLOR: Color32F = Color32F::new(0.92, 0.95, 0.98, 1.0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BearingLane {
@@ -298,8 +300,18 @@ pub(crate) fn draw_bearings(
             11.0,
             0.0,
             layout.alpha,
-            Color32F::new(0.92, 0.95, 0.98, 0.0),
-            Color32F::new(0.92, 0.95, 0.98, 0.92 * layout.alpha),
+            Color32F::new(
+                CHIP_FILL_COLOR.r(),
+                CHIP_FILL_COLOR.g(),
+                CHIP_FILL_COLOR.b(),
+                0.0,
+            ),
+            Color32F::new(
+                CHIP_FILL_COLOR.r(),
+                CHIP_FILL_COLOR.g(),
+                CHIP_FILL_COLOR.b(),
+                0.92 * layout.alpha,
+            ),
             damage,
         )?;
 
@@ -317,8 +329,18 @@ pub(crate) fn draw_bearings(
                 8.0,
                 0.0,
                 layout.alpha,
-                Color32F::new(0.10, 0.14, 0.18, 0.0),
-                Color32F::new(0.10, 0.14, 0.18, 0.84 * layout.alpha),
+                Color32F::new(
+                    CHIP_FILL_COLOR.r(),
+                    CHIP_FILL_COLOR.g(),
+                    CHIP_FILL_COLOR.b(),
+                    0.0,
+                ),
+                Color32F::new(
+                    CHIP_FILL_COLOR.r(),
+                    CHIP_FILL_COLOR.g(),
+                    CHIP_FILL_COLOR.b(),
+                    0.88 * layout.alpha,
+                ),
                 damage,
             )?;
             draw_ui_text(
@@ -328,7 +350,12 @@ pub(crate) fn draw_bearings(
                 distance_y,
                 distance_text,
                 META_SCALE,
-                Color32F::new(0.86, 0.92, 0.98, layout.alpha * 0.96),
+                Color32F::new(
+                    CHIP_TEXT_COLOR.r(),
+                    CHIP_TEXT_COLOR.g(),
+                    CHIP_TEXT_COLOR.b(),
+                    layout.alpha * 0.96,
+                ),
                 damage,
             )?;
         }
@@ -349,7 +376,12 @@ pub(crate) fn draw_bearings(
             text_y,
             layout.label.as_str(),
             LABEL_SCALE,
-            Color32F::new(0.08, 0.10, 0.12, layout.alpha),
+            Color32F::new(
+                CHIP_TEXT_COLOR.r(),
+                CHIP_TEXT_COLOR.g(),
+                CHIP_TEXT_COLOR.b(),
+                layout.alpha,
+            ),
             damage,
         )?;
 

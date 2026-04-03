@@ -1,12 +1,21 @@
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::Arc;
 use std::time::Instant;
 
-use cosmic_text::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
+use cosmic_text::{
+    Attrs, Buffer, Color, Family, FontSystem, Hinting, Metrics, Shaping, SwashCache, SwashContent,
+};
 use halley_config::FontConfig;
 use smithay::{
-    backend::renderer::{Color32F, Frame},
-    utils::{Physical, Rectangle},
+    backend::{
+        allocator::Fourcc,
+        renderer::{
+            Color32F, ImportMem, Texture,
+            gles::{GlesFrame, GlesRenderer, Uniform, UniformName, UniformType},
+        },
+    },
+    utils::{Buffer as BufferCoords, Physical, Rectangle, Transform},
 };
 
 use crate::compositor::root::Halley;
@@ -15,6 +24,8 @@ use super::state::RenderState;
 use super::utils::draw_rect;
 
 const UI_TEXT_CACHE_TTL_SECS: u64 = 30;
+const UI_TEXT_MASK_SHADER: &str = include_str!("shaders/ui_text_mask.frag");
+const UI_TEXT_HINTING_MAX_SIZE_PX: u32 = 16;
 
 #[derive(Clone, Copy, Debug)]
 struct UiTextCommand {
@@ -25,11 +36,12 @@ struct UiTextCommand {
     coverage: u8,
 }
 
-#[derive(Clone, Debug)]
 struct UiTextCacheEntry {
     width: i32,
     height: i32,
     commands: Arc<[UiTextCommand]>,
+    pixels_rgba: Option<Vec<u8>>,
+    texture: Option<smithay::backend::renderer::gles::GlesTexture>,
     last_used_at: Instant,
 }
 
@@ -38,7 +50,6 @@ struct UiTextCacheKey {
     text: String,
     family: String,
     size_px: u32,
-    weight: u16,
 }
 
 #[derive(Default)]
@@ -50,20 +61,55 @@ pub(crate) struct UiTextRenderer {
 
 #[derive(Clone)]
 pub(crate) struct PreparedUiText {
+    width: i32,
+    height: i32,
     commands: Arc<[UiTextCommand]>,
+    texture: Option<smithay::backend::renderer::gles::GlesTexture>,
 }
 
 impl UiTextRenderer {
     pub(crate) fn size(&mut self, font: &FontConfig, text: &str, scale: i32) -> (i32, i32) {
-        let entry = self.entry(font, text, scale);
+        let key = cache_key(font, text, scale);
+        self.ensure_entry(&key);
+        let entry = self.cache.get_mut(&key).expect("ui text cache entry");
+        entry.last_used_at = Instant::now();
         (entry.width, entry.height)
     }
 
     pub(crate) fn prepared(&mut self, font: &FontConfig, text: &str, scale: i32) -> PreparedUiText {
-        let entry = self.entry(font, text, scale);
+        let key = cache_key(font, text, scale);
+        self.ensure_entry(&key);
+        let entry = self.cache.get_mut(&key).expect("ui text cache entry");
+        entry.last_used_at = Instant::now();
         PreparedUiText {
-            commands: entry.commands,
+            width: entry.width,
+            height: entry.height,
+            commands: Arc::clone(&entry.commands),
+            texture: entry.texture.clone(),
         }
+    }
+
+    pub(crate) fn ensure_textures(
+        &mut self,
+        renderer: &mut GlesRenderer,
+    ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+        for entry in self.cache.values_mut() {
+            if entry.texture.is_some() || entry.width <= 0 || entry.height <= 0 {
+                continue;
+            }
+            let Some(pixels) = entry.pixels_rgba.as_ref() else {
+                continue;
+            };
+            let texture = renderer.import_memory(
+                pixels,
+                Fourcc::Abgr8888,
+                (entry.width, entry.height).into(),
+                false,
+            )?;
+            entry.texture = Some(texture);
+            entry.pixels_rgba = None;
+        }
+        Ok(())
     }
 
     pub(crate) fn clear(&mut self) {
@@ -81,22 +127,13 @@ impl UiTextRenderer {
         self.cache.len()
     }
 
-    fn entry(&mut self, font: &FontConfig, text: &str, scale: i32) -> UiTextCacheEntry {
-        let key = UiTextCacheKey {
-            text: text.to_string(),
-            family: normalized_family(font),
-            size_px: font_size_for_scale(font, scale),
-            weight: font.weight,
-        };
-        let now = Instant::now();
-        if let Some(entry) = self.cache.get_mut(&key) {
-            entry.last_used_at = now;
-            return entry.clone();
+    fn ensure_entry(&mut self, key: &UiTextCacheKey) {
+        if self.cache.contains_key(key) {
+            return;
         }
 
-        let entry = self.build_entry(&key, now);
-        self.cache.insert(key, entry.clone());
-        entry
+        let entry = self.build_entry(key, Instant::now());
+        self.cache.insert(key.clone(), entry);
     }
 
     fn build_entry(&mut self, key: &UiTextCacheKey, now: Instant) -> UiTextCacheEntry {
@@ -105,6 +142,8 @@ impl UiTextRenderer {
                 width: 0,
                 height: 0,
                 commands: Arc::from(Vec::<UiTextCommand>::new().into_boxed_slice()),
+                pixels_rgba: None,
+                texture: None,
                 last_used_at: now,
             };
         }
@@ -114,6 +153,14 @@ impl UiTextRenderer {
         let swash_cache = self.swash_cache.get_or_insert_with(SwashCache::new);
         let resolved_family = resolve_named_family(font_system, key.family.as_str());
         let mut buffer = Buffer::new(font_system, metrics);
+        buffer.set_hinting(
+            font_system,
+            if key.size_px <= UI_TEXT_HINTING_MAX_SIZE_PX {
+                Hinting::Enabled
+            } else {
+                Hinting::Disabled
+            },
+        );
         buffer.set_size(font_system, None, None);
         buffer.set_text(
             font_system,
@@ -154,13 +201,32 @@ impl UiTextRenderer {
             },
         );
 
+        width = width.max(0);
+        height = height.max(metrics.line_height.ceil() as i32).max(0);
+        let pixels_rgba = rasterized_pixels(&buffer, font_system, swash_cache, width, height);
+
         UiTextCacheEntry {
-            width: width.max(0),
-            height: height.max(metrics.line_height.ceil() as i32).max(0),
+            width,
+            height,
             commands: Arc::from(commands.into_boxed_slice()),
+            pixels_rgba,
+            texture: None,
             last_used_at: now,
         }
     }
+}
+
+pub(crate) fn ensure_ui_text_resources(
+    renderer: &mut GlesRenderer,
+    st: &mut Halley,
+) -> Result<(), Box<dyn Error>> {
+    ensure_ui_text_program(renderer, &mut st.ui.render_state);
+    st.ui
+        .render_state
+        .ui_text
+        .borrow_mut()
+        .ensure_textures(renderer)?;
+    Ok(())
 }
 
 pub(crate) fn ui_text_size(st: &Halley, text: &str, scale: i32) -> (i32, i32) {
@@ -176,8 +242,8 @@ pub(crate) fn ui_text_size_in(
     render_state.ui_text.borrow_mut().size(font, text, scale)
 }
 
-pub(crate) fn draw_ui_text<F: Frame>(
-    frame: &mut F,
+pub(crate) fn draw_ui_text(
+    frame: &mut GlesFrame<'_, '_>,
     st: &Halley,
     x: i32,
     y: i32,
@@ -185,7 +251,7 @@ pub(crate) fn draw_ui_text<F: Frame>(
     scale: i32,
     color: Color32F,
     damage: Rectangle<i32, Physical>,
-) -> Result<(), F::Error> {
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
     draw_ui_text_in(
         frame,
         &st.ui.render_state,
@@ -199,8 +265,8 @@ pub(crate) fn draw_ui_text<F: Frame>(
     )
 }
 
-pub(crate) fn draw_ui_text_in<F: Frame>(
-    frame: &mut F,
+pub(crate) fn draw_ui_text_in(
+    frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
     font: &FontConfig,
     x: i32,
@@ -209,11 +275,46 @@ pub(crate) fn draw_ui_text_in<F: Frame>(
     scale: i32,
     color: Color32F,
     damage: Rectangle<i32, Physical>,
-) -> Result<(), F::Error> {
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+    if color.a() <= 0.001 {
+        return Ok(());
+    }
+
     let prepared = render_state
         .ui_text
         .borrow_mut()
         .prepared(font, text, scale);
+    if let Some(texture) = prepared.texture.as_ref()
+        && let Some(program) = render_state.ui_text_program.as_ref()
+        && prepared.width > 0
+        && prepared.height > 0
+    {
+        let tex_size: smithay::utils::Size<i32, BufferCoords> = texture.size();
+        let src = Rectangle::<f64, BufferCoords>::new(
+            (0.0, 0.0).into(),
+            (tex_size.w as f64, tex_size.h as f64).into(),
+        );
+        let dst = Rectangle::<i32, Physical>::new(
+            (x, y).into(),
+            (prepared.width.max(1), prepared.height.max(1)).into(),
+        );
+        let uniforms = [Uniform::new(
+            "text_color",
+            (color.r(), color.g(), color.b(), color.a()),
+        )];
+        return frame.render_texture_from_to(
+            texture,
+            src,
+            dst,
+            &[damage],
+            &[],
+            Transform::Normal,
+            1.0,
+            Some(program),
+            &uniforms,
+        );
+    }
+
     for cmd in prepared.commands.iter() {
         let alpha = color.a() * (cmd.coverage as f32 / 255.0);
         if alpha <= 0.001 {
@@ -232,12 +333,123 @@ pub(crate) fn draw_ui_text_in<F: Frame>(
     Ok(())
 }
 
+fn ensure_ui_text_program(renderer: &mut GlesRenderer, render_state: &mut RenderState) {
+    if render_state.ui_text_program.is_some() || render_state.ui_text_program_failed {
+        return;
+    }
+
+    match renderer.compile_custom_texture_shader(
+        UI_TEXT_MASK_SHADER,
+        &[UniformName::new("text_color", UniformType::_4f)],
+    ) {
+        Ok(program) => render_state.ui_text_program = Some(program),
+        Err(err) => {
+            render_state.ui_text_program_failed = true;
+            eventline::warn!("ui text texture shader disabled: error={}", err);
+        }
+    }
+}
+
 fn attrs_for_key<'a>(key: &'a UiTextCacheKey, resolved_family: Option<&'a str>) -> Attrs<'a> {
-    Attrs::new()
-        .family(resolve_family(
-            resolved_family.unwrap_or(key.family.as_str()),
-        ))
-        .weight(Weight(key.weight))
+    Attrs::new().family(resolve_family(
+        resolved_family.unwrap_or(key.family.as_str()),
+    ))
+}
+
+fn rasterized_pixels(
+    buffer: &Buffer,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    width: i32,
+    height: i32,
+) -> Option<Vec<u8>> {
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+
+    let mut pixels = vec![0u8; width as usize * height as usize * 4];
+    for run in buffer.layout_runs() {
+        for glyph in run.glyphs {
+            let physical = glyph.physical((0.0, run.line_y), 1.0);
+            let Some(image) = swash_cache
+                .get_image(font_system, physical.cache_key)
+                .as_ref()
+            else {
+                continue;
+            };
+            let base_x = physical.x + image.placement.left;
+            let base_y = physical.y - image.placement.top;
+
+            match image.content {
+                SwashContent::Mask => {
+                    let mut i = 0usize;
+                    for off_y in 0..image.placement.height as i32 {
+                        for off_x in 0..image.placement.width as i32 {
+                            blend_mask_pixel(
+                                &mut pixels,
+                                width,
+                                height,
+                                base_x + off_x,
+                                base_y + off_y,
+                                image.data[i],
+                            );
+                            i += 1;
+                        }
+                    }
+                }
+                SwashContent::Color | SwashContent::SubpixelMask => {
+                    let mut i = 0usize;
+                    for off_y in 0..image.placement.height as i32 {
+                        for off_x in 0..image.placement.width as i32 {
+                            let alpha = if matches!(image.content, SwashContent::Color) {
+                                image.data[i + 3]
+                            } else {
+                                image.data[i]
+                                    .max(image.data[i + 1])
+                                    .max(image.data[i + 2])
+                                    .max(image.data[i + 3])
+                            };
+                            blend_mask_pixel(
+                                &mut pixels,
+                                width,
+                                height,
+                                base_x + off_x,
+                                base_y + off_y,
+                                alpha,
+                            );
+                            i += 4;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Some(pixels)
+}
+
+fn blend_mask_pixel(pixels: &mut [u8], width: i32, height: i32, x: i32, y: i32, src_alpha: u8) {
+    if src_alpha == 0 || x < 0 || y < 0 || x >= width || y >= height {
+        return;
+    }
+
+    let idx = ((y as usize * width as usize) + x as usize) * 4;
+    let dst_alpha = pixels[idx + 3] as u16;
+    let src_alpha = src_alpha as u16;
+    let out_alpha = src_alpha + ((dst_alpha * (255 - src_alpha) + 127) / 255);
+
+    pixels[idx] = 255;
+    pixels[idx + 1] = 255;
+    pixels[idx + 2] = 255;
+    pixels[idx + 3] = out_alpha.min(255) as u8;
+}
+
+fn cache_key(font: &FontConfig, text: &str, scale: i32) -> UiTextCacheKey {
+    UiTextCacheKey {
+        text: text.to_string(),
+        family: normalized_family(font),
+        size_px: font_size_for_scale(font, scale),
+    }
 }
 
 fn metrics_for_size(size_px: u32) -> Metrics {
@@ -317,7 +529,6 @@ mod tests {
         let font = FontConfig {
             family: "monospace".to_string(),
             size: 11,
-            weight: 500,
         };
 
         assert_eq!(font_size_for_scale(&font, 1), 9);

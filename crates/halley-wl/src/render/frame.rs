@@ -40,6 +40,7 @@ use super::node::{
     NodeSnapshot, collect_hover_preview, draw_node_hover_labels, draw_node_markers,
     ensure_node_circle_resources,
 };
+use super::text::ensure_ui_text_resources;
 use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 use super::window::{
     ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit, collect_active_surfaces,
@@ -546,6 +547,7 @@ pub(crate) fn draw_debug_frame_to_target(
     ensure_app_icon_resources_for_node_ids(renderer, st, overflow_ids.into_iter())?;
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
+    ensure_ui_text_resources(renderer, st)?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;

@@ -30,7 +30,6 @@ end
 font:
   family "monospace"
   size 11
-  weight 500
 end
 
 # Output and viewport configuration.

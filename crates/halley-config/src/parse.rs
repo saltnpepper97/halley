@@ -608,7 +608,6 @@ fn load_font_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         }
     }
     out.font.size = pick_u32(cfg, &["font.size"], out.font.size);
-    out.font.weight = pick_u16(cfg, &["font.weight"], out.font.weight);
 }
 
 fn load_viewport_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -1444,18 +1443,6 @@ fn pick_u32(cfg: &RuneConfig, paths: &[&str], default: u32) -> u32 {
     default
 }
 
-fn pick_u16(cfg: &RuneConfig, paths: &[&str], default: u16) -> u16 {
-    for path in paths {
-        if let Ok(Some(v)) = cfg.get_optional::<u16>(path) {
-            return v;
-        }
-        if let Ok(Some(v)) = cfg.get_optional::<u32>(path) {
-            return v.min(u16::MAX as u32) as u16;
-        }
-    }
-    default
-}
-
 fn pick_i32(cfg: &RuneConfig, paths: &[&str], default: i32) -> i32 {
     for path in paths {
         if let Ok(Some(v)) = cfg.get_optional::<i32>(path) {
@@ -2236,14 +2223,13 @@ end
     }
 
     #[test]
-    fn font_section_parses_family_size_and_weight() {
+    fn font_section_parses_family_and_size() {
         let path = write_temp_config(
             "halley-font",
             r#"
 font:
   family "Iosevka Term"
   size 13
-  weight 600
 end
 "#,
         );
@@ -2257,7 +2243,6 @@ end
             FontConfig {
                 family: "Iosevka Term".to_string(),
                 size: 13,
-                weight: 600,
             }
         );
     }

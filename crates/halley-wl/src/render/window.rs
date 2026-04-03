@@ -911,7 +911,8 @@ pub(crate) fn collect_active_surfaces(
                     // Square CSD windows rely on the tiny GTK edge pixels around the
                     // geometry rect. Preserve those by disabling the final geometry clip
                     // in the offscreen composite shader for this path only.
-                    let disable_geo_clip = !st.runtime.tuning.no_csd && effective_corner_radius_px == 0;
+                    let disable_geo_clip =
+                        !st.runtime.tuning.no_csd && effective_corner_radius_px == 0;
                     // local_geo is (geo_lx, geo_ly, geo_w, geo_h) in surface-local logical px.
                     // In bbox-local space the geo origin is (geo_lx - ob.loc.x, geo_ly - ob.loc.y).
                     let geo_local_x = local_geo.0 - ob.loc.x as f32;

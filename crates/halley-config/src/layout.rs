@@ -112,7 +112,6 @@ impl Default for CursorConfig {
 pub struct FontConfig {
     pub family: String,
     pub size: u32,
-    pub weight: u16,
 }
 
 impl Default for FontConfig {
@@ -120,7 +119,6 @@ impl Default for FontConfig {
         Self {
             family: "monospace".to_string(),
             size: 11,
-            weight: 500,
         }
     }
 }
@@ -532,7 +530,6 @@ impl RuntimeTuning {
             self.cursor.theme = CursorConfig::default().theme;
         }
         self.font.size = self.font.size.clamp(8, 32);
-        self.font.weight = self.font.weight.clamp(100, 900);
         if self.font.family.trim().is_empty() {
             self.font.family = FontConfig::default().family;
         }

@@ -31,16 +31,20 @@ const BANNER_PAD_Y: i32 = 10;
 const BANNER_GAP: i32 = 6;
 const BANNER_EDGE_PAD: i32 = 18;
 const BANNER_TITLE_SCALE: i32 = 2;
-const BANNER_META_SCALE: i32 = 1;
+const BANNER_META_SCALE: i32 = 2;
+const SELECT_MARKER_SCALE: i32 = 2;
 const TOAST_PAD_X: i32 = 14;
 const TOAST_PAD_Y: i32 = 10;
 const TOAST_SCALE: i32 = 2;
-const TOAST_META_SCALE: i32 = 1;
-const SELECT_MARKER_W: i32 = 34;
-const SELECT_MARKER_H: i32 = 20;
+const TOAST_META_SCALE: i32 = 2;
+const SELECT_MARKER_PAD_X: i32 = 8;
+const SELECT_MARKER_PAD_Y: i32 = 4;
 const OVERFLOW_ICON_PAD: i32 = 8;
 const OVERFLOW_ICON_SIZE: i32 = 40;
 const OVERFLOW_ICON_GAP: i32 = 8;
+const UI_CHIP_TEXT: Color32F = Color32F::new(0.08, 0.10, 0.12, 1.0);
+const UI_CHIP_FILL: Color32F = Color32F::new(0.92, 0.95, 0.98, 1.0);
+const UI_CHIP_SUBTEXT: Color32F = Color32F::new(0.24, 0.28, 0.33, 1.0);
 
 fn overlay_text_mix(mix: f32) -> f32 {
     let t = ((mix - 0.10) / 0.90).clamp(0.0, 1.0);
@@ -382,7 +386,12 @@ pub(crate) fn draw_persistent_banner(
         rect.loc.y + BANNER_PAD_Y,
         banner.title.as_str(),
         BANNER_TITLE_SCALE,
-        Color32F::new(0.06, 0.08, 0.10, text_mix),
+        Color32F::new(
+            UI_CHIP_TEXT.r(),
+            UI_CHIP_TEXT.g(),
+            UI_CHIP_TEXT.b(),
+            text_mix,
+        ),
         damage,
     )?;
     if let Some(subtitle) = banner.subtitle.as_ref() {
@@ -394,7 +403,12 @@ pub(crate) fn draw_persistent_banner(
             rect.loc.y + BANNER_PAD_Y + title_h + BANNER_GAP,
             subtitle.as_str(),
             BANNER_META_SCALE,
-            Color32F::new(0.27, 0.32, 0.37, text_mix * 0.96),
+            Color32F::new(
+                UI_CHIP_SUBTEXT.r(),
+                UI_CHIP_SUBTEXT.g(),
+                UI_CHIP_SUBTEXT.b(),
+                text_mix * 0.96,
+            ),
             damage,
         )?;
     }
@@ -450,7 +464,12 @@ pub(crate) fn draw_toast(
         rect.loc.y + TOAST_PAD_Y,
         title,
         TOAST_SCALE,
-        Color32F::new(0.06, 0.08, 0.10, text_mix),
+        Color32F::new(
+            UI_CHIP_TEXT.r(),
+            UI_CHIP_TEXT.g(),
+            UI_CHIP_TEXT.b(),
+            text_mix,
+        ),
         damage,
     )?;
     if let Some(body) = body.as_ref() {
@@ -462,7 +481,12 @@ pub(crate) fn draw_toast(
             rect.loc.y + TOAST_PAD_Y + title_h + BANNER_GAP,
             body.as_str(),
             TOAST_META_SCALE,
-            Color32F::new(0.27, 0.32, 0.37, text_mix * 0.96),
+            Color32F::new(
+                UI_CHIP_SUBTEXT.r(),
+                UI_CHIP_SUBTEXT.g(),
+                UI_CHIP_SUBTEXT.b(),
+                text_mix * 0.96,
+            ),
             damage,
         )?;
     }
@@ -553,7 +577,7 @@ pub(crate) fn draw_overlay_hover_label(
     }
 
     let text_scale = 2;
-    let mut text = label.to_ascii_uppercase();
+    let mut text = label;
     let max_chars = 18usize;
     if text.chars().count() > max_chars {
         let keep = max_chars.saturating_sub(3);
@@ -587,7 +611,12 @@ pub(crate) fn draw_overlay_hover_label(
         &st.ui.render_state,
         rect,
         (label_h as f32) * 0.32,
-        Color32F::new(0.96, 0.98, 1.0, 0.96 * label_fade),
+        Color32F::new(
+            UI_CHIP_FILL.r(),
+            UI_CHIP_FILL.g(),
+            UI_CHIP_FILL.b(),
+            0.96 * label_fade,
+        ),
         damage,
         label_fade,
     )?;
@@ -598,7 +627,12 @@ pub(crate) fn draw_overlay_hover_label(
         rect.loc.y + ((rect.size.h - text_h).max(0) / 2),
         &text,
         text_scale,
-        Color32F::new(0.16, 0.18, 0.22, 0.94 * label_fade),
+        Color32F::new(
+            UI_CHIP_TEXT.r(),
+            UI_CHIP_TEXT.g(),
+            UI_CHIP_TEXT.b(),
+            0.94 * label_fade,
+        ),
         damage,
     )?;
     Ok(())
@@ -625,34 +659,42 @@ pub(crate) fn draw_cluster_selection_markers(
             continue;
         }
         let (sx, sy) = overlay.world_to_screen(screen_w, screen_h, node.pos.x, node.pos.y);
+        let (text_w, text_h) = ui_text_size_in(
+            overlay.render_state,
+            &overlay.tuning.font,
+            "SEL",
+            SELECT_MARKER_SCALE,
+        );
         let rect = Rectangle::<i32, Physical>::new(
-            ((sx - SELECT_MARKER_W / 2), (sy - SELECT_MARKER_H / 2)).into(),
-            (SELECT_MARKER_W, SELECT_MARKER_H).into(),
+            (
+                (sx - (text_w + SELECT_MARKER_PAD_X * 2) / 2),
+                (sy - (text_h + SELECT_MARKER_PAD_Y * 2) / 2),
+            )
+                .into(),
+            (
+                text_w + SELECT_MARKER_PAD_X * 2,
+                text_h + SELECT_MARKER_PAD_Y * 2,
+            )
+                .into(),
         );
         draw_overlay_chip(
             frame,
             overlay.render_state,
             rect,
-            9.0,
-            Color32F::new(0.10, 0.62, 0.58, 0.92),
+            10.0,
+            Color32F::new(0.87, 0.94, 0.91, 0.96),
             damage,
             1.0,
         )?;
-        let (_, text_h) = ui_text_size_in(
-            overlay.render_state,
-            &overlay.tuning.font,
-            "SEL",
-            BANNER_META_SCALE,
-        );
         draw_ui_text_in(
             frame,
             overlay.render_state,
             &overlay.tuning.font,
-            rect.loc.x + 8,
+            rect.loc.x + ((rect.size.w - text_w).max(0) / 2),
             rect.loc.y + (rect.size.h - text_h) / 2,
             "SEL",
-            BANNER_META_SCALE,
-            Color32F::new(0.96, 0.99, 0.98, 1.0),
+            SELECT_MARKER_SCALE,
+            Color32F::new(UI_CHIP_TEXT.r(), UI_CHIP_TEXT.g(), UI_CHIP_TEXT.b(), 1.0),
             damage,
         )?;
     }
