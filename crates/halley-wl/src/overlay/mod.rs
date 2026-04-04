@@ -57,6 +57,11 @@ const SELECT_MARKER_PAD_Y: i32 = 4;
 const OVERFLOW_ICON_PAD: i32 = 8;
 const OVERFLOW_ICON_SIZE: i32 = 40;
 const OVERFLOW_ICON_GAP: i32 = 8;
+const OVERFLOW_VISIBLE_SLOTS: usize = 15;
+const OVERFLOW_SCROLLBAR_W: i32 = 4;
+const OVERFLOW_SCROLLBAR_PAD: i32 = 6;
+const OVERFLOW_REVEAL_ANIM_MS: u64 = 220;
+const OVERFLOW_REVEAL_SLIDE_PX: i32 = 28;
 const EXIT_CONFIRM_TITLE: &str = "Are you sure you want to leave?";
 const UI_CHIP_TEXT: Color32F = Color32F::new(0.08, 0.10, 0.12, 1.0);
 const UI_CHIP_FILL: Color32F = Color32F::new(0.92, 0.95, 0.98, 1.0);
@@ -67,6 +72,237 @@ const UI_ACTION_KEY_TEXT: Color32F = Color32F::new(0.08, 0.10, 0.12, 1.0);
 fn overlay_text_mix(mix: f32) -> f32 {
     let t = ((mix - 0.10) / 0.90).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
+}
+
+fn cluster_overflow_visibility_mix(overlay: &OverlayView<'_>, monitor: &str, now_ms: u64) -> f32 {
+    let started_at_ms = overlay
+        .cluster_state
+        .cluster_overflow_reveal_started_at_ms
+        .get(monitor)
+        .copied()
+        .unwrap_or(now_ms.saturating_sub(OVERFLOW_REVEAL_ANIM_MS));
+    let visible_until_ms = overlay
+        .cluster_state
+        .cluster_overflow_visible_until_ms
+        .get(monitor)
+        .copied()
+        .unwrap_or(now_ms);
+    let intro_t = (now_ms.saturating_sub(started_at_ms) as f32
+        / OVERFLOW_REVEAL_ANIM_MS.max(1) as f32)
+        .clamp(0.0, 1.0);
+    let outro_t = (visible_until_ms.saturating_sub(now_ms) as f32
+        / OVERFLOW_REVEAL_ANIM_MS.max(1) as f32)
+        .clamp(0.0, 1.0);
+    let intro = intro_t * intro_t * (3.0 - 2.0 * intro_t);
+    let outro = outro_t * outro_t * (3.0 - 2.0 * outro_t);
+    intro.min(outro)
+}
+
+fn cluster_overflow_strip_rect(
+    overlay: &OverlayView<'_>,
+    monitor: &str,
+    now_ms: u64,
+) -> Option<Rectangle<i32, Physical>> {
+    if !overlay.cluster_overflow_visible_for_monitor(monitor, now_ms) {
+        return None;
+    }
+    let rect = overlay.cluster_overflow_rect_for_monitor(monitor)?;
+    let visibility_mix = cluster_overflow_visibility_mix(overlay, monitor, now_ms);
+    let slide_x = ((1.0 - visibility_mix) * OVERFLOW_REVEAL_SLIDE_PX as f32).round() as i32;
+    Some(Rectangle::<i32, Physical>::new(
+        (rect.x.round() as i32 + slide_x, rect.y.round() as i32).into(),
+        (
+            (rect.w.round() as i32).max(48),
+            (rect.h.round() as i32).max(1),
+        )
+            .into(),
+    ))
+}
+
+fn cluster_overflow_scrollbar_metrics(
+    overlay: &OverlayView<'_>,
+    monitor: &str,
+    strip: Rectangle<i32, Physical>,
+) -> Option<(Rectangle<i32, Physical>, Rectangle<i32, Physical>, usize)> {
+    let overflow_len = overlay
+        .cluster_overflow_member_ids_for_monitor(monitor)
+        .len();
+    if overflow_len <= OVERFLOW_VISIBLE_SLOTS {
+        return None;
+    }
+    let max_offset = overflow_len.saturating_sub(OVERFLOW_VISIBLE_SLOTS);
+    let scroll_offset = overlay
+        .cluster_overflow_scroll_offset_for_monitor(monitor)
+        .min(max_offset);
+    let track_x = strip.loc.x + strip.size.w - OVERFLOW_SCROLLBAR_PAD - OVERFLOW_SCROLLBAR_W;
+    let track_y = strip.loc.y + OVERFLOW_ICON_PAD;
+    let track_h = strip.size.h - OVERFLOW_ICON_PAD * 2;
+    let track = Rectangle::<i32, Physical>::new(
+        (track_x, track_y).into(),
+        (OVERFLOW_SCROLLBAR_W, track_h.max(8)).into(),
+    );
+    let thumb_h = ((OVERFLOW_VISIBLE_SLOTS as f32 / overflow_len as f32) * track.size.h as f32)
+        .round() as i32;
+    let thumb_h = thumb_h.clamp(18, track.size.h.max(18));
+    let thumb_travel = (track.size.h - thumb_h).max(0);
+    let thumb_y = if max_offset == 0 {
+        track.loc.y
+    } else {
+        track.loc.y
+            + ((scroll_offset as f32 / max_offset as f32) * thumb_travel as f32).round() as i32
+    };
+    let thumb = Rectangle::<i32, Physical>::new(
+        (track.loc.x, thumb_y).into(),
+        (track.size.w, thumb_h).into(),
+    );
+    Some((track, thumb, scroll_offset))
+}
+
+fn draw_overflow_member_chip(
+    frame: &mut GlesFrame<'_, '_>,
+    overlay: &OverlayView<'_>,
+    rounded: bool,
+    node_id: halley_core::field::NodeId,
+    icon_rect: Rectangle<i32, Physical>,
+    chip_fill: Color32F,
+    alpha: f32,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    draw_overlay_chip(
+        frame,
+        overlay.render_state,
+        rounded,
+        icon_rect,
+        12.0,
+        chip_fill,
+        damage,
+        alpha,
+    )?;
+    if overlay.tuning.tile_queue_show_icons
+        && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
+            overlay.node_app_icon_entry(node_id)
+    {
+        let icon_dest = Rectangle::<i32, Physical>::new(
+            (icon_rect.loc.x + 4, icon_rect.loc.y + 4).into(),
+            (icon_rect.size.w - 8, icon_rect.size.h - 8).into(),
+        );
+        let icon_src = Rectangle::<f64, Buffer>::new(
+            (0.0, 0.0).into(),
+            (icon.width as f64, icon.height as f64).into(),
+        );
+        frame.render_texture_from_to(
+            &icon.texture,
+            icon_src,
+            icon_dest,
+            &[damage],
+            &[],
+            Transform::Normal,
+            alpha,
+            None,
+            &[],
+        )?;
+        return Ok(());
+    }
+    let fallback = overlay
+        .node_app_ids
+        .get(&node_id)
+        .map(String::as_str)
+        .or_else(|| overlay.field.node(node_id).map(|n| n.label.as_str()))
+        .unwrap_or("?");
+    let glyph = fallback
+        .chars()
+        .find(|ch| ch.is_ascii_alphanumeric())
+        .unwrap_or('?')
+        .to_ascii_uppercase()
+        .to_string();
+    let (text_w, text_h) = ui_text_size_in(overlay.render_state, &overlay.tuning.font, &glyph, 2);
+    draw_ui_text_in(
+        frame,
+        overlay.render_state,
+        &overlay.tuning.font,
+        icon_rect.loc.x + (icon_rect.size.w - text_w) / 2,
+        icon_rect.loc.y + (icon_rect.size.h - text_h) / 2,
+        &glyph,
+        2,
+        Color32F::new(UI_CHIP_TEXT.r(), UI_CHIP_TEXT.g(), UI_CHIP_TEXT.b(), alpha),
+        damage,
+    )?;
+    Ok(())
+}
+
+pub(crate) fn draw_cluster_overflow_promotion(
+    frame: &mut GlesFrame<'_, '_>,
+    overlay: &OverlayView<'_>,
+    monitor: &str,
+    damage: Rectangle<i32, Physical>,
+    now_ms: u64,
+) -> Result<(), Box<dyn Error>> {
+    let Some(anim) = overlay.cluster_overflow_promotion_anim_for_monitor(monitor) else {
+        return Ok(());
+    };
+    if now_ms >= anim.reveal_at_ms {
+        return Ok(());
+    }
+    let rounded = overlay.tuning.border_radius_px > 0;
+    let duration_ms = anim.reveal_at_ms.saturating_sub(anim.started_at_ms).max(1);
+    let t =
+        ((now_ms.saturating_sub(anim.started_at_ms)) as f32 / duration_ms as f32).clamp(0.0, 1.0);
+    let e = t * t * (3.0 - 2.0 * t);
+    let center_x = anim.source_center.x + (anim.target_center.x - anim.source_center.x) * e;
+    let center_y = anim.source_center.y + (anim.target_center.y - anim.source_center.y) * e;
+    let icon_size = (OVERFLOW_ICON_SIZE as f32 * (1.04 - 0.04 * e)).round() as i32;
+    let icon_rect = Rectangle::<i32, Physical>::new(
+        (
+            center_x.round() as i32 - icon_size / 2,
+            center_y.round() as i32 - icon_size / 2,
+        )
+            .into(),
+        (icon_size.max(1), icon_size.max(1)).into(),
+    );
+    let queue_visible = overlay.cluster_overflow_visible_for_monitor(monitor, now_ms)
+        && !overlay
+            .cluster_overflow_member_ids_for_monitor(monitor)
+            .is_empty();
+    if !queue_visible {
+        let strip = Rectangle::<i32, Physical>::new(
+            (
+                anim.source_strip_rect.x.round() as i32,
+                anim.source_strip_rect.y.round() as i32,
+            )
+                .into(),
+            (
+                anim.source_strip_rect.w.round() as i32,
+                anim.source_strip_rect.h.round() as i32,
+            )
+                .into(),
+        );
+        draw_overlay_chip(
+            frame,
+            overlay.render_state,
+            rounded,
+            strip,
+            18.0,
+            Color32F::new(
+                UI_CHIP_FILL.r(),
+                UI_CHIP_FILL.g(),
+                UI_CHIP_FILL.b(),
+                0.90 * (1.0 - e),
+            ),
+            damage,
+            (1.0 - e * 0.65).clamp(0.0, 1.0),
+        )?;
+    }
+    draw_overflow_member_chip(
+        frame,
+        overlay,
+        rounded,
+        anim.member_id,
+        icon_rect,
+        Color32F::new(UI_CHIP_FILL.r(), UI_CHIP_FILL.g(), UI_CHIP_FILL.b(), 0.97),
+        1.0,
+        damage,
+    )?;
+    Ok(())
 }
 
 fn overlay_action_item_metrics(
@@ -190,23 +426,12 @@ pub(crate) fn cluster_overflow_icon_hit_test(
     sy: f32,
     now_ms: u64,
 ) -> Option<OverflowStripHit> {
-    if !overlay.cluster_overflow_visible_for_monitor(monitor, now_ms) {
-        return None;
-    }
-    let rect = overlay.cluster_overflow_rect_for_monitor(monitor)?;
+    let strip = cluster_overflow_strip_rect(overlay, monitor, now_ms)?;
     let overflow = overlay.cluster_overflow_member_ids_for_monitor(monitor);
     if overflow.is_empty() {
         return None;
     }
-
-    let strip = Rectangle::<i32, Physical>::new(
-        (rect.x.round() as i32, rect.y.round() as i32).into(),
-        (
-            (rect.w.round() as i32).max(48),
-            (rect.h.round() as i32).max(1),
-        )
-            .into(),
-    );
+    let scroll_offset = overlay.cluster_overflow_scroll_offset_for_monitor(monitor);
     let visible_slots = ((strip.size.h - OVERFLOW_ICON_PAD * 2 + OVERFLOW_ICON_GAP)
         / (OVERFLOW_ICON_SIZE + OVERFLOW_ICON_GAP))
         .max(1) as usize;
@@ -214,6 +439,7 @@ pub(crate) fn cluster_overflow_icon_hit_test(
     overflow
         .iter()
         .copied()
+        .skip(scroll_offset)
         .take(visible_slots)
         .enumerate()
         .find_map(|(index, node_id)| {
@@ -242,22 +468,12 @@ pub(crate) fn cluster_overflow_strip_slot_at(
     sy: f32,
     now_ms: u64,
 ) -> Option<usize> {
-    if !overlay.cluster_overflow_visible_for_monitor(monitor, now_ms) {
-        return None;
-    }
-    let rect = overlay.cluster_overflow_rect_for_monitor(monitor)?;
+    let strip = cluster_overflow_strip_rect(overlay, monitor, now_ms)?;
     let overflow = overlay.cluster_overflow_member_ids_for_monitor(monitor);
     if overflow.is_empty() {
         return None;
     }
-    let strip = Rectangle::<i32, Physical>::new(
-        (rect.x.round() as i32, rect.y.round() as i32).into(),
-        (
-            (rect.w.round() as i32).max(48),
-            (rect.h.round() as i32).max(1),
-        )
-            .into(),
-    );
+    let scroll_offset = overlay.cluster_overflow_scroll_offset_for_monitor(monitor);
     if sx < strip.loc.x as f32
         || sx > (strip.loc.x + strip.size.w) as f32
         || sy < strip.loc.y as f32
@@ -267,7 +483,7 @@ pub(crate) fn cluster_overflow_strip_slot_at(
     }
     let relative_y = (sy.round() as i32 - strip.loc.y - OVERFLOW_ICON_PAD).max(0);
     let slot_pitch = (OVERFLOW_ICON_SIZE + OVERFLOW_ICON_GAP).max(1);
-    Some(((relative_y / slot_pitch) as usize).min(overflow.len().saturating_sub(1)))
+    Some((scroll_offset + (relative_y / slot_pitch) as usize).min(overflow.len().saturating_sub(1)))
 }
 
 pub(crate) fn draw_cluster_overflow_strip(
@@ -277,38 +493,37 @@ pub(crate) fn draw_cluster_overflow_strip(
     damage: Rectangle<i32, Physical>,
     now_ms: u64,
 ) -> Result<(), Box<dyn Error>> {
-    if !overlay.cluster_overflow_visible_for_monitor(monitor, now_ms) {
-        return Ok(());
-    }
     let rounded = overlay.tuning.border_radius_px > 0;
-    let Some(rect) = overlay.cluster_overflow_rect_for_monitor(monitor) else {
+    let Some(strip) = cluster_overflow_strip_rect(overlay, monitor, now_ms) else {
         return Ok(());
     };
     let overflow = overlay.cluster_overflow_member_ids_for_monitor(monitor);
     if overflow.is_empty() {
         return Ok(());
     }
+    let visibility_mix = cluster_overflow_visibility_mix(overlay, monitor, now_ms);
+    let reveal_alpha = (0.45 + 0.55 * visibility_mix).clamp(0.0, 1.0);
+    let (scrollbar_track, scrollbar_thumb, scroll_offset) =
+        cluster_overflow_scrollbar_metrics(overlay, monitor, strip)
+            .map(|(track, thumb, offset)| (Some(track), Some(thumb), offset))
+            .unwrap_or((None, None, 0));
     let dragging_member = overlay
         .cluster_overflow_drag_preview_for_monitor(monitor)
         .map(|(member_id, _)| member_id);
-
-    let strip = Rectangle::<i32, Physical>::new(
-        (rect.x.round() as i32, rect.y.round() as i32).into(),
-        (
-            (rect.w.round() as i32).max(48),
-            (rect.h.round() as i32).max(1),
-        )
-            .into(),
-    );
     draw_overlay_chip(
         frame,
         overlay.render_state,
         rounded,
         strip,
         18.0,
-        Color32F::new(0.10, 0.14, 0.18, 0.92),
+        Color32F::new(
+            UI_CHIP_FILL.r(),
+            UI_CHIP_FILL.g(),
+            UI_CHIP_FILL.b(),
+            0.97 * reveal_alpha,
+        ),
         damage,
-        1.0,
+        reveal_alpha,
     )?;
 
     let visible_slots = ((strip.size.h - OVERFLOW_ICON_PAD * 2 + OVERFLOW_ICON_GAP)
@@ -318,12 +533,22 @@ pub(crate) fn draw_cluster_overflow_strip(
         .iter()
         .copied()
         .filter(|node_id| Some(*node_id) != dragging_member)
+        .skip(scroll_offset)
         .take(visible_slots)
         .enumerate()
     {
+        let icon_x = strip.loc.x
+            + (strip.size.w
+                - OVERFLOW_ICON_SIZE
+                - if scrollbar_track.is_some() {
+                    OVERFLOW_SCROLLBAR_W + OVERFLOW_SCROLLBAR_PAD + 2
+                } else {
+                    0
+                })
+                / 2;
         let icon_rect = Rectangle::<i32, Physical>::new(
             (
-                strip.loc.x + (strip.size.w - OVERFLOW_ICON_SIZE) / 2,
+                icon_x,
                 strip.loc.y
                     + OVERFLOW_ICON_PAD
                     + index as i32 * (OVERFLOW_ICON_SIZE + OVERFLOW_ICON_GAP),
@@ -331,66 +556,53 @@ pub(crate) fn draw_cluster_overflow_strip(
                 .into(),
             (OVERFLOW_ICON_SIZE, OVERFLOW_ICON_SIZE).into(),
         );
+        draw_overflow_member_chip(
+            frame,
+            overlay,
+            rounded,
+            node_id,
+            icon_rect,
+            Color32F::new(
+                UI_ACTION_KEY_FILL.r(),
+                UI_ACTION_KEY_FILL.g(),
+                UI_ACTION_KEY_FILL.b(),
+                0.68 * reveal_alpha,
+            ),
+            reveal_alpha,
+            damage,
+        )?;
+    }
+
+    if let (Some(track), Some(thumb)) = (scrollbar_track, scrollbar_thumb) {
         draw_overlay_chip(
             frame,
             overlay.render_state,
             rounded,
-            icon_rect,
-            12.0,
-            Color32F::new(0.93, 0.96, 0.99, 0.12),
+            track,
+            4.0,
+            Color32F::new(
+                UI_ACTION_KEY_FILL.r(),
+                UI_ACTION_KEY_FILL.g(),
+                UI_ACTION_KEY_FILL.b(),
+                0.30 * reveal_alpha,
+            ),
             damage,
-            1.0,
+            reveal_alpha,
         )?;
-        if overlay.tuning.tile_queue_show_icons
-            && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
-                overlay.node_app_icon_entry(node_id)
-        {
-            let icon_dest = Rectangle::<i32, Physical>::new(
-                (icon_rect.loc.x + 4, icon_rect.loc.y + 4).into(),
-                (OVERFLOW_ICON_SIZE - 8, OVERFLOW_ICON_SIZE - 8).into(),
-            );
-            let icon_src = Rectangle::<f64, Buffer>::new(
-                (0.0, 0.0).into(),
-                (icon.width as f64, icon.height as f64).into(),
-            );
-            frame.render_texture_from_to(
-                &icon.texture,
-                icon_src,
-                icon_dest,
-                &[damage],
-                &[],
-                Transform::Normal,
-                1.0,
-                None,
-                &[],
-            )?;
-            continue;
-        }
-
-        let fallback = overlay
-            .node_app_ids
-            .get(&node_id)
-            .map(String::as_str)
-            .or_else(|| overlay.field.node(node_id).map(|n| n.label.as_str()))
-            .unwrap_or("?");
-        let glyph = fallback
-            .chars()
-            .find(|ch| ch.is_ascii_alphanumeric())
-            .unwrap_or('?')
-            .to_ascii_uppercase()
-            .to_string();
-        let (text_w, text_h) =
-            ui_text_size_in(overlay.render_state, &overlay.tuning.font, &glyph, 2);
-        draw_ui_text_in(
+        draw_overlay_chip(
             frame,
             overlay.render_state,
-            &overlay.tuning.font,
-            icon_rect.loc.x + (icon_rect.size.w - text_w) / 2,
-            icon_rect.loc.y + (icon_rect.size.h - text_h) / 2,
-            &glyph,
-            2,
-            Color32F::new(0.94, 0.97, 0.99, 1.0),
+            rounded,
+            thumb,
+            4.0,
+            Color32F::new(
+                UI_CHIP_SUBTEXT.r(),
+                UI_CHIP_SUBTEXT.g(),
+                UI_CHIP_SUBTEXT.b(),
+                0.72 * reveal_alpha,
+            ),
             damage,
+            reveal_alpha,
         )?;
     }
 
@@ -403,66 +615,16 @@ pub(crate) fn draw_cluster_overflow_strip(
                 .into(),
             (OVERFLOW_ICON_SIZE, OVERFLOW_ICON_SIZE).into(),
         );
-        draw_overlay_chip(
+        draw_overflow_member_chip(
             frame,
-            overlay.render_state,
+            overlay,
             rounded,
+            node_id,
             icon_rect,
-            12.0,
-            Color32F::new(0.10, 0.14, 0.18, 0.96),
-            damage,
+            Color32F::new(UI_CHIP_FILL.r(), UI_CHIP_FILL.g(), UI_CHIP_FILL.b(), 0.97),
             1.0,
+            damage,
         )?;
-        if overlay.tuning.tile_queue_show_icons
-            && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
-                overlay.node_app_icon_entry(node_id)
-        {
-            let icon_dest = Rectangle::<i32, Physical>::new(
-                (icon_rect.loc.x + 4, icon_rect.loc.y + 4).into(),
-                (OVERFLOW_ICON_SIZE - 8, OVERFLOW_ICON_SIZE - 8).into(),
-            );
-            let icon_src = Rectangle::<f64, Buffer>::new(
-                (0.0, 0.0).into(),
-                (icon.width as f64, icon.height as f64).into(),
-            );
-            frame.render_texture_from_to(
-                &icon.texture,
-                icon_src,
-                icon_dest,
-                &[damage],
-                &[],
-                Transform::Normal,
-                1.0,
-                None,
-                &[],
-            )?;
-        } else {
-            let fallback = overlay
-                .node_app_ids
-                .get(&node_id)
-                .map(String::as_str)
-                .or_else(|| overlay.field.node(node_id).map(|n| n.label.as_str()))
-                .unwrap_or("?");
-            let glyph = fallback
-                .chars()
-                .find(|ch| ch.is_ascii_alphanumeric())
-                .unwrap_or('?')
-                .to_ascii_uppercase()
-                .to_string();
-            let (text_w, text_h) =
-                ui_text_size_in(overlay.render_state, &overlay.tuning.font, &glyph, 2);
-            draw_ui_text_in(
-                frame,
-                overlay.render_state,
-                &overlay.tuning.font,
-                icon_rect.loc.x + (icon_rect.size.w - text_w) / 2,
-                icon_rect.loc.y + (icon_rect.size.h - text_h) / 2,
-                &glyph,
-                2,
-                Color32F::new(0.94, 0.97, 0.99, 1.0),
-                damage,
-            )?;
-        }
     }
 
     Ok(())

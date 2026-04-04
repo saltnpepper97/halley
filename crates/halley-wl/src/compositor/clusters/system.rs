@@ -235,6 +235,8 @@ impl<T: DerefMut<Target = Halley>> DerefMut for ClusterSystemController<T> {
 }
 
 impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
+    const CLUSTER_OVERFLOW_VISIBLE_SLOTS: usize = 15;
+
     fn cluster_read_controller(&self) -> ClusterReadController<'_> {
         ClusterReadController {
             field: &self.model.field,
@@ -262,6 +264,29 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
             .cluster_overflow_rects
             .get(monitor)
             .copied()
+    }
+
+    pub(crate) fn cluster_overflow_slot_rect_for_monitor(
+        &self,
+        monitor: &str,
+        overflow_len: usize,
+        slot_index: usize,
+    ) -> Option<halley_core::tiling::Rect> {
+        self.cluster_read_controller()
+            .overflow_strip_slot_rect_for_monitor(monitor, overflow_len, slot_index)
+    }
+
+    pub(crate) fn active_cluster_tile_rect_for_member(
+        &self,
+        monitor: &str,
+        member_id: NodeId,
+    ) -> Option<halley_core::tiling::Rect> {
+        self.cluster_read_controller()
+            .plan_active_cluster_layout(monitor)?
+            .tiles
+            .into_iter()
+            .find(|tile| tile.node_id == member_id)
+            .map(|tile| tile.rect)
     }
 
     pub(crate) fn cluster_spawn_rect_for_new_member(
@@ -331,6 +356,44 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
 
 impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
     const CLUSTER_OVERFLOW_REVEAL_MS: u64 = 2200;
+
+    pub(crate) fn adjust_cluster_overflow_scroll_for_monitor(
+        &mut self,
+        monitor: &str,
+        delta: i32,
+    ) -> bool {
+        let overflow_len = self
+            .model
+            .cluster_state
+            .cluster_overflow_members
+            .get(monitor)
+            .map(Vec::len)
+            .unwrap_or(0);
+        let max_offset = overflow_len.saturating_sub(Self::CLUSTER_OVERFLOW_VISIBLE_SLOTS);
+        if max_offset == 0 {
+            self.model
+                .cluster_state
+                .cluster_overflow_scroll_offsets
+                .remove(monitor);
+            return false;
+        }
+        let current = self
+            .model
+            .cluster_state
+            .cluster_overflow_scroll_offsets
+            .get(monitor)
+            .copied()
+            .unwrap_or(0) as i32;
+        let next = (current + delta).clamp(0, max_offset as i32) as usize;
+        if next == current as usize {
+            return false;
+        }
+        self.model
+            .cluster_state
+            .cluster_overflow_scroll_offsets
+            .insert(monitor.to_string(), next);
+        true
+    }
 
     fn cluster_mutation_controller(&mut self) -> ClusterMutationController<'_> {
         let crate::compositor::root::Halley {
@@ -749,6 +812,14 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .remove(monitor);
             self.model
                 .cluster_state
+                .cluster_overflow_scroll_offsets
+                .remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_overflow_reveal_started_at_ms
+                .remove(monitor);
+            self.model
+                .cluster_state
                 .cluster_overflow_visible_until_ms
                 .remove(monitor);
             return;
@@ -764,6 +835,14 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             self.model
                 .cluster_state
                 .cluster_overflow_rects
+                .remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_overflow_scroll_offsets
+                .remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_overflow_reveal_started_at_ms
                 .remove(monitor);
             self.model
                 .cluster_state
@@ -783,15 +862,52 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .remove(monitor);
             self.model
                 .cluster_state
+                .cluster_overflow_scroll_offsets
+                .remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_overflow_reveal_started_at_ms
+                .remove(monitor);
+            self.model
+                .cluster_state
                 .cluster_overflow_visible_until_ms
                 .remove(monitor);
             return;
         }
 
+        let was_visible = self
+            .model
+            .cluster_state
+            .cluster_overflow_visible_until_ms
+            .get(monitor)
+            .is_some_and(|visible_until_ms| *visible_until_ms > now_ms);
+
         self.model
             .cluster_state
             .cluster_overflow_members
             .insert(monitor.to_string(), overflow.clone());
+        let max_offset = overflow
+            .len()
+            .saturating_sub(Self::CLUSTER_OVERFLOW_VISIBLE_SLOTS);
+        if max_offset == 0 {
+            self.model
+                .cluster_state
+                .cluster_overflow_scroll_offsets
+                .remove(monitor);
+        } else {
+            let next = self
+                .model
+                .cluster_state
+                .cluster_overflow_scroll_offsets
+                .get(monitor)
+                .copied()
+                .unwrap_or(0)
+                .min(max_offset);
+            self.model
+                .cluster_state
+                .cluster_overflow_scroll_offsets
+                .insert(monitor.to_string(), next);
+        }
         if let Some(rect) = self
             .cluster_read_controller()
             .overflow_strip_rect_for_monitor(monitor, overflow.len())
@@ -802,6 +918,12 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .insert(monitor.to_string(), rect);
         }
         if reveal {
+            if !was_visible {
+                self.model
+                    .cluster_state
+                    .cluster_overflow_reveal_started_at_ms
+                    .insert(monitor.to_string(), now_ms);
+            }
             self.model
                 .cluster_state
                 .cluster_overflow_visible_until_ms
@@ -809,6 +931,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     monitor.to_string(),
                     now_ms.saturating_add(Self::CLUSTER_OVERFLOW_REVEAL_MS),
                 );
+            self.request_maintenance();
         }
     }
 
@@ -817,6 +940,14 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
     }
 
     pub(crate) fn hide_cluster_overflow_for_monitor(&mut self, monitor: &str) {
+        self.model
+            .cluster_state
+            .cluster_overflow_scroll_offsets
+            .remove(monitor);
+        self.model
+            .cluster_state
+            .cluster_overflow_reveal_started_at_ms
+            .remove(monitor);
         self.model
             .cluster_state
             .cluster_overflow_visible_until_ms

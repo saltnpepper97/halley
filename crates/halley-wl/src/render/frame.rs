@@ -24,8 +24,9 @@ use crate::animation::AnimStyle;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::overlay::{
-    OverlayView, draw_cluster_bloom, draw_cluster_overflow_strip, draw_cluster_selection_markers,
-    draw_monitor_hud, draw_overlay_hover_label, ensure_cluster_bloom_icon_resources,
+    OverlayView, draw_cluster_bloom, draw_cluster_overflow_promotion, draw_cluster_overflow_strip,
+    draw_cluster_selection_markers, draw_monitor_hud, draw_overlay_hover_label,
+    ensure_cluster_bloom_icon_resources,
 };
 use crate::spatial::node_in_active_area_for_monitor;
 
@@ -60,6 +61,19 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
             .model
             .cluster_state
             .cluster_bloom_open
+            .contains_key(monitor)
+        || st
+            .model
+            .cluster_state
+            .cluster_overflow_visible_until_ms
+            .get(monitor)
+            .is_some_and(|visible_until_ms| {
+                *visible_until_ms > st.now_ms(std::time::Instant::now())
+            })
+        || st
+            .model
+            .cluster_state
+            .cluster_overflow_promotion_anim
             .contains_key(monitor)
         || crate::compositor::interaction::state::bloom_pull_preview_active_for_monitor(st, monitor)
         || st.ui.render_state.overlay_banner.contains_key(monitor)
@@ -565,6 +579,13 @@ pub(crate) fn draw_debug_frame_to_target(
                 .filter(|preview| preview.monitor == current_monitor)
                 .map(|preview| preview.member_id),
         )
+        .chain(
+            st.model
+                .cluster_state
+                .cluster_overflow_promotion_anim
+                .get(current_monitor.as_str())
+                .map(|anim| anim.member_id),
+        )
         .collect::<Vec<_>>();
     ensure_app_icon_resources_for_node_ids(renderer, st, overflow_ids.into_iter())?;
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
@@ -871,6 +892,13 @@ fn draw_debug_frame_scene(
     )?;
     let overlay = OverlayView::from_halley(st);
     draw_cluster_overflow_strip(
+        frame,
+        &overlay,
+        bloom_monitor.as_str(),
+        prepared.damage,
+        st.now_ms(prepared.now),
+    )?;
+    draw_cluster_overflow_promotion(
         frame,
         &overlay,
         bloom_monitor.as_str(),

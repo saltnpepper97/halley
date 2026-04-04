@@ -89,6 +89,33 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     let world_now = screen_to_world(st, ws_w, ws_h, sx, sy);
     ctx.pointer_state.borrow_mut().world = world_now;
     let now = Instant::now();
+    let now_ms = st.now_ms(now);
+    if steps.abs() >= f32::EPSILON {
+        let overlay = crate::overlay::OverlayView::from_halley(st);
+        let overflow_scrollable = overlay
+            .cluster_overflow_member_ids_for_monitor(target_monitor.as_str())
+            .len()
+            > 15;
+        let over_overflow_strip = overflow_scrollable
+            && crate::overlay::cluster_overflow_strip_slot_at(
+                &overlay,
+                target_monitor.as_str(),
+                sx,
+                sy,
+                now_ms,
+            )
+            .is_some();
+        if over_overflow_strip {
+            let delta = if steps > 0.0 { 1 } else { -1 };
+            let changed =
+                st.adjust_cluster_overflow_scroll_for_monitor(target_monitor.as_str(), delta);
+            st.reveal_cluster_overflow_for_monitor(target_monitor.as_str(), now_ms);
+            if changed {
+                ctx.backend.request_redraw();
+            }
+            return;
+        }
+    }
     let resize_preview = ctx.pointer_state.borrow().resize;
     if let Some(pointer) = st.platform.seat.get_pointer() {
         if pointer.current_focus().is_none()

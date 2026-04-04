@@ -16,6 +16,113 @@ use crate::compositor::root::Halley;
 use crate::compositor::spawn::rules::InitialWindowIntent;
 use crate::compositor::surface_ops::is_active_cluster_workspace_member;
 
+const CLUSTER_OVERFLOW_PROMOTION_ANIM_MS: u64 = 360;
+
+struct QueuedOverflowPromotion {
+    monitor: String,
+    promoted_member: NodeId,
+    source_strip_rect: halley_core::tiling::Rect,
+    source_icon_rect: halley_core::tiling::Rect,
+}
+
+fn capture_queued_overflow_promotion(st: &Halley, id: NodeId) -> Option<QueuedOverflowPromotion> {
+    let monitor = st.model.monitor_state.node_monitor.get(&id).cloned()?;
+    if !matches!(
+        st.runtime.tuning.cluster_layout_kind(),
+        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+    ) {
+        return None;
+    }
+    let cid = st.model.field.cluster_id_for_member_public(id)?;
+    if st.active_cluster_workspace_for_monitor(monitor.as_str()) != Some(cid) {
+        return None;
+    }
+    let cluster = st.model.field.cluster(cid)?;
+    let visible_before = cluster.visible_members(st.runtime.tuning.tile_max_stack);
+    if !visible_before.contains(&id) {
+        return None;
+    }
+    let overflow_before = cluster.overflow_members(st.runtime.tuning.tile_max_stack);
+    let promoted_member = overflow_before.first().copied()?;
+    let source_strip_rect = st.cluster_overflow_rect_for_monitor(monitor.as_str())?;
+    let source_icon_rect =
+        st.cluster_overflow_slot_rect_for_monitor(monitor.as_str(), overflow_before.len(), 0)?;
+    Some(QueuedOverflowPromotion {
+        monitor,
+        promoted_member,
+        source_strip_rect,
+        source_icon_rect,
+    })
+}
+
+fn arm_queued_overflow_promotion(
+    st: &mut Halley,
+    promotion: QueuedOverflowPromotion,
+    now_ms: u64,
+) {
+    let Some(target_rect) = st
+        .active_cluster_tile_rect_for_member(promotion.monitor.as_str(), promotion.promoted_member)
+    else {
+        return;
+    };
+    let reveal_at_ms = now_ms.saturating_add(CLUSTER_OVERFLOW_PROMOTION_ANIM_MS);
+    st.model
+        .cluster_state
+        .cluster_overflow_scroll_offsets
+        .remove(promotion.monitor.as_str());
+    st.reveal_cluster_overflow_for_monitor(promotion.monitor.as_str(), now_ms);
+    st.model
+        .spawn_state
+        .pending_tiled_insert_reveal_at_ms
+        .insert(promotion.promoted_member, reveal_at_ms);
+    if let Some(node) = st.model.field.node_mut(promotion.promoted_member) {
+        node.visibility.set(Visibility::DETACHED, true);
+        node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, true);
+    }
+    st.layout_active_cluster_workspace_for_monitor(promotion.monitor.as_str(), now_ms);
+    let (screen_w, screen_h) = st
+        .model
+        .monitor_state
+        .monitors
+        .get(promotion.monitor.as_str())
+        .map(|space| (space.width, space.height))
+        .unwrap_or((1, 1));
+    let previous_monitor = st.begin_temporary_render_monitor(promotion.monitor.as_str());
+    let target_center_world = Vec2 {
+        x: target_rect.x + target_rect.w * 0.5,
+        y: target_rect.y + target_rect.h * 0.5,
+    };
+    let (target_sx, target_sy) = crate::render::utils::world_to_screen(
+        st,
+        screen_w,
+        screen_h,
+        target_center_world.x,
+        target_center_world.y,
+    );
+    st.end_temporary_render_monitor(previous_monitor);
+    st.model
+        .cluster_state
+        .cluster_overflow_promotion_anim
+        .insert(
+            promotion.monitor,
+            crate::compositor::clusters::state::ClusterOverflowPromotionAnim {
+                member_id: promotion.promoted_member,
+                started_at_ms: now_ms,
+                reveal_at_ms,
+                source_strip_rect: promotion.source_strip_rect,
+                source_center: Vec2 {
+                    x: promotion.source_icon_rect.x + promotion.source_icon_rect.w * 0.5,
+                    y: promotion.source_icon_rect.y + promotion.source_icon_rect.h * 0.5,
+                },
+                target_center: Vec2 {
+                    x: target_sx as f32,
+                    y: target_sy as f32,
+                },
+            },
+        );
+    st.request_maintenance();
+}
+
 pub(crate) fn refresh_surface_identity(
     ctx: &mut SurfaceLifecycleCtx<'_>,
     surface: &WlSurface,
@@ -184,6 +291,7 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
     for key in stale {
         st.runtime.surface_activity.remove(&key);
         if let Some(id) = st.model.surface_to_node.remove(&key) {
+            let queued_promotion = capture_queued_overflow_promotion(st, id);
             let active_tiled_focus_restore = st
                 .model
                 .monitor_state
@@ -277,7 +385,12 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
                 st.model.focus_state.monitor_focus.remove(&monitor);
             }
             st.input.interaction_state.smoothed_render_pos.remove(&id);
-            let _ = st.remove_node_from_field(id, st.now_ms(Instant::now()));
+            let now = Instant::now();
+            let now_ms = st.now_ms(now);
+            let _ = st.remove_node_from_field(id, now_ms);
+            if let Some(promotion) = queued_promotion {
+                arm_queued_overflow_promotion(st, promotion, now_ms);
+            }
             if let Some((monitor, preferred_index)) = active_tiled_focus_restore {
                 let now = Instant::now();
                 st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), st.now_ms(now));
@@ -807,6 +920,7 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
     st.runtime.surface_activity.remove(&key);
     crate::protocol::wayland::activation::clear_surface_activation(st, surface);
     if let Some(id) = st.model.surface_to_node.remove(&key) {
+        let queued_promotion = capture_queued_overflow_promotion(st, id);
         st.drop_fullscreen_surface(id, Instant::now());
         if st.model.focus_state.pan_restore_active_focus == Some(id) {
             st.model.focus_state.pan_restore_active_focus = None;
@@ -864,7 +978,12 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         st.model.focus_state.suppress_trail_record_once = false;
         st.input.interaction_state.smoothed_render_pos.remove(&id);
         st.ui.render_state.clear_window_offscreen_cache_for(id);
-        let _ = st.remove_node_from_field(id, st.now_ms(Instant::now()));
+        let now = Instant::now();
+        let now_ms = st.now_ms(now);
+        let _ = st.remove_node_from_field(id, now_ms);
+        if let Some(promotion) = queued_promotion {
+            arm_queued_overflow_promotion(st, promotion, now_ms);
+        }
     }
     st.request_maintenance();
 }

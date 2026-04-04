@@ -42,9 +42,11 @@ pub(super) struct ClusterLayoutPlan {
 impl<'a> ClusterReadController<'a> {
     const OVERFLOW_STRIP_PAD_PX: f32 = 18.0;
     const OVERFLOW_STRIP_W_PX: f32 = 56.0;
+    const OVERFLOW_SCROLLBAR_GUTTER_PX: f32 = 12.0;
     const OVERFLOW_ICON_PAD_PX: f32 = 8.0;
     const OVERFLOW_ICON_SIZE_PX: f32 = 40.0;
     const OVERFLOW_ICON_GAP_PX: f32 = 8.0;
+    const OVERFLOW_VISIBLE_SLOTS: usize = 15;
 
     pub(super) fn cluster_bloom_for_monitor(&self, monitor: &str) -> Option<ClusterId> {
         self.cluster_state.cluster_bloom_open.get(monitor).copied()
@@ -196,16 +198,43 @@ impl<'a> ClusterReadController<'a> {
             return None;
         }
         let space = self.monitor_state.monitors.get(monitor)?;
-        let visible_slots = overflow_len.min(6) as f32;
+        let strip_w = if overflow_len > Self::OVERFLOW_VISIBLE_SLOTS {
+            Self::OVERFLOW_STRIP_W_PX + Self::OVERFLOW_SCROLLBAR_GUTTER_PX
+        } else {
+            Self::OVERFLOW_STRIP_W_PX
+        };
+        let visible_slots = overflow_len.min(Self::OVERFLOW_VISIBLE_SLOTS) as f32;
         let height = Self::OVERFLOW_ICON_PAD_PX * 2.0
             + visible_slots * Self::OVERFLOW_ICON_SIZE_PX
             + (visible_slots - 1.0).max(0.0) * Self::OVERFLOW_ICON_GAP_PX;
         Some(halley_core::tiling::Rect {
-            x: (space.width as f32 - Self::OVERFLOW_STRIP_W_PX - Self::OVERFLOW_STRIP_PAD_PX)
-                .max(0.0),
+            x: (space.width as f32 - strip_w - Self::OVERFLOW_STRIP_PAD_PX).max(0.0),
             y: ((space.height as f32 - height) * 0.5).max(Self::OVERFLOW_STRIP_PAD_PX),
-            w: Self::OVERFLOW_STRIP_W_PX,
+            w: strip_w,
             h: height,
+        })
+    }
+
+    pub(super) fn overflow_strip_slot_rect_for_monitor(
+        &self,
+        monitor: &str,
+        overflow_len: usize,
+        slot_index: usize,
+    ) -> Option<Rect> {
+        let strip = self.overflow_strip_rect_for_monitor(monitor, overflow_len)?;
+        let scrollbar_extra = if overflow_len > Self::OVERFLOW_VISIBLE_SLOTS {
+            Self::OVERFLOW_SCROLLBAR_GUTTER_PX
+        } else {
+            0.0
+        };
+        let icon_x = strip.x + (strip.w - Self::OVERFLOW_ICON_SIZE_PX - scrollbar_extra) * 0.5;
+        Some(Rect {
+            x: icon_x,
+            y: strip.y
+                + Self::OVERFLOW_ICON_PAD_PX
+                + slot_index as f32 * (Self::OVERFLOW_ICON_SIZE_PX + Self::OVERFLOW_ICON_GAP_PX),
+            w: Self::OVERFLOW_ICON_SIZE_PX,
+            h: Self::OVERFLOW_ICON_SIZE_PX,
         })
     }
 

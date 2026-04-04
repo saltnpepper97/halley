@@ -135,6 +135,36 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
         if crate::compositor::interaction::state::bloom_pull_preview_needs_animation(self) {
             consider(now_ms.saturating_add(16));
         }
+        if self
+            .model
+            .cluster_state
+            .cluster_overflow_reveal_started_at_ms
+            .iter()
+            .any(|(monitor, started_at_ms)| {
+                let visible_until_ms = self
+                    .model
+                    .cluster_state
+                    .cluster_overflow_visible_until_ms
+                    .get(monitor)
+                    .copied();
+                visible_until_ms.is_some_and(|visible_until_ms| {
+                    visible_until_ms > now_ms
+                        && (now_ms.saturating_sub(*started_at_ms) < 220
+                            || visible_until_ms.saturating_sub(now_ms) < 220)
+                })
+            })
+        {
+            consider(now_ms.saturating_add(16));
+        }
+        if self
+            .model
+            .cluster_state
+            .cluster_overflow_promotion_anim
+            .values()
+            .any(|anim| now_ms < anim.reveal_at_ms)
+        {
+            consider(now_ms.saturating_add(16));
+        }
         if self.runtime.tuning.debug_tick_dump {
             consider(
                 now_ms.saturating_add(
@@ -368,6 +398,10 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             .spawn_state
             .pending_tiled_insert_reveal_at_ms
             .retain(|id, _| alive_ids.contains(id));
+        self.model
+            .cluster_state
+            .cluster_overflow_promotion_anim
+            .retain(|_, anim| alive_ids.contains(&anim.member_id) && now_ms < anim.reveal_at_ms);
 
         self.process_pending_spawn_activations(now, now_ms);
         let resize_settling = self

@@ -248,7 +248,10 @@ impl Halley {
                     workspace_core_positions: HashMap::new(),
                     cluster_overflow_members: HashMap::new(),
                     cluster_overflow_rects: HashMap::new(),
+                    cluster_overflow_scroll_offsets: HashMap::new(),
+                    cluster_overflow_reveal_started_at_ms: HashMap::new(),
                     cluster_overflow_visible_until_ms: HashMap::new(),
+                    cluster_overflow_promotion_anim: HashMap::new(),
                 },
                 workspace_state: WorkspaceState {
                     last_active_size: HashMap::new(),
@@ -1384,6 +1387,34 @@ impl Halley {
     ) -> Option<halley_core::tiling::Rect> {
         super::clusters::system::cluster_system_controller(self)
             .cluster_overflow_rect_for_monitor(monitor)
+    }
+
+    pub(crate) fn cluster_overflow_slot_rect_for_monitor(
+        &self,
+        monitor: &str,
+        overflow_len: usize,
+        slot_index: usize,
+    ) -> Option<halley_core::tiling::Rect> {
+        super::clusters::system::cluster_system_controller(self)
+            .cluster_overflow_slot_rect_for_monitor(monitor, overflow_len, slot_index)
+    }
+
+    pub(crate) fn active_cluster_tile_rect_for_member(
+        &self,
+        monitor: &str,
+        member_id: NodeId,
+    ) -> Option<halley_core::tiling::Rect> {
+        super::clusters::system::cluster_system_controller(self)
+            .active_cluster_tile_rect_for_member(monitor, member_id)
+    }
+
+    pub(crate) fn adjust_cluster_overflow_scroll_for_monitor(
+        &mut self,
+        monitor: &str,
+        delta: i32,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .adjust_cluster_overflow_scroll_for_monitor(monitor, delta)
     }
 
     pub(crate) fn cluster_spawn_rect_for_new_member(
