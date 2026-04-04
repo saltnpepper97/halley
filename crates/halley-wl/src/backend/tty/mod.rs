@@ -37,12 +37,14 @@ fn queue_ready_tty_outputs(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
+    output_animation_redraw_active: &Rc<RefCell<HashMap<String, bool>>>,
     pointer_state: &Rc<RefCell<crate::compositor::interaction::PointerState>>,
     renderer: &Rc<RefCell<GlesRenderer>>,
     first_frame_queued: &Rc<RefCell<HashSet<String>>>,
     st: &mut Halley,
     now: Instant,
     resize_preview: Option<ResizeCtx>,
+    source: &str,
 ) {
     if !any_tty_output_dpms_enabled(&dpms_enabled.borrow()) {
         return;
@@ -76,6 +78,17 @@ fn queue_ready_tty_outputs(
             .copied()
             .unwrap_or(false)
         {
+            if output_animation_redraw_active
+                .borrow()
+                .get(output_name)
+                .copied()
+                .unwrap_or(false)
+            {
+                debug!(
+                    "tty animation redraw delayed {} source={} pending=true",
+                    output_name, source
+                );
+            }
             continue;
         }
 
@@ -91,14 +104,54 @@ fn queue_ready_tty_outputs(
             Some(&cursor_image),
         ) {
             Err(err) => warn!("tty drm frame queue skipped for {}: {}", output_name, err),
-            Ok(false) => {}
-            Ok(true) => {
+            Ok(report) => {
+                let previous_active = output_animation_redraw_active
+                    .borrow_mut()
+                    .insert(
+                        output.connector_name.clone(),
+                        report.animation_redraw_active,
+                    )
+                    .unwrap_or(false);
+                if previous_active != report.animation_redraw_active {
+                    debug!(
+                        "tty animation redraw {} {} source={}",
+                        if report.animation_redraw_active {
+                            "enter"
+                        } else {
+                            "leave"
+                        },
+                        output_name,
+                        source
+                    );
+                }
+                if !report.queued {
+                    if report.animation_redraw_active {
+                        debug!(
+                            "tty frame no-damage {} source={} fade={} full_repaint={} render_empty={}",
+                            output_name,
+                            source,
+                            report.fade_related,
+                            report.force_full_repaint,
+                            report.render_empty
+                        );
+                    }
+                    continue;
+                }
                 if first_frame_queued
                     .borrow_mut()
                     .insert(output.connector_name.clone())
                 {
                     info!("first tty drm frame queued for {}", output_name);
                 }
+
+                debug!(
+                    "tty frame submit {} source={} pending=false->true anim={} fade={} full_repaint={}",
+                    output_name,
+                    source,
+                    report.animation_redraw_active,
+                    report.fade_related,
+                    report.force_full_repaint
+                );
 
                 output_frame_pending
                     .borrow_mut()
@@ -108,6 +161,48 @@ fn queue_ready_tty_outputs(
     }
 
     let _ = st.activate_monitor(previous_monitor.as_str());
+}
+
+fn tty_animation_redraw_active(
+    st: &Halley,
+    outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
+    pointer_state: &Rc<RefCell<PointerState>>,
+    now: Instant,
+) -> bool {
+    if !pointer_state.borrow().move_anim.is_empty() {
+        return true;
+    }
+    outputs.borrow().iter().any(|output| {
+        crate::render::tty_output_animation_redraw_state(st, output.connector_name.as_str(), now)
+            .active
+    })
+}
+
+fn advance_tty_redraw_frame(
+    st: &mut Halley,
+    pointer_state: &Rc<RefCell<PointerState>>,
+    now: Instant,
+    include_maintenance: bool,
+) {
+    st.drain_drm_syncobj_blockers();
+
+    let resize_active = {
+        let ps = pointer_state.borrow();
+        ps.resize.is_some()
+    };
+
+    crate::render::tick_frame_effects(st, now);
+    crate::render::tick_animator_frame(st, now);
+    st.tick_fullscreen_motion(now);
+    crate::render::begin_render_frame(st, now);
+    {
+        let mut ps = pointer_state.borrow_mut();
+        let _ = advance_node_move_anim(st, &mut ps, now);
+    }
+    crate::render::tick_live_overlap(st);
+    if include_maintenance && !resize_active {
+        st.run_maintenance_if_needed(now);
+    }
 }
 
 fn halley_x11_paths(display_num: u32) -> (PathBuf, PathBuf) {
@@ -296,6 +391,7 @@ fn apply_tty_reload(
     active_modes: &Rc<RefCell<HashMap<String, drm_control::Mode>>>,
     dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
+    output_animation_redraw_active: &Rc<RefCell<HashMap<String, bool>>>,
     scanout_signature: &Rc<RefCell<Vec<String>>>,
     card_path: &Path,
 ) -> bool {
@@ -377,6 +473,14 @@ fn apply_tty_reload(
         pending.clear();
         for name in next_modes.keys() {
             pending.insert(name.clone(), false);
+        }
+    }
+
+    {
+        let mut active = output_animation_redraw_active.borrow_mut();
+        active.clear();
+        for name in next_modes.keys() {
+            active.insert(name.clone(), false);
         }
     }
 
@@ -789,10 +893,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             );
             let outputs_for_vblank = outputs.clone();
             let output_frame_pending = Rc::new(RefCell::new(HashMap::new()));
+            let output_animation_redraw_active = Rc::new(RefCell::new(HashMap::new()));
             {
                 let mut pending = output_frame_pending.borrow_mut();
+                let mut animation_active = output_animation_redraw_active.borrow_mut();
                 for output in outputs.borrow().iter() {
                     pending.insert(output.connector_name.clone(), false);
+                    animation_active.insert(output.connector_name.clone(), false);
                 }
             }
             let scanout_signature = Rc::new(RefCell::new(current_tty_output_signature(
@@ -801,6 +908,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let warned_vblank_mismatch = Rc::new(RefCell::new(false));
             let warned_vblank_mismatch_for_notifier = warned_vblank_mismatch.clone();
             let output_frame_pending_for_notifier = output_frame_pending.clone();
+            let output_animation_redraw_active_for_notifier =
+                output_animation_redraw_active.clone();
             let output_frame_pending_for_dpms_input = output_frame_pending.clone();
             let output_frame_pending_for_dpms_timer = output_frame_pending.clone();
             let vblank_throttles = Rc::new(RefCell::new(HashMap::<String, VBlankThrottle>::new()));
@@ -868,6 +977,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     let compositor = compositor.clone();
                                     let output_frame_pending_for_notifier =
                                         output_frame_pending_for_notifier.clone();
+                                    let output_animation_redraw_active_for_notifier =
+                                        output_animation_redraw_active_for_notifier.clone();
                                     move |_state| {
                                         if let Err(err) = compositor.borrow_mut().frame_submitted() {
                                             warn!("failed to mark drm frame submitted after throttle: {}", err);
@@ -875,6 +986,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                         output_frame_pending_for_notifier
                                             .borrow_mut()
                                             .insert(throttled_output_name.clone(), false);
+                                        debug!(
+                                            "tty frame submitted {} pending=true->false anim={} throttled=true",
+                                            throttled_output_name,
+                                            output_animation_redraw_active_for_notifier
+                                                .borrow()
+                                                .get(throttled_output_name.as_str())
+                                                .copied()
+                                                .unwrap_or(false)
+                                        );
                                         redraw_ping_for_throttle.ping();
                                     }
                                 });
@@ -890,6 +1010,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             output_frame_pending_for_notifier
                                 .borrow_mut()
                                 .insert(output_name.clone(), false);
+                            debug!(
+                                "tty frame submitted {} pending=true->false anim={}",
+                                output_name,
+                                output_animation_redraw_active_for_notifier
+                                    .borrow()
+                                    .get(output_name.as_str())
+                                    .copied()
+                                    .unwrap_or(false)
+                            );
                             redraw_ping_for_vblank.ping();
                             matched_outputs.push(output_name.clone());
                             if first_vblank_logged_for_notifier
@@ -961,11 +1090,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
             let dpms_enabled_for_redraw = dpms_enabled.clone();
             let output_frame_pending_for_redraw = output_frame_pending.clone();
+            let output_animation_redraw_active_for_redraw = output_animation_redraw_active.clone();
             let pointer_state_for_redraw = pointer_state.clone();
             let renderer_for_redraw = drm_probe.renderer.clone();
             let first_frame_queued_for_redraw = first_frame_queued.clone();
             ev.handle()
                 .insert_source(redraw_source, move |_event, _metadata, st| {
+                    let now = Instant::now();
+                    advance_tty_redraw_frame(st, &pointer_state_for_redraw, now, false);
                     let ps = pointer_state_for_redraw.borrow();
                     let resize_preview = ps.resize;
                     drop(ps);
@@ -973,13 +1105,24 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         &outputs_for_redraw,
                         &dpms_enabled_for_redraw,
                         &output_frame_pending_for_redraw,
+                        &output_animation_redraw_active_for_redraw,
                         &pointer_state_for_redraw,
                         &renderer_for_redraw,
                         &first_frame_queued_for_redraw,
                         st,
-                        Instant::now(),
+                        now,
                         resize_preview,
+                        "redraw",
                     );
+                })?;
+
+            let redraw_ping_for_maintenance = redraw_ping.clone();
+            let (maintenance_ping, maintenance_source) = make_ping()?;
+            state.runtime.maintenance_ping = Some(maintenance_ping);
+            ev.handle()
+                .insert_source(maintenance_source, move |_event, _metadata, st| {
+                    st.run_maintenance_if_needed(Instant::now());
+                    redraw_ping_for_maintenance.ping();
                 })?;
 
             let _renderer_for_input = drm_probe.renderer.clone();
@@ -1237,7 +1380,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     ps.world = crate::spatial::screen_to_world(st, ws_w.max(1), ws_h.max(1), sx, sy);
                 }
                 let now = Instant::now();
-                st.drain_drm_syncobj_blockers();
 
                 st.runtime.spawned_children.retain_mut(|child| {
                     match child.try_wait() {
@@ -1280,6 +1422,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     &active_modes_for_timer,
                                     &dpms_enabled_for_timer,
                                     &output_frame_pending_for_dpms_timer,
+                                    &output_animation_redraw_active,
                                     &scanout_signature_for_timer,
                                     card_path.as_path(),
                                 );
@@ -1337,25 +1480,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 xwayland_for_timer.borrow_mut().tick();
-
-                {
-                    let ps = pointer_state_for_timer.borrow();
-                    let resize_active = ps.resize.is_some();
-                    drop(ps);
-
-                    crate::render::tick_frame_effects(st, now);
-                    crate::render::tick_animator_frame(st, now);
-                    st.tick_fullscreen_motion(now);
-                    crate::render::begin_render_frame(st, now);
-                    {
-                        let mut ps = pointer_state_for_timer.borrow_mut();
-                        let _ = advance_node_move_anim(st, &mut ps, now);
-                    }
-                    crate::render::tick_live_overlap(st);
-                    if !resize_active {
-                        st.run_maintenance_if_needed(now);
-                    }
-                }
+                st.run_maintenance_if_needed(now);
 
                 let mut reloaded = false;
                 let mut rx_ref = watch_rx_for_timer.borrow_mut();
@@ -1386,13 +1511,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 next,
                                 config_path_for_timer.as_str(),
                                 wayland_display_for_timer.as_str(),
-                                    "watch",
-                                    &active_modes_for_timer,
-                                    &dpms_enabled_for_timer,
-                                    &output_frame_pending_for_dpms_timer,
-                                    &scanout_signature_for_timer,
-                                    card_path.as_path(),
-                                );
+                                "watch",
+                                &active_modes_for_timer,
+                                &dpms_enabled_for_timer,
+                                &output_frame_pending_for_dpms_timer,
+                                &output_animation_redraw_active,
+                                &scanout_signature_for_timer,
+                                card_path.as_path(),
+                            );
                             } else {
                                 let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
                                 crate::bootstrap::apply_reloaded_tuning(
@@ -1441,11 +1567,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     *pending_output_rescan_at_for_timer.borrow_mut() = None;
                 if any_tty_output_dpms_enabled(&dpms_enabled_for_timer.borrow()) {
                     let next = st.runtime.tuning.clone();
-                    apply_tty_reload(
-                        &dev_for_timer,
-                        &gbm_for_timer,
-                        &dev_fd_for_timer,
-                        &renderer_for_timer,
+                        apply_tty_reload(
+                            &dev_for_timer,
+                            &gbm_for_timer,
+                            &dev_fd_for_timer,
+                            &renderer_for_timer,
                         &outputs_for_timer,
                         &backend_handle_for_timer,
                         &pointer_state_for_timer,
@@ -1453,13 +1579,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         next,
                         config_path_for_timer.as_str(),
                         wayland_display_for_timer.as_str(),
-                        "rescan",
-                        &active_modes_for_timer,
-                        &dpms_enabled_for_timer,
-                        &output_frame_pending_for_dpms_timer,
-                        &scanout_signature_for_timer,
-                        card_path.as_path(),
-                    );
+                            "rescan",
+                            &active_modes_for_timer,
+                            &dpms_enabled_for_timer,
+                            &output_frame_pending_for_dpms_timer,
+                            &output_animation_redraw_active,
+                            &scanout_signature_for_timer,
+                            card_path.as_path(),
+                        );
                 } else {
                     // Reschedule for after wake — just leave pending cleared,
                     // wake will trigger its own rescan via the output signature check.
@@ -1487,17 +1614,32 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
 
                     crate::render::send_frame_callbacks(st, now);
-                    queue_ready_tty_outputs(
-                        &outputs_for_timer,
-                        &dpms_enabled_for_timer,
-                        &output_frame_pending,
-                        &pointer_state_for_timer,
-                        &renderer_for_timer,
-                        &first_frame_queued_for_timer,
-                        st,
-                        now,
-                        resize_preview,
-                    );
+                    if tty_animation_redraw_active(st, &outputs_for_timer, &pointer_state_for_timer, now)
+                    {
+                        if !output_frame_pending_for_dpms_timer
+                            .borrow()
+                            .values()
+                            .copied()
+                            .any(|pending| pending)
+                        {
+                            redraw_ping.ping();
+                        }
+                    } else {
+                        advance_tty_redraw_frame(st, &pointer_state_for_timer, now, false);
+                        queue_ready_tty_outputs(
+                            &outputs_for_timer,
+                            &dpms_enabled_for_timer,
+                            &output_frame_pending,
+                            &output_animation_redraw_active,
+                            &pointer_state_for_timer,
+                            &renderer_for_timer,
+                            &first_frame_queued_for_timer,
+                            st,
+                            now,
+                            resize_preview,
+                            "timer",
+                        );
+                    }
                 }
 
                 let secs = now.duration_since(input_started_at).as_secs();

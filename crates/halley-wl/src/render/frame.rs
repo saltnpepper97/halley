@@ -48,6 +48,13 @@ use super::window::{
     collect_active_surfaces,
 };
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct TtyOutputAnimationRedrawState {
+    pub active: bool,
+    pub force_full_repaint: bool,
+    pub fade_related: bool,
+}
+
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
 
@@ -82,6 +89,86 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
             .render_state
             .overlay_exit_confirm
             .contains_key(monitor)
+}
+
+pub(crate) fn tty_output_animation_redraw_state(
+    st: &Halley,
+    monitor: &str,
+    now: Instant,
+) -> TtyOutputAnimationRedrawState {
+    let now_ms = st.now_ms(now);
+    let node_transition_active = st.ui.render_state.animator.has_active_animations(now);
+    let active_transition_active = st
+        .model
+        .workspace_state
+        .active_transition_until_ms
+        .values()
+        .any(|&until| until > now_ms);
+    let tiled_insert_reveal_active = st
+        .model
+        .spawn_state
+        .pending_tiled_insert_reveal_at_ms
+        .values()
+        .any(|&until| until > now_ms);
+    let spawn_activation_active = st
+        .model
+        .spawn_state
+        .pending_spawn_activate_at_ms
+        .values()
+        .any(|&until| until > now_ms);
+    let cluster_tile_active = crate::animation::cluster_tile_tracks_animating(
+        &st.ui.render_state.cluster_tile_tracks,
+        now,
+    );
+    let stack_cycle_active = st
+        .ui
+        .render_state
+        .stack_cycle_transition
+        .get(monitor)
+        .is_some_and(|transition| {
+            (now.saturating_duration_since(transition.started_at)
+                .as_millis() as u64)
+                < transition.duration_ms
+        });
+    let fullscreen_motion_active = !st.model.fullscreen_state.fullscreen_motion.is_empty()
+        || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
+    let viewport_pan_active = st.input.interaction_state.viewport_pan_anim.is_some()
+        || !st.model.spawn_state.pending_spawn_pan_queue.is_empty();
+    let camera_smoothing_active =
+        (st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
+            || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
+            || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
+            || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05;
+    let overlay_active = monitor_overlay_requires_full_repaint(st, monitor)
+        || st
+            .ui
+            .render_state
+            .cluster_bloom_mix
+            .get(monitor)
+            .is_some_and(|state| state.mix > 0.01)
+        || st
+            .ui
+            .render_state
+            .bearings_mix
+            .get(monitor)
+            .is_some_and(|mix| *mix > 0.02);
+    let fade_related = node_transition_active
+        || active_transition_active
+        || tiled_insert_reveal_active
+        || spawn_activation_active
+        || fullscreen_motion_active;
+    let active = fade_related
+        || cluster_tile_active
+        || stack_cycle_active
+        || viewport_pan_active
+        || camera_smoothing_active
+        || overlay_active;
+
+    TtyOutputAnimationRedrawState {
+        active,
+        force_full_repaint: active,
+        fade_related,
+    }
 }
 
 pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {

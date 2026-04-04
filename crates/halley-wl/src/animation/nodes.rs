@@ -146,6 +146,17 @@ impl Animator {
         }
         Some(now.saturating_duration_since(track.started_at))
     }
+
+    pub fn has_active_animations(&self, now: Instant) -> bool {
+        let track_duration = Duration::from_millis(self.spec.state_change_ms.max(1));
+        self.tracks
+            .values()
+            .any(|track| now.saturating_duration_since(track.started_at) < track_duration)
+            || self
+                .pulses
+                .values()
+                .any(|pulse| now.saturating_duration_since(pulse.started_at) < pulse.duration)
+    }
 }
 
 fn base_style(state: NodeState) -> AnimStyle {

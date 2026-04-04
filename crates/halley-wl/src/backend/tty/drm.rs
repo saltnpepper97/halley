@@ -51,6 +51,15 @@ pub(crate) type HalleyDrmCompositor = DrmCompositor<
     DrmDeviceFd,                         // raw DRM fd
 >;
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct TtyFrameQueueReport {
+    pub(crate) queued: bool,
+    pub(crate) animation_redraw_active: bool,
+    pub(crate) force_full_repaint: bool,
+    pub(crate) fade_related: bool,
+    pub(crate) render_empty: bool,
+}
+
 pub(crate) struct TtyDrmProbe {
     pub(crate) card_path: std::path::PathBuf,
     pub(crate) dev: DrmDevice,
@@ -754,7 +763,7 @@ pub(crate) fn queue_tty_drm_frame(
     preview_hover_node: Option<halley_core::field::NodeId>,
     cursor_screen: Option<(f32, f32)>,
     cursor_image: Option<&smithay::input::pointer::CursorImageStatus>,
-) -> Result<bool, Box<dyn Error>> {
+) -> Result<TtyFrameQueueReport, Box<dyn Error>> {
     use crate::render::draw_debug_frame_to_target;
     let previous_monitor = st.begin_temporary_render_monitor(output_name);
     let previous_layer_configure = st.input.interaction_state.suppress_layer_shell_configure;
@@ -767,6 +776,8 @@ pub(crate) fn queue_tty_drm_frame(
         let (w, h) = mode.size();
         let buffer_size = Size::from((w as i32, h as i32));
         let physical_size: Size<i32, Physical> = (w as i32, h as i32).into();
+        let animation_redraw =
+            crate::render::tty_output_animation_redraw_state(st, output_name, Instant::now());
 
         let local_cursor = cursor_screen.and_then(|(sx, sy)| {
             let target_monitor = st.monitor_for_screen(sx, sy)?;
@@ -849,7 +860,13 @@ pub(crate) fn queue_tty_drm_frame(
                         } else {
                             false
                         };
-                        return Ok(queued);
+                        return Ok(TtyFrameQueueReport {
+                            queued,
+                            animation_redraw_active: animation_redraw.active,
+                            force_full_repaint: false,
+                            fade_related: animation_redraw.fade_related,
+                            render_empty: !queued,
+                        });
                     }
                     Err(err) => {
                         st.model.fullscreen_state.set_direct_scanout_status(
@@ -865,6 +882,7 @@ pub(crate) fn queue_tty_drm_frame(
 
         let force_overlay_full_repaint =
             crate::render::monitor_overlay_requires_full_repaint(st, output_name);
+        let force_full_repaint = force_overlay_full_repaint || animation_redraw.force_full_repaint;
         let mut texture: GlesTexture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
             &mut *renderer_ref,
             Fourcc::Abgr8888,
@@ -914,7 +932,7 @@ pub(crate) fn queue_tty_drm_frame(
         );
 
         let elements = [element];
-        if force_overlay_full_repaint {
+        if force_full_repaint {
             compositor.reset_buffers();
         }
         let render_res = compositor
@@ -937,7 +955,27 @@ pub(crate) fn queue_tty_drm_frame(
             false
         };
 
-        Ok(queued)
+        if animation_redraw.fade_related {
+            let damage_policy = if force_full_repaint {
+                format!("full-output 0,0 {}x{}", physical_size.w, physical_size.h)
+            } else {
+                "incremental".to_string()
+            };
+            debug!(
+                "tty fade redraw {} damage={} result={}",
+                output_name,
+                damage_policy,
+                if queued { "submitted" } else { "no-damage" }
+            );
+        }
+
+        Ok(TtyFrameQueueReport {
+            queued,
+            animation_redraw_active: animation_redraw.active,
+            force_full_repaint,
+            fade_related: animation_redraw.fade_related,
+            render_empty: !queued,
+        })
     })();
 
     st.input.interaction_state.suppress_layer_shell_configure = previous_layer_configure;
