@@ -205,7 +205,11 @@ fn build_stack_transition_plan(
     monitor: &str,
     transition: &crate::render::state::StackCycleTransitionSnapshot,
 ) -> Option<StackTransitionPlan> {
-    let old_rects = st.stack_layout_rects_for_members(monitor, &transition.old_visible)?;
+    let custom_source_rects = transition.source_rects.is_some();
+    let old_rects = transition
+        .source_rects
+        .clone()
+        .or_else(|| st.stack_layout_rects_for_members(monitor, &transition.old_visible))?;
     let new_rects = st.stack_layout_rects_for_members(monitor, &transition.new_visible)?;
     let t = ease_in_out_cubic(transition.progress);
     let draw_orders = stack_draw_order_map(&transition.new_visible);
@@ -213,7 +217,8 @@ fn build_stack_transition_plan(
     let old_top = transition.old_visible.first().copied();
     let old_bottom = transition.old_visible.last().copied();
     let new_top = transition.new_visible.first().copied();
-    let wrapped_same_set = transition.old_visible.len() == transition.new_visible.len()
+    let wrapped_same_set = !custom_source_rects
+        && transition.old_visible.len() == transition.new_visible.len()
         && transition
             .old_visible
             .iter()
@@ -555,11 +560,18 @@ fn border_background_fill_ready(
     node_id: halley_core::field::NodeId,
     now: Instant,
     allow_border_background: bool,
+    layout_settled: bool,
     animation_ready: bool,
     has_content: bool,
 ) -> bool {
     if !allow_border_background {
-        st.ui.render_state.clear_window_fill_ready_after(node_id);
+        st.ui.render_state.reset_window_fill_delay(node_id);
+        return false;
+    }
+
+    if !layout_settled {
+        st.ui.render_state.reset_window_fill_delay(node_id);
+        st.request_maintenance();
         return false;
     }
 
@@ -568,7 +580,7 @@ fn border_background_fill_ready(
     }
 
     if !has_content {
-        st.ui.render_state.clear_window_fill_ready_after(node_id);
+        st.ui.render_state.reset_window_fill_delay(node_id);
         return false;
     }
 
@@ -987,6 +999,8 @@ pub(crate) fn collect_active_surfaces(
             * stack_transition_pose.map(|pose| pose.alpha).unwrap_or(1.0)
             * tiling_tile_transition.map(|rect| rect.alpha).unwrap_or(1.0))
         .clamp(0.0, 1.0);
+        let background_fill_layout_settled =
+            stack_transition_pose.is_none() && tiling_tile_transition.is_none();
         let background_fill_animation_ready = transition_alpha <= 0.01 && live_ramp >= 0.995;
         let effective_border_px = if fullscreen_on_current_monitor {
             0
@@ -1189,6 +1203,7 @@ pub(crate) fn collect_active_surfaces(
                             node_id,
                             now,
                             allow_border_background,
+                            background_fill_layout_settled,
                             background_fill_animation_ready,
                             has_content,
                         ),
@@ -1321,6 +1336,7 @@ pub(crate) fn collect_active_surfaces(
                                     node_id,
                                     now,
                                     allow_border_background,
+                                    background_fill_layout_settled,
                                     background_fill_animation_ready,
                                     has_content,
                                 ),
@@ -1379,6 +1395,7 @@ pub(crate) fn collect_active_surfaces(
                             node_id,
                             now,
                             allow_border_background,
+                            background_fill_layout_settled,
                             background_fill_animation_ready,
                             has_content,
                         ),
@@ -1653,6 +1670,7 @@ pub(crate) fn collect_active_surfaces(
                     node_id,
                     now,
                     allow_border_background,
+                    background_fill_layout_settled,
                     background_fill_animation_ready,
                     has_content,
                 ),

@@ -1412,6 +1412,24 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .focus_state
             .primary_interaction_focus
             .filter(|id| self.model.field.cluster_id_for_member_public(*id) == Some(cid));
+        let previous_layout_kind = self.active_cluster_layout_kind();
+        let tile_to_stack_transition =
+            matches!(previous_layout_kind, ClusterWorkspaceLayoutKind::Tiling)
+                .then(|| {
+                    let cluster = self.model.field.cluster(cid)?;
+                    let mut old_visible = Vec::new();
+                    let mut source_rects = std::collections::HashMap::new();
+                    for &member_id in cluster.members() {
+                        if let Some(rect) =
+                            self.active_cluster_tile_rect_for_member(monitor, member_id)
+                        {
+                            old_visible.push(member_id);
+                            source_rects.insert(member_id, rect);
+                        }
+                    }
+                    (!source_rects.is_empty()).then_some((old_visible, source_rects))
+                })
+                .flatten();
 
         self.runtime.tuning.cluster_default_layout =
             match self.runtime.tuning.cluster_default_layout {
@@ -1440,6 +1458,20 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
                         self, monitor,
                     );
+                if let Some((old_visible, source_rects)) = tile_to_stack_transition {
+                    self.ui
+                        .render_state
+                        .start_stack_cycle_transition_from_rects(
+                            monitor,
+                            ClusterCycleDirection::Prev,
+                            old_visible,
+                            visible.clone(),
+                            source_rects,
+                            now,
+                            240,
+                        );
+                    self.request_maintenance();
+                }
                 if let Some(target) = current_focus
                     .filter(|id| visible.contains(id))
                     .or_else(|| visible.first().copied())

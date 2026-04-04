@@ -5,6 +5,7 @@ use std::time::Instant;
 use halley_core::cluster::ClusterId;
 use halley_core::cluster_layout::ClusterCycleDirection;
 use halley_core::field::{Field, NodeId, Vec2};
+use halley_core::tiling::Rect;
 
 use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
 use smithay::utils::{Logical, Rectangle};
@@ -99,6 +100,7 @@ pub(crate) struct StackCycleTransitionState {
     pub(crate) duration_ms: u64,
     pub(crate) old_visible: Vec<NodeId>,
     pub(crate) new_visible: Vec<NodeId>,
+    pub(crate) source_rects: Option<HashMap<NodeId, Rect>>,
 }
 
 #[derive(Clone, Debug)]
@@ -107,6 +109,7 @@ pub(crate) struct StackCycleTransitionSnapshot {
     pub(crate) progress: f32,
     pub(crate) old_visible: Vec<NodeId>,
     pub(crate) new_visible: Vec<NodeId>,
+    pub(crate) source_rects: Option<HashMap<NodeId, Rect>>,
 }
 
 pub(crate) struct RenderState {
@@ -166,7 +169,28 @@ impl RenderState {
         now: Instant,
         duration_ms: u64,
     ) {
-        if old_visible == new_visible {
+        self.start_stack_cycle_transition_from_rects(
+            monitor,
+            direction,
+            old_visible,
+            new_visible,
+            HashMap::new(),
+            now,
+            duration_ms,
+        );
+    }
+
+    pub(crate) fn start_stack_cycle_transition_from_rects(
+        &mut self,
+        monitor: &str,
+        direction: ClusterCycleDirection,
+        old_visible: Vec<NodeId>,
+        new_visible: Vec<NodeId>,
+        source_rects: HashMap<NodeId, Rect>,
+        now: Instant,
+        duration_ms: u64,
+    ) {
+        if old_visible == new_visible && source_rects.is_empty() {
             self.stack_cycle_transition.remove(monitor);
             return;
         }
@@ -178,6 +202,7 @@ impl RenderState {
                 duration_ms: duration_ms.max(1),
                 old_visible,
                 new_visible,
+                source_rects: (!source_rects.is_empty()).then_some(source_rects),
             },
         );
     }
@@ -198,6 +223,7 @@ impl RenderState {
             progress: (elapsed_ms as f32 / state.duration_ms as f32).clamp(0.0, 1.0),
             old_visible: state.old_visible,
             new_visible: state.new_visible,
+            source_rects: state.source_rects,
         })
     }
 
@@ -533,8 +559,9 @@ impl RenderState {
             .or_insert_with(|| now + delay)
     }
 
-    pub(crate) fn clear_window_fill_ready_after(&mut self, node_id: NodeId) {
+    pub(crate) fn reset_window_fill_delay(&mut self, node_id: NodeId) {
         self.window_fill_ready_after.remove(&node_id);
+        self.window_fill_armed.remove(&node_id);
     }
 
     pub(crate) fn window_fill_armed(&self, node_id: NodeId) -> bool {

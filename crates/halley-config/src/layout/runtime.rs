@@ -157,6 +157,12 @@ impl RuntimeTuning {
             }
             unsafe { env::set_var(key, value) };
         }
+
+        let theme = self.cursor.theme.trim();
+        if !theme.is_empty() {
+            unsafe { env::set_var("XCURSOR_THEME", theme) };
+        }
+        unsafe { env::set_var("XCURSOR_SIZE", self.cursor.size.to_string()) };
     }
 
     pub fn viewport(&self) -> Viewport {
