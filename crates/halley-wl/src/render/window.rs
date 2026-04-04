@@ -15,7 +15,7 @@ use smithay::{
     },
     desktop::{PopupManager, utils::bbox_from_surface_tree},
     reexports::wayland_server::Resource,
-    utils::{Physical, Rectangle, Size},
+    utils::{Logical, Physical, Rectangle, Size},
 };
 
 use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_back};
@@ -43,6 +43,7 @@ pub(crate) type CroppedClippedSurfaceElement = CropRenderElement<DirectSurfaceEl
 type CroppedSurfaceElement = CropRenderElement<SurfaceElement>;
 
 const WINDOW_BACKGROUND_FILL_DELAY_MS: u64 = 80;
+const CSD_SOFT_CLIP_MARGIN_PX: f32 = 1.5;
 
 fn should_draw_resize_overlap_overlay(
     resize_rect_px: Option<(i32, i32, i32, i32, NodeId)>,
@@ -472,6 +473,32 @@ fn rect_from_local_geometry(
     )
 }
 
+fn expanded_csd_clip_rect(
+    local_bbox: (f32, f32, f32, f32),
+    local_geo: (f32, f32, f32, f32),
+    margin: f32,
+) -> (f32, f32, f32, f32) {
+    let bbox_left = local_bbox.0;
+    let bbox_top = local_bbox.1;
+    let bbox_right = local_bbox.0 + local_bbox.2.max(1.0);
+    let bbox_bottom = local_bbox.1 + local_bbox.3.max(1.0);
+
+    let left = (local_geo.0 - margin).max(bbox_left);
+    let top = (local_geo.1 - margin).max(bbox_top);
+    let right = (local_geo.0 + local_geo.2 + margin).min(bbox_right);
+    let bottom = (local_geo.1 + local_geo.3 + margin).min(bbox_bottom);
+
+    (left, top, (right - left).max(1.0), (bottom - top).max(1.0))
+}
+
+fn strict_square_csd_transition_mode(
+    no_csd: bool,
+    effective_corner_radius_px: i32,
+    transition_active: bool,
+) -> bool {
+    !no_csd && effective_corner_radius_px == 0 && transition_active
+}
+
 fn wrap_direct_surface_elements(
     elems: Vec<SurfaceElement>,
     display_clip: Rectangle<i32, Physical>,
@@ -541,14 +568,17 @@ fn border_background_fill_ready(
     node_id: halley_core::field::NodeId,
     now: Instant,
     allow_border_background: bool,
-    layout_settled: bool,
+    resize_active: bool,
     animation_ready: bool,
     has_content: bool,
-    cache_clean_at: Option<Instant>,
 ) -> bool {
     if !allow_border_background {
         st.ui.render_state.reset_window_fill_delay(node_id);
         return false;
+    }
+
+    if st.ui.render_state.window_fill_armed.contains(&node_id) {
+        return true;
     }
 
     if !has_content {
@@ -556,16 +586,17 @@ fn border_background_fill_ready(
         return false;
     }
 
-    let Some(clean_at) = cache_clean_at else {
-        return false;
-    };
+    if resize_active {
+        st.ui.render_state.arm_window_fill(node_id);
+        return true;
+    }
 
     let ready_after = st.ui.render_state.window_fill_ready_after(
         node_id,
-        clean_at,
+        now,
         Duration::from_millis(WINDOW_BACKGROUND_FILL_DELAY_MS),
     );
-    let ready = layout_settled && animation_ready && now >= ready_after;
+    let ready = animation_ready && now >= ready_after;
     if ready {
         st.ui.render_state.arm_window_fill(node_id);
         return true;
@@ -975,8 +1006,6 @@ pub(crate) fn collect_active_surfaces(
             * stack_transition_pose.map(|pose| pose.alpha).unwrap_or(1.0)
             * tiling_tile_transition.map(|rect| rect.alpha).unwrap_or(1.0))
         .clamp(0.0, 1.0);
-        let background_fill_layout_settled =
-            stack_transition_pose.is_none() && tiling_tile_transition.is_none();
         let background_fill_animation_ready = transition_alpha <= 0.01 && live_ramp >= 0.995;
         let effective_border_px = if fullscreen_on_current_monitor {
             0
@@ -1000,14 +1029,54 @@ pub(crate) fn collect_active_surfaces(
                 0
             }
         };
+        let transition_surface_active = stack_transition_pose.is_some()
+            || tiling_tile_transition.is_some()
+            || active_resize.is_some();
+        let strict_square_csd_transition = strict_square_csd_transition_mode(
+            st.runtime.tuning.no_csd,
+            effective_corner_radius_px,
+            transition_surface_active,
+        );
         let lock_dst_to_geometry = effective_corner_radius_px > 0;
-        // Keep steady-state composition on a single geometry-clipped path for both
-        // CSD and server-side decoration modes. Recovering bbox shadow margins here
-        // and filling the border background after a delay made CSD animations reuse
-        // stale edge pixels far more often than the stricter no-CSD/rounded path.
-        let clip_geo = local_geo;
-        let offscreen_clip = None;
-        let preserve_visual_margin = false;
+        let csd_soft_clip_margin = if !strict_square_csd_transition
+            && !st.runtime.tuning.no_csd
+            && effective_corner_radius_px == 0
+        {
+            CSD_SOFT_CLIP_MARGIN_PX
+        } else {
+            0.0
+        };
+        let clip_geo = if csd_soft_clip_margin > 0.0 {
+            expanded_csd_clip_rect(local_bbox, local_geo, csd_soft_clip_margin)
+        } else {
+            local_geo
+        };
+        let offscreen_clip = if !st.runtime.tuning.no_csd {
+            st.ui
+                .render_state
+                .surface_clip_program
+                .as_ref()
+                .map(|program| {
+                    let geo_rect = Rectangle::<i32, Logical>::new(
+                        (clip_geo.0.round() as i32, clip_geo.1.round() as i32).into(),
+                        (
+                            clip_geo.2.round().max(1.0) as i32,
+                            clip_geo.3.round().max(1.0) as i32,
+                        )
+                            .into(),
+                    );
+                    (
+                        geo_rect,
+                        (effective_corner_radius_px - effective_border_px).max(0) as f32,
+                        program.clone(),
+                    )
+                })
+        } else {
+            None
+        };
+        let preserve_visual_margin = !strict_square_csd_transition
+            && !st.runtime.tuning.no_csd
+            && effective_corner_radius_px == 0;
         let border_color = if st.model.focus_state.primary_interaction_focus == Some(node_id) {
             let color = st.runtime.tuning.border_color_focused;
             Color32F::new(color.r, color.g, color.b, 1.0)
@@ -1052,7 +1121,8 @@ pub(crate) fn collect_active_surfaces(
         let use_offscreen_zoom = !fullscreen_on_current_monitor;
 
         if use_offscreen_zoom {
-            let defer_offscreen_rebuild = tiling_tile_transition.is_some();
+            let defer_offscreen_rebuild =
+                tiling_tile_transition.is_some() || stack_transition_pose.is_some();
             let stale_cache_available = st
                 .ui
                 .render_state
@@ -1114,9 +1184,11 @@ pub(crate) fn collect_active_surfaces(
                         (tw.max(1), th.max(1)).into(),
                     );
 
+                    let (clip_gx, clip_gy, clip_gw, clip_gh) =
+                        rect_from_local_geometry(sx, sy, element_scale, clip_geo);
                     let geo_clip_rect = Rectangle::<i32, Physical>::new(
-                        (gx, gy).into(),
-                        (gw.max(1), gh.max(1)).into(),
+                        (clip_gx, clip_gy).into(),
+                        (clip_gw.max(1), clip_gh.max(1)).into(),
                     );
                     let cropped = wrap_direct_surface_elements(
                         elems,
@@ -1156,10 +1228,9 @@ pub(crate) fn collect_active_surfaces(
                             node_id,
                             now,
                             allow_border_background,
-                            background_fill_layout_settled,
+                            active_resize.is_some(),
                             background_fill_animation_ready,
                             has_content,
-                            None,
                         ),
                     );
                     continue;
@@ -1245,9 +1316,11 @@ pub(crate) fn collect_active_surfaces(
                                 (tw.max(1), th.max(1)).into(),
                             );
 
+                            let (clip_gx, clip_gy, clip_gw, clip_gh) =
+                                rect_from_local_geometry(sx, sy, element_scale, clip_geo);
                             let geo_clip_rect = Rectangle::<i32, Physical>::new(
-                                (gx, gy).into(),
-                                (gw.max(1), gh.max(1)).into(),
+                                (clip_gx, clip_gy).into(),
+                                (clip_gw.max(1), clip_gh.max(1)).into(),
                             );
                             let cropped = wrap_direct_surface_elements(
                                 elems,
@@ -1290,10 +1363,9 @@ pub(crate) fn collect_active_surfaces(
                                     node_id,
                                     now,
                                     allow_border_background,
-                                    background_fill_layout_settled,
+                                    active_resize.is_some(),
                                     background_fill_animation_ready,
                                     has_content,
-                                    None,
                                 ),
                             );
                             continue;
@@ -1314,12 +1386,6 @@ pub(crate) fn collect_active_surfaces(
                 .map(|cache| (cache.texture.clone(), cache.bbox, cache.has_content))
             {
                 Some((texture, bbox, has_content)) => {
-                    let cache_clean_at = st
-                        .ui
-                        .render_state
-                        .window_offscreen_cache
-                        .get(&node_id)
-                        .and_then(|cache| (!cache.dirty).then_some(cache.last_clean_at).flatten());
                     let Some(texture) = texture else {
                         set_border_fill_background_for_node(
                             node_id,
@@ -1356,10 +1422,9 @@ pub(crate) fn collect_active_surfaces(
                             node_id,
                             now,
                             allow_border_background,
-                            background_fill_layout_settled,
+                            active_resize.is_some(),
                             background_fill_animation_ready,
                             has_content,
-                            cache_clean_at,
                         ),
                     );
                     // src = full bbox, dst = bbox scaled to screen positioned so geo
@@ -1490,15 +1555,34 @@ pub(crate) fn collect_active_surfaces(
                     } else {
                         1.0
                     };
+                    let disable_geo_clip = !strict_square_csd_transition
+                        && !st.runtime.tuning.no_csd
+                        && effective_corner_radius_px == 0;
                     // local_geo is (geo_lx, geo_ly, geo_w, geo_h) in surface-local logical px.
                     // In bbox-local space the geo origin is (geo_lx - ob.loc.x, geo_ly - ob.loc.y).
-                    let geo_local_x = clip_geo.0 - ob.loc.x as f32;
-                    let geo_local_y = clip_geo.1 - ob.loc.y as f32;
+                    let geo_local_x = local_geo.0 - ob.loc.x as f32;
+                    let geo_local_y = local_geo.1 - ob.loc.y as f32;
                     // Scale into dst-pixel space (relative to dst top-left).
-                    let geo_offset_x = (geo_local_x * dst_scale_x).max(0.0);
-                    let geo_offset_y = (geo_local_y * dst_scale_y).max(0.0);
-                    let geo_w_px = (clip_geo.2 * dst_scale_x).max(1.0);
-                    let geo_h_px = (clip_geo.3 * dst_scale_y).max(1.0);
+                    let geo_offset_x = if disable_geo_clip {
+                        0.0
+                    } else {
+                        (geo_local_x * dst_scale_x).max(0.0)
+                    };
+                    let geo_offset_y = if disable_geo_clip {
+                        0.0
+                    } else {
+                        (geo_local_y * dst_scale_y).max(0.0)
+                    };
+                    let geo_w_px = if disable_geo_clip {
+                        0.0
+                    } else {
+                        (local_geo.2 * dst_scale_x).max(1.0)
+                    };
+                    let geo_h_px = if disable_geo_clip {
+                        0.0
+                    } else {
+                        (local_geo.3 * dst_scale_y).max(1.0)
+                    };
 
                     let offscreen = OffscreenNodeTexture {
                         texture,
@@ -1592,8 +1676,12 @@ pub(crate) fn collect_active_surfaces(
             };
             let display_clip =
                 Rectangle::<i32, Physical>::new((tx, ty).into(), (tw.max(1), th.max(1)).into());
-            let geo_clip_rect =
-                Rectangle::<i32, Physical>::new((gx, gy).into(), (gw.max(1), gh.max(1)).into());
+            let (clip_gx, clip_gy, clip_gw, clip_gh) =
+                rect_from_local_geometry(sx, sy, element_scale, clip_geo);
+            let geo_clip_rect = Rectangle::<i32, Physical>::new(
+                (clip_gx, clip_gy).into(),
+                (clip_gw.max(1), clip_gh.max(1)).into(),
+            );
             let cropped = wrap_direct_surface_elements(
                 elems,
                 display_clip,
@@ -1632,10 +1720,9 @@ pub(crate) fn collect_active_surfaces(
                     node_id,
                     now,
                     allow_border_background,
-                    background_fill_layout_settled,
+                    active_resize.is_some(),
                     background_fill_animation_ready,
                     has_content,
-                    None,
                 ),
             );
         }
@@ -1789,7 +1876,7 @@ pub(crate) fn collect_active_surfaces(
 mod tests {
     use super::{
         WINDOW_BACKGROUND_FILL_DELAY_MS, border_background_fill_ready,
-        should_draw_resize_overlap_overlay,
+        should_draw_resize_overlap_overlay, strict_square_csd_transition_mode,
     };
     use crate::compositor::root::Halley;
     use crate::compositor::surface_ops::stacking_render_order_map;
@@ -1899,14 +1986,7 @@ mod tests {
         let clean_at = Instant::now();
 
         assert!(!border_background_fill_ready(
-            &mut st,
-            node_id,
-            clean_at,
-            true,
-            true,
-            true,
-            true,
-            Some(clean_at),
+            &mut st, node_id, clean_at, true, false, true, true,
         ));
         assert!(!st.ui.render_state.window_fill_armed.contains(&node_id));
 
@@ -1915,10 +1995,9 @@ mod tests {
             node_id,
             clean_at + Duration::from_millis(WINDOW_BACKGROUND_FILL_DELAY_MS - 1),
             true,
+            false,
             true,
             true,
-            true,
-            Some(clean_at),
         ));
         assert!(!st.ui.render_state.window_fill_armed.contains(&node_id));
 
@@ -1927,11 +2006,35 @@ mod tests {
             node_id,
             clean_at + Duration::from_millis(WINDOW_BACKGROUND_FILL_DELAY_MS),
             true,
+            false,
             true,
             true,
-            true,
-            Some(clean_at),
         ));
         assert!(st.ui.render_state.window_fill_armed.contains(&node_id));
+    }
+
+    #[test]
+    fn border_fill_is_visible_during_active_resize() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let node_id = NodeId::new(1);
+        let now = Instant::now();
+
+        assert!(border_background_fill_ready(
+            &mut st, node_id, now, true, true, false, true,
+        ));
+        assert!(st.ui.render_state.window_fill_armed.contains(&node_id));
+    }
+
+    #[test]
+    fn square_csd_steady_state_keeps_legacy_visual_path() {
+        assert!(!strict_square_csd_transition_mode(false, 0, false));
+    }
+
+    #[test]
+    fn square_csd_transition_uses_strict_clip_path() {
+        assert!(strict_square_csd_transition_mode(false, 0, true));
+        assert!(!strict_square_csd_transition_mode(true, 0, true));
+        assert!(!strict_square_csd_transition_mode(false, 8, true));
     }
 }

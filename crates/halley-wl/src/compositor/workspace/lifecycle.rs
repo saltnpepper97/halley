@@ -655,8 +655,9 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             .render_state
             .window_geometry
             .insert(node_id, window_geometry);
-        if prev_bbox_loc != Some((bbox.loc.x as f32, bbox.loc.y as f32))
-            || prev_window_geometry != Some(window_geometry)
+        if (prev_bbox_loc != Some((bbox.loc.x as f32, bbox.loc.y as f32))
+            || prev_window_geometry != Some(window_geometry))
+            && st.input.interaction_state.resize_active != Some(node_id)
         {
             st.ui.render_state.reset_window_fill_delay(node_id);
         }
