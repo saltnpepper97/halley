@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use rune_cfg::RuneConfig;
 
 use crate::keybinds::{
-    is_pointer_button_code, parse_chord, parse_modifiers, BearingsBindingAction,
-    ClusterBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
-    DirectionalAction, KeyModifiers, LaunchBinding, MonitorBindingAction, MonitorBindingTarget,
-    NodeBindingAction, PointerBinding, PointerBindingAction, StackBindingAction,
-    StackCycleDirection, TileBindingAction, TrailBindingAction,
+    BearingsBindingAction, ClusterBindingAction, CompositorBinding, CompositorBindingAction,
+    CompositorBindingScope, DirectionalAction, KeyModifiers, LaunchBinding, MonitorBindingAction,
+    MonitorBindingTarget, NodeBindingAction, PointerBinding, PointerBindingAction,
+    StackBindingAction, StackCycleDirection, TileBindingAction, TrailBindingAction,
+    is_pointer_button_code, parse_chord, parse_modifiers,
 };
 use crate::layout::RuntimeTuning;
 

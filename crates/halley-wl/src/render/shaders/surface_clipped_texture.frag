@@ -11,31 +11,41 @@ uniform sampler2D tex;
 #endif
 
 uniform float alpha;
+uniform float clip_scale;
 uniform vec2 geo_size;
-uniform vec2 elem_size;
-uniform vec2 elem_offset;
-uniform float corner_radius;
+uniform vec4 corner_radius;
+uniform vec3 input_to_geo_row_0;
+uniform vec3 input_to_geo_row_1;
+uniform vec3 input_to_geo_row_2;
 
-float rounded_rect_sdf(vec2 p, vec2 size, float radius) {
-    vec2 half_size = size * 0.5;
-    vec2 q = abs(p) - (half_size - vec2(radius));
-    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
-}
+float rounding_alpha(vec2 coords, vec2 size) {
+    vec2 center;
+    float radius;
 
-float sdf_alpha(float dist) {
-    float aa = 0.75;
-    return 1.0 - smoothstep(-aa, aa, dist);
+    if (coords.x < corner_radius.x && coords.y < corner_radius.x) {
+        radius = corner_radius.x;
+        center = vec2(radius, radius);
+    } else if (size.x - corner_radius.y < coords.x && coords.y < corner_radius.y) {
+        radius = corner_radius.y;
+        center = vec2(size.x - radius, radius);
+    } else if (size.x - corner_radius.z < coords.x && size.y - corner_radius.z < coords.y) {
+        radius = corner_radius.z;
+        center = vec2(size.x - radius, size.y - radius);
+    } else if (coords.x < corner_radius.w && size.y - corner_radius.w < coords.y) {
+        radius = corner_radius.w;
+        center = vec2(radius, size.y - radius);
+    } else {
+        return 1.0;
+    }
+
+    float dist = distance(coords, center);
+    float half_px = 0.5 / max(clip_scale, 1.0);
+    return 1.0 - smoothstep(radius - half_px, radius + half_px, dist);
 }
 
 void main() {
-    vec2 size = max(geo_size, vec2(1.0));
-    vec2 local = elem_offset + v_coords * max(elem_size, vec2(1.0));
-    vec2 p = local - size * 0.5;
-    float radius = min(corner_radius, min(size.x, size.y) * 0.5);
-    float mask = sdf_alpha(rounded_rect_sdf(p, size, radius));
-    if (mask <= 0.0) {
-        discard;
-    }
+    mat3 input_to_geo = mat3(input_to_geo_row_0, input_to_geo_row_1, input_to_geo_row_2);
+    vec3 coords_geo = input_to_geo * vec3(v_coords, 1.0);
 
     vec4 sampled = texture2D(tex, clamp(v_coords, vec2(0.0), vec2(1.0)));
 #if defined(NO_ALPHA)
@@ -45,5 +55,12 @@ void main() {
         sampled = vec4(0.0);
     }
 
-    gl_FragColor = sampled * (mask * alpha);
+    vec2 size = max(geo_size, vec2(1.0));
+    if (coords_geo.x < 0.0 || coords_geo.x > 1.0 || coords_geo.y < 0.0 || coords_geo.y > 1.0) {
+        sampled = vec4(0.0);
+    } else {
+        sampled *= rounding_alpha(coords_geo.xy * size, size);
+    }
+
+    gl_FragColor = sampled * alpha;
 }

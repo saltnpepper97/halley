@@ -44,13 +44,12 @@ use super::node::{
 use super::text::ensure_ui_text_resources;
 use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 use super::window::{
-    ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit, collect_active_surfaces,
+    ActiveBorderRect, CroppedClippedSurfaceElement, OffscreenNodeTexture, StackWindowDrawUnit,
+    collect_active_surfaces,
 };
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
-type CroppedSurfaceElement =
-    smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>;
 
 const WINDOW_TEXTURE_SHADER: &str = include_str!("shaders/window_rounded_texture.frag");
 const SURFACE_CLIP_SHADER: &str = include_str!("shaders/surface_clipped_texture.frag");
@@ -412,10 +411,12 @@ fn ensure_surface_clip_program(renderer: &mut GlesRenderer, st: &mut Halley) {
     match renderer.compile_custom_texture_shader(
         SURFACE_CLIP_SHADER,
         &[
+            UniformName::new("clip_scale", UniformType::_1f),
             UniformName::new("geo_size", UniformType::_2f),
-            UniformName::new("elem_size", UniformType::_2f),
-            UniformName::new("elem_offset", UniformType::_2f),
-            UniformName::new("corner_radius", UniformType::_1f),
+            UniformName::new("corner_radius", UniformType::_4f),
+            UniformName::new("input_to_geo_row_0", UniformType::_3f),
+            UniformName::new("input_to_geo_row_1", UniformType::_3f),
+            UniformName::new("input_to_geo_row_2", UniformType::_3f),
         ],
     ) {
         Ok(program) => st.ui.render_state.surface_clip_program = Some(program),
@@ -440,16 +441,18 @@ struct SceneCollections {
     layer_bottom_elements: Vec<SurfaceElement>,
     layer_top_elements: Vec<SurfaceElement>,
     layer_overlay_elements: Vec<SurfaceElement>,
-    active_elements: Vec<CroppedSurfaceElement>,
-    resized_active_elements: Vec<CroppedSurfaceElement>,
-    fullscreen_active_elements: Vec<CroppedSurfaceElement>,
+    active_elements: Vec<CroppedClippedSurfaceElement>,
+    resized_active_elements: Vec<CroppedClippedSurfaceElement>,
+    fullscreen_active_elements: Vec<CroppedClippedSurfaceElement>,
     offscreen_textures: Vec<OffscreenNodeTexture>,
     resized_offscreen_textures: Vec<OffscreenNodeTexture>,
     fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
     popup_offscreen_textures: Vec<OffscreenNodeTexture>,
-    popup_elements: Vec<CroppedSurfaceElement>,
+    popup_elements:
+        Vec<smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>>,
     fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
-    fullscreen_popup_elements: Vec<CroppedSurfaceElement>,
+    fullscreen_popup_elements:
+        Vec<smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>>,
     stack_window_units: Vec<StackWindowDrawUnit>,
     border_rects: Vec<ActiveBorderRect>,
     resized_border_rects: Vec<ActiveBorderRect>,

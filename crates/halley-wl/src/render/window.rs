@@ -7,12 +7,15 @@ use halley_core::tiling::Rect;
 use smithay::{
     backend::renderer::{
         Color32F, Texture,
-        element::{Kind, surface::render_elements_from_surface_tree, utils::CropRenderElement},
+        element::{
+            Kind, render_elements, surface::render_elements_from_surface_tree,
+            utils::CropRenderElement,
+        },
         gles::{GlesRenderer, GlesTexture},
     },
     desktop::{PopupManager, utils::bbox_from_surface_tree},
     reexports::wayland_server::Resource,
-    utils::{Physical, Rectangle, Size},
+    utils::{Logical, Physical, Rectangle, Size},
 };
 
 use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_back};
@@ -25,14 +28,22 @@ use crate::compositor::surface_ops::{
 };
 use crate::input::active_resize_geometry_screen;
 
+use super::clipped_surface::ClippedSurfaceRenderElement;
 use super::offscreen::render_surface_tree_to_texture;
 use super::utils::{sync_node_size_from_surface, world_to_screen};
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
+render_elements! {
+    pub(crate) DirectSurfaceElement<=GlesRenderer>;
+    Surface=SurfaceElement,
+    Clipped=ClippedSurfaceRenderElement,
+}
+pub(crate) type CroppedClippedSurfaceElement = CropRenderElement<DirectSurfaceElement>;
 type CroppedSurfaceElement = CropRenderElement<SurfaceElement>;
 
 const WINDOW_BACKGROUND_FILL_DELAY_MS: u64 = 80;
+const CSD_SOFT_CLIP_MARGIN_PX: f32 = 1.5;
 
 fn should_draw_resize_overlap_overlay(
     resize_rect_px: Option<(i32, i32, i32, i32, NodeId)>,
@@ -121,7 +132,7 @@ pub(crate) struct StackWindowDrawUnit {
     pub node_id: NodeId,
     pub draw_order: i32,
     pub border_rect: Option<ActiveBorderRect>,
-    pub active_elements: Vec<CroppedSurfaceElement>,
+    pub active_elements: Vec<CroppedClippedSurfaceElement>,
     pub offscreen_textures: Vec<OffscreenNodeTexture>,
 }
 
@@ -457,6 +468,46 @@ fn rect_from_local_geometry(
     )
 }
 
+fn expanded_csd_clip_rect(
+    local_bbox: (f32, f32, f32, f32),
+    local_geo: (f32, f32, f32, f32),
+    margin: f32,
+) -> (f32, f32, f32, f32) {
+    let bbox_left = local_bbox.0;
+    let bbox_top = local_bbox.1;
+    let bbox_right = local_bbox.0 + local_bbox.2.max(1.0);
+    let bbox_bottom = local_bbox.1 + local_bbox.3.max(1.0);
+
+    let left = (local_geo.0 - margin).max(bbox_left);
+    let top = (local_geo.1 - margin).max(bbox_top);
+    let right = (local_geo.0 + local_geo.2 + margin).min(bbox_right);
+    let bottom = (local_geo.1 + local_geo.3 + margin).min(bbox_bottom);
+
+    (left, top, (right - left).max(1.0), (bottom - top).max(1.0))
+}
+
+fn wrap_direct_surface_elements(
+    elems: Vec<SurfaceElement>,
+    display_clip: Rectangle<i32, Physical>,
+    surface_clip_program: Option<&smithay::backend::renderer::gles::GlesTexProgram>,
+    geo_rect: Rectangle<i32, Physical>,
+    corner_radius: f32,
+) -> Vec<CroppedClippedSurfaceElement> {
+    elems
+        .into_iter()
+        .filter_map(|e| {
+            let wrapped: DirectSurfaceElement = if let Some(program) = surface_clip_program
+                && ClippedSurfaceRenderElement::will_clip(&e, geo_rect, corner_radius)
+            {
+                ClippedSurfaceRenderElement::new(e, program.clone(), geo_rect, corner_radius).into()
+            } else {
+                e.into()
+            };
+            CropRenderElement::from_element(wrapped, 1.0, display_clip)
+        })
+        .collect()
+}
+
 fn set_latest_border_fill_background(
     draw_top_this_node: bool,
     border_rects: &mut Vec<ActiveBorderRect>,
@@ -625,9 +676,9 @@ pub(crate) fn collect_active_surfaces(
     resize_preview: Option<ResizeCtx>,
     now: Instant,
 ) -> (
-    Vec<CroppedSurfaceElement>,
-    Vec<CroppedSurfaceElement>,
-    Vec<CroppedSurfaceElement>,
+    Vec<CroppedClippedSurfaceElement>,
+    Vec<CroppedClippedSurfaceElement>,
+    Vec<CroppedClippedSurfaceElement>,
     Vec<OffscreenNodeTexture>,
     Vec<OffscreenNodeTexture>,
     Vec<OffscreenNodeTexture>,
@@ -646,9 +697,9 @@ pub(crate) fn collect_active_surfaces(
     Vec<(i32, i32, Color32F)>,
     Vec<(i32, i32, i32, i32)>,
 ) {
-    let mut active_elements: Vec<CroppedSurfaceElement> = Vec::new();
-    let mut resized_active_elements: Vec<CroppedSurfaceElement> = Vec::new();
-    let mut fullscreen_active_elements: Vec<CroppedSurfaceElement> = Vec::new();
+    let mut active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
+    let mut resized_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
+    let mut fullscreen_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let mut offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut resized_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
@@ -960,7 +1011,35 @@ pub(crate) fn collect_active_surfaces(
             }
         };
         let lock_dst_to_geometry = effective_corner_radius_px > 0;
-        let offscreen_clip = None;
+        let csd_soft_clip_margin = if !st.runtime.tuning.no_csd && effective_corner_radius_px == 0 {
+            CSD_SOFT_CLIP_MARGIN_PX
+        } else {
+            0.0
+        };
+        let clip_geo = if csd_soft_clip_margin > 0.0 {
+            expanded_csd_clip_rect(local_bbox, local_geo, csd_soft_clip_margin)
+        } else {
+            local_geo
+        };
+        let offscreen_clip = if !st.runtime.tuning.no_csd {
+            st.ui
+                .render_state
+                .surface_clip_program
+                .as_ref()
+                .map(|program| {
+                    let geo_rect = Rectangle::<i32, Logical>::new(
+                        (clip_geo.0.round() as i32, clip_geo.1.round() as i32).into(),
+                        (
+                            clip_geo.2.round().max(1.0) as i32,
+                            clip_geo.3.round().max(1.0) as i32,
+                        )
+                            .into(),
+                    );
+                    (geo_rect, 0.0, program.clone())
+                })
+        } else {
+            None
+        };
         let preserve_visual_margin = !st.runtime.tuning.no_csd && effective_corner_radius_px == 0;
         let border_color = if st.model.focus_state.primary_interaction_focus == Some(node_id) {
             let color = st.runtime.tuning.border_color_focused;
@@ -1068,10 +1147,17 @@ pub(crate) fn collect_active_surfaces(
                         (tw.max(1), th.max(1)).into(),
                     );
 
-                    let cropped: Vec<_> = elems
-                        .into_iter()
-                        .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
-                        .collect();
+                    let geo_clip_rect = Rectangle::<i32, Physical>::new(
+                        (gx, gy).into(),
+                        (gw.max(1), gh.max(1)).into(),
+                    );
+                    let cropped = wrap_direct_surface_elements(
+                        elems,
+                        display_clip,
+                        st.ui.render_state.surface_clip_program.as_ref(),
+                        geo_clip_rect,
+                        (effective_corner_radius_px - effective_border_px).max(0) as f32,
+                    );
 
                     if stack_render_set.contains(&node_id) {
                         stack_window_units
@@ -1190,12 +1276,17 @@ pub(crate) fn collect_active_surfaces(
                                 (tw.max(1), th.max(1)).into(),
                             );
 
-                            let cropped: Vec<_> = elems
-                                .into_iter()
-                                .filter_map(|e| {
-                                    CropRenderElement::from_element(e, 1.0, display_clip)
-                                })
-                                .collect();
+                            let geo_clip_rect = Rectangle::<i32, Physical>::new(
+                                (gx, gy).into(),
+                                (gw.max(1), gh.max(1)).into(),
+                            );
+                            let cropped = wrap_direct_surface_elements(
+                                elems,
+                                display_clip,
+                                st.ui.render_state.surface_clip_program.as_ref(),
+                                geo_clip_rect,
+                                (effective_corner_radius_px - effective_border_px).max(0) as f32,
+                            );
 
                             if stack_render_set.contains(&node_id) {
                                 stack_window_units
@@ -1420,36 +1511,15 @@ pub(crate) fn collect_active_surfaces(
                     } else {
                         1.0
                     };
-                    // Square CSD windows rely on the tiny GTK edge pixels around the
-                    // geometry rect. Preserve those by disabling the final geometry clip
-                    // in the offscreen composite shader for this path only.
-                    let disable_geo_clip =
-                        !st.runtime.tuning.no_csd && effective_corner_radius_px == 0;
                     // local_geo is (geo_lx, geo_ly, geo_w, geo_h) in surface-local logical px.
                     // In bbox-local space the geo origin is (geo_lx - ob.loc.x, geo_ly - ob.loc.y).
-                    let geo_local_x = local_geo.0 - ob.loc.x as f32;
-                    let geo_local_y = local_geo.1 - ob.loc.y as f32;
+                    let geo_local_x = clip_geo.0 - ob.loc.x as f32;
+                    let geo_local_y = clip_geo.1 - ob.loc.y as f32;
                     // Scale into dst-pixel space (relative to dst top-left).
-                    let geo_offset_x = if disable_geo_clip {
-                        0.0
-                    } else {
-                        (geo_local_x * dst_scale_x).max(0.0)
-                    };
-                    let geo_offset_y = if disable_geo_clip {
-                        0.0
-                    } else {
-                        (geo_local_y * dst_scale_y).max(0.0)
-                    };
-                    let geo_w_px = if disable_geo_clip {
-                        0.0
-                    } else {
-                        (local_geo.2 * dst_scale_x).max(1.0)
-                    };
-                    let geo_h_px = if disable_geo_clip {
-                        0.0
-                    } else {
-                        (local_geo.3 * dst_scale_y).max(1.0)
-                    };
+                    let geo_offset_x = (geo_local_x * dst_scale_x).max(0.0);
+                    let geo_offset_y = (geo_local_y * dst_scale_y).max(0.0);
+                    let geo_w_px = (clip_geo.2 * dst_scale_x).max(1.0);
+                    let geo_h_px = (clip_geo.3 * dst_scale_y).max(1.0);
 
                     let offscreen = OffscreenNodeTexture {
                         texture,
@@ -1543,10 +1613,15 @@ pub(crate) fn collect_active_surfaces(
             };
             let display_clip =
                 Rectangle::<i32, Physical>::new((tx, ty).into(), (tw.max(1), th.max(1)).into());
-            let cropped: Vec<_> = elems
-                .into_iter()
-                .filter_map(|e| CropRenderElement::from_element(e, 1.0, display_clip))
-                .collect();
+            let geo_clip_rect =
+                Rectangle::<i32, Physical>::new((gx, gy).into(), (gw.max(1), gh.max(1)).into());
+            let cropped = wrap_direct_surface_elements(
+                elems,
+                display_clip,
+                st.ui.render_state.surface_clip_program.as_ref(),
+                geo_clip_rect,
+                (effective_corner_radius_px - effective_border_px).max(0) as f32,
+            );
 
             if stack_render_set.contains(&node_id) {
                 stack_window_units
