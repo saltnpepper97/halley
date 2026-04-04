@@ -5,7 +5,7 @@ use halley_ipc::{
 
 use crate::cmd::{
     bearings::parse_bearings_request, monitor::parse_monitor_request, node::parse_node_request,
-    stack::parse_stack_request, trail::parse_trail_request,
+    stack::parse_stack_request, tile::parse_tile_request, trail::parse_trail_request,
 };
 use crate::help::HelpTopic;
 
@@ -56,6 +56,7 @@ pub(crate) fn parse_request(args: &[String]) -> Result<ParseOutcome, UsageError>
         "monitor" => parse_monitor_request(&args[1..]),
         "bearings" => parse_bearings_request(&args[1..]),
         "stack" => parse_stack_request(&args[1..]),
+        "tile" => parse_tile_request(&args[1..]),
         other => Err(UsageError::new(
             format!("unknown command: {other}"),
             HelpTopic::Top,
@@ -222,6 +223,26 @@ mod tests {
                 halley_ipc::StackRequest::Cycle { direction, output },
             )) => {
                 assert_eq!(direction, halley_ipc::StackCycleDirection::Forward);
+                assert_eq!(output, None);
+            }
+            _ => panic!("unexpected parse outcome"),
+        }
+    }
+
+    #[test]
+    fn tile_focus_request_parses() {
+        let args = vec!["tile".to_string(), "focus".to_string(), "left".to_string()];
+        let outcome = match parse_request(&args) {
+            Ok(outcome) => outcome,
+            Err(err) => panic!("tile request should parse: {}", err.message),
+        };
+
+        match outcome {
+            ParseOutcome::Request(halley_ipc::Request::Tile(halley_ipc::TileRequest::Focus {
+                direction,
+                output,
+            })) => {
+                assert!(matches!(direction, halley_ipc::NodeMoveDirection::Left));
                 assert_eq!(output, None);
             }
             _ => panic!("unexpected parse outcome"),

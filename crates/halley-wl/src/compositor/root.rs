@@ -1549,6 +1549,26 @@ impl Halley {
         super::clusters::system::cluster_system_controller(self)
             .focus_active_tiled_cluster_member_for_monitor(monitor, preferred_index, now)
     }
+
+    pub(crate) fn tile_focus_active_cluster_member_for_monitor(
+        &mut self,
+        monitor: &str,
+        direction: halley_config::DirectionalAction,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .tile_focus_active_cluster_member_for_monitor(monitor, direction, now)
+    }
+
+    pub(crate) fn tile_swap_active_cluster_member_for_monitor(
+        &mut self,
+        monitor: &str,
+        direction: halley_config::DirectionalAction,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .tile_swap_active_cluster_member_for_monitor(monitor, direction, now)
+    }
 }
 
 impl Drop for Halley {

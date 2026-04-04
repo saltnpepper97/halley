@@ -11,7 +11,7 @@ use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{
     BearingsBindingAction, CompositorBindingAction, CompositorBindingScope, DirectionalAction,
     MonitorBindingAction, MonitorBindingTarget, NodeBindingAction, RuntimeTuning,
-    StackBindingAction, StackCycleDirection, TrailBindingAction,
+    StackBindingAction, StackCycleDirection, TileBindingAction, TrailBindingAction,
 };
 use halley_ipc::NodeMoveDirection;
 use std::time::Instant;
@@ -109,6 +109,7 @@ pub(crate) fn compositor_action_allows_repeat(action: CompositorBindingAction) -
         action,
         CompositorBindingAction::Node(NodeBindingAction::Move(_))
             | CompositorBindingAction::Stack(StackBindingAction::Cycle(_))
+            | CompositorBindingAction::Tile(TileBindingAction::Focus(_))
             | CompositorBindingAction::Trail(TrailBindingAction::Prev)
             | CompositorBindingAction::Trail(TrailBindingAction::Next)
             | CompositorBindingAction::ZoomIn
@@ -173,6 +174,22 @@ pub(crate) fn apply_compositor_action_press(
             };
             let monitor = st.focused_monitor().to_string();
             st.cycle_active_stack_for_monitor(monitor.as_str(), direction, Instant::now())
+        }
+        CompositorBindingAction::Tile(TileBindingAction::Focus(direction)) => {
+            let monitor = st.focused_monitor().to_string();
+            st.tile_focus_active_cluster_member_for_monitor(
+                monitor.as_str(),
+                direction,
+                Instant::now(),
+            )
+        }
+        CompositorBindingAction::Tile(TileBindingAction::Swap(direction)) => {
+            let monitor = st.focused_monitor().to_string();
+            st.tile_swap_active_cluster_member_for_monitor(
+                monitor.as_str(),
+                direction,
+                Instant::now(),
+            )
         }
         CompositorBindingAction::Trail(TrailBindingAction::Prev) => {
             crate::compositor::actions::window::step_window_trail(
@@ -276,6 +293,7 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::ClusterMode
             | CompositorBindingAction::Stack(_)
+            | CompositorBindingAction::Tile(_)
             | CompositorBindingAction::Trail(TrailBindingAction::Prev)
             | CompositorBindingAction::Trail(TrailBindingAction::Next)
             | CompositorBindingAction::Monitor(_)

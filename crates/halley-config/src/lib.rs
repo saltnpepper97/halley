@@ -6,7 +6,8 @@ pub use keybinds::{
     BearingsBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
     DirectionalAction, KeyModifiers, Keybinds, LaunchBinding, MonitorBindingAction,
     MonitorBindingTarget, NodeBindingAction, PointerBinding, PointerBindingAction,
-    StackBindingAction, StackCycleDirection, TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
+    StackBindingAction, StackCycleDirection, TileBindingAction, TrailBindingAction,
+    WHEEL_DOWN_CODE, WHEEL_UP_CODE,
 };
 pub use layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,

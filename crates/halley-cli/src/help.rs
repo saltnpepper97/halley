@@ -27,6 +27,9 @@ pub(crate) enum HelpTopic {
     BearingsStatus,
     Stack,
     StackCycle,
+    Tile,
+    TileFocus,
+    TileSwap,
 }
 
 pub(crate) fn exit_usage(error: UsageError) -> ! {
@@ -54,6 +57,7 @@ pub(crate) fn print_help(topic: HelpTopic) {
                 ("monitor", "Monitor-related actions"),
                 ("bearings", "Bearings visibility controls"),
                 ("stack", "Stack layout actions"),
+                ("tile", "Tile layout actions"),
             ],
         ),
         HelpTopic::Quit => print_help_page(
@@ -243,6 +247,36 @@ pub(crate) fn print_help(topic: HelpTopic) {
                 "halleyctl stack cycle backward [-o OUTPUT]",
             ],
             &[("forward|backward", "Cycle the active stacking deck")],
+        ),
+        HelpTopic::Tile => print_help_page(
+            "halleyctl tile",
+            &[
+                "halleyctl tile focus left|right|up|down [-o OUTPUT]",
+                "halleyctl tile swap left|right|up|down [-o OUTPUT]",
+            ],
+            &[
+                ("focus", "Move focus to an adjacent visible tile"),
+                (
+                    "swap",
+                    "Swap the focused tile with an adjacent visible tile",
+                ),
+            ],
+        ),
+        HelpTopic::TileFocus => print_help_page(
+            "halleyctl tile focus",
+            &["halleyctl tile focus left|right|up|down [-o OUTPUT]"],
+            &[(
+                "left|right|up|down",
+                "Direction of the adjacent visible tile",
+            )],
+        ),
+        HelpTopic::TileSwap => print_help_page(
+            "halleyctl tile swap",
+            &["halleyctl tile swap left|right|up|down [-o OUTPUT]"],
+            &[(
+                "left|right|up|down",
+                "Direction of the adjacent visible tile",
+            )],
         ),
     }
 }

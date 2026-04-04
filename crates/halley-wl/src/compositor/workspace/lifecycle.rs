@@ -55,11 +55,7 @@ fn capture_queued_overflow_promotion(st: &Halley, id: NodeId) -> Option<QueuedOv
     })
 }
 
-fn arm_queued_overflow_promotion(
-    st: &mut Halley,
-    promotion: QueuedOverflowPromotion,
-    now_ms: u64,
-) {
+fn arm_queued_overflow_promotion(st: &mut Halley, promotion: QueuedOverflowPromotion, now_ms: u64) {
     let Some(target_rect) = st
         .active_cluster_tile_rect_for_member(promotion.monitor.as_str(), promotion.promoted_member)
     else {

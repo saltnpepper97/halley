@@ -6,6 +6,7 @@ use crate::compositor::clusters::read::{
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::interaction::state::InteractionState;
 use crate::overlay::OverlayActionHint;
+use halley_config::DirectionalAction;
 use halley_core::cluster::{ClusterId, ClusterRemoveMemberOutcome};
 use halley_core::cluster_layout::{ClusterCycleDirection, ClusterWorkspaceLayoutKind};
 use halley_core::field::RemoveNodeClusterEffect;
@@ -191,6 +192,80 @@ impl<'a> ClusterMutationController<'a> {
         }
         true
     }
+}
+
+fn rect_center(rect: halley_core::tiling::Rect) -> Vec2 {
+    Vec2 {
+        x: rect.x + rect.w * 0.5,
+        y: rect.y + rect.h * 0.5,
+    }
+}
+
+fn range_gap(a0: f32, a1: f32, b0: f32, b1: f32) -> f32 {
+    if a1 < b0 {
+        b0 - a1
+    } else if b1 < a0 {
+        a0 - b1
+    } else {
+        0.0
+    }
+}
+
+fn directional_candidate_score(
+    current: halley_core::tiling::Rect,
+    candidate: halley_core::tiling::Rect,
+    direction: DirectionalAction,
+) -> Option<(f32, f32, f32, f32)> {
+    let current_center = rect_center(current);
+    let candidate_center = rect_center(candidate);
+    let (main_delta, orth_gap, tie_axis) = match direction {
+        DirectionalAction::Left => (
+            current_center.x - candidate_center.x,
+            range_gap(
+                current.y,
+                current.y + current.h,
+                candidate.y,
+                candidate.y + candidate.h,
+            ),
+            candidate_center.y,
+        ),
+        DirectionalAction::Right => (
+            candidate_center.x - current_center.x,
+            range_gap(
+                current.y,
+                current.y + current.h,
+                candidate.y,
+                candidate.y + candidate.h,
+            ),
+            candidate_center.y,
+        ),
+        DirectionalAction::Up => (
+            current_center.y - candidate_center.y,
+            range_gap(
+                current.x,
+                current.x + current.w,
+                candidate.x,
+                candidate.x + candidate.w,
+            ),
+            candidate_center.x,
+        ),
+        DirectionalAction::Down => (
+            candidate_center.y - current_center.y,
+            range_gap(
+                current.x,
+                current.x + current.w,
+                candidate.x,
+                candidate.x + candidate.w,
+            ),
+            candidate_center.x,
+        ),
+    };
+    if main_delta <= 0.5 {
+        return None;
+    }
+    let dx = candidate_center.x - current_center.x;
+    let dy = candidate_center.y - current_center.y;
+    Some((orth_gap, main_delta, dx * dx + dy * dy, tie_axis))
 }
 
 pub(crate) struct ClusterSystemController<T> {
@@ -1123,6 +1198,154 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         let now_ms = self.now_ms(now);
         self.set_interaction_focus(Some(target), 30_000, now);
         self.update_focus_tracking_for_surface(target, now_ms);
+        true
+    }
+
+    pub(crate) fn tile_focus_active_cluster_member_for_monitor(
+        &mut self,
+        monitor: &str,
+        direction: DirectionalAction,
+        now: Instant,
+    ) -> bool {
+        let Some(plan) = self
+            .cluster_read_controller()
+            .plan_active_cluster_layout(monitor)
+        else {
+            return false;
+        };
+        if !matches!(plan.kind, ClusterWorkspaceLayoutKind::Tiling) {
+            return false;
+        }
+        let visible_tiles = plan
+            .tiles
+            .into_iter()
+            .filter(|tile| {
+                !self
+                    .model
+                    .spawn_state
+                    .pending_tiled_insert_reveal_at_ms
+                    .contains_key(&tile.node_id)
+            })
+            .collect::<Vec<_>>();
+        if visible_tiles.is_empty() {
+            return false;
+        }
+        let current_member = self
+            .model
+            .focus_state
+            .primary_interaction_focus
+            .filter(|id| visible_tiles.iter().any(|tile| tile.node_id == *id))
+            .unwrap_or(visible_tiles[0].node_id);
+        let Some(current_rect) = visible_tiles
+            .iter()
+            .find(|tile| tile.node_id == current_member)
+            .map(|tile| tile.rect)
+        else {
+            return false;
+        };
+        let Some(target) = visible_tiles
+            .iter()
+            .filter(|tile| tile.node_id != current_member)
+            .filter_map(|tile| {
+                directional_candidate_score(current_rect, tile.rect, direction)
+                    .map(|score| (score, tile.node_id))
+            })
+            .min_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(_, node_id)| node_id)
+        else {
+            return false;
+        };
+        let now_ms = self.now_ms(now);
+        self.set_interaction_focus(Some(target), 30_000, now);
+        self.update_focus_tracking_for_surface(target, now_ms);
+        true
+    }
+
+    pub(crate) fn tile_swap_active_cluster_member_for_monitor(
+        &mut self,
+        monitor: &str,
+        direction: DirectionalAction,
+        now: Instant,
+    ) -> bool {
+        let Some(cid) = self.active_cluster_workspace_for_monitor(monitor) else {
+            return false;
+        };
+        let Some(plan) = self
+            .cluster_read_controller()
+            .plan_active_cluster_layout(monitor)
+        else {
+            return false;
+        };
+        if !matches!(plan.kind, ClusterWorkspaceLayoutKind::Tiling) {
+            return false;
+        }
+        let visible_tiles = plan
+            .tiles
+            .into_iter()
+            .filter(|tile| {
+                !self
+                    .model
+                    .spawn_state
+                    .pending_tiled_insert_reveal_at_ms
+                    .contains_key(&tile.node_id)
+            })
+            .collect::<Vec<_>>();
+        if visible_tiles.len() < 2 {
+            return false;
+        }
+        let current_member = self
+            .model
+            .focus_state
+            .primary_interaction_focus
+            .filter(|id| visible_tiles.iter().any(|tile| tile.node_id == *id))
+            .unwrap_or(visible_tiles[0].node_id);
+        let Some(current_rect) = visible_tiles
+            .iter()
+            .find(|tile| tile.node_id == current_member)
+            .map(|tile| tile.rect)
+        else {
+            return false;
+        };
+        let Some(target_member) = visible_tiles
+            .iter()
+            .filter(|tile| tile.node_id != current_member)
+            .filter_map(|tile| {
+                directional_candidate_score(current_rect, tile.rect, direction)
+                    .map(|score| (score, tile.node_id))
+            })
+            .min_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(_, node_id)| node_id)
+        else {
+            return false;
+        };
+
+        let Some(mut members) = self
+            .model
+            .field
+            .cluster(cid)
+            .map(|cluster| cluster.members().to_vec())
+        else {
+            return false;
+        };
+        let Some(current_index) = members.iter().position(|id| *id == current_member) else {
+            return false;
+        };
+        let Some(target_index) = members.iter().position(|id| *id == target_member) else {
+            return false;
+        };
+        members.swap(current_index, target_index);
+        if self
+            .model
+            .field
+            .reorder_cluster_members(cid, members)
+            .is_err()
+        {
+            return false;
+        }
+        let now_ms = self.now_ms(now);
+        self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
+        self.set_interaction_focus(Some(current_member), 30_000, now);
+        self.update_focus_tracking_for_surface(current_member, now_ms);
         true
     }
 
@@ -2156,6 +2379,126 @@ mod tests {
             st.model.focus_state.primary_interaction_focus,
             Some(stack_b)
         );
+    }
+
+    #[test]
+    fn tile_focus_moves_between_visible_neighbors() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack_a = st.model.field.spawn_surface(
+            "stack-a",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack_b = st.model.field.spawn_surface(
+            "stack-b",
+            Vec2 { x: 500.0, y: 400.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        for id in [master, stack_a, stack_b] {
+            st.assign_node_to_monitor(id, "monitor_a");
+        }
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack_a, stack_b])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+        let now = Instant::now();
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+
+        assert!(st.tile_focus_active_cluster_member_for_monitor(
+            "monitor_a",
+            DirectionalAction::Right,
+            now,
+        ));
+        assert_eq!(
+            st.model.focus_state.primary_interaction_focus,
+            Some(stack_a)
+        );
+        assert!(st.tile_focus_active_cluster_member_for_monitor(
+            "monitor_a",
+            DirectionalAction::Down,
+            now,
+        ));
+        assert_eq!(
+            st.model.focus_state.primary_interaction_focus,
+            Some(stack_b)
+        );
+        assert!(st.tile_focus_active_cluster_member_for_monitor(
+            "monitor_a",
+            DirectionalAction::Left,
+            now,
+        ));
+        assert_eq!(st.model.focus_state.primary_interaction_focus, Some(master));
+    }
+
+    #[test]
+    fn tile_swap_exchanges_adjacent_visible_tiles() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack_a = st.model.field.spawn_surface(
+            "stack-a",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack_b = st.model.field.spawn_surface(
+            "stack-b",
+            Vec2 { x: 500.0, y: 400.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        for id in [master, stack_a, stack_b] {
+            st.assign_node_to_monitor(id, "monitor_a");
+        }
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack_a, stack_b])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+        let now = Instant::now();
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+        st.set_interaction_focus(Some(stack_a), 30_000, now);
+
+        let before_a = st
+            .active_cluster_tile_rect_for_member("monitor_a", stack_a)
+            .expect("stack a rect");
+        let before_b = st
+            .active_cluster_tile_rect_for_member("monitor_a", stack_b)
+            .expect("stack b rect");
+
+        assert!(st.tile_swap_active_cluster_member_for_monitor(
+            "monitor_a",
+            DirectionalAction::Down,
+            now,
+        ));
+        assert_eq!(
+            st.model.focus_state.primary_interaction_focus,
+            Some(stack_a)
+        );
+
+        let after_a = st
+            .active_cluster_tile_rect_for_member("monitor_a", stack_a)
+            .expect("stack a rect after swap");
+        let after_b = st
+            .active_cluster_tile_rect_for_member("monitor_a", stack_b)
+            .expect("stack b rect after swap");
+        assert!((after_a.y - before_b.y).abs() <= 0.5);
+        assert!((after_b.y - before_a.y).abs() <= 0.5);
     }
 
     #[test]

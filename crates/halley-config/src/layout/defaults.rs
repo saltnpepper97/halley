@@ -5,7 +5,8 @@ use halley_core::field::Vec2;
 use crate::keybinds::{
     BearingsBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
     DirectionalAction, KeyModifiers, Keybinds, NodeBindingAction, PointerBinding,
-    PointerBindingAction, TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE, key_name_to_evdev,
+    PointerBindingAction, TileBindingAction, TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
+    key_name_to_evdev,
 };
 
 use super::{
@@ -257,6 +258,74 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             },
             key: key("dot"),
             action: CompositorBindingAction::Trail(TrailBindingAction::Next),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Tile,
+            modifiers: modifier,
+            key: key("left"),
+            action: CompositorBindingAction::Tile(TileBindingAction::Focus(
+                DirectionalAction::Left,
+            )),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Tile,
+            modifiers: modifier,
+            key: key("right"),
+            action: CompositorBindingAction::Tile(TileBindingAction::Focus(
+                DirectionalAction::Right,
+            )),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Tile,
+            modifiers: modifier,
+            key: key("up"),
+            action: CompositorBindingAction::Tile(TileBindingAction::Focus(DirectionalAction::Up)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Tile,
+            modifiers: modifier,
+            key: key("down"),
+            action: CompositorBindingAction::Tile(TileBindingAction::Focus(
+                DirectionalAction::Down,
+            )),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Tile,
+            modifiers: KeyModifiers {
+                ctrl: true,
+                ..modifier
+            },
+            key: key("left"),
+            action: CompositorBindingAction::Tile(TileBindingAction::Swap(DirectionalAction::Left)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Tile,
+            modifiers: KeyModifiers {
+                ctrl: true,
+                ..modifier
+            },
+            key: key("right"),
+            action: CompositorBindingAction::Tile(TileBindingAction::Swap(
+                DirectionalAction::Right,
+            )),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Tile,
+            modifiers: KeyModifiers {
+                ctrl: true,
+                ..modifier
+            },
+            key: key("up"),
+            action: CompositorBindingAction::Tile(TileBindingAction::Swap(DirectionalAction::Up)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Tile,
+            modifiers: KeyModifiers {
+                ctrl: true,
+                ..modifier
+            },
+            key: key("down"),
+            action: CompositorBindingAction::Tile(TileBindingAction::Swap(DirectionalAction::Down)),
         },
     ]
 }

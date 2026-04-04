@@ -6,7 +6,8 @@ use crate::keybinds::{
     BearingsBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
     DirectionalAction, KeyModifiers, LaunchBinding, MonitorBindingAction, MonitorBindingTarget,
     NodeBindingAction, PointerBinding, PointerBindingAction, StackBindingAction,
-    StackCycleDirection, TrailBindingAction, is_pointer_button_code, parse_chord, parse_modifiers,
+    StackCycleDirection, TileBindingAction, TrailBindingAction, is_pointer_button_code,
+    parse_chord, parse_modifiers,
 };
 use crate::layout::{RuntimeTuning, default_compositor_bindings, default_pointer_bindings};
 
@@ -382,8 +383,33 @@ fn parse_parameterized_compositor_action(
                 CompositorBindingAction::Stack(StackBindingAction::Cycle(direction)),
             )
         }),
+        "tile-focus" | "tile_focus" => parse_directional_action(arg).map(|direction| {
+            (
+                CompositorBindingScope::Tile,
+                CompositorBindingAction::Tile(TileBindingAction::Focus(direction)),
+            )
+        }),
+        "tile-swap" | "tile_swap" => parse_directional_action(arg).map(|direction| {
+            (
+                CompositorBindingScope::Tile,
+                CompositorBindingAction::Tile(TileBindingAction::Swap(direction)),
+            )
+        }),
+        "tile" => parse_tile_action(arg),
         _ => None,
     }
+}
+
+fn parse_tile_action(action: &str) -> Option<(CompositorBindingScope, CompositorBindingAction)> {
+    let mut parts = action.split_whitespace();
+    let command = parts.next()?.to_ascii_lowercase();
+    let direction = parse_directional_action(parts.collect::<Vec<_>>().join(" ").trim())?;
+    let action = match command.as_str() {
+        "focus" => CompositorBindingAction::Tile(TileBindingAction::Focus(direction)),
+        "swap" => CompositorBindingAction::Tile(TileBindingAction::Swap(direction)),
+        _ => return None,
+    };
+    Some((CompositorBindingScope::Tile, action))
 }
 
 fn parse_stack_cycle_direction(text: &str) -> Option<StackCycleDirection> {
@@ -473,4 +499,31 @@ fn upsert_pointer_binding(
         button,
         action,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_parameterized_compositor_action;
+    use crate::keybinds::{
+        CompositorBindingAction, CompositorBindingScope, DirectionalAction, TileBindingAction,
+    };
+
+    #[test]
+    fn tile_keywords_parse() {
+        let parsed = parse_parameterized_compositor_action("tile focus left")
+            .expect("tile focus should parse");
+        assert_eq!(parsed.0, CompositorBindingScope::Tile);
+        assert_eq!(
+            parsed.1,
+            CompositorBindingAction::Tile(TileBindingAction::Focus(DirectionalAction::Left))
+        );
+
+        let parsed = parse_parameterized_compositor_action("tile-swap right")
+            .expect("tile-swap should parse");
+        assert_eq!(parsed.0, CompositorBindingScope::Tile);
+        assert_eq!(
+            parsed.1,
+            CompositorBindingAction::Tile(TileBindingAction::Swap(DirectionalAction::Right))
+        );
+    }
 }

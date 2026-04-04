@@ -78,6 +78,18 @@ pub enum StackRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TileRequest {
+    Focus {
+        direction: NodeMoveDirection,
+        output: Option<String>,
+    },
+    Swap {
+        direction: NodeMoveDirection,
+        output: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompositorRequest {
     Quit,
     Reload,
@@ -142,6 +154,7 @@ pub enum Request {
     Monitor(MonitorRequest),
     Bearings(BearingsRequest),
     Stack(StackRequest),
+    Tile(TileRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

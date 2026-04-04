@@ -4,9 +4,10 @@ use std::time::Instant;
 use halley_core::field::{NodeId, NodeKind as FieldNodeKind, NodeState as FieldNodeState};
 use halley_ipc::{
     BearingsRequest, BearingsStatusResponse, CompositorRequest, IpcError, MonitorFocusDirection,
-    MonitorFocusTarget, MonitorRequest, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup,
-    NodeProtocolFamily, NodeRelationInfo, NodeRequest, NodeRole, NodeSelector, NodeState, Request,
-    Response, StackRequest, TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
+    MonitorFocusTarget, MonitorRequest, NodeInfo, NodeKind, NodeListResponse, NodeMoveDirection,
+    NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo, NodeRequest, NodeRole, NodeSelector,
+    NodeState, Request, Response, StackRequest, TileRequest, TrailEntryInfo, TrailListResponse,
+    TrailRequest, TrailTarget,
 };
 use smithay::desktop::PopupManager;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
@@ -24,6 +25,7 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Monitor(request) => handle_monitor_request(st, request),
         Request::Bearings(request) => handle_bearings_request(st, request),
         Request::Stack(request) => handle_stack_request(st, request),
+        Request::Tile(request) => handle_tile_request(st, request),
         Request::Compositor(CompositorRequest::Outputs) => Response::Error(IpcError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
@@ -191,6 +193,40 @@ fn handle_stack_request(st: &mut Halley, request: StackRequest) -> Response {
                 Err(err) => Response::Error(err),
             }
         }
+    }
+}
+
+fn handle_tile_request(st: &mut Halley, request: TileRequest) -> Response {
+    let (direction, output, swap) = match request {
+        TileRequest::Focus { direction, output } => (direction, output, false),
+        TileRequest::Swap { direction, output } => (direction, output, true),
+    };
+    match resolve_output_context(st, output.as_deref()).and_then(|monitor| {
+        let now = Instant::now();
+        focus_output_if_needed(st, monitor.as_str(), now);
+        let direction = match direction {
+            NodeMoveDirection::Left => halley_config::DirectionalAction::Left,
+            NodeMoveDirection::Right => halley_config::DirectionalAction::Right,
+            NodeMoveDirection::Up => halley_config::DirectionalAction::Up,
+            NodeMoveDirection::Down => halley_config::DirectionalAction::Down,
+        };
+        let ok = if swap {
+            st.tile_swap_active_cluster_member_for_monitor(monitor.as_str(), direction, now)
+        } else {
+            st.tile_focus_active_cluster_member_for_monitor(monitor.as_str(), direction, now)
+        };
+        if ok {
+            Ok(())
+        } else {
+            Err(IpcError::Unsupported(format!(
+                "tiled layout is not active or no tile exists {} on output {}",
+                if swap { "to swap" } else { "to focus" },
+                monitor
+            )))
+        }
+    }) {
+        Ok(()) => Response::Ok,
+        Err(err) => Response::Error(err),
     }
 }
 

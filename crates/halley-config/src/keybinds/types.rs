@@ -70,6 +70,12 @@ pub enum StackBindingAction {
     Cycle(StackCycleDirection),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TileBindingAction {
+    Focus(DirectionalAction),
+    Swap(DirectionalAction),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompositorBindingScope {
     Global,
@@ -99,6 +105,7 @@ pub enum CompositorBindingAction {
     Monitor(MonitorBindingAction),
     Bearings(BearingsBindingAction),
     Stack(StackBindingAction),
+    Tile(TileBindingAction),
 }
 
 #[derive(Clone, Debug)]
