@@ -342,8 +342,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                         );
                     self.request_maintenance();
                 }
-                if let Some(target) = current_focus
-                    .filter(|id| visible.contains(id))
+                if let Some(target) =
+                    crate::compositor::surface_ops::active_stacking_front_member_for_monitor(
+                        self, monitor,
+                    )
                     .or_else(|| visible.first().copied())
                 {
                     self.set_recent_top_node(target, now + std::time::Duration::from_millis(1200));

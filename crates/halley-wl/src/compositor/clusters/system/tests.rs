@@ -597,6 +597,57 @@ fn cluster_layout_cycle_toggles_active_workspace_layout() {
 }
 
 #[test]
+fn switching_from_tiling_to_stacking_focuses_front_stack_member() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+    let master = st.model.field.spawn_surface(
+        "master",
+        Vec2 { x: 100.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    let stack_a = st.model.field.spawn_surface(
+        "stack-a",
+        Vec2 { x: 500.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    let stack_b = st.model.field.spawn_surface(
+        "stack-b",
+        Vec2 { x: 500.0, y: 400.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    for id in [master, stack_a, stack_b] {
+        st.assign_node_to_monitor(id, "monitor_a");
+    }
+    let cid = st
+        .model
+        .field
+        .create_cluster(vec![master, stack_a, stack_b])
+        .expect("cluster");
+    let core = st.model.field.collapse_cluster(cid).expect("core");
+    st.assign_node_to_monitor(core, "monitor_a");
+    let now = Instant::now();
+    assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+
+    assert!(st.tile_focus_active_cluster_member_for_monitor(
+        "monitor_a",
+        DirectionalAction::Right,
+        now,
+    ));
+    assert_eq!(
+        st.model.focus_state.primary_interaction_focus,
+        Some(stack_a)
+    );
+
+    assert!(st.cycle_active_cluster_layout_for_monitor("monitor_a", now));
+    assert_eq!(
+        st.runtime.tuning.cluster_layout_kind(),
+        ClusterWorkspaceLayoutKind::Stacking
+    );
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(master));
+}
+
+#[test]
 fn cluster_exit_restores_full_viewport_not_usable_viewport() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());

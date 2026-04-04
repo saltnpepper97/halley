@@ -399,6 +399,10 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             .pending_tiled_insert_reveal_at_ms
             .retain(|id, _| alive_ids.contains(id));
         self.model
+            .spawn_state
+            .pending_tiled_insert_preserve_focus
+            .retain(|id| alive_ids.contains(id));
+        self.model
             .cluster_state
             .cluster_overflow_promotion_anim
             .retain(|_, anim| alive_ids.contains(&anim.member_id) && now_ms < anim.reveal_at_ms);

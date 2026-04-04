@@ -270,6 +270,7 @@ impl Halley {
                 spawn_state: SpawnState {
                     pending_spawn_activate_at_ms: HashMap::new(),
                     pending_tiled_insert_reveal_at_ms: HashMap::new(),
+                    pending_tiled_insert_preserve_focus: HashSet::new(),
                     pending_spawn_monitor: None,
                     per_monitor: HashMap::new(),
                     pending_spawn_pan_queue: VecDeque::new(),

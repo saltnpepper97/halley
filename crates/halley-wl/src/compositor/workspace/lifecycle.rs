@@ -71,6 +71,10 @@ fn arm_queued_overflow_promotion(st: &mut Halley, promotion: QueuedOverflowPromo
         .spawn_state
         .pending_tiled_insert_reveal_at_ms
         .insert(promotion.promoted_member, reveal_at_ms);
+    st.model
+        .spawn_state
+        .pending_tiled_insert_preserve_focus
+        .insert(promotion.promoted_member);
     if let Some(node) = st.model.field.node_mut(promotion.promoted_member) {
         node.visibility.set(Visibility::DETACHED, true);
         node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, true);
@@ -334,6 +338,10 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
             st.model
                 .spawn_state
                 .pending_tiled_insert_reveal_at_ms
+                .remove(&id);
+            st.model
+                .spawn_state
+                .pending_tiled_insert_preserve_focus
                 .remove(&id);
             crate::protocol::wayland::activation::clear_surface_activation_for_root(
                 st,
@@ -941,6 +949,10 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
             .spawn_state
             .pending_tiled_insert_reveal_at_ms
             .remove(&id);
+        st.model
+            .spawn_state
+            .pending_tiled_insert_preserve_focus
+            .remove(&id);
         st.model.spawn_state.applied_window_rules.remove(&id);
         st.model.spawn_state.pending_rule_rechecks.remove(&id);
         st.model.spawn_state.pending_initial_reveal.remove(&id);
@@ -988,6 +1000,25 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
 mod tests {
     use super::*;
     use crate::compositor::spawn::rules::{InitialWindowIntent, ResolvedInitialWindowRule};
+
+    fn single_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        tuning.tile_max_stack = 2;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        tuning
+    }
 
     #[test]
     fn committed_window_geometry_prefers_xdg_geometry_size() {
@@ -1129,5 +1160,94 @@ mod tests {
             true,
             &layout_intent
         ));
+    }
+
+    #[test]
+    fn queued_tiled_promotion_after_close_preserves_existing_focus() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = state.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = state.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack_b = state.model.field.spawn_surface(
+            "stack-b",
+            Vec2 { x: 500.0, y: 250.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let queued = state.model.field.spawn_surface(
+            "queued",
+            Vec2 { x: 500.0, y: 400.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        for id in [master, stack, stack_b, queued] {
+            state.assign_node_to_monitor(id, "monitor_a");
+            state
+                .ui
+                .render_state
+                .window_geometry
+                .insert(id, (0.0, 0.0, 320.0, 240.0));
+        }
+        let cid = state
+            .model
+            .field
+            .create_cluster(vec![master, stack, stack_b, queued])
+            .expect("cluster");
+        let core = state.model.field.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+
+        let now = Instant::now();
+        let now_ms = state.now_ms(now);
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", now));
+        state.set_interaction_focus(Some(stack), 30_000, now);
+
+        let promotion = capture_queued_overflow_promotion(&state, master).expect("promotion");
+        assert!(state.remove_node_from_field(master, now_ms));
+        arm_queued_overflow_promotion(&mut state, promotion, now_ms);
+
+        assert!(
+            state
+                .model
+                .spawn_state
+                .pending_tiled_insert_preserve_focus
+                .contains(&queued)
+        );
+
+        crate::compositor::spawn::state::process_pending_spawn_activations(
+            &mut state,
+            now + std::time::Duration::from_millis(CLUSTER_OVERFLOW_PROMOTION_ANIM_MS),
+            now_ms.saturating_add(CLUSTER_OVERFLOW_PROMOTION_ANIM_MS),
+        );
+
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(stack)
+        );
+        assert!(
+            !state
+                .model
+                .spawn_state
+                .pending_tiled_insert_reveal_at_ms
+                .contains_key(&queued)
+        );
+        let queued_node = state.model.field.node(queued).expect("queued node");
+        assert!(!queued_node.visibility.has(Visibility::DETACHED));
+        assert!(!queued_node.visibility.has(Visibility::HIDDEN_BY_CLUSTER));
+        assert!(
+            !state
+                .model
+                .spawn_state
+                .pending_tiled_insert_preserve_focus
+                .contains(&queued)
+        );
     }
 }

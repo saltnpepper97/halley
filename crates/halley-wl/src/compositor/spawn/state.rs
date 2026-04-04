@@ -82,6 +82,7 @@ impl MonitorSpawnState {
 pub(crate) struct SpawnState {
     pub pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
     pub(crate) pending_tiled_insert_reveal_at_ms: HashMap<NodeId, u64>,
+    pub(crate) pending_tiled_insert_preserve_focus: HashSet<NodeId>,
     pub(crate) pending_spawn_monitor: Option<String>,
     pub(crate) per_monitor: HashMap<String, MonitorSpawnState>,
     pub(crate) pending_spawn_pan_queue: VecDeque<PendingSpawnPan>,
@@ -143,6 +144,11 @@ pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, n
         if !st.ui.render_state.window_geometry.contains_key(&id) {
             continue;
         }
+        let preserve_focus = st
+            .model
+            .spawn_state
+            .pending_tiled_insert_preserve_focus
+            .remove(&id);
         st.model
             .spawn_state
             .pending_tiled_insert_reveal_at_ms
@@ -163,7 +169,9 @@ pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, n
             let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
             st.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
             crate::compositor::workspace::state::mark_active_transition(st, id, now, 620);
-            st.set_interaction_focus(Some(id), 30_000, now);
+            if !preserve_focus {
+                st.set_interaction_focus(Some(id), 30_000, now);
+            }
             st.request_maintenance();
         }
     }
