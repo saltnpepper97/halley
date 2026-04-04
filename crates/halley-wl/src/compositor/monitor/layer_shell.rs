@@ -97,10 +97,15 @@ fn layer_popup_constraint_target(
 }
 
 fn rectangle_fits_within(target: Rectangle<i32, Logical>, rect: Rectangle<i32, Logical>) -> bool {
+    let rect_right = i64::from(rect.loc.x) + i64::from(rect.size.w);
+    let rect_bottom = i64::from(rect.loc.y) + i64::from(rect.size.h);
+    let target_right = i64::from(target.loc.x) + i64::from(target.size.w);
+    let target_bottom = i64::from(target.loc.y) + i64::from(target.size.h);
+
     rect.loc.x >= target.loc.x
         && rect.loc.y >= target.loc.y
-        && rect.loc.x + rect.size.w <= target.loc.x + target.size.w
-        && rect.loc.y + rect.size.h <= target.loc.y + target.size.h
+        && rect_right <= target_right
+        && rect_bottom <= target_bottom
 }
 
 pub(crate) fn refresh_monitor_usable_viewports(st: &mut Halley) {

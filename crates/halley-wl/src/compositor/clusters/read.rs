@@ -245,12 +245,11 @@ impl<'a> ClusterReadController<'a> {
     ) -> Option<EnterClusterWorkspacePlan> {
         let cid = self.field.cluster_id_for_core_public(core_id)?;
         let cluster = self.field.cluster(cid)?;
-        let members = cluster.members().to_vec();
+        let members = cluster.members().iter().copied().collect::<HashSet<_>>();
         let core_pos = self.field.node(core_id)?.pos;
         let current_viewport = self.workspace_viewport_for_monitor(monitor)?;
-        let ids: Vec<NodeId> = self.field.nodes().keys().copied().collect();
         let mut hidden_ids = Vec::new();
-        for id in ids {
+        for &id in self.field.nodes().keys() {
             if members.contains(&id) || id == core_id {
                 continue;
             }

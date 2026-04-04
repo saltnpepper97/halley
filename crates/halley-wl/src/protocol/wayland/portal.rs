@@ -354,13 +354,34 @@ fn clip_capture_region(
     full: Rectangle<i32, Logical>,
     region: Rectangle<i32, Logical>,
 ) -> Option<Rectangle<i32, Logical>> {
-    let x1 = region.loc.x.max(full.loc.x);
-    let y1 = region.loc.y.max(full.loc.y);
-    let x2 = (region.loc.x + region.size.w).min(full.loc.x + full.size.w);
-    let y2 = (region.loc.y + region.size.h).min(full.loc.y + full.size.h);
+    fn rect_bounds(rect: Rectangle<i32, Logical>) -> Option<(i64, i64, i64, i64)> {
+        if rect.size.w <= 0 || rect.size.h <= 0 {
+            return None;
+        }
+
+        let x1 = i64::from(rect.loc.x);
+        let y1 = i64::from(rect.loc.y);
+        let x2 = x1 + i64::from(rect.size.w);
+        let y2 = y1 + i64::from(rect.size.h);
+        Some((x1, y1, x2, y2))
+    }
+
+    let (full_x1, full_y1, full_x2, full_y2) = rect_bounds(full)?;
+    let (region_x1, region_y1, region_x2, region_y2) = rect_bounds(region)?;
+    let x1 = region_x1.max(full_x1);
+    let y1 = region_y1.max(full_y1);
+    let x2 = region_x2.min(full_x2);
+    let y2 = region_y2.min(full_y2);
     let width = x2 - x1;
     let height = y2 - y1;
-    (width > 0 && height > 0).then(|| Rectangle::new((x1, y1).into(), (width, height).into()))
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+
+    Some(Rectangle::new(
+        (i32::try_from(x1).ok()?, i32::try_from(y1).ok()?).into(),
+        (i32::try_from(width).ok()?, i32::try_from(height).ok()?).into(),
+    ))
 }
 
 fn validate_dmabuf_capture_target(

@@ -219,16 +219,43 @@ fn process_exists(pid: u32) -> bool {
 fn cleanup_stale_x11_display_files(display_num: u32) {
     let (socket_path, lock_path) = halley_x11_paths(display_num);
 
-    let lock_pid = std::fs::read_to_string(&lock_path)
-        .ok()
-        .and_then(|contents| contents.trim().parse::<u32>().ok());
+    let lock_pid = match std::fs::read_to_string(&lock_path) {
+        Ok(contents) => match contents.trim().parse::<u32>() {
+            Ok(pid) => Some(pid),
+            Err(err) => {
+                warn!(
+                    "refusing to reclaim X11 display {}: invalid lock pid in {}: {}",
+                    display_num,
+                    lock_path.display(),
+                    err
+                );
+                return;
+            }
+        },
+        Err(err) if err.kind() == io::ErrorKind::NotFound => None,
+        Err(err) => {
+            warn!(
+                "refusing to reclaim X11 display {}: could not read {}: {}",
+                display_num,
+                lock_path.display(),
+                err
+            );
+            return;
+        }
+    };
 
     let should_remove = match lock_pid {
         Some(pid) => !process_exists(pid),
-        None => socket_path.exists() || lock_path.exists(),
+        None => false,
     };
 
     if !should_remove {
+        if socket_path.exists() && !lock_path.exists() {
+            warn!(
+                "refusing to reclaim X11 display {}: socket exists without lock file",
+                display_num
+            );
+        }
         return;
     }
 

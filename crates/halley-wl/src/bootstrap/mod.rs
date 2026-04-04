@@ -199,6 +199,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         libc::signal(libc::SIGINT, handler);
     }
 
+    ensure_xdg_runtime_dir()?;
     init_ipc()?;
 
     let result = match RuntimeBackend::from_env()? {

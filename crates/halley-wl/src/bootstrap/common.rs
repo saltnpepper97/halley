@@ -436,10 +436,7 @@ impl X11SocketReservation {
         let reservation = (|| {
             let filesystem_listener = match UnixListener::bind(&socket_path) {
                 Ok(listener) => listener,
-                Err(err) if err.kind() == ErrorKind::AddrInUse => {
-                    let _ = fs::remove_file(&socket_path);
-                    UnixListener::bind(&socket_path)?
-                }
+                Err(err) if err.kind() == ErrorKind::AddrInUse => return Err(err),
                 Err(err) => return Err(err),
             };
             filesystem_listener.set_nonblocking(true)?;
@@ -833,9 +830,16 @@ fn reclaim_stale_x11_display(
     lock_path: &Path,
     socket_path: &Path,
 ) -> io::Result<()> {
-    let lock_pid = fs::read_to_string(lock_path)
-        .ok()
-        .and_then(|raw| raw.trim().parse::<i32>().ok());
+    let lock_pid = match fs::read_to_string(lock_path) {
+        Ok(raw) => Some(raw.trim().parse::<i32>().map_err(|err| {
+            io::Error::new(
+                ErrorKind::InvalidData,
+                format!("X11 display {display} lock contains invalid pid: {err}"),
+            )
+        })?),
+        Err(err) if err.kind() == ErrorKind::NotFound => None,
+        Err(err) => return Err(err),
+    };
 
     if let Some(pid) = lock_pid {
         let alive = unsafe {
@@ -848,14 +852,29 @@ fn reclaim_stale_x11_display(
                 format!("X11 display {display} is already in use by pid {pid}"),
             ));
         }
+
+        if lock_path.exists() {
+            let _ = fs::remove_file(lock_path);
+        }
+        if socket_path.exists() {
+            let _ = fs::remove_file(socket_path);
+        }
+        return Ok(());
+    }
+
+    if socket_path.exists() {
+        return Err(io::Error::new(
+            ErrorKind::AddrInUse,
+            format!(
+                "X11 display {display} socket exists without a verifiable stale lock; refusing to reclaim"
+            ),
+        ));
     }
 
     if lock_path.exists() {
         let _ = fs::remove_file(lock_path);
     }
-    if socket_path.exists() {
-        let _ = fs::remove_file(socket_path);
-    }
+
     Ok(())
 }
 
