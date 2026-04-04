@@ -1508,6 +1508,16 @@ impl Halley {
         super::clusters::system::cluster_system_controller(self)
             .layout_active_cluster_workspace_for_monitor(monitor, now_ms)
     }
+
+    pub(crate) fn focus_active_tiled_cluster_member_for_monitor(
+        &mut self,
+        monitor: &str,
+        preferred_index: Option<usize>,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .focus_active_tiled_cluster_member_for_monitor(monitor, preferred_index, now)
+    }
 }
 
 impl Drop for Halley {

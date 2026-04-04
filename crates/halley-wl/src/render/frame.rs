@@ -56,6 +56,12 @@ const SURFACE_CLIP_SHADER: &str = include_str!("shaders/surface_clipped_texture.
 
 pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) -> bool {
     st.cluster_mode_active_for_monitor(monitor)
+        || st
+            .model
+            .cluster_state
+            .cluster_bloom_open
+            .contains_key(monitor)
+        || crate::compositor::interaction::state::bloom_pull_preview_active_for_monitor(st, monitor)
         || st.ui.render_state.overlay_banner.contains_key(monitor)
         || st.ui.render_state.overlay_toast.contains_key(monitor)
         || st
@@ -142,6 +148,7 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     st.tick_pending_spawn_pan(now, now_ms);
     tick_active_drag(st, now);
     crate::compositor::interaction::state::tick_cluster_join_candidate_ready(st, now_ms);
+    crate::compositor::interaction::state::tick_bloom_pull_preview(st, now_ms);
     st.tick_camera_smoothing(now);
 }
 

@@ -1,5 +1,7 @@
 use std::time::Instant;
 
+use std::time::Duration;
+
 use eventline::info;
 use halley_config::{KeyModifiers, PointerBindingAction};
 
@@ -33,6 +35,39 @@ use super::resize::{begin_resize, finalize_resize};
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
+
+fn begin_bloom_pull_preview(
+    st: &mut Halley,
+    cluster_id: halley_core::cluster::ClusterId,
+    member_id: halley_core::field::NodeId,
+    core_sx: i32,
+    core_sy: i32,
+    slot_sx: i32,
+    slot_sy: i32,
+    monitor: &str,
+) {
+    st.input.interaction_state.bloom_pull_preview =
+        Some(crate::compositor::interaction::state::BloomPullPreview {
+            cluster_id,
+            member_id,
+            monitor: monitor.to_string(),
+            core_screen: halley_core::field::Vec2 {
+                x: core_sx as f32,
+                y: core_sy as f32,
+            },
+            slot_screen: halley_core::field::Vec2 {
+                x: slot_sx as f32,
+                y: slot_sy as f32,
+            },
+            pointer_screen: halley_core::field::Vec2 {
+                x: slot_sx as f32,
+                y: slot_sy as f32,
+            },
+            display_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            hold_progress: 0.0,
+            phase: crate::compositor::interaction::state::BloomPullPhase::Pressed,
+        });
+}
 
 fn handle_left_press(
     st: &mut Halley,
@@ -424,15 +459,24 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             cluster_id: layout.cluster_id,
             member_id: layout.member_id,
             monitor: target_monitor.clone(),
-            core_screen: (layout.core_sx as f32, layout.core_sy as f32),
+            slot_screen: (layout.center_sx as f32, layout.center_sy as f32),
         });
-        st.input.interaction_state.bloom_pull_preview =
-            Some(crate::compositor::interaction::state::BloomPullPreview {
-                cluster_id: layout.cluster_id,
-                member_id: layout.member_id,
-                mix: 0.0,
-            });
+        ps.hover_node = None;
+        ps.hover_started_at = None;
+        ps.preview_block_until = Some(Instant::now() + Duration::from_millis(500));
+        st.input.interaction_state.overlay_hover_target = None;
+        begin_bloom_pull_preview(
+            st,
+            layout.cluster_id,
+            layout.member_id,
+            layout.core_sx,
+            layout.core_sy,
+            layout.center_sx,
+            layout.center_sy,
+            target_monitor.as_str(),
+        );
         ps.last_title_click = None;
+        st.request_maintenance();
         ctx.backend.request_redraw();
         return;
     }
@@ -602,7 +646,62 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 return;
             }
             if left && ps.bloom_drag.take().is_some() {
-                st.input.interaction_state.bloom_pull_preview = None;
+                let now_ms = st.now_ms(Instant::now());
+                let phase = st
+                    .input
+                    .interaction_state
+                    .bloom_pull_preview
+                    .as_ref()
+                    .map(|preview| preview.phase.clone());
+                match phase {
+                    Some(crate::compositor::interaction::state::BloomPullPhase::Pressed) => {
+                        let should_snap = st
+                            .input
+                            .interaction_state
+                            .bloom_pull_preview
+                            .as_ref()
+                            .is_some_and(|preview| {
+                                preview.display_offset.x.hypot(preview.display_offset.y) > 0.5
+                            });
+                        if should_snap {
+                            if let Some(preview) =
+                                st.input.interaction_state.bloom_pull_preview.as_mut()
+                            {
+                                preview.phase = crate::compositor::interaction::state::BloomPullPhase::Snapback {
+                                    started_at_ms: now_ms,
+                                    from_offset: preview.display_offset,
+                                };
+                                preview.hold_progress = 0.0;
+                                st.request_maintenance();
+                            }
+                        } else {
+                            st.input.interaction_state.bloom_pull_preview = None;
+                        }
+                    }
+                    Some(crate::compositor::interaction::state::BloomPullPhase::Tethered {
+                        ..
+                    }) => {
+                        if let Some(preview) =
+                            st.input.interaction_state.bloom_pull_preview.as_mut()
+                        {
+                            preview.phase =
+                                crate::compositor::interaction::state::BloomPullPhase::Snapback {
+                                    started_at_ms: now_ms,
+                                    from_offset: preview.display_offset,
+                                };
+                            preview.hold_progress = 0.0;
+                            st.request_maintenance();
+                        }
+                    }
+                    Some(crate::compositor::interaction::state::BloomPullPhase::Snapback {
+                        ..
+                    })
+                    | None => {}
+                }
+                ps.preview_block_until = Some(Instant::now() + Duration::from_millis(500));
+                st.input.interaction_state.overlay_hover_target = None;
+                ps.hover_node = None;
+                ps.hover_started_at = None;
                 ctx.backend.request_redraw();
                 return;
             }

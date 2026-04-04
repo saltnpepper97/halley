@@ -297,7 +297,8 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             if self.model.surface_to_node.get(&key).copied() != Some(node_id) {
                 continue;
             }
-            let (min_w, min_h) = crate::compositor::surface_ops::toplevel_min_size_for_node(self, node_id);
+            let (min_w, min_h) =
+                crate::compositor::surface_ops::toplevel_min_size_for_node(self, node_id);
             top.with_pending_state(|s| {
                 s.size = size.map(|(w, h)| (w.max(min_w).max(96), h.max(min_h).max(72)).into());
                 if focused_node == Some(node_id) {
@@ -386,7 +387,8 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             .get(&node_id)
             .copied()
         {
-            let (min_w, min_h) = crate::compositor::surface_ops::toplevel_min_size_for_node(self, node_id);
+            let (min_w, min_h) =
+                crate::compositor::surface_ops::toplevel_min_size_for_node(self, node_id);
             self.request_toplevel_fullscreen_state(
                 node_id,
                 false,

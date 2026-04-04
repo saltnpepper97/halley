@@ -100,7 +100,13 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
             .active_cluster_workspace_for_monitor(focused_monitor)
             .is_some()
         {
-            if let Some(previous) =
+            if matches!(
+                st.runtime.tuning.cluster_layout_kind(),
+                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+            ) {
+                // Tiled cluster close restore is handled after the member is actually removed so
+                // we can focus the replacement tile in that slot.
+            } else if let Some(previous) =
                 st.previous_window_from_trail_on_close(focused_monitor, closing_id)
             {
                 st.set_interaction_focus(Some(previous), 30_000, now);
@@ -178,6 +184,32 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
     for key in stale {
         st.runtime.surface_activity.remove(&key);
         if let Some(id) = st.model.surface_to_node.remove(&key) {
+            let active_tiled_focus_restore = st
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&id)
+                .cloned()
+                .and_then(|monitor| {
+                    let was_primary_focus =
+                        st.model.focus_state.primary_interaction_focus == Some(id);
+                    let preferred_index = st
+                        .model
+                        .field
+                        .cluster_id_for_member_public(id)
+                        .and_then(|cid| st.model.field.cluster(cid))
+                        .and_then(|cluster| {
+                            cluster.members().iter().position(|member| *member == id)
+                        })?;
+                    (was_primary_focus
+                        && matches!(
+                            st.runtime.tuning.cluster_layout_kind(),
+                            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+                        )
+                        && st.active_cluster_workspace_for_monitor(monitor.as_str())
+                            == st.model.field.cluster_id_for_member_public(id))
+                    .then_some((monitor, preferred_index))
+                });
             if st.model.focus_state.pan_restore_active_focus == Some(id) {
                 st.model.focus_state.pan_restore_active_focus = None;
             }
@@ -246,6 +278,15 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
             }
             st.input.interaction_state.smoothed_render_pos.remove(&id);
             let _ = st.remove_node_from_field(id, st.now_ms(Instant::now()));
+            if let Some((monitor, preferred_index)) = active_tiled_focus_restore {
+                let now = Instant::now();
+                st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), st.now_ms(now));
+                let _ = st.focus_active_tiled_cluster_member_for_monitor(
+                    monitor.as_str(),
+                    Some(preferred_index),
+                    now,
+                );
+            }
         }
     }
 

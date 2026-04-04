@@ -812,6 +812,15 @@ pub(crate) fn draw_overlay_hover_label(
     screen_h: i32,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
+    if st
+        .input
+        .interaction_state
+        .bloom_pull_preview
+        .as_ref()
+        .is_some_and(|preview| preview.monitor == st.model.monitor_state.current_monitor)
+    {
+        return Ok(());
+    }
     let Some(target) = st
         .input
         .interaction_state

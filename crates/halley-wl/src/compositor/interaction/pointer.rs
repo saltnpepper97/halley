@@ -27,7 +27,7 @@ pub(crate) struct BloomDragCtx {
     pub(crate) cluster_id: ClusterId,
     pub(crate) member_id: NodeId,
     pub(crate) monitor: String,
-    pub(crate) core_screen: (f32, f32),
+    pub(crate) slot_screen: (f32, f32),
 }
 
 #[derive(Clone)]

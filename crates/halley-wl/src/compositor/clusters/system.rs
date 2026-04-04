@@ -952,6 +952,49 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         true
     }
 
+    pub(crate) fn focus_active_tiled_cluster_member_for_monitor(
+        &mut self,
+        monitor: &str,
+        preferred_index: Option<usize>,
+        now: Instant,
+    ) -> bool {
+        let Some(plan) = self
+            .cluster_read_controller()
+            .plan_active_cluster_layout(monitor)
+        else {
+            return false;
+        };
+        if !matches!(plan.kind, ClusterWorkspaceLayoutKind::Tiling) {
+            return false;
+        }
+        let visible_members = plan
+            .tiles
+            .into_iter()
+            .map(|tile| tile.node_id)
+            .filter(|id| {
+                !self
+                    .model
+                    .spawn_state
+                    .pending_tiled_insert_reveal_at_ms
+                    .contains_key(id)
+            })
+            .collect::<Vec<_>>();
+        let Some(target) = visible_members
+            .get(
+                preferred_index
+                    .unwrap_or(0)
+                    .min(visible_members.len().saturating_sub(1)),
+            )
+            .copied()
+        else {
+            return false;
+        };
+        let now_ms = self.now_ms(now);
+        self.set_interaction_focus(Some(target), 30_000, now);
+        self.update_focus_tracking_for_surface(target, now_ms);
+        true
+    }
+
     pub(crate) fn cycle_active_stack_for_monitor(
         &mut self,
         monitor: &str,
@@ -1273,6 +1316,11 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             self.set_recent_top_node(front, now + std::time::Duration::from_millis(1200));
             self.set_interaction_focus(Some(front), 30_000, now);
             self.update_focus_tracking_for_surface(front, now_ms);
+        } else if matches!(
+            self.active_cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Tiling
+        ) {
+            let _ = self.focus_active_tiled_cluster_member_for_monitor(monitor, Some(0), now);
         }
         self.refresh_cluster_overflow_for_monitor(monitor, now_ms, false);
         true
@@ -1900,6 +1948,83 @@ mod tests {
         assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
         assert_eq!(st.model.viewport, full_viewport);
         assert_eq!(st.model.camera_target_view_size, full_viewport.size);
+    }
+
+    #[test]
+    fn entering_tiled_cluster_workspace_focuses_master_tile() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(master, "monitor_a");
+        st.assign_node_to_monitor(stack, "monitor_a");
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+        assert_eq!(st.model.focus_state.primary_interaction_focus, Some(master));
+    }
+
+    #[test]
+    fn tiled_cluster_focus_retargets_replacement_tile_by_index() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack_a = st.model.field.spawn_surface(
+            "stack-a",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack_b = st.model.field.spawn_surface(
+            "stack-b",
+            Vec2 { x: 500.0, y: 400.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        for id in [master, stack_a, stack_b] {
+            st.assign_node_to_monitor(id, "monitor_a");
+        }
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack_a, stack_b])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+        let now = Instant::now();
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+
+        let removed = cluster_system_controller(&mut st).detach_member_from_cluster(
+            cid,
+            stack_a,
+            Vec2 { x: 0.0, y: 0.0 },
+            now,
+        );
+        assert!(removed);
+        st.layout_active_cluster_workspace_for_monitor("monitor_a", st.now_ms(now));
+        assert!(st.focus_active_tiled_cluster_member_for_monitor("monitor_a", Some(1), now));
+        assert_eq!(
+            st.model.focus_state.primary_interaction_focus,
+            Some(stack_b)
+        );
     }
 
     #[test]

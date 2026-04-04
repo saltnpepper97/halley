@@ -10,6 +10,12 @@ use crate::compositor::interaction::drag::DragAxisMode;
 use crate::compositor::root::Halley;
 use smithay::input::pointer::CursorIcon;
 
+const BLOOM_PULL_SLOP_PX: f32 = 12.0;
+const BLOOM_TETHER_MAX_PX: f32 = 60.0;
+const BLOOM_TETHER_SOFTNESS_PX: f32 = 30.0;
+const BLOOM_DETACH_HOLD_MS: u64 = 1200;
+const BLOOM_SNAPBACK_MS: u64 = 170;
+
 #[derive(Default, Clone)]
 pub(crate) struct ModState {
     pub(crate) super_down: bool,
@@ -75,10 +81,28 @@ pub(crate) struct ClusterJoinCandidate {
 }
 
 #[derive(Clone)]
+pub(crate) enum BloomPullPhase {
+    Pressed,
+    Tethered {
+        started_at_ms: u64,
+    },
+    Snapback {
+        started_at_ms: u64,
+        from_offset: Vec2,
+    },
+}
+
+#[derive(Clone)]
 pub(crate) struct BloomPullPreview {
     pub(crate) cluster_id: ClusterId,
     pub(crate) member_id: NodeId,
-    pub(crate) mix: f32,
+    pub(crate) monitor: String,
+    pub(crate) core_screen: Vec2,
+    pub(crate) slot_screen: Vec2,
+    pub(crate) pointer_screen: Vec2,
+    pub(crate) display_offset: Vec2,
+    pub(crate) hold_progress: f32,
+    pub(crate) phase: BloomPullPhase,
 }
 
 #[derive(Clone)]
@@ -204,6 +228,102 @@ pub(crate) fn tick_cluster_join_candidate_ready(st: &mut Halley, now_ms: u64) {
 pub(crate) fn resize_static_active_for(st: &Halley, node_id: NodeId, now_ms: u64) -> bool {
     st.input.interaction_state.resize_static_node == Some(node_id)
         && now_ms < st.input.interaction_state.resize_static_until_ms
+}
+
+#[inline]
+pub(crate) fn bloom_pull_slop_px() -> f32 {
+    BLOOM_PULL_SLOP_PX
+}
+
+#[inline]
+pub(crate) fn bloom_detach_hold_ms() -> u64 {
+    BLOOM_DETACH_HOLD_MS
+}
+
+#[cfg(test)]
+#[inline]
+pub(crate) fn bloom_tether_max_px() -> f32 {
+    BLOOM_TETHER_MAX_PX
+}
+
+pub(crate) fn bloom_pull_constrained_offset(raw_offset: Vec2) -> Vec2 {
+    let raw_len = raw_offset.x.hypot(raw_offset.y);
+    if raw_len <= f32::EPSILON {
+        return Vec2 { x: 0.0, y: 0.0 };
+    }
+    let display_len = BLOOM_TETHER_MAX_PX * (1.0 - (-raw_len / BLOOM_TETHER_SOFTNESS_PX).exp());
+    let scale = display_len / raw_len;
+    Vec2 {
+        x: raw_offset.x * scale,
+        y: raw_offset.y * scale,
+    }
+}
+
+#[inline]
+pub(crate) fn bloom_pull_display_mix(display_offset: Vec2) -> f32 {
+    (display_offset.x.hypot(display_offset.y) / BLOOM_TETHER_MAX_PX).clamp(0.0, 1.0)
+}
+
+#[inline]
+fn bloom_snapback_progress(started_at_ms: u64, now_ms: u64) -> f32 {
+    (now_ms.saturating_sub(started_at_ms) as f32 / BLOOM_SNAPBACK_MS.max(1) as f32).clamp(0.0, 1.0)
+}
+
+pub(crate) fn bloom_pull_preview_needs_animation(st: &Halley) -> bool {
+    st.input
+        .interaction_state
+        .bloom_pull_preview
+        .as_ref()
+        .is_some_and(|preview| match preview.phase {
+            BloomPullPhase::Pressed => false,
+            BloomPullPhase::Tethered { .. } | BloomPullPhase::Snapback { .. } => true,
+        })
+}
+
+pub(crate) fn bloom_pull_preview_active_for_monitor(st: &Halley, monitor: &str) -> bool {
+    st.input
+        .interaction_state
+        .bloom_pull_preview
+        .as_ref()
+        .is_some_and(|preview| preview.monitor == monitor)
+}
+
+pub(crate) fn tick_bloom_pull_preview(st: &mut Halley, now_ms: u64) {
+    let mut clear_preview = false;
+    if let Some(preview) = st.input.interaction_state.bloom_pull_preview.as_mut() {
+        match preview.phase.clone() {
+            BloomPullPhase::Pressed => {
+                preview.hold_progress = 0.0;
+            }
+            BloomPullPhase::Tethered { started_at_ms } => {
+                preview.hold_progress = (now_ms.saturating_sub(started_at_ms) as f32
+                    / BLOOM_DETACH_HOLD_MS.max(1) as f32)
+                    .clamp(0.0, 1.0);
+            }
+            BloomPullPhase::Snapback {
+                started_at_ms,
+                from_offset,
+            } => {
+                let t = bloom_snapback_progress(started_at_ms, now_ms);
+                let eased = 1.0 - (1.0 - t).powi(3);
+                preview.display_offset = Vec2 {
+                    x: from_offset.x * (1.0 - eased),
+                    y: from_offset.y * (1.0 - eased),
+                };
+                preview.pointer_screen = Vec2 {
+                    x: preview.slot_screen.x + preview.display_offset.x,
+                    y: preview.slot_screen.y + preview.display_offset.y,
+                };
+                preview.hold_progress = 0.0;
+                if t >= 1.0 {
+                    clear_preview = true;
+                }
+            }
+        }
+    }
+    if clear_preview {
+        st.input.interaction_state.bloom_pull_preview = None;
+    }
 }
 
 #[inline]
@@ -468,6 +588,21 @@ mod tests {
             node_fully_visible_on_monitor(&state, monitor.as_str(), id),
             Some(true)
         );
+    }
+
+    #[test]
+    fn bloom_pull_constraint_stays_bounded() {
+        let offset = bloom_pull_constrained_offset(Vec2 { x: 400.0, y: 0.0 });
+        assert!(offset.x <= bloom_tether_max_px() + 0.01);
+        assert!(offset.y.abs() <= 0.01);
+    }
+
+    #[test]
+    fn bloom_pull_display_mix_tracks_constraint_extent() {
+        let offset = bloom_pull_constrained_offset(Vec2 { x: 18.0, y: 0.0 });
+        let mix = bloom_pull_display_mix(offset);
+        assert!(mix > 0.0);
+        assert!(mix <= 1.0);
     }
 
     #[test]

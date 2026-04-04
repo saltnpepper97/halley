@@ -73,6 +73,11 @@ pub(crate) fn resolve_hover_targets(
     Option<halley_core::field::NodeId>,
     Option<halley_core::field::NodeId>,
 ) {
+    let bloom_pluck_active =
+        ps.bloom_drag.is_some() || st.input.interaction_state.bloom_pull_preview.is_some();
+    if bloom_pluck_active {
+        return (None, None);
+    }
     let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
     let overlay_hover = st
         .input
@@ -106,6 +111,16 @@ pub(crate) fn resolve_hover_targets_for_monitor(
     Option<halley_core::field::NodeId>,
     Option<halley_core::field::NodeId>,
 ) {
+    let bloom_pluck_active = ps.bloom_drag.is_some()
+        || st
+            .input
+            .interaction_state
+            .bloom_pull_preview
+            .as_ref()
+            .is_some_and(|preview| preview.monitor == monitor);
+    if bloom_pluck_active {
+        return (None, None);
+    }
     let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
     let overlay_hover = st
         .input

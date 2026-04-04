@@ -132,6 +132,9 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
         {
             consider(deadline_ms);
         }
+        if crate::compositor::interaction::state::bloom_pull_preview_needs_animation(self) {
+            consider(now_ms.saturating_add(16));
+        }
         if self.runtime.tuning.debug_tick_dump {
             consider(
                 now_ms.saturating_add(
