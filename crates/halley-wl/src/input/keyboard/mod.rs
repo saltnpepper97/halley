@@ -7,6 +7,7 @@ use crate::input::ctx::InputCtx;
 
 use std::time::Instant;
 
+use eventline::info;
 use smithay::input::keyboard::FilterResult;
 use smithay::utils::SERIAL_COUNTER;
 
@@ -16,7 +17,7 @@ use self::bindings::{
 };
 use self::modkeys::{is_modifier_keycode, update_mod_state};
 use halley_config::CompositorBindingAction;
-use halley_config::keybinds::key_name_to_evdev;
+use halley_config::keybinds::{evdev_to_key_name, key_name_to_evdev};
 use smithay::backend::input::KeyState;
 
 #[inline]
@@ -36,6 +37,39 @@ fn cluster_mode_allows_keyboard_action(action: &CompositorBindingAction) -> bool
             | CompositorBindingAction::ZoomOut
             | CompositorBindingAction::ZoomReset
     )
+}
+
+fn log_keyboard_binding_resolution(
+    st: &Halley,
+    code: u32,
+    pressed: bool,
+    mods: &crate::compositor::interaction::ModState,
+    matched_action: Option<&CompositorBindingAction>,
+    matched_launch: Option<&str>,
+    matched_binding: bool,
+    intercept: bool,
+) {
+    if !st.runtime.tuning.debug_tick_dump {
+        return;
+    }
+
+    let evdev_guess = code.saturating_sub(8);
+    info!(
+        "keyboard {} raw_code={} raw_name={} evdev_guess={} evdev_name={} mods=[super:{} ctrl:{} alt:{} shift:{}] binding={} compositor={:?} launch={} intercept={}",
+        if pressed { "press" } else { "release" },
+        code,
+        evdev_to_key_name(code),
+        evdev_guess,
+        evdev_to_key_name(evdev_guess),
+        mods.super_down,
+        mods.ctrl_down,
+        mods.alt_down,
+        mods.shift_down,
+        matched_binding,
+        matched_action,
+        matched_launch.unwrap_or("-"),
+        intercept,
+    );
 }
 
 pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
@@ -122,7 +156,21 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     } else {
         None
     };
+    let matched_launch = if pressed && !is_mod_key {
+        st.runtime
+            .tuning
+            .launch_bindings
+            .iter()
+            .find(|binding| {
+                bindings::input_matches_binding(code, binding.key)
+                    && self::modkeys::modifier_exact(&mods, binding.modifiers)
+            })
+            .map(|binding| binding.command.clone())
+    } else {
+        None
+    };
     let matched_binding = matched_action.is_some()
+        || matched_launch.is_some()
         || (pressed && !is_mod_key && key_is_compositor_binding(st, code, &mods));
     let cluster_blocks_key = st.cluster_mode_active() && !is_mod_key;
     let cluster_allowed_action = matched_action
@@ -231,6 +279,17 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
             },
         );
     }
+
+    log_keyboard_binding_resolution(
+        st,
+        code,
+        pressed,
+        &mods,
+        matched_action.as_ref(),
+        matched_launch.as_deref(),
+        matched_binding,
+        intercept,
+    );
 
     if pressed
         && matched_binding

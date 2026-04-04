@@ -115,6 +115,10 @@ pub(crate) fn apply_reloaded_tuning(
     let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     info!("{reason}: reloaded config from {}", config_path);
+    info!(
+        "resolved zoom: {}",
+        st.runtime.tuning.zoom_resolved_summary()
+    );
 }
 
 fn normalized_tty_viewports(

@@ -240,6 +240,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             info!("config path: {}", config_path.as_str());
             info!("keybind modifier: {}", tuning.keybinds.modifier_name());
             info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
+            info!("resolved zoom: {}", tuning.zoom_resolved_summary());
 
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
@@ -731,6 +732,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             );
                         }
                         info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                        info!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                         halley_ipc::Response::Reloaded
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
@@ -823,6 +825,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 }
                 if reloaded {
                     info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                    info!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                 }
 
                 if st.runtime.tuning.debug_tick_dump {

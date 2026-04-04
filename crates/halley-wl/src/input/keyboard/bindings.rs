@@ -148,6 +148,10 @@ pub(crate) fn apply_compositor_action_press(
                     "resolved keybinds: {}",
                     st.runtime.tuning.keybinds_resolved_summary()
                 );
+                info!(
+                    "resolved zoom: {}",
+                    st.runtime.tuning.zoom_resolved_summary()
+                );
             } else {
                 warn!(
                     "manual reload skipped for {} because config parse/load failed",

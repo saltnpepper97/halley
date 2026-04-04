@@ -11,8 +11,8 @@ use crate::keybinds::{
 };
 use crate::layout::RuntimeTuning;
 
-pub(crate) fn parse_inline_keybinds(content: &str) -> Result<HashMap<String, String>, String> {
-    let mut out = HashMap::new();
+pub(crate) fn parse_inline_keybinds(content: &str) -> Result<Vec<(String, String)>, String> {
+    let mut out = Vec::new();
     let mut in_block = false;
     let mut depth = 0usize;
 
@@ -52,7 +52,7 @@ pub(crate) fn parse_inline_keybinds(content: &str) -> Result<HashMap<String, Str
                 line_no + 1
             ));
         };
-        out.insert(k, v);
+        out.push((k, v));
     }
 
     Ok(out)
@@ -153,16 +153,30 @@ pub(crate) fn apply_explicit_keybind_overrides(
     let Ok(Some(bindings)) = cfg.get_optional::<HashMap<String, String>>("keybinds") else {
         return Ok(());
     };
-    apply_explicit_keybind_overrides_map(&bindings, out)
+    let entries = bindings.into_iter().collect::<Vec<_>>();
+    apply_explicit_keybind_overrides_entries(&entries, out)
 }
 
+#[cfg(test)]
 pub(crate) fn apply_explicit_keybind_overrides_map(
     bindings: &HashMap<String, String>,
     out: &mut RuntimeTuning,
 ) -> Result<(), String> {
+    let entries = bindings
+        .iter()
+        .map(|(chord, action)| (chord.clone(), action.clone()))
+        .collect::<Vec<_>>();
+    apply_explicit_keybind_overrides_entries(&entries, out)
+}
+
+pub(crate) fn apply_explicit_keybind_overrides_entries(
+    bindings: &[(String, String)],
+    out: &mut RuntimeTuning,
+) -> Result<(), String> {
     let mod_token = bindings
-        .get("mod")
-        .cloned()
+        .iter()
+        .rev()
+        .find_map(|(chord, action)| chord.eq_ignore_ascii_case("mod").then(|| action.clone()))
         .unwrap_or_else(|| out.keybinds.modifier_name());
 
     let Some(m) = parse_modifiers(mod_token.as_str()) else {
@@ -535,8 +549,8 @@ fn upsert_pointer_binding(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_explicit_keybind_overrides_map, parse_inline_keybinds,
-        parse_parameterized_compositor_action,
+        apply_explicit_keybind_overrides_entries, apply_explicit_keybind_overrides_map,
+        parse_inline_keybinds, parse_parameterized_compositor_action,
     };
     use crate::keybinds::{
         ClusterBindingAction, CompositorBindingAction, CompositorBindingScope, DirectionalAction,
@@ -611,8 +625,28 @@ end
 "#;
         let parsed = parse_inline_keybinds(raw).expect("comments should be ignored");
         assert_eq!(
-            parsed.get("mod+l").map(String::as_str),
-            Some("cluster-layout cycle")
+            parsed,
+            vec![("mod+l".to_string(), "cluster-layout cycle".to_string())]
+        );
+    }
+
+    #[test]
+    fn inline_keybinds_preserve_duplicate_chords() {
+        let raw = r#"
+keybinds:
+  "mod+left" "move-left"
+  "mod+left" "tile-focus left"
+  "mod+left" "stack-cycle backward"
+end
+"#;
+        let parsed = parse_inline_keybinds(raw).expect("duplicate chords should parse");
+        assert_eq!(
+            parsed,
+            vec![
+                ("mod+left".to_string(), "move-left".to_string()),
+                ("mod+left".to_string(), "tile-focus left".to_string()),
+                ("mod+left".to_string(), "stack-cycle backward".to_string()),
+            ]
         );
     }
 
@@ -635,5 +669,42 @@ end
         let mut out = RuntimeTuning::default();
         let bindings = HashMap::from([(String::from("mod"), String::from("bogus"))]);
         assert!(apply_explicit_keybind_overrides_map(&bindings, &mut out).is_err());
+    }
+
+    #[test]
+    fn explicit_keybind_entries_allow_duplicate_chords_across_scopes() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+
+        let bindings = vec![
+            ("mod".to_string(), "super".to_string()),
+            ("mod+left".to_string(), "move-left".to_string()),
+            ("mod+left".to_string(), "tile-focus left".to_string()),
+            ("mod+left".to_string(), "stack-cycle backward".to_string()),
+        ];
+
+        assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+        assert_eq!(out.compositor_bindings.len(), 3);
+        assert!(out.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Field
+                && binding.action
+                    == CompositorBindingAction::Node(crate::keybinds::NodeBindingAction::Move(
+                        DirectionalAction::Left,
+                    ))
+        }));
+        assert!(out.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Tile
+                && binding.action
+                    == CompositorBindingAction::Tile(TileBindingAction::Focus(
+                        DirectionalAction::Left,
+                    ))
+        }));
+        assert!(out.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Stack
+                && binding.action
+                    == CompositorBindingAction::Stack(crate::keybinds::StackBindingAction::Cycle(
+                        crate::keybinds::StackCycleDirection::Backward,
+                    ))
+        }));
     }
 }

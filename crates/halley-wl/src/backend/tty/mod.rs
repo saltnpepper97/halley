@@ -178,6 +178,27 @@ fn tty_animation_redraw_active(
     })
 }
 
+fn tty_output_ready_for_redraw(
+    outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
+    dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
+    output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
+) -> bool {
+    let outputs_ref = outputs.borrow();
+    let dpms_ref = dpms_enabled.borrow();
+    let pending_ref = output_frame_pending.borrow();
+
+    outputs_ref.iter().any(|output| {
+        dpms_ref
+            .get(output.connector_name.as_str())
+            .copied()
+            .unwrap_or(true)
+            && !pending_ref
+                .get(output.connector_name.as_str())
+                .copied()
+                .unwrap_or(false)
+    })
+}
+
 fn advance_tty_redraw_frame(
     st: &mut Halley,
     pointer_state: &Rc<RefCell<PointerState>>,
@@ -666,6 +687,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             info!("config path: {}", config_path.as_str());
             info!("keybind modifier: {}", tuning.keybinds.modifier_name());
             info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
+            info!("resolved zoom: {}", tuning.zoom_resolved_summary());
 
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
@@ -1124,6 +1146,23 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             ev.handle()
                 .insert_source(redraw_source, move |_event, _metadata, st| {
                     let now = Instant::now();
+                    let animation_redraw_active = tty_animation_redraw_active(
+                        st,
+                        &outputs_for_redraw,
+                        &pointer_state_for_redraw,
+                        now,
+                    );
+                    let any_output_ready = tty_output_ready_for_redraw(
+                        &outputs_for_redraw,
+                        &dpms_enabled_for_redraw,
+                        &output_frame_pending_for_redraw,
+                    );
+                    if animation_redraw_active && !any_output_ready {
+                        debug!(
+                            "tty redraw pacing: skipped frame advancement because all outputs are pending"
+                        );
+                        return;
+                    }
                     advance_tty_redraw_frame(st, &pointer_state_for_redraw, now, false);
                     let ps = pointer_state_for_redraw.borrow();
                     let resize_preview = ps.resize;
@@ -1470,6 +1509,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             );
                         }
                         info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                        info!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                         halley_ipc::Response::Reloaded
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
@@ -1623,6 +1663,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 }
                 if reloaded {
                     info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                    info!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                 }
 
                 let ps = pointer_state_for_timer.borrow();

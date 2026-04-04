@@ -208,4 +208,16 @@ impl RuntimeTuning {
             self.pointer_bindings.len(),
         )
     }
+
+    pub fn zoom_resolved_summary(&self) -> String {
+        format!(
+            "enabled={} step={:.3} min={:.3} max={:.3} smooth={} smooth_rate={:.3}",
+            self.zoom_enabled,
+            self.zoom_step,
+            self.zoom_min,
+            self.zoom_max,
+            self.zoom_smooth,
+            self.zoom_smooth_rate,
+        )
+    }
 }

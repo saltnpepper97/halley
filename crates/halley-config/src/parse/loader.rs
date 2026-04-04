@@ -3,7 +3,7 @@ use rune_cfg::RuneConfig;
 use crate::layout::RuntimeTuning;
 
 use super::keybinds::{
-    apply_explicit_keybind_overrides_map, parse_inline_keybinds, strip_inline_keybind_block,
+    apply_explicit_keybind_overrides_entries, parse_inline_keybinds, strip_inline_keybind_block,
 };
 use super::rules::load_rules_section;
 use super::sections::{
@@ -60,7 +60,7 @@ impl RuntimeTuning {
         }
 
         if !inline_keybinds.is_empty() {
-            if let Err(err) = apply_explicit_keybind_overrides_map(&inline_keybinds, &mut out) {
+            if let Err(err) = apply_explicit_keybind_overrides_entries(&inline_keybinds, &mut out) {
                 eprintln!("halley config keybind parse error: {err}");
                 return None;
             }
