@@ -1,8 +1,8 @@
+mod keybinds;
 mod loader;
 mod primitives;
 mod rules;
-mod keybinds;
-mod viewport;
 mod sections;
+mod viewport;
 
 pub use loader::from_rune_file;

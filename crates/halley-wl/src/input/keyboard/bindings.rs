@@ -124,7 +124,7 @@ pub(crate) fn apply_compositor_action_press(
 ) -> bool {
     match action {
         CompositorBindingAction::Quit { .. } => {
-            st.request_exit();
+            st.show_exit_confirm_overlay();
             info!("quit requested via keybind");
             true
         }

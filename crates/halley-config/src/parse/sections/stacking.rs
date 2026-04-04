@@ -16,4 +16,3 @@ pub(crate) fn load_stacking_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.stacking_max_visible as u64,
     ) as usize;
 }
-

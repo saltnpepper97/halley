@@ -2,7 +2,9 @@ use rune_cfg::RuneConfig;
 
 use crate::layout::RuntimeTuning;
 
-use super::super::primitives::{pick_bool, pick_decoration_border_color, pick_i32, pick_optional_bool};
+use super::super::primitives::{
+    pick_bool, pick_decoration_border_color, pick_i32, pick_optional_bool,
+};
 
 pub(crate) fn load_decorations_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.border_size_px = pick_i32(
@@ -75,4 +77,3 @@ pub(crate) fn load_decorations_section(cfg: &RuneConfig, out: &mut RuntimeTuning
         out.no_csd = no_csd;
     }
 }
-

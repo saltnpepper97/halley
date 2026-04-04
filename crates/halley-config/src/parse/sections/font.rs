@@ -13,4 +13,3 @@ pub(crate) fn load_font_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     }
     out.font.size = pick_u32(cfg, &["font.size"], out.font.size);
 }
-

@@ -44,14 +44,45 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     code: u32,
     pressed: bool,
 ) {
+    let exit_confirm_active = st.exit_confirm_active();
+    update_mod_state(&mut ctx.mod_state.borrow_mut(), code, pressed);
+    let exit_escape = key_name_to_evdev("escape").map(|code| code + 8);
+    let exit_return = key_name_to_evdev("return").map(|code| code + 8);
+    if exit_confirm_active {
+        if let Some(keyboard) = st.platform.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(
+                st,
+                code.into(),
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+                serial,
+                now_millis_u32(),
+                |_, _, _| FilterResult::Intercept(()),
+            );
+        }
+        if pressed {
+            if Some(code) == exit_escape {
+                st.clear_exit_confirm_overlay();
+                ctx.backend.request_redraw();
+            } else if Some(code) == exit_return {
+                st.clear_exit_confirm_overlay();
+                st.request_exit();
+                ctx.backend.request_redraw();
+            }
+        }
+        return;
+    }
+
     if pressed {
         let now_ms = st.now_ms(Instant::now());
         if crate::compositor::interaction::state::note_typing_activity(st, now_ms) {
             ctx.backend.request_redraw();
         }
     }
-
-    update_mod_state(&mut ctx.mod_state.borrow_mut(), code, pressed);
 
     let cluster_escape = key_name_to_evdev("escape").map(|code| code + 8);
     let cluster_return = key_name_to_evdev("return").map(|code| code + 8);

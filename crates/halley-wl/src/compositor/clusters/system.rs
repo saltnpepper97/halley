@@ -5,6 +5,7 @@ use crate::compositor::clusters::read::{
 };
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::interaction::state::InteractionState;
+use crate::overlay::OverlayActionHint;
 use halley_core::cluster::{ClusterId, ClusterRemoveMemberOutcome};
 use halley_core::cluster_layout::{ClusterCycleDirection, ClusterWorkspaceLayoutKind};
 use halley_core::field::RemoveNodeClusterEffect;
@@ -1030,7 +1031,17 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         self.ui.render_state.set_persistent_mode_banner(
             monitor.as_str(),
             "Cluster mode",
-            Some("Select windows • Enter to create • Esc to cancel"),
+            Some("Select windows"),
+            &[
+                OverlayActionHint {
+                    key: "Enter".to_string(),
+                    label: "create".to_string(),
+                },
+                OverlayActionHint {
+                    key: "Esc".to_string(),
+                    label: "cancel".to_string(),
+                },
+            ],
         );
         true
     }

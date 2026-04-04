@@ -8,13 +8,13 @@ use halley_core::viewport::{FocusRing, Viewport};
 
 use crate::keybinds::{CompositorBinding, Keybinds, LaunchBinding, PointerBinding};
 
+use super::paths::{absolutize_path, default_config_path};
 use super::{
     BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DecorationBorderColor,
     FocusRingConfig, FontConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
     PanToNewMode, ShapeStyle, ViewportOutputConfig, WindowRule,
 };
-use super::paths::{absolutize_path, default_config_path};
 
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
@@ -158,7 +158,6 @@ impl RuntimeTuning {
             unsafe { env::set_var(key, value) };
         }
     }
-
 
     pub fn viewport(&self) -> Viewport {
         Viewport::new(self.viewport_center, self.viewport_size)

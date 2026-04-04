@@ -55,4 +55,3 @@ fn parse_autostart_command(line: &str, directive: &str) -> Option<String> {
     }
     None
 }
-

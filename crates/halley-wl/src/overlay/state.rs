@@ -1,9 +1,16 @@
 use halley_core::cluster::ClusterId;
 
 #[derive(Clone, Debug)]
+pub(crate) struct OverlayActionHint {
+    pub(crate) key: String,
+    pub(crate) label: String,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct OverlayBannerState {
     pub(crate) title: String,
     pub(crate) subtitle: Option<String>,
+    pub(crate) actions: Vec<OverlayActionHint>,
     pub(crate) visible: bool,
     pub(crate) mix: f32,
 }
@@ -12,6 +19,7 @@ pub(crate) struct OverlayBannerState {
 pub(crate) struct OverlayBannerSnapshot {
     pub(crate) title: String,
     pub(crate) subtitle: Option<String>,
+    pub(crate) actions: Vec<OverlayActionHint>,
     pub(crate) mix: f32,
 }
 
@@ -25,6 +33,17 @@ pub(crate) struct OverlayToastState {
 #[derive(Clone, Debug)]
 pub(crate) struct OverlayToastSnapshot {
     pub(crate) message: String,
+    pub(crate) mix: f32,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ExitConfirmOverlayState {
+    pub(crate) visible: bool,
+    pub(crate) mix: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ExitConfirmOverlaySnapshot {
     pub(crate) mix: f32,
 }
 

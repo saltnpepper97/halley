@@ -1,9 +1,9 @@
-mod types;
-mod modifiers;
 mod chord;
 mod codes;
+mod modifiers;
+mod types;
 
-pub use types::*;
-pub use modifiers::{modifiers_empty, parse_modifiers};
 pub use chord::*;
 pub use codes::*;
+pub use modifiers::{modifiers_empty, parse_modifiers};
+pub use types::*;

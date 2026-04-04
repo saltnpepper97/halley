@@ -237,4 +237,3 @@ impl ViewportVrrMode {
         !matches!(self, Self::Off)
     }
 }
-

@@ -2,7 +2,9 @@ use rune_cfg::RuneConfig;
 
 use crate::layout::RuntimeTuning;
 
-use super::super::primitives::{pick_bool, pick_cluster_bloom_direction, pick_cluster_default_layout, pick_f32, pick_u64};
+use super::super::primitives::{
+    pick_bool, pick_cluster_bloom_direction, pick_cluster_default_layout, pick_f32, pick_u64,
+};
 
 pub(crate) fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.cluster_distance_px = pick_f32(
@@ -31,4 +33,3 @@ pub(crate) fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.cluster_default_layout,
     );
 }
-

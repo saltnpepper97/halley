@@ -234,9 +234,7 @@ pub fn evdev_to_key_name(code: u32) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        WHEEL_DOWN_CODE, WHEEL_UP_CODE, evdev_to_key_name, key_name_to_evdev,
-    };
+    use super::{WHEEL_DOWN_CODE, WHEEL_UP_CODE, evdev_to_key_name, key_name_to_evdev};
     use crate::keybinds::{parse_chord, parse_modifiers};
 
     #[test]

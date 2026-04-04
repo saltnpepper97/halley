@@ -1,6 +1,6 @@
 use crate::layout::{
-    InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
-    InitialWindowSpawnPlacement, RuntimeTuning, WindowRule, WindowRulePattern,
+    InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
+    RuntimeTuning, WindowRule, WindowRulePattern,
 };
 
 #[derive(Default)]
@@ -298,4 +298,3 @@ fn parse_string_array_literal(
     }
     Ok(out)
 }
-

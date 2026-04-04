@@ -3,16 +3,16 @@ use std::collections::HashMap;
 use halley_core::field::Vec2;
 
 use crate::keybinds::{
-    key_name_to_evdev, BearingsBindingAction, CompositorBinding, CompositorBindingAction,
-    CompositorBindingScope, DirectionalAction, KeyModifiers, Keybinds, NodeBindingAction,
-    PointerBinding, PointerBindingAction, TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
+    BearingsBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
+    DirectionalAction, KeyModifiers, Keybinds, NodeBindingAction, PointerBinding,
+    PointerBindingAction, TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE, key_name_to_evdev,
 };
 
 use super::{
     BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DecorationBorderColor,
-    FontConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode,
-    RuntimeTuning, ShapeStyle,
+    ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DecorationBorderColor, FontConfig,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode, RuntimeTuning,
+    ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -260,4 +260,3 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
         },
     ]
 }
-

@@ -195,4 +195,3 @@ pub(crate) fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.click_collapsed_pan,
     );
 }
-

@@ -309,6 +309,9 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     button_code: u32,
     button_state: ButtonState,
 ) {
+    if st.exit_confirm_active() {
+        return;
+    }
     if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
         ctx.backend.request_redraw();
     }

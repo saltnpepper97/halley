@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rune_cfg::RuneConfig;
 
-use crate::keybinds::{parse_modifiers, KeyModifiers};
+use crate::keybinds::{KeyModifiers, parse_modifiers};
 use crate::layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, FocusRingConfig,
@@ -24,7 +24,11 @@ pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>,
     }
 }
 
-pub(crate) fn pick_pan_to_new_mode(cfg: &RuneConfig, paths: &[&str], default: PanToNewMode) -> PanToNewMode {
+pub(crate) fn pick_pan_to_new_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: PanToNewMode,
+) -> PanToNewMode {
     for path in paths {
         if let Ok(Some(v)) = cfg.get_optional::<bool>(path) {
             return if v {
@@ -125,7 +129,11 @@ pub(crate) fn pick_cluster_default_layout(
     }
 }
 
-pub(crate) fn parse_viewport_focus_ring(cfg: &RuneConfig, root: &str, key: &str) -> Option<FocusRingConfig> {
+pub(crate) fn parse_viewport_focus_ring(
+    cfg: &RuneConfig,
+    root: &str,
+    key: &str,
+) -> Option<FocusRingConfig> {
     let ring_root = format!("{root}.{key}.focus-ring");
     let rx = pick_f32(
         cfg,
@@ -300,7 +308,11 @@ pub(crate) fn pick_node_background_color_mode(
     }
 }
 
-pub(crate) fn pick_shape_style(cfg: &RuneConfig, paths: &[&str], default: ShapeStyle) -> ShapeStyle {
+pub(crate) fn pick_shape_style(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: ShapeStyle,
+) -> ShapeStyle {
     let Some(raw) = pick_string(cfg, paths) else {
         return default;
     };
@@ -345,7 +357,11 @@ pub(crate) fn parse_hex_rgb(value: &str) -> Option<(f32, f32, f32)> {
     Some((r, g, b))
 }
 
-pub(crate) fn pick_modifiers(cfg: &RuneConfig, paths: &[&str], default: KeyModifiers) -> KeyModifiers {
+pub(crate) fn pick_modifiers(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: KeyModifiers,
+) -> KeyModifiers {
     for path in paths {
         if let Ok(Some(v)) = cfg.get_optional::<String>(path)
             && let Some(m) = parse_modifiers(v.as_str())
@@ -355,4 +371,3 @@ pub(crate) fn pick_modifiers(cfg: &RuneConfig, paths: &[&str], default: KeyModif
     }
     default
 }
-

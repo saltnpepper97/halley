@@ -52,4 +52,3 @@ pub(crate) fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.tile_max_stack as u64,
     ) as usize;
 }
-

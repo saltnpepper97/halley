@@ -2,7 +2,9 @@ use rune_cfg::RuneConfig;
 
 use crate::layout::RuntimeTuning;
 
-use super::super::primitives::{pick_bool, pick_close_restore_pan_mode, pick_f32, pick_pan_to_new_mode};
+use super::super::primitives::{
+    pick_bool, pick_close_restore_pan_mode, pick_f32, pick_pan_to_new_mode,
+};
 
 pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.non_overlap_gap_px = pick_f32(cfg, &["field.gap", "field.gap-px"], out.non_overlap_gap_px);
@@ -44,4 +46,3 @@ pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.zoom_smooth_rate,
     );
 }
-

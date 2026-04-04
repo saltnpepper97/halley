@@ -58,6 +58,11 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
     st.cluster_mode_active_for_monitor(monitor)
         || st.ui.render_state.overlay_banner.contains_key(monitor)
         || st.ui.render_state.overlay_toast.contains_key(monitor)
+        || st
+            .ui
+            .render_state
+            .overlay_exit_confirm
+            .contains_key(monitor)
 }
 
 pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {

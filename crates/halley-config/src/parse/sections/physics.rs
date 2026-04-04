@@ -10,4 +10,3 @@ pub(crate) fn load_physics_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.non_overlap_bump_damping =
         pick_f32(cfg, &["physics.damping"], out.non_overlap_bump_damping);
 }
-

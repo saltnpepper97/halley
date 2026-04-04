@@ -14,6 +14,7 @@ use smithay::{
 
 use crate::compositor::root::Halley;
 use crate::render::state::RenderState;
+use crate::render::utils::draw_rect;
 
 use crate::render::text::{draw_ui_text, draw_ui_text_in, ui_text_size, ui_text_size_in};
 
@@ -21,7 +22,8 @@ pub(crate) use cluster_bloom::{
     bloom_token_hit_test, draw_cluster_bloom, ensure_cluster_bloom_icon_resources,
 };
 pub(crate) use state::{
-    ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot, OverlayBannerState,
+    ClusterBloomAnimSnapshot, ClusterBloomAnimState, ExitConfirmOverlaySnapshot,
+    ExitConfirmOverlayState, OverlayActionHint, OverlayBannerSnapshot, OverlayBannerState,
     OverlayToastSnapshot, OverlayToastState,
 };
 pub(crate) use view::OverlayView;
@@ -32,23 +34,148 @@ const BANNER_GAP: i32 = 6;
 const BANNER_EDGE_PAD: i32 = 18;
 const BANNER_TITLE_SCALE: i32 = 2;
 const BANNER_META_SCALE: i32 = 2;
+const ACTION_ROW_GAP_Y: i32 = 10;
+const ACTION_ITEM_GAP: i32 = 18;
+const ACTION_LABEL_GAP: i32 = 8;
+const ACTION_KEY_PAD_X: i32 = 8;
+const ACTION_KEY_PAD_Y: i32 = 6;
+const ACTION_KEY_MIN_W: i32 = 48;
+const ACTION_KEY_SCALE: i32 = BANNER_META_SCALE;
+const ACTION_LABEL_SCALE: i32 = BANNER_META_SCALE;
 const SELECT_MARKER_SCALE: i32 = 2;
 const TOAST_PAD_X: i32 = 14;
 const TOAST_PAD_Y: i32 = 10;
 const TOAST_SCALE: i32 = 2;
 const TOAST_META_SCALE: i32 = 2;
+const EXIT_CONFIRM_PAD_X: i32 = 18;
+const EXIT_CONFIRM_PAD_Y: i32 = 16;
+const EXIT_CONFIRM_TITLE_SCALE: i32 = 2;
+const EXIT_CONFIRM_MIN_WIDTH: i32 = 280;
+const EXIT_CONFIRM_MAX_WIDTH_PAD: i32 = 36;
 const SELECT_MARKER_PAD_X: i32 = 8;
 const SELECT_MARKER_PAD_Y: i32 = 4;
 const OVERFLOW_ICON_PAD: i32 = 8;
 const OVERFLOW_ICON_SIZE: i32 = 40;
 const OVERFLOW_ICON_GAP: i32 = 8;
+const EXIT_CONFIRM_TITLE: &str = "Are you sure you want to leave?";
 const UI_CHIP_TEXT: Color32F = Color32F::new(0.08, 0.10, 0.12, 1.0);
 const UI_CHIP_FILL: Color32F = Color32F::new(0.92, 0.95, 0.98, 1.0);
 const UI_CHIP_SUBTEXT: Color32F = Color32F::new(0.24, 0.28, 0.33, 1.0);
+const UI_ACTION_KEY_FILL: Color32F = Color32F::new(0.84, 0.88, 0.92, 1.0);
+const UI_ACTION_KEY_TEXT: Color32F = Color32F::new(0.08, 0.10, 0.12, 1.0);
 
 fn overlay_text_mix(mix: f32) -> f32 {
     let t = ((mix - 0.10) / 0.90).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
+}
+
+fn overlay_action_item_metrics(
+    render_state: &RenderState,
+    font: &halley_config::FontConfig,
+    key: &str,
+    label: &str,
+) -> (i32, i32, i32, i32, i32) {
+    let (key_w, key_h) = ui_text_size_in(render_state, font, key, ACTION_KEY_SCALE);
+    let (label_w, label_h) = ui_text_size_in(render_state, font, label, ACTION_LABEL_SCALE);
+    let keycap_w = (key_w + ACTION_KEY_PAD_X * 2).max(ACTION_KEY_MIN_W);
+    let keycap_h = (key_h + ACTION_KEY_PAD_Y * 2).max(20);
+    let item_w = keycap_w + ACTION_LABEL_GAP + label_w;
+    let item_h = keycap_h.max(label_h);
+    (item_w, item_h, keycap_w, keycap_h, label_h)
+}
+
+fn overlay_action_row_size(
+    render_state: &RenderState,
+    font: &halley_config::FontConfig,
+    actions: &[(&str, &str)],
+) -> (i32, i32) {
+    let mut total_w = 0;
+    let mut total_h = 0;
+    for (index, (key, label)) in actions.iter().enumerate() {
+        let (item_w, item_h, _, _, _) = overlay_action_item_metrics(render_state, font, key, label);
+        if index > 0 {
+            total_w += ACTION_ITEM_GAP;
+        }
+        total_w += item_w;
+        total_h = total_h.max(item_h);
+    }
+    (total_w, total_h)
+}
+
+fn draw_overlay_action_row(
+    frame: &mut GlesFrame<'_, '_>,
+    render_state: &RenderState,
+    rounded: bool,
+    font: &halley_config::FontConfig,
+    x: i32,
+    y: i32,
+    actions: &[(&str, &str)],
+    damage: Rectangle<i32, Physical>,
+    alpha: f32,
+) -> Result<(), Box<dyn Error>> {
+    let (_, row_h) = overlay_action_row_size(render_state, font, actions);
+    let mut cursor_x = x;
+    for (index, (key, label)) in actions.iter().enumerate() {
+        if index > 0 {
+            cursor_x += ACTION_ITEM_GAP;
+        }
+        let (item_w, _item_h, keycap_w, keycap_h, label_h) =
+            overlay_action_item_metrics(render_state, font, key, label);
+        let key_rect = Rectangle::<i32, Physical>::new(
+            (cursor_x, y + (row_h - keycap_h) / 2).into(),
+            (keycap_w, keycap_h).into(),
+        );
+        draw_overlay_chip(
+            frame,
+            render_state,
+            rounded,
+            key_rect,
+            10.0,
+            Color32F::new(
+                UI_ACTION_KEY_FILL.r(),
+                UI_ACTION_KEY_FILL.g(),
+                UI_ACTION_KEY_FILL.b(),
+                0.98 * alpha,
+            ),
+            damage,
+            alpha,
+        )?;
+        let (key_w, key_h) = ui_text_size_in(render_state, font, key, ACTION_KEY_SCALE);
+        draw_ui_text_in(
+            frame,
+            render_state,
+            font,
+            key_rect.loc.x + (key_rect.size.w - key_w) / 2,
+            key_rect.loc.y + (key_rect.size.h - key_h) / 2,
+            key,
+            ACTION_KEY_SCALE,
+            Color32F::new(
+                UI_ACTION_KEY_TEXT.r(),
+                UI_ACTION_KEY_TEXT.g(),
+                UI_ACTION_KEY_TEXT.b(),
+                alpha,
+            ),
+            damage,
+        )?;
+        draw_ui_text_in(
+            frame,
+            render_state,
+            font,
+            cursor_x + keycap_w + ACTION_LABEL_GAP,
+            y + (row_h - label_h) / 2,
+            label,
+            ACTION_LABEL_SCALE,
+            Color32F::new(
+                UI_CHIP_SUBTEXT.r(),
+                UI_CHIP_SUBTEXT.g(),
+                UI_CHIP_SUBTEXT.b(),
+                alpha * 0.96,
+            ),
+            damage,
+        )?;
+        cursor_x += item_w;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -350,6 +477,11 @@ pub(crate) fn draw_persistent_banner(
     banner: &OverlayBannerSnapshot,
 ) -> Result<(), Box<dyn Error>> {
     let text_mix = overlay_text_mix(banner.mix);
+    let actions = banner
+        .actions
+        .iter()
+        .map(|action| (action.key.as_str(), action.label.as_str()))
+        .collect::<Vec<_>>();
     let (title_w, title_h) = ui_text_size_in(
         render_state,
         font,
@@ -361,13 +493,19 @@ pub(crate) fn draw_persistent_banner(
         .as_ref()
         .map(|text| ui_text_size_in(render_state, font, text.as_str(), BANNER_META_SCALE))
         .unwrap_or((0, 0));
-    let width: i32 = title_w.max(meta_w) + BANNER_PAD_X * 2;
+    let (actions_w, actions_h) = overlay_action_row_size(render_state, font, actions.as_slice());
+    let width: i32 = title_w.max(meta_w).max(actions_w) + BANNER_PAD_X * 2;
     let height: i32 = BANNER_PAD_Y * 2
         + title_h
         + if banner.subtitle.is_some() {
             BANNER_GAP + meta_h
         } else {
             0
+        }
+        + if actions.is_empty() {
+            0
+        } else {
+            ACTION_ROW_GAP_Y + actions_h
         };
     let rect = Rectangle::<i32, Physical>::new(
         (BANNER_EDGE_PAD, BANNER_EDGE_PAD).into(),
@@ -379,17 +517,23 @@ pub(crate) fn draw_persistent_banner(
         render_state,
         rounded,
         rect,
-        14.0,
-        Color32F::new(0.95, 0.97, 0.99, 0.94 * banner.mix),
+        18.0,
+        Color32F::new(
+            UI_CHIP_FILL.r(),
+            UI_CHIP_FILL.g(),
+            UI_CHIP_FILL.b(),
+            0.97 * banner.mix,
+        ),
         damage,
         banner.mix,
     )?;
+    let mut row_y = rect.loc.y + BANNER_PAD_Y;
     draw_ui_text_in(
         frame,
         render_state,
         font,
         rect.loc.x + BANNER_PAD_X,
-        rect.loc.y + BANNER_PAD_Y,
+        row_y,
         banner.title.as_str(),
         BANNER_TITLE_SCALE,
         Color32F::new(
@@ -400,13 +544,15 @@ pub(crate) fn draw_persistent_banner(
         ),
         damage,
     )?;
+    row_y += title_h;
     if let Some(subtitle) = banner.subtitle.as_ref() {
+        row_y += BANNER_GAP;
         draw_ui_text_in(
             frame,
             render_state,
             font,
             rect.loc.x + BANNER_PAD_X,
-            rect.loc.y + BANNER_PAD_Y + title_h + BANNER_GAP,
+            row_y,
             subtitle.as_str(),
             BANNER_META_SCALE,
             Color32F::new(
@@ -416,6 +562,21 @@ pub(crate) fn draw_persistent_banner(
                 text_mix * 0.96,
             ),
             damage,
+        )?;
+        row_y += meta_h;
+    }
+    if !actions.is_empty() {
+        row_y += ACTION_ROW_GAP_Y;
+        draw_overlay_action_row(
+            frame,
+            render_state,
+            rounded,
+            font,
+            rect.loc.x + BANNER_PAD_X,
+            row_y,
+            actions.as_slice(),
+            damage,
+            text_mix,
         )?;
     }
     Ok(())
@@ -501,6 +662,89 @@ pub(crate) fn draw_toast(
     Ok(())
 }
 
+pub(crate) fn draw_exit_confirmation(
+    frame: &mut GlesFrame<'_, '_>,
+    render_state: &RenderState,
+    rounded: bool,
+    font: &halley_config::FontConfig,
+    screen_w: i32,
+    screen_h: i32,
+    damage: Rectangle<i32, Physical>,
+    exit_confirm: &ExitConfirmOverlaySnapshot,
+) -> Result<(), Box<dyn Error>> {
+    let text_mix = overlay_text_mix(exit_confirm.mix);
+    let actions = [("Enter", "leave"), ("Esc", "cancel")];
+    draw_rect(
+        frame,
+        0,
+        0,
+        screen_w.max(1),
+        screen_h.max(1),
+        Color32F::new(0.02, 0.03, 0.05, 0.62 * exit_confirm.mix),
+        damage,
+    )?;
+
+    let (title_w, title_h) = ui_text_size_in(
+        render_state,
+        font,
+        EXIT_CONFIRM_TITLE,
+        EXIT_CONFIRM_TITLE_SCALE,
+    );
+    let (actions_w, actions_h) = overlay_action_row_size(render_state, font, &actions);
+    let rect_w = (title_w.max(actions_w) + EXIT_CONFIRM_PAD_X * 2).clamp(
+        EXIT_CONFIRM_MIN_WIDTH,
+        (screen_w - EXIT_CONFIRM_MAX_WIDTH_PAD).max(EXIT_CONFIRM_MIN_WIDTH),
+    );
+    let rect_h = (EXIT_CONFIRM_PAD_Y * 2 + title_h + ACTION_ROW_GAP_Y + actions_h).max(72);
+    let rect_x = ((screen_w - rect_w) / 2).max(BANNER_EDGE_PAD);
+    let rect_y = ((screen_h - rect_h) / 2).max(BANNER_EDGE_PAD);
+    let rect = Rectangle::<i32, Physical>::new((rect_x, rect_y).into(), (rect_w, rect_h).into());
+
+    draw_overlay_chip(
+        frame,
+        render_state,
+        rounded,
+        rect,
+        18.0,
+        Color32F::new(
+            UI_CHIP_FILL.r(),
+            UI_CHIP_FILL.g(),
+            UI_CHIP_FILL.b(),
+            0.97 * exit_confirm.mix,
+        ),
+        damage,
+        exit_confirm.mix,
+    )?;
+    draw_ui_text_in(
+        frame,
+        render_state,
+        font,
+        rect.loc.x + EXIT_CONFIRM_PAD_X,
+        rect.loc.y + EXIT_CONFIRM_PAD_Y,
+        EXIT_CONFIRM_TITLE,
+        EXIT_CONFIRM_TITLE_SCALE,
+        Color32F::new(
+            UI_CHIP_TEXT.r(),
+            UI_CHIP_TEXT.g(),
+            UI_CHIP_TEXT.b(),
+            text_mix,
+        ),
+        damage,
+    )?;
+    draw_overlay_action_row(
+        frame,
+        render_state,
+        rounded,
+        font,
+        rect.loc.x + EXIT_CONFIRM_PAD_X,
+        rect.loc.y + EXIT_CONFIRM_PAD_Y + title_h + ACTION_ROW_GAP_Y,
+        &actions,
+        damage,
+        text_mix,
+    )?;
+    Ok(())
+}
+
 pub(crate) fn draw_monitor_hud(
     frame: &mut GlesFrame<'_, '_>,
     st: &mut Halley,
@@ -511,6 +755,23 @@ pub(crate) fn draw_monitor_hud(
 ) -> Result<(), Box<dyn Error>> {
     let overlay_monitor = st.model.monitor_state.current_monitor.clone();
     let rounded = st.runtime.tuning.border_radius_px > 0;
+    if let Some(exit_confirm) = st
+        .ui
+        .render_state
+        .exit_confirm_snapshot(overlay_monitor.as_str())
+    {
+        draw_exit_confirmation(
+            frame,
+            &st.ui.render_state,
+            rounded,
+            &st.runtime.tuning.font,
+            screen_w,
+            screen_h,
+            damage,
+            &exit_confirm,
+        )?;
+        return Ok(());
+    }
     if let Some(banner) = st
         .ui
         .render_state

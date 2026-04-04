@@ -62,5 +62,4 @@ impl RuntimeTuning {
         self.non_overlap_bump_damping = self.non_overlap_bump_damping.clamp(0.05, 1.0);
         self.drag_smoothing_boost = self.drag_smoothing_boost.clamp(0.1, 20.0);
     }
-
 }

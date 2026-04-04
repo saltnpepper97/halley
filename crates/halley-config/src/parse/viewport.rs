@@ -2,7 +2,9 @@ use rune_cfg::RuneConfig;
 
 use crate::layout::{ViewportOutputConfig, ViewportVrrMode};
 
-use super::primitives::{parse_viewport_focus_ring, pick_bool, pick_f32, pick_i32, pick_string, pick_u32};
+use super::primitives::{
+    parse_viewport_focus_ring, pick_bool, pick_f32, pick_i32, pick_string, pick_u32,
+};
 
 pub(crate) fn parse_viewport_outputs(cfg: &RuneConfig, root: &str) -> Vec<ViewportOutputConfig> {
     let mut out = Vec::new();
@@ -135,4 +137,3 @@ fn pick_viewport_vrr_mode(
         _ => default,
     }
 }
-

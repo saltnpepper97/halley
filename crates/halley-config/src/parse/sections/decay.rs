@@ -28,4 +28,3 @@ pub(crate) fn load_decay_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.inactive_outside_ring_delay_ms = inactive_s.saturating_mul(1000);
     out.docked_offscreen_delay_ms = docked_s.saturating_mul(1000);
 }
-

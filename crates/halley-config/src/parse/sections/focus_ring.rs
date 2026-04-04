@@ -46,4 +46,3 @@ pub(crate) fn load_focus_ring_section(cfg: &RuneConfig, out: &mut RuntimeTuning)
         out.focus_ring_ry,
     );
 }
-

@@ -82,4 +82,3 @@ pub fn parse_modifiers(text: &str) -> Option<KeyModifiers> {
         Some(KeyModifiers::default())
     }
 }
-

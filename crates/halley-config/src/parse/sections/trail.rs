@@ -12,4 +12,3 @@ pub(crate) fn load_trail_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     ) as usize;
     out.trail_wrap = pick_bool(cfg, &["trail.wrap", "trail.wrap-history"], out.trail_wrap);
 }
-

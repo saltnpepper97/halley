@@ -698,7 +698,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 drain_ipc_commands(|request| match request {
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
-                        st.request_exit();
+                        st.show_exit_confirm_overlay();
                         halley_ipc::Response::Ok
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Reload) => {

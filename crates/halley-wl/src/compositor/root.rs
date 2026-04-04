@@ -297,6 +297,7 @@ impl Halley {
                     cluster_bloom_mix: HashMap::new(),
                     overlay_banner: HashMap::new(),
                     overlay_toast: HashMap::new(),
+                    overlay_exit_confirm: HashMap::new(),
                     stack_cycle_transition: HashMap::new(),
                     ui_text: std::cell::RefCell::new(crate::render::text::UiTextRenderer::default()),
                     node_circle_texture: None,
@@ -589,6 +590,36 @@ impl Halley {
 
     pub(crate) fn set_focused_monitor(&mut self, name: &str) {
         super::monitor::state::set_focused_monitor(self, name)
+    }
+
+    pub(crate) fn show_exit_confirm_overlay(&mut self) {
+        let mut monitors: Vec<String> = self.model.monitor_state.monitors.keys().cloned().collect();
+        if monitors.is_empty() {
+            monitors.push(self.model.monitor_state.current_monitor.clone());
+        }
+        for monitor in monitors {
+            self.ui.render_state.show_exit_confirm(monitor.as_str());
+        }
+    }
+
+    pub(crate) fn clear_exit_confirm_overlay(&mut self) {
+        let mut monitors: Vec<String> = self
+            .ui
+            .render_state
+            .overlay_exit_confirm
+            .keys()
+            .cloned()
+            .collect();
+        if monitors.is_empty() {
+            monitors.push(self.model.monitor_state.current_monitor.clone());
+        }
+        for monitor in monitors {
+            self.ui.render_state.clear_exit_confirm(monitor.as_str());
+        }
+    }
+
+    pub(crate) fn exit_confirm_active(&self) -> bool {
+        self.ui.render_state.exit_confirm_visible()
     }
 
     pub(crate) fn reconfigure_active_tty_monitors(&mut self, active_outputs: &[String]) {

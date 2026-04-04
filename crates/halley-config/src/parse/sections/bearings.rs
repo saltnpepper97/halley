@@ -21,4 +21,3 @@ pub(crate) fn load_bearings_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.bearings.fade_distance,
     );
 }
-

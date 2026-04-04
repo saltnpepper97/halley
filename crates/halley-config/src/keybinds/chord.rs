@@ -1,4 +1,4 @@
-use super::{key_name_to_evdev, KeyModifiers};
+use super::{KeyModifiers, key_name_to_evdev};
 
 pub fn parse_chord(chord: &str) -> Option<(KeyModifiers, u32)> {
     let mut mods = KeyModifiers::default();
@@ -77,4 +77,3 @@ fn apply_modifier_token(mods: &mut KeyModifiers, token: &str) -> bool {
         _ => false,
     }
 }
-

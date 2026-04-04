@@ -23,4 +23,3 @@ pub(crate) fn load_cursor_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.cursor.hide_after_ms,
     );
 }
-

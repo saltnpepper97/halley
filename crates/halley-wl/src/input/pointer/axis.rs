@@ -36,6 +36,9 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     relative_direction_horizontal: AxisRelativeDirection,
     relative_direction_vertical: AxisRelativeDirection,
 ) {
+    if st.exit_confirm_active() {
+        return;
+    }
     if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
         ctx.backend.request_redraw();
     }

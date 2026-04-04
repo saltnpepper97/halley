@@ -30,4 +30,3 @@ pub(crate) fn load_dev_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     );
     out.dev_anim_bounce = pick_f32(cfg, &["dev.anim.bounce"], out.dev_anim_bounce);
 }
-

@@ -11,7 +11,8 @@ use smithay::utils::{Logical, Rectangle};
 
 use crate::animation::{Animator, ClusterTileTracks};
 use crate::overlay::{
-    ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot, OverlayBannerState,
+    ClusterBloomAnimSnapshot, ClusterBloomAnimState, ExitConfirmOverlaySnapshot,
+    ExitConfirmOverlayState, OverlayActionHint, OverlayBannerSnapshot, OverlayBannerState,
     OverlayToastSnapshot, OverlayToastState,
 };
 use crate::render::text::UiTextRenderer;
@@ -122,6 +123,7 @@ pub(crate) struct RenderState {
     pub(crate) cluster_bloom_mix: HashMap<String, ClusterBloomAnimState>,
     pub(crate) overlay_banner: HashMap<String, OverlayBannerState>,
     pub(crate) overlay_toast: HashMap<String, OverlayToastState>,
+    pub(crate) overlay_exit_confirm: HashMap<String, ExitConfirmOverlayState>,
     pub(crate) stack_cycle_transition: HashMap<String, StackCycleTransitionState>,
     pub(crate) ui_text: RefCell<UiTextRenderer>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
@@ -332,6 +334,7 @@ impl RenderState {
         monitor: &str,
         title: &str,
         subtitle: Option<&str>,
+        actions: &[OverlayActionHint],
     ) {
         let state = self
             .overlay_banner
@@ -339,11 +342,13 @@ impl RenderState {
             .or_insert_with(|| OverlayBannerState {
                 title: String::new(),
                 subtitle: None,
+                actions: Vec::new(),
                 visible: false,
                 mix: 0.0,
             });
         state.title = title.to_string();
         state.subtitle = subtitle.map(str::to_string);
+        state.actions = actions.to_vec();
         state.visible = true;
     }
 
@@ -371,6 +376,7 @@ impl RenderState {
         Some(OverlayBannerSnapshot {
             title: state.title.clone(),
             subtitle: state.subtitle.clone(),
+            actions: state.actions.clone(),
             mix: state.mix,
         })
     }
@@ -413,6 +419,49 @@ impl RenderState {
         Some(OverlayToastSnapshot {
             message: toast.message.clone().unwrap_or_default(),
             mix: toast.mix,
+        })
+    }
+
+    pub(crate) fn show_exit_confirm(&mut self, monitor: &str) {
+        let exit_confirm = self
+            .overlay_exit_confirm
+            .entry(monitor.to_string())
+            .or_default();
+        exit_confirm.visible = true;
+        if exit_confirm.mix < 0.12 {
+            exit_confirm.mix = 0.0;
+        }
+    }
+
+    pub(crate) fn clear_exit_confirm(&mut self, monitor: &str) {
+        if let Some(exit_confirm) = self.overlay_exit_confirm.get_mut(monitor) {
+            exit_confirm.visible = false;
+        }
+    }
+
+    pub(crate) fn exit_confirm_visible(&self) -> bool {
+        self.overlay_exit_confirm
+            .values()
+            .any(|state| state.visible)
+    }
+
+    pub(crate) fn exit_confirm_snapshot(
+        &mut self,
+        monitor: &str,
+    ) -> Option<ExitConfirmOverlaySnapshot> {
+        let exit_confirm = self.overlay_exit_confirm.get_mut(monitor)?;
+        let target = if exit_confirm.visible { 1.0 } else { 0.0 };
+        let k = if target > 0.5 { 0.34 } else { 0.24 };
+        exit_confirm.mix += (target - exit_confirm.mix) * k;
+        if (exit_confirm.mix - target).abs() < 0.015 {
+            exit_confirm.mix = target;
+        }
+        if target <= 0.0 && exit_confirm.mix <= 0.015 {
+            self.overlay_exit_confirm.remove(monitor);
+            return None;
+        }
+        Some(ExitConfirmOverlaySnapshot {
+            mix: exit_confirm.mix,
         })
     }
 

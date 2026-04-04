@@ -3,13 +3,12 @@ use std::collections::HashMap;
 use rune_cfg::RuneConfig;
 
 use crate::keybinds::{
-    is_pointer_button_code, parse_chord, parse_modifiers, BearingsBindingAction,
-    CompositorBinding, CompositorBindingAction, CompositorBindingScope, DirectionalAction,
-    KeyModifiers, LaunchBinding, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction,
-    PointerBinding, PointerBindingAction, StackBindingAction, StackCycleDirection,
-    TrailBindingAction,
+    BearingsBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
+    DirectionalAction, KeyModifiers, LaunchBinding, MonitorBindingAction, MonitorBindingTarget,
+    NodeBindingAction, PointerBinding, PointerBindingAction, StackBindingAction,
+    StackCycleDirection, TrailBindingAction, is_pointer_button_code, parse_chord, parse_modifiers,
 };
-use crate::layout::{default_compositor_bindings, default_pointer_bindings, RuntimeTuning};
+use crate::layout::{RuntimeTuning, default_compositor_bindings, default_pointer_bindings};
 
 pub(crate) fn parse_inline_keybinds(content: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
@@ -475,4 +474,3 @@ fn upsert_pointer_binding(
         action,
     });
 }
-

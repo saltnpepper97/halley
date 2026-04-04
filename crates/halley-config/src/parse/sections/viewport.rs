@@ -38,4 +38,3 @@ pub(crate) fn load_viewport_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.viewport_center.y = primary.offset_y as f32 + primary.height as f32 / 2.0;
     }
 }
-
