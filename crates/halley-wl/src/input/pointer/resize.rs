@@ -8,7 +8,8 @@ use crate::compositor::interaction::{HitNode, PointerState, ResizeCtx, ResizeHan
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::{
     active_stacking_render_order_for_monitor, current_surface_size_for_node,
-    is_active_stacking_workspace_member, request_toplevel_resize_mode, window_geometry_for_node,
+    is_active_stacking_workspace_member, request_toplevel_resize_mode, toplevel_min_size_for_node,
+    window_geometry_for_node,
 };
 use crate::render::active_window_frame_pad_px;
 use crate::render::world_to_screen;
@@ -80,8 +81,16 @@ pub(super) fn begin_resize(
         .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     st.begin_resize_interaction(hit.node_id, Instant::now());
 
-    let start_w = (start_right - start_left).max(96.0).round() as i32;
-    let start_h = (start_bottom - start_top).max(72.0).round() as i32;
+    let (min_lw, min_lh) = toplevel_min_size_for_node(st, hit.node_id);
+    let cam_scale = st.camera_render_scale();
+    let start_w = (start_right - start_left)
+        .max(min_lw as f32 * cam_scale)
+        .max(96.0)
+        .round() as i32;
+    let start_h = (start_bottom - start_top)
+        .max(min_lh as f32 * cam_scale)
+        .max(72.0)
+        .round() as i32;
     let start_surface =
         current_surface_size_for_node(st, hit.node_id).unwrap_or(halley_core::field::Vec2 {
             x: start_w as f32,
@@ -107,8 +116,8 @@ pub(super) fn begin_resize(
 
     let resize_ctx = ResizeCtx {
         node_id: hit.node_id,
-        start_surface_w: start_surface.x.max(96.0).round() as i32,
-        start_surface_h: start_surface.y.max(72.0).round() as i32,
+        start_surface_w: start_surface.x.max(min_lw as f32).max(96.0).round() as i32,
+        start_surface_h: start_surface.y.max(min_lh as f32).max(72.0).round() as i32,
         start_bbox_w: start_bbox.x.round() as i32,
         start_bbox_h: start_bbox.y.round() as i32,
         start_visual_w: start_w,
@@ -125,8 +134,8 @@ pub(super) fn begin_resize(
         preview_right_px: start_right,
         preview_top_px: start_top,
         preview_bottom_px: start_bottom,
-        last_sent_w: start_surface.x.max(96.0).round() as i32,
-        last_sent_h: start_surface.y.max(72.0).round() as i32,
+        last_sent_w: start_surface.x.max(min_lw as f32).max(96.0).round() as i32,
+        last_sent_h: start_surface.y.max(min_lh as f32).max(72.0).round() as i32,
         last_configure_at: Instant::now(),
         handle,
         press_sx: frame.sx,
@@ -202,8 +211,9 @@ pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &
         return;
     }
 
-    let final_w = resize.last_sent_w.max(96);
-    let final_h = resize.last_sent_h.max(72);
+    let (min_w, min_h) = toplevel_min_size_for_node(st, resize.node_id);
+    let final_w = resize.last_sent_w.max(min_w).max(96);
+    let final_h = resize.last_sent_h.max(min_h).max(72);
     let final_bbox_w =
         ((resize.start_bbox_w as f32) + ((final_w - resize.start_surface_w) as f32)).max(1.0);
     let final_bbox_h =
@@ -287,8 +297,10 @@ pub(super) fn handle_resize_motion(
         next.last_configure_at = Instant::now();
     }
 
-    let min_w = 96.0_f32;
-    let min_h = 72.0_f32;
+    let (min_lw, min_lh) = toplevel_min_size_for_node(st, resize.node_id);
+    let cam_scale = st.camera_render_scale();
+    let min_w = (min_lw as f32 * cam_scale).max(96.0);
+    let min_h = (min_lh as f32 * cam_scale).max(72.0);
 
     let desired_left = resize.start_left_px + next.h_weight_left * dx;
     let desired_right = resize.start_right_px + next.h_weight_right * dx;
@@ -343,7 +355,6 @@ pub(super) fn handle_resize_motion(
 
     let target_visual_w = (right - left).round().max(min_w) as i32;
     let target_visual_h = (bottom - top).round().max(min_h) as i32;
-    let cam_scale = st.camera_render_scale();
     let visual_delta_w = target_visual_w - resize.start_visual_w;
     let visual_delta_h = target_visual_h - resize.start_visual_h;
     let logical_delta_w = (visual_delta_w as f32 / cam_scale.max(0.001)).round() as i32;

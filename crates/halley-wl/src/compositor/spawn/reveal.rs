@@ -30,6 +30,11 @@ pub(crate) struct InitialToplevelSize {
 
 fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i32)> {
     let wl = toplevel.wl_surface();
+    let min_size = with_states(wl, |states| {
+        let mut cached = states.cached_state.get::<SurfaceCachedState>();
+        let state = cached.current();
+        (state.min_size.w, state.min_size.h)
+    });
 
     let geometry = with_states(wl, |states| {
         states
@@ -39,16 +44,25 @@ fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i3
             .geometry
     });
     if let Some(geometry) = geometry {
-        return Some((geometry.size.w.max(96), geometry.size.h.max(72)));
+        return Some((
+            geometry.size.w.max(min_size.0).max(96),
+            geometry.size.h.max(min_size.1).max(72),
+        ));
     }
 
     if let Some(size) = toplevel.current_state().size {
-        return Some((size.w.max(96), size.h.max(72)));
+        return Some((
+            size.w.max(min_size.0).max(96),
+            size.h.max(min_size.1).max(72),
+        ));
     }
 
     let bbox = bbox_from_surface_tree(wl, (0, 0));
     if bbox.size.w > 0 && bbox.size.h > 0 {
-        return Some((bbox.size.w.max(96), bbox.size.h.max(72)));
+        return Some((
+            bbox.size.w.max(min_size.0).max(96),
+            bbox.size.h.max(min_size.1).max(72),
+        ));
     }
 
     None

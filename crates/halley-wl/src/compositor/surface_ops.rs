@@ -148,6 +148,23 @@ pub(crate) fn request_close_node_toplevel(
     false
 }
 
+pub(crate) fn toplevel_min_size_for_node(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+) -> (i32, i32) {
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let wl = top.wl_surface();
+        if st.model.surface_to_node.get(&wl.id()).copied() == Some(node_id) {
+            return with_states(wl, |states| {
+                let mut cached = states.cached_state.get::<SurfaceCachedState>();
+                let state = cached.current();
+                (state.min_size.w, state.min_size.h)
+            });
+        }
+    }
+    (0, 0)
+}
+
 pub(crate) fn request_toplevel_resize_mode(
     st: &mut Halley,
     node_id: halley_core::field::NodeId,
@@ -155,8 +172,9 @@ pub(crate) fn request_toplevel_resize_mode(
     height: i32,
     resizing: bool,
 ) {
-    let width = width.max(96);
-    let height = height.max(72);
+    let (min_w, min_h) = toplevel_min_size_for_node(st, node_id);
+    let width = width.max(min_w).max(96);
+    let height = height.max(min_h).max(72);
     for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface();
         let key = wl.id();

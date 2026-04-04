@@ -418,8 +418,9 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
 }
 
 pub(crate) fn request_toplevel_resize(st: &mut Halley, node_id: NodeId, width: i32, height: i32) {
-    let width = width.max(96);
-    let height = height.max(72);
+    let (min_w, min_h) = crate::compositor::surface_ops::toplevel_min_size_for_node(st, node_id);
+    let width = width.max(min_w).max(96);
+    let height = height.max(min_h).max(72);
     let focused_node = st.last_input_surface_node();
 
     for top in st.platform.xdg_shell_state.toplevel_surfaces() {

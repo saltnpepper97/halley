@@ -297,8 +297,9 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             if self.model.surface_to_node.get(&key).copied() != Some(node_id) {
                 continue;
             }
+            let (min_w, min_h) = crate::compositor::surface_ops::toplevel_min_size_for_node(self, node_id);
             top.with_pending_state(|s| {
-                s.size = size.map(|(w, h)| (w.max(96), h.max(72)).into());
+                s.size = size.map(|(w, h)| (w.max(min_w).max(96), h.max(min_h).max(72)).into());
                 if focused_node == Some(node_id) {
                     s.states.set(xdg_toplevel::State::Activated);
                 } else {
@@ -385,13 +386,14 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             .get(&node_id)
             .copied()
         {
+            let (min_w, min_h) = crate::compositor::surface_ops::toplevel_min_size_for_node(self, node_id);
             self.request_toplevel_fullscreen_state(
                 node_id,
                 false,
                 None,
                 Some((
-                    entry.size.x.round().max(96.0) as i32,
-                    entry.size.y.round().max(72.0) as i32,
+                    entry.size.x.round().max(min_w as f32).max(96.0) as i32,
+                    entry.size.y.round().max(min_h as f32).max(72.0) as i32,
                 )),
             );
         } else {
