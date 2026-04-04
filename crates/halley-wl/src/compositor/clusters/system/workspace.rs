@@ -100,20 +100,6 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         self.enter_cluster_workspace_by_core(core_id, monitor.as_str(), now)
     }
 
-    pub fn exit_cluster_workspace_if_member(&mut self, member: NodeId, now: Instant) -> bool {
-        let monitor = self.model.monitor_state.current_monitor.clone();
-        let Some(cid) = self.active_cluster_workspace_for_monitor(monitor.as_str()) else {
-            return false;
-        };
-        let Some(c) = self.model.field.cluster(cid) else {
-            return false;
-        };
-        if !c.contains(member) {
-            return false;
-        }
-        self.exit_cluster_workspace_for_monitor(monitor.as_str(), now)
-    }
-
     pub(crate) fn enter_cluster_workspace_by_core(
         &mut self,
         core_id: NodeId,

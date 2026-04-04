@@ -1527,11 +1527,6 @@ impl Halley {
         super::clusters::system::cluster_system_controller(self).has_active_cluster_workspace()
     }
 
-    pub fn exit_cluster_workspace_if_member(&mut self, member: NodeId, now: Instant) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .exit_cluster_workspace_if_member(member, now)
-    }
-
     pub(crate) fn layout_active_cluster_workspace_for_monitor(
         &mut self,
         monitor: &str,

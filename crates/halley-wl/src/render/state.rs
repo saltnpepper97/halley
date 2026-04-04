@@ -35,6 +35,9 @@ pub(crate) struct WindowOffscreenCache {
     /// Last frame this cache entry was touched.
     pub last_used_at: Option<Instant>,
 
+    /// Last time this cache entry was fully rebuilt and marked clean.
+    pub last_clean_at: Option<Instant>,
+
     /// Cached 1.0x surface-tree render target for zoomed compositing.
     pub texture: Option<GlesTexture>,
 
@@ -59,12 +62,14 @@ impl WindowOffscreenCache {
     #[inline]
     pub(crate) fn mark_dirty(&mut self) {
         self.dirty = true;
+        self.last_clean_at = None;
     }
 
     #[inline]
     pub(crate) fn mark_clean(&mut self, now: Instant) {
         self.dirty = false;
         self.last_used_at = Some(now);
+        self.last_clean_at = Some(now);
     }
 
     #[inline]
@@ -510,20 +515,29 @@ impl RenderState {
         height: i32,
         now: Instant,
     ) -> &mut WindowOffscreenCache {
-        let cache = self.window_offscreen_cache.entry(node_id).or_default();
         let width = width.max(1);
         let height = height.max(1);
+        let mut size_changed = false;
+        {
+            let cache = self.window_offscreen_cache.entry(node_id).or_default();
+            if !cache.matches_size(width, height) {
+                cache.set_size(width, height);
+                cache.texture = None;
+                cache.bbox = None;
+                cache.has_content = false;
+                cache.mark_dirty();
+                size_changed = true;
+            }
 
-        if !cache.matches_size(width, height) {
-            cache.set_size(width, height);
-            cache.texture = None;
-            cache.bbox = None;
-            cache.has_content = false;
-            cache.mark_dirty();
+            cache.touch(now);
         }
-
-        cache.touch(now);
-        cache
+        if size_changed {
+            self.window_fill_ready_after.remove(&node_id);
+            self.window_fill_armed.remove(&node_id);
+        }
+        self.window_offscreen_cache
+            .get_mut(&node_id)
+            .expect("offscreen cache should exist after ensure")
     }
 
     pub(crate) fn mark_window_offscreen_dirty(&mut self, node_id: NodeId) {
@@ -562,10 +576,6 @@ impl RenderState {
     pub(crate) fn reset_window_fill_delay(&mut self, node_id: NodeId) {
         self.window_fill_ready_after.remove(&node_id);
         self.window_fill_armed.remove(&node_id);
-    }
-
-    pub(crate) fn window_fill_armed(&self, node_id: NodeId) -> bool {
-        self.window_fill_armed.contains(&node_id)
     }
 
     pub(crate) fn arm_window_fill(&mut self, node_id: NodeId) {
