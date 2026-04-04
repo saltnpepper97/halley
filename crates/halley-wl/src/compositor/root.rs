@@ -789,6 +789,16 @@ impl Halley {
         super::overlap::system::request_toplevel_resize(self, node_id, width, height)
     }
 
+    pub(crate) fn node_has_overlap_policy(&self, id: NodeId) -> bool {
+        self.model
+            .spawn_state
+            .applied_window_rules
+            .get(&id)
+            .is_some_and(|rule| {
+                rule.overlap_policy != halley_config::InitialWindowOverlapPolicy::None
+            })
+    }
+
     pub fn now_ms(&self, now: Instant) -> u64 {
         super::runtime::runtime_controller(self).now_ms(now)
     }
@@ -862,9 +872,14 @@ impl Halley {
         monitor: &str,
         id: NodeId,
         now: Instant,
+        suppress_pan: bool,
     ) -> bool {
-        super::focus::trail::focus_trail_controller(self)
-            .restore_focus_to_node_after_close(monitor, id, now)
+        super::focus::trail::focus_trail_controller(self).restore_focus_to_node_after_close(
+            monitor,
+            id,
+            now,
+            suppress_pan,
+        )
     }
 
     pub(crate) fn enforce_single_primary_active_unit(&mut self) {

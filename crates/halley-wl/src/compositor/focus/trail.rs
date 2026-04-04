@@ -248,6 +248,7 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
         monitor: &str,
         id: NodeId,
         now: Instant,
+        suppress_pan: bool,
     ) -> bool {
         if self.active_cluster_workspace_for_monitor(monitor).is_some() {
             return false;
@@ -264,7 +265,7 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
         let restored = match node.state {
             halley_core::field::NodeState::Active => {
                 self.set_interaction_focus(Some(id), 30_000, now);
-                if !cluster_local {
+                if !cluster_local && !suppress_pan {
                     self.maybe_pan_to_restored_focus_on_close(monitor, id, now);
                 }
                 true
@@ -281,7 +282,7 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
                     .remove(&id);
                 self.mark_active_transition(id, now, 360);
                 self.set_interaction_focus(Some(id), 30_000, now);
-                if !cluster_local {
+                if !cluster_local && !suppress_pan {
                     self.maybe_pan_to_restored_focus_on_close(monitor, id, now);
                 }
                 true
@@ -300,6 +301,11 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compositor::spawn::state::AppliedInitialWindowRule;
+    use halley_config::{
+        CloseRestorePanMode, InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
+        InitialWindowSpawnPlacement,
+    };
 
     #[test]
     fn trail_navigation_moves_back_and_forward_without_re_recording() {
@@ -400,10 +406,71 @@ mod tests {
 
         let previous = state.previous_window_from_trail_on_close("default", second);
         assert_eq!(previous, Some(first));
-        assert!(state.restore_focus_to_node_after_close("default", first, now));
+        assert!(state.restore_focus_to_node_after_close("default", first, now, false));
         assert_eq!(
             state.model.focus_state.primary_interaction_focus,
             Some(first)
         );
+    }
+
+    #[test]
+    fn close_focus_overlap_policy_restore_skips_pan() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.close_restore_pan = CloseRestorePanMode::Always;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let first = state.model.field.spawn_surface(
+            "first",
+            Vec2 { x: 640.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(first);
+
+        state.model.spawn_state.applied_window_rules.insert(
+            first,
+            AppliedInitialWindowRule {
+                overlap_policy: InitialWindowOverlapPolicy::All,
+                spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: InitialWindowClusterParticipation::Layout,
+                parent_node: None,
+                suppress_reveal_pan: false,
+            },
+        );
+
+        assert!(state.restore_focus_to_node_after_close("default", first, now, true));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(first)
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_none());
+    }
+
+    #[test]
+    fn close_focus_normal_restore_still_pans() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.close_restore_pan = CloseRestorePanMode::Always;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let first = state.model.field.spawn_surface(
+            "first",
+            Vec2 { x: 640.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(first);
+
+        assert!(state.restore_focus_to_node_after_close("default", first, now, false));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(first)
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_some());
     }
 }

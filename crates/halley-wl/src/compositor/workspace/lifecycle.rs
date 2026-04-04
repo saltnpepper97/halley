@@ -95,6 +95,7 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
         && let (Some(closing_id), Some(focused_monitor)) = (closing_id, focused_monitor.as_deref())
     {
         let now = Instant::now();
+        let suppress_restore_pan = st.node_has_overlap_policy(closing_id);
         if st
             .active_cluster_workspace_for_monitor(focused_monitor)
             .is_some()
@@ -112,7 +113,12 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
         } else if let Some(previous) =
             st.previous_window_from_trail_on_close(focused_monitor, closing_id)
         {
-            let _ = st.restore_focus_to_node_after_close(focused_monitor, previous, now);
+            let _ = st.restore_focus_to_node_after_close(
+                focused_monitor,
+                previous,
+                now,
+                suppress_restore_pan,
+            );
         } else if let Some(fallback) = st
             .last_focused_surface_node_for_monitor(focused_monitor)
             .filter(|&id| id != closing_id)
@@ -121,7 +127,12 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
                     .filter(|&id| id != closing_id)
             })
         {
-            let _ = st.restore_focus_to_node_after_close(focused_monitor, fallback, now);
+            let _ = st.restore_focus_to_node_after_close(
+                focused_monitor,
+                fallback,
+                now,
+                suppress_restore_pan,
+            );
         }
     } else if had_keyboard_focus
         && !st.runtime.tuning.close_restore_focus

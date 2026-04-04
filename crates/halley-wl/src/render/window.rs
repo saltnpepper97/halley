@@ -34,6 +34,26 @@ type CroppedSurfaceElement = CropRenderElement<SurfaceElement>;
 
 const WINDOW_BACKGROUND_FILL_DELAY_MS: u64 = 80;
 
+fn should_draw_resize_overlap_overlay(
+    resize_rect_px: Option<(i32, i32, i32, i32, NodeId)>,
+    node_id: NodeId,
+    geometry_rect: (i32, i32, i32, i32),
+    resizing_node_has_overlap_policy: bool,
+) -> bool {
+    let Some((rl, rt, rr, rb, rid)) = resize_rect_px else {
+        return false;
+    };
+    if resizing_node_has_overlap_policy || node_id == rid {
+        return false;
+    }
+    let (gx, gy, gw, gh) = geometry_rect;
+    let wl = gx;
+    let wt = gy;
+    let wr = gx + gw.max(1);
+    let wb = gy + gh.max(1);
+    wl < rr && rl < wr && wt < rb && rt < wb
+}
+
 fn log_window_render_path(
     st: &Halley,
     _node_id: halley_core::field::NodeId,
@@ -700,6 +720,9 @@ pub(crate) fn collect_active_surfaces(
             rz.node_id,
         ))
     });
+    let resize_preview_has_overlap_policy = resize_rect_px
+        .map(|(_, _, _, _, rid)| st.node_has_overlap_policy(rid))
+        .unwrap_or(false);
 
     let mut wl_surfaces: Vec<_> = st
         .platform
@@ -899,16 +922,13 @@ pub(crate) fn collect_active_surfaces(
 
         let (gx, gy, gw, gh) = geometry_rect;
 
-        if let Some((rl, rt, rr, rb, rid)) = resize_rect_px
-            && node_id != rid
-        {
-            let wl2 = gx;
-            let wt = gy;
-            let wr = gx + gw.max(1);
-            let wb = gy + gh.max(1);
-            if wl2 < rr && rl < wr && wt < rb && rt < wb {
-                overlap_overlay_rects.push((gx, gy, gw.max(1), gh.max(1)));
-            }
+        if should_draw_resize_overlap_overlay(
+            resize_rect_px,
+            node_id,
+            (gx, gy, gw, gh),
+            resize_preview_has_overlap_policy,
+        ) {
+            overlap_overlay_rects.push((gx, gy, gw.max(1), gh.max(1)));
         }
 
         let alpha = (anim.alpha
@@ -1711,6 +1731,7 @@ pub(crate) fn collect_active_surfaces(
 
 #[cfg(test)]
 mod tests {
+    use super::should_draw_resize_overlap_overlay;
     use crate::compositor::surface_ops::stacking_render_order_map;
     use halley_core::field::NodeId;
 
@@ -1728,5 +1749,25 @@ mod tests {
         assert_eq!(ranks.get(&NodeId::new(2)), Some(&1));
         assert_eq!(ranks.get(&NodeId::new(3)), Some(&0));
         assert_eq!(ranks.get(&NodeId::new(4)), None);
+    }
+
+    #[test]
+    fn resize_overlap_overlay_skips_underlay_for_overlap_policy_resize() {
+        assert!(!should_draw_resize_overlap_overlay(
+            Some((0, 0, 100, 100, NodeId::new(1))),
+            NodeId::new(2),
+            (20, 20, 40, 40),
+            true,
+        ));
+    }
+
+    #[test]
+    fn resize_overlap_overlay_marks_intersecting_underlay_for_normal_resize() {
+        assert!(should_draw_resize_overlap_overlay(
+            Some((0, 0, 100, 100, NodeId::new(1))),
+            NodeId::new(2),
+            (20, 20, 40, 40),
+            false,
+        ));
     }
 }
