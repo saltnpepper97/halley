@@ -1569,6 +1569,15 @@ impl Halley {
         super::clusters::system::cluster_system_controller(self)
             .tile_swap_active_cluster_member_for_monitor(monitor, direction, now)
     }
+
+    pub(crate) fn cycle_active_cluster_layout_for_monitor(
+        &mut self,
+        monitor: &str,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .cycle_active_cluster_layout_for_monitor(monitor, now)
+    }
 }
 
 impl Drop for Halley {

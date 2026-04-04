@@ -76,10 +76,16 @@ pub enum TileBindingAction {
     Swap(DirectionalAction),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClusterBindingAction {
+    LayoutCycle,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompositorBindingScope {
     Global,
     Field,
+    Cluster,
     Tile,
     Stack,
 }
@@ -106,6 +112,7 @@ pub enum CompositorBindingAction {
     Bearings(BearingsBindingAction),
     Stack(StackBindingAction),
     Tile(TileBindingAction),
+    Cluster(ClusterBindingAction),
 }
 
 #[derive(Clone, Debug)]

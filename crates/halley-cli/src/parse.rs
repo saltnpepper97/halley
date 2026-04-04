@@ -4,8 +4,9 @@ use halley_ipc::{
 };
 
 use crate::cmd::{
-    bearings::parse_bearings_request, monitor::parse_monitor_request, node::parse_node_request,
-    stack::parse_stack_request, tile::parse_tile_request, trail::parse_trail_request,
+    bearings::parse_bearings_request, cluster::parse_cluster_request,
+    monitor::parse_monitor_request, node::parse_node_request, stack::parse_stack_request,
+    tile::parse_tile_request, trail::parse_trail_request,
 };
 use crate::help::HelpTopic;
 
@@ -55,6 +56,7 @@ pub(crate) fn parse_request(args: &[String]) -> Result<ParseOutcome, UsageError>
         "trail" => parse_trail_request(&args[1..]),
         "monitor" => parse_monitor_request(&args[1..]),
         "bearings" => parse_bearings_request(&args[1..]),
+        "cluster" => parse_cluster_request(&args[1..]),
         "stack" => parse_stack_request(&args[1..]),
         "tile" => parse_tile_request(&args[1..]),
         other => Err(UsageError::new(
@@ -243,6 +245,28 @@ mod tests {
                 output,
             })) => {
                 assert!(matches!(direction, halley_ipc::NodeMoveDirection::Left));
+                assert_eq!(output, None);
+            }
+            _ => panic!("unexpected parse outcome"),
+        }
+    }
+
+    #[test]
+    fn cluster_layout_cycle_request_parses() {
+        let args = vec![
+            "cluster".to_string(),
+            "layout".to_string(),
+            "cycle".to_string(),
+        ];
+        let outcome = match parse_request(&args) {
+            Ok(outcome) => outcome,
+            Err(err) => panic!("cluster request should parse: {}", err.message),
+        };
+
+        match outcome {
+            ParseOutcome::Request(halley_ipc::Request::Cluster(
+                halley_ipc::ClusterRequest::LayoutCycle { output },
+            )) => {
                 assert_eq!(output, None);
             }
             _ => panic!("unexpected parse outcome"),

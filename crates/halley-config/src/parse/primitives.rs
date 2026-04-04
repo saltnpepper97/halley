@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use rune_cfg::RuneConfig;
 
-use crate::keybinds::{KeyModifiers, parse_modifiers};
 use crate::layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, FocusRingConfig,
@@ -355,19 +354,4 @@ pub(crate) fn parse_hex_rgb(value: &str) -> Option<(f32, f32, f32)> {
     let g = u8::from_str_radix(&expanded[2..4], 16).ok()? as f32 / 255.0;
     let b = u8::from_str_radix(&expanded[4..6], 16).ok()? as f32 / 255.0;
     Some((r, g, b))
-}
-
-pub(crate) fn pick_modifiers(
-    cfg: &RuneConfig,
-    paths: &[&str],
-    default: KeyModifiers,
-) -> KeyModifiers {
-    for path in paths {
-        if let Ok(Some(v)) = cfg.get_optional::<String>(path)
-            && let Some(m) = parse_modifiers(v.as_str())
-        {
-            return m;
-        }
-    }
-    default
 }

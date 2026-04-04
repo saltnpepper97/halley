@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use halley_core::field::Vec2;
 
 use crate::keybinds::{
-    BearingsBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
-    DirectionalAction, KeyModifiers, Keybinds, NodeBindingAction, PointerBinding,
-    PointerBindingAction, TileBindingAction, TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
-    key_name_to_evdev,
+    BearingsBindingAction, ClusterBindingAction, CompositorBinding, CompositorBindingAction,
+    CompositorBindingScope, DirectionalAction, KeyModifiers, Keybinds, NodeBindingAction,
+    PointerBinding, PointerBindingAction, TileBindingAction, TrailBindingAction, WHEEL_DOWN_CODE,
+    WHEEL_UP_CODE, key_name_to_evdev,
 };
 
 use super::{
@@ -258,6 +258,12 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             },
             key: key("dot"),
             action: CompositorBindingAction::Trail(TrailBindingAction::Next),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Cluster,
+            modifiers: modifier,
+            key: key("l"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle),
         },
         CompositorBinding {
             scope: CompositorBindingScope::Tile,

@@ -9,9 +9,9 @@ use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{
-    BearingsBindingAction, CompositorBindingAction, CompositorBindingScope, DirectionalAction,
-    MonitorBindingAction, MonitorBindingTarget, NodeBindingAction, RuntimeTuning,
-    StackBindingAction, StackCycleDirection, TileBindingAction, TrailBindingAction,
+    BearingsBindingAction, ClusterBindingAction, CompositorBindingAction, CompositorBindingScope,
+    DirectionalAction, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction,
+    RuntimeTuning, StackBindingAction, StackCycleDirection, TileBindingAction, TrailBindingAction,
 };
 use halley_ipc::NodeMoveDirection;
 use std::time::Instant;
@@ -51,20 +51,24 @@ fn from_directional_action(direction: DirectionalAction) -> NodeMoveDirection {
     }
 }
 
-fn active_binding_scopes(st: &Halley) -> [CompositorBindingScope; 2] {
+fn active_binding_scopes(st: &Halley) -> [CompositorBindingScope; 3] {
     if st.has_active_cluster_workspace() {
         match st.runtime.tuning.cluster_layout_kind() {
-            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling => {
-                [CompositorBindingScope::Tile, CompositorBindingScope::Global]
-            }
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling => [
+                CompositorBindingScope::Tile,
+                CompositorBindingScope::Cluster,
+                CompositorBindingScope::Global,
+            ],
             halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking => [
                 CompositorBindingScope::Stack,
+                CompositorBindingScope::Cluster,
                 CompositorBindingScope::Global,
             ],
         }
     } else {
         [
             CompositorBindingScope::Field,
+            CompositorBindingScope::Global,
             CompositorBindingScope::Global,
         ]
     }
@@ -110,6 +114,7 @@ pub(crate) fn compositor_action_allows_repeat(action: CompositorBindingAction) -
         CompositorBindingAction::Node(NodeBindingAction::Move(_))
             | CompositorBindingAction::Stack(StackBindingAction::Cycle(_))
             | CompositorBindingAction::Tile(TileBindingAction::Focus(_))
+            | CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle)
             | CompositorBindingAction::Trail(TrailBindingAction::Prev)
             | CompositorBindingAction::Trail(TrailBindingAction::Next)
             | CompositorBindingAction::ZoomIn
@@ -190,6 +195,10 @@ pub(crate) fn apply_compositor_action_press(
                 direction,
                 Instant::now(),
             )
+        }
+        CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle) => {
+            let monitor = st.focused_monitor().to_string();
+            st.cycle_active_cluster_layout_for_monitor(monitor.as_str(), Instant::now())
         }
         CompositorBindingAction::Trail(TrailBindingAction::Prev) => {
             crate::compositor::actions::window::step_window_trail(
@@ -294,6 +303,7 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::ClusterMode
             | CompositorBindingAction::Stack(_)
             | CompositorBindingAction::Tile(_)
+            | CompositorBindingAction::Cluster(_)
             | CompositorBindingAction::Trail(TrailBindingAction::Prev)
             | CompositorBindingAction::Trail(TrailBindingAction::Next)
             | CompositorBindingAction::Monitor(_)

@@ -17,7 +17,13 @@ use super::sections::{
 impl RuntimeTuning {
     pub fn from_rune_file(path: &str) -> Option<Self> {
         let raw = std::fs::read_to_string(path).ok()?;
-        let inline_keybinds = parse_inline_keybinds(raw.as_str());
+        let inline_keybinds = match parse_inline_keybinds(raw.as_str()) {
+            Ok(bindings) => bindings,
+            Err(err) => {
+                eprintln!("halley config keybind parse error: {err}");
+                return None;
+            }
+        };
 
         let cfg = RuneConfig::from_file(path).or_else(|_| {
             let sanitized = strip_inline_keybind_block(raw.as_str());
@@ -48,10 +54,16 @@ impl RuntimeTuning {
         load_field_section(&cfg, &mut out);
         load_physics_section(&cfg, &mut out);
         load_decorations_section(&cfg, &mut out);
-        load_keybind_sections(&cfg, &mut out);
+        if let Err(err) = load_keybind_sections(&cfg, &mut out) {
+            eprintln!("halley config keybind parse error: {err}");
+            return None;
+        }
 
         if !inline_keybinds.is_empty() {
-            apply_explicit_keybind_overrides_map(&inline_keybinds, &mut out);
+            if let Err(err) = apply_explicit_keybind_overrides_map(&inline_keybinds, &mut out) {
+                eprintln!("halley config keybind parse error: {err}");
+                return None;
+            }
         }
 
         Some(out)

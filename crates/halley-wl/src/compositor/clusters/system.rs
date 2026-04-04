@@ -6,7 +6,7 @@ use crate::compositor::clusters::read::{
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::interaction::state::InteractionState;
 use crate::overlay::OverlayActionHint;
-use halley_config::DirectionalAction;
+use halley_config::{ClusterDefaultLayout, DirectionalAction};
 use halley_core::cluster::{ClusterId, ClusterRemoveMemberOutcome};
 use halley_core::cluster_layout::{ClusterCycleDirection, ClusterWorkspaceLayoutKind};
 use halley_core::field::RemoveNodeClusterEffect;
@@ -1399,6 +1399,61 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         true
     }
 
+    pub(crate) fn cycle_active_cluster_layout_for_monitor(
+        &mut self,
+        monitor: &str,
+        now: Instant,
+    ) -> bool {
+        let Some(cid) = self.active_cluster_workspace_for_monitor(monitor) else {
+            return false;
+        };
+        let current_focus = self
+            .model
+            .focus_state
+            .primary_interaction_focus
+            .filter(|id| self.model.field.cluster_id_for_member_public(*id) == Some(cid));
+
+        self.runtime.tuning.cluster_default_layout =
+            match self.runtime.tuning.cluster_default_layout {
+                ClusterDefaultLayout::Tiling => ClusterDefaultLayout::Stacking,
+                ClusterDefaultLayout::Stacking => ClusterDefaultLayout::Tiling,
+            };
+
+        let now_ms = self.now_ms(now);
+        self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
+
+        match self.runtime.tuning.cluster_layout_kind() {
+            ClusterWorkspaceLayoutKind::Tiling => {
+                let preferred_index = current_focus.and_then(|id| {
+                    self.model.field.cluster(cid).and_then(|cluster| {
+                        cluster.members().iter().position(|member| *member == id)
+                    })
+                });
+                let _ = self.focus_active_tiled_cluster_member_for_monitor(
+                    monitor,
+                    preferred_index,
+                    now,
+                );
+            }
+            ClusterWorkspaceLayoutKind::Stacking => {
+                let visible =
+                    crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                        self, monitor,
+                    );
+                if let Some(target) = current_focus
+                    .filter(|id| visible.contains(id))
+                    .or_else(|| visible.first().copied())
+                {
+                    self.set_recent_top_node(target, now + std::time::Duration::from_millis(1200));
+                    self.set_interaction_focus(Some(target), 30_000, now);
+                    self.update_focus_tracking_for_surface(target, now_ms);
+                }
+            }
+        }
+        self.refresh_cluster_overflow_for_monitor(monitor, now_ms, true);
+        true
+    }
+
     pub fn collapse_active_cluster_workspace(&mut self, now: Instant) -> bool {
         let monitor = self.model.monitor_state.current_monitor.clone();
         self.exit_cluster_workspace_for_monitor(monitor.as_str(), now)
@@ -2499,6 +2554,51 @@ mod tests {
             .expect("stack b rect after swap");
         assert!((after_a.y - before_b.y).abs() <= 0.5);
         assert!((after_b.y - before_a.y).abs() <= 0.5);
+    }
+
+    #[test]
+    fn cluster_layout_cycle_toggles_active_workspace_layout() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        for id in [master, stack] {
+            st.assign_node_to_monitor(id, "monitor_a");
+        }
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+        let now = Instant::now();
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+        assert_eq!(
+            st.runtime.tuning.cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Tiling
+        );
+
+        assert!(st.cycle_active_cluster_layout_for_monitor("monitor_a", now));
+        assert_eq!(
+            st.runtime.tuning.cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Stacking
+        );
+
+        assert!(st.cycle_active_cluster_layout_for_monitor("monitor_a", now));
+        assert_eq!(
+            st.runtime.tuning.cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Tiling
+        );
     }
 
     #[test]

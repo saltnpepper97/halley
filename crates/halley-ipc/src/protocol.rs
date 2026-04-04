@@ -90,6 +90,11 @@ pub enum TileRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ClusterRequest {
+    LayoutCycle { output: Option<String> },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompositorRequest {
     Quit,
     Reload,
@@ -155,6 +160,7 @@ pub enum Request {
     Bearings(BearingsRequest),
     Stack(StackRequest),
     Tile(TileRequest),
+    Cluster(ClusterRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

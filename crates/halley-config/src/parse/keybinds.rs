@@ -3,22 +3,22 @@ use std::collections::HashMap;
 use rune_cfg::RuneConfig;
 
 use crate::keybinds::{
-    BearingsBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
+    is_pointer_button_code, parse_chord, parse_modifiers, BearingsBindingAction,
+    ClusterBindingAction, CompositorBinding, CompositorBindingAction, CompositorBindingScope,
     DirectionalAction, KeyModifiers, LaunchBinding, MonitorBindingAction, MonitorBindingTarget,
     NodeBindingAction, PointerBinding, PointerBindingAction, StackBindingAction,
-    StackCycleDirection, TileBindingAction, TrailBindingAction, is_pointer_button_code,
-    parse_chord, parse_modifiers,
+    StackCycleDirection, TileBindingAction, TrailBindingAction,
 };
-use crate::layout::{RuntimeTuning, default_compositor_bindings, default_pointer_bindings};
+use crate::layout::RuntimeTuning;
 
-pub(crate) fn parse_inline_keybinds(content: &str) -> HashMap<String, String> {
+pub(crate) fn parse_inline_keybinds(content: &str) -> Result<HashMap<String, String>, String> {
     let mut out = HashMap::new();
     let mut in_block = false;
     let mut depth = 0usize;
 
-    for raw in content.lines() {
+    for (line_no, raw) in content.lines().enumerate() {
         let trimmed = raw.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
         if !in_block {
@@ -46,12 +46,16 @@ pub(crate) fn parse_inline_keybinds(content: &str) -> HashMap<String, String> {
             continue;
         }
 
-        if let Some((k, v)) = parse_inline_keybind_line(trimmed) {
-            out.insert(k, v);
-        }
+        let Some((k, v)) = parse_inline_keybind_line(trimmed) else {
+            return Err(format!(
+                "invalid keybind line {}: expected exactly one chord and one action",
+                line_no + 1
+            ));
+        };
+        out.insert(k, v);
     }
 
-    out
+    Ok(out)
 }
 
 fn parse_inline_keybind_line(line: &str) -> Option<(String, String)> {
@@ -142,44 +146,52 @@ pub(crate) fn strip_inline_keybind_block(content: &str) -> String {
     out
 }
 
-pub(crate) fn apply_explicit_keybind_overrides(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+pub(crate) fn apply_explicit_keybind_overrides(
+    cfg: &RuneConfig,
+    out: &mut RuntimeTuning,
+) -> Result<(), String> {
     let Ok(Some(bindings)) = cfg.get_optional::<HashMap<String, String>>("keybinds") else {
-        return;
+        return Ok(());
     };
-    apply_explicit_keybind_overrides_map(&bindings, out);
+    apply_explicit_keybind_overrides_map(&bindings, out)
 }
 
 pub(crate) fn apply_explicit_keybind_overrides_map(
     bindings: &HashMap<String, String>,
     out: &mut RuntimeTuning,
-) {
+) -> Result<(), String> {
     let mod_token = bindings
         .get("mod")
         .cloned()
         .unwrap_or_else(|| out.keybinds.modifier_name());
 
-    if let Some(m) = parse_modifiers(mod_token.as_str()) {
-        out.keybinds.modifier = m;
-        out.compositor_bindings = default_compositor_bindings(out.keybinds.modifier);
-        out.pointer_bindings = default_pointer_bindings(out.keybinds.modifier);
-    }
+    let Some(m) = parse_modifiers(mod_token.as_str()) else {
+        return Err(format!("invalid keybind modifier: {mod_token}"));
+    };
+    out.keybinds.modifier = m;
 
     for (chord, action) in bindings {
         if chord.eq_ignore_ascii_case("mod") {
             continue;
         }
 
-        apply_explicit_binding(out, mod_token.as_str(), chord.as_str(), action.as_str());
+        apply_explicit_binding(out, mod_token.as_str(), chord.as_str(), action.as_str())?;
     }
+    Ok(())
 }
 
-fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str, action: &str) {
+fn apply_explicit_binding(
+    out: &mut RuntimeTuning,
+    mod_token: &str,
+    chord: &str,
+    action: &str,
+) -> Result<(), String> {
     let expanded = chord
         .replace("$var.mod", mod_token)
         .replace("$mod", mod_token);
 
     let Some((mods, key)) = parse_chord(expanded.as_str()) else {
-        return;
+        return Err(format!("invalid keybind chord: {chord}"));
     };
 
     let action_trimmed = action.trim();
@@ -349,6 +361,7 @@ fn apply_explicit_binding(out: &mut RuntimeTuning, mod_token: &str, chord: &str,
             }
         }
     }
+    Ok(())
 }
 
 fn parse_parameterized_compositor_action(
@@ -396,6 +409,9 @@ fn parse_parameterized_compositor_action(
             )
         }),
         "tile" => parse_tile_action(arg),
+        "cluster" | "cluster-layout" | "cluster_layout" => {
+            parse_cluster_action(command.as_str(), arg)
+        }
         _ => None,
     }
 }
@@ -410,6 +426,21 @@ fn parse_tile_action(action: &str) -> Option<(CompositorBindingScope, Compositor
         _ => return None,
     };
     Some((CompositorBindingScope::Tile, action))
+}
+
+fn parse_cluster_action(
+    command: &str,
+    arg: &str,
+) -> Option<(CompositorBindingScope, CompositorBindingAction)> {
+    match (command, arg.trim().to_ascii_lowercase().as_str()) {
+        ("cluster", "layout cycle") | ("cluster-layout", "cycle") | ("cluster_layout", "cycle") => {
+            Some((
+                CompositorBindingScope::Cluster,
+                CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle),
+            ))
+        }
+        _ => None,
+    }
 }
 
 fn parse_stack_cycle_direction(text: &str) -> Option<StackCycleDirection> {
@@ -503,10 +534,16 @@ fn upsert_pointer_binding(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_parameterized_compositor_action;
-    use crate::keybinds::{
-        CompositorBindingAction, CompositorBindingScope, DirectionalAction, TileBindingAction,
+    use super::{
+        apply_explicit_keybind_overrides_map, parse_inline_keybinds,
+        parse_parameterized_compositor_action,
     };
+    use crate::keybinds::{
+        ClusterBindingAction, CompositorBindingAction, CompositorBindingScope, DirectionalAction,
+        TileBindingAction,
+    };
+    use crate::layout::RuntimeTuning;
+    use std::collections::HashMap;
 
     #[test]
     fn tile_keywords_parse() {
@@ -525,5 +562,78 @@ mod tests {
             parsed.1,
             CompositorBindingAction::Tile(TileBindingAction::Swap(DirectionalAction::Right))
         );
+    }
+
+    #[test]
+    fn cluster_layout_cycle_keyword_parses() {
+        let parsed = parse_parameterized_compositor_action("cluster layout cycle")
+            .expect("cluster layout cycle should parse");
+        assert_eq!(parsed.0, CompositorBindingScope::Cluster);
+        assert_eq!(
+            parsed.1,
+            CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle)
+        );
+
+        let parsed = parse_parameterized_compositor_action("cluster-layout cycle")
+            .expect("cluster-layout cycle should parse");
+        assert_eq!(parsed.0, CompositorBindingScope::Cluster);
+        assert_eq!(
+            parsed.1,
+            CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle)
+        );
+
+        let parsed = parse_parameterized_compositor_action("cluster_layout cycle")
+            .expect("cluster_layout cycle should parse");
+        assert_eq!(parsed.0, CompositorBindingScope::Cluster);
+        assert_eq!(
+            parsed.1,
+            CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle)
+        );
+    }
+
+    #[test]
+    fn malformed_inline_keybind_line_fails() {
+        let raw = r#"
+keybinds:
+  mod+l
+end
+"#;
+        assert!(parse_inline_keybinds(raw).is_err());
+    }
+
+    #[test]
+    fn inline_keybind_comments_are_ignored() {
+        let raw = r#"
+keybinds:
+  # comment
+  "mod+l" "cluster-layout cycle"
+end
+"#;
+        let parsed = parse_inline_keybinds(raw).expect("comments should be ignored");
+        assert_eq!(
+            parsed.get("mod+l").map(String::as_str),
+            Some("cluster-layout cycle")
+        );
+    }
+
+    #[test]
+    fn explicit_keybind_map_does_not_seed_defaults() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+        out.pointer_bindings.clear();
+        out.launch_bindings.clear();
+
+        let bindings = HashMap::from([(String::from("mod"), String::from("alt"))]);
+        assert!(apply_explicit_keybind_overrides_map(&bindings, &mut out).is_ok());
+        assert!(out.compositor_bindings.is_empty());
+        assert!(out.pointer_bindings.is_empty());
+        assert!(out.launch_bindings.is_empty());
+    }
+
+    #[test]
+    fn invalid_modifier_in_explicit_keybind_map_fails() {
+        let mut out = RuntimeTuning::default();
+        let bindings = HashMap::from([(String::from("mod"), String::from("bogus"))]);
+        assert!(apply_explicit_keybind_overrides_map(&bindings, &mut out).is_err());
     }
 }

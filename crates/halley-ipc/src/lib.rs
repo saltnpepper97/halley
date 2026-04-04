@@ -8,9 +8,10 @@ pub use codec::{
 };
 pub use error::{CodecError, IpcError};
 pub use protocol::{
-    BearingsRequest, CompositorRequest, DpmsCommand, MonitorFocusDirection, MonitorFocusTarget,
-    MonitorRequest, NodeMoveDirection, NodeRequest, NodeSelector, Request, Response,
-    StackCycleDirection, StackRequest, TileRequest, TrailDirection, TrailRequest, TrailTarget,
+    BearingsRequest, ClusterRequest, CompositorRequest, DpmsCommand, MonitorFocusDirection,
+    MonitorFocusTarget, MonitorRequest, NodeMoveDirection, NodeRequest, NodeSelector, Request,
+    Response, StackCycleDirection, StackRequest, TileRequest, TrailDirection, TrailRequest,
+    TrailTarget,
 };
 pub use types::{
     BearingsStatusResponse, LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse,

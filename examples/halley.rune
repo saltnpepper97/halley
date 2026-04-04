@@ -215,6 +215,7 @@ keybinds:
 
   # cluster mode (workspaces)
   "$var.mod+shift+c" "cluster-mode"
+  "$var.mod+l" "cluster-layout cycle"
 
   # bearings
   "$var.mod+z" "bearings-show"
@@ -237,7 +238,6 @@ keybinds:
   "$var.mod+up" "tile-focus up"
   "$var.mod+down" "tile-focus down"
 
-  #todo
   "$var.mod+ctrl+left" "tile-swap left"
   "$var.mod+ctrl+right" "tile-swap right"
   "$var.mod+ctrl+up" "tile-swap up"

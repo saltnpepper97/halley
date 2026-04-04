@@ -3,11 +3,11 @@ use std::time::Instant;
 
 use halley_core::field::{NodeId, NodeKind as FieldNodeKind, NodeState as FieldNodeState};
 use halley_ipc::{
-    BearingsRequest, BearingsStatusResponse, CompositorRequest, IpcError, MonitorFocusDirection,
-    MonitorFocusTarget, MonitorRequest, NodeInfo, NodeKind, NodeListResponse, NodeMoveDirection,
-    NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo, NodeRequest, NodeRole, NodeSelector,
-    NodeState, Request, Response, StackRequest, TileRequest, TrailEntryInfo, TrailListResponse,
-    TrailRequest, TrailTarget,
+    BearingsRequest, BearingsStatusResponse, ClusterRequest, CompositorRequest, IpcError,
+    MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, NodeInfo, NodeKind,
+    NodeListResponse, NodeMoveDirection, NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo,
+    NodeRequest, NodeRole, NodeSelector, NodeState, Request, Response, StackRequest, TileRequest,
+    TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
 };
 use smithay::desktop::PopupManager;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
@@ -26,6 +26,7 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Bearings(request) => handle_bearings_request(st, request),
         Request::Stack(request) => handle_stack_request(st, request),
         Request::Tile(request) => handle_tile_request(st, request),
+        Request::Cluster(request) => handle_cluster_request(st, request),
         Request::Compositor(CompositorRequest::Outputs) => Response::Error(IpcError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
@@ -227,6 +228,28 @@ fn handle_tile_request(st: &mut Halley, request: TileRequest) -> Response {
     }) {
         Ok(()) => Response::Ok,
         Err(err) => Response::Error(err),
+    }
+}
+
+fn handle_cluster_request(st: &mut Halley, request: ClusterRequest) -> Response {
+    match request {
+        ClusterRequest::LayoutCycle { output } => {
+            match resolve_output_context(st, output.as_deref()).and_then(|monitor| {
+                let now = Instant::now();
+                focus_output_if_needed(st, monitor.as_str(), now);
+                if st.cycle_active_cluster_layout_for_monitor(monitor.as_str(), now) {
+                    Ok(())
+                } else {
+                    Err(IpcError::Unsupported(format!(
+                        "no active cluster workspace on output {}",
+                        monitor
+                    )))
+                }
+            }) {
+                Ok(()) => Response::Ok,
+                Err(err) => Response::Error(err),
+            }
+        }
     }
 }
 
