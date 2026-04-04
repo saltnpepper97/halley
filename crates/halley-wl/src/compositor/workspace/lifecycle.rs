@@ -632,7 +632,6 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         use smithay::wayland::shell::xdg::SurfaceCachedState;
 
         let bbox = bbox_from_surface_tree(&root_surface, (0, 0));
-        let prev_bbox_loc = st.ui.render_state.bbox_loc.get(&node_id).copied();
         st.ui
             .render_state
             .bbox_loc
@@ -650,17 +649,10 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             (bbox.size.w, bbox.size.h),
             geo.map(|g| (g.loc.x, g.loc.y, g.size.w, g.size.h)),
         );
-        let prev_window_geometry = st.ui.render_state.window_geometry.get(&node_id).copied();
         st.ui
             .render_state
             .window_geometry
             .insert(node_id, window_geometry);
-        if (prev_bbox_loc != Some((bbox.loc.x as f32, bbox.loc.y as f32))
-            || prev_window_geometry != Some(window_geometry))
-            && st.input.interaction_state.resize_active != Some(node_id)
-        {
-            st.ui.render_state.reset_window_fill_delay(node_id);
-        }
         if is_active_cluster_workspace_member(st, node_id) {
             return;
         }

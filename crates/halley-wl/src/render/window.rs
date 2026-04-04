@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use halley_core::cluster_layout::ClusterCycleDirection;
 use halley_core::field::{NodeId, Vec2};
@@ -42,7 +42,6 @@ render_elements! {
 pub(crate) type CroppedClippedSurfaceElement = CropRenderElement<DirectSurfaceElement>;
 type CroppedSurfaceElement = CropRenderElement<SurfaceElement>;
 
-const WINDOW_BACKGROUND_FILL_DELAY_MS: u64 = 80;
 const CSD_SOFT_CLIP_MARGIN_PX: f32 = 1.5;
 
 fn should_draw_resize_overlap_overlay(
@@ -99,7 +98,6 @@ pub(crate) struct ActiveBorderRect {
     pub corner_radius: f32,
     pub inner_corner_radius: f32,
     pub border_color: Color32F,
-    pub fill_background: bool,
 }
 
 #[derive(Clone)]
@@ -521,92 +519,6 @@ fn wrap_direct_surface_elements(
         .collect()
 }
 
-fn set_latest_border_fill_background(
-    draw_top_this_node: bool,
-    border_rects: &mut Vec<ActiveBorderRect>,
-    resized_border_rects: &mut Vec<ActiveBorderRect>,
-    fill_background: bool,
-) {
-    let target = if draw_top_this_node {
-        resized_border_rects.last_mut()
-    } else {
-        border_rects.last_mut()
-    };
-    if let Some(rect) = target {
-        rect.fill_background = fill_background;
-    }
-}
-
-fn set_border_fill_background_for_node(
-    node_id: halley_core::field::NodeId,
-    draw_top_this_node: bool,
-    border_rects: &mut Vec<ActiveBorderRect>,
-    resized_border_rects: &mut Vec<ActiveBorderRect>,
-    stack_render_set: &HashSet<halley_core::field::NodeId>,
-    stack_window_units: &mut HashMap<halley_core::field::NodeId, StackWindowDrawUnit>,
-    fill_background: bool,
-) {
-    if stack_render_set.contains(&node_id) {
-        if let Some(rect) = stack_window_units
-            .get_mut(&node_id)
-            .and_then(|unit| unit.border_rect.as_mut())
-        {
-            rect.fill_background = fill_background;
-        }
-    } else {
-        set_latest_border_fill_background(
-            draw_top_this_node,
-            border_rects,
-            resized_border_rects,
-            fill_background,
-        );
-    }
-}
-
-fn border_background_fill_ready(
-    st: &mut Halley,
-    node_id: halley_core::field::NodeId,
-    now: Instant,
-    allow_border_background: bool,
-    resize_active: bool,
-    animation_ready: bool,
-    has_content: bool,
-) -> bool {
-    if !allow_border_background {
-        st.ui.render_state.reset_window_fill_delay(node_id);
-        return false;
-    }
-
-    if st.ui.render_state.window_fill_armed.contains(&node_id) {
-        return true;
-    }
-
-    if !has_content {
-        st.ui.render_state.reset_window_fill_delay(node_id);
-        return false;
-    }
-
-    if resize_active {
-        st.ui.render_state.arm_window_fill(node_id);
-        return true;
-    }
-
-    let ready_after = st.ui.render_state.window_fill_ready_after(
-        node_id,
-        now,
-        Duration::from_millis(WINDOW_BACKGROUND_FILL_DELAY_MS),
-    );
-    let ready = animation_ready && now >= ready_after;
-    if ready {
-        st.ui.render_state.arm_window_fill(node_id);
-        return true;
-    }
-    if !ready {
-        st.request_maintenance();
-    }
-    false
-}
-
 fn offscreen_visual_crop_and_dst(
     bbox_loc_x: i32,
     bbox_loc_y: i32,
@@ -1006,7 +918,6 @@ pub(crate) fn collect_active_surfaces(
             * stack_transition_pose.map(|pose| pose.alpha).unwrap_or(1.0)
             * tiling_tile_transition.map(|rect| rect.alpha).unwrap_or(1.0))
         .clamp(0.0, 1.0);
-        let background_fill_animation_ready = transition_alpha <= 0.01 && live_ramp >= 0.995;
         let effective_border_px = if fullscreen_on_current_monitor {
             0
         } else {
@@ -1098,7 +1009,6 @@ pub(crate) fn collect_active_surfaces(
             corner_radius: effective_corner_radius_px as f32,
             inner_corner_radius: (effective_corner_radius_px - effective_border_px).max(0) as f32,
             border_color,
-            fill_background: false,
         };
         if stack_render_set.contains(&node_id) {
             stack_window_units
@@ -1115,8 +1025,6 @@ pub(crate) fn collect_active_surfaces(
         } else {
             border_rects.push(border_rect);
         }
-        let allow_border_background = !st.runtime.tuning.no_csd;
-
         // Games/fullscreen processes bypass offscreen zoom for performance and compatibility.
         let use_offscreen_zoom = !fullscreen_on_current_monitor;
 
@@ -1167,8 +1075,6 @@ pub(crate) fn collect_active_surfaces(
                         alpha,
                         Kind::Unspecified,
                     );
-                    let has_content = !elems.is_empty();
-
                     let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
                         (
                             output_clip.loc.x,
@@ -1216,23 +1122,6 @@ pub(crate) fn collect_active_surfaces(
                     } else {
                         active_elements.extend(cropped);
                     }
-                    set_border_fill_background_for_node(
-                        node_id,
-                        draw_top_this_node,
-                        &mut border_rects,
-                        &mut resized_border_rects,
-                        &stack_render_set,
-                        &mut stack_window_units,
-                        border_background_fill_ready(
-                            st,
-                            node_id,
-                            now,
-                            allow_border_background,
-                            active_resize.is_some(),
-                            background_fill_animation_ready,
-                            has_content,
-                        ),
-                    );
                     continue;
                 }
 
@@ -1299,8 +1188,6 @@ pub(crate) fn collect_active_surfaces(
                                 alpha,
                                 Kind::Unspecified,
                             );
-                            let has_content = !elems.is_empty();
-
                             let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
                                 (
                                     output_clip.loc.x,
@@ -1351,23 +1238,6 @@ pub(crate) fn collect_active_surfaces(
                             } else {
                                 active_elements.extend(cropped);
                             }
-                            set_border_fill_background_for_node(
-                                node_id,
-                                draw_top_this_node,
-                                &mut border_rects,
-                                &mut resized_border_rects,
-                                &stack_render_set,
-                                &mut stack_window_units,
-                                border_background_fill_ready(
-                                    st,
-                                    node_id,
-                                    now,
-                                    allow_border_background,
-                                    active_resize.is_some(),
-                                    background_fill_animation_ready,
-                                    has_content,
-                                ),
-                            );
                             continue;
                         }
                     }
@@ -1385,48 +1255,13 @@ pub(crate) fn collect_active_surfaces(
                 .get(&node_id)
                 .map(|cache| (cache.texture.clone(), cache.bbox, cache.has_content))
             {
-                Some((texture, bbox, has_content)) => {
+                Some((texture, bbox, _has_content)) => {
                     let Some(texture) = texture else {
-                        set_border_fill_background_for_node(
-                            node_id,
-                            draw_top_this_node,
-                            &mut border_rects,
-                            &mut resized_border_rects,
-                            &stack_render_set,
-                            &mut stack_window_units,
-                            false,
-                        );
                         continue;
                     };
                     let Some(ob) = bbox else {
-                        set_border_fill_background_for_node(
-                            node_id,
-                            draw_top_this_node,
-                            &mut border_rects,
-                            &mut resized_border_rects,
-                            &stack_render_set,
-                            &mut stack_window_units,
-                            false,
-                        );
                         continue;
                     };
-                    set_border_fill_background_for_node(
-                        node_id,
-                        draw_top_this_node,
-                        &mut border_rects,
-                        &mut resized_border_rects,
-                        &stack_render_set,
-                        &mut stack_window_units,
-                        border_background_fill_ready(
-                            st,
-                            node_id,
-                            now,
-                            allow_border_background,
-                            active_resize.is_some(),
-                            background_fill_animation_ready,
-                            has_content,
-                        ),
-                    );
                     // src = full bbox, dst = bbox scaled to screen positioned so geo
                     // lands on frame, clip = frame rect to discard CSD shadow bleed.
                     let (
@@ -1626,15 +1461,6 @@ pub(crate) fn collect_active_surfaces(
                     }
                 }
                 None => {
-                    set_border_fill_background_for_node(
-                        node_id,
-                        draw_top_this_node,
-                        &mut border_rects,
-                        &mut resized_border_rects,
-                        &stack_render_set,
-                        &mut stack_window_units,
-                        false,
-                    );
                     continue;
                 }
             }
@@ -1663,7 +1489,6 @@ pub(crate) fn collect_active_surfaces(
                 alpha,
                 Kind::Unspecified,
             );
-            let has_content = !elems.is_empty();
             let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
                 (
                     output_clip.loc.x,
@@ -1708,23 +1533,6 @@ pub(crate) fn collect_active_surfaces(
             } else {
                 active_elements.extend(cropped);
             }
-            set_border_fill_background_for_node(
-                node_id,
-                draw_top_this_node,
-                &mut border_rects,
-                &mut resized_border_rects,
-                &stack_render_set,
-                &mut stack_window_units,
-                border_background_fill_ready(
-                    st,
-                    node_id,
-                    now,
-                    allow_border_background,
-                    active_resize.is_some(),
-                    background_fill_animation_ready,
-                    has_content,
-                ),
-            );
         }
 
         let parent_geo = window_geometry_for_node(st, node_id).unwrap_or((
@@ -1874,32 +1682,9 @@ pub(crate) fn collect_active_surfaces(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        WINDOW_BACKGROUND_FILL_DELAY_MS, border_background_fill_ready,
-        should_draw_resize_overlap_overlay, strict_square_csd_transition_mode,
-    };
-    use crate::compositor::root::Halley;
+    use super::{should_draw_resize_overlap_overlay, strict_square_csd_transition_mode};
     use crate::compositor::surface_ops::stacking_render_order_map;
     use halley_core::field::NodeId;
-    use smithay::reexports::wayland_server::Display;
-    use std::time::{Duration, Instant};
-
-    fn single_monitor_tuning() -> halley_config::RuntimeTuning {
-        let mut tuning = halley_config::RuntimeTuning::default();
-        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
-            connector: "monitor_a".to_string(),
-            enabled: true,
-            offset_x: 0,
-            offset_y: 0,
-            width: 800,
-            height: 600,
-            refresh_rate: None,
-            transform_degrees: 0,
-            vrr: halley_config::ViewportVrrMode::Off,
-            focus_ring: None,
-        }];
-        tuning
-    }
 
     #[test]
     fn stacking_render_order_keeps_front_card_last() {
@@ -1935,95 +1720,6 @@ mod tests {
             (20, 20, 40, 40),
             false,
         ));
-    }
-
-    #[test]
-    fn dirty_window_cache_preserves_fill_delay_and_arm_state() {
-        let dh = Display::<Halley>::new().expect("display").handle();
-        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
-        let node_id = NodeId::new(1);
-        let now = Instant::now();
-
-        st.ui.render_state.window_offscreen_cache.insert(
-            node_id,
-            crate::render::state::WindowOffscreenCache::default(),
-        );
-        let cache = st
-            .ui
-            .render_state
-            .window_offscreen_cache
-            .get_mut(&node_id)
-            .expect("cache");
-        cache.mark_clean(now);
-        st.ui.render_state.arm_window_fill(node_id);
-        st.ui
-            .render_state
-            .window_fill_ready_after
-            .insert(node_id, now);
-
-        st.ui.render_state.mark_window_offscreen_dirty(node_id);
-
-        let cache = st
-            .ui
-            .render_state
-            .window_offscreen_cache
-            .get(&node_id)
-            .expect("cache");
-        assert!(cache.dirty);
-        assert_eq!(cache.last_clean_at, None);
-        assert!(st.ui.render_state.window_fill_armed.contains(&node_id));
-        assert_eq!(
-            st.ui.render_state.window_fill_ready_after.get(&node_id),
-            Some(&now)
-        );
-    }
-
-    #[test]
-    fn border_fill_waits_for_clean_cache_delay() {
-        let dh = Display::<Halley>::new().expect("display").handle();
-        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
-        let node_id = NodeId::new(1);
-        let clean_at = Instant::now();
-
-        assert!(!border_background_fill_ready(
-            &mut st, node_id, clean_at, true, false, true, true,
-        ));
-        assert!(!st.ui.render_state.window_fill_armed.contains(&node_id));
-
-        assert!(!border_background_fill_ready(
-            &mut st,
-            node_id,
-            clean_at + Duration::from_millis(WINDOW_BACKGROUND_FILL_DELAY_MS - 1),
-            true,
-            false,
-            true,
-            true,
-        ));
-        assert!(!st.ui.render_state.window_fill_armed.contains(&node_id));
-
-        assert!(border_background_fill_ready(
-            &mut st,
-            node_id,
-            clean_at + Duration::from_millis(WINDOW_BACKGROUND_FILL_DELAY_MS),
-            true,
-            false,
-            true,
-            true,
-        ));
-        assert!(st.ui.render_state.window_fill_armed.contains(&node_id));
-    }
-
-    #[test]
-    fn border_fill_is_visible_during_active_resize() {
-        let dh = Display::<Halley>::new().expect("display").handle();
-        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
-        let node_id = NodeId::new(1);
-        let now = Instant::now();
-
-        assert!(border_background_fill_ready(
-            &mut st, node_id, now, true, true, false, true,
-        ));
-        assert!(st.ui.render_state.window_fill_armed.contains(&node_id));
     }
 
     #[test]

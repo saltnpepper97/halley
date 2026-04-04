@@ -34,6 +34,18 @@ use super::root::Halley;
 use crate::backend::interface::DmabufImportBackend;
 use crate::protocol::wayland::ClientState;
 
+fn preferred_xdg_decoration_mode_for(no_csd: bool) -> XdgDecorationMode {
+    if no_csd {
+        XdgDecorationMode::ServerSide
+    } else {
+        XdgDecorationMode::ClientSide
+    }
+}
+
+fn should_apply_toplevel_tiled_hint(fullscreen: bool) -> bool {
+    !fullscreen
+}
+
 #[allow(dead_code)]
 pub(crate) struct PlatformState {
     pub(crate) display_handle: DisplayHandle,
@@ -62,18 +74,13 @@ pub(crate) struct PlatformState {
 }
 
 pub(crate) fn preferred_xdg_decoration_mode(st: &Halley) -> XdgDecorationMode {
-    if st.runtime.tuning.effective_no_csd() {
-        XdgDecorationMode::ServerSide
-    } else {
-        XdgDecorationMode::ClientSide
-    }
+    preferred_xdg_decoration_mode_for(st.runtime.tuning.no_csd)
 }
 
-pub(crate) fn apply_toplevel_tiled_hint(st: &Halley, state: &mut ToplevelState) {
-    let tiled = st.runtime.tuning.effective_no_csd()
-        && !state
-            .states
-            .contains(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen);
+pub(crate) fn apply_toplevel_tiled_hint(_st: &Halley, state: &mut ToplevelState) {
+    let tiled = should_apply_toplevel_tiled_hint(state.states.contains(
+        smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Fullscreen,
+    ));
     for edge in [
         smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledTop,
         smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledBottom,
@@ -85,6 +92,29 @@ pub(crate) fn apply_toplevel_tiled_hint(st: &Halley, state: &mut ToplevelState) 
         } else {
             state.states.unset(edge);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preferred_decoration_mode_depends_only_on_no_csd() {
+        assert_eq!(
+            preferred_xdg_decoration_mode_for(false),
+            XdgDecorationMode::ClientSide
+        );
+        assert_eq!(
+            preferred_xdg_decoration_mode_for(true),
+            XdgDecorationMode::ServerSide
+        );
+    }
+
+    #[test]
+    fn tiled_hints_apply_to_all_non_fullscreen_toplevels() {
+        assert!(should_apply_toplevel_tiled_hint(false));
+        assert!(!should_apply_toplevel_tiled_hint(true));
     }
 }
 

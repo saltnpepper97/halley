@@ -211,7 +211,6 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
             alive.contains(id) && st.ui.render_state.cluster_tile_tracks.contains_key(id)
         });
     st.ui.render_state.prune_window_offscreen_cache(&alive, now);
-    st.ui.render_state.prune_window_fill_ready_after(&alive);
     st.ui.render_state.prune_ui_text_cache(now);
 }
 
@@ -1209,16 +1208,7 @@ fn draw_window_borders(
             (visible.loc.x - dst.loc.x, visible.loc.y - dst.loc.y).into(),
             visible.size,
         );
-        let fill_color = if rect.fill_background {
-            (
-                rect.border_color.r(),
-                rect.border_color.g(),
-                rect.border_color.b(),
-                rect.border_color.a(),
-            )
-        } else {
-            (0.0f32, 0.0f32, 0.0f32, 0.0f32)
-        };
+        let fill_color = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
 
         if rect.corner_radius > 0.0 {
             if let (Some(texture), Some(program)) = (border_texture, border_program) {
@@ -1304,36 +1294,19 @@ fn draw_window_borders(
             }
         }
 
-        if rect.fill_background {
-            draw_rect(
-                frame,
-                visible.loc.x,
-                visible.loc.y,
-                visible.size.w,
-                visible.size.h,
-                Color32F::new(
-                    rect.border_color.r(),
-                    rect.border_color.g(),
-                    rect.border_color.b(),
-                    rect.border_color.a() * rect.alpha.clamp(0.0, 1.0),
-                ),
-                damage,
-            )?;
-        } else {
-            draw_clamped_outline_rect(
-                frame,
-                (dst.loc.x, dst.loc.y, dst.size.w, dst.size.h),
-                border_px,
-                Color32F::new(
-                    rect.border_color.r(),
-                    rect.border_color.g(),
-                    rect.border_color.b(),
-                    rect.border_color.a() * rect.alpha.clamp(0.0, 1.0),
-                ),
-                damage,
-                size,
-            )?;
-        }
+        draw_clamped_outline_rect(
+            frame,
+            (dst.loc.x, dst.loc.y, dst.size.w, dst.size.h),
+            border_px,
+            Color32F::new(
+                rect.border_color.r(),
+                rect.border_color.g(),
+                rect.border_color.b(),
+                rect.border_color.a() * rect.alpha.clamp(0.0, 1.0),
+            ),
+            damage,
+            size,
+        )?;
     }
 
     Ok(())

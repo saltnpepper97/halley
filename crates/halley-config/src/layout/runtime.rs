@@ -107,10 +107,6 @@ pub struct RuntimeTuning {
     pub env: HashMap<String, String>,
 }
 impl RuntimeTuning {
-    pub fn effective_no_csd(&self) -> bool {
-        self.no_csd || self.border_radius_px > 0
-    }
-
     pub fn cluster_layout_kind(&self) -> ClusterWorkspaceLayoutKind {
         self.cluster_default_layout.to_workspace_layout_kind()
     }

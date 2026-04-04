@@ -35,9 +35,6 @@ pub(crate) struct WindowOffscreenCache {
     /// Last frame this cache entry was touched.
     pub last_used_at: Option<Instant>,
 
-    /// Last time this cache entry was fully rebuilt and marked clean.
-    pub last_clean_at: Option<Instant>,
-
     /// Cached 1.0x surface-tree render target for zoomed compositing.
     pub texture: Option<GlesTexture>,
 
@@ -62,14 +59,12 @@ impl WindowOffscreenCache {
     #[inline]
     pub(crate) fn mark_dirty(&mut self) {
         self.dirty = true;
-        self.last_clean_at = None;
     }
 
     #[inline]
     pub(crate) fn mark_clean(&mut self, now: Instant) {
         self.dirty = false;
         self.last_used_at = Some(now);
-        self.last_clean_at = Some(now);
     }
 
     #[inline]
@@ -160,8 +155,6 @@ pub(crate) struct RenderState {
     pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
     pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
-    pub(crate) window_fill_ready_after: HashMap<NodeId, Instant>,
-    pub(crate) window_fill_armed: HashSet<NodeId>,
 }
 
 impl RenderState {
@@ -517,24 +510,16 @@ impl RenderState {
     ) -> &mut WindowOffscreenCache {
         let width = width.max(1);
         let height = height.max(1);
-        let mut size_changed = false;
-        {
-            let cache = self.window_offscreen_cache.entry(node_id).or_default();
-            if !cache.matches_size(width, height) {
-                cache.set_size(width, height);
-                cache.texture = None;
-                cache.bbox = None;
-                cache.has_content = false;
-                cache.mark_dirty();
-                size_changed = true;
-            }
+        let cache = self.window_offscreen_cache.entry(node_id).or_default();
+        if !cache.matches_size(width, height) {
+            cache.set_size(width, height);
+            cache.texture = None;
+            cache.bbox = None;
+            cache.has_content = false;
+            cache.mark_dirty();
+        }
 
-            cache.touch(now);
-        }
-        if size_changed {
-            self.window_fill_ready_after.remove(&node_id);
-            self.window_fill_armed.remove(&node_id);
-        }
+        cache.touch(now);
         self.window_offscreen_cache
             .get_mut(&node_id)
             .expect("offscreen cache should exist after ensure")
@@ -548,8 +533,6 @@ impl RenderState {
 
     pub(crate) fn clear_window_offscreen_cache_for(&mut self, node_id: NodeId) {
         self.window_offscreen_cache.remove(&node_id);
-        self.window_fill_ready_after.remove(&node_id);
-        self.window_fill_armed.remove(&node_id);
     }
 
     pub(crate) fn prune_window_offscreen_cache(&mut self, alive: &HashSet<NodeId>, now: Instant) {
@@ -559,33 +542,6 @@ impl RenderState {
                     .last_used_at
                     .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5)
         });
-    }
-
-    pub(crate) fn window_fill_ready_after(
-        &mut self,
-        node_id: NodeId,
-        now: Instant,
-        delay: std::time::Duration,
-    ) -> Instant {
-        *self
-            .window_fill_ready_after
-            .entry(node_id)
-            .or_insert_with(|| now + delay)
-    }
-
-    pub(crate) fn reset_window_fill_delay(&mut self, node_id: NodeId) {
-        self.window_fill_ready_after.remove(&node_id);
-        self.window_fill_armed.remove(&node_id);
-    }
-
-    pub(crate) fn arm_window_fill(&mut self, node_id: NodeId) {
-        self.window_fill_armed.insert(node_id);
-    }
-
-    pub(crate) fn prune_window_fill_ready_after(&mut self, alive: &HashSet<NodeId>) {
-        self.window_fill_ready_after
-            .retain(|id, _| alive.contains(id));
-        self.window_fill_armed.retain(|id| alive.contains(id));
     }
 
     pub(crate) fn invalidate_ui_text_cache(&mut self) {

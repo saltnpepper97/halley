@@ -217,7 +217,7 @@ pub(crate) fn collision_extents_for_node(
                 .copied()
                 .unwrap_or(n.intrinsic_size);
             let s = OverlapReadContext::active_collision_scale(anim.scale, basis.x, basis.y);
-            let ext = overlap_read_context(st).surface_window_collision_extents(n);
+            let ext = overlap_read_context(st).active_surface_overlap_extents(n);
 
             CollisionExtents {
                 left: ext.left * s,
@@ -853,6 +853,42 @@ mod tests {
         assert_eq!(ext.right, expected_half_w);
         assert_eq!(ext.top, expected_half_h);
         assert_eq!(ext.bottom, expected_half_h);
+    }
+
+    #[test]
+    fn active_overlap_extents_preserve_asymmetric_bbox_offsets() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let id = state.model.field.spawn_surface(
+            "gtk-like",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 920.0,
+            },
+        );
+        state.ui.render_state.bbox_loc.insert(id, (4.0, 6.0));
+        state
+            .ui
+            .render_state
+            .window_geometry
+            .insert(id, (12.0, 18.0, 840.0, 620.0));
+
+        let node = state.model.field.node(id).expect("surface node");
+        let ext = state.collision_extents_for_node(node);
+
+        assert!(
+            ext.left > ext.right,
+            "expected asymmetric x extents: {ext:?}"
+        );
+        assert!(
+            ext.top > ext.bottom,
+            "expected asymmetric y extents: {ext:?}"
+        );
     }
 
     #[test]

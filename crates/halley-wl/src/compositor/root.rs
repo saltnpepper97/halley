@@ -327,8 +327,6 @@ impl Halley {
                     bbox_loc: HashMap::new(),
                     window_geometry: HashMap::new(),
                     window_offscreen_cache: HashMap::new(),
-                    window_fill_ready_after: HashMap::new(),
-                    window_fill_armed: HashSet::new(),
                 },
             },
             input: InputState {
