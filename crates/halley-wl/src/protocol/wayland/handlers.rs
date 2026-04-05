@@ -1,6 +1,7 @@
 use super::*;
 use crate::compositor::{focus, fullscreen, interaction, monitor, spawn, workspace};
 use smithay::backend::allocator::dmabuf::Dmabuf;
+use smithay::backend::input::TabletToolDescriptor;
 use smithay::input::pointer::PointerHandle;
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -20,6 +21,7 @@ use smithay::wayland::selection::wlr_data_control::DataControlState;
 use smithay::wayland::shell::wlr_layer::{
     LayerSurface, LayerSurfaceConfigure, WlrLayerShellHandler, WlrLayerShellState,
 };
+use smithay::wayland::tablet_manager::TabletSeatHandler;
 
 pub(super) fn initial_toplevel_size(
     st: &mut Halley,
@@ -61,10 +63,18 @@ impl SeatHandler for Halley {
 }
 
 delegate_seat!(Halley);
+delegate_cursor_shape!(Halley);
 delegate_pointer_constraints!(Halley);
 delegate_relative_pointer!(Halley);
 delegate_drm_syncobj!(Halley);
 delegate_idle_notify!(Halley);
+
+impl TabletSeatHandler for Halley {
+    fn tablet_tool_image(&mut self, _tool: &TabletToolDescriptor, image: CursorImageStatus) {
+        self.platform.cursor_image_status = image;
+        self.request_maintenance();
+    }
+}
 
 impl SelectionHandler for Halley {
     type SelectionUserData = ();

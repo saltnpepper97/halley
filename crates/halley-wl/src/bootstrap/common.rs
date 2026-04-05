@@ -209,6 +209,8 @@ fn activation_environment_vars() -> Vec<String> {
         "WAYLAND_DISPLAY",
         "XDG_CURRENT_DESKTOP",
         "XDG_SESSION_TYPE",
+        "XCURSOR_THEME",
+        "XCURSOR_SIZE",
         "XDG_RUNTIME_DIR",
         "DBUS_SESSION_BUS_ADDRESS",
         "PATH",

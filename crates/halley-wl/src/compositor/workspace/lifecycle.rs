@@ -810,10 +810,8 @@ fn ensure_node_for_surface_impl(
             .flatten()
         })
         .unwrap_or(0);
-    let defer_rule_resolution = crate::compositor::spawn::rules::needs_deferred_rule_recheck(
-        st,
-        &effective_intent,
-    );
+    let defer_rule_resolution =
+        crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &effective_intent);
     let defer_active_tiled_cluster_join = defer_rule_resolution
         && active_cluster.is_some()
         && !stack_mode_open
@@ -1371,7 +1369,11 @@ mod tests {
             state.assign_node_to_monitor(id, "monitor_a");
         }
 
-        let cid = state.model.field.create_cluster(vec![a, b]).expect("cluster");
+        let cid = state
+            .model
+            .field
+            .create_cluster(vec![a, b])
+            .expect("cluster");
         let core = state.model.field.collapse_cluster(cid).expect("core");
         state.assign_node_to_monitor(core, "monitor_a");
 
@@ -1391,29 +1393,30 @@ mod tests {
         let closing_id = a;
 
         // The logic I added:
-        let next_to_focus = if let Some(cid) = state.active_cluster_workspace_for_monitor(focused_monitor) {
-            if !matches!(
-                state.runtime.tuning.cluster_layout_kind(),
-                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
-            ) {
-                let mut next = None;
-                if let Some(cluster) = state.model.field.cluster(cid) {
-                    let members = cluster.members();
-                    if let Some(pos) = members.iter().position(|&id| id == closing_id) {
-                        if pos + 1 < members.len() {
-                            next = Some(members[pos + 1]);
-                        } else if pos > 0 {
-                            next = Some(members[pos - 1]);
+        let next_to_focus =
+            if let Some(cid) = state.active_cluster_workspace_for_monitor(focused_monitor) {
+                if !matches!(
+                    state.runtime.tuning.cluster_layout_kind(),
+                    halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+                ) {
+                    let mut next = None;
+                    if let Some(cluster) = state.model.field.cluster(cid) {
+                        let members = cluster.members();
+                        if let Some(pos) = members.iter().position(|&id| id == closing_id) {
+                            if pos + 1 < members.len() {
+                                next = Some(members[pos + 1]);
+                            } else if pos > 0 {
+                                next = Some(members[pos - 1]);
+                            }
                         }
                     }
+                    next
+                } else {
+                    None
                 }
-                next
             } else {
                 None
-            }
-        } else {
-            None
-        };
+            };
 
         assert_eq!(next_to_focus, Some(b));
     }

@@ -786,7 +786,8 @@ pub(crate) fn collect_active_surfaces(
             || dragging_this_node
             || persistent_rule_top;
 
-        let force_live_surface_scale = resizing_this_node || dragging_this_node || active_cluster_member;
+        let force_live_surface_scale =
+            resizing_this_node || dragging_this_node || active_cluster_member;
         let (scale, live_ramp) = if force_live_surface_scale {
             (1.0f32 * fullscreen_entry_scale, 1.0f32)
         } else {

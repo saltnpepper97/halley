@@ -97,7 +97,7 @@ impl Default for CursorConfig {
             theme: "Adwaita".to_string(),
             size: 24,
             hide_while_typing: false,
-            hide_after_ms: 2000,
+            hide_after_ms: 0,
         }
     }
 }

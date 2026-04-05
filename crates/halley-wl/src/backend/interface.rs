@@ -3,10 +3,10 @@ use std::error::Error;
 use std::rc::Rc;
 
 use calloop::ping::Ping;
-use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::ImportDma;
+use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::winit::WinitGraphicsBackend;
-use smithay::backend::{allocator::dmabuf::Dmabuf, allocator::Format};
+use smithay::backend::{allocator::Format, allocator::dmabuf::Dmabuf};
 
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;

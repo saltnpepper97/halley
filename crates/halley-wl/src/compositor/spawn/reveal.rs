@@ -74,7 +74,8 @@ pub(crate) fn initial_toplevel_size(
     intent: &InitialWindowIntent,
 ) -> InitialToplevelSize {
     let st = &ctx.st;
-    let defer_rule_resolution = crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, intent);
+    let defer_rule_resolution =
+        crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, intent);
     let predicted_monitor = st.spawn_target_monitor_for_intent(intent);
     let stack_mode_open = st
         .model

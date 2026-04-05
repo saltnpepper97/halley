@@ -14,6 +14,7 @@ use smithay::{
     reexports::wayland_server::{DisplayHandle, backend::ObjectId},
     wayland::{
         compositor::CompositorState,
+        cursor_shape::CursorShapeManagerState,
         dmabuf::DmabufState,
         idle_notify::IdleNotifierState,
         output::OutputManagerState,
@@ -185,6 +186,7 @@ impl Halley {
                     Halley,
                 >(dh),
                 xdg_decoration_state: XdgDecorationState::new::<Halley>(dh),
+                cursor_shape_manager_state: CursorShapeManagerState::new::<Halley>(dh),
                 popup_manager: PopupManager::default(),
                 wlr_layer_shell_state: WlrLayerShellState::new::<Halley>(dh),
                 pointer_constraints_state: PointerConstraintsState::new::<Halley>(dh),

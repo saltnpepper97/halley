@@ -58,8 +58,13 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .model
             .field
             .cluster_id_for_member_public(id)
-            .and_then(|cid| self.preferred_monitor_for_cluster(cid, None).map(|monitor| (cid, monitor)))
-            .filter(|(cid, monitor)| self.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(*cid))
+            .and_then(|cid| {
+                self.preferred_monitor_for_cluster(cid, None)
+                    .map(|monitor| (cid, monitor))
+            })
+            .filter(|(cid, monitor)| {
+                self.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(*cid)
+            })
             .filter(|_| {
                 matches!(
                     self.active_cluster_layout_kind(),
@@ -67,10 +72,11 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 )
             })
             .map(|(_, monitor)| {
-                let old_visible = crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
-                    self,
-                    monitor.as_str(),
-                );
+                let old_visible =
+                    crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                        self,
+                        monitor.as_str(),
+                    );
                 (monitor, old_visible)
             });
         let cluster_snapshot = self
@@ -99,7 +105,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                         cluster_monitor.as_str(),
                         now_ms,
                     );
-                    if let Some((transition_monitor, old_visible)) = stack_remove_transition.as_ref()
+                    if let Some((transition_monitor, old_visible)) =
+                        stack_remove_transition.as_ref()
                         && transition_monitor == &cluster_monitor
                     {
                         let new_visible = crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(

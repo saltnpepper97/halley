@@ -12,6 +12,7 @@ use smithay::{
     },
     wayland::{
         compositor::{CompositorState, add_blocker, with_states},
+        cursor_shape::CursorShapeManagerState,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjState},
         idle_notify::IdleNotifierState,
@@ -54,6 +55,7 @@ pub(crate) struct PlatformState {
     pub(crate) xdg_shell_state: XdgShellState,
     pub(crate) xdg_activation_state: XdgActivationState,
     pub(crate) xdg_decoration_state: XdgDecorationState,
+    pub(crate) cursor_shape_manager_state: CursorShapeManagerState,
     pub(crate) popup_manager: PopupManager,
     pub(crate) wlr_layer_shell_state: WlrLayerShellState,
     pub(crate) pointer_constraints_state: PointerConstraintsState,
@@ -98,6 +100,7 @@ pub(crate) fn apply_toplevel_tiled_hint(_st: &Halley, state: &mut ToplevelState)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use smithay::input::pointer::{CursorIcon, CursorImageStatus};
 
     #[test]
     fn preferred_decoration_mode_uses_effective_no_csd() {
@@ -116,6 +119,38 @@ mod tests {
         assert!(should_apply_toplevel_tiled_hint(false));
         assert!(!should_apply_toplevel_tiled_hint(true));
     }
+
+    #[test]
+    fn idle_hide_does_not_hide_cursor_without_pointer_focus() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cursor.hide_after_ms = 5_000;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.platform.cursor_image_status = CursorImageStatus::default_named();
+        state.input.interaction_state.last_cursor_activity_at_ms = 0;
+
+        assert!(matches!(
+            effective_cursor_image_status(&state),
+            CursorImageStatus::Named(_)
+        ));
+    }
+
+    #[test]
+    fn compositor_override_icon_still_applies_without_pointer_focus() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        state.platform.cursor_image_status = CursorImageStatus::Hidden;
+        state.input.interaction_state.cursor_override_icon = Some(CursorIcon::Pointer);
+
+        assert!(matches!(
+            effective_cursor_image_status(&state),
+            CursorImageStatus::Named(CursorIcon::Pointer)
+        ));
+    }
 }
 
 pub(crate) fn refresh_xdg_decoration_mode(st: &mut Halley) {
@@ -130,18 +165,31 @@ pub(crate) fn refresh_xdg_decoration_mode(st: &mut Halley) {
 }
 
 pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
+    let pointer_has_client_focus = st
+        .platform
+        .seat
+        .get_pointer()
+        .and_then(|pointer| pointer.current_focus())
+        .is_some();
+
     if st.input.interaction_state.cursor_hidden_by_typing {
         return CursorImageStatus::Hidden;
     }
 
     let hide_after_ms = st.runtime.tuning.cursor.hide_after_ms;
-    if hide_after_ms > 0 {
+    if hide_after_ms > 0 && pointer_has_client_focus {
         let now_ms = st.now_ms(std::time::Instant::now());
         if now_ms.saturating_sub(st.input.interaction_state.last_cursor_activity_at_ms)
             >= hide_after_ms
         {
             return CursorImageStatus::Hidden;
         }
+    }
+
+    if matches!(st.platform.cursor_image_status, CursorImageStatus::Hidden)
+        && pointer_has_client_focus
+    {
+        return CursorImageStatus::Hidden;
     }
 
     st.input
