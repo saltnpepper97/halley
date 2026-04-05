@@ -3,7 +3,7 @@ use halley_config::{
     WindowRule,
 };
 use halley_core::field::NodeId;
-use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
+use smithay::reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{ToplevelSurface, XdgToplevelSurfaceData};
 
@@ -54,15 +54,17 @@ impl InitialWindowIntent {
         &self,
     ) -> crate::compositor::spawn::state::AppliedInitialWindowRule {
         let effective_spawn_placement = self.effective_spawn_placement();
+        let effective_overlap_policy = self.effective_overlap_policy();
         crate::compositor::spawn::state::AppliedInitialWindowRule {
-            overlap_policy: self.effective_overlap_policy(),
+            overlap_policy: effective_overlap_policy,
             spawn_placement: self.rule.spawn_placement,
             cluster_participation: self.rule.cluster_participation,
             parent_node: self.parent_node,
             suppress_reveal_pan: !matches!(
                 effective_spawn_placement,
                 InitialWindowSpawnPlacement::Adjacent
-            ),
+            ) || effective_overlap_policy != InitialWindowOverlapPolicy::None
+                || self.rule.cluster_participation == InitialWindowClusterParticipation::Float,
         }
     }
 
@@ -439,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn only_non_adjacent_effective_placements_suppress_reveal_pan() {
+    fn float_and_overlap_rules_suppress_reveal_pan() {
         let adjacent = InitialWindowIntent {
             app_id: Some("firefox".to_string()),
             title: None,
@@ -460,8 +462,17 @@ mod tests {
             },
             ..adjacent.clone()
         };
+        let layout_adjacent = InitialWindowIntent {
+            rule: ResolvedInitialWindowRule {
+                overlap_policy: InitialWindowOverlapPolicy::None,
+                spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: InitialWindowClusterParticipation::Layout,
+            },
+            ..adjacent.clone()
+        };
 
-        assert!(!adjacent.applied_rule_for_node().suppress_reveal_pan);
+        assert!(adjacent.applied_rule_for_node().suppress_reveal_pan);
         assert!(center.applied_rule_for_node().suppress_reveal_pan);
+        assert!(!layout_adjacent.applied_rule_for_node().suppress_reveal_pan);
     }
 }

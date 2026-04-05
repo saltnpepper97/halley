@@ -1,7 +1,7 @@
 use super::*;
 use crate::compositor::overlap::physics::{
-    CONTACT_SKIN, MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON, POSITION_SOLVER_ITERS,
-    resolve_contact_pair,
+    resolve_contact_pair, CONTACT_SKIN, MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON,
+    POSITION_SOLVER_ITERS,
 };
 pub(crate) use crate::compositor::overlap::read::CollisionExtents;
 use crate::compositor::overlap::read::OverlapReadContext;
@@ -279,8 +279,11 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
     let dt = now
         .saturating_duration_since(st.input.interaction_state.physics_last_tick)
         .as_secs_f32()
-        .clamp(1.0 / 240.0, 1.0 / 30.0);
+        .min(1.0 / 30.0);
     st.input.interaction_state.physics_last_tick = now;
+    if dt <= f32::EPSILON {
+        return;
+    }
 
     let gap = non_overlap_gap_world(st);
     let damping_per_sec = physics_damping_per_sec(st);

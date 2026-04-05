@@ -259,6 +259,8 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
     if had_pointer_focus {
         crate::compositor::interaction::pointer::clear_pointer_focus(st);
     }
+
+    drop_surface_impl(st, surface.wl_surface());
 }
 
 pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
@@ -542,12 +544,9 @@ fn maybe_apply_pending_initial_window_rule(
         st,
         root_surface,
     );
-    if !intent.matched_rule {
-        if !crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &intent) {
-            st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
-            st.model.spawn_state.pending_initial_reveal.remove(&node_id);
-            st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
-        }
+    if !intent.matched_rule
+        && crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &intent)
+    {
         return;
     }
     let monitor = st
@@ -557,11 +556,12 @@ fn maybe_apply_pending_initial_window_rule(
         .get(&node_id)
         .cloned()
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let active_cluster = st.active_cluster_workspace_for_monitor(monitor.as_str());
     let mut cluster_local = st
         .model
         .field
         .cluster_id_for_member_public(node_id)
-        .is_some_and(|cid| st.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(cid));
+        .is_some_and(|cid| active_cluster == Some(cid));
     if st.cluster_bloom_for_monitor(monitor.as_str()).is_some() {
         st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
         st.model.spawn_state.pending_initial_reveal.remove(&node_id);
@@ -590,6 +590,30 @@ fn maybe_apply_pending_initial_window_rule(
     }
 
     if !cluster_local
+        && matches!(
+            st.runtime.tuning.cluster_layout_kind(),
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+        )
+        && should_join_active_cluster_layout(active_cluster.is_some(), false, &intent)
+        && let Some(cid) = active_cluster
+        && st.absorb_node_into_cluster(cid, node_id, now)
+    {
+        st.assign_node_to_monitor(node_id, monitor.as_str());
+        let reveal_at_ms = st.now_ms(now).saturating_add(140);
+        st.model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .insert(node_id, reveal_at_ms);
+        if let Some(node) = st.model.field.node_mut(node_id) {
+            node.visibility.set(Visibility::DETACHED, true);
+            node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, true);
+        }
+        st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), st.now_ms(now));
+        st.request_maintenance();
+        cluster_local = true;
+    }
+
+    if !cluster_local
         && let Some(size) = st.model.field.node(node_id).map(|node| node.intrinsic_size)
     {
         let (_, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
@@ -597,10 +621,14 @@ fn maybe_apply_pending_initial_window_rule(
     }
 
     st.set_recent_top_node(node_id, now + std::time::Duration::from_millis(1200));
-    st.model
-        .spawn_state
-        .applied_window_rules
-        .insert(node_id, intent.applied_rule_for_node());
+    if intent.matched_rule {
+        st.model
+            .spawn_state
+            .applied_window_rules
+            .insert(node_id, intent.applied_rule_for_node());
+    } else {
+        st.model.spawn_state.applied_window_rules.remove(&node_id);
+    }
     st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
     st.model.spawn_state.pending_initial_reveal.remove(&node_id);
     st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
@@ -769,11 +797,22 @@ fn ensure_node_for_surface_impl(
             .flatten()
         })
         .unwrap_or(0);
+    let defer_rule_resolution = crate::compositor::spawn::rules::needs_deferred_rule_recheck(
+        st,
+        &effective_intent,
+    );
+    let defer_active_tiled_cluster_join = defer_rule_resolution
+        && active_cluster.is_some()
+        && !stack_mode_open
+        && matches!(
+            st.runtime.tuning.cluster_layout_kind(),
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+        );
     let join_cluster_layout = should_join_active_cluster_layout(
         active_cluster.is_some(),
         stack_mode_open,
         &effective_intent,
-    );
+    ) && !defer_active_tiled_cluster_join;
     let stack_spawn_transition = active_cluster
         .filter(|_| {
             join_cluster_layout
@@ -833,7 +872,7 @@ fn ensure_node_for_surface_impl(
             .spawn_state
             .applied_window_rules
             .insert(id, effective_intent.applied_rule_for_node());
-    } else if crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &effective_intent) {
+    } else if defer_rule_resolution {
         st.model.spawn_state.pending_rule_rechecks.insert(id);
         st.model.spawn_state.pending_initial_reveal.insert(id);
     }
@@ -853,6 +892,9 @@ fn ensure_node_for_surface_impl(
         .render_state
         .animator
         .observe_field(&st.model.field, now);
+    if defer_rule_resolution && !joined_active_cluster {
+        let _ = st.model.field.set_detached(id, true);
+    }
     if let Some(cid) = active_cluster.filter(|_| joined_active_cluster) {
         if matches!(
             st.runtime.tuning.cluster_layout_kind(),
@@ -933,6 +975,31 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
     crate::protocol::wayland::activation::clear_surface_activation(st, surface);
     if let Some(id) = st.model.surface_to_node.remove(&key) {
         let queued_promotion = capture_queued_overflow_promotion(st, id);
+        let active_tiled_focus_restore = st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .and_then(|monitor| {
+                let was_primary_focus = st.model.focus_state.primary_interaction_focus == Some(id);
+                let preferred_index = st
+                    .model
+                    .field
+                    .cluster_id_for_member_public(id)
+                    .and_then(|cid| st.model.field.cluster(cid))
+                    .and_then(|cluster| {
+                        cluster.members().iter().position(|member| *member == id)
+                    })?;
+                (was_primary_focus
+                    && matches!(
+                        st.runtime.tuning.cluster_layout_kind(),
+                        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+                    )
+                    && st.active_cluster_workspace_for_monitor(monitor.as_str())
+                        == st.model.field.cluster_id_for_member_public(id))
+                .then_some((monitor, preferred_index))
+            });
         st.drop_fullscreen_surface(id, Instant::now());
         if st.model.focus_state.pan_restore_active_focus == Some(id) {
             st.model.focus_state.pan_restore_active_focus = None;
@@ -999,6 +1066,15 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         let _ = st.remove_node_from_field(id, now_ms);
         if let Some(promotion) = queued_promotion {
             arm_queued_overflow_promotion(st, promotion, now_ms);
+        }
+        if let Some((monitor, preferred_index)) = active_tiled_focus_restore {
+            let now = Instant::now();
+            st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), st.now_ms(now));
+            let _ = st.focus_active_tiled_cluster_member_for_monitor(
+                monitor.as_str(),
+                Some(preferred_index),
+                now,
+            );
         }
     }
     st.request_maintenance();

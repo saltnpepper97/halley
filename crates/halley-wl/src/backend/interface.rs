@@ -2,10 +2,11 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::rc::Rc;
 
-use smithay::backend::renderer::ImportDma;
+use calloop::ping::Ping;
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::ImportDma;
 use smithay::backend::winit::WinitGraphicsBackend;
-use smithay::backend::{allocator::Format, allocator::dmabuf::Dmabuf};
+use smithay::backend::{allocator::dmabuf::Dmabuf, allocator::Format};
 
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
@@ -39,17 +40,23 @@ pub(crate) struct CaptureDmabufResult {
 #[derive(Clone)]
 pub(crate) struct TtyBackendHandle {
     size: Rc<Cell<(i32, i32)>>,
+    redraw_ping: Rc<RefCell<Option<Rc<Ping>>>>,
 }
 
 impl TtyBackendHandle {
     pub(crate) fn new(width: i32, height: i32) -> Self {
         Self {
             size: Rc::new(Cell::new((width, height))),
+            redraw_ping: Rc::new(RefCell::new(None)),
         }
     }
 
     pub(crate) fn set_size(&self, width: i32, height: i32) {
         self.size.set((width, height));
+    }
+
+    pub(crate) fn set_redraw_ping(&self, redraw_ping: Rc<Ping>) {
+        *self.redraw_ping.borrow_mut() = Some(redraw_ping);
     }
 }
 
@@ -58,7 +65,11 @@ impl BackendView for TtyBackendHandle {
         self.size.get()
     }
 
-    fn request_redraw(&self) {}
+    fn request_redraw(&self) {
+        if let Some(redraw_ping) = self.redraw_ping.borrow().as_ref() {
+            redraw_ping.ping();
+        }
+    }
 }
 
 pub(crate) struct TtyDmabufImportBackend {

@@ -54,6 +54,25 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
     }
 
     pub(crate) fn remove_node_from_field(&mut self, id: NodeId, now_ms: u64) -> bool {
+        let stack_remove_transition = self
+            .model
+            .field
+            .cluster_id_for_member_public(id)
+            .and_then(|cid| self.preferred_monitor_for_cluster(cid, None).map(|monitor| (cid, monitor)))
+            .filter(|(cid, monitor)| self.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(*cid))
+            .filter(|_| {
+                matches!(
+                    self.active_cluster_layout_kind(),
+                    ClusterWorkspaceLayoutKind::Stacking
+                )
+            })
+            .map(|(_, monitor)| {
+                let old_visible = crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                    self,
+                    monitor.as_str(),
+                );
+                (monitor, old_visible)
+            });
         let cluster_snapshot = self
             .model
             .field
@@ -80,6 +99,23 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                         cluster_monitor.as_str(),
                         now_ms,
                     );
+                    if let Some((transition_monitor, old_visible)) = stack_remove_transition.as_ref()
+                        && transition_monitor == &cluster_monitor
+                    {
+                        let new_visible = crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                            self,
+                            cluster_monitor.as_str(),
+                        );
+                        self.ui.render_state.start_stack_cycle_transition(
+                            cluster_monitor.as_str(),
+                            ClusterCycleDirection::Prev,
+                            old_visible.clone(),
+                            new_visible,
+                            Instant::now(),
+                            220,
+                        );
+                        self.request_maintenance();
+                    }
                 }
             }
             Some(RemoveNodeClusterEffect::DissolvedCluster(cid)) => {

@@ -682,6 +682,12 @@ pub(crate) fn collect_active_surfaces(
     let mut overlap_overlay_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
 
     let recent_top_node = st.recent_top_node_active(now);
+    let has_persistent_rule_top = st
+        .model
+        .spawn_state
+        .applied_window_rules
+        .keys()
+        .any(|id| st.model.field.is_visible(*id));
     let output_clip = Rectangle::<i32, Physical>::new((0, 0).into(), size);
     let resize_rect_px = resize_preview.and_then(|rz| {
         if !st.node_visible_on_current_monitor(rz.node_id) {
@@ -772,13 +778,16 @@ pub(crate) fn collect_active_surfaces(
         let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
         let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
         let resizing_this_node = active_resize.is_some();
+        let dragging_this_node = st.input.interaction_state.drag_authority_node == Some(node_id);
         let persistent_rule_top = is_persistent_rule_top(st, node_id);
         let draw_top_this_node = resizing_this_node
-            || recent_top_node == Some(node_id)
-            || st.input.interaction_state.drag_authority_node == Some(node_id)
+            || (recent_top_node == Some(node_id)
+                && (!has_persistent_rule_top || persistent_rule_top))
+            || dragging_this_node
             || persistent_rule_top;
 
-        let (scale, live_ramp) = if draw_top_this_node || active_cluster_member {
+        let force_live_surface_scale = resizing_this_node || dragging_this_node || active_cluster_member;
+        let (scale, live_ramp) = if force_live_surface_scale {
             (1.0f32 * fullscreen_entry_scale, 1.0f32)
         } else {
             let s = active_surface_render_scale(

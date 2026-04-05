@@ -74,13 +74,15 @@ pub(crate) fn initial_toplevel_size(
     intent: &InitialWindowIntent,
 ) -> InitialToplevelSize {
     let st = &ctx.st;
+    let defer_rule_resolution = crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, intent);
     let predicted_monitor = st.spawn_target_monitor_for_intent(intent);
     let stack_mode_open = st
         .model
         .cluster_state
         .cluster_bloom_open
         .contains_key(predicted_monitor.as_str());
-    if !stack_mode_open
+    if !defer_rule_resolution
+        && !stack_mode_open
         && intent.rule.cluster_participation
             == halley_config::InitialWindowClusterParticipation::Layout
         && let Some(cid) = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str())
@@ -770,6 +772,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             return;
         }
         if cluster_local {
+            let _ = self.model.field.set_detached(id, false);
             self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
             self.set_interaction_focus(Some(id), 30_000, now);
             self.model
@@ -789,6 +792,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             .get(&id)
             .is_some_and(|rule| rule.suppress_reveal_pan)
         {
+            let _ = self.model.field.set_detached(id, false);
             self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
             self.record_focus_trail_visit(id);
             self.model.focus_state.suppress_trail_record_once = true;
@@ -803,6 +807,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         match self.resolve_spawn_reveal_plan(id, is_transient) {
             RevealNewToplevelPlan::AlreadyQueued => {}
             RevealNewToplevelPlan::ActivateNow => {
+                let _ = self.model.field.set_detached(id, false);
                 self.record_focus_trail_visit(id);
                 self.model.focus_state.suppress_trail_record_once = true;
                 self.set_interaction_focus(Some(id), 30_000, now);

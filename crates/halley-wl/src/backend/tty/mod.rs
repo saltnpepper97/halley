@@ -993,6 +993,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let pending_scanout_probe_at_for_timer = pending_scanout_probe_at.clone();
             let event_loop_handle_for_vblank = ev.handle();
             let (redraw_ping, redraw_source) = make_ping()?;
+            let redraw_ping = Rc::new(redraw_ping);
+            backend_handle.set_redraw_ping(redraw_ping.clone());
             let redraw_ping_for_vblank = redraw_ping.clone();
             ev.handle().insert_source(
                 drm_probe.notifier,
