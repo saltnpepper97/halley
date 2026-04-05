@@ -652,7 +652,7 @@ pub(crate) fn select_tty_scanouts(
             if let Err(err) = dev.set_crtc(other_crtc, None, (0, 0), &[], None) {
                 warn!("failed to disable unconfigured connector {}: {}", info, err);
             } else {
-                info!("disabled unconfigured connector {}", info);
+                debug!("disabled unconfigured connector {}", info);
             }
         }
     }

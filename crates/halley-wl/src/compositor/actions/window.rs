@@ -1,5 +1,5 @@
 use crate::compositor::root::Halley;
-use eventline::info;
+use eventline::debug;
 use halley_config::{ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode};
 use halley_core::decay::DecayLevel;
 use halley_core::viewport::FocusZone;
@@ -190,7 +190,7 @@ pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
         crate::compositor::carry::system::end_carry_state_tracking(st, id);
         st.set_interaction_focus(Some(id), 30_000, Instant::now());
         if let Some(nn) = st.model.field.node(id) {
-            info!(
+            debug!(
                 "moved node id={} to ({:.0},{:.0}) state={:?}",
                 id.as_u64(),
                 nn.pos.x,

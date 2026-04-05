@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
-use eventline::{info, warn};
+use eventline::{debug, warn};
 use smithay::reexports::wayland_server::{
     Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
 };
@@ -112,7 +112,7 @@ pub(crate) fn request_surface_activation(
     let now_ms = st.now_ms(now);
 
     if !activation_token_is_valid(st, token, token_data, now, now_ms) {
-        info!(
+        debug!(
             "ignoring invalid activation request token={} surface={:?}",
             token,
             root.id()
@@ -126,7 +126,7 @@ pub(crate) fn request_surface_activation(
     if let Some(id) = st.model.surface_to_node.get(&root.id()).copied() {
         let activated =
             crate::compositor::actions::window::focus_or_reveal_surface_node(st, id, now);
-        info!(
+        debug!(
             "applied activation request token={} node={} surface={:?} activated={}",
             token,
             id.as_u64(),
@@ -142,7 +142,7 @@ pub(crate) fn request_surface_activation(
             requested_at_ms: now_ms,
         },
     );
-    info!(
+    debug!(
         "queued activation request token={} for pending surface {:?}",
         token,
         root.id()

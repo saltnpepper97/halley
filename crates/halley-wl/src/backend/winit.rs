@@ -204,7 +204,7 @@ fn apply_winit_reload(
     );
     let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
-    info!(
+    debug!(
         "{}: reloaded config from {} with viewport {}x{}",
         reason,
         config_path,
@@ -238,9 +238,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 );
             }
             info!("config path: {}", config_path.as_str());
-            info!("keybind modifier: {}", tuning.keybinds.modifier_name());
-            info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
-            info!("resolved zoom: {}", tuning.zoom_resolved_summary());
+            debug!("keybind modifier: {}", tuning.keybinds.modifier_name());
+            debug!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
+            debug!("resolved zoom: {}", tuning.zoom_resolved_summary());
 
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
@@ -731,8 +731,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 config_path_for_timer.as_str()
                             );
                         }
-                        info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
-                        info!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
+                        debug!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                        debug!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                         halley_ipc::Response::Reloaded
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
@@ -824,8 +824,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 if reloaded {
-                    info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
-                    info!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
+                    debug!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                    debug!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                 }
 
                 {
@@ -842,7 +842,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             if due {
                                 if let Some(n) = st.model.field.node(id) {
                                     let surf = current_surface_size_for_node(st, id);
-                                    info!(
+                                    debug!(
                                         "resize-trace id={} pos=({:.1},{:.1}) intrinsic=({:.1},{:.1}) surface={:?} state={:?}",
                                         id.as_u64(),
                                         n.pos.x,
@@ -853,7 +853,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                         n.state,
                                     );
                                 } else {
-                                    info!("resize-trace id={} missing-node", id.as_u64());
+                                    debug!("resize-trace id={} missing-node", id.as_u64());
                                 }
                                 ps.resize_trace_last_at = Some(now);
                             }

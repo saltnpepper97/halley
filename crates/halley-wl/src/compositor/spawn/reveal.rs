@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
-use eventline::info;
+use eventline::debug;
 use halley_config::{InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, PanToNewMode};
 use halley_core::decay::DecayLevel;
 use halley_core::field::{NodeId, Vec2};
@@ -568,7 +568,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             read::spawn_read_context(self).viewport_center_for_monitor(target_monitor.as_str());
         let (focus_id, focus_pos) =
             read::spawn_read_context(self).current_spawn_focus(target_monitor.as_str());
-        info!(
+        debug!(
             "spawn target resolved: target_monitor={} focused_monitor={} interaction_monitor={} anchor_mode={:?} focus_id={:?}",
             target_monitor,
             self.focused_monitor(),
@@ -592,7 +592,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                         focus_pos,
                         dir,
                     );
-                    info!(
+                    debug!(
                         "spawn position picked: target_monitor={} anchor=({:.1},{:.1}) focus_pos=({:.1},{:.1}) chosen=({:.1},{:.1}) size=({:.1},{:.1})",
                         target_monitor,
                         focus_pos.x,
@@ -625,7 +625,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             );
             self.spawn_monitor_state_mut(target_monitor.as_str())
                 .spawn_view_anchor = anchor;
-            info!(
+            debug!(
                 "spawn position picked: target_monitor={} anchor=({:.1},{:.1}) focus_pos=({:.1},{:.1}) chosen=({:.1},{:.1}) size=({:.1},{:.1})",
                 target_monitor,
                 anchor.x,
@@ -651,7 +651,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         );
         self.spawn_monitor_state_mut(target_monitor.as_str())
             .spawn_view_anchor = fallback_anchor;
-        info!(
+        debug!(
             "spawn fallback used: target_monitor={} anchor=({:.1},{:.1}) focus_pos=({:.1},{:.1}) chosen=({:.1},{:.1}) size=({:.1},{:.1})",
             target_monitor,
             fallback_anchor.x,

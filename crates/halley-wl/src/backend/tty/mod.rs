@@ -141,7 +141,7 @@ fn queue_ready_tty_outputs(
                     .borrow_mut()
                     .insert(output.connector_name.clone())
                 {
-                    info!("first tty drm frame queued for {}", output_name);
+                    debug!("first tty drm frame queued for {}", output_name);
                 }
 
                 debug!(
@@ -551,7 +551,7 @@ fn apply_tty_reload(
         run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     }
 
-    info!(
+    debug!(
         "{}: reloaded config from {} with tty layout {}x{}",
         reason, config_path, layout_w, layout_h
     );
@@ -685,9 +685,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 );
             }
             info!("config path: {}", config_path.as_str());
-            info!("keybind modifier: {}", tuning.keybinds.modifier_name());
-            info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
-            info!("resolved zoom: {}", tuning.zoom_resolved_summary());
+            debug!("keybind modifier: {}", tuning.keybinds.modifier_name());
+            debug!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
+            debug!("resolved zoom: {}", tuning.zoom_resolved_summary());
 
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
@@ -826,11 +826,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 ev.handle()
                     .insert_source(session_notifier, move |event, _, _st| match event {
                         SessionEvent::PauseSession => {
-                            info!("tty session paused");
+                            debug!("tty session paused");
                             libinput_context_for_session.borrow_mut().suspend();
                         }
                         SessionEvent::ActivateSession => {
-                            info!("tty session activated");
+                            debug!("tty session activated");
                             if libinput_context_for_session.borrow_mut().resume().is_err() {
                                 warn!("failed to resume libinput context after session activation");
                             }
@@ -1211,7 +1211,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             st,
                         );
                         if !*keyboard_seen_for_input.borrow() {
-                            info!("tty input: first keyboard event received");
+                            debug!("tty input: first keyboard event received");
                             *keyboard_seen_for_input.borrow_mut() = true;
                         }
                         // Smithay's libinput backend already returns XKB
@@ -1261,7 +1261,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             st,
                         );
                         if !*pointer_seen_for_input.borrow() {
-                            info!("tty input: first pointer event received");
+                            debug!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
                         }
                         let input_ctx = InputCtx {
@@ -1305,7 +1305,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             st,
                         );
                         if !*pointer_seen_for_input.borrow() {
-                            info!("tty input: first pointer event received");
+                            debug!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
                         }
                         let (ws_w, ws_h) = backend_handle.window_size_i32();
@@ -1348,7 +1348,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             st,
                         );
                         if !*pointer_seen_for_input.borrow() {
-                            info!("tty input: first pointer event received");
+                            debug!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
                         }
                         let input_ctx = InputCtx {
@@ -1383,7 +1383,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             st,
                         );
                         if !*pointer_seen_for_input.borrow() {
-                            info!("tty input: first pointer event received");
+                            debug!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
                         }
                         let input_ctx = InputCtx {
@@ -1510,8 +1510,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 config_path_for_timer.as_str()
                             );
                         }
-                        info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
-                        info!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
+                        debug!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                        debug!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                         halley_ipc::Response::Reloaded
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
@@ -1664,8 +1664,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                 }
                 if reloaded {
-                    info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
-                    info!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
+                    debug!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                    debug!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                 }
 
                 let ps = pointer_state_for_timer.borrow();

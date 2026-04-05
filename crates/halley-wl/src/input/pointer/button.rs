@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use std::time::Duration;
 
-use eventline::info;
+use eventline::debug;
 use halley_config::{KeyModifiers, PointerBindingAction};
 
 use crate::backend::interface::BackendView;
@@ -376,7 +376,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         let monitor =
             crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface);
         st.model.spawn_state.pending_spawn_monitor = Some(monitor.clone());
-        info!(
+        debug!(
             "pending spawn monitor latched from layer press: {}",
             monitor
         );

@@ -240,7 +240,7 @@ fn run_activation_env_sync(label: &str, command: &mut Command) {
 fn run_portal_service_command(label: &str, command: &mut Command) {
     match command.status() {
         Ok(status) if status.success() => {
-            info!("portal sync: {} queued", label);
+            debug!("portal sync: {} queued", label);
         }
         Ok(status) => {
             warn!("portal sync failed: {} exited with {}", label, status);
@@ -601,7 +601,7 @@ impl XwaylandSatellite {
                 self.child = Some(child);
                 self.request_pending = false;
                 self.restart_after = None;
-                info!(
+                debug!(
                     "xwayland-satellite started via {} on DISPLAY={} (WAYLAND_DISPLAY={})",
                     self.satellite_bin, self.display, self.wayland_display
                 );

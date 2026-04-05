@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use halley_config::RuntimeTuning;
 
 use eventline::runtime::{set_console_level, set_file_level};
-use eventline::{FileSetup, LogLevel, LogPolicy, RunHeader, Setup, info, scope, warn};
+use eventline::{FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, info, scope, warn};
 use once_cell::sync::OnceCell;
 
 use crate::compositor::interaction::state::ViewportPanAnim;
@@ -114,8 +114,8 @@ pub(crate) fn apply_reloaded_tuning(
     // Clone to avoid borrow conflict when passing st mutably below.
     let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
-    info!("{reason}: reloaded config from {}", config_path);
-    info!(
+    debug!("{reason}: reloaded config from {}", config_path);
+    debug!(
         "resolved zoom: {}",
         st.runtime.tuning.zoom_resolved_summary()
     );

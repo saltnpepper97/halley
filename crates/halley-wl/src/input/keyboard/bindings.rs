@@ -1,4 +1,4 @@
-use eventline::{info, warn};
+use eventline::{debug, info, warn};
 
 use super::modkeys::{key_matches, modifier_exact};
 use crate::compositor::actions::window::{
@@ -143,12 +143,12 @@ pub(crate) fn apply_compositor_action_press(
                     wayland_display,
                     "manual",
                 );
-                info!("manual config reload from {}", config_path);
-                info!(
+                debug!("manual config reload from {}", config_path);
+                debug!(
                     "resolved keybinds: {}",
                     st.runtime.tuning.keybinds_resolved_summary()
                 );
-                info!(
+                debug!(
                     "resolved zoom: {}",
                     st.runtime.tuning.zoom_resolved_summary()
                 );

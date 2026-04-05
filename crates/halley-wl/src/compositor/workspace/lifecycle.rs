@@ -178,7 +178,7 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
         .cloned();
 
     if had_keyboard_focus || had_pointer_focus {
-        eventline::info!(
+        eventline::debug!(
             "toplevel_destroyed with active focus (keyboard={} pointer={}); scheduling input state reset",
             had_keyboard_focus,
             had_pointer_focus
@@ -186,7 +186,7 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
         st.input.interaction_state.reset_input_state_requested = true;
         if let Some(ref focused_monitor) = focused_monitor {
             st.model.spawn_state.pending_spawn_monitor = Some(focused_monitor.clone());
-            eventline::info!(
+            eventline::debug!(
                 "pending spawn monitor latched from destroyed toplevel: {}",
                 focused_monitor
             );

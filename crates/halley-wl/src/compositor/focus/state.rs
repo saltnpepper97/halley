@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
-use eventline::info;
+use eventline::debug;
 use halley_core::decay::DecayLevel;
 use halley_core::field::NodeId;
 use halley_core::trail::Trail;
@@ -131,7 +131,7 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
             && let Some(id) = self.last_focused_surface_node_for_monitor(monitor)
         {
             self.set_interaction_focus(Some(id), 30_000, now);
-            info!(
+            debug!(
                 "monitor focus restored surface: monitor={} node_id={}",
                 monitor,
                 id.as_u64()
@@ -145,7 +145,7 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
         spawn.spawn_view_anchor = view_center;
         spawn.spawn_patch = None;
         spawn.spawn_pan_start_center = None;
-        info!(
+        debug!(
             "monitor view focus set: monitor={} interaction_monitor={} focused_monitor={}",
             monitor,
             self.interaction_monitor(),
@@ -238,7 +238,7 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
         }
 
         if prev != id {
-            info!(
+            debug!(
                 "interaction focus changed: {:?} -> {:?} (hold_ms={})",
                 prev.map(|n| n.as_u64()),
                 id.map(|n| n.as_u64()),
@@ -309,7 +309,7 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
                 _ => false,
             };
             if !matches {
-                info!(
+                debug!(
                     "keyboard focus drift detected; reasserting desired focus={:?} current={:?}",
                     desired_focus.as_ref().map(|wl| format!("{:?}", wl.id())),
                     current_focus.as_ref().map(|wl| format!("{:?}", wl.id()))
