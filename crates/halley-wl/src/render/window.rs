@@ -65,14 +65,11 @@ fn should_draw_resize_overlap_overlay(
 }
 
 fn log_window_render_path(
-    st: &Halley,
+    _st: &Halley,
     _node_id: halley_core::field::NodeId,
     _path: &str,
     _detail: &str,
 ) {
-    if !st.runtime.tuning.dev_enabled || !st.runtime.tuning.dev_show_geometry_overlay {
-        return;
-    }
 }
 
 fn rect4_str(x: i32, y: i32, w: i32, h: i32) -> String {
@@ -624,8 +621,6 @@ pub(crate) fn collect_active_surfaces(
     Vec<StackWindowDrawUnit>,
     Vec<ActiveBorderRect>,
     Vec<ActiveBorderRect>,
-    Vec<(i32, i32, i32, i32, Color32F)>,
-    Vec<(i32, i32, Color32F)>,
     Vec<(i32, i32, i32, i32)>,
 ) {
     let mut active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
@@ -684,8 +679,6 @@ pub(crate) fn collect_active_surfaces(
     let mut stack_window_units: HashMap<NodeId, StackWindowDrawUnit> = HashMap::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut resized_border_rects: Vec<ActiveBorderRect> = Vec::new();
-    let mut overlay_rects: Vec<(i32, i32, i32, i32, Color32F)> = Vec::new();
-    let mut overlay_points: Vec<(i32, i32, Color32F)> = Vec::new();
     let mut overlap_overlay_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
 
     let recent_top_node = st.recent_top_node_active(now);
@@ -852,7 +845,7 @@ pub(crate) fn collect_active_surfaces(
                 .unwrap_or_else(|| window_geometry_for_node(st, node_id).unwrap_or(local_bbox))
         };
 
-        let (cx, cy, sx, sy, texture_rect, geometry_rect) =
+        let (_cx, _cy, sx, sy, texture_rect, geometry_rect) =
             if let Some(active_resize) = active_resize {
                 let (cx, cy) = active_resize.center_px();
                 let (surface_origin_x, surface_origin_y) = active_resize.surface_origin_px();
@@ -894,13 +887,6 @@ pub(crate) fn collect_active_surfaces(
         } else {
             render_scale
         };
-
-        if st.runtime.tuning.dev_enabled && st.runtime.tuning.dev_show_geometry_overlay {
-            let (nx0, ny0, nw, nh) = geometry_rect;
-            overlay_rects.push((nx0, ny0, nw, nh, Color32F::new(0.15, 0.85, 0.85, 0.95)));
-            overlay_rects.push((nx0, ny0, nw, nh, Color32F::new(0.95, 0.25, 0.85, 0.95)));
-            overlay_points.push((cx, cy, Color32F::new(0.98, 0.92, 0.22, 0.95)));
-        }
 
         let (gx, gy, gw, gh) = geometry_rect;
 
@@ -1380,13 +1366,13 @@ pub(crate) fn collect_active_surfaces(
                     // ob = cached bbox in logical surface space (origin at (0,0)).
                     // geo_lx/ly are the geometry origin inside that bbox.
                     // dst maps the bbox to screen: dst_x..dst_x+dst_w covers ob.
-                    let dst_scale_x = if ob.size.w > 0 {
-                        dst_w as f32 / ob.size.w as f32
+                    let src_scale_x = if src_w > 0.0 {
+                        dst_w as f32 / src_w as f32
                     } else {
                         1.0
                     };
-                    let dst_scale_y = if ob.size.h > 0 {
-                        dst_h as f32 / ob.size.h as f32
+                    let src_scale_y = if src_h > 0.0 {
+                        dst_h as f32 / src_h as f32
                     } else {
                         1.0
                     };
@@ -1397,26 +1383,28 @@ pub(crate) fn collect_active_surfaces(
                     // In bbox-local space the geo origin is (geo_lx - ob.loc.x, geo_ly - ob.loc.y).
                     let geo_local_x = local_geo.0 - ob.loc.x as f32;
                     let geo_local_y = local_geo.1 - ob.loc.y as f32;
+                    let geo_src_x = (geo_local_x - src_x as f32).max(0.0);
+                    let geo_src_y = (geo_local_y - src_y as f32).max(0.0);
                     // Scale into dst-pixel space (relative to dst top-left).
                     let geo_offset_x = if disable_geo_clip {
                         0.0
                     } else {
-                        (geo_local_x * dst_scale_x).max(0.0)
+                        (geo_src_x * src_scale_x).max(0.0)
                     };
                     let geo_offset_y = if disable_geo_clip {
                         0.0
                     } else {
-                        (geo_local_y * dst_scale_y).max(0.0)
+                        (geo_src_y * src_scale_y).max(0.0)
                     };
                     let geo_w_px = if disable_geo_clip {
                         0.0
                     } else {
-                        (local_geo.2 * dst_scale_x).max(1.0)
+                        (local_geo.2 * src_scale_x).min(dst_w as f32).max(1.0)
                     };
                     let geo_h_px = if disable_geo_clip {
                         0.0
                     } else {
-                        (local_geo.3 * dst_scale_y).max(1.0)
+                        (local_geo.3 * src_scale_y).min(dst_h as f32).max(1.0)
                     };
 
                     let offscreen = OffscreenNodeTexture {
@@ -1674,8 +1662,6 @@ pub(crate) fn collect_active_surfaces(
         stack_window_units,
         border_rects,
         resized_border_rects,
-        overlay_rects,
-        overlay_points,
         overlap_overlay_rects,
     )
 }

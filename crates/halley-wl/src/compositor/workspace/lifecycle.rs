@@ -569,7 +569,17 @@ fn maybe_apply_pending_initial_window_rule(
         return;
     }
 
-    if intent.rule.cluster_participation == halley_config::InitialWindowClusterParticipation::Float
+    let is_stacking = matches!(
+        st.runtime.tuning.cluster_layout_kind(),
+        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
+    );
+
+    let effective_float = !is_stacking
+        && (intent.rule.cluster_participation
+            == halley_config::InitialWindowClusterParticipation::Float
+            || intent.rule.overlap_policy != halley_config::InitialWindowOverlapPolicy::None);
+
+    if effective_float
         && cluster_local
         && let Some(cid) = st.model.field.cluster_id_for_member_public(node_id)
         && let Some(pos) = st.model.field.node(node_id).map(|node| node.pos)
@@ -839,12 +849,10 @@ fn ensure_node_for_surface_impl(
     st.ui.render_state.zoom_nominal_size.insert(id, size);
     st.model.workspace_state.last_active_size.insert(id, size);
     let joined_active_cluster = spawned_in_active_cluster;
-    if st.runtime.tuning.dev_anim_enabled {
-        st.ui
-            .render_state
-            .animator
-            .observe_field(&st.model.field, now);
-    }
+    st.ui
+        .render_state
+        .animator
+        .observe_field(&st.model.field, now);
     if let Some(cid) = active_cluster.filter(|_| joined_active_cluster) {
         if matches!(
             st.runtime.tuning.cluster_layout_kind(),

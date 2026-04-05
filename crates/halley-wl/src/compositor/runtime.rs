@@ -12,12 +12,14 @@ use crate::activity::CommitActivity;
 use crate::animation::AnimSpec;
 use crate::protocol::wayland::activation::ActivationRuntimeState;
 
+const FIXED_ANIM_STATE_CHANGE_MS: u64 = 360;
+const FIXED_ANIM_BOUNCE: f32 = 1.45;
+
 pub(crate) struct RuntimeState {
     pub(crate) tuning: RuntimeTuning,
     pub(crate) surface_activity: HashMap<ObjectId, CommitActivity>,
     pub(crate) exit_requested: bool,
     pub(crate) started_at: Instant,
-    pub(crate) last_debug_dump_at: Instant,
     pub(crate) maintenance_dirty: bool,
     pub(crate) maintenance_ping: Option<Ping>,
     pub(crate) pending_drm_syncobj_surfaces: Arc<Mutex<Vec<ObjectId>>>,
@@ -165,17 +167,6 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
         {
             consider(now_ms.saturating_add(16));
         }
-        if self.runtime.tuning.debug_tick_dump {
-            consider(
-                now_ms.saturating_add(
-                    self.runtime.tuning.debug_dump_every_ms.saturating_sub(
-                        now.duration_since(self.runtime.last_debug_dump_at)
-                            .as_millis() as u64,
-                    ),
-                ),
-            );
-        }
-
         next_ms.map(|at_ms| {
             now.checked_add(std::time::Duration::from_millis(
                 at_ms.saturating_sub(now_ms),
@@ -189,7 +180,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
     pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
         let prev_runtime_viewport = self.model.viewport;
         let prev_config_viewport = self.runtime.tuning.viewport();
-        let prev_no_csd = self.runtime.tuning.no_csd;
+        let prev_effective_no_csd = self.runtime.tuning.effective_no_csd();
         let prev_font = self.runtime.tuning.font.clone();
         let prev_physics_enabled = self.runtime.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
@@ -227,8 +218,8 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
 
         self.ui.render_state.animator.set_spec(AnimSpec {
-            state_change_ms: tuning.dev_anim_state_change_ms,
-            bounce: tuning.dev_anim_bounce,
+            state_change_ms: FIXED_ANIM_STATE_CHANGE_MS,
+            bounce: FIXED_ANIM_BOUNCE,
         });
 
         if prev_physics_enabled && !tuning.physics_enabled {
@@ -271,7 +262,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         if !self.runtime.tuning.cursor.hide_while_typing {
             self.input.interaction_state.cursor_hidden_by_typing = false;
         }
-        if prev_no_csd != self.runtime.tuning.no_csd {
+        if prev_effective_no_csd != self.runtime.tuning.effective_no_csd() {
             self.refresh_xdg_decoration_mode();
         }
         self.request_maintenance();
@@ -472,15 +463,5 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         self.restore_pan_return_active_focus(now);
         let crate::compositor::root::Halley { model, ui, .. } = &mut **self;
         ui.render_state.animator.observe_field(&model.field, now);
-
-        if self.runtime.tuning.debug_tick_dump
-            && now
-                .duration_since(self.runtime.last_debug_dump_at)
-                .as_millis() as u64
-                >= self.runtime.tuning.debug_dump_every_ms
-        {
-            self.debug_dump();
-            self.runtime.last_debug_dump_at = now;
-        }
     }
 }

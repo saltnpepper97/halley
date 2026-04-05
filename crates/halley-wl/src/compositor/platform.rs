@@ -74,7 +74,7 @@ pub(crate) struct PlatformState {
 }
 
 pub(crate) fn preferred_xdg_decoration_mode(st: &Halley) -> XdgDecorationMode {
-    preferred_xdg_decoration_mode_for(st.runtime.tuning.no_csd)
+    preferred_xdg_decoration_mode_for(st.runtime.tuning.effective_no_csd())
 }
 
 pub(crate) fn apply_toplevel_tiled_hint(_st: &Halley, state: &mut ToplevelState) {
@@ -100,7 +100,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preferred_decoration_mode_depends_only_on_no_csd() {
+    fn preferred_decoration_mode_uses_effective_no_csd() {
         assert_eq!(
             preferred_xdg_decoration_mode_for(false),
             XdgDecorationMode::ClientSide

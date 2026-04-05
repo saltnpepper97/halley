@@ -38,7 +38,6 @@ use smithay::{
     wayland::socket::ListeningSocketSource,
 };
 
-use crate::activity::VisualState;
 use crate::animation::advance_node_move_anim;
 use crate::bootstrap::{
     drain_ipc_commands, ensure_dbus_session_bus_address, ensure_host_display,

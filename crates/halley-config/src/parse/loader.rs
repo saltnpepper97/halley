@@ -8,10 +8,10 @@ use super::keybinds::{
 use super::rules::load_rules_section;
 use super::sections::{
     load_autostart_section, load_bearings_section, load_clusters_section, load_cursor_section,
-    load_decay_section, load_decorations_section, load_dev_section, load_env_section,
-    load_field_section, load_focus_ring_section, load_font_section, load_keybind_sections,
-    load_nodes_section, load_physics_section, load_stacking_section, load_tile_section,
-    load_trail_section, load_viewport_section,
+    load_decay_section, load_decorations_section, load_env_section, load_field_section,
+    load_focus_ring_section, load_font_section, load_keybind_sections, load_nodes_section,
+    load_physics_section, load_stacking_section, load_tile_section, load_trail_section,
+    load_viewport_section,
 };
 
 impl RuntimeTuning {
@@ -38,7 +38,6 @@ impl RuntimeTuning {
             eprintln!("halley config rules parse error: {err}");
             return None;
         }
-        load_dev_section(&cfg, &mut out);
         load_env_section(&cfg, &mut out);
         load_cursor_section(&cfg, &mut out);
         load_font_section(&cfg, &mut out);

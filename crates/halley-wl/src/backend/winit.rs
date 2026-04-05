@@ -828,21 +828,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     info!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                 }
 
-                if st.runtime.tuning.debug_tick_dump {
-                    for (sid, act) in st.runtime.surface_activity.iter_mut() {
-                        if let Some((new_state, cps)) = act.tick(now, true) {
-                            match new_state {
-                                VisualState::Active => {
-                                    info!("visual active surface={} cps={:.1}", sid, cps)
-                                }
-                                VisualState::Fading => {
-                                    debug!("visual fading surface={} cps={:.1}", sid, cps)
-                                }
-                                VisualState::Inactive => info!("visual inactive surface={}", sid),
-                            }
-                        }
-                    }
-                }
                 {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     if let (Some(id), Some(until)) = (ps.resize_trace_node, ps.resize_trace_until) {

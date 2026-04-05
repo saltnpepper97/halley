@@ -6,8 +6,6 @@ impl RuntimeTuning {
     }
 
     pub(crate) fn clamp_values(&mut self) {
-        self.debug_dump_every_ms = self.debug_dump_every_ms.clamp(100, 60_000);
-
         self.viewport_center.x = self.viewport_center.x.clamp(-100_000.0, 100_000.0);
         self.viewport_center.y = self.viewport_center.y.clamp(-100_000.0, 100_000.0);
         self.viewport_size.x = self.viewport_size.x.clamp(320.0, 16_000.0);
@@ -24,10 +22,6 @@ impl RuntimeTuning {
         self.border_size_px = self.border_size_px.clamp(0, 64);
         self.border_radius_px = self.border_radius_px.clamp(0, 256);
         self.bearings.fade_distance = self.bearings.fade_distance.clamp(120.0, 100_000.0);
-
-        self.dev_zoom_decay_min_frac = self.dev_zoom_decay_min_frac.clamp(0.005, 0.5);
-        self.dev_anim_state_change_ms = self.dev_anim_state_change_ms.clamp(30, 3_000);
-        self.dev_anim_bounce = self.dev_anim_bounce.clamp(0.0, 3.0);
 
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);

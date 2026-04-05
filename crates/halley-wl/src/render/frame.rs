@@ -220,7 +220,7 @@ pub(crate) fn anim_style_for(
     state: halley_core::field::NodeState,
     now: Instant,
 ) -> AnimStyle {
-    if !st.runtime.tuning.dev_anim_enabled || !st.runtime.tuning.physics_enabled {
+    if !st.runtime.tuning.physics_enabled {
         return AnimStyle::default();
     }
 
@@ -542,8 +542,6 @@ struct SceneCollections {
     stack_window_units: Vec<StackWindowDrawUnit>,
     border_rects: Vec<ActiveBorderRect>,
     resized_border_rects: Vec<ActiveBorderRect>,
-    overlay_rects: Vec<(i32, i32, i32, i32, Color32F)>,
-    overlay_points: Vec<(i32, i32, Color32F)>,
     overlap_overlay_rects: Vec<(i32, i32, i32, i32)>,
     hover_preview_rect: Option<(i32, i32, i32, i32)>,
     hover_preview_elements: Vec<SurfaceElement>,
@@ -751,8 +749,6 @@ fn collect_debug_frame_scene(
         stack_window_units,
         border_rects,
         resized_border_rects,
-        overlay_rects,
-        overlay_points,
         overlap_overlay_rects,
     ) = collect_active_surfaces(renderer, st, size, resize_preview, now);
 
@@ -838,8 +834,6 @@ fn collect_debug_frame_scene(
         stack_window_units,
         border_rects,
         resized_border_rects,
-        overlay_rects,
-        overlay_points,
         overlap_overlay_rects,
         hover_preview_rect,
         hover_preview_elements,
@@ -931,14 +925,6 @@ fn draw_debug_frame_scene(
     )?;
     draw_stack_window_units(frame, size, prepared.damage, &scene.stack_window_units, st)?;
     draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
-    draw_window_borders(
-        frame,
-        size,
-        prepared.damage,
-        &scene.resized_border_rects,
-        st,
-    )?;
-
     if !scene.resized_active_elements.is_empty() {
         let _ = draw_render_elements(
             frame,
@@ -953,6 +939,13 @@ fn draw_debug_frame_scene(
         prepared.damage,
         &scene.resized_offscreen_textures,
         st.ui.render_state.window_texture_program.as_ref(),
+    )?;
+    draw_window_borders(
+        frame,
+        size,
+        prepared.damage,
+        &scene.resized_border_rects,
+        st,
     )?;
     draw_offscreen_textures(
         frame,
@@ -1345,24 +1338,15 @@ where
 }
 
 fn draw_geometry_overlays<F>(
-    frame: &mut F,
-    st: &Halley,
-    size: smithay::utils::Size<i32, Physical>,
-    damage: Rectangle<i32, Physical>,
-    scene: &SceneCollections,
+    _frame: &mut F,
+    _st: &Halley,
+    _size: smithay::utils::Size<i32, Physical>,
+    _damage: Rectangle<i32, Physical>,
+    _scene: &SceneCollections,
 ) -> Result<(), F::Error>
 where
     F: Frame,
 {
-    if st.runtime.tuning.dev_enabled && st.runtime.tuning.dev_show_geometry_overlay {
-        for &(x, y, w, h, color) in &scene.overlay_rects {
-            draw_clamped_outline_rect(frame, (x, y, w, h), 2, color, damage, size)?;
-        }
-        for &(x, y, color) in &scene.overlay_points {
-            draw_rect(frame, x - 2, y - 2, 5, 5, color, damage)?;
-        }
-    }
-
     Ok(())
 }
 

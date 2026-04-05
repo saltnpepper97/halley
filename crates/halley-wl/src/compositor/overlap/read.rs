@@ -171,6 +171,12 @@ impl<'a> OverlapReadContext<'a> {
     }
 
     fn node_allows_overlap_with(&self, id: NodeId, other: NodeId) -> bool {
+        if matches!(
+            self.tuning.cluster_layout_kind(),
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
+        ) {
+            return false;
+        }
         let Some(rule) = self.spawn_state.applied_window_rules.get(&id) else {
             return false;
         };

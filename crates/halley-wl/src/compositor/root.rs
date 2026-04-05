@@ -371,7 +371,6 @@ impl Halley {
                 surface_activity: HashMap::new(),
                 exit_requested: false,
                 started_at: now,
-                last_debug_dump_at: now,
                 maintenance_dirty: true,
                 maintenance_ping: None,
                 pending_drm_syncobj_surfaces: Arc::new(Mutex::new(Vec::new())),
@@ -383,8 +382,8 @@ impl Halley {
             .render_state
             .animator
             .set_spec(crate::animation::AnimSpec {
-                state_change_ms: out.runtime.tuning.dev_anim_state_change_ms,
-                bounce: out.runtime.tuning.dev_anim_bounce,
+                state_change_ms: 360,
+                bounce: 1.45,
             });
         out.model.spawn_state.per_monitor = out
             .model
@@ -792,6 +791,12 @@ impl Halley {
     }
 
     pub(crate) fn node_has_overlap_policy(&self, id: NodeId) -> bool {
+        if matches!(
+            self.runtime.tuning.cluster_layout_kind(),
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
+        ) {
+            return false;
+        }
         self.model
             .spawn_state
             .applied_window_rules

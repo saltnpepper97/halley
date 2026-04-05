@@ -18,9 +18,6 @@ use super::{
 
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
-    pub debug_tick_dump: bool,
-    pub debug_dump_every_ms: u64,
-
     pub viewport_center: Vec2,
     pub viewport_size: Vec2,
 
@@ -47,14 +44,6 @@ pub struct RuntimeTuning {
     pub click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode,
     pub click_collapsed_pan: ClickCollapsedPanMode,
     pub bearings: BearingsConfig,
-
-    pub dev_enabled: bool,
-    pub dev_show_geometry_overlay: bool,
-    pub dev_zoom_decay_enabled: bool,
-    pub dev_zoom_decay_min_frac: f32,
-    pub dev_anim_enabled: bool,
-    pub dev_anim_state_change_ms: u64,
-    pub dev_anim_bounce: f32,
 
     pub cluster_distance_px: f32,
     pub cluster_dwell_ms: u64,
@@ -107,6 +96,10 @@ pub struct RuntimeTuning {
     pub env: HashMap<String, String>,
 }
 impl RuntimeTuning {
+    pub fn effective_no_csd(&self) -> bool {
+        self.no_csd || self.border_radius_px > 0
+    }
+
     pub fn cluster_layout_kind(&self) -> ClusterWorkspaceLayoutKind {
         self.cluster_default_layout.to_workspace_layout_kind()
     }
@@ -215,5 +208,21 @@ impl RuntimeTuning {
             self.zoom_smooth,
             self.zoom_smooth_rate,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rounded_borders_force_effective_no_csd() {
+        let mut tuning = RuntimeTuning::default();
+        tuning.no_csd = false;
+        tuning.border_radius_px = 12;
+        assert!(tuning.effective_no_csd());
+
+        tuning.border_radius_px = 0;
+        assert!(!tuning.effective_no_csd());
     }
 }

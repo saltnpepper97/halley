@@ -1,7 +1,5 @@
 use std::time::{Duration, Instant};
 
-use eventline::debug;
-
 use crate::animation::active_surface_render_scale;
 use crate::backend::interface::BackendView;
 use crate::compositor::interaction::{HitNode, PointerState, ResizeCtx, ResizeHandle};
@@ -148,24 +146,6 @@ pub(super) fn begin_resize(
         resize_mode_sent: false,
     };
 
-    if st.runtime.tuning.debug_tick_dump {
-        debug!(
-            "resize-start id={} handle={:?} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) start_surface=({}, {}) start_bbox=({}, {})",
-            resize_ctx.node_id.as_u64(),
-            resize_ctx.handle,
-            resize_ctx.preview_left_px,
-            resize_ctx.preview_top_px,
-            resize_ctx.preview_right_px,
-            resize_ctx.preview_bottom_px,
-            resize_ctx.start_geo_lx,
-            resize_ctx.start_geo_ly,
-            resize_ctx.start_surface_w,
-            resize_ctx.start_surface_h,
-            resize_ctx.start_bbox_w,
-            resize_ctx.start_bbox_h,
-        );
-    }
-
     ps.resize = Some(resize_ctx);
     backend.request_redraw();
 }
@@ -184,15 +164,9 @@ pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &
         .interaction_state
         .physics_velocity
         .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
-    if st.runtime.tuning.debug_tick_dump {
-        ps.resize_trace_node = Some(resize.node_id);
-        ps.resize_trace_until = Some(now + Duration::from_millis(1_200));
-        ps.resize_trace_last_at = None;
-    } else {
-        ps.resize_trace_node = None;
-        ps.resize_trace_until = None;
-        ps.resize_trace_last_at = None;
-    }
+    ps.resize_trace_node = None;
+    ps.resize_trace_until = None;
+    ps.resize_trace_last_at = None;
     ps.preview_block_until = Some(now + Duration::from_millis(360));
     if !resize.drag_started {
         if resize.resize_mode_sent {
@@ -218,23 +192,6 @@ pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &
         ((resize.start_bbox_w as f32) + ((final_w - resize.start_surface_w) as f32)).max(1.0);
     let final_bbox_h =
         ((resize.start_bbox_h as f32) + ((final_h - resize.start_surface_h) as f32)).max(1.0);
-    if st.runtime.tuning.debug_tick_dump {
-        debug!(
-            "resize-end id={} handle={:?} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) final_surface=({}, {}) final_bbox=({:.1}, {:.1})",
-            resize.node_id.as_u64(),
-            resize.handle,
-            resize.preview_left_px,
-            resize.preview_top_px,
-            resize.preview_right_px,
-            resize.preview_bottom_px,
-            resize.start_geo_lx,
-            resize.start_geo_ly,
-            final_w,
-            final_h,
-            final_bbox_w,
-            final_bbox_h,
-        );
-    }
     request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, true);
     request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, false);
     if let Some(n) = st.model.field.node_mut(resize.node_id) {

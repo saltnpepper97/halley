@@ -19,8 +19,6 @@ use super::{
 impl Default for RuntimeTuning {
     fn default() -> Self {
         Self {
-            debug_tick_dump: false,
-            debug_dump_every_ms: 1000,
             viewport_center: Vec2 { x: 0.0, y: 0.0 },
             viewport_size: Vec2 {
                 x: 1920.0,
@@ -62,14 +60,6 @@ impl Default for RuntimeTuning {
                 show_icons: true,
                 fade_distance: 1200.0,
             },
-
-            dev_enabled: false,
-            dev_show_geometry_overlay: false,
-            dev_zoom_decay_enabled: true,
-            dev_zoom_decay_min_frac: 0.05,
-            dev_anim_enabled: true,
-            dev_anim_state_change_ms: 360,
-            dev_anim_bounce: 1.45,
 
             cluster_distance_px: 280.0,
             cluster_dwell_ms: 900,

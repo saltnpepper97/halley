@@ -307,6 +307,73 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 ClusterDefaultLayout::Stacking => ClusterDefaultLayout::Tiling,
             };
 
+        let is_tiling = matches!(
+            self.runtime.tuning.cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Tiling
+        );
+
+        if is_tiling {
+            let members = self
+                .model
+                .field
+                .cluster(cid)
+                .map(|c| c.members().iter().copied().collect::<Vec<_>>())
+                .unwrap_or_default();
+            for member in members {
+                let should_float = self
+                    .model
+                    .spawn_state
+                    .applied_window_rules
+                    .get(&member)
+                    .is_some_and(|rule| {
+                        rule.cluster_participation
+                            == halley_config::InitialWindowClusterParticipation::Float
+                            || rule.overlap_policy
+                                != halley_config::InitialWindowOverlapPolicy::None
+                    });
+                if should_float {
+                    let pos = self
+                        .model
+                        .field
+                        .node(member)
+                        .map(|n| n.pos)
+                        .unwrap_or(halley_core::field::Vec2 { x: 0.0, y: 0.0 });
+                    let _ = self.detach_member_from_cluster(cid, member, pos, now);
+                }
+            }
+        } else {
+            let monitor_nodes: Vec<_> = self
+                .model
+                .monitor_state
+                .node_monitor
+                .iter()
+                .filter_map(|(&id, m)| if m == monitor { Some(id) } else { None })
+                .collect();
+            for node in monitor_nodes {
+                if self
+                    .model
+                    .field
+                    .cluster_id_for_member_public(node)
+                    .is_none()
+                {
+                    let should_be_in_cluster = self
+                        .model
+                        .spawn_state
+                        .applied_window_rules
+                        .get(&node)
+                        .is_some_and(|rule| {
+                            rule.cluster_participation
+                                == halley_config::InitialWindowClusterParticipation::Float
+                                || rule.overlap_policy
+                                    != halley_config::InitialWindowOverlapPolicy::None
+                        });
+                    if should_be_in_cluster {
+                        let _ = self.absorb_node_into_cluster(cid, node, now);
+                    }
+                }
+            }
+        }
+
         let now_ms = self.now_ms(now);
         self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
 

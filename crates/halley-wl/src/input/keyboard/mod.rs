@@ -7,7 +7,6 @@ use crate::input::ctx::InputCtx;
 
 use std::time::Instant;
 
-use eventline::info;
 use smithay::input::keyboard::FilterResult;
 use smithay::utils::SERIAL_COUNTER;
 
@@ -17,7 +16,7 @@ use self::bindings::{
 };
 use self::modkeys::{is_modifier_keycode, update_mod_state};
 use halley_config::CompositorBindingAction;
-use halley_config::keybinds::{evdev_to_key_name, key_name_to_evdev};
+use halley_config::keybinds::key_name_to_evdev;
 use smithay::backend::input::KeyState;
 
 #[inline]
@@ -49,25 +48,14 @@ fn log_keyboard_binding_resolution(
     matched_binding: bool,
     intercept: bool,
 ) {
-    if !st.runtime.tuning.debug_tick_dump {
-        return;
-    }
-
-    let evdev_guess = code.saturating_sub(8);
-    info!(
-        "keyboard {} raw_code={} raw_name={} evdev_guess={} evdev_name={} mods=[super:{} ctrl:{} alt:{} shift:{}] binding={} compositor={:?} launch={} intercept={}",
-        if pressed { "press" } else { "release" },
+    let _ = (
+        st,
         code,
-        evdev_to_key_name(code),
-        evdev_guess,
-        evdev_to_key_name(evdev_guess),
-        mods.super_down,
-        mods.ctrl_down,
-        mods.alt_down,
-        mods.shift_down,
-        matched_binding,
+        pressed,
+        mods,
         matched_action,
-        matched_launch.unwrap_or("-"),
+        matched_launch,
+        matched_binding,
         intercept,
     );
 }
