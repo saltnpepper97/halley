@@ -210,8 +210,8 @@ pub(crate) fn move_latest_node_direction(st: &mut Halley, direction: NodeMoveDir
     match direction {
         NodeMoveDirection::Left => move_latest_node(st, -STEP_NODE, 0.0),
         NodeMoveDirection::Right => move_latest_node(st, STEP_NODE, 0.0),
-        NodeMoveDirection::Up => move_latest_node(st, 0.0, STEP_NODE),
-        NodeMoveDirection::Down => move_latest_node(st, 0.0, -STEP_NODE),
+        NodeMoveDirection::Up => move_latest_node(st, 0.0, -STEP_NODE),
+        NodeMoveDirection::Down => move_latest_node(st, 0.0, STEP_NODE),
     }
 }
 
