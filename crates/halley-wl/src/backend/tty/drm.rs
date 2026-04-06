@@ -813,7 +813,13 @@ pub(crate) fn queue_tty_drm_frame(
                 Some(reason),
             ),
             Some(Ok(candidate)) => {
-                let mut elements: Vec<HalleyDirectScanoutElement> =
+                let mut elements = direct_scanout_cursor_elements(
+                    &mut *renderer_ref,
+                    local_cursor,
+                    cursor_image,
+                    &st.runtime.tuning.cursor,
+                )?;
+                elements.extend(
                     render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
                         &mut *renderer_ref,
                         &candidate.surface,
@@ -823,14 +829,8 @@ pub(crate) fn queue_tty_drm_frame(
                         Kind::Unspecified,
                     )
                     .into_iter()
-                    .map(Into::into)
-                    .collect();
-                elements.extend(direct_scanout_cursor_elements(
-                    &mut *renderer_ref,
-                    local_cursor,
-                    cursor_image,
-                    &st.runtime.tuning.cursor,
-                )?);
+                    .map(Into::into),
+                );
                 match compositor.render_frame(
                     &mut *renderer_ref,
                     &elements,
