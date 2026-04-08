@@ -5,7 +5,8 @@ use rune_cfg::RuneConfig;
 use crate::layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, FocusRingConfig,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode, ShapeStyle,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode,
+    OverlayShape, PanToNewMode, ShapeStyle,
 };
 
 pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -318,6 +319,44 @@ pub(crate) fn pick_shape_style(
     match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
         "square" => ShapeStyle::Square,
         "squircle" => ShapeStyle::Squircle,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_overlay_color_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: OverlayColorMode,
+) -> OverlayColorMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    let value = raw.trim().trim_matches('"');
+    if value.is_empty() {
+        return default;
+    }
+
+    match value.to_ascii_lowercase().as_str() {
+        "auto" => OverlayColorMode::Auto,
+        "light" => OverlayColorMode::Light,
+        "dark" => OverlayColorMode::Dark,
+        _ => parse_hex_rgb(value)
+            .map(|(r, g, b)| OverlayColorMode::Fixed { r, g, b })
+            .unwrap_or(default),
+    }
+}
+
+pub(crate) fn pick_overlay_shape(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: OverlayShape,
+) -> OverlayShape {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "square" => OverlayShape::Square,
+        "rounded" => OverlayShape::Rounded,
         _ => default,
     }
 }

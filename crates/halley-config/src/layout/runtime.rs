@@ -13,7 +13,7 @@ use super::{
     BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DecorationBorderColor,
     FocusRingConfig, FontConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    PanToNewMode, ShapeStyle, ViewportOutputConfig, WindowRule,
+    OverlayStyleConfig, PanToNewMode, ShapeStyle, ViewportOutputConfig, WindowRule,
 };
 
 #[derive(Clone, Debug)]
@@ -93,6 +93,7 @@ pub struct RuntimeTuning {
     pub autostart_on_reload: Vec<String>,
     pub cursor: CursorConfig,
     pub font: FontConfig,
+    pub overlay_style: OverlayStyleConfig,
     pub env: HashMap<String, String>,
 }
 impl RuntimeTuning {

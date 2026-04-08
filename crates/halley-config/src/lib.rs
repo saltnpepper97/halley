@@ -13,6 +13,7 @@ pub use layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DecorationBorderColor, FontConfig,
     InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, PanToNewMode, RuntimeTuning,
-    ShapeStyle, ViewportOutputConfig, ViewportVrrMode, WindowRule, WindowRulePattern,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode,
+    OverlayShape, OverlayStyleConfig, PanToNewMode, RuntimeTuning, ShapeStyle,
+    ViewportOutputConfig, ViewportVrrMode, WindowRule, WindowRulePattern,
 };

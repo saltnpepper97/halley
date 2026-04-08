@@ -4,6 +4,7 @@ mod view;
 
 use std::error::Error;
 
+use halley_config::{OverlayColorMode, OverlayShape, RuntimeTuning};
 use smithay::{
     backend::renderer::{
         Color32F, Texture,
@@ -63,11 +64,124 @@ const OVERFLOW_SCROLLBAR_PAD: i32 = 6;
 const OVERFLOW_REVEAL_ANIM_MS: u64 = 220;
 const OVERFLOW_REVEAL_SLIDE_PX: i32 = 28;
 const EXIT_CONFIRM_TITLE: &str = "Are you sure you want to leave?";
-const UI_CHIP_TEXT: Color32F = Color32F::new(0.08, 0.10, 0.12, 1.0);
-const UI_CHIP_FILL: Color32F = Color32F::new(0.92, 0.95, 0.98, 1.0);
-const UI_CHIP_SUBTEXT: Color32F = Color32F::new(0.24, 0.28, 0.33, 1.0);
-const UI_ACTION_KEY_FILL: Color32F = Color32F::new(0.84, 0.88, 0.92, 1.0);
-const UI_ACTION_KEY_TEXT: Color32F = Color32F::new(0.08, 0.10, 0.12, 1.0);
+
+#[derive(Clone, Copy)]
+struct OverlayRgb {
+    r: f32,
+    g: f32,
+    b: f32,
+}
+
+impl OverlayRgb {
+    fn alpha(self, alpha: f32) -> Color32F {
+        Color32F::new(self.r, self.g, self.b, alpha)
+    }
+
+    fn mix(self, other: Self, amount: f32) -> Self {
+        let t = amount.clamp(0.0, 1.0);
+        Self {
+            r: self.r + (other.r - self.r) * t,
+            g: self.g + (other.g - self.g) * t,
+            b: self.b + (other.b - self.b) * t,
+        }
+    }
+
+    fn luminance(self) -> f32 {
+        self.r * 0.2126 + self.g * 0.7152 + self.b * 0.0722
+    }
+}
+
+#[derive(Clone, Copy)]
+struct OverlayPalette {
+    fill: OverlayRgb,
+    text: OverlayRgb,
+    subtext: OverlayRgb,
+    key_fill: OverlayRgb,
+    key_text: OverlayRgb,
+    border: OverlayRgb,
+}
+
+#[derive(Clone, Copy)]
+struct OverlayVisuals {
+    rounded: bool,
+    border_px: f32,
+    palette: OverlayPalette,
+}
+
+const LIGHT_OVERLAY_FILL: OverlayRgb = OverlayRgb {
+    r: 0.92,
+    g: 0.95,
+    b: 0.98,
+};
+const DARK_OVERLAY_FILL: OverlayRgb = OverlayRgb {
+    r: 0.15,
+    g: 0.18,
+    b: 0.22,
+};
+const LIGHT_OVERLAY_TEXT: OverlayRgb = OverlayRgb {
+    r: 0.08,
+    g: 0.10,
+    b: 0.12,
+};
+const DARK_OVERLAY_TEXT: OverlayRgb = OverlayRgb {
+    r: 0.94,
+    g: 0.96,
+    b: 0.98,
+};
+
+fn resolve_overlay_base_background(mode: OverlayColorMode) -> OverlayRgb {
+    match mode {
+        OverlayColorMode::Auto | OverlayColorMode::Light => LIGHT_OVERLAY_FILL,
+        OverlayColorMode::Dark => DARK_OVERLAY_FILL,
+        OverlayColorMode::Fixed { r, g, b } => OverlayRgb { r, g, b },
+    }
+}
+
+fn resolve_overlay_base_text(mode: OverlayColorMode, background: OverlayRgb) -> OverlayRgb {
+    match mode {
+        OverlayColorMode::Auto => {
+            if background.luminance() < 0.45 {
+                DARK_OVERLAY_TEXT
+            } else {
+                LIGHT_OVERLAY_TEXT
+            }
+        }
+        OverlayColorMode::Light => LIGHT_OVERLAY_TEXT,
+        OverlayColorMode::Dark => DARK_OVERLAY_TEXT,
+        OverlayColorMode::Fixed { r, g, b } => OverlayRgb { r, g, b },
+    }
+}
+
+fn resolve_overlay_border_color(tuning: &RuntimeTuning) -> OverlayRgb {
+    let color = tuning.border_color_focused;
+    OverlayRgb {
+        r: color.r,
+        g: color.g,
+        b: color.b,
+    }
+}
+
+fn resolve_overlay_visuals(tuning: &RuntimeTuning) -> OverlayVisuals {
+    let fill = resolve_overlay_base_background(tuning.overlay_style.background_color);
+    let text = resolve_overlay_base_text(tuning.overlay_style.text_color, fill);
+    let border = resolve_overlay_border_color(tuning);
+    OverlayVisuals {
+        rounded: matches!(tuning.overlay_style.shape, OverlayShape::Rounded),
+        border_px: if tuning.overlay_style.borders {
+            tuning.border_size_px.max(0) as f32
+        } else {
+            0.0
+        },
+        palette: OverlayPalette {
+            fill,
+            text,
+            subtext: text.mix(fill, 0.20),
+            key_fill: fill.mix(text, 0.10),
+            key_text: text,
+            border,
+        },
+    }
+}
 
 fn overlay_text_mix(mix: f32) -> f32 {
     let t = ((mix - 0.10) / 0.90).clamp(0.0, 1.0);
@@ -161,7 +275,7 @@ fn cluster_overflow_scrollbar_metrics(
 fn draw_overflow_member_chip(
     frame: &mut GlesFrame<'_, '_>,
     overlay: &OverlayView<'_>,
-    rounded: bool,
+    visuals: &OverlayVisuals,
     node_id: halley_core::field::NodeId,
     icon_rect: Rectangle<i32, Physical>,
     chip_fill: Color32F,
@@ -171,10 +285,11 @@ fn draw_overflow_member_chip(
     draw_overlay_chip(
         frame,
         overlay.render_state,
-        rounded,
+        visuals,
         icon_rect,
         12.0,
         chip_fill,
+        false,
         damage,
         alpha,
     )?;
@@ -224,7 +339,7 @@ fn draw_overflow_member_chip(
         icon_rect.loc.y + (icon_rect.size.h - text_h) / 2,
         &glyph,
         2,
-        Color32F::new(UI_CHIP_TEXT.r(), UI_CHIP_TEXT.g(), UI_CHIP_TEXT.b(), alpha),
+        visuals.palette.text.alpha(alpha),
         damage,
     )?;
     Ok(())
@@ -243,7 +358,7 @@ pub(crate) fn draw_cluster_overflow_promotion(
     if now_ms >= anim.reveal_at_ms {
         return Ok(());
     }
-    let rounded = overlay.tuning.border_radius_px > 0;
+    let visuals = resolve_overlay_visuals(overlay.tuning);
     let duration_ms = anim.reveal_at_ms.saturating_sub(anim.started_at_ms).max(1);
     let t =
         ((now_ms.saturating_sub(anim.started_at_ms)) as f32 / duration_ms as f32).clamp(0.0, 1.0);
@@ -279,15 +394,11 @@ pub(crate) fn draw_cluster_overflow_promotion(
         draw_overlay_chip(
             frame,
             overlay.render_state,
-            rounded,
+            &visuals,
             strip,
             18.0,
-            Color32F::new(
-                UI_CHIP_FILL.r(),
-                UI_CHIP_FILL.g(),
-                UI_CHIP_FILL.b(),
-                0.90 * (1.0 - e),
-            ),
+            visuals.palette.fill.alpha(0.90 * (1.0 - e)),
+            true,
             damage,
             (1.0 - e * 0.65).clamp(0.0, 1.0),
         )?;
@@ -295,10 +406,10 @@ pub(crate) fn draw_cluster_overflow_promotion(
     draw_overflow_member_chip(
         frame,
         overlay,
-        rounded,
+        &visuals,
         anim.member_id,
         icon_rect,
-        Color32F::new(UI_CHIP_FILL.r(), UI_CHIP_FILL.g(), UI_CHIP_FILL.b(), 0.97),
+        visuals.palette.fill.alpha(0.97),
         1.0,
         damage,
     )?;
@@ -341,7 +452,7 @@ fn overlay_action_row_size(
 fn draw_overlay_action_row(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
-    rounded: bool,
+    visuals: &OverlayVisuals,
     font: &halley_config::FontConfig,
     x: i32,
     y: i32,
@@ -364,15 +475,11 @@ fn draw_overlay_action_row(
         draw_overlay_chip(
             frame,
             render_state,
-            rounded,
+            visuals,
             key_rect,
             10.0,
-            Color32F::new(
-                UI_ACTION_KEY_FILL.r(),
-                UI_ACTION_KEY_FILL.g(),
-                UI_ACTION_KEY_FILL.b(),
-                0.98 * alpha,
-            ),
+            visuals.palette.key_fill.alpha(0.98 * alpha),
+            false,
             damage,
             alpha,
         )?;
@@ -385,12 +492,7 @@ fn draw_overlay_action_row(
             key_rect.loc.y + (key_rect.size.h - key_h) / 2,
             key,
             ACTION_KEY_SCALE,
-            Color32F::new(
-                UI_ACTION_KEY_TEXT.r(),
-                UI_ACTION_KEY_TEXT.g(),
-                UI_ACTION_KEY_TEXT.b(),
-                alpha,
-            ),
+            visuals.palette.key_text.alpha(alpha),
             damage,
         )?;
         draw_ui_text_in(
@@ -401,12 +503,7 @@ fn draw_overlay_action_row(
             y + (row_h - label_h) / 2,
             label,
             ACTION_LABEL_SCALE,
-            Color32F::new(
-                UI_CHIP_SUBTEXT.r(),
-                UI_CHIP_SUBTEXT.g(),
-                UI_CHIP_SUBTEXT.b(),
-                alpha * 0.96,
-            ),
+            visuals.palette.subtext.alpha(alpha * 0.96),
             damage,
         )?;
         cursor_x += item_w;
@@ -493,7 +590,7 @@ pub(crate) fn draw_cluster_overflow_strip(
     damage: Rectangle<i32, Physical>,
     now_ms: u64,
 ) -> Result<(), Box<dyn Error>> {
-    let rounded = overlay.tuning.border_radius_px > 0;
+    let visuals = resolve_overlay_visuals(overlay.tuning);
     let Some(strip) = cluster_overflow_strip_rect(overlay, monitor, now_ms) else {
         return Ok(());
     };
@@ -513,15 +610,11 @@ pub(crate) fn draw_cluster_overflow_strip(
     draw_overlay_chip(
         frame,
         overlay.render_state,
-        rounded,
+        &visuals,
         strip,
         18.0,
-        Color32F::new(
-            UI_CHIP_FILL.r(),
-            UI_CHIP_FILL.g(),
-            UI_CHIP_FILL.b(),
-            0.97 * reveal_alpha,
-        ),
+        visuals.palette.fill.alpha(0.97 * reveal_alpha),
+        true,
         damage,
         reveal_alpha,
     )?;
@@ -559,15 +652,10 @@ pub(crate) fn draw_cluster_overflow_strip(
         draw_overflow_member_chip(
             frame,
             overlay,
-            rounded,
+            &visuals,
             node_id,
             icon_rect,
-            Color32F::new(
-                UI_ACTION_KEY_FILL.r(),
-                UI_ACTION_KEY_FILL.g(),
-                UI_ACTION_KEY_FILL.b(),
-                0.68 * reveal_alpha,
-            ),
+            visuals.palette.key_fill.alpha(0.68 * reveal_alpha),
             reveal_alpha,
             damage,
         )?;
@@ -577,30 +665,22 @@ pub(crate) fn draw_cluster_overflow_strip(
         draw_overlay_chip(
             frame,
             overlay.render_state,
-            rounded,
+            &visuals,
             track,
             4.0,
-            Color32F::new(
-                UI_ACTION_KEY_FILL.r(),
-                UI_ACTION_KEY_FILL.g(),
-                UI_ACTION_KEY_FILL.b(),
-                0.30 * reveal_alpha,
-            ),
+            visuals.palette.key_fill.alpha(0.30 * reveal_alpha),
+            false,
             damage,
             reveal_alpha,
         )?;
         draw_overlay_chip(
             frame,
             overlay.render_state,
-            rounded,
+            &visuals,
             thumb,
             4.0,
-            Color32F::new(
-                UI_CHIP_SUBTEXT.r(),
-                UI_CHIP_SUBTEXT.g(),
-                UI_CHIP_SUBTEXT.b(),
-                0.72 * reveal_alpha,
-            ),
+            visuals.palette.subtext.alpha(0.72 * reveal_alpha),
+            false,
             damage,
             reveal_alpha,
         )?;
@@ -618,10 +698,10 @@ pub(crate) fn draw_cluster_overflow_strip(
         draw_overflow_member_chip(
             frame,
             overlay,
-            rounded,
+            &visuals,
             node_id,
             icon_rect,
-            Color32F::new(UI_CHIP_FILL.r(), UI_CHIP_FILL.g(), UI_CHIP_FILL.b(), 0.97),
+            visuals.palette.fill.alpha(0.97),
             1.0,
             damage,
         )?;
@@ -630,10 +710,10 @@ pub(crate) fn draw_cluster_overflow_strip(
     Ok(())
 }
 
-pub(crate) fn draw_persistent_banner(
+fn draw_persistent_banner(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
-    rounded: bool,
+    visuals: &OverlayVisuals,
     font: &halley_config::FontConfig,
     damage: Rectangle<i32, Physical>,
     banner: &OverlayBannerSnapshot,
@@ -677,15 +757,11 @@ pub(crate) fn draw_persistent_banner(
     draw_overlay_chip(
         frame,
         render_state,
-        rounded,
+        visuals,
         rect,
         18.0,
-        Color32F::new(
-            UI_CHIP_FILL.r(),
-            UI_CHIP_FILL.g(),
-            UI_CHIP_FILL.b(),
-            0.97 * banner.mix,
-        ),
+        visuals.palette.fill.alpha(0.97 * banner.mix),
+        true,
         damage,
         banner.mix,
     )?;
@@ -698,12 +774,7 @@ pub(crate) fn draw_persistent_banner(
         row_y,
         banner.title.as_str(),
         BANNER_TITLE_SCALE,
-        Color32F::new(
-            UI_CHIP_TEXT.r(),
-            UI_CHIP_TEXT.g(),
-            UI_CHIP_TEXT.b(),
-            text_mix,
-        ),
+        visuals.palette.text.alpha(text_mix),
         damage,
     )?;
     row_y += title_h;
@@ -717,12 +788,7 @@ pub(crate) fn draw_persistent_banner(
             row_y,
             subtitle.as_str(),
             BANNER_META_SCALE,
-            Color32F::new(
-                UI_CHIP_SUBTEXT.r(),
-                UI_CHIP_SUBTEXT.g(),
-                UI_CHIP_SUBTEXT.b(),
-                text_mix * 0.96,
-            ),
+            visuals.palette.subtext.alpha(text_mix * 0.96),
             damage,
         )?;
         row_y += meta_h;
@@ -732,7 +798,7 @@ pub(crate) fn draw_persistent_banner(
         draw_overlay_action_row(
             frame,
             render_state,
-            rounded,
+            visuals,
             font,
             rect.loc.x + BANNER_PAD_X,
             row_y,
@@ -744,10 +810,10 @@ pub(crate) fn draw_persistent_banner(
     Ok(())
 }
 
-pub(crate) fn draw_toast(
+fn draw_toast(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
-    rounded: bool,
+    visuals: &OverlayVisuals,
     font: &halley_config::FontConfig,
     screen_w: i32,
     screen_h: i32,
@@ -780,10 +846,11 @@ pub(crate) fn draw_toast(
     draw_overlay_chip(
         frame,
         render_state,
-        rounded,
+        visuals,
         rect,
         14.0,
-        Color32F::new(0.95, 0.97, 0.99, 0.94 * toast.mix),
+        visuals.palette.fill.alpha(0.94 * toast.mix),
+        true,
         damage,
         toast.mix,
     )?;
@@ -795,12 +862,7 @@ pub(crate) fn draw_toast(
         rect.loc.y + TOAST_PAD_Y,
         title,
         TOAST_SCALE,
-        Color32F::new(
-            UI_CHIP_TEXT.r(),
-            UI_CHIP_TEXT.g(),
-            UI_CHIP_TEXT.b(),
-            text_mix,
-        ),
+        visuals.palette.text.alpha(text_mix),
         damage,
     )?;
     if let Some(body) = body.as_ref() {
@@ -812,22 +874,17 @@ pub(crate) fn draw_toast(
             rect.loc.y + TOAST_PAD_Y + title_h + BANNER_GAP,
             body.as_str(),
             TOAST_META_SCALE,
-            Color32F::new(
-                UI_CHIP_SUBTEXT.r(),
-                UI_CHIP_SUBTEXT.g(),
-                UI_CHIP_SUBTEXT.b(),
-                text_mix * 0.96,
-            ),
+            visuals.palette.subtext.alpha(text_mix * 0.96),
             damage,
         )?;
     }
     Ok(())
 }
 
-pub(crate) fn draw_exit_confirmation(
+fn draw_exit_confirmation(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
-    rounded: bool,
+    visuals: &OverlayVisuals,
     font: &halley_config::FontConfig,
     screen_w: i32,
     screen_h: i32,
@@ -865,15 +922,11 @@ pub(crate) fn draw_exit_confirmation(
     draw_overlay_chip(
         frame,
         render_state,
-        rounded,
+        visuals,
         rect,
         18.0,
-        Color32F::new(
-            UI_CHIP_FILL.r(),
-            UI_CHIP_FILL.g(),
-            UI_CHIP_FILL.b(),
-            0.97 * exit_confirm.mix,
-        ),
+        visuals.palette.fill.alpha(0.97 * exit_confirm.mix),
+        true,
         damage,
         exit_confirm.mix,
     )?;
@@ -885,18 +938,13 @@ pub(crate) fn draw_exit_confirmation(
         rect.loc.y + EXIT_CONFIRM_PAD_Y,
         EXIT_CONFIRM_TITLE,
         EXIT_CONFIRM_TITLE_SCALE,
-        Color32F::new(
-            UI_CHIP_TEXT.r(),
-            UI_CHIP_TEXT.g(),
-            UI_CHIP_TEXT.b(),
-            text_mix,
-        ),
+        visuals.palette.text.alpha(text_mix),
         damage,
     )?;
     draw_overlay_action_row(
         frame,
         render_state,
-        rounded,
+        visuals,
         font,
         rect.loc.x + EXIT_CONFIRM_PAD_X,
         rect.loc.y + EXIT_CONFIRM_PAD_Y + title_h + ACTION_ROW_GAP_Y,
@@ -916,7 +964,7 @@ pub(crate) fn draw_monitor_hud(
     now: std::time::Instant,
 ) -> Result<(), Box<dyn Error>> {
     let overlay_monitor = st.model.monitor_state.current_monitor.clone();
-    let rounded = st.runtime.tuning.border_radius_px > 0;
+    let visuals = resolve_overlay_visuals(&st.runtime.tuning);
     if let Some(exit_confirm) = st
         .ui
         .render_state
@@ -925,7 +973,7 @@ pub(crate) fn draw_monitor_hud(
         draw_exit_confirmation(
             frame,
             &st.ui.render_state,
-            rounded,
+            &visuals,
             &st.runtime.tuning.font,
             screen_w,
             screen_h,
@@ -942,7 +990,7 @@ pub(crate) fn draw_monitor_hud(
         draw_persistent_banner(
             frame,
             &st.ui.render_state,
-            rounded,
+            &visuals,
             &st.runtime.tuning.font,
             damage,
             &banner,
@@ -956,7 +1004,7 @@ pub(crate) fn draw_monitor_hud(
         draw_toast(
             frame,
             &st.ui.render_state,
-            rounded,
+            &visuals,
             &st.runtime.tuning.font,
             screen_w,
             screen_h,
@@ -993,12 +1041,9 @@ pub(crate) fn draw_overlay_hover_label(
         return Ok(());
     };
     let current_monitor = st.model.monitor_state.current_monitor.clone();
-    let bloom_core = st.cluster_bloom_for_monitor(current_monitor.as_str()).and_then(|cid| {
-        st.model
-            .field
-            .cluster(cid)
-            .and_then(|cluster| cluster.core)
-    });
+    let bloom_core = st
+        .cluster_bloom_for_monitor(current_monitor.as_str())
+        .and_then(|cid| st.model.field.cluster(cid).and_then(|cluster| cluster.core));
     if bloom_core == Some(target.node_id) {
         return Ok(());
     }
@@ -1058,19 +1103,16 @@ pub(crate) fn draw_overlay_hover_label(
     );
     let rect =
         Rectangle::<i32, Physical>::new((label_x, label_y).into(), (label_w, label_h).into());
+    let visuals = resolve_overlay_visuals(&st.runtime.tuning);
 
     draw_overlay_chip(
         frame,
         &st.ui.render_state,
-        st.runtime.tuning.border_radius_px > 0,
+        &visuals,
         rect,
         (label_h as f32) * 0.32,
-        Color32F::new(
-            UI_CHIP_FILL.r(),
-            UI_CHIP_FILL.g(),
-            UI_CHIP_FILL.b(),
-            0.96 * label_fade,
-        ),
+        visuals.palette.fill.alpha(0.96 * label_fade),
+        true,
         damage,
         label_fade,
     )?;
@@ -1081,12 +1123,7 @@ pub(crate) fn draw_overlay_hover_label(
         rect.loc.y + ((rect.size.h - text_h).max(0) / 2),
         &text,
         text_scale,
-        Color32F::new(
-            UI_CHIP_TEXT.r(),
-            UI_CHIP_TEXT.g(),
-            UI_CHIP_TEXT.b(),
-            0.94 * label_fade,
-        ),
+        visuals.palette.text.alpha(0.94 * label_fade),
         damage,
     )?;
     Ok(())
@@ -1099,7 +1136,7 @@ pub(crate) fn draw_cluster_selection_markers(
     screen_h: i32,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let rounded = overlay.tuning.border_radius_px > 0;
+    let visuals = resolve_overlay_visuals(overlay.tuning);
     let selected = overlay
         .cluster_state
         .cluster_mode_selected_nodes
@@ -1135,10 +1172,11 @@ pub(crate) fn draw_cluster_selection_markers(
         draw_overlay_chip(
             frame,
             overlay.render_state,
-            rounded,
+            &visuals,
             rect,
             10.0,
-            Color32F::new(0.87, 0.94, 0.91, 0.96),
+            visuals.palette.key_fill.alpha(0.96),
+            false,
             damage,
             1.0,
         )?;
@@ -1150,7 +1188,7 @@ pub(crate) fn draw_cluster_selection_markers(
             rect.loc.y + (rect.size.h - text_h) / 2,
             "SEL",
             SELECT_MARKER_SCALE,
-            Color32F::new(UI_CHIP_TEXT.r(), UI_CHIP_TEXT.g(), UI_CHIP_TEXT.b(), 1.0),
+            visuals.palette.text.alpha(1.0),
             damage,
         )?;
     }
@@ -1160,17 +1198,18 @@ pub(crate) fn draw_cluster_selection_markers(
 fn draw_overlay_chip(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,
-    rounded: bool,
+    visuals: &OverlayVisuals,
     rect: Rectangle<i32, Physical>,
     corner_radius: f32,
     fill_color: Color32F,
+    draw_border: bool,
     damage: Rectangle<i32, Physical>,
     alpha: f32,
 ) -> Result<(), Box<dyn Error>> {
     let Some(texture) = render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = render_state.ui_rect_program(rounded) else {
+    let Some(program) = render_state.ui_rect_program(visuals.rounded) else {
         return Ok(());
     };
     let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
@@ -1178,8 +1217,17 @@ fn draw_overlay_chip(
         (0.0, 0.0).into(),
         (tex_size.w as f64, tex_size.h as f64).into(),
     );
+    let border_px = if draw_border { visuals.border_px } else { 0.0 };
     let uniforms = [
-        Uniform::new("node_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+        Uniform::new(
+            "node_color",
+            (
+                visuals.palette.border.r,
+                visuals.palette.border.g,
+                visuals.palette.border.b,
+                1.0f32,
+            ),
+        ),
         Uniform::new(
             "fill_color",
             (
@@ -1190,8 +1238,20 @@ fn draw_overlay_chip(
             ),
         ),
         Uniform::new("rect_size", (rect.size.w as f32, rect.size.h as f32)),
+        Uniform::new(
+            "inner_rect_size",
+            (
+                (rect.size.w as f32 - border_px * 2.0).max(1.0),
+                (rect.size.h as f32 - border_px * 2.0).max(1.0),
+            ),
+        ),
+        Uniform::new(
+            "inner_rect_offset",
+            (border_px.max(0.0), border_px.max(0.0)),
+        ),
         Uniform::new("corner_radius", corner_radius),
-        Uniform::new("border_px", 0.0f32),
+        Uniform::new("inner_corner_radius", (corner_radius - border_px).max(0.0)),
+        Uniform::new("border_px", border_px),
     ];
 
     frame.render_texture_from_to(
@@ -1206,4 +1266,38 @@ fn draw_overlay_chip(
         &uniforms,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use halley_config::{OverlayColorMode, OverlayShape};
+
+    use super::resolve_overlay_visuals;
+
+    #[test]
+    fn overlay_auto_text_tracks_background_contrast() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.overlay_style.background_color = OverlayColorMode::Dark;
+
+        let visuals = resolve_overlay_visuals(&tuning);
+
+        assert!(visuals.palette.text.luminance() > visuals.palette.fill.luminance());
+    }
+
+    #[test]
+    fn overlay_shape_and_border_width_follow_overlay_config() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.border_size_px = 5;
+        tuning.overlay_style.shape = OverlayShape::Rounded;
+        tuning.overlay_style.borders = true;
+
+        let visuals = resolve_overlay_visuals(&tuning);
+
+        assert!(visuals.rounded);
+        assert_eq!(visuals.border_px, 5.0);
+
+        tuning.overlay_style.borders = false;
+        let visuals = resolve_overlay_visuals(&tuning);
+        assert_eq!(visuals.border_px, 0.0);
+    }
 }

@@ -127,6 +127,10 @@ Defaults follow `examples/halley.rune`.
 
 Handled by `crates/hally-config`. Covers keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
 
+## Contributing
+
+View the [contributing](CONTRIBUTING.md) guidelines before making any pull requests
+
 ---
 
 ## License

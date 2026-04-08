@@ -154,6 +154,8 @@ end
 animations:
   enabled true
 
+  enable-smooth-resize true
+
   window-open:
     enabled true
     duration-ms 160
@@ -172,6 +174,7 @@ animations:
   end
 
   tile-rearange:
+    enabled: true
   end
 end
 
@@ -185,6 +188,13 @@ decorations:
   # Rounded borders force server-side decorations so clients like GTK/Firefox
   # do not draw their own square CSD frame inside the compositor-rounded shape.
   no-csd false
+end
+
+overlays:
+  background-colour "auto"
+  text-colour "auto"
+  shape "square"
+  borders "true"
 end
 
 keybinds:

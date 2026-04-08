@@ -29,6 +29,39 @@ pub enum ShapeStyle {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum OverlayColorMode {
+    Auto,
+    Light,
+    Dark,
+    Fixed { r: f32, g: f32, b: f32 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OverlayShape {
+    Square,
+    Rounded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OverlayStyleConfig {
+    pub background_color: OverlayColorMode,
+    pub text_color: OverlayColorMode,
+    pub shape: OverlayShape,
+    pub borders: bool,
+}
+
+impl Default for OverlayStyleConfig {
+    fn default() -> Self {
+        Self {
+            background_color: OverlayColorMode::Auto,
+            text_color: OverlayColorMode::Auto,
+            shape: OverlayShape::Square,
+            borders: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DecorationBorderColor {
     pub r: f32,
     pub g: f32,
