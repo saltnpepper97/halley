@@ -225,6 +225,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         let _ = self.model.field.deactivate_cluster_workspace(plan.cid);
         let core = self.model.field.collapse_cluster(plan.cid).or(plan.core_id);
         if let Some(core_id) = core {
+            let _ = self.ensure_cluster_name_record_for_monitor(plan.cid, monitor);
+            let _ = self.relabel_cluster_core(plan.cid);
             let preserved_core_pos = self
                 .model
                 .cluster_state

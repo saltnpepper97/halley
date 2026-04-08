@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cosmic_text::{
-    Attrs, Buffer, Color, Family, FontSystem, Hinting, Metrics, Shaping, SwashCache, SwashContent,
+    Attrs, Buffer, Color, Family, FontSystem, Hinting, Metrics, Shaping, SwashCache,
 };
 use halley_config::FontConfig;
 use smithay::{
@@ -12,7 +12,7 @@ use smithay::{
         allocator::Fourcc,
         renderer::{
             Color32F, ImportMem, Texture,
-            gles::{GlesFrame, GlesRenderer, Uniform, UniformName, UniformType},
+            gles::{GlesFrame, GlesRenderer},
         },
     },
     utils::{Buffer as BufferCoords, Physical, Rectangle, Transform},
@@ -24,7 +24,6 @@ use super::state::RenderState;
 use super::utils::draw_rect;
 
 const UI_TEXT_CACHE_TTL_SECS: u64 = 30;
-const UI_TEXT_MASK_SHADER: &str = include_str!("shaders/ui_text_mask.frag");
 const UI_TEXT_HINTING_MAX_SIZE_PX: u32 = 16;
 
 #[derive(Clone, Copy, Debug)]
@@ -50,6 +49,7 @@ struct UiTextCacheKey {
     text: String,
     family: String,
     size_px: u32,
+    color_rgb: [u8; 3],
 }
 
 #[derive(Default)]
@@ -69,15 +69,21 @@ pub(crate) struct PreparedUiText {
 
 impl UiTextRenderer {
     pub(crate) fn size(&mut self, font: &FontConfig, text: &str, scale: i32) -> (i32, i32) {
-        let key = cache_key(font, text, scale);
+        let key = cache_key(font, text, scale, Color32F::new(1.0, 1.0, 1.0, 1.0));
         self.ensure_entry(&key);
         let entry = self.cache.get_mut(&key).expect("ui text cache entry");
         entry.last_used_at = Instant::now();
         (entry.width, entry.height)
     }
 
-    pub(crate) fn prepared(&mut self, font: &FontConfig, text: &str, scale: i32) -> PreparedUiText {
-        let key = cache_key(font, text, scale);
+    pub(crate) fn prepared(
+        &mut self,
+        font: &FontConfig,
+        text: &str,
+        scale: i32,
+        color: Color32F,
+    ) -> PreparedUiText {
+        let key = cache_key(font, text, scale, color);
         self.ensure_entry(&key);
         let entry = self.cache.get_mut(&key).expect("ui text cache entry");
         entry.last_used_at = Instant::now();
@@ -203,7 +209,14 @@ impl UiTextRenderer {
 
         width = width.max(0);
         height = height.max(metrics.line_height.ceil() as i32).max(0);
-        let pixels_rgba = rasterized_pixels(&buffer, font_system, swash_cache, width, height);
+        let pixels_rgba = rasterized_pixels(
+            &buffer,
+            font_system,
+            swash_cache,
+            width,
+            height,
+            Color::rgba(key.color_rgb[0], key.color_rgb[1], key.color_rgb[2], 255),
+        );
 
         UiTextCacheEntry {
             width,
@@ -220,7 +233,6 @@ pub(crate) fn ensure_ui_text_resources(
     renderer: &mut GlesRenderer,
     st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
-    ensure_ui_text_program(renderer, &mut st.ui.render_state);
     st.ui
         .render_state
         .ui_text
@@ -283,9 +295,8 @@ pub(crate) fn draw_ui_text_in(
     let prepared = render_state
         .ui_text
         .borrow_mut()
-        .prepared(font, text, scale);
+        .prepared(font, text, scale, color);
     if let Some(texture) = prepared.texture.as_ref()
-        && let Some(program) = render_state.ui_text_program.as_ref()
         && prepared.width > 0
         && prepared.height > 0
     {
@@ -298,10 +309,6 @@ pub(crate) fn draw_ui_text_in(
             (x, y).into(),
             (prepared.width.max(1), prepared.height.max(1)).into(),
         );
-        let uniforms = [Uniform::new(
-            "text_color",
-            (color.r(), color.g(), color.b(), color.a()),
-        )];
         return frame.render_texture_from_to(
             texture,
             src,
@@ -309,9 +316,9 @@ pub(crate) fn draw_ui_text_in(
             &[damage],
             &[],
             Transform::Normal,
-            1.0,
-            Some(program),
-            &uniforms,
+            color.a().clamp(0.0, 1.0),
+            None,
+            &[],
         );
     }
 
@@ -333,23 +340,6 @@ pub(crate) fn draw_ui_text_in(
     Ok(())
 }
 
-fn ensure_ui_text_program(renderer: &mut GlesRenderer, render_state: &mut RenderState) {
-    if render_state.ui_text_program.is_some() || render_state.ui_text_program_failed {
-        return;
-    }
-
-    match renderer.compile_custom_texture_shader(
-        UI_TEXT_MASK_SHADER,
-        &[UniformName::new("text_color", UniformType::_4f)],
-    ) {
-        Ok(program) => render_state.ui_text_program = Some(program),
-        Err(err) => {
-            render_state.ui_text_program_failed = true;
-            eventline::warn!("ui text texture shader disabled: error={}", err);
-        }
-    }
-}
-
 fn attrs_for_key<'a>(key: &'a UiTextCacheKey, resolved_family: Option<&'a str>) -> Attrs<'a> {
     Attrs::new().family(resolve_family(
         resolved_family.unwrap_or(key.family.as_str()),
@@ -362,6 +352,7 @@ fn rasterized_pixels(
     swash_cache: &mut SwashCache,
     width: i32,
     height: i32,
+    base_color: Color,
 ) -> Option<Vec<u8>> {
     if width <= 0 || height <= 0 {
         return None;
@@ -371,84 +362,66 @@ fn rasterized_pixels(
     for run in buffer.layout_runs() {
         for glyph in run.glyphs {
             let physical = glyph.physical((0.0, run.line_y), 1.0);
-            let Some(image) = swash_cache
-                .get_image(font_system, physical.cache_key)
-                .as_ref()
-            else {
-                continue;
-            };
-            let base_x = physical.x + image.placement.left;
-            let base_y = physical.y - image.placement.top;
-
-            match image.content {
-                SwashContent::Mask => {
-                    let mut i = 0usize;
-                    for off_y in 0..image.placement.height as i32 {
-                        for off_x in 0..image.placement.width as i32 {
-                            blend_mask_pixel(
-                                &mut pixels,
-                                width,
-                                height,
-                                base_x + off_x,
-                                base_y + off_y,
-                                image.data[i],
-                            );
-                            i += 1;
-                        }
-                    }
-                }
-                SwashContent::Color | SwashContent::SubpixelMask => {
-                    let mut i = 0usize;
-                    for off_y in 0..image.placement.height as i32 {
-                        for off_x in 0..image.placement.width as i32 {
-                            let alpha = if matches!(image.content, SwashContent::Color) {
-                                image.data[i + 3]
-                            } else {
-                                image.data[i]
-                                    .max(image.data[i + 1])
-                                    .max(image.data[i + 2])
-                                    .max(image.data[i + 3])
-                            };
-                            blend_mask_pixel(
-                                &mut pixels,
-                                width,
-                                height,
-                                base_x + off_x,
-                                base_y + off_y,
-                                alpha,
-                            );
-                            i += 4;
-                        }
-                    }
-                }
-            }
+            swash_cache.with_pixels(
+                font_system,
+                physical.cache_key,
+                base_color,
+                |gx, gy, color| {
+                    blend_rgba_pixel(
+                        &mut pixels,
+                        width,
+                        height,
+                        physical.x + gx,
+                        physical.y + gy,
+                        [color.r(), color.g(), color.b(), color.a()],
+                    );
+                },
+            );
         }
     }
 
     Some(pixels)
 }
 
-fn blend_mask_pixel(pixels: &mut [u8], width: i32, height: i32, x: i32, y: i32, src_alpha: u8) {
-    if src_alpha == 0 || x < 0 || y < 0 || x >= width || y >= height {
+fn blend_rgba_pixel(pixels: &mut [u8], width: i32, height: i32, x: i32, y: i32, src_rgba: [u8; 4]) {
+    if src_rgba[3] == 0 || x < 0 || y < 0 || x >= width || y >= height {
         return;
     }
 
     let idx = ((y as usize * width as usize) + x as usize) * 4;
-    let dst_alpha = pixels[idx + 3] as u16;
-    let src_alpha = src_alpha as u16;
-    let out_alpha = src_alpha + ((dst_alpha * (255 - src_alpha) + 127) / 255);
+    let src_a = src_rgba[3] as f32 / 255.0;
+    let dst_r = pixels[idx] as f32 / 255.0;
+    let dst_g = pixels[idx + 1] as f32 / 255.0;
+    let dst_b = pixels[idx + 2] as f32 / 255.0;
+    let dst_a = pixels[idx + 3] as f32 / 255.0;
 
-    pixels[idx] = 255;
-    pixels[idx + 1] = 255;
-    pixels[idx + 2] = 255;
-    pixels[idx + 3] = out_alpha.min(255) as u8;
+    // Store cached UI text as premultiplied RGBA. Straight-alpha white glyph edges
+    // bloom badly on dark backgrounds in a premultiplied compositor pipeline.
+    let src_r = (src_rgba[0] as f32 / 255.0) * src_a;
+    let src_g = (src_rgba[1] as f32 / 255.0) * src_a;
+    let src_b = (src_rgba[2] as f32 / 255.0) * src_a;
+
+    let out_a = src_a + dst_a * (1.0 - src_a);
+    let out_r = src_r + dst_r * (1.0 - src_a);
+    let out_g = src_g + dst_g * (1.0 - src_a);
+    let out_b = src_b + dst_b * (1.0 - src_a);
+
+    pixels[idx] = (out_r.clamp(0.0, 1.0) * 255.0).round() as u8;
+    pixels[idx + 1] = (out_g.clamp(0.0, 1.0) * 255.0).round() as u8;
+    pixels[idx + 2] = (out_b.clamp(0.0, 1.0) * 255.0).round() as u8;
+    pixels[idx + 3] = (out_a.clamp(0.0, 1.0) * 255.0).round() as u8;
 }
 
-fn cache_key(font: &FontConfig, text: &str, scale: i32) -> UiTextCacheKey {
+fn cache_key(font: &FontConfig, text: &str, scale: i32, color: Color32F) -> UiTextCacheKey {
     UiTextCacheKey {
         text: text.to_string(),
         family: normalized_family(font),
         size_px: font_size_for_scale(font, scale),
+        color_rgb: [
+            (color.r().clamp(0.0, 1.0) * 255.0).round() as u8,
+            (color.g().clamp(0.0, 1.0) * 255.0).round() as u8,
+            (color.b().clamp(0.0, 1.0) * 255.0).round() as u8,
+        ],
     }
 }
 

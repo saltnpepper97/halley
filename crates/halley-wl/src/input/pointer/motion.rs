@@ -420,6 +420,42 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     ps.workspace_size = (local_w, local_h);
     st.input.interaction_state.last_pointer_screen_global = Some((effective_sx, effective_sy));
 
+    let prompt_monitor = st.model.monitor_state.current_monitor.clone();
+    if crate::compositor::clusters::system::cluster_system_controller(&*st)
+        .cluster_name_prompt_active_for_monitor(prompt_monitor.as_str())
+    {
+        let prompt_hit = if target_monitor == prompt_monitor {
+            crate::overlay::cluster_naming_dialog_hit_test(st, local_w, local_h, local_sx, local_sy)
+        } else {
+            None
+        };
+        st.input.interaction_state.overlay_hover_target = None;
+        st.input.interaction_state.pending_core_hover = None;
+        ps.hover_node = None;
+        ps.hover_started_at = None;
+        if let Some(crate::overlay::ClusterNamingDialogHit::InputCaret(caret_char)) = prompt_hit {
+            let _ = crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                .drag_cluster_name_prompt_selection_for_monitor(
+                    prompt_monitor.as_str(),
+                    caret_char,
+                );
+        }
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            match prompt_hit {
+                Some(crate::overlay::ClusterNamingDialogHit::ConfirmButton) => {
+                    Some(smithay::input::pointer::CursorIcon::Pointer)
+                }
+                Some(crate::overlay::ClusterNamingDialogHit::InputCaret(_)) => {
+                    Some(smithay::input::pointer::CursorIcon::Text)
+                }
+                None => None,
+            },
+        );
+        ctx.backend.request_redraw();
+        return;
+    }
+
     maybe_begin_core_drag_from_pending_press(
         st,
         &mut ps,

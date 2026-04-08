@@ -1,4 +1,5 @@
 mod cluster_bloom;
+mod cluster_naming;
 mod state;
 mod view;
 
@@ -21,6 +22,9 @@ use crate::render::text::{draw_ui_text, draw_ui_text_in, ui_text_size, ui_text_s
 
 pub(crate) use cluster_bloom::{
     bloom_token_hit_test, draw_cluster_bloom, ensure_cluster_bloom_icon_resources,
+};
+pub(crate) use cluster_naming::{
+    ClusterNamingDialogHit, cluster_naming_dialog_hit_test, draw_cluster_naming_dialog,
 };
 pub(crate) use state::{
     ClusterBloomAnimSnapshot, ClusterBloomAnimState, ExitConfirmOverlaySnapshot,
@@ -1012,6 +1016,7 @@ pub(crate) fn draw_monitor_hud(
             &toast,
         )?;
     }
+    draw_cluster_naming_dialog(frame, st, screen_w, screen_h, damage)?;
     Ok(())
 }
 

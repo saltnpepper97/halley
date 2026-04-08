@@ -270,6 +270,7 @@ fn directional_candidate_score(
 
 mod mode;
 mod mutation;
+mod naming;
 mod navigation;
 mod overflow;
 mod workspace;

@@ -142,6 +142,24 @@ pub(crate) struct PendingCoreClick {
     pub(crate) deadline_ms: u64,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum ClusterNamePromptRepeatAction {
+    Insert(char),
+    Backspace,
+    Delete,
+    MoveLeft,
+    MoveRight,
+}
+
+#[derive(Clone)]
+pub(crate) struct ClusterNamePromptRepeatState {
+    pub(crate) monitor: String,
+    pub(crate) code: u32,
+    pub(crate) action: ClusterNamePromptRepeatAction,
+    pub(crate) next_repeat_ms: u64,
+    pub(crate) interval_ms: u64,
+}
+
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
@@ -165,6 +183,8 @@ pub(crate) struct InteractionState {
     pub(crate) cluster_join_candidate: Option<ClusterJoinCandidate>,
     pub(crate) bloom_pull_preview: Option<BloomPullPreview>,
     pub(crate) cluster_overflow_drag_preview: Option<ClusterOverflowDragPreview>,
+    pub(crate) cluster_name_prompt_drag_monitor: Option<String>,
+    pub(crate) cluster_name_prompt_repeat: Option<ClusterNamePromptRepeatState>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
     pub(crate) pending_core_hover: Option<PendingCoreHover>,
     pub(crate) pending_core_press: Option<PendingCorePress>,

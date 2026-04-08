@@ -653,6 +653,35 @@ pub(crate) fn draw_node_markers(
             let icon_alpha = (dot_alpha * icon_mix).clamp(0.0, 1.0);
             let mut drew_real_icon = false;
             if icon_alpha > 0.01
+                && is_core
+                && let Some(icon) = crate::render::cluster_core_icon_texture(st, focused)
+            {
+                let side = ((render_radius * 2) as f32 * st.runtime.tuning.node_icon_size * 0.98)
+                    .round() as i32;
+                let side = side.clamp(16, 42);
+                let dest = Rectangle::<i32, Physical>::new(
+                    (sx - side / 2, sy - side / 2).into(),
+                    (side, side).into(),
+                );
+                let src = Rectangle::<f64, Buffer>::new(
+                    (0.0, 0.0).into(),
+                    (icon.width as f64, icon.height as f64).into(),
+                );
+                frame.render_texture_from_to(
+                    &icon.texture,
+                    src,
+                    dest,
+                    &[damage],
+                    &[],
+                    Transform::Normal,
+                    icon_alpha,
+                    None,
+                    &[],
+                )?;
+                drew_real_icon = true;
+            }
+            if !drew_real_icon
+                && icon_alpha > 0.01
                 && let Some(app_id) = st.model.node_app_ids.get(&id)
                 && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
                     st.ui.render_state.node_app_icon_cache.get(app_id)

@@ -6,6 +6,7 @@ use halley_core::viewport::{FocusRing, FocusZone, Viewport};
 pub(crate) mod app_icon;
 mod bearings;
 mod clipped_surface;
+mod cluster_icon;
 mod cursor;
 mod cursor_theme;
 mod frame;
@@ -40,6 +41,7 @@ pub(crate) fn log_rounded_shader_failure(
 }
 
 pub(crate) use bearings::bearing_hit_test;
+pub(crate) use cluster_icon::cluster_core_icon_texture;
 pub(crate) use cursor::cursor_surface_hotspot;
 pub(crate) use cursor_theme::themed_cursor_sprite_with_fallback;
 pub(crate) use frame::{

@@ -37,6 +37,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         for member_id in members {
             self.assign_node_to_monitor(member_id, target_monitor.as_str());
         }
+        let _ = self.sync_cluster_name_for_monitor(cid, target_monitor.as_str());
         true
     }
 
@@ -50,6 +51,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         if let Some(core_id) = core_id {
             self.model.monitor_state.node_monitor.remove(&core_id);
         }
+        self.remove_cluster_name_record(cid);
         self.model.field.dissolve_cluster(cid)
     }
 
@@ -129,6 +131,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 }
             }
             Some(RemoveNodeClusterEffect::DissolvedCluster(cid)) => {
+                self.remove_cluster_name_record(cid);
                 let survivors = if snapshot_cid == cid {
                     snapshot_members
                         .iter()

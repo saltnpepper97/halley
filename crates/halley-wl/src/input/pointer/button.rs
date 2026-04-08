@@ -9,9 +9,7 @@ use crate::backend::interface::BackendView;
 use crate::compositor::actions::window::{
     activate_collapsed_node_from_click, focus_or_reveal_surface_node,
 };
-use crate::compositor::interaction::state::{
-    PendingCoreClick, PendingCorePress,
-};
+use crate::compositor::interaction::state::{PendingCoreClick, PendingCorePress};
 use crate::compositor::interaction::{
     BloomDragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, OverflowDragCtx, PointerState,
     TitleClickCtx,
@@ -390,6 +388,53 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         )
     ) || ps.drag.is_some()
         || ps.resize.is_some();
+    let prompt_monitor = st.model.monitor_state.current_monitor.clone();
+    if crate::compositor::clusters::system::cluster_system_controller(&*st)
+        .cluster_name_prompt_active_for_monitor(prompt_monitor.as_str())
+        && !cluster_pointer_passthrough
+    {
+        ps.world = world_now;
+        match button_state {
+            ButtonState::Pressed if left => {
+                if target_monitor == prompt_monitor
+                    && let Some(hit) = crate::overlay::cluster_naming_dialog_hit_test(
+                        st, local_w, local_h, local_sx, local_sy,
+                    )
+                {
+                    match hit {
+                        crate::overlay::ClusterNamingDialogHit::ConfirmButton => {
+                            let _ =
+                                crate::compositor::clusters::system::cluster_system_controller(st)
+                                    .confirm_cluster_name_prompt_for_monitor(
+                                        prompt_monitor.as_str(),
+                                        Instant::now(),
+                                    );
+                        }
+                        crate::overlay::ClusterNamingDialogHit::InputCaret(caret_char) => {
+                            let _ =
+                                crate::compositor::clusters::system::cluster_system_controller(st)
+                                    .begin_cluster_name_prompt_drag_for_monitor(
+                                        prompt_monitor.as_str(),
+                                        caret_char,
+                                    );
+                        }
+                    }
+                    ctx.backend.request_redraw();
+                }
+                ps.last_title_click = None;
+                return;
+            }
+            ButtonState::Released if left || right => {
+                let _ = crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                    .end_cluster_name_prompt_drag_for_monitor(prompt_monitor.as_str());
+                handle_button_release(st, &mut ps, ctx.backend, button_code, None, world_now);
+                return;
+            }
+            ButtonState::Pressed | ButtonState::Released => {
+                return;
+            }
+        }
+    }
     if st.cluster_mode_active() && !cluster_pointer_passthrough {
         ps.world = world_now;
         match button_state {
@@ -1202,7 +1247,10 @@ mod tests {
             frame,
         );
 
-        assert_eq!(st.active_cluster_workspace_for_monitor("monitor_a"), Some(cid));
+        assert_eq!(
+            st.active_cluster_workspace_for_monitor("monitor_a"),
+            Some(cid)
+        );
     }
 
     #[test]
@@ -1231,13 +1279,12 @@ mod tests {
         let core = st.model.field.collapse_cluster(cid).expect("core");
         st.assign_node_to_monitor(core, "monitor_a");
 
-        st.input.interaction_state.pending_core_hover = Some(
-            crate::compositor::interaction::state::PendingCoreHover {
+        st.input.interaction_state.pending_core_hover =
+            Some(crate::compositor::interaction::state::PendingCoreHover {
                 node_id: core,
                 monitor: "monitor_a".to_string(),
                 started_at_ms: st.now_ms(Instant::now()),
-            },
-        );
+            });
 
         crate::render::tick_frame_effects(
             &mut st,

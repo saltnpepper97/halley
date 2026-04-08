@@ -353,6 +353,7 @@ pub(crate) fn node_visible_on_current_monitor(st: &Halley, id: NodeId) -> bool {
         .is_none_or(|monitor| monitor == &st.model.monitor_state.current_monitor)
 }
 
+#[allow(dead_code)]
 pub(crate) fn assign_node_to_current_monitor(st: &mut Halley, id: NodeId) {
     let monitor = st.model.monitor_state.current_monitor.clone();
     assign_node_to_monitor(st, id, monitor.as_str());

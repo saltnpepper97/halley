@@ -24,6 +24,37 @@ fn single_monitor_tuning() -> halley_config::RuntimeTuning {
     tuning
 }
 
+fn dual_monitor_tuning() -> halley_config::RuntimeTuning {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.tty_viewports = vec![
+        halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        },
+        halley_config::ViewportOutputConfig {
+            connector: "monitor_b".to_string(),
+            enabled: true,
+            offset_x: 800,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        },
+    ];
+    tuning
+}
+
 fn assert_close(actual: f32, expected: f32) {
     assert!(
         (actual - expected).abs() <= 0.5,
@@ -41,6 +72,171 @@ fn node_edges(st: &Halley, id: NodeId) -> (f32, f32, f32, f32) {
         node.pos.x + half_w,
         node.pos.y + half_h,
     )
+}
+
+fn create_named_test_cluster(
+    st: &mut Halley,
+    monitor: &str,
+    labels: [&str; 2],
+    x: f32,
+) -> (ClusterId, NodeId) {
+    let a =
+        st.model
+            .field
+            .spawn_surface(labels[0], Vec2 { x, y: 120.0 }, Vec2 { x: 240.0, y: 180.0 });
+    let b = st.model.field.spawn_surface(
+        labels[1],
+        Vec2 {
+            x: x + 260.0,
+            y: 120.0,
+        },
+        Vec2 { x: 240.0, y: 180.0 },
+    );
+    st.assign_node_to_monitor(a, monitor);
+    st.assign_node_to_monitor(b, monitor);
+    let cid = st.model.field.create_cluster(vec![a, b]).expect("cluster");
+    let core = st.model.field.collapse_cluster(cid).expect("core");
+    st.assign_node_to_monitor(core, monitor);
+    let _ =
+        cluster_system_controller(&mut *st).ensure_cluster_name_record_for_monitor(cid, monitor);
+    (cid, core)
+}
+
+#[test]
+fn generic_cluster_names_are_monitor_local_reclaimable_and_moveable() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, dual_monitor_tuning());
+
+    let (cid_a1, core_a1) = create_named_test_cluster(&mut st, "monitor_a", ["a1", "a2"], 120.0);
+    let (_cid_a2, core_a2) = create_named_test_cluster(&mut st, "monitor_a", ["a3", "a4"], 520.0);
+    assert_eq!(
+        st.model.field.node(core_a1).expect("core a1").label,
+        "Cluster 1"
+    );
+    assert_eq!(
+        st.model.field.node(core_a2).expect("core a2").label,
+        "Cluster 2"
+    );
+
+    let (_cid_b1, core_b1) = create_named_test_cluster(&mut st, "monitor_b", ["b1", "b2"], 920.0);
+    let (_cid_b2, core_b2) = create_named_test_cluster(&mut st, "monitor_b", ["b3", "b4"], 1320.0);
+    assert_eq!(
+        st.model.field.node(core_b1).expect("core b1").label,
+        "Cluster 1"
+    );
+    assert_eq!(
+        st.model.field.node(core_b2).expect("core b2").label,
+        "Cluster 2"
+    );
+
+    let member_to_remove = st
+        .model
+        .field
+        .cluster(cid_a1)
+        .expect("cluster a1")
+        .members()[0];
+    let _ = st.remove_node_from_field(member_to_remove, st.now_ms(Instant::now()));
+
+    let (_cid_a3, core_a3) = create_named_test_cluster(&mut st, "monitor_a", ["a5", "a6"], 220.0);
+    assert_eq!(
+        st.model.field.node(core_a3).expect("core a3").label,
+        "Cluster 1"
+    );
+
+    st.assign_node_to_monitor(core_a3, "monitor_b");
+    let _ = st.sync_cluster_monitor(
+        st.model
+            .field
+            .cluster_id_for_core_public(core_a3)
+            .expect("cluster for moved core"),
+        Some("monitor_b"),
+    );
+    assert_eq!(
+        st.model
+            .field
+            .node(core_a3)
+            .expect("moved generic core")
+            .label,
+        "Cluster 3"
+    );
+}
+
+#[test]
+fn cluster_mode_confirm_opens_name_prompt_before_creating() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let now = Instant::now();
+
+    let first = st.model.field.spawn_surface(
+        "first",
+        Vec2 { x: 160.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    let second = st.model.field.spawn_surface(
+        "second",
+        Vec2 { x: 460.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    st.assign_node_to_monitor(first, "monitor_a");
+    st.assign_node_to_monitor(second, "monitor_a");
+
+    assert!(st.enter_cluster_mode());
+    assert!(st.toggle_cluster_mode_selection(first));
+    assert!(st.toggle_cluster_mode_selection(second));
+    assert!(st.confirm_cluster_mode(now));
+    assert!(
+        st.model
+            .cluster_state
+            .cluster_name_prompt
+            .contains_key("monitor_a")
+    );
+    assert!(st.model.field.cluster_id_for_member_public(first).is_none());
+    assert!(
+        st.model
+            .field
+            .cluster_id_for_member_public(second)
+            .is_none()
+    );
+
+    assert!(cluster_system_controller(&mut st).cancel_cluster_name_prompt_for_monitor("monitor_a"));
+    assert!(
+        !st.model
+            .cluster_state
+            .cluster_name_prompt
+            .contains_key("monitor_a")
+    );
+    assert!(st.cluster_mode_active_for_monitor("monitor_a"));
+    assert_eq!(
+        st.model
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .get("monitor_a")
+            .map(|nodes| nodes.len()),
+        Some(2)
+    );
+
+    assert!(st.exit_cluster_mode());
+    assert!(!st.cluster_mode_active_for_monitor("monitor_a"));
+}
+
+#[test]
+fn custom_cluster_name_stays_unique_and_survives_monitor_move() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, dual_monitor_tuning());
+    let (cid, core) = create_named_test_cluster(&mut st, "monitor_a", ["x", "y"], 120.0);
+    st.model.cluster_state.cluster_names.insert(
+        cid,
+        crate::compositor::clusters::state::ClusterNameRecord::Custom {
+            name: "Studio".to_string(),
+        },
+    );
+    let _ = cluster_system_controller(&mut st).relabel_cluster_core(cid);
+    st.assign_node_to_monitor(core, "monitor_b");
+    let _ = st.sync_cluster_monitor(cid, Some("monitor_b"));
+    assert_eq!(
+        st.model.field.node(core).expect("custom core").label,
+        "Studio"
+    );
 }
 
 #[test]

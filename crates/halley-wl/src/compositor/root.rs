@@ -242,6 +242,8 @@ impl Halley {
                 },
                 cluster_state: ClusterState {
                     cluster_form_state: ClusterFormationState::default(),
+                    cluster_names: HashMap::new(),
+                    cluster_name_prompt: HashMap::new(),
                     active_cluster_workspaces: HashMap::new(),
                     cluster_bloom_open: HashMap::new(),
                     cluster_mode_selected_nodes: HashMap::new(),
@@ -293,6 +295,7 @@ impl Halley {
                 render_state: RenderState {
                     animator: Animator::new(now),
                     node_app_icon_cache: HashMap::new(),
+                    cluster_core_icon_cache: Default::default(),
                     node_hover_mix: HashMap::new(),
                     node_preview_hover: HashMap::new(),
                     bearings_visible: false,
@@ -319,8 +322,6 @@ impl Halley {
                     window_texture_program_failed: false,
                     surface_clip_program: None,
                     surface_clip_program_failed: false,
-                    ui_text_program: None,
-                    ui_text_program_failed: false,
                     zoom_nominal_size: HashMap::new(),
                     zoom_resize_fallback: HashSet::new(),
                     zoom_resize_reject_streak: HashMap::new(),
@@ -356,6 +357,8 @@ impl Halley {
                     cluster_join_candidate: None,
                     bloom_pull_preview: None,
                     cluster_overflow_drag_preview: None,
+                    cluster_name_prompt_drag_monitor: None,
+                    cluster_name_prompt_repeat: None,
                     overlay_hover_target: None,
                     pending_core_hover: None,
                     pending_core_press: None,
@@ -648,12 +651,16 @@ impl Halley {
         super::monitor::state::node_visible_on_current_monitor(self, id)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn assign_node_to_current_monitor(&mut self, id: NodeId) {
-        super::monitor::state::assign_node_to_current_monitor(self, id)
+        let monitor = self.model.monitor_state.current_monitor.clone();
+        self.assign_node_to_monitor(id, monitor.as_str())
     }
 
     pub(crate) fn assign_node_to_monitor(&mut self, id: NodeId, monitor: &str) {
-        super::monitor::state::assign_node_to_monitor(self, id, monitor)
+        super::monitor::state::assign_node_to_monitor(self, id, monitor);
+        super::clusters::system::cluster_system_controller(self)
+            .sync_cluster_name_for_node_monitor(id, monitor);
     }
 
     pub(crate) fn assign_layer_surface_to_monitor(

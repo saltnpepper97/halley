@@ -16,8 +16,27 @@ pub(crate) struct ClusterOverflowPromotionAnim {
     pub(crate) target_center: Vec2,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ClusterNameRecord {
+    Generic { slot: u32 },
+    Custom { name: String },
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ClusterNamingPromptState {
+    pub(crate) generated_generic_name: String,
+    pub(crate) input: String,
+    pub(crate) caret_char: usize,
+    pub(crate) selection_anchor_char: usize,
+    pub(crate) selection_focus_char: usize,
+    pub(crate) scroll_char: usize,
+    pub(crate) confirm_hover_mix: f32,
+}
+
 pub(crate) struct ClusterState {
     pub(crate) cluster_form_state: ClusterFormationState,
+    pub(crate) cluster_names: HashMap<ClusterId, ClusterNameRecord>,
+    pub(crate) cluster_name_prompt: HashMap<String, ClusterNamingPromptState>,
     pub(crate) active_cluster_workspaces: HashMap<String, ClusterId>,
     pub(crate) cluster_bloom_open: HashMap<String, ClusterId>,
     pub(crate) cluster_mode_selected_nodes: HashMap<String, HashSet<NodeId>>,

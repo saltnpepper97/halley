@@ -19,5 +19,6 @@ void main() {
         discard;
     }
 
-    gl_FragColor = vec4(text_color.rgb, text_color.a * sampled.a) * alpha;
+    float out_alpha = text_color.a * sampled.a * alpha;
+    gl_FragColor = vec4(text_color.rgb * out_alpha, out_alpha);
 }

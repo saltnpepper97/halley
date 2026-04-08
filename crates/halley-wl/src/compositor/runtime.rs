@@ -134,6 +134,15 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
         {
             consider(deadline_ms);
         }
+        if let Some(repeat_at_ms) = self
+            .input
+            .interaction_state
+            .cluster_name_prompt_repeat
+            .as_ref()
+            .map(|repeat| repeat.next_repeat_ms)
+        {
+            consider(repeat_at_ms);
+        }
         if crate::compositor::interaction::state::bloom_pull_preview_needs_animation(self) {
             consider(now_ms.saturating_add(16));
         }
@@ -305,6 +314,8 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         {
             self.input.interaction_state.pending_core_click = None;
         }
+        let _ = crate::compositor::clusters::system::cluster_system_controller(&mut **self)
+            .repeat_cluster_name_prompt_input_if_due(now_ms);
         if self.has_any_active_cluster_workspace() {
             let active_monitors = self
                 .model

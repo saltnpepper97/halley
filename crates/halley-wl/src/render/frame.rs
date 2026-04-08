@@ -35,6 +35,7 @@ use crate::spatial::node_in_active_area_for_monitor;
 use super::app_icon::{ensure_app_icon_resources_for_node_ids, ensure_node_app_icon_resources};
 use super::bearings::BearingChipLayout;
 use super::bearings::{collect_bearing_layouts, draw_bearings, ensure_bearing_icon_resources};
+use super::cluster_icon::ensure_cluster_core_icon_resources;
 use super::cursor::{cursor_surface_hotspot, draw_cursor_sprite};
 use super::cursor_theme::themed_cursor_sprite_with_fallback;
 use super::layer_shell::collect_layer_surfaces;
@@ -86,6 +87,11 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
         || crate::compositor::interaction::state::bloom_pull_preview_active_for_monitor(st, monitor)
         || st.ui.render_state.overlay_banner.contains_key(monitor)
         || st.ui.render_state.overlay_toast.contains_key(monitor)
+        || st
+            .model
+            .cluster_state
+            .cluster_name_prompt
+            .contains_key(monitor)
         || st
             .ui
             .render_state
@@ -892,6 +898,7 @@ pub(crate) fn draw_debug_frame_to_target(
         prepared.now,
     );
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
+    ensure_cluster_core_icon_resources(renderer, st)?;
     let current_monitor = st.model.monitor_state.current_monitor.clone();
     let overflow_ids = st
         .model

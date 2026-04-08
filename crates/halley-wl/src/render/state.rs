@@ -89,6 +89,14 @@ pub(crate) enum NodeAppIconCacheEntry {
     Missing,
 }
 
+#[derive(Default)]
+pub(crate) struct ClusterCoreIconCache {
+    pub(crate) focused_color: [u8; 4],
+    pub(crate) unfocused_color: [u8; 4],
+    pub(crate) focused: Option<NodeAppIconTexture>,
+    pub(crate) unfocused: Option<NodeAppIconTexture>,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct PreviewHoverState {
     pub(crate) node: Option<NodeId>,
@@ -137,6 +145,7 @@ pub(crate) struct RenderState {
     pub animator: Animator,
 
     pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
+    pub(crate) cluster_core_icon_cache: ClusterCoreIconCache,
     pub(crate) node_hover_mix: HashMap<NodeId, f32>,
     pub(crate) node_preview_hover: HashMap<String, PreviewHoverState>,
     pub(crate) bearings_visible: bool,
@@ -163,8 +172,6 @@ pub(crate) struct RenderState {
     pub(crate) window_texture_program_failed: bool,
     pub(crate) surface_clip_program: Option<GlesTexProgram>,
     pub(crate) surface_clip_program_failed: bool,
-    pub(crate) ui_text_program: Option<GlesTexProgram>,
-    pub(crate) ui_text_program_failed: bool,
 
     pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_fallback: HashSet<NodeId>,
