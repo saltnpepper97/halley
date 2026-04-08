@@ -116,8 +116,8 @@ node:
 end
 
 decay:
-  active-delay 120
-  inactive-delay 30
+  active-delay 240
+  inactive-delay 120
 end
 
 trail:
@@ -155,29 +155,27 @@ physics:
   damping 0.45
 end
 
-#todo
 animations:
   enabled true
 
-  enable-smooth-resize true
+  smooth-resize:
+    enabled true
+    duration-ms 90  # catch-up / settle time; lower = tighter, higher = softer lag
+  end
 
   window-open:
     enabled true
-    duration-ms 160
-  end
-
-  window-close:
-    enabled false
-    duration-ms 140
-    style "shrink" shrink | fade
+    duration-ms 620
   end
 
   tile:
     enabled true
+    duration-ms 240
   end
 
   stack:
     enabled true
+    duration-ms 220
   end
 end
 

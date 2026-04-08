@@ -452,7 +452,10 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             self.resolve_surface_overlap();
         }
         self.restore_pan_return_active_focus(now);
+        let animations_enabled = self.runtime.tuning.animations_enabled();
         let crate::compositor::root::Halley { model, ui, .. } = &mut **self;
-        ui.render_state.animator.observe_field(&model.field, now);
+        if animations_enabled {
+            ui.render_state.animator.observe_field(&model.field, now);
+        }
     }
 }

@@ -774,6 +774,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     let _ = advance_node_move_anim(st, &mut ps, now);
+                    let _ = advance_resize_anim(st, &mut ps, now);
                 }
                 crate::render::tick_live_overlap(st);
                 if !resize_active {

@@ -10,10 +10,11 @@ use crate::keybinds::{CompositorBinding, Keybinds, LaunchBinding, PointerBinding
 
 use super::paths::{absolutize_path, default_config_path};
 use super::{
-    BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DecorationBorderColor,
-    FocusRingConfig, FontConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    OverlayStyleConfig, PanToNewMode, ShapeStyle, ViewportOutputConfig, WindowRule,
+    AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
+    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
+    DecorationBorderColor, FocusRingConfig, FontConfig, NodeBackgroundColorMode,
+    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, ShapeStyle,
+    ViewportOutputConfig, WindowRule,
 };
 
 #[derive(Clone, Debug)]
@@ -93,6 +94,7 @@ pub struct RuntimeTuning {
     pub autostart_on_reload: Vec<String>,
     pub cursor: CursorConfig,
     pub font: FontConfig,
+    pub animations: AnimationsConfig,
     pub overlay_style: OverlayStyleConfig,
     pub env: HashMap<String, String>,
 }
@@ -110,6 +112,42 @@ impl RuntimeTuning {
             ClusterWorkspaceLayoutKind::Tiling => self.tile_max_stack,
             ClusterWorkspaceLayoutKind::Stacking => self.stacking_max_visible,
         }
+    }
+
+    pub fn animations_enabled(&self) -> bool {
+        self.animations.enabled
+    }
+
+    pub fn smooth_resize_enabled(&self) -> bool {
+        self.animations_enabled() && self.animations.smooth_resize.enabled
+    }
+
+    pub fn smooth_resize_duration_ms(&self) -> u64 {
+        self.animations.smooth_resize.duration_ms.max(1)
+    }
+
+    pub fn window_open_animation_enabled(&self) -> bool {
+        self.animations_enabled() && self.animations.window_open.enabled
+    }
+
+    pub fn window_open_duration_ms(&self) -> u64 {
+        self.animations.window_open.duration_ms.max(1)
+    }
+
+    pub fn tile_animation_enabled(&self) -> bool {
+        self.animations_enabled() && self.animations.tile.enabled
+    }
+
+    pub fn tile_animation_duration_ms(&self) -> u64 {
+        self.animations.tile.duration_ms.max(1)
+    }
+
+    pub fn stack_animation_enabled(&self) -> bool {
+        self.animations_enabled() && self.animations.stack.enabled
+    }
+
+    pub fn stack_animation_duration_ms(&self) -> u64 {
+        self.animations.stack.duration_ms.max(1)
     }
 
     pub fn config_path() -> String {

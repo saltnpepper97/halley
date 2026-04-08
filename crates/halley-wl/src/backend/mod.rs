@@ -48,6 +48,7 @@ use crate::bootstrap::{
 use crate::compositor::interaction::{ModState, PointerState};
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::current_surface_size_for_node;
+use crate::input::pointer::resize::advance_resize_anim;
 use crate::input::{BackendInputEventData, handle_backend_input_event};
 use crate::protocol::wayland::ClientState;
 use crate::spatial::{node_in_active_area, node_in_active_area_for_monitor};

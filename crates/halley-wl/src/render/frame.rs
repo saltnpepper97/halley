@@ -99,13 +99,15 @@ pub(crate) fn tty_output_animation_redraw_state(
 ) -> TtyOutputAnimationRedrawState {
     let now_ms = st.now_ms(now);
     let is_current_monitor = st.model.monitor_state.current_monitor == monitor;
-    let node_transition_active = st.ui.render_state.animator.has_active_animations(now);
-    let active_transition_active = st
-        .model
-        .workspace_state
-        .active_transition_until_ms
-        .values()
-        .any(|&until| until > now_ms);
+    let node_transition_active = st.runtime.tuning.animations_enabled()
+        && st.ui.render_state.animator.has_active_animations(now);
+    let active_transition_active = st.runtime.tuning.animations_enabled()
+        && st
+            .model
+            .workspace_state
+            .active_transition_until_ms
+            .values()
+            .any(|&until| until > now_ms);
     let tiled_insert_reveal_active = st
         .model
         .spawn_state
@@ -118,20 +120,22 @@ pub(crate) fn tty_output_animation_redraw_state(
         .pending_spawn_activate_at_ms
         .values()
         .any(|&until| until > now_ms);
-    let cluster_tile_active = crate::animation::cluster_tile_tracks_animating(
-        &st.ui.render_state.cluster_tile_tracks,
-        now,
-    );
-    let stack_cycle_active = st
-        .ui
-        .render_state
-        .stack_cycle_transition
-        .get(monitor)
-        .is_some_and(|transition| {
-            (now.saturating_duration_since(transition.started_at)
-                .as_millis() as u64)
-                < transition.duration_ms
-        });
+    let cluster_tile_active = st.runtime.tuning.tile_animation_enabled()
+        && crate::animation::cluster_tile_tracks_animating(
+            &st.ui.render_state.cluster_tile_tracks,
+            now,
+        );
+    let stack_cycle_active = st.runtime.tuning.stack_animation_enabled()
+        && st
+            .ui
+            .render_state
+            .stack_cycle_transition
+            .get(monitor)
+            .is_some_and(|transition| {
+                (now.saturating_duration_since(transition.started_at)
+                    .as_millis() as u64)
+                    < transition.duration_ms
+            });
     let fullscreen_motion_active = !st.model.fullscreen_state.fullscreen_motion.is_empty()
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
     let viewport_pan_active = is_current_monitor
@@ -222,6 +226,10 @@ pub(crate) fn anim_style_for(
     state: halley_core::field::NodeState,
     now: Instant,
 ) -> AnimStyle {
+    if !st.runtime.tuning.animations_enabled() {
+        return AnimStyle::default();
+    }
+
     let now_ms = st.now_ms(now);
     if st.input.interaction_state.resize_active == Some(id)
         || (st.input.interaction_state.resize_static_node == Some(id)
@@ -234,6 +242,9 @@ pub(crate) fn anim_style_for(
 }
 
 pub(crate) fn tick_animator_frame(st: &mut Halley, now: Instant) {
+    if !st.runtime.tuning.animations_enabled() {
+        return;
+    }
     st.ui.render_state.tick_animator_frame(&st.model.field, now);
 }
 

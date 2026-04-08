@@ -10,10 +10,11 @@ pub use keybinds::{
     TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
 };
 pub use layout::{
-    ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DecorationBorderColor, FontConfig,
-    InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode,
-    OverlayShape, OverlayStyleConfig, PanToNewMode, RuntimeTuning, ShapeStyle,
-    ViewportOutputConfig, ViewportVrrMode, WindowRule, WindowRulePattern,
+    AnimationToggleConfig, AnimationsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
+    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
+    DecorationBorderColor, FontConfig, InitialWindowClusterParticipation,
+    InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, NodeBackgroundColorMode,
+    NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode, OverlayShape, OverlayStyleConfig,
+    PanToNewMode, RuntimeTuning, ShapeStyle, TimedAnimationConfig, ViewportOutputConfig,
+    ViewportVrrMode, WindowRule, WindowRulePattern,
 };

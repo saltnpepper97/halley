@@ -136,12 +136,7 @@ fn tty_animation_redraw_active(
     now: Instant,
 ) -> bool {
     outputs.borrow().iter().any(|output| {
-        tty_output_animation_redraw_active(
-            st,
-            pointer_state,
-            output.connector_name.as_str(),
-            now,
-        )
+        tty_output_animation_redraw_active(st, pointer_state, output.connector_name.as_str(), now)
     })
 }
 
@@ -223,7 +218,11 @@ fn tty_due_outputs_for_timer(
     let pending_ref = output_frame_pending.borrow();
     let mut last_tick_ref = output_timer_tick_at.borrow_mut();
 
-    last_tick_ref.retain(|name, _| outputs_ref.iter().any(|output| output.connector_name == *name));
+    last_tick_ref.retain(|name, _| {
+        outputs_ref
+            .iter()
+            .any(|output| output.connector_name == *name)
+    });
 
     outputs_ref
         .iter()
@@ -273,6 +272,7 @@ fn advance_tty_redraw_frame(
     {
         let mut ps = pointer_state.borrow_mut();
         let _ = advance_node_move_anim(st, &mut ps, now);
+        let _ = advance_resize_anim(st, &mut ps, now);
     }
     crate::render::tick_live_overlap(st);
     if include_maintenance && !resize_active {

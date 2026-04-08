@@ -1,3 +1,4 @@
+mod animations;
 mod autostart;
 mod bearings;
 mod clusters;
@@ -17,6 +18,7 @@ mod tile;
 mod trail;
 mod viewport;
 
+pub(crate) use animations::*;
 pub(crate) use autostart::*;
 pub(crate) use bearings::*;
 pub(crate) use clusters::*;

@@ -13,6 +13,9 @@ pub(crate) struct WorkspaceState {
 }
 
 pub fn mark_active_transition(st: &mut Halley, id: NodeId, now: Instant, duration_ms: u64) {
+    if !st.runtime.tuning.animations_enabled() {
+        return;
+    }
     st.model
         .workspace_state
         .active_transition_until_ms
@@ -21,6 +24,9 @@ pub fn mark_active_transition(st: &mut Halley, id: NodeId, now: Instant, duratio
 }
 
 pub fn active_transition_alpha(st: &Halley, id: NodeId, now: Instant) -> f32 {
+    if !st.runtime.tuning.animations_enabled() {
+        return 0.0;
+    }
     let now_ms = st.now_ms(now);
     if st.input.interaction_state.resize_active == Some(id)
         || (st.input.interaction_state.resize_static_node == Some(id)

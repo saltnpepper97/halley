@@ -109,19 +109,22 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                         stack_remove_transition.as_ref()
                         && transition_monitor == &cluster_monitor
                     {
+                        let duration_ms = self.runtime.tuning.stack_animation_duration_ms();
                         let new_visible = crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
                             self,
                             cluster_monitor.as_str(),
                         );
-                        self.ui.render_state.start_stack_cycle_transition(
-                            cluster_monitor.as_str(),
-                            ClusterCycleDirection::Prev,
-                            old_visible.clone(),
-                            new_visible,
-                            Instant::now(),
-                            220,
-                        );
-                        self.request_maintenance();
+                        if self.runtime.tuning.stack_animation_enabled() {
+                            self.ui.render_state.start_stack_cycle_transition(
+                                cluster_monitor.as_str(),
+                                ClusterCycleDirection::Prev,
+                                old_visible.clone(),
+                                new_visible,
+                                Instant::now(),
+                                duration_ms,
+                            );
+                            self.request_maintenance();
+                        }
                     }
                 }
             }
@@ -253,20 +256,23 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                         stack_insert_transition.as_ref()
                         && transition_monitor == &cluster_monitor
                     {
+                        let duration_ms = self.runtime.tuning.stack_animation_duration_ms();
                         let new_visible =
                             crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
                                 self,
                                 cluster_monitor.as_str(),
                             );
-                        self.ui.render_state.start_stack_cycle_transition(
-                            cluster_monitor.as_str(),
-                            ClusterCycleDirection::Prev,
-                            old_visible.clone(),
-                            new_visible,
-                            now,
-                            220,
-                        );
-                        self.request_maintenance();
+                        if self.runtime.tuning.stack_animation_enabled() {
+                            self.ui.render_state.start_stack_cycle_transition(
+                                cluster_monitor.as_str(),
+                                ClusterCycleDirection::Prev,
+                                old_visible.clone(),
+                                new_visible,
+                                now,
+                                duration_ms,
+                            );
+                            self.request_maintenance();
+                        }
                     }
                     self.set_recent_top_node(node_id, now + std::time::Duration::from_millis(1200));
                     self.set_interaction_focus(Some(node_id), 30_000, now);

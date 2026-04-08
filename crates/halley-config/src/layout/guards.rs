@@ -55,5 +55,11 @@ impl RuntimeTuning {
         self.non_overlap_active_gap_scale = self.non_overlap_active_gap_scale.clamp(0.0, 1.2);
         self.non_overlap_bump_damping = self.non_overlap_bump_damping.clamp(0.05, 1.0);
         self.drag_smoothing_boost = self.drag_smoothing_boost.clamp(0.1, 20.0);
+        self.animations.smooth_resize.duration_ms =
+            self.animations.smooth_resize.duration_ms.clamp(1, 10_000);
+        self.animations.window_open.duration_ms =
+            self.animations.window_open.duration_ms.clamp(1, 10_000);
+        self.animations.tile.duration_ms = self.animations.tile.duration_ms.clamp(1, 10_000);
+        self.animations.stack.duration_ms = self.animations.stack.duration_ms.clamp(1, 10_000);
     }
 }

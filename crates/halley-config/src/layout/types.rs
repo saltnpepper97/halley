@@ -62,6 +62,53 @@ impl Default for OverlayStyleConfig {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnimationToggleConfig {
+    pub enabled: bool,
+}
+
+impl Default for AnimationToggleConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TimedAnimationConfig {
+    pub enabled: bool,
+    pub duration_ms: u64,
+}
+
+impl TimedAnimationConfig {
+    pub const fn new(enabled: bool, duration_ms: u64) -> Self {
+        Self {
+            enabled,
+            duration_ms,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnimationsConfig {
+    pub enabled: bool,
+    pub smooth_resize: TimedAnimationConfig,
+    pub window_open: TimedAnimationConfig,
+    pub tile: TimedAnimationConfig,
+    pub stack: TimedAnimationConfig,
+}
+
+impl Default for AnimationsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            smooth_resize: TimedAnimationConfig::new(true, 90),
+            window_open: TimedAnimationConfig::new(true, 620),
+            tile: TimedAnimationConfig::new(true, 240),
+            stack: TimedAnimationConfig::new(true, 220),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DecorationBorderColor {
     pub r: f32,
     pub g: f32,

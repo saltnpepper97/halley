@@ -736,7 +736,10 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 .last_active_size
                 .insert(active.node_id, intrinsic_size);
         }
-        self.mark_active_transition(active.node_id, now, 620);
+        let duration_ms = self.runtime.tuning.window_open_duration_ms();
+        if self.runtime.tuning.window_open_animation_enabled() {
+            self.mark_active_transition(active.node_id, now, duration_ms);
+        }
         self.record_focus_trail_visit(active.node_id);
         self.model.focus_state.suppress_trail_record_once = true;
         self.set_interaction_focus(Some(active.node_id), 30_000, now);
@@ -780,7 +783,10 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 .spawn_state
                 .pending_spawn_activate_at_ms
                 .remove(&id);
-            self.mark_active_transition(id, now, 620);
+            let duration_ms = self.runtime.tuning.window_open_duration_ms();
+            if self.runtime.tuning.window_open_animation_enabled() {
+                self.mark_active_transition(id, now, duration_ms);
+            }
             return;
         }
         if self.model.spawn_state.pending_initial_reveal.contains(&id) {
@@ -802,7 +808,10 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 .spawn_state
                 .pending_spawn_activate_at_ms
                 .remove(&id);
-            self.mark_active_transition(id, now, 620);
+            let duration_ms = self.runtime.tuning.window_open_duration_ms();
+            if self.runtime.tuning.window_open_animation_enabled() {
+                self.mark_active_transition(id, now, duration_ms);
+            }
             return;
         }
         match self.resolve_spawn_reveal_plan(id, is_transient) {
@@ -816,7 +825,10 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                     .spawn_state
                     .pending_spawn_activate_at_ms
                     .remove(&id);
-                self.mark_active_transition(id, now, 620);
+                let duration_ms = self.runtime.tuning.window_open_duration_ms();
+                if self.runtime.tuning.window_open_animation_enabled() {
+                    self.mark_active_transition(id, now, duration_ms);
+                }
             }
             RevealNewToplevelPlan::QueuePan { target_center } => {
                 let _ = self.model.field.set_detached(id, true);

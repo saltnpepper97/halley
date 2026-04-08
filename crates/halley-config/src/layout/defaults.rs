@@ -10,10 +10,10 @@ use crate::keybinds::{
 };
 
 use super::{
-    BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DecorationBorderColor, FontConfig,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
-    PanToNewMode, RuntimeTuning, ShapeStyle,
+    AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
+    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
+    DecorationBorderColor, FontConfig, NodeBackgroundColorMode, NodeBorderColorMode,
+    NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, RuntimeTuning, ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -109,6 +109,7 @@ impl Default for RuntimeTuning {
             autostart_on_reload: Vec::new(),
             cursor: CursorConfig::default(),
             font: FontConfig::default(),
+            animations: AnimationsConfig::default(),
             overlay_style: OverlayStyleConfig::default(),
             env: HashMap::new(),
         }

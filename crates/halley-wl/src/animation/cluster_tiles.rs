@@ -23,8 +23,6 @@ pub(crate) struct ClusterTileTrack {
 
 pub(crate) type ClusterTileTracks = HashMap<NodeId, ClusterTileTrack>;
 
-const CLUSTER_TILE_REFLOW_MS: u64 = 240;
-
 #[inline]
 fn rect_center(rect: Rect) -> Vec2 {
     Vec2 {
@@ -125,6 +123,7 @@ pub(crate) fn set_cluster_tile_target(
     node_id: NodeId,
     target_rect: Rect,
     now: Instant,
+    duration_ms: u64,
 ) {
     let target = anim_rect_from_tile_rect(target_rect, 1.0);
     let current = tracks
@@ -158,7 +157,7 @@ pub(crate) fn set_cluster_tile_target(
             from: current,
             to: target,
             started_at: now,
-            duration: Duration::from_millis(CLUSTER_TILE_REFLOW_MS),
+            duration: Duration::from_millis(duration_ms.max(1)),
         },
     );
 }

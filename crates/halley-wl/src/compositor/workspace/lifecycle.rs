@@ -899,10 +899,12 @@ fn ensure_node_for_surface_impl(
     st.ui.render_state.zoom_nominal_size.insert(id, size);
     st.model.workspace_state.last_active_size.insert(id, size);
     let joined_active_cluster = spawned_in_active_cluster;
-    st.ui
-        .render_state
-        .animator
-        .observe_field(&st.model.field, now);
+    if st.runtime.tuning.animations_enabled() {
+        st.ui
+            .render_state
+            .animator
+            .observe_field(&st.model.field, now);
+    }
     if defer_rule_resolution && !joined_active_cluster {
         let _ = st.model.field.set_detached(id, true);
     }
@@ -932,15 +934,18 @@ fn ensure_node_for_surface_impl(
                     st,
                     monitor.as_str(),
                 );
-            st.ui.render_state.start_stack_cycle_transition(
-                monitor.as_str(),
-                halley_core::cluster_layout::ClusterCycleDirection::Prev,
-                old_visible.clone(),
-                new_visible,
-                now,
-                220,
-            );
-            st.request_maintenance();
+            let duration_ms = st.runtime.tuning.stack_animation_duration_ms();
+            if st.runtime.tuning.stack_animation_enabled() {
+                st.ui.render_state.start_stack_cycle_transition(
+                    monitor.as_str(),
+                    halley_core::cluster_layout::ClusterCycleDirection::Prev,
+                    old_visible.clone(),
+                    new_visible,
+                    now,
+                    duration_ms,
+                );
+                st.request_maintenance();
+            }
         }
         let overflow_len = st
             .model

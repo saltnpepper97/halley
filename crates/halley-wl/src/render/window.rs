@@ -639,7 +639,11 @@ pub(crate) fn collect_active_surfaces(
         &st.model.field,
         now,
     );
-    if crate::animation::cluster_tile_tracks_animating(&st.ui.render_state.cluster_tile_tracks, now)
+    if st.runtime.tuning.tile_animation_enabled()
+        && crate::animation::cluster_tile_tracks_animating(
+            &st.ui.render_state.cluster_tile_tracks,
+            now,
+        )
     {
         st.request_maintenance();
     }
@@ -647,9 +651,15 @@ pub(crate) fn collect_active_surfaces(
     let stack_visible_front_to_back =
         active_stacking_visible_members_for_monitor(st, current_monitor.as_str());
     let stack_cycle_transition = st
-        .ui
-        .render_state
-        .stack_cycle_transition_for_monitor(current_monitor.as_str(), now);
+        .runtime
+        .tuning
+        .stack_animation_enabled()
+        .then(|| {
+            st.ui
+                .render_state
+                .stack_cycle_transition_for_monitor(current_monitor.as_str(), now)
+        })
+        .flatten();
     if stack_cycle_transition.is_some() {
         st.request_maintenance();
     }
@@ -754,6 +764,7 @@ pub(crate) fn collect_active_surfaces(
         let dragging_this_node = st.input.interaction_state.drag_authority_node == Some(node_id);
         let tiling_tile_transition = (active_cluster_member
             && !dragging_this_node
+            && st.runtime.tuning.tile_animation_enabled()
             && matches!(
                 st.runtime.tuning.cluster_layout_kind(),
                 halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling

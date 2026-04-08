@@ -250,15 +250,18 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
                 self, monitor,
             );
-        self.ui.render_state.start_stack_cycle_transition(
-            monitor,
-            direction,
-            old_visible,
-            new_visible,
-            now,
-            220,
-        );
-        self.request_maintenance();
+        let duration_ms = self.runtime.tuning.stack_animation_duration_ms();
+        if self.runtime.tuning.stack_animation_enabled() {
+            self.ui.render_state.start_stack_cycle_transition(
+                monitor,
+                direction,
+                old_visible,
+                new_visible,
+                now,
+                duration_ms,
+            );
+            self.request_maintenance();
+        }
         self.set_recent_top_node(front, now + std::time::Duration::from_millis(1200));
         self.set_interaction_focus(Some(front), 30_000, now);
         self.update_focus_tracking_for_surface(front, now_ms);

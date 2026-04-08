@@ -322,13 +322,22 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     .entry(placement.node_id)
                     .or_insert(geo);
             }
-            crate::animation::set_cluster_tile_target(
-                &mut self.ui.render_state.cluster_tile_tracks,
-                current_rect,
-                placement.node_id,
-                placement.rect,
-                now,
-            );
+            let duration_ms = self.runtime.tuning.tile_animation_duration_ms();
+            if self.runtime.tuning.tile_animation_enabled() {
+                crate::animation::set_cluster_tile_target(
+                    &mut self.ui.render_state.cluster_tile_tracks,
+                    current_rect,
+                    placement.node_id,
+                    placement.rect,
+                    now,
+                    duration_ms,
+                );
+            } else {
+                self.ui
+                    .render_state
+                    .cluster_tile_tracks
+                    .remove(&placement.node_id);
+            }
         }
     }
 
