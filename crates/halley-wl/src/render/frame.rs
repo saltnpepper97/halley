@@ -138,8 +138,7 @@ pub(crate) fn tty_output_animation_redraw_state(
         && (st.input.interaction_state.viewport_pan_anim.is_some()
             || !st.model.spawn_state.pending_spawn_pan_queue.is_empty());
     let camera_smoothing_active = is_current_monitor
-        && (
-        (st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
+        && ((st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
             || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
             || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
             || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05);
@@ -223,10 +222,6 @@ pub(crate) fn anim_style_for(
     state: halley_core::field::NodeState,
     now: Instant,
 ) -> AnimStyle {
-    if !st.runtime.tuning.physics_enabled {
-        return AnimStyle::default();
-    }
-
     let now_ms = st.now_ms(now);
     if st.input.interaction_state.resize_active == Some(id)
         || (st.input.interaction_state.resize_static_node == Some(id)
@@ -239,9 +234,7 @@ pub(crate) fn anim_style_for(
 }
 
 pub(crate) fn tick_animator_frame(st: &mut Halley, now: Instant) {
-    st.ui
-        .render_state
-        .tick_animator_frame(&st.model.field, st.runtime.tuning.physics_enabled, now);
+    st.ui.render_state.tick_animator_frame(&st.model.field, now);
 }
 
 pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
@@ -259,12 +252,19 @@ fn tick_pending_core_hover_bloom(st: &mut Halley, now_ms: u64) {
     let Some(pending_hover) = st.input.interaction_state.pending_core_hover.clone() else {
         return;
     };
-    if now_ms < pending_hover.started_at_ms.saturating_add(crate::compositor::interaction::CORE_BLOOM_HOLD_MS) {
+    if now_ms
+        < pending_hover
+            .started_at_ms
+            .saturating_add(crate::compositor::interaction::CORE_BLOOM_HOLD_MS)
+    {
         return;
     }
 
     st.input.interaction_state.pending_core_hover = None;
-    if let Some(cid) = st.model.field.cluster_id_for_core_public(pending_hover.node_id)
+    if let Some(cid) = st
+        .model
+        .field
+        .cluster_id_for_core_public(pending_hover.node_id)
         && st.cluster_bloom_for_monitor(pending_hover.monitor.as_str()) != Some(cid)
     {
         st.input.interaction_state.overlay_hover_target = None;
@@ -609,8 +609,8 @@ mod tests {
     fn viewport_pan_only_marks_current_monitor_active() {
         let mut state = multi_monitor_state();
         let _ = state.activate_monitor("right");
-        state.input.interaction_state.viewport_pan_anim = Some(
-            crate::compositor::interaction::state::ViewportPanAnim {
+        state.input.interaction_state.viewport_pan_anim =
+            Some(crate::compositor::interaction::state::ViewportPanAnim {
                 start_ms: 0,
                 delay_ms: 0,
                 duration_ms: 120,
@@ -619,12 +619,55 @@ mod tests {
                     x: state.model.viewport.center.x + 100.0,
                     y: state.model.viewport.center.y,
                 },
-            },
-        );
+            });
 
         let now = Instant::now();
         assert!(tty_output_animation_redraw_state(&state, "right", now).active);
         assert!(!tty_output_animation_redraw_state(&state, "left", now).active);
+    }
+
+    #[test]
+    fn animations_continue_when_physics_is_disabled() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.physics_enabled = false;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let id = state.model.field.spawn_surface(
+            "anim",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        let start = Instant::now();
+
+        state
+            .ui
+            .render_state
+            .animator
+            .observe_field(&state.model.field, start);
+        let _ = state
+            .model
+            .field
+            .set_state(id, halley_core::field::NodeState::Node);
+        tick_animator_frame(&mut state, start + std::time::Duration::from_millis(16));
+
+        let anim = anim_style_for(
+            &state,
+            id,
+            halley_core::field::NodeState::Node,
+            start + std::time::Duration::from_millis(32),
+        );
+        assert!(
+            anim.scale < 1.0,
+            "node transition animation should still run when physics is disabled: {anim:?}"
+        );
+
+        state.mark_active_transition(id, start, 620);
+        assert!(
+            state.active_transition_alpha(id, start + std::time::Duration::from_millis(32)) > 0.0,
+            "active transition alpha should still be tracked when physics is disabled"
+        );
     }
 }
 

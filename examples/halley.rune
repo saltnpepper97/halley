@@ -1,6 +1,11 @@
 @author "Dustin Pilgrim"
 @description "Spatial Wayland compositor built around infinite workspace navigation"
 
+env:
+  QT_QPA_PLATFORM "wayland"
+  QT_QPA_PLATFORMTHEME "qt6ct"
+end
+
 autostart:
   once "waybar"
 
@@ -137,12 +142,12 @@ tile:
   new-on-top false
   gaps-inner 20
   gaps-outer 20
-  max-stack 5
+  max-stack 4
   queue-show-icons true
 end
 
 stacking:
-  max-stack 0
+  max-visible 5
 end
 
 physics:
@@ -164,17 +169,15 @@ animations:
   window-close:
     enabled false
     duration-ms 140
-    style "shrink-fade"
+    style "shrink" shrink | fade
   end
 
-  layer-open:
+  tile:
+    enabled true
   end
 
-  layer-close:
-  end
-
-  tile-rearange:
-    enabled: true
+  stack:
+    enabled true
   end
 end
 

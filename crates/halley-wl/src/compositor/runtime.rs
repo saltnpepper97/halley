@@ -223,10 +223,6 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         });
 
         if prev_physics_enabled && !tuning.physics_enabled {
-            self.model
-                .workspace_state
-                .active_transition_until_ms
-                .clear();
             self.input.interaction_state.drag_authority_node = None;
             self.input.interaction_state.physics_velocity.clear();
             self.input.interaction_state.smoothed_render_pos.clear();

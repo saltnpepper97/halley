@@ -489,15 +489,7 @@ impl RenderState {
         })
     }
 
-    pub(crate) fn tick_animator_frame(
-        &mut self,
-        field: &Field,
-        physics_enabled: bool,
-        now: Instant,
-    ) {
-        if !physics_enabled {
-            return;
-        }
+    pub(crate) fn tick_animator_frame(&mut self, field: &Field, now: Instant) {
         self.animator.observe_field(field, now);
     }
 
