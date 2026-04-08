@@ -99,7 +99,6 @@ pub(crate) fn tty_output_animation_redraw_state(
     now: Instant,
 ) -> TtyOutputAnimationRedrawState {
     let now_ms = st.now_ms(now);
-    let is_current_monitor = st.model.monitor_state.current_monitor == monitor;
     let node_transition_active = st.runtime.tuning.animations_enabled()
         && st.ui.render_state.animator.has_active_animations(now);
     let active_transition_active = st.runtime.tuning.animations_enabled()
@@ -144,14 +143,13 @@ pub(crate) fn tty_output_animation_redraw_state(
             });
     let fullscreen_motion_active = !st.model.fullscreen_state.fullscreen_motion.is_empty()
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
-    let viewport_pan_active = is_current_monitor
-        && (st.input.interaction_state.viewport_pan_anim.is_some()
-            || !st.model.spawn_state.pending_spawn_pan_queue.is_empty());
-    let camera_smoothing_active = is_current_monitor
-        && ((st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
+    let viewport_pan_active = st.input.interaction_state.viewport_pan_anim.is_some()
+        || !st.model.spawn_state.pending_spawn_pan_queue.is_empty();
+    let camera_smoothing_active =
+        (st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
             || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
             || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
-            || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05);
+            || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05;
     let overlay_active = monitor_overlay_requires_full_repaint(st, monitor)
         || st
             .ui
@@ -612,7 +610,7 @@ mod tests {
     }
 
     #[test]
-    fn camera_smoothing_only_marks_current_monitor_active() {
+    fn camera_smoothing_marks_all_monitors_active() {
         let mut state = multi_monitor_state();
         let _ = state.activate_monitor("right");
 
@@ -620,11 +618,11 @@ mod tests {
 
         let now = Instant::now();
         assert!(tty_output_animation_redraw_state(&state, "right", now).active);
-        assert!(!tty_output_animation_redraw_state(&state, "left", now).active);
+        assert!(tty_output_animation_redraw_state(&state, "left", now).active);
     }
 
     #[test]
-    fn viewport_pan_only_marks_current_monitor_active() {
+    fn viewport_pan_marks_all_monitors_active() {
         let mut state = multi_monitor_state();
         let _ = state.activate_monitor("right");
         state.input.interaction_state.viewport_pan_anim =
@@ -641,7 +639,7 @@ mod tests {
 
         let now = Instant::now();
         assert!(tty_output_animation_redraw_state(&state, "right", now).active);
-        assert!(!tty_output_animation_redraw_state(&state, "left", now).active);
+        assert!(tty_output_animation_redraw_state(&state, "left", now).active);
     }
 
     #[test]
