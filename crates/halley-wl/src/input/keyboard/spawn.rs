@@ -48,7 +48,7 @@ pub(crate) fn spawn_command(
     // the whole group (including any children it forks) on WM exit.
     unsafe {
         cmd.pre_exec(|| {
-            libc::setpgid(0, 0);
+            rustix::process::setpgid(None, None).map_err(std::io::Error::from)?;
             Ok(())
         });
     }

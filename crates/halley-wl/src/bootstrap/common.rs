@@ -7,7 +7,8 @@ use std::io;
 use std::io::ErrorKind;
 use std::io::IsTerminal;
 use std::io::Write;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::mem::ManuallyDrop;
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
@@ -20,8 +21,9 @@ use std::time::{Duration, Instant};
 
 use eventline::{debug, info, warn};
 use rustix::net::{
-    AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
+    bind, listen, socket_with, AddressFamily, SocketAddrUnix, SocketFlags, SocketType,
 };
+use rustix::process::{kill_process_group, setpgid, test_kill_process, Pid, Signal};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RuntimeBackend {
@@ -287,8 +289,8 @@ fn terminate_child_with_timeout(child: &mut Child, label: &str, timeout: Duratio
 fn terminate_process_group_with_timeout(child: &mut Child, label: &str, timeout: Duration) {
     let pid = child.id() as i32;
     debug!("terminating {} process group pgid={}", label, pid);
-    unsafe {
-        let _ = libc::kill(-pid, libc::SIGTERM);
+    if let Some(pid) = Pid::from_raw(pid) {
+        let _ = kill_process_group(pid, Signal::TERM);
     }
 
     let deadline = Instant::now() + timeout;
@@ -306,8 +308,8 @@ fn terminate_process_group_with_timeout(child: &mut Child, label: &str, timeout:
                     "{} pgid={} ignored SIGTERM for {:?}; sending SIGKILL",
                     label, pid, timeout
                 );
-                unsafe {
-                    let _ = libc::kill(-pid, libc::SIGKILL);
+                if let Some(pid) = Pid::from_raw(pid) {
+                    let _ = kill_process_group(pid, Signal::KILL);
                 }
                 let _ = child.wait();
                 break;
@@ -560,7 +562,7 @@ impl XwaylandSatellite {
                 .env("WAYLAND_DISPLAY", self.wayland_display.as_str())
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::inherit());
+                .stderr(Stdio::null());
 
             for idx in 0..listen_fds.len() {
                 command.arg("-listenfd").arg((3 + idx).to_string());
@@ -569,12 +571,12 @@ impl XwaylandSatellite {
             let raw_fds: Vec<i32> = listen_fds.iter().map(AsRawFd::as_raw_fd).collect();
             unsafe {
                 command.pre_exec(move || {
-                    libc::setpgid(0, 0);
+                    setpgid(None, None).map_err(io::Error::from)?;
                     for (idx, raw_fd) in raw_fds.iter().enumerate() {
                         let target_fd = 3 + idx as i32;
-                        if libc::dup2(*raw_fd, target_fd) == -1 {
-                            return Err(io::Error::last_os_error());
-                        }
+                        let mut target = ManuallyDrop::new(OwnedFd::from_raw_fd(target_fd));
+                        rustix::io::dup2(BorrowedFd::borrow_raw(*raw_fd), &mut target)
+                            .map_err(io::Error::from)?;
                     }
                     Ok(())
                 });
@@ -588,10 +590,10 @@ impl XwaylandSatellite {
                 .env("WAYLAND_DISPLAY", self.wayland_display.as_str())
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::inherit());
+                .stderr(Stdio::null());
             unsafe {
                 command.pre_exec(move || {
-                    libc::setpgid(0, 0);
+                    setpgid(None, None).map_err(io::Error::from)?;
                     Ok(())
                 });
             }
@@ -844,10 +846,9 @@ fn reclaim_stale_x11_display(
     };
 
     if let Some(pid) = lock_pid {
-        let alive = unsafe {
-            libc::kill(pid, 0) == 0
-                || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-        };
+        let alive = Pid::from_raw(pid).is_some_and(|pid| {
+            test_kill_process(pid).is_ok() || test_kill_process(pid) == Err(rustix::io::Errno::PERM)
+        });
         if alive {
             return Err(io::Error::new(
                 ErrorKind::AddrInUse,

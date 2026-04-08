@@ -82,17 +82,6 @@ fn queue_ready_tty_outputs(
             .copied()
             .unwrap_or(false)
         {
-            if output_animation_redraw_active
-                .borrow()
-                .get(output_name)
-                .copied()
-                .unwrap_or(false)
-            {
-                debug!(
-                    "tty animation redraw delayed {} source={} pending=true",
-                    output_name, source
-                );
-            }
             continue;
         }
 
@@ -116,29 +105,8 @@ fn queue_ready_tty_outputs(
                         report.animation_redraw_active,
                     )
                     .unwrap_or(false);
-                if previous_active != report.animation_redraw_active {
-                    debug!(
-                        "tty animation redraw {} {} source={}",
-                        if report.animation_redraw_active {
-                            "enter"
-                        } else {
-                            "leave"
-                        },
-                        output_name,
-                        source
-                    );
-                }
+                let _ = previous_active;
                 if !report.queued {
-                    if report.animation_redraw_active {
-                        debug!(
-                            "tty frame no-damage {} source={} fade={} full_repaint={} render_empty={}",
-                            output_name,
-                            source,
-                            report.fade_related,
-                            report.force_full_repaint,
-                            report.render_empty
-                        );
-                    }
                     continue;
                 }
                 if first_frame_queued
@@ -147,15 +115,6 @@ fn queue_ready_tty_outputs(
                 {
                     debug!("first tty drm frame queued for {}", output_name);
                 }
-
-                debug!(
-                    "tty frame submit {} source={} pending=false->true anim={} fade={} full_repaint={}",
-                    output_name,
-                    source,
-                    report.animation_redraw_active,
-                    report.fade_related,
-                    report.force_full_repaint
-                );
 
                 output_frame_pending
                     .borrow_mut()
@@ -1052,8 +1011,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let warned_vblank_mismatch = Rc::new(RefCell::new(false));
             let warned_vblank_mismatch_for_notifier = warned_vblank_mismatch.clone();
             let output_frame_pending_for_notifier = output_frame_pending.clone();
-            let output_animation_redraw_active_for_notifier =
-                output_animation_redraw_active.clone();
             let output_frame_pending_for_dpms_input = output_frame_pending.clone();
             let output_frame_pending_for_dpms_timer = output_frame_pending.clone();
             let vblank_throttles = Rc::new(RefCell::new(HashMap::<String, VBlankThrottle>::new()));
@@ -1125,8 +1082,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     let compositor = compositor.clone();
                                     let output_frame_pending_for_notifier =
                                         output_frame_pending_for_notifier.clone();
-                                    let output_animation_redraw_active_for_notifier =
-                                        output_animation_redraw_active_for_notifier.clone();
                                     move |_state| {
                                         if let Err(err) = compositor.borrow_mut().frame_submitted() {
                                             warn!("failed to mark drm frame submitted after throttle: {}", err);
@@ -1134,15 +1089,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                         output_frame_pending_for_notifier
                                             .borrow_mut()
                                             .insert(throttled_output_name.clone(), false);
-                                        debug!(
-                                            "tty frame submitted {} pending=true->false anim={} throttled=true",
-                                            throttled_output_name,
-                                            output_animation_redraw_active_for_notifier
-                                                .borrow()
-                                                .get(throttled_output_name.as_str())
-                                                .copied()
-                                                .unwrap_or(false)
-                                        );
                                         redraw_ping_for_throttle.ping();
                                     }
                                 });
@@ -1158,15 +1104,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             output_frame_pending_for_notifier
                                 .borrow_mut()
                                 .insert(output_name.clone(), false);
-                            debug!(
-                                "tty frame submitted {} pending=true->false anim={}",
-                                output_name,
-                                output_animation_redraw_active_for_notifier
-                                    .borrow()
-                                    .get(output_name.as_str())
-                                    .copied()
-                                    .unwrap_or(false)
-                            );
                             redraw_ping_for_vblank.ping();
                             matched_outputs.push(output_name.clone());
                             if first_vblank_logged_for_notifier
@@ -1259,11 +1196,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         &pointer_state_for_redraw,
                         now,
                     );
-                    if animation_redraw_active && !animation_output_ready {
-                        debug!(
-                            "tty redraw pacing: skipped frame advancement because no animation-active outputs are ready"
-                        );
-                    } else {
+                    if !(animation_redraw_active && !animation_output_ready) {
                         advance_tty_redraw_frame(st, &pointer_state_for_redraw, now, false);
                     }
                     let eligible_outputs = animation_redraw_active.then(|| {
@@ -1894,7 +1827,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     && !*pointer_seen_for_timer.borrow()
                     && !*warned_pointer_missing_for_timer.borrow()
                 {
-                    warn!(
+                    debug!(
                         "no pointer events detected {}s after startup; pointer may be unavailable on current seat",
                         secs
                     );

@@ -1009,7 +1009,6 @@ dependencies = [
  "halley-core",
  "halley-ipc",
  "image",
- "libc",
  "notify",
  "once_cell",
  "pollster",

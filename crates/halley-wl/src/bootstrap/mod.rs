@@ -6,9 +6,14 @@ use std::sync::mpsc;
 
 use halley_config::RuntimeTuning;
 
-use eventline::runtime::{set_console_level, set_file_level};
-use eventline::{FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, info, scope, warn};
+use eventline::{
+    debug, enable_console_color, enable_console_duration, enable_console_scope_exits,
+    enable_console_scope_labels, info, scope, warn, FileSetup, LogLevel, LogPolicy, RunHeader,
+    Setup,
+};
 use once_cell::sync::OnceCell;
+use rustix::process::Signal;
+use rustix::runtime::{kernel_sigaction, KernelSigSet, KernelSigaction};
 
 use crate::compositor::interaction::state::ViewportPanAnim;
 use crate::compositor::root::Halley;
@@ -18,9 +23,9 @@ mod common;
 mod ipc;
 
 pub(crate) use common::{
-    RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
-    ensure_xdg_runtime_dir, ensure_xwayland_satellite, halley_runtime_dir,
-    refresh_portal_services_nonblocking, sync_portal_activation_environment,
+    auto_backend, ensure_dbus_session_bus_address, ensure_host_display, ensure_xdg_runtime_dir,
+    ensure_xwayland_satellite, halley_runtime_dir, refresh_portal_services_nonblocking,
+    sync_portal_activation_environment, RuntimeBackend,
 };
 pub(crate) use ipc::{drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc};
 
@@ -38,7 +43,7 @@ pub(crate) struct LiveCameraState {
     viewport_pan_anim: Option<ViewportPanAnim>,
 }
 
-extern "C" fn handle_shutdown_signal(_: libc::c_int) {
+unsafe extern "C" fn handle_shutdown_signal(_: rustix::ffi::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
 }
 
@@ -198,9 +203,14 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     // Note: SIGKILL (-9) cannot be caught — use plain `pkill` for clean exit.
     SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
     unsafe {
-        let handler = handle_shutdown_signal as *const () as libc::sighandler_t;
-        libc::signal(libc::SIGTERM, handler);
-        libc::signal(libc::SIGINT, handler);
+        let action = KernelSigaction {
+            sa_handler_kernel: Some(handle_shutdown_signal),
+            sa_flags: Default::default(),
+            sa_mask: KernelSigSet::empty(),
+            ..Default::default()
+        };
+        let _ = kernel_sigaction(Signal::TERM, Some(action.clone()));
+        let _ = kernel_sigaction(Signal::INT, Some(action));
     }
 
     ensure_xdg_runtime_dir()?;
@@ -229,7 +239,7 @@ pub fn run_tty() -> Result<(), Box<dyn Error>> {
 
 pub(crate) fn init_logging() -> Result<(), Box<dyn Error>> {
     scope!("logging-init", success = "ready", {
-        let level = env::var("HALLEY_WL_LOG")
+        let shared_level = env::var("HALLEY_WL_LOG")
             .ok()
             .and_then(|v| parse_log_level(v.as_str()))
             .unwrap_or(LogLevel::Info);
@@ -252,24 +262,32 @@ pub(crate) fn init_logging() -> Result<(), Box<dyn Error>> {
         let console_level = env::var("HALLEY_WL_LOG_CONSOLE_LEVEL")
             .ok()
             .and_then(|v| parse_log_level(v.as_str()))
-            .unwrap_or(level);
+            .unwrap_or(shared_level);
         let file_level = env::var("HALLEY_WL_LOG_FILE_LEVEL")
             .ok()
             .and_then(|v| parse_log_level(v.as_str()))
-            .unwrap_or(level);
+            .unwrap_or_else(|| {
+                if env::var("HALLEY_WL_LOG").is_ok() {
+                    shared_level
+                } else {
+                    LogLevel::Debug
+                }
+            });
 
         if let Err(err) = pollster::block_on(eventline::setup(Setup {
             verbose: true,
-            level: Some(console_level),
+            level: Some(shared_level),
+            console_level: Some(console_level),
+            file_level: Some(file_level),
             file,
         })) {
             warn!("failed to configure logging: {}", err);
         }
 
-        set_console_level(console_level);
-        set_file_level(file_level);
-        eventline::enable_console_color(true);
-        eventline::enable_console_duration(true);
+        enable_console_color(true);
+        enable_console_duration(false);
+        enable_console_scope_labels(false);
+        enable_console_scope_exits(false);
 
         match log_file {
             Some(None) => info!("file logging disabled via HALLEY_WL_LOG_FILE"),

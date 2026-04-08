@@ -3,15 +3,15 @@ use std::rc::Rc;
 
 use smithay::{
     desktop::PopupManager,
-    input::{Seat, SeatState, pointer::CursorImageStatus},
+    input::{pointer::CursorImageStatus, Seat, SeatState},
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode,
         wayland_server::{
-            DisplayHandle, Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
+            backend::ObjectId, protocol::wl_surface::WlSurface, DisplayHandle, Resource,
         },
     },
     wayland::{
-        compositor::{CompositorState, add_blocker, with_states},
+        compositor::{add_blocker, with_states, CompositorState},
         cursor_shape::CursorShapeManagerState,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjState},
@@ -24,7 +24,7 @@ use smithay::{
             wlr_data_control::DataControlState,
         },
         shell::wlr_layer::WlrLayerShellState,
-        shell::xdg::{ToplevelState, XdgShellState, decoration::XdgDecorationState},
+        shell::xdg::{decoration::XdgDecorationState, ToplevelState, XdgShellState},
         shm::ShmState,
         viewporter::ViewporterState,
         xdg_activation::XdgActivationState,
@@ -264,7 +264,7 @@ pub(crate) fn drain_drm_syncobj_blockers(st: &mut Halley) {
 pub(crate) fn configure_dmabuf_importer(
     st: &mut Halley,
     importer: Rc<dyn DmabufImportBackend>,
-    main_device: Option<libc::dev_t>,
+    main_device: Option<rustix::fs::Dev>,
 ) {
     let formats = importer.dmabuf_formats();
     if formats.is_empty() {

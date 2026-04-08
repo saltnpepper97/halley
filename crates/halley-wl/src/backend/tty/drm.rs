@@ -55,9 +55,6 @@ pub(crate) type HalleyDrmCompositor = DrmCompositor<
 pub(crate) struct TtyFrameQueueReport {
     pub(crate) queued: bool,
     pub(crate) animation_redraw_active: bool,
-    pub(crate) force_full_repaint: bool,
-    pub(crate) fade_related: bool,
-    pub(crate) render_empty: bool,
 }
 
 pub(crate) struct TtyDrmProbe {
@@ -863,9 +860,6 @@ pub(crate) fn queue_tty_drm_frame(
                         return Ok(TtyFrameQueueReport {
                             queued,
                             animation_redraw_active: animation_redraw.active,
-                            force_full_repaint: false,
-                            fade_related: animation_redraw.fade_related,
-                            render_empty: !queued,
                         });
                     }
                     Err(err) => {
@@ -955,26 +949,9 @@ pub(crate) fn queue_tty_drm_frame(
             false
         };
 
-        if animation_redraw.fade_related {
-            let damage_policy = if force_full_repaint {
-                format!("full-output 0,0 {}x{}", physical_size.w, physical_size.h)
-            } else {
-                "incremental".to_string()
-            };
-            debug!(
-                "tty fade redraw {} damage={} result={}",
-                output_name,
-                damage_policy,
-                if queued { "submitted" } else { "no-damage" }
-            );
-        }
-
         Ok(TtyFrameQueueReport {
             queued,
             animation_redraw_active: animation_redraw.active,
-            force_full_repaint,
-            fade_related: animation_redraw.fade_related,
-            render_empty: !queued,
         })
     })();
 

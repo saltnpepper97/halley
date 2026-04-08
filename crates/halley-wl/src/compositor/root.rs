@@ -708,7 +708,7 @@ impl Halley {
     pub(crate) fn configure_dmabuf_importer(
         &mut self,
         importer: std::rc::Rc<dyn crate::backend::interface::DmabufImportBackend>,
-        main_device: Option<libc::dev_t>,
+        main_device: Option<rustix::fs::Dev>,
     ) {
         super::platform::configure_dmabuf_importer(self, importer, main_device)
     }
@@ -1586,8 +1586,8 @@ impl Drop for Halley {
     fn drop(&mut self) {
         for child in &mut self.runtime.spawned_children {
             let pgid = child.id() as i32;
-            unsafe {
-                libc::kill(-pgid, libc::SIGTERM);
+            if let Some(pid) = rustix::process::Pid::from_raw(pgid) {
+                let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::TERM);
             }
             let _ = child.wait();
         }

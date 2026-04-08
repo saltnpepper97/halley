@@ -54,7 +54,6 @@ use super::window::{
 pub(crate) struct TtyOutputAnimationRedrawState {
     pub active: bool,
     pub force_full_repaint: bool,
-    pub fade_related: bool,
 }
 
 type SurfaceElement =
@@ -172,7 +171,6 @@ pub(crate) fn tty_output_animation_redraw_state(
     TtyOutputAnimationRedrawState {
         active,
         force_full_repaint: active,
-        fade_related,
     }
 }
 
