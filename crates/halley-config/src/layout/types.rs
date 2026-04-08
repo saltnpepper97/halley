@@ -87,10 +87,33 @@ impl TimedAnimationConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WindowCloseAnimationStyle {
+    Shrink,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowCloseAnimationConfig {
+    pub enabled: bool,
+    pub duration_ms: u64,
+    pub style: WindowCloseAnimationStyle,
+}
+
+impl WindowCloseAnimationConfig {
+    pub const fn new(enabled: bool, duration_ms: u64, style: WindowCloseAnimationStyle) -> Self {
+        Self {
+            enabled,
+            duration_ms,
+            style,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AnimationsConfig {
     pub enabled: bool,
     pub smooth_resize: TimedAnimationConfig,
+    pub window_close: WindowCloseAnimationConfig,
     pub window_open: TimedAnimationConfig,
     pub tile: TimedAnimationConfig,
     pub stack: TimedAnimationConfig,
@@ -101,6 +124,11 @@ impl Default for AnimationsConfig {
         Self {
             enabled: true,
             smooth_resize: TimedAnimationConfig::new(true, 90),
+            window_close: WindowCloseAnimationConfig::new(
+                true,
+                250,
+                WindowCloseAnimationStyle::Shrink,
+            ),
             window_open: TimedAnimationConfig::new(true, 620),
             tile: TimedAnimationConfig::new(true, 240),
             stack: TimedAnimationConfig::new(true, 220),

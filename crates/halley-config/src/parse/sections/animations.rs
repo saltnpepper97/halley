@@ -2,7 +2,7 @@ use rune_cfg::RuneConfig;
 
 use crate::layout::RuntimeTuning;
 
-use super::super::primitives::{pick_bool, pick_u64};
+use super::super::primitives::{pick_bool, pick_u64, pick_window_close_animation_style};
 
 pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.animations.enabled = pick_bool(
@@ -34,6 +34,41 @@ pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning)
             "animations.smooth_resize.duration_ms",
         ],
         out.animations.smooth_resize.duration_ms,
+    );
+
+    out.animations.window_close.enabled = pick_bool(
+        cfg,
+        &[
+            "animation.window-close.enabled",
+            "animation.window_close.enabled",
+            "animations.window-close.enabled",
+            "animations.window_close.enabled",
+        ],
+        out.animations.window_close.enabled,
+    );
+    out.animations.window_close.duration_ms = pick_u64(
+        cfg,
+        &[
+            "animation.window-close.duration-ms",
+            "animation.window-close.duration_ms",
+            "animation.window_close.duration-ms",
+            "animation.window_close.duration_ms",
+            "animations.window-close.duration-ms",
+            "animations.window-close.duration_ms",
+            "animations.window_close.duration-ms",
+            "animations.window_close.duration_ms",
+        ],
+        out.animations.window_close.duration_ms,
+    );
+    out.animations.window_close.style = pick_window_close_animation_style(
+        cfg,
+        &[
+            "animation.window-close.style",
+            "animation.window_close.style",
+            "animations.window-close.style",
+            "animations.window_close.style",
+        ],
+        out.animations.window_close.style,
     );
 
     out.animations.window_open.enabled = pick_bool(
@@ -112,6 +147,11 @@ animations:
     enabled false
     duration-ms 120
   end
+  window-close:
+    enabled true
+    duration-ms 250
+    style "shrink"
+  end
   window-open:
     enabled true
     duration-ms 900
@@ -135,6 +175,12 @@ end
         assert!(out.animations.enabled);
         assert!(!out.animations.smooth_resize.enabled);
         assert_eq!(out.animations.smooth_resize.duration_ms, 120);
+        assert!(out.animations.window_close.enabled);
+        assert_eq!(out.animations.window_close.duration_ms, 250);
+        assert_eq!(
+            out.animations.window_close.style,
+            crate::layout::WindowCloseAnimationStyle::Shrink
+        );
         assert!(out.animations.window_open.enabled);
         assert_eq!(out.animations.window_open.duration_ms, 900);
         assert!(!out.animations.tile.enabled);
@@ -149,6 +195,12 @@ end
         assert!(out.animations.enabled);
         assert!(out.animations.smooth_resize.enabled);
         assert_eq!(out.animations.smooth_resize.duration_ms, 90);
+        assert!(out.animations.window_close.enabled);
+        assert_eq!(out.animations.window_close.duration_ms, 250);
+        assert_eq!(
+            out.animations.window_close.style,
+            crate::layout::WindowCloseAnimationStyle::Shrink
+        );
         assert!(out.animations.window_open.enabled);
         assert_eq!(out.animations.window_open.duration_ms, 620);
         assert!(out.animations.tile.enabled);

@@ -43,6 +43,7 @@ use super::node::{
     NodeSnapshot, collect_hover_preview, draw_node_hover_labels, draw_node_markers,
     ensure_node_circle_resources,
 };
+use super::state::ClosingWindowGhostSnapshot;
 use super::text::ensure_ui_text_resources;
 use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 use super::window::{
@@ -125,6 +126,11 @@ pub(crate) fn tty_output_animation_redraw_state(
             &st.ui.render_state.cluster_tile_tracks,
             now,
         );
+    let close_window_active = st.runtime.tuning.window_close_animation_enabled()
+        && st
+            .ui
+            .render_state
+            .closing_window_animation_active_for_monitor(monitor, now);
     let stack_cycle_active = st.runtime.tuning.stack_animation_enabled()
         && st
             .ui
@@ -166,6 +172,7 @@ pub(crate) fn tty_output_animation_redraw_state(
         || fullscreen_motion_active;
     let active = fade_related
         || cluster_tile_active
+        || close_window_active
         || stack_cycle_active
         || viewport_pan_active
         || camera_smoothing_active
@@ -638,6 +645,47 @@ mod tests {
     }
 
     #[test]
+    fn closing_window_ghost_only_marks_target_monitor_active() {
+        let mut state = multi_monitor_state();
+        let start = Instant::now();
+
+        state.ui.render_state.start_closing_window_ghost(
+            NodeId::new(77),
+            "right",
+            start,
+            250,
+            halley_config::WindowCloseAnimationStyle::Shrink,
+            Some(ActiveBorderRect {
+                x: 100,
+                y: 100,
+                w: 300,
+                h: 220,
+                inner_offset_x: 3.0,
+                inner_offset_y: 3.0,
+                inner_w: 300.0,
+                inner_h: 220.0,
+                alpha: 1.0,
+                border_px: 3.0,
+                corner_radius: 0.0,
+                inner_corner_radius: 0.0,
+                border_color: Color32F::new(1.0, 1.0, 1.0, 1.0),
+            }),
+            Vec::new(),
+        );
+
+        assert!(tty_output_animation_redraw_state(&state, "right", start).active);
+        assert!(!tty_output_animation_redraw_state(&state, "left", start).active);
+        assert!(
+            !tty_output_animation_redraw_state(
+                &state,
+                "right",
+                start + std::time::Duration::from_millis(300)
+            )
+            .active
+        );
+    }
+
+    #[test]
     fn animations_continue_when_physics_is_disabled() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.physics_enabled = false;
@@ -737,6 +785,7 @@ struct SceneCollections {
     stack_window_units: Vec<StackWindowDrawUnit>,
     border_rects: Vec<ActiveBorderRect>,
     resized_border_rects: Vec<ActiveBorderRect>,
+    closing_window_ghosts: Vec<ClosingWindowGhostSnapshot>,
     overlap_overlay_rects: Vec<(i32, i32, i32, i32)>,
     hover_preview_rect: Option<(i32, i32, i32, i32)>,
     hover_preview_elements: Vec<SurfaceElement>,
@@ -946,6 +995,13 @@ fn collect_debug_frame_scene(
         resized_border_rects,
         overlap_overlay_rects,
     ) = collect_active_surfaces(renderer, st, size, resize_preview, now);
+    let closing_window_ghosts = if st.runtime.tuning.window_close_animation_enabled() {
+        st.ui
+            .render_state
+            .closing_window_ghost_snapshots(render_monitor.as_str(), now)
+    } else {
+        Vec::new()
+    };
 
     let hovered_preview_id = preview_hover_node.and_then(|id| {
         st.model.field.node(id).and_then(|n| {
@@ -1029,6 +1085,7 @@ fn collect_debug_frame_scene(
         stack_window_units,
         border_rects,
         resized_border_rects,
+        closing_window_ghosts,
         overlap_overlay_rects,
         hover_preview_rect,
         hover_preview_elements,
@@ -1152,6 +1209,14 @@ fn draw_debug_frame_scene(
     if !scene.popup_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.popup_elements, &[prepared.damage]);
     }
+
+    draw_closing_window_ghosts(
+        frame,
+        size,
+        prepared.damage,
+        &scene.closing_window_ghosts,
+        st,
+    )?;
 
     draw_geometry_overlays(frame, st, size, prepared.damage, scene)?;
 
@@ -1333,6 +1398,112 @@ fn draw_offscreen_textures(
         )?;
     }
 
+    Ok(())
+}
+
+fn transform_rect_about_center(
+    _x: i32,
+    _y: i32,
+    w: i32,
+    h: i32,
+    center: (f32, f32),
+    scale: f32,
+) -> (i32, i32, i32, i32) {
+    let new_w = (w as f32 * scale).round().max(1.0) as i32;
+    let new_h = (h as f32 * scale).round().max(1.0) as i32;
+    (
+        (center.0 - new_w as f32 * 0.5).round() as i32,
+        (center.1 - new_h as f32 * 0.5).round() as i32,
+        new_w,
+        new_h,
+    )
+}
+
+fn draw_closing_window_ghosts(
+    frame: &mut GlesFrame<'_, '_>,
+    size: Size<i32, Physical>,
+    damage: Rectangle<i32, Physical>,
+    ghosts: &[ClosingWindowGhostSnapshot],
+    st: &mut Halley,
+) -> Result<(), Box<dyn Error>> {
+    for ghost in ghosts {
+        let scale = match ghost.style {
+            halley_config::WindowCloseAnimationStyle::Shrink => {
+                (1.0 - crate::animation::ease_in_out_cubic(ghost.progress)).clamp(0.0, 1.0)
+            }
+        };
+        if scale <= 0.001 {
+            continue;
+        }
+
+        if let Some(border_rect) = ghost.border_rect.as_ref() {
+            let center = (
+                border_rect.x as f32 + border_rect.w as f32 * 0.5,
+                border_rect.y as f32 + border_rect.h as f32 * 0.5,
+            );
+            let (x, y, w, h) = transform_rect_about_center(
+                border_rect.x,
+                border_rect.y,
+                border_rect.w,
+                border_rect.h,
+                center,
+                scale,
+            );
+            let scaled_border = ActiveBorderRect {
+                x,
+                y,
+                w,
+                h,
+                inner_offset_x: border_rect.inner_offset_x * scale,
+                inner_offset_y: border_rect.inner_offset_y * scale,
+                inner_w: (border_rect.inner_w * scale).max(1.0),
+                inner_h: (border_rect.inner_h * scale).max(1.0),
+                alpha: border_rect.alpha,
+                border_px: border_rect.border_px * scale,
+                corner_radius: border_rect.corner_radius * scale,
+                inner_corner_radius: border_rect.inner_corner_radius * scale,
+                border_color: border_rect.border_color,
+            };
+            draw_window_borders(
+                frame,
+                size,
+                damage,
+                std::slice::from_ref(&scaled_border),
+                st,
+            )?;
+        }
+
+        let scaled_textures = ghost
+            .offscreen_textures
+            .iter()
+            .cloned()
+            .map(|mut tex| {
+                let center = (
+                    tex.dst_x as f32 + tex.dst_w as f32 * 0.5,
+                    tex.dst_y as f32 + tex.dst_h as f32 * 0.5,
+                );
+                let (dst_x, dst_y, dst_w, dst_h) = transform_rect_about_center(
+                    tex.dst_x, tex.dst_y, tex.dst_w, tex.dst_h, center, scale,
+                );
+                tex.dst_x = dst_x;
+                tex.dst_y = dst_y;
+                tex.dst_w = dst_w;
+                tex.dst_h = dst_h;
+                tex.geo_offset_x *= scale;
+                tex.geo_offset_y *= scale;
+                tex.geo_w *= scale;
+                tex.geo_h *= scale;
+                tex.corner_radius *= scale;
+                tex
+            })
+            .collect::<Vec<_>>();
+        draw_offscreen_textures(
+            frame,
+            damage,
+            &scaled_textures,
+            st.ui.render_state.window_texture_program.as_ref(),
+        )?;
+    }
     Ok(())
 }
 

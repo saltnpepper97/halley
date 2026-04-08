@@ -990,6 +990,24 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
     st.runtime.surface_activity.remove(&key);
     crate::protocol::wayland::activation::clear_surface_activation(st, surface);
     if let Some(id) = st.model.surface_to_node.remove(&key) {
+        let close_anim_duration_ms = st.runtime.tuning.window_close_duration_ms();
+        let close_anim_style = st.runtime.tuning.window_close_style();
+        let closing_monitor = st.model.monitor_state.node_monitor.get(&id).cloned();
+        if st.runtime.tuning.window_close_animation_enabled()
+            && let Some(monitor) = closing_monitor.as_deref()
+            && let Some((border_rect, offscreen_textures)) =
+                crate::render::capture_closing_window_ghost(st, monitor, id)
+        {
+            st.ui.render_state.start_closing_window_ghost(
+                id,
+                monitor,
+                Instant::now(),
+                close_anim_duration_ms,
+                close_anim_style,
+                border_rect,
+                offscreen_textures,
+            );
+        }
         let queued_promotion = capture_queued_overflow_promotion(st, id);
         let active_tiled_focus_restore = st
             .model

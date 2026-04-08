@@ -6,7 +6,7 @@ use crate::layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, FocusRingConfig,
     NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode,
-    OverlayShape, PanToNewMode, ShapeStyle,
+    OverlayShape, PanToNewMode, ShapeStyle, WindowCloseAnimationStyle,
 };
 
 pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -357,6 +357,20 @@ pub(crate) fn pick_overlay_shape(
     match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
         "square" => OverlayShape::Square,
         "rounded" => OverlayShape::Rounded,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_window_close_animation_style(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: WindowCloseAnimationStyle,
+) -> WindowCloseAnimationStyle {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "shrink" => WindowCloseAnimationStyle::Shrink,
         _ => default,
     }
 }

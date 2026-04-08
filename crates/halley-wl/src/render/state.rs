@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use halley_config::WindowCloseAnimationStyle;
 use halley_core::cluster::ClusterId;
 use halley_core::cluster_layout::ClusterCycleDirection;
 use halley_core::field::{Field, NodeId, Vec2};
@@ -17,6 +18,8 @@ use crate::overlay::{
     OverlayToastSnapshot, OverlayToastState,
 };
 use crate::render::text::UiTextRenderer;
+
+use super::window::{ActiveBorderRect, OffscreenNodeTexture};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct WindowOffscreenKey {
@@ -112,6 +115,24 @@ pub(crate) struct StackCycleTransitionSnapshot {
     pub(crate) source_rects: Option<HashMap<NodeId, Rect>>,
 }
 
+#[derive(Clone)]
+pub(crate) struct ClosingWindowGhostState {
+    pub(crate) monitor: String,
+    pub(crate) started_at: Instant,
+    pub(crate) duration_ms: u64,
+    pub(crate) style: WindowCloseAnimationStyle,
+    pub(crate) border_rect: Option<ActiveBorderRect>,
+    pub(crate) offscreen_textures: Vec<OffscreenNodeTexture>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ClosingWindowGhostSnapshot {
+    pub(crate) progress: f32,
+    pub(crate) style: WindowCloseAnimationStyle,
+    pub(crate) border_rect: Option<ActiveBorderRect>,
+    pub(crate) offscreen_textures: Vec<OffscreenNodeTexture>,
+}
+
 pub(crate) struct RenderState {
     pub animator: Animator,
 
@@ -127,6 +148,7 @@ pub(crate) struct RenderState {
     pub(crate) overlay_banner: HashMap<String, OverlayBannerState>,
     pub(crate) overlay_toast: HashMap<String, OverlayToastState>,
     pub(crate) overlay_exit_confirm: HashMap<String, ExitConfirmOverlayState>,
+    pub(crate) closing_window_ghosts: HashMap<NodeId, ClosingWindowGhostState>,
     pub(crate) stack_cycle_transition: HashMap<String, StackCycleTransitionState>,
     pub(crate) ui_text: RefCell<UiTextRenderer>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
@@ -158,6 +180,67 @@ pub(crate) struct RenderState {
 }
 
 impl RenderState {
+    pub(crate) fn start_closing_window_ghost(
+        &mut self,
+        node_id: NodeId,
+        monitor: &str,
+        now: Instant,
+        duration_ms: u64,
+        style: WindowCloseAnimationStyle,
+        border_rect: Option<ActiveBorderRect>,
+        offscreen_textures: Vec<OffscreenNodeTexture>,
+    ) {
+        if border_rect.is_none() && offscreen_textures.is_empty() {
+            return;
+        }
+        self.closing_window_ghosts.insert(
+            node_id,
+            ClosingWindowGhostState {
+                monitor: monitor.to_string(),
+                started_at: now,
+                duration_ms: duration_ms.max(1),
+                style,
+                border_rect,
+                offscreen_textures,
+            },
+        );
+    }
+
+    pub(crate) fn closing_window_animation_active_for_monitor(
+        &self,
+        monitor: &str,
+        now: Instant,
+    ) -> bool {
+        self.closing_window_ghosts.values().any(|state| {
+            state.monitor == monitor
+                && (now.saturating_duration_since(state.started_at).as_millis() as u64)
+                    < state.duration_ms
+        })
+    }
+
+    pub(crate) fn closing_window_ghost_snapshots(
+        &mut self,
+        monitor: &str,
+        now: Instant,
+    ) -> Vec<ClosingWindowGhostSnapshot> {
+        self.closing_window_ghosts.retain(|_, state| {
+            (now.saturating_duration_since(state.started_at).as_millis() as u64) < state.duration_ms
+        });
+        self.closing_window_ghosts
+            .values()
+            .filter(|state| state.monitor == monitor)
+            .map(|state| {
+                let elapsed_ms = now.saturating_duration_since(state.started_at).as_millis() as u64;
+                ClosingWindowGhostSnapshot {
+                    progress: (elapsed_ms as f32 / state.duration_ms.max(1) as f32).clamp(0.0, 1.0),
+                    style: state.style,
+                    border_rect: state.border_rect.clone(),
+                    offscreen_textures: state.offscreen_textures.clone(),
+                }
+            })
+            .collect()
+    }
+
     pub(crate) fn start_stack_cycle_transition(
         &mut self,
         monitor: &str,

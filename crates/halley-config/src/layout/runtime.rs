@@ -14,7 +14,7 @@ use super::{
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
     DecorationBorderColor, FocusRingConfig, FontConfig, NodeBackgroundColorMode,
     NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, ShapeStyle,
-    ViewportOutputConfig, WindowRule,
+    ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Debug)]
@@ -124,6 +124,18 @@ impl RuntimeTuning {
 
     pub fn smooth_resize_duration_ms(&self) -> u64 {
         self.animations.smooth_resize.duration_ms.max(1)
+    }
+
+    pub fn window_close_animation_enabled(&self) -> bool {
+        self.animations_enabled() && self.animations.window_close.enabled
+    }
+
+    pub fn window_close_duration_ms(&self) -> u64 {
+        self.animations.window_close.duration_ms.max(1)
+    }
+
+    pub fn window_close_style(&self) -> WindowCloseAnimationStyle {
+        self.animations.window_close.style
     }
 
     pub fn window_open_animation_enabled(&self) -> bool {

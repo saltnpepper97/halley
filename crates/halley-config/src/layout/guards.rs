@@ -57,6 +57,8 @@ impl RuntimeTuning {
         self.drag_smoothing_boost = self.drag_smoothing_boost.clamp(0.1, 20.0);
         self.animations.smooth_resize.duration_ms =
             self.animations.smooth_resize.duration_ms.clamp(1, 10_000);
+        self.animations.window_close.duration_ms =
+            self.animations.window_close.duration_ms.clamp(1, 10_000);
         self.animations.window_open.duration_ms =
             self.animations.window_open.duration_ms.clamp(1, 10_000);
         self.animations.tile.duration_ms = self.animations.tile.duration_ms.clamp(1, 10_000);
