@@ -60,24 +60,76 @@ fn resize_preview_settled(resize: &ResizeCtx) -> bool {
         && resize_rect_nearly_eq(resize.preview_bottom_px, resize.target_bottom_px)
 }
 
+fn resize_settle_velocity_done(resize: &ResizeCtx) -> bool {
+    resize.preview_velocity_left_pxps.abs() <= 8.0
+        && resize.preview_velocity_right_pxps.abs() <= 8.0
+        && resize.preview_velocity_top_pxps.abs() <= 8.0
+        && resize.preview_velocity_bottom_pxps.abs() <= 8.0
+}
+
 fn advance_resize_preview_toward_target(st: &Halley, resize: &mut ResizeCtx, now: Instant) {
     if !st.runtime.tuning.smooth_resize_enabled() {
         resize.preview_left_px = resize.target_left_px;
         resize.preview_right_px = resize.target_right_px;
         resize.preview_top_px = resize.target_top_px;
         resize.preview_bottom_px = resize.target_bottom_px;
+        resize.preview_velocity_left_pxps = 0.0;
+        resize.preview_velocity_right_pxps = 0.0;
+        resize.preview_velocity_top_pxps = 0.0;
+        resize.preview_velocity_bottom_pxps = 0.0;
         resize.last_smooth_tick_at = now;
         return;
     }
 
     let dt = now.saturating_duration_since(resize.last_smooth_tick_at);
     resize.last_smooth_tick_at = now;
+    let dt_secs = dt.as_secs_f32().clamp(0.0, 0.25);
     let alpha = resize_smoothing_alpha(st, dt);
+    let prev_left = resize.preview_left_px;
+    let prev_right = resize.preview_right_px;
+    let prev_top = resize.preview_top_px;
+    let prev_bottom = resize.preview_bottom_px;
     resize.preview_left_px += (resize.target_left_px - resize.preview_left_px) * alpha;
     resize.preview_right_px += (resize.target_right_px - resize.preview_right_px) * alpha;
     resize.preview_top_px += (resize.target_top_px - resize.preview_top_px) * alpha;
     resize.preview_bottom_px += (resize.target_bottom_px - resize.preview_bottom_px) * alpha;
+    if dt_secs > f32::EPSILON {
+        resize.preview_velocity_left_pxps = (resize.preview_left_px - prev_left) / dt_secs;
+        resize.preview_velocity_right_pxps = (resize.preview_right_px - prev_right) / dt_secs;
+        resize.preview_velocity_top_pxps = (resize.preview_top_px - prev_top) / dt_secs;
+        resize.preview_velocity_bottom_pxps = (resize.preview_bottom_px - prev_bottom) / dt_secs;
+    }
     snap_resize_preview_edges(resize);
+}
+
+fn advance_resize_preview_toward_stop(st: &Halley, resize: &mut ResizeCtx, now: Instant) {
+    let dt = now.saturating_duration_since(resize.last_smooth_tick_at);
+    resize.last_smooth_tick_at = now;
+    let dt_secs = dt.as_secs_f32().clamp(0.0, 0.25);
+    if dt_secs <= f32::EPSILON {
+        return;
+    }
+
+    let duration_secs = (st.runtime.tuning.smooth_resize_duration_ms().max(1) as f32) / 1000.0;
+    let decay = 0.01f32.powf(dt_secs / duration_secs.max(0.001));
+    resize.preview_left_px += resize.preview_velocity_left_pxps * dt_secs;
+    resize.preview_right_px += resize.preview_velocity_right_pxps * dt_secs;
+    resize.preview_top_px += resize.preview_velocity_top_pxps * dt_secs;
+    resize.preview_bottom_px += resize.preview_velocity_bottom_pxps * dt_secs;
+    resize.preview_velocity_left_pxps *= decay;
+    resize.preview_velocity_right_pxps *= decay;
+    resize.preview_velocity_top_pxps *= decay;
+    resize.preview_velocity_bottom_pxps *= decay;
+    resize.target_left_px = resize.preview_left_px;
+    resize.target_right_px = resize.preview_right_px;
+    resize.target_top_px = resize.preview_top_px;
+    resize.target_bottom_px = resize.preview_bottom_px;
+    if resize_settle_velocity_done(resize) {
+        resize.preview_velocity_left_pxps = 0.0;
+        resize.preview_velocity_right_pxps = 0.0;
+        resize.preview_velocity_top_pxps = 0.0;
+        resize.preview_velocity_bottom_pxps = 0.0;
+    }
 }
 
 fn apply_resize_preview_state(st: &mut Halley, resize: &mut ResizeCtx) -> bool {
@@ -146,7 +198,11 @@ fn apply_resize_preview_state(st: &mut Halley, resize: &mut ResizeCtx) -> bool {
 }
 
 fn refresh_resize_preview_state(st: &mut Halley, resize: &mut ResizeCtx, now: Instant) -> bool {
-    advance_resize_preview_toward_target(st, resize, now);
+    if resize.settling {
+        advance_resize_preview_toward_stop(st, resize, now);
+    } else {
+        advance_resize_preview_toward_target(st, resize, now);
+    }
     apply_resize_preview_state(st, resize)
 }
 
@@ -226,7 +282,7 @@ pub(crate) fn advance_resize_anim(
 
     let settled = refresh_resize_preview_state(st, &mut resize, now);
     let node_id = resize.node_id;
-    if resize.settling && settled {
+    if resize.settling && settled && resize_settle_velocity_done(&resize) {
         finish_resize_interaction(st, ps, resize, now);
         return Some(node_id);
     }
@@ -355,6 +411,10 @@ pub(super) fn begin_resize(
         target_right_px: start_right,
         target_top_px: start_top,
         target_bottom_px: start_bottom,
+        preview_velocity_left_pxps: 0.0,
+        preview_velocity_right_pxps: 0.0,
+        preview_velocity_top_pxps: 0.0,
+        preview_velocity_bottom_pxps: 0.0,
         last_sent_w: start_surface.x.max(min_lw as f32).max(96.0).round() as i32,
         last_sent_h: start_surface.y.max(min_lh as f32).max(72.0).round() as i32,
         last_smooth_tick_at: Instant::now(),
@@ -394,6 +454,14 @@ pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &
     if st.runtime.tuning.smooth_resize_enabled() && resize.drag_started {
         let settled = refresh_resize_preview_state(st, &mut resize, now);
         if !settled {
+            resize.preview_velocity_left_pxps *= 0.2;
+            resize.preview_velocity_right_pxps *= 0.2;
+            resize.preview_velocity_top_pxps *= 0.2;
+            resize.preview_velocity_bottom_pxps *= 0.2;
+            resize.target_left_px = resize.preview_left_px;
+            resize.target_right_px = resize.preview_right_px;
+            resize.target_top_px = resize.preview_top_px;
+            resize.target_bottom_px = resize.preview_bottom_px;
             resize.settling = true;
             ps.resize = Some(resize);
             backend.request_redraw();
@@ -917,7 +985,7 @@ mod tests {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut tuning = single_monitor_tiling_tuning();
         tuning.animations.smooth_resize.enabled = true;
-        tuning.animations.smooth_resize.duration_ms = 90;
+        tuning.animations.smooth_resize.duration_ms = 400;
         let mut st = Halley::new_for_test(&dh, tuning);
         let backend = TtyBackendHandle::new(800, 600);
 
@@ -989,6 +1057,8 @@ mod tests {
             "preview should keep advancing instead of hesitating after repeated quick motion"
         );
         assert!(after_tick_two.preview_right_px < after_tick_two.target_right_px);
+        let release_preview_right = after_tick_two.preview_right_px;
+        let release_target_right = after_tick_two.target_right_px;
 
         finalize_resize(&mut st, &mut ps, &backend);
         let settling = ps
@@ -1013,6 +1083,16 @@ mod tests {
         assert!(
             settled,
             "resize should settle within repeated frame ticks after release"
+        );
+        let final_rect = active_node_screen_rect(&st, 800, 600, window, Instant::now(), None)
+            .expect("final window rect");
+        assert!(
+            final_rect.2 < release_target_right - 8.0,
+            "release easing should not finish the full trajectory to the old cursor target"
+        );
+        assert!(
+            final_rect.2 >= release_preview_right - 4.0,
+            "release easing should stop near the current preview instead of snapping backward"
         );
         assert!(
             ps.resize.is_none(),
