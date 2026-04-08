@@ -302,6 +302,8 @@ pub(crate) fn pick_node_background_color_mode(
     match value.to_ascii_lowercase().as_str() {
         "auto" => NodeBackgroundColorMode::Auto,
         "theme" => NodeBackgroundColorMode::Theme,
+        "light" => NodeBackgroundColorMode::Light,
+        "dark" => NodeBackgroundColorMode::Dark,
         _ => parse_hex_rgb(value)
             .map(|(r, g, b)| NodeBackgroundColorMode::Fixed { r, g, b })
             .unwrap_or(default),

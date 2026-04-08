@@ -3,7 +3,7 @@ use halley_config::{
     WindowRule,
 };
 use halley_core::field::NodeId;
-use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
+use smithay::reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{ToplevelSurface, XdgToplevelSurfaceData};
 
@@ -182,13 +182,17 @@ fn matching_user_window_rule<'a>(
             app_id.is_some_and(|app_id| {
                 rule.app_ids
                     .iter()
-                    .any(|candidate| candidate.matches(app_id))
+                    .any(|candidate: &halley_config::WindowRulePattern| candidate.matches(app_id))
             })
         };
         let title_matches = if rule.titles.is_empty() {
             true
         } else {
-            title.is_some_and(|title| rule.titles.iter().any(|candidate| candidate.matches(title)))
+            title.is_some_and(|title| {
+                rule.titles
+                    .iter()
+                    .any(|candidate: &halley_config::WindowRulePattern| candidate.matches(title))
+            })
         };
         app_matches && title_matches
     })

@@ -452,21 +452,16 @@ pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &
     ps.resize_trace_until = None;
     ps.resize_trace_last_at = None;
     if st.runtime.tuning.smooth_resize_enabled() && resize.drag_started {
-        let settled = refresh_resize_preview_state(st, &mut resize, now);
-        if !settled {
-            resize.preview_velocity_left_pxps *= 0.2;
-            resize.preview_velocity_right_pxps *= 0.2;
-            resize.preview_velocity_top_pxps *= 0.2;
-            resize.preview_velocity_bottom_pxps *= 0.2;
-            resize.target_left_px = resize.preview_left_px;
-            resize.target_right_px = resize.preview_right_px;
-            resize.target_top_px = resize.preview_top_px;
-            resize.target_bottom_px = resize.preview_bottom_px;
-            resize.settling = true;
-            ps.resize = Some(resize);
-            backend.request_redraw();
-            return;
-        }
+        let _ = refresh_resize_preview_state(st, &mut resize, now);
+        resize.preview_velocity_left_pxps = 0.0;
+        resize.preview_velocity_right_pxps = 0.0;
+        resize.preview_velocity_top_pxps = 0.0;
+        resize.preview_velocity_bottom_pxps = 0.0;
+        resize.target_left_px = resize.preview_left_px;
+        resize.target_right_px = resize.preview_right_px;
+        resize.target_top_px = resize.preview_top_px;
+        resize.target_bottom_px = resize.preview_bottom_px;
+        resize.settling = false;
     }
 
     finish_resize_interaction(st, ps, resize, now);
@@ -1061,46 +1056,23 @@ mod tests {
         let release_target_right = after_tick_two.target_right_px;
 
         finalize_resize(&mut st, &mut ps, &backend);
-        let settling = ps
-            .resize
-            .expect("resize should continue settling after release");
         assert!(
-            settling.settling,
-            "resize should settle after release until it reaches target"
-        );
-
-        let mut settled = false;
-        let mut settle_at = settling.last_smooth_tick_at;
-        for _ in 0..8 {
-            settle_at += Duration::from_millis(50);
-            let settled_id = advance_resize_anim(&mut st, &mut ps, settle_at).expect("settle tick");
-            assert_eq!(settled_id, window);
-            if ps.resize.is_none() {
-                settled = true;
-                break;
-            }
-        }
-        assert!(
-            settled,
-            "resize should settle within repeated frame ticks after release"
+            ps.resize.is_none(),
+            "resize should stop immediately at release instead of entering a settle animation"
         );
         let final_rect = active_node_screen_rect(&st, 800, 600, window, Instant::now(), None)
             .expect("final window rect");
         assert!(
             final_rect.2 < release_target_right - 8.0,
-            "release easing should not finish the full trajectory to the old cursor target"
+            "release should not finish the full trajectory to the old cursor target"
         );
         assert!(
             final_rect.2 >= release_preview_right - 4.0,
-            "release easing should stop near the current preview instead of snapping backward"
-        );
-        assert!(
-            ps.resize.is_none(),
-            "resize should finish cleanly once settled"
+            "release should stop near the current preview instead of snapping backward"
         );
         assert!(
             st.input.interaction_state.resize_active.is_none(),
-            "resize interaction should end after the preview settles"
+            "resize interaction should end immediately on release"
         );
     }
 }

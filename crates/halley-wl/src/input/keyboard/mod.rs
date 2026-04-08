@@ -411,7 +411,9 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
             || (repeat_binding_press
                 && matched_action
                     .as_ref()
-                    .is_some_and(|action| compositor_action_allows_repeat(action.clone()))))
+                    .is_some_and(|action: &CompositorBindingAction| {
+                        compositor_action_allows_repeat(action.clone())
+                    })))
         && apply_bound_key(st, code, &mods, ctx.config_path, ctx.wayland_display)
     {
         ctx.backend.request_redraw();

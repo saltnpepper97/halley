@@ -66,6 +66,8 @@ pub(crate) fn ensure_node_circle_resources(
             &[
                 UniformName::new("node_color", UniformType::_4f),
                 UniformName::new("fill_color", UniformType::_4f),
+                UniformName::new("flat_fill", UniformType::_1f),
+                UniformName::new("center_flat_fill", UniformType::_1f),
             ],
         )?);
     }
@@ -76,6 +78,8 @@ pub(crate) fn ensure_node_circle_resources(
             &[
                 UniformName::new("node_color", UniformType::_4f),
                 UniformName::new("fill_color", UniformType::_4f),
+                UniformName::new("flat_fill", UniformType::_1f),
+                UniformName::new("center_flat_fill", UniformType::_1f),
             ],
         )?);
     }
@@ -86,6 +90,8 @@ pub(crate) fn ensure_node_circle_resources(
             &[
                 UniformName::new("node_color", UniformType::_4f),
                 UniformName::new("fill_color", UniformType::_4f),
+                UniformName::new("flat_fill", UniformType::_1f),
+                UniformName::new("center_flat_fill", UniformType::_1f),
             ],
         )?);
     }
@@ -159,6 +165,8 @@ fn draw_shader_circle(
     alpha: f32,
     border_color: Color32F,
     fill_color: Color32F,
+    flat_fill: bool,
+    center_flat_fill: bool,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
     let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
@@ -202,6 +210,11 @@ fn draw_shader_circle(
                 fill_color.b(),
                 fill_color.a(),
             ),
+        ),
+        Uniform::new("flat_fill", if flat_fill { 1.0f32 } else { 0.0f32 }),
+        Uniform::new(
+            "center_flat_fill",
+            if center_flat_fill { 1.0f32 } else { 0.0f32 },
         ),
     ];
 
@@ -343,7 +356,25 @@ fn node_fill_color(st: &Halley, hovered: bool) -> Color32F {
                 1.0,
             )
         }
+        NodeBackgroundColorMode::Light => Color32F::new(0.92, 0.95, 0.98, 1.0),
+        NodeBackgroundColorMode::Dark => Color32F::new(0.15, 0.18, 0.22, 1.0),
         NodeBackgroundColorMode::Fixed { r, g, b } => Color32F::new(r, g, b, 1.0),
+    }
+}
+
+fn node_fill_uses_flat_mode(st: &Halley) -> bool {
+    !matches!(
+        st.runtime.tuning.node_background_color,
+        NodeBackgroundColorMode::Auto | NodeBackgroundColorMode::Theme
+    )
+}
+
+fn node_label_text_color(fill_color: Color32F, alpha: f32) -> Color32F {
+    let luminance = fill_color.r() * 0.2126 + fill_color.g() * 0.7152 + fill_color.b() * 0.0722;
+    if luminance < 0.45 {
+        Color32F::new(0.96, 0.98, 1.0, alpha)
+    } else {
+        Color32F::new(0.08, 0.10, 0.12, alpha)
     }
 }
 
@@ -605,6 +636,8 @@ pub(crate) fn draw_node_markers(
                 1.0 - border_mix,
                 proxy_col,
                 proxy_col,
+                false,
+                false,
                 damage,
             )?;
         }
@@ -613,6 +646,13 @@ pub(crate) fn draw_node_markers(
         if dot_alpha <= 0.01 {
             continue;
         }
+
+        let show_icon = match st.runtime.tuning.node_show_app_icons {
+            NodeDisplayPolicy::Off => false,
+            NodeDisplayPolicy::Hover => highlighted,
+            NodeDisplayPolicy::Always => true,
+        };
+        let icon_alpha = (dot_alpha * icon_mix).clamp(0.0, 1.0);
 
         let ring_mix = if is_core {
             dot_alpha.max(border_mix)
@@ -630,6 +670,7 @@ pub(crate) fn draw_node_markers(
             // fill_color.rgb  = node fill colour (inner fill + outer halo)
             let node_color = Color32F::new(nc.r(), nc.g(), nc.b(), border_frac);
             let fill_color = node_fill_color(st, highlighted);
+            let fill_flat = node_fill_uses_flat_mode(st);
             draw_shader_circle(
                 frame,
                 st,
@@ -640,17 +681,12 @@ pub(crate) fn draw_node_markers(
                 ring_mix,
                 node_color,
                 fill_color,
+                fill_flat,
+                show_icon && icon_alpha > 0.01,
                 damage,
             )?;
         }
-
-        let show_icon = match st.runtime.tuning.node_show_app_icons {
-            NodeDisplayPolicy::Off => false,
-            NodeDisplayPolicy::Hover => highlighted,
-            NodeDisplayPolicy::Always => true,
-        };
         if show_icon {
-            let icon_alpha = (dot_alpha * icon_mix).clamp(0.0, 1.0);
             let mut drew_real_icon = false;
             if icon_alpha > 0.01
                 && is_core
@@ -818,7 +854,7 @@ pub(crate) fn draw_node_hover_labels(
         let final_x = label_x.clamp(margin, (size.w - label_w - margin).max(margin));
         let final_y = label_y.clamp(margin, (size.h - label_h - margin).max(margin));
 
-        let fill_color = Color32F::new(0.92, 0.95, 0.98, 1.0);
+        let fill_color = node_fill_color(st, hover_node == Some(node.id));
         draw_shader_label(
             frame,
             st,
@@ -854,7 +890,7 @@ pub(crate) fn draw_node_hover_labels(
             text_y,
             &text,
             text_scale,
-            Color32F::new(0.08, 0.10, 0.12, 0.94 * dot_alpha * label_fade),
+            node_label_text_color(fill_color, 0.94 * dot_alpha * label_fade),
             damage,
         )?;
     }

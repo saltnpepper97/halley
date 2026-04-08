@@ -143,7 +143,9 @@ fn normalized_tty_viewports(
         .tty_viewports
         .iter()
         .map(|viewport| {
-            let refresh_millihz = viewport.refresh_rate.map(|hz| (hz * 1000.0).round() as i64);
+            let refresh_millihz = viewport
+                .refresh_rate
+                .map(|hz: f64| (hz * 1000.0).round() as i64);
             (
                 viewport.connector.clone(),
                 viewport.enabled,

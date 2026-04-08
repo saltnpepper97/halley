@@ -19,6 +19,8 @@ pub enum NodeDisplayPolicy {
 pub enum NodeBackgroundColorMode {
     Auto,
     Theme,
+    Light,
+    Dark,
     Fixed { r: f32, g: f32, b: f32 },
 }
 
