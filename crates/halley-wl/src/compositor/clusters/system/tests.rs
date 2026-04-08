@@ -1,4 +1,5 @@
 use super::*;
+use crate::compositor::actions::window::toggle_focused_active_node_state;
 use halley_core::field::Vec2;
 use smithay::reexports::wayland_server::Display;
 
@@ -714,4 +715,108 @@ fn cluster_exit_restores_full_viewport_not_usable_viewport() {
             .usable_viewport,
         reduced_usable
     );
+}
+
+#[test]
+fn closing_cluster_bloom_refocuses_core() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+    let master = st.model.field.spawn_surface(
+        "master",
+        Vec2 { x: 100.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    let stack = st.model.field.spawn_surface(
+        "stack",
+        Vec2 { x: 500.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    st.assign_node_to_monitor(master, "monitor_a");
+    st.assign_node_to_monitor(stack, "monitor_a");
+    let cid = st
+        .model
+        .field
+        .create_cluster(vec![master, stack])
+        .expect("cluster");
+    let core = st.model.field.collapse_cluster(cid).expect("core");
+    st.assign_node_to_monitor(core, "monitor_a");
+
+    assert!(st.open_cluster_bloom_for_monitor("monitor_a", cid));
+    st.set_interaction_focus(Some(master), 30_000, Instant::now());
+
+    assert!(st.close_cluster_bloom_for_monitor("monitor_a"));
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(core));
+    assert_eq!(st.focused_node_for_monitor("monitor_a"), Some(core));
+}
+
+#[test]
+fn collapsing_cluster_workspace_keeps_core_focused() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+    let master = st.model.field.spawn_surface(
+        "master",
+        Vec2 { x: 100.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    let stack = st.model.field.spawn_surface(
+        "stack",
+        Vec2 { x: 500.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    st.assign_node_to_monitor(master, "monitor_a");
+    st.assign_node_to_monitor(stack, "monitor_a");
+    let cid = st
+        .model
+        .field
+        .create_cluster(vec![master, stack])
+        .expect("cluster");
+    let core = st.model.field.collapse_cluster(cid).expect("core");
+    st.assign_node_to_monitor(core, "monitor_a");
+
+    let now = Instant::now();
+    assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+    assert!(st.collapse_active_cluster_workspace(now));
+
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(core));
+    assert_eq!(st.focused_node_for_monitor("monitor_a"), Some(core));
+}
+
+#[test]
+fn toggle_state_reopens_cluster_from_focused_core() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+    let master = st.model.field.spawn_surface(
+        "master",
+        Vec2 { x: 100.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    let stack = st.model.field.spawn_surface(
+        "stack",
+        Vec2 { x: 500.0, y: 100.0 },
+        Vec2 { x: 320.0, y: 240.0 },
+    );
+    st.assign_node_to_monitor(master, "monitor_a");
+    st.assign_node_to_monitor(stack, "monitor_a");
+    let cid = st
+        .model
+        .field
+        .create_cluster(vec![master, stack])
+        .expect("cluster");
+    let core = st.model.field.collapse_cluster(cid).expect("core");
+    st.assign_node_to_monitor(core, "monitor_a");
+
+    let now = Instant::now();
+    assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
+    assert!(st.collapse_active_cluster_workspace(now));
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(core));
+
+    assert!(toggle_focused_active_node_state(&mut st));
+    assert_eq!(
+        st.active_cluster_workspace_for_monitor("monitor_a"),
+        Some(cid)
+    );
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(master));
 }

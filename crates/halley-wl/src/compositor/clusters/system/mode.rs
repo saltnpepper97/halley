@@ -31,15 +31,21 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
     }
 
     pub fn close_cluster_bloom_for_monitor(&mut self, monitor: &str) -> bool {
+        let core_id = self.cluster_bloom_for_monitor(monitor).and_then(|cid| {
+            self.model
+                .field
+                .cluster(cid)
+                .and_then(|cluster| cluster.core)
+        });
         let closed = self
             .cluster_mutation_controller()
             .close_cluster_bloom_for_monitor(monitor);
         if closed {
             let now = Instant::now();
-            let restore = self
-                .last_focused_surface_node_for_monitor(monitor)
-                .or_else(|| self.last_focused_surface_node());
-            self.set_interaction_focus(restore, 30_000, now);
+            if let Some(core_id) = core_id {
+                self.set_recent_top_node(core_id, now + std::time::Duration::from_millis(1200));
+                self.set_interaction_focus(Some(core_id), 30_000, now);
+            }
         }
         closed
     }

@@ -253,7 +253,25 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     tick_active_drag(st, now);
     crate::compositor::interaction::state::tick_cluster_join_candidate_ready(st, now_ms);
     crate::compositor::interaction::state::tick_bloom_pull_preview(st, now_ms);
+    tick_pending_core_hover_bloom(st, now_ms);
     st.tick_camera_smoothing(now);
+}
+
+fn tick_pending_core_hover_bloom(st: &mut Halley, now_ms: u64) {
+    let Some(pending_hover) = st.input.interaction_state.pending_core_hover.clone() else {
+        return;
+    };
+    if now_ms < pending_hover.started_at_ms.saturating_add(crate::compositor::interaction::CORE_BLOOM_HOLD_MS) {
+        return;
+    }
+
+    st.input.interaction_state.pending_core_hover = None;
+    if let Some(cid) = st.model.field.cluster_id_for_core_public(pending_hover.node_id)
+        && st.cluster_bloom_for_monitor(pending_hover.monitor.as_str()) != Some(cid)
+    {
+        st.input.interaction_state.overlay_hover_target = None;
+        let _ = st.open_cluster_bloom_for_monitor(pending_hover.monitor.as_str(), cid);
+    }
 }
 
 fn tick_active_drag(st: &mut Halley, now: Instant) {

@@ -579,6 +579,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 ps.hover_started_at = None;
             }
             ps.hover_node = next_hover;
+            st.input.interaction_state.pending_core_hover = None;
             st.input.interaction_state.overlay_hover_target = next_hover.map(|node_id| {
                 crate::compositor::interaction::state::OverlayHoverTarget {
                     node_id,
@@ -701,6 +702,29 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         ps.hover_started_at = None;
     }
     ps.hover_node = next_hover;
+    let previous_core_hover = st.input.interaction_state.pending_core_hover.clone();
+    st.input.interaction_state.pending_core_hover = next_hover.and_then(|node_id| {
+        st.model.field.node(node_id).and_then(|node| {
+            (node.kind == halley_core::field::NodeKind::Core
+                && node.state == halley_core::field::NodeState::Core)
+                .then(|| {
+                    let monitor = target_monitor.clone();
+                    let started_at_ms = previous_core_hover
+                        .as_ref()
+                        .filter(|pending| pending.node_id == node_id && pending.monitor == monitor)
+                        .map(|pending| pending.started_at_ms)
+                        .unwrap_or(st.now_ms(now));
+                    crate::compositor::interaction::state::PendingCoreHover {
+                        node_id,
+                        monitor,
+                        started_at_ms,
+                    }
+                })
+        })
+    });
+    if st.input.interaction_state.pending_core_hover.is_some() {
+        st.request_maintenance();
+    }
 
     ctx.backend.request_redraw();
 }

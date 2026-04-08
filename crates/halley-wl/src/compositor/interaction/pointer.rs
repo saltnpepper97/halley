@@ -45,6 +45,7 @@ pub(crate) struct HitNode {
 }
 
 pub(crate) const NODE_DOUBLE_CLICK_MS: u64 = 350;
+pub(crate) const CORE_BLOOM_HOLD_MS: u64 = 1_700;
 
 #[derive(Clone)]
 pub(crate) struct PointerState {

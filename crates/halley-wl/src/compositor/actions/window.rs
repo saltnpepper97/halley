@@ -222,9 +222,17 @@ pub(crate) fn step_window_trail(st: &mut Halley, direction: TrailDirection) -> b
 
 pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
     let now = Instant::now();
+    let focused_monitor = st.focused_monitor().to_string();
 
     let Some(id) = st
-        .last_focused_surface_node_for_monitor(st.focused_monitor())
+        .focused_node_for_monitor(focused_monitor.as_str())
+        .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id))
+        .or(st
+            .model
+            .focus_state
+            .primary_interaction_focus
+            .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id)))
+        .or_else(|| st.last_focused_surface_node_for_monitor(focused_monitor.as_str()))
         .or_else(|| st.last_focused_surface_node())
     else {
         return false;
@@ -234,13 +242,18 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
         return false;
     };
 
+    if n.kind == halley_core::field::NodeKind::Core
+        && n.state == halley_core::field::NodeState::Core
+    {
+        return st.toggle_cluster_workspace_by_core(id, now);
+    }
+
     if n.kind != halley_core::field::NodeKind::Surface {
         return false;
     }
 
     if let Some(cid) = st.model.field.cluster_id_for_member_public(id) {
-        let monitor = st.focused_monitor().to_string();
-        if st.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(cid) {
+        if st.active_cluster_workspace_for_monitor(focused_monitor.as_str()) == Some(cid) {
             return st.collapse_active_cluster_workspace(now);
         }
     }

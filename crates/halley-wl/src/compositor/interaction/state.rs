@@ -121,12 +121,18 @@ pub(crate) struct OverlayHoverTarget {
 }
 
 #[derive(Clone)]
+pub(crate) struct PendingCoreHover {
+    pub(crate) node_id: NodeId,
+    pub(crate) monitor: String,
+    pub(crate) started_at_ms: u64,
+}
+
+#[derive(Clone)]
 pub(crate) struct PendingCorePress {
     pub(crate) node_id: NodeId,
     pub(crate) monitor: String,
     pub(crate) press_global_sx: f32,
     pub(crate) press_global_sy: f32,
-    pub(crate) reopen_bloom_on_timeout: bool,
 }
 
 #[derive(Clone)]
@@ -134,7 +140,6 @@ pub(crate) struct PendingCoreClick {
     pub(crate) node_id: NodeId,
     pub(crate) monitor: String,
     pub(crate) deadline_ms: u64,
-    pub(crate) reopen_bloom_on_timeout: bool,
 }
 
 pub(crate) struct InteractionState {
@@ -161,6 +166,7 @@ pub(crate) struct InteractionState {
     pub(crate) bloom_pull_preview: Option<BloomPullPreview>,
     pub(crate) cluster_overflow_drag_preview: Option<ClusterOverflowDragPreview>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
+    pub(crate) pending_core_hover: Option<PendingCoreHover>,
     pub(crate) pending_core_press: Option<PendingCorePress>,
     pub(crate) pending_core_click: Option<PendingCoreClick>,
     pub(crate) grabbed_edge_pan_active: bool,

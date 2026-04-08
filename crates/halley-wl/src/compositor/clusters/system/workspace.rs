@@ -260,6 +260,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             self.input.interaction_state.cluster_overflow_drag_preview = None;
             crate::compositor::interaction::pointer::set_cursor_override_icon(self, None);
         }
+        if let Some(core_id) = core {
+            self.set_recent_top_node(core_id, now + std::time::Duration::from_millis(1200));
+            self.set_interaction_focus(Some(core_id), 30_000, now);
+        }
         true
     }
 

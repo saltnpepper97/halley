@@ -992,6 +992,16 @@ pub(crate) fn draw_overlay_hover_label(
     else {
         return Ok(());
     };
+    let current_monitor = st.model.monitor_state.current_monitor.clone();
+    let bloom_core = st.cluster_bloom_for_monitor(current_monitor.as_str()).and_then(|cid| {
+        st.model
+            .field
+            .cluster(cid)
+            .and_then(|cluster| cluster.core)
+    });
+    if bloom_core == Some(target.node_id) {
+        return Ok(());
+    }
     let preview_active = st
         .ui
         .render_state

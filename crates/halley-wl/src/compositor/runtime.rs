@@ -308,11 +308,6 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             && now_ms >= pending.deadline_ms
         {
             self.input.interaction_state.pending_core_click = None;
-            if pending.reopen_bloom_on_timeout
-                && let Some(cid) = self.model.field.cluster_id_for_core_public(pending.node_id)
-            {
-                let _ = self.open_cluster_bloom_for_monitor(pending.monitor.as_str(), cid);
-            }
         }
         if self.has_any_active_cluster_workspace() {
             let active_monitors = self
