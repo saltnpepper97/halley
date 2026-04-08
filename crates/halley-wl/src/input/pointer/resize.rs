@@ -6,7 +6,7 @@ use crate::compositor::interaction::{HitNode, PointerState, ResizeCtx, ResizeHan
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::{
     active_stacking_render_order_for_monitor, current_surface_size_for_node,
-    is_active_stacking_workspace_member, request_toplevel_resize_mode, toplevel_min_size_for_node,
+    node_allows_interactive_resize, request_toplevel_resize_mode, toplevel_min_size_for_node,
     window_geometry_for_node,
 };
 use crate::render::active_window_frame_pad_px;
@@ -25,7 +25,7 @@ pub(super) fn begin_resize(
     hit: HitNode,
     frame: ButtonFrame,
 ) {
-    if is_active_stacking_workspace_member(st, hit.node_id) {
+    if !node_allows_interactive_resize(st, hit.node_id) {
         return;
     }
     let Some(n) = st.model.field.node(hit.node_id) else {
@@ -616,6 +616,10 @@ pub(crate) fn weights_from_handle(handle: ResizeHandle) -> (f32, f32, f32, f32) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::interface::TtyBackendHandle;
+    use crate::compositor::interaction::{HitNode, PointerState};
+    use crate::compositor::root::Halley;
+    use smithay::reexports::wayland_server::Display;
 
     #[test]
     fn drag_direction_maps_to_y_down_resize_handles() {
@@ -643,6 +647,112 @@ mod tests {
             weights_from_handle(ResizeHandle::BottomRight),
             (0.0, 1.0, 0.0, 1.0)
         );
+    }
+
+    fn single_monitor_tiling_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        tuning
+    }
+
+    fn resize_button_frame() -> ButtonFrame {
+        ButtonFrame {
+            ws_w: 800,
+            ws_h: 600,
+            global_sx: 400.0,
+            global_sy: 300.0,
+            sx: 400.0,
+            sy: 300.0,
+            world_now: halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            workspace_active: false,
+        }
+    }
+
+    #[test]
+    fn begin_resize_blocks_active_tiled_workspace_members() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tiling_tuning());
+        let backend = TtyBackendHandle::new(800, 600);
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            halley_core::field::Vec2 { x: 120.0, y: 120.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            halley_core::field::Vec2 { x: 520.0, y: 120.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        for id in [master, stack] {
+            st.assign_node_to_monitor(id, "monitor_a");
+        }
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        let mut ps = PointerState::default();
+        begin_resize(
+            &mut st,
+            &mut ps,
+            &backend,
+            HitNode {
+                node_id: master,
+                on_titlebar: false,
+                is_core: false,
+            },
+            resize_button_frame(),
+        );
+
+        assert!(ps.resize.is_none());
+        assert!(st.input.interaction_state.resize_active.is_none());
+    }
+
+    #[test]
+    fn begin_resize_allows_non_tiled_active_windows() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tiling_tuning());
+        let backend = TtyBackendHandle::new(800, 600);
+
+        let window = st.model.field.spawn_surface(
+            "window",
+            halley_core::field::Vec2 { x: 300.0, y: 220.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(window, "monitor_a");
+
+        let mut ps = PointerState::default();
+        begin_resize(
+            &mut st,
+            &mut ps,
+            &backend,
+            HitNode {
+                node_id: window,
+                on_titlebar: false,
+                is_core: false,
+            },
+            resize_button_frame(),
+        );
+
+        assert!(ps.resize.is_some());
+        assert_eq!(st.input.interaction_state.resize_active, Some(window));
     }
 }
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use halley_core::cluster_layout::{ClusterWorkspaceLayoutKind, cluster_visible_limit};
+use halley_core::cluster_layout::{cluster_visible_limit, ClusterWorkspaceLayoutKind};
 use smithay::desktop::utils::bbox_from_surface_tree;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
@@ -71,6 +71,23 @@ pub(crate) fn is_active_stacking_workspace_member(
         return false;
     };
     active_stacking_visible_members_for_monitor(st, monitor.as_str()).contains(&node_id)
+}
+
+pub(crate) fn node_allows_interactive_resize(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+) -> bool {
+    // v0.1.0: tiled workspace members intentionally do not support interactive resize.
+    // Revisit this when Halley has a dedicated tile split/ratio resize UX.
+    st.model
+        .field
+        .node(node_id)
+        .is_some_and(|node| node.state == halley_core::field::NodeState::Active)
+        && !is_active_stacking_workspace_member(st, node_id)
+        && !(matches!(
+            st.runtime.tuning.cluster_layout_kind(),
+            ClusterWorkspaceLayoutKind::Tiling
+        ) && is_active_cluster_workspace_member(st, node_id))
 }
 
 pub(crate) fn stacking_render_order_map(

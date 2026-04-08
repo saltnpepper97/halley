@@ -15,7 +15,7 @@ use crate::compositor::interaction::{
     TitleClickCtx,
 };
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::stack_focus_target_for_node;
+use crate::compositor::surface_ops::{node_allows_interactive_resize, stack_focus_target_for_node};
 use crate::input::ctx::InputCtx;
 use crate::input::keyboard::modkeys::modifier_active;
 use crate::overlay::{
@@ -210,11 +210,7 @@ fn handle_right_press(
         backend.request_redraw();
         return;
     };
-    let can_resize = st
-        .model
-        .field
-        .node(hit.node_id)
-        .is_some_and(|n| n.state == halley_core::field::NodeState::Active);
+    let can_resize = node_allows_interactive_resize(st, hit.node_id);
     if resize_binding_active && can_resize {
         begin_resize(st, ps, backend, hit, frame);
     }
@@ -286,11 +282,7 @@ fn handle_resize_binding_press(
         backend.request_redraw();
         return;
     };
-    let can_resize = st
-        .model
-        .field
-        .node(hit.node_id)
-        .is_some_and(|n| n.state == halley_core::field::NodeState::Active);
+    let can_resize = node_allows_interactive_resize(st, hit.node_id);
     if can_resize {
         // Binding-triggered resize always starts Pending regardless of where
         // the cursor is — drag direction picks the handle.
