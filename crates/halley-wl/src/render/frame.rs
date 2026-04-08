@@ -3,6 +3,8 @@ use std::error::Error;
 use std::time::Instant;
 
 use halley_core::field::{NodeId, Vec2};
+use smithay::desktop::{PopupKind, find_popup_root_surface};
+use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::wayland::compositor::{
     SurfaceAttributes, TraversalAction, with_states, with_surface_tree_downward,
 };
@@ -97,6 +99,7 @@ pub(crate) fn tty_output_animation_redraw_state(
     now: Instant,
 ) -> TtyOutputAnimationRedrawState {
     let now_ms = st.now_ms(now);
+    let is_current_monitor = st.model.monitor_state.current_monitor == monitor;
     let node_transition_active = st.ui.render_state.animator.has_active_animations(now);
     let active_transition_active = st
         .model
@@ -132,13 +135,15 @@ pub(crate) fn tty_output_animation_redraw_state(
         });
     let fullscreen_motion_active = !st.model.fullscreen_state.fullscreen_motion.is_empty()
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
-    let viewport_pan_active = st.input.interaction_state.viewport_pan_anim.is_some()
-        || !st.model.spawn_state.pending_spawn_pan_queue.is_empty();
-    let camera_smoothing_active =
+    let viewport_pan_active = is_current_monitor
+        && (st.input.interaction_state.viewport_pan_anim.is_some()
+            || !st.model.spawn_state.pending_spawn_pan_queue.is_empty());
+    let camera_smoothing_active = is_current_monitor
+        && (
         (st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
             || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
             || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
-            || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05;
+            || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05);
     let overlay_active = monitor_overlay_requires_full_repaint(st, monitor)
         || st
             .ui
@@ -432,6 +437,52 @@ pub(crate) fn send_frame_callbacks(st: &mut Halley, now: Instant) {
     }
 }
 
+pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str, now: Instant) {
+    let elapsed_ms = now.duration_since(st.runtime.started_at).as_millis();
+    let time_ms = elapsed_ms.min(u32::MAX as u128) as u32;
+
+    for layer in st.platform.wlr_layer_shell_state.layer_surfaces() {
+        let surface = layer.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            send_frames_surface_tree(surface, time_ms);
+        }
+    }
+
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let surface = top.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            send_frames_surface_tree(surface, time_ms);
+        }
+    }
+
+    for popup in st.platform.xdg_shell_state.popup_surfaces() {
+        let popup_kind = PopupKind::from(popup.clone());
+        let Ok(root) = find_popup_root_surface(&popup_kind) else {
+            continue;
+        };
+        if surface_on_output(st, &root, output_name) {
+            send_frames_surface_tree(popup.wl_surface(), time_ms);
+        }
+    }
+}
+
+fn surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> bool {
+    if let Some(node_id) = st.model.surface_to_node.get(&surface.id()).copied() {
+        return st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&node_id)
+            .is_some_and(|monitor| monitor == output_name);
+    }
+
+    st.model
+        .monitor_state
+        .layer_surface_monitor
+        .get(&surface.id())
+        .is_some_and(|monitor| monitor == output_name)
+}
+
 fn send_frames_surface_tree(
     surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     time_ms: u32,
@@ -484,6 +535,80 @@ fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mut Halley) {
                 &err,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn multi_monitor_state() -> Halley {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        Halley::new_for_test(&dh, tuning)
+    }
+
+    #[test]
+    fn camera_smoothing_only_marks_current_monitor_active() {
+        let mut state = multi_monitor_state();
+        let _ = state.activate_monitor("right");
+
+        state.model.camera_target_center.x += 240.0;
+
+        let now = Instant::now();
+        assert!(tty_output_animation_redraw_state(&state, "right", now).active);
+        assert!(!tty_output_animation_redraw_state(&state, "left", now).active);
+    }
+
+    #[test]
+    fn viewport_pan_only_marks_current_monitor_active() {
+        let mut state = multi_monitor_state();
+        let _ = state.activate_monitor("right");
+        state.input.interaction_state.viewport_pan_anim = Some(
+            crate::compositor::interaction::state::ViewportPanAnim {
+                start_ms: 0,
+                delay_ms: 0,
+                duration_ms: 120,
+                from_center: state.model.viewport.center,
+                to_center: Vec2 {
+                    x: state.model.viewport.center.x + 100.0,
+                    y: state.model.viewport.center.y,
+                },
+            },
+        );
+
+        let now = Instant::now();
+        assert!(tty_output_animation_redraw_state(&state, "right", now).active);
+        assert!(!tty_output_animation_redraw_state(&state, "left", now).active);
     }
 }
 

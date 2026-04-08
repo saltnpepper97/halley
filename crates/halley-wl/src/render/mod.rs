@@ -44,7 +44,8 @@ pub(crate) use cursor::cursor_surface_hotspot;
 pub(crate) use cursor_theme::themed_cursor_sprite_with_fallback;
 pub(crate) use frame::{
     anim_style_for, begin_render_frame, draw_debug_frame, draw_debug_frame_to_target,
-    monitor_overlay_requires_full_repaint, send_frame_callbacks, tick_animator_frame,
+    monitor_overlay_requires_full_repaint, send_frame_callbacks, send_frame_callbacks_for_output,
+    tick_animator_frame,
     tick_frame_effects, tick_live_overlap, tty_output_animation_redraw_state,
 };
 pub(crate) use utils::preview_proxy_size;
