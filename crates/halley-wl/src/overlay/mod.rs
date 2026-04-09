@@ -1120,7 +1120,7 @@ pub(crate) fn draw_overlay_hover_label(
         rect,
         (label_h as f32) * 0.32,
         visuals.palette.fill.alpha(0.96 * label_fade),
-        true,
+        false,
         damage,
         label_fade,
     )?;

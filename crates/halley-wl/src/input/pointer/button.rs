@@ -9,10 +9,11 @@ use crate::backend::interface::BackendView;
 use crate::compositor::actions::window::{
     activate_collapsed_node_from_click, focus_or_reveal_surface_node,
 };
-use crate::compositor::interaction::state::{PendingCoreClick, PendingCorePress};
+use crate::compositor::interaction::state::{
+    PendingCoreClick, PendingCorePress, PendingTitlebarPress,
+};
 use crate::compositor::interaction::{
-    BloomDragCtx, HitNode, ModState, NODE_DOUBLE_CLICK_MS, OverflowDragCtx, PointerState,
-    TitleClickCtx,
+    BloomDragCtx, HitNode, ModState, OverflowDragCtx, PointerState,
 };
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::{node_allows_interactive_resize, stack_focus_target_for_node};
@@ -90,7 +91,10 @@ fn handle_left_press(
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
-        ps.last_title_click = None;
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(smithay::input::pointer::CursorIcon::Grabbing),
+        );
         backend.request_redraw();
         return;
     };
@@ -105,7 +109,22 @@ fn handle_left_press(
                 frame,
                 frame.world_now,
                 allow_monitor_transfer,
+                drag_binding_active,
             );
+            return;
+        }
+        if hit.on_titlebar && drag_target_ok && !hit.is_core {
+            let now = Instant::now();
+            let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
+            st.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
+            st.set_interaction_focus(Some(focus_target), 700, now);
+            st.input.interaction_state.pending_titlebar_press = Some(PendingTitlebarPress {
+                node_id: hit.node_id,
+                press_global_sx: frame.global_sx,
+                press_global_sy: frame.global_sy,
+                workspace_active: true,
+            });
+            backend.request_redraw();
             return;
         }
         handle_workspace_left_press(st, ps, backend, hit);
@@ -118,11 +137,27 @@ fn handle_left_press(
     }
 
     if !drag_binding_active && restore_fullscreen_click_focus(st, hit.node_id, Instant::now()) {
-        ps.last_title_click = None;
         backend.request_redraw();
     }
 
+    let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);
+    if hit.on_titlebar && drag_target_ok && !hit.is_core {
+        let now = Instant::now();
+        let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
+        st.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
+        st.set_interaction_focus(Some(focus_target), 700, now);
+        st.input.interaction_state.pending_titlebar_press = Some(PendingTitlebarPress {
+            node_id: hit.node_id,
+            press_global_sx: frame.global_sx,
+            press_global_sy: frame.global_sy,
+            workspace_active: false,
+        });
+        backend.request_redraw();
+        return;
+    }
+
     if !drag_binding_active
+        && !hit.on_titlebar
         && st.model.field.node(hit.node_id).is_some_and(|n| {
             n.kind == halley_core::field::NodeKind::Surface
                 && st.model.field.is_visible(hit.node_id)
@@ -148,12 +183,10 @@ fn handle_left_press(
             if activate_collapsed_node_from_click(st, hit.node_id, now) {
                 backend.request_redraw();
             }
-            ps.last_title_click = None;
             handled_node_click = true;
         }
     }
 
-    let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);
     if drag_binding_active && drag_target_ok && !handled_node_click {
         if hit.is_core {
             let _ = collapse_bloom_for_core_if_open(st, hit.node_id);
@@ -166,25 +199,17 @@ fn handle_left_press(
             frame,
             frame.world_now,
             allow_monitor_transfer,
+            drag_binding_active,
         );
         return;
     }
 
-    if hit.on_titlebar || hit.is_core {
+    if hit.is_core {
         let now = Instant::now();
         let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
         st.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
         st.set_interaction_focus(Some(focus_target), 700, now);
-        if !hit.is_core && title_click_is_double(ps, hit.node_id, now) {
-            ps.last_title_click = None;
-            backend.request_redraw();
-        } else {
-            if !hit.is_core {
-                set_title_click(ps, hit.node_id, now);
-            }
-        }
-    } else if !handled_node_click {
-        ps.last_title_click = None;
+        backend.request_redraw();
     }
 }
 
@@ -209,6 +234,10 @@ fn handle_right_press(
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(smithay::input::pointer::CursorIcon::Grabbing),
+        );
         backend.request_redraw();
         return;
     };
@@ -239,7 +268,10 @@ fn handle_move_binding_press(
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
-        ps.last_title_click = None;
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(smithay::input::pointer::CursorIcon::Grabbing),
+        );
         backend.request_redraw();
         return;
     };
@@ -256,6 +288,7 @@ fn handle_move_binding_press(
             frame,
             frame.world_now,
             allow_monitor_transfer,
+            true,
         );
     }
 }
@@ -281,6 +314,10 @@ fn handle_resize_binding_press(
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
         ps.pan_last_screen = (frame.global_sx, frame.global_sy);
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(smithay::input::pointer::CursorIcon::Grabbing),
+        );
         backend.request_redraw();
         return;
     };
@@ -305,8 +342,13 @@ fn handle_button_release(
             if let Some(d) = ps.drag {
                 let now = Instant::now();
                 finish_pointer_drag(st, ps, d.node_id, d.started_active, world_now, now);
+                crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
             }
             st.input.interaction_state.active_drag = None;
+            st.input.interaction_state.pending_titlebar_press = None;
+            if ps.panning {
+                crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
+            }
             ps.panning = false;
             ps.pan_monitor = None;
             if ps.resize.is_some() {
@@ -314,6 +356,7 @@ fn handle_button_release(
             }
         }
         Some(PointerBindingAction::ResizeWindow) => {
+            st.input.interaction_state.pending_titlebar_press = None;
             finalize_resize(st, ps, backend);
         }
         None => {
@@ -323,8 +366,15 @@ fn handle_button_release(
                 let now = Instant::now();
                 finish_pointer_drag(st, ps, d.node_id, d.started_active, world_now, now);
                 st.input.interaction_state.active_drag = None;
+                crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
             }
             if button_code == 0x110 || button_code == 0x111 {
+                if button_code == 0x110 {
+                    st.input.interaction_state.pending_titlebar_press = None;
+                }
+                if ps.panning {
+                    crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
+                }
                 ps.panning = false;
                 ps.pan_monitor = None;
             }
@@ -348,6 +398,9 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     let left = button_code == 0x110;
     let right = button_code == 0x111;
     let mut ps = ctx.pointer_state.borrow_mut();
+    if left {
+        ps.left_button_down = matches!(button_state, ButtonState::Pressed);
+    }
     let (ws_w, ws_h) = ctx.backend.window_size_i32();
     let (frame, target_monitor, clamped_screen) =
         button_frame_for_monitor(st, ws_w, ws_h, ps.screen);
@@ -480,7 +533,6 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                     }
                     ctx.backend.request_redraw();
                 }
-                ps.last_title_click = None;
                 return;
             }
             ButtonState::Released if left || right => {
@@ -504,7 +556,6 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 if let Some((surface, _)) = layer_focus.as_ref() {
                     let _ =
                         crate::compositor::monitor::layer_shell::focus_layer_surface(st, surface);
-                    ps.last_title_click = None;
                     return;
                 }
                 let hit = pick_hit_node_at(
@@ -518,7 +569,6 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 );
                 if let Some(hit) = hit {
                     let _ = st.toggle_cluster_mode_selection(hit.node_id);
-                    ps.last_title_click = None;
                     ctx.backend.request_redraw();
                     return;
                 }
@@ -531,7 +581,6 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 ps.panning = true;
                 ps.pan_monitor = Some(monitor);
                 ps.pan_last_screen = (frame.global_sx, frame.global_sy);
-                ps.last_title_click = None;
                 ctx.backend.request_redraw();
                 return;
             }
@@ -576,7 +625,6 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             layout.center_sy,
             target_monitor.as_str(),
         );
-        ps.last_title_click = None;
         st.request_maintenance();
         ctx.backend.request_redraw();
         return;
@@ -595,7 +643,6 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     {
         let now = Instant::now();
         let _ = focus_or_reveal_surface_node(st, node_id, now);
-        ps.last_title_click = None;
         ps.panning = false;
         ctx.backend.request_redraw();
         return;
@@ -628,7 +675,6 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             st,
             Some(smithay::input::pointer::CursorIcon::Grabbing),
         );
-        ps.last_title_click = None;
         ctx.backend.request_redraw();
         return;
     }
@@ -677,7 +723,6 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         && let Some((surface, _)) = layer_focus
     {
         let _ = crate::compositor::monitor::layer_shell::focus_layer_surface(st, &surface);
-        ps.last_title_click = None;
         return;
     }
     match button_state {
@@ -732,6 +777,20 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             }
         }
         ButtonState::Released => {
+            if left {
+                st.input.interaction_state.pending_titlebar_press = None;
+            }
+            if left && ps.drag.is_some() {
+                handle_button_release(
+                    st,
+                    &mut ps,
+                    ctx.backend,
+                    button_code,
+                    matched_action,
+                    world_now,
+                );
+                return;
+            }
             if left
                 && let Some(pending_press) = st.input.interaction_state.pending_core_press.take()
             {
@@ -880,25 +939,6 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     }
 }
 
-pub(super) fn title_click_is_double(
-    ps: &PointerState,
-    node_id: halley_core::field::NodeId,
-    now: Instant,
-) -> bool {
-    ps.last_title_click.is_some_and(|last| {
-        last.node_id == node_id
-            && now.duration_since(last.at).as_millis() as u64 <= NODE_DOUBLE_CLICK_MS
-    })
-}
-
-pub(super) fn set_title_click(
-    ps: &mut PointerState,
-    node_id: halley_core::field::NodeId,
-    now: Instant,
-) {
-    ps.last_title_click = Some(TitleClickCtx { node_id, at: now });
-}
-
 pub(super) fn clear_pointer_activity(st: &mut Halley, ps: &mut PointerState) {
     if let Some(drag) = ps.drag {
         crate::compositor::carry::system::set_drag_authority_node(st, None);
@@ -907,6 +947,7 @@ pub(super) fn clear_pointer_activity(st: &mut Halley, ps: &mut PointerState) {
     crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
     st.input.interaction_state.active_drag = None;
     st.input.interaction_state.pending_core_press = None;
+    st.input.interaction_state.pending_titlebar_press = None;
     st.input.interaction_state.cluster_overflow_drag_preview = None;
     crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
     ps.drag = None;
@@ -1017,7 +1058,7 @@ pub(super) fn restore_fullscreen_click_focus(
 
 pub(super) fn handle_core_left_press(
     st: &mut Halley,
-    ps: &mut PointerState,
+    _ps: &mut PointerState,
     backend: &dyn BackendView,
     hit: HitNode,
     frame: ButtonFrame,
@@ -1039,7 +1080,6 @@ pub(super) fn handle_core_left_press(
     {
         let _ = st.toggle_cluster_workspace_by_core(hit.node_id, now);
         st.input.interaction_state.pending_core_click = None;
-        ps.last_title_click = None;
     } else {
         st.input.interaction_state.pending_core_press = Some(PendingCorePress {
             node_id: hit.node_id,
@@ -1072,21 +1112,15 @@ pub(super) fn handle_workspace_left_press(
             st.hide_cluster_overflow_for_monitor(monitor.as_str());
         }
     }
-    let focus_hold_ms = if hit.on_titlebar || hit.is_core {
-        700
-    } else {
-        30_000
-    };
+    if hit.on_titlebar && !hit.is_core {
+        backend.request_redraw();
+        return;
+    }
+    let focus_hold_ms = if hit.is_core { 700 } else { 30_000 };
     let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
     st.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
     st.set_interaction_focus(Some(focus_target), focus_hold_ms, now);
-    if hit.on_titlebar || hit.is_core {
-        set_title_click(ps, hit.node_id, now);
-        backend.request_redraw();
-    } else {
-        ps.last_title_click = None;
-        backend.request_redraw();
-    }
+    backend.request_redraw();
 }
 
 #[cfg(test)]
@@ -1143,13 +1177,7 @@ mod tests {
         let now = Instant::now();
         assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", now));
 
-        let mut ps = PointerState {
-            last_title_click: Some(TitleClickCtx {
-                node_id: master,
-                at: now - Duration::from_millis(100),
-            }),
-            ..Default::default()
-        };
+        let mut ps = PointerState::default();
 
         handle_workspace_left_press(
             &mut st,
@@ -1294,7 +1322,7 @@ mod tests {
         st.input.interaction_state.pending_core_click = Some(PendingCoreClick {
             node_id: pending_press.node_id,
             monitor: pending_press.monitor,
-            deadline_ms: st.now_ms(Instant::now()) + NODE_DOUBLE_CLICK_MS,
+            deadline_ms: st.now_ms(Instant::now()) + 350,
         });
 
         handle_core_left_press(

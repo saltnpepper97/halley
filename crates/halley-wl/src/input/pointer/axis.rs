@@ -12,7 +12,7 @@ use super::focus::pointer_focus_for_screen;
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
-use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};
+use halley_config::{CompositorBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE};
 use smithay::backend::input::{Axis, AxisRelativeDirection, AxisSource};
 
 #[inline]
@@ -63,6 +63,21 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         };
         if let Some(action) = compositor_binding_action_active(st, wheel_code, &mods) {
             ctx.pointer_state.borrow_mut().panning = false;
+            if matches!(
+                action,
+                CompositorBindingAction::ZoomIn | CompositorBindingAction::ZoomOut
+            ) {
+                crate::compositor::interaction::pointer::set_temporary_cursor_override_icon(
+                    st,
+                    if matches!(action, CompositorBindingAction::ZoomIn) {
+                        smithay::input::pointer::CursorIcon::ZoomIn
+                    } else {
+                        smithay::input::pointer::CursorIcon::ZoomOut
+                    },
+                    Instant::now(),
+                    220,
+                );
+            }
             if apply_compositor_action_press(st, action, ctx.config_path, ctx.wayland_display) {
                 ctx.backend.request_redraw();
             }

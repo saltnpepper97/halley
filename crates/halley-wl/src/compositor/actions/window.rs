@@ -238,6 +238,15 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
         return false;
     };
 
+    toggle_node_state(st, id, now, focused_monitor.as_str())
+}
+
+pub(crate) fn toggle_node_state(
+    st: &mut Halley,
+    id: halley_core::field::NodeId,
+    now: Instant,
+    focused_monitor: &str,
+) -> bool {
     let Some(n) = st.model.field.node(id) else {
         return false;
     };
@@ -253,7 +262,7 @@ pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
     }
 
     if let Some(cid) = st.model.field.cluster_id_for_member_public(id) {
-        if st.active_cluster_workspace_for_monitor(focused_monitor.as_str()) == Some(cid) {
+        if st.active_cluster_workspace_for_monitor(focused_monitor) == Some(cid) {
             return st.collapse_active_cluster_workspace(now);
         }
     }

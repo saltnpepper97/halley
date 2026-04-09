@@ -3,7 +3,7 @@ use std::f32::consts::{PI, TAU};
 
 use smithay::{
     backend::renderer::{
-        Color32F, Texture,
+        Texture,
         gles::{GlesFrame, Uniform},
     },
     utils::{Buffer, Physical, Rectangle, Transform},
@@ -13,6 +13,7 @@ use crate::compositor::root::Halley;
 use crate::overlay::{ClusterBloomAnimSnapshot, OverlayView};
 use crate::render::app_icon::ensure_app_icon_resources_for_node_ids;
 use crate::render::text::{draw_ui_text_in, ui_text_size_in};
+use crate::render::{themed_node_fill_color, themed_node_label_text_color};
 
 #[derive(Clone, Copy)]
 pub(crate) struct BloomTokenLayout {
@@ -254,9 +255,18 @@ fn draw_bloom_token(
         (0.0, 0.0).into(),
         (tex_size.w as f64, tex_size.h as f64).into(),
     );
+    let fill_color = themed_node_fill_color(overlay.tuning, false);
     let uniforms = [
-        Uniform::new("node_color", (0.12f32, 0.16f32, 0.20f32, 0.0f32)),
-        Uniform::new("fill_color", (0.95f32, 0.97f32, 0.99f32, 1.0f32)),
+        Uniform::new(
+            "node_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 0.0f32),
+        ),
+        Uniform::new(
+            "fill_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 1.0f32),
+        ),
+        Uniform::new("flat_fill", 1.0f32),
+        Uniform::new("center_flat_fill", 1.0f32),
     ];
     frame.render_texture_from_to(
         texture,
@@ -325,7 +335,7 @@ fn draw_bloom_token(
         center_sy - text_h / 2,
         &glyph,
         scale,
-        Color32F::new(0.16, 0.20, 0.24, alpha),
+        themed_node_label_text_color(fill_color, alpha),
         damage,
     )?;
     Ok(())
@@ -363,9 +373,18 @@ fn draw_bloom_anchor_dot(
         (tex_size.w as f64, tex_size.h as f64).into(),
     );
     let dot_alpha = alpha * (0.84 + 0.10 * pull_mix + 0.12 * pre_release_mix).clamp(0.0, 1.0);
+    let fill_color = themed_node_fill_color(overlay.tuning, false);
     let uniforms = [
-        Uniform::new("node_color", (0.20f32, 0.24f32, 0.29f32, 0.0f32)),
-        Uniform::new("fill_color", (0.80f32, 0.85f32, 0.90f32, 1.0f32)),
+        Uniform::new(
+            "node_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 0.0f32),
+        ),
+        Uniform::new(
+            "fill_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 1.0f32),
+        ),
+        Uniform::new("flat_fill", 1.0f32),
+        Uniform::new("center_flat_fill", 1.0f32),
     ];
     frame.render_texture_from_to(
         texture,
@@ -424,9 +443,18 @@ fn draw_cluster_join_affordance(
         (0.0, 0.0).into(),
         (tex_size.w as f64, tex_size.h as f64).into(),
     );
+    let fill_color = themed_node_fill_color(overlay.tuning, true);
     let uniforms = [
-        Uniform::new("node_color", (0.17f32, 0.77f32, 0.70f32, 0.08f32)),
-        Uniform::new("fill_color", (0.17f32, 0.77f32, 0.70f32, 0.05f32)),
+        Uniform::new(
+            "node_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 0.0f32),
+        ),
+        Uniform::new(
+            "fill_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 1.0f32),
+        ),
+        Uniform::new("flat_fill", 1.0f32),
+        Uniform::new("center_flat_fill", 1.0f32),
     ];
     frame.render_texture_from_to(
         texture,

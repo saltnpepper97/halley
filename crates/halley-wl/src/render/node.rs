@@ -345,21 +345,7 @@ fn node_ring_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
 }
 
 fn node_fill_color(st: &Halley, hovered: bool) -> Color32F {
-    match st.runtime.tuning.node_background_color {
-        NodeBackgroundColorMode::Auto | NodeBackgroundColorMode::Theme => {
-            let ring = node_ring_color(st, hovered, 1.0);
-            let base = (0.94, 0.96, 0.985);
-            Color32F::new(
-                base.0 * 0.86 + ring.r() * 0.14,
-                base.1 * 0.86 + ring.g() * 0.14,
-                base.2 * 0.86 + ring.b() * 0.14,
-                1.0,
-            )
-        }
-        NodeBackgroundColorMode::Light => Color32F::new(0.92, 0.95, 0.98, 1.0),
-        NodeBackgroundColorMode::Dark => Color32F::new(0.15, 0.18, 0.22, 1.0),
-        NodeBackgroundColorMode::Fixed { r, g, b } => Color32F::new(r, g, b, 1.0),
-    }
+    super::themed_node_fill_color(&st.runtime.tuning, hovered)
 }
 
 fn node_fill_uses_flat_mode(st: &Halley) -> bool {
@@ -370,12 +356,7 @@ fn node_fill_uses_flat_mode(st: &Halley) -> bool {
 }
 
 fn node_label_text_color(fill_color: Color32F, alpha: f32) -> Color32F {
-    let luminance = fill_color.r() * 0.2126 + fill_color.g() * 0.7152 + fill_color.b() * 0.0722;
-    if luminance < 0.45 {
-        Color32F::new(0.96, 0.98, 1.0, alpha)
-    } else {
-        Color32F::new(0.08, 0.10, 0.12, alpha)
-    }
+    super::themed_node_label_text_color(fill_color, alpha)
 }
 
 fn node_icon_glyph(st: &Halley, id: halley_core::field::NodeId, fallback: &str) -> Option<char> {

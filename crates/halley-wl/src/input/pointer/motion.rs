@@ -67,6 +67,7 @@ fn detach_bloom_drag_into_pointer_drag(
             },
             pointer_world,
             false,
+            false,
         );
     }
 }
@@ -92,6 +93,7 @@ pub(crate) fn begin_drag(
     frame: ButtonFrame,
     world_now: halley_core::field::Vec2,
     allow_monitor_transfer: bool,
+    requires_drag_modifier: bool,
 ) {
     st.input.interaction_state.pending_core_press = None;
     st.input.interaction_state.pending_core_click = None;
@@ -106,6 +108,7 @@ pub(crate) fn begin_drag(
     let mut drag_ctx = DragCtx {
         node_id: hit.node_id,
         allow_monitor_transfer,
+        requires_drag_modifier,
         edge_pan_eligible,
         current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
         center_latched: false,
@@ -153,6 +156,10 @@ pub(crate) fn begin_drag(
     });
     crate::compositor::carry::system::set_drag_authority_node(st, Some(hit.node_id));
     crate::compositor::carry::system::begin_carry_state_tracking(st, hit.node_id);
+    crate::compositor::interaction::pointer::set_cursor_override_icon(
+        st,
+        Some(smithay::input::pointer::CursorIcon::Grabbing),
+    );
     if !hit.is_core {
         let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
         st.set_recent_top_node(
@@ -337,6 +344,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     };
 
     let grabbed_layer_surface_active = grabbed_layer_surface_monitor.is_some();
+    let mut desktop_hover = false;
     let target_monitor = {
         if let Some(owner) = grabbed_layer_surface_monitor {
             owner
@@ -386,6 +394,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 resize_preview,
             )
         };
+        desktop_hover = focus.is_none();
 
         if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
             pointer.relative_motion(
@@ -544,6 +553,18 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     }
 
     maybe_begin_core_drag_from_pending_press(
+        st,
+        &mut ps,
+        ctx.backend,
+        local_w,
+        local_h,
+        effective_sx,
+        effective_sy,
+        local_sx,
+        local_sy,
+        pointer_world,
+    );
+    maybe_begin_titlebar_drag_from_pending_press(
         st,
         &mut ps,
         ctx.backend,
@@ -752,6 +773,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     }
 
     if ps.panning {
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(smithay::input::pointer::CursorIcon::Grabbing),
+        );
         let (lsx, lsy) = ps.pan_last_screen;
         let dx_px = effective_sx - lsx;
         let dy_px = effective_sy - lsy;
@@ -847,6 +872,15 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     });
     if st.input.interaction_state.pending_core_hover.is_some() {
         st.request_maintenance();
+    }
+
+    if ps.drag.is_none()
+        && ps.resize.is_none()
+        && !ps.panning
+        && desktop_hover
+        && st.input.interaction_state.overlay_hover_target.is_none()
+    {
+        crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
     }
 
     ctx.backend.request_redraw();
@@ -993,6 +1027,59 @@ pub(super) fn maybe_begin_core_drag_from_pending_press(
                     },
                     pointer_world,
                     false,
+                    false,
+                );
+                backend.request_redraw();
+            }
+        }
+    }
+}
+
+pub(super) fn maybe_begin_titlebar_drag_from_pending_press(
+    st: &mut Halley,
+    ps: &mut PointerState,
+    backend: &impl BackendView,
+    local_w: i32,
+    local_h: i32,
+    effective_sx: f32,
+    effective_sy: f32,
+    local_sx: f32,
+    local_sy: f32,
+    pointer_world: halley_core::field::Vec2,
+) {
+    if let Some(pending_press) = st.input.interaction_state.pending_titlebar_press.clone() {
+        if !ps.left_button_down {
+            st.input.interaction_state.pending_titlebar_press = None;
+            return;
+        }
+        let dx = effective_sx - pending_press.press_global_sx;
+        let dy = effective_sy - pending_press.press_global_sy;
+        const TITLEBAR_DRAG_THRESHOLD_PX: f32 = 8.0;
+        if dx.hypot(dy) >= TITLEBAR_DRAG_THRESHOLD_PX {
+            st.input.interaction_state.pending_titlebar_press = None;
+            if node_is_pointer_draggable(st, pending_press.node_id) {
+                begin_drag(
+                    st,
+                    ps,
+                    backend,
+                    HitNode {
+                        node_id: pending_press.node_id,
+                        on_titlebar: true,
+                        is_core: false,
+                    },
+                    ButtonFrame {
+                        ws_w: local_w,
+                        ws_h: local_h,
+                        global_sx: effective_sx,
+                        global_sy: effective_sy,
+                        sx: local_sx,
+                        sy: local_sy,
+                        world_now: pointer_world,
+                        workspace_active: pending_press.workspace_active,
+                    },
+                    pointer_world,
+                    false,
+                    false,
                 );
                 backend.request_redraw();
             }
@@ -1020,12 +1107,14 @@ pub(super) fn handle_drag_motion(
         return false;
     };
 
-    if ps.resize.is_some() || !drag_mod_ok {
-        let joined = !drag_mod_ok && st.commit_ready_cluster_join_for_node(drag.node_id, now);
+    let drag_allowed = !drag.requires_drag_modifier || drag_mod_ok;
+    if ps.resize.is_some() || !drag_allowed {
+        let joined = !drag_allowed && st.commit_ready_cluster_join_for_node(drag.node_id, now);
         crate::compositor::carry::system::set_drag_authority_node(st, None);
         crate::compositor::carry::system::end_carry_state_tracking(st, drag.node_id);
         ps.drag = None;
         st.input.interaction_state.active_drag = None;
+        crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
         if joined {
             backend.request_redraw();
         }
@@ -1088,6 +1177,10 @@ pub(super) fn handle_drag_motion(
         edge_pan_y: next_drag.edge_pan_y,
     });
     ps.drag = Some(next_drag);
+    crate::compositor::interaction::pointer::set_cursor_override_icon(
+        st,
+        Some(smithay::input::pointer::CursorIcon::Grabbing),
+    );
     let _ = update_cluster_join_candidate(st, drag.node_id, target_monitor, desired_to, now);
     backend.request_redraw();
     true

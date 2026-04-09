@@ -144,6 +144,14 @@ pub(crate) struct PendingCorePress {
     pub(crate) press_global_sy: f32,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct PendingTitlebarPress {
+    pub(crate) node_id: NodeId,
+    pub(crate) press_global_sx: f32,
+    pub(crate) press_global_sy: f32,
+    pub(crate) workspace_active: bool,
+}
+
 #[derive(Clone)]
 pub(crate) struct PendingCoreClick {
     pub(crate) node_id: NodeId,
@@ -262,8 +270,10 @@ pub(crate) struct InteractionState {
     pub(crate) modal_release_keys: HashSet<u32>,
     pub(crate) pending_modal_focus_restore: Option<PendingModalFocusRestore>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
+    pub(crate) cursor_override_until_ms: Option<u64>,
     pub(crate) pending_core_hover: Option<PendingCoreHover>,
     pub(crate) pending_core_press: Option<PendingCorePress>,
+    pub(crate) pending_titlebar_press: Option<PendingTitlebarPress>,
     pub(crate) pending_core_click: Option<PendingCoreClick>,
     pub(crate) grabbed_edge_pan_active: bool,
     pub(crate) grabbed_edge_pan_direction: Vec2,

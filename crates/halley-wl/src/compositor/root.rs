@@ -504,7 +504,9 @@ impl Halley {
                 primary_selection_state,
                 data_control_state,
                 seat,
-                cursor_image_status: CursorImageStatus::default_named(),
+                cursor_image_status: CursorImageStatus::Named(
+                    smithay::input::pointer::CursorIcon::Default,
+                ),
                 dmabuf_importer: None,
             },
             model: ModelState {
@@ -672,8 +674,10 @@ impl Halley {
                     modal_release_keys: HashSet::new(),
                     pending_modal_focus_restore: None,
                     overlay_hover_target: None,
+                    cursor_override_until_ms: None,
                     pending_core_hover: None,
                     pending_core_press: None,
+                    pending_titlebar_press: None,
                     pending_core_click: None,
                     grabbed_edge_pan_active: false,
                     grabbed_edge_pan_direction: Vec2 { x: 0.0, y: 0.0 },

@@ -162,6 +162,9 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
         {
             consider(restore_at_ms);
         }
+        if let Some(until_ms) = self.input.interaction_state.cursor_override_until_ms {
+            consider(until_ms);
+        }
         if self
             .input
             .interaction_state
@@ -353,6 +356,15 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         {
             self.input.interaction_state.pending_modal_focus_restore = None;
             self.apply_wayland_focus_state(pending.target);
+        }
+        if self
+            .input
+            .interaction_state
+            .cursor_override_until_ms
+            .is_some_and(|until_ms| now_ms >= until_ms)
+        {
+            self.input.interaction_state.cursor_override_until_ms = None;
+            self.input.interaction_state.cursor_override_icon = None;
         }
         if self.has_any_active_cluster_workspace() {
             let active_monitors = self

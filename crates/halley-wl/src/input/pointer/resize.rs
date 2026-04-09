@@ -12,11 +12,26 @@ use crate::compositor::surface_ops::{
 use crate::render::active_window_frame_pad_px;
 use crate::render::world_to_screen;
 use smithay::desktop::utils::bbox_from_surface_tree;
+use smithay::input::pointer::CursorIcon;
 use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::button::ButtonFrame;
+
+pub(crate) fn cursor_icon_for_resize_handle(handle: ResizeHandle) -> CursorIcon {
+    match handle {
+        ResizeHandle::Pending => CursorIcon::Crosshair,
+        ResizeHandle::Left => CursorIcon::WResize,
+        ResizeHandle::Right => CursorIcon::EResize,
+        ResizeHandle::Top => CursorIcon::NResize,
+        ResizeHandle::Bottom => CursorIcon::SResize,
+        ResizeHandle::TopLeft => CursorIcon::NwResize,
+        ResizeHandle::TopRight => CursorIcon::NeResize,
+        ResizeHandle::BottomLeft => CursorIcon::SwResize,
+        ResizeHandle::BottomRight => CursorIcon::SeResize,
+    }
+}
 
 #[inline]
 fn resize_rect_nearly_eq(a: f32, b: f32) -> bool {
@@ -431,6 +446,10 @@ pub(super) fn begin_resize(
     };
 
     ps.resize = Some(resize_ctx);
+    crate::compositor::interaction::pointer::set_cursor_override_icon(
+        st,
+        Some(cursor_icon_for_resize_handle(handle)),
+    );
     backend.request_redraw();
 }
 
@@ -465,6 +484,7 @@ pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &
     }
 
     finish_resize_interaction(st, ps, resize, now);
+    crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
     backend.request_redraw();
 }
 
@@ -481,10 +501,18 @@ pub(super) fn handle_resize_motion(
         return false;
     };
     if resize.settling {
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(cursor_icon_for_resize_handle(resize.handle)),
+        );
         return false;
     }
 
     let mut next = resize;
+    crate::compositor::interaction::pointer::set_cursor_override_icon(
+        st,
+        Some(cursor_icon_for_resize_handle(next.handle)),
+    );
     let dx = local_sx - resize.press_sx;
     let dy = local_sy - resize.press_sy;
 
