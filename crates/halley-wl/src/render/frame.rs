@@ -3,6 +3,7 @@ use std::error::Error;
 use std::time::Instant;
 
 use halley_core::field::{NodeId, Vec2};
+use halley_core::viewport::FocusRing;
 use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::wayland::compositor::{
@@ -64,6 +65,19 @@ type SurfaceElement =
 
 const WINDOW_TEXTURE_SHADER: &str = include_str!("shaders/window_rounded_texture.frag");
 const SURFACE_CLIP_SHADER: &str = include_str!("shaders/surface_clipped_texture.frag");
+
+fn focus_ring_screen_radii(
+    view_size: Vec2,
+    output_size: Size<i32, Physical>,
+    focus_ring: FocusRing,
+) -> (f32, f32) {
+    let px_per_world_x = output_size.w as f32 / view_size.x.max(1.0);
+    let px_per_world_y = output_size.h as f32 / view_size.y.max(1.0);
+    (
+        focus_ring.radius_x * px_per_world_x,
+        focus_ring.radius_y * px_per_world_y,
+    )
+}
 
 pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) -> bool {
     if st.now_ms(std::time::Instant::now()) < st.runtime.screenshot_full_repaint_until_ms {
@@ -692,6 +706,24 @@ mod tests {
             )
             .active
         );
+    }
+
+    #[test]
+    fn focus_ring_preview_radii_follow_zoomed_camera_view() {
+        let focus_ring = FocusRing::new(200.0, 100.0, 0.0, 0.0);
+        let output_size = Size::<i32, Physical>::from((1920, 1080));
+
+        let (screen_rx, screen_ry) = focus_ring_screen_radii(
+            Vec2 {
+                x: 3840.0,
+                y: 2160.0,
+            },
+            output_size,
+            focus_ring,
+        );
+
+        assert_eq!(screen_rx, 100.0);
+        assert_eq!(screen_ry, 50.0);
     }
 
     #[test]
@@ -1324,10 +1356,8 @@ fn draw_debug_frame_scene(
         let ring_world_cx = st.model.viewport.center.x + focus_ring.offset_x;
         let ring_world_cy = st.model.viewport.center.y + focus_ring.offset_y;
         let (ring_sx, ring_sy) = world_to_screen(st, size.w, size.h, ring_world_cx, ring_world_cy);
-        let base_px_per_world_x = size.w as f32 / st.model.viewport.size.x.max(1.0);
-        let base_px_per_world_y = size.h as f32 / st.model.viewport.size.y.max(1.0);
-        let screen_rx = focus_ring.radius_x * base_px_per_world_x;
-        let screen_ry = focus_ring.radius_y * base_px_per_world_y;
+        let (screen_rx, screen_ry) =
+            focus_ring_screen_radii(st.camera_view_size(), size, focus_ring);
         draw_ring(
             frame,
             ring_sx as f32,

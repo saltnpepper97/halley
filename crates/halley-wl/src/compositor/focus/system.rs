@@ -244,6 +244,10 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
             .focus_state
             .last_surface_focus_ms
             .insert(fid, now_ms);
+        self.model
+            .focus_state
+            .outside_focus_ring_since_ms
+            .remove(&fid);
         if self.model.focus_state.suppress_trail_record_once {
             self.model.focus_state.suppress_trail_record_once = false;
         } else {

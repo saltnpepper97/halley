@@ -374,6 +374,7 @@ pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
                 .primary_promote_cooldown_until_ms
                 .remove(&id);
             st.model.focus_state.last_surface_focus_ms.remove(&id);
+            st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
             st.model.carry_state.carry_zone_hint.remove(&id);
             st.model.carry_state.carry_zone_last_change_ms.remove(&id);
             st.model.carry_state.carry_zone_pending.remove(&id);
@@ -1074,6 +1075,7 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
             .primary_promote_cooldown_until_ms
             .remove(&id);
         st.model.focus_state.last_surface_focus_ms.remove(&id);
+        st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
         st.model.monitor_state.node_monitor.remove(&id);
         st.model.carry_state.carry_zone_hint.remove(&id);
         st.model.carry_state.carry_zone_last_change_ms.remove(&id);
