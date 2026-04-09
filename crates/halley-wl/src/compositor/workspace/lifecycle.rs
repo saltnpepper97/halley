@@ -996,9 +996,9 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         if st.runtime.tuning.window_close_animation_enabled()
             && let Some(monitor) = closing_monitor.as_deref()
             && let Some((border_rect, offscreen_textures)) =
-                crate::render::capture_closing_window_ghost(st, monitor, id)
+                crate::render::capture_closing_window_animation(st, monitor, id)
         {
-            st.ui.render_state.start_closing_window_ghost(
+            st.ui.render_state.start_closing_window_animation(
                 id,
                 monitor,
                 Instant::now(),

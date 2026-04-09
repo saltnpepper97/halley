@@ -54,7 +54,7 @@ pub(crate) use frame::{
 pub(crate) use screenshot_icon::screenshot_menu_icon_texture;
 pub(crate) use utils::preview_proxy_size;
 pub(crate) use utils::{node_marker_metrics, world_to_screen};
-pub(crate) use window::capture_closing_window_ghost;
+pub(crate) use window::capture_closing_window_animation;
 
 fn window_active_border_color_for_tuning(tuning: &RuntimeTuning) -> Color32F {
     let color = tuning.border_color_focused;

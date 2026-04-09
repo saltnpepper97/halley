@@ -61,12 +61,12 @@ pub(crate) fn start_active_to_node_close_animation(st: &mut Halley, id: NodeId, 
     let duration_ms = st.runtime.tuning.window_close_duration_ms();
     let style = st.runtime.tuning.window_close_style();
     let Some((border_rect, offscreen_textures)) =
-        crate::render::capture_closing_window_ghost(st, monitor.as_str(), id)
+        crate::render::capture_closing_window_animation(st, monitor.as_str(), id)
     else {
         return;
     };
 
-    st.ui.render_state.start_closing_window_ghost(
+    st.ui.render_state.start_closing_window_animation(
         id,
         monitor.as_str(),
         now,

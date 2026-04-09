@@ -45,7 +45,7 @@ use super::node::{
     ensure_node_circle_resources,
 };
 use super::screenshot_icon::ensure_screenshot_menu_icon_resources;
-use super::state::ClosingWindowGhostSnapshot;
+use super::state::ClosingWindowAnimationSnapshot;
 use super::text::ensure_ui_text_resources;
 use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 use super::window::{
@@ -654,11 +654,11 @@ mod tests {
     }
 
     #[test]
-    fn closing_window_ghost_only_marks_target_monitor_active() {
+    fn closing_window_animation_only_marks_target_monitor_active() {
         let mut state = multi_monitor_state();
         let start = Instant::now();
 
-        state.ui.render_state.start_closing_window_ghost(
+        state.ui.render_state.start_closing_window_animation(
             NodeId::new(77),
             "right",
             start,
@@ -794,7 +794,7 @@ struct SceneCollections {
     stack_window_units: Vec<StackWindowDrawUnit>,
     border_rects: Vec<ActiveBorderRect>,
     resized_border_rects: Vec<ActiveBorderRect>,
-    closing_window_ghosts: Vec<ClosingWindowGhostSnapshot>,
+    closing_window_animations: Vec<ClosingWindowAnimationSnapshot>,
     overlap_overlay_rects: Vec<(i32, i32, i32, i32)>,
     hover_preview_rect: Option<(i32, i32, i32, i32)>,
     hover_preview_elements: Vec<SurfaceElement>,
@@ -1006,10 +1006,10 @@ fn collect_debug_frame_scene(
         resized_border_rects,
         overlap_overlay_rects,
     ) = collect_active_surfaces(renderer, st, size, resize_preview, now);
-    let closing_window_ghosts = if st.runtime.tuning.window_close_animation_enabled() {
+    let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled() {
         st.ui
             .render_state
-            .closing_window_ghost_snapshots(render_monitor.as_str(), now)
+            .closing_window_animation_snapshots(render_monitor.as_str(), now)
     } else {
         Vec::new()
     };
@@ -1096,7 +1096,7 @@ fn collect_debug_frame_scene(
         stack_window_units,
         border_rects,
         resized_border_rects,
-        closing_window_ghosts,
+        closing_window_animations,
         overlap_overlay_rects,
         hover_preview_rect,
         hover_preview_elements,
@@ -1221,11 +1221,11 @@ fn draw_debug_frame_scene(
         let _ = draw_render_elements(frame, 1.0, &scene.popup_elements, &[prepared.damage]);
     }
 
-    draw_closing_window_ghosts(
+    draw_closing_window_animations(
         frame,
         size,
         prepared.damage,
-        &scene.closing_window_ghosts,
+        &scene.closing_window_animations,
         st,
     )?;
 
@@ -1430,24 +1430,24 @@ fn transform_rect_about_center(
     )
 }
 
-fn draw_closing_window_ghosts(
+fn draw_closing_window_animations(
     frame: &mut GlesFrame<'_, '_>,
     size: Size<i32, Physical>,
     damage: Rectangle<i32, Physical>,
-    ghosts: &[ClosingWindowGhostSnapshot],
+    animations: &[ClosingWindowAnimationSnapshot],
     st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
-    for ghost in ghosts {
-        let scale = match ghost.style {
+    for animation in animations {
+        let scale = match animation.style {
             halley_config::WindowCloseAnimationStyle::Shrink => {
-                (1.0 - crate::animation::ease_in_out_cubic(ghost.progress)).clamp(0.0, 1.0)
+                (1.0 - crate::animation::ease_in_out_cubic(animation.progress)).clamp(0.0, 1.0)
             }
         };
         if scale <= 0.001 {
             continue;
         }
 
-        if let Some(border_rect) = ghost.border_rect.as_ref() {
+        if let Some(border_rect) = animation.border_rect.as_ref() {
             let center = (
                 border_rect.x as f32 + border_rect.w as f32 * 0.5,
                 border_rect.y as f32 + border_rect.h as f32 * 0.5,
@@ -1484,7 +1484,7 @@ fn draw_closing_window_ghosts(
             )?;
         }
 
-        let scaled_textures = ghost
+        let scaled_textures = animation
             .offscreen_textures
             .iter()
             .cloned()

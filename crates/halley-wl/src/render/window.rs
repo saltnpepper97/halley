@@ -597,7 +597,53 @@ fn offscreen_visual_crop_and_dst(
     )
 }
 
-pub(crate) fn capture_closing_window_ghost(
+fn render_view_for_monitor(st: &Halley, monitor: &str) -> (Vec2, Vec2, Vec2) {
+    if st.model.monitor_state.current_monitor == monitor {
+        return (
+            st.model.viewport.center,
+            st.model.viewport.size,
+            st.model.zoom_ref_size,
+        );
+    }
+
+    st.model
+        .monitor_state
+        .monitors
+        .get(monitor)
+        .map(|space| {
+            (
+                space.viewport.center,
+                space.viewport.size,
+                space.zoom_ref_size,
+            )
+        })
+        .unwrap_or((
+            st.model.viewport.center,
+            st.model.viewport.size,
+            st.model.zoom_ref_size,
+        ))
+}
+
+fn world_to_screen_for_view(
+    view_center: Vec2,
+    view_size: Vec2,
+    output_w: i32,
+    output_h: i32,
+    x: f32,
+    y: f32,
+) -> (i32, i32) {
+    let vw = view_size.x.max(1.0);
+    let vh = view_size.y.max(1.0);
+    let nx = ((x - view_center.x) / vw) + 0.5;
+    let ny = ((y - view_center.y) / vh) + 0.5;
+
+    (
+        (nx * output_w as f32).round() as i32,
+        (ny * output_h as f32).round() as i32,
+    )
+}
+
+pub(crate) fn capture_closing_window_animation(
     st: &Halley,
     monitor: &str,
     node_id: NodeId,
@@ -619,14 +665,22 @@ pub(crate) fn capture_closing_window_ghost(
         (output_size.w.max(1), output_size.h.max(1)).into(),
     );
 
-    let render_scale = st.camera_render_scale();
+    let (view_center, viewport_size, view_size) = render_view_for_monitor(st, monitor);
+    let render_scale = (viewport_size.x.max(1.0) / view_size.x.max(1.0)).max(0.01);
     let local_geo = window_geometry_for_node(st, node_id).unwrap_or((
         ob.loc.x as f32,
         ob.loc.y as f32,
         ob.size.w.max(1) as f32,
         ob.size.h.max(1) as f32,
     ));
-    let (cx, cy) = world_to_screen(st, output_size.w, output_size.h, node.pos.x, node.pos.y);
+    let (cx, cy) = world_to_screen_for_view(
+        view_center,
+        view_size,
+        output_size.w,
+        output_size.h,
+        node.pos.x,
+        node.pos.y,
+    );
     let gw = (local_geo.2 * render_scale).round().max(1.0) as i32;
     let gh = (local_geo.3 * render_scale).round().max(1.0) as i32;
     let gx = cx - (gw / 2);
@@ -1865,9 +1919,13 @@ pub(crate) fn collect_active_surfaces(
 
 #[cfg(test)]
 mod tests {
-    use super::{should_draw_resize_overlap_overlay, strict_square_csd_transition_mode};
+    use super::{
+        should_draw_resize_overlap_overlay, strict_square_csd_transition_mode,
+        world_to_screen_for_view,
+    };
     use crate::compositor::surface_ops::stacking_render_order_map;
     use halley_core::field::NodeId;
+    use halley_core::field::Vec2;
 
     #[test]
     fn stacking_render_order_keeps_front_card_last() {
@@ -1915,5 +1973,20 @@ mod tests {
         assert!(strict_square_csd_transition_mode(false, 0, true));
         assert!(!strict_square_csd_transition_mode(true, 0, true));
         assert!(!strict_square_csd_transition_mode(false, 8, true));
+    }
+
+    #[test]
+    fn world_to_screen_for_view_uses_supplied_monitor_camera() {
+        let center = Vec2 { x: 500.0, y: 200.0 };
+        let view_size = Vec2 { x: 400.0, y: 200.0 };
+
+        assert_eq!(
+            world_to_screen_for_view(center, view_size, 1920, 1080, 500.0, 200.0),
+            (960, 540)
+        );
+        assert_eq!(
+            world_to_screen_for_view(center, view_size, 1920, 1080, 300.0, 100.0),
+            (0, 0)
+        );
     }
 }
