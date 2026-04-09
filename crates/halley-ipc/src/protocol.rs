@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::IpcError;
 use crate::types::{
-    BearingsStatusResponse, NodeInfo, NodeListResponse, OutputsResponse, TrailListResponse,
+    BearingsStatusResponse, ClusterInfo, ClusterListResponse, NodeInfo, NodeListResponse,
+    OutputsResponse, TrailListResponse,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -90,8 +91,23 @@ pub enum TileRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ClusterTarget {
+    Current,
+    Id(u64),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClusterRequest {
-    LayoutCycle { output: Option<String> },
+    List {
+        output: Option<String>,
+    },
+    Inspect {
+        target: Option<ClusterTarget>,
+        output: Option<String>,
+    },
+    LayoutCycle {
+        output: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -189,6 +205,8 @@ pub enum Response {
     CaptureStatus(crate::types::CaptureStatusResponse),
     NodeList(NodeListResponse),
     NodeInfo(NodeInfo),
+    ClusterList(ClusterListResponse),
+    ClusterInfo(ClusterInfo),
     TrailList(TrailListResponse),
     BearingsStatus(BearingsStatusResponse),
     Error(IpcError),

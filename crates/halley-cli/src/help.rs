@@ -27,6 +27,8 @@ pub(crate) enum HelpTopic {
     BearingsToggle,
     BearingsStatus,
     Cluster,
+    ClusterList,
+    ClusterInspect,
     ClusterLayout,
     ClusterLayoutCycle,
     Stack,
@@ -253,8 +255,29 @@ pub(crate) fn print_help(topic: HelpTopic) {
         ),
         HelpTopic::Cluster => print_help_page(
             "halleyctl cluster",
-            &["halleyctl cluster layout cycle [-o OUTPUT]"],
-            &[("layout", "Cluster workspace layout actions")],
+            &[
+                "halleyctl cluster list [-o OUTPUT] [--json]",
+                "halleyctl cluster inspect [current|ID] [-o OUTPUT] [--json]",
+                "halleyctl cluster layout cycle [-o OUTPUT]",
+            ],
+            &[
+                ("list", "List clusters"),
+                ("inspect", "Show information about a cluster"),
+                ("layout", "Cluster workspace layout actions"),
+            ],
+        ),
+        HelpTopic::ClusterList => print_help_page(
+            "halleyctl cluster list",
+            &["halleyctl cluster list [-o OUTPUT] [--json]"],
+            &[("list", "List clusters on one or more outputs")],
+        ),
+        HelpTopic::ClusterInspect => print_help_page(
+            "halleyctl cluster inspect",
+            &["halleyctl cluster inspect [current|ID] [-o OUTPUT] [--json]"],
+            &[(
+                "current|ID",
+                "Inspect the active cluster on an output or a cluster by id",
+            )],
         ),
         HelpTopic::ClusterLayout => print_help_page(
             "halleyctl cluster layout",

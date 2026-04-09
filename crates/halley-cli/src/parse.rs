@@ -273,6 +273,66 @@ mod tests {
             _ => panic!("unexpected parse outcome"),
         }
     }
+
+    #[test]
+    fn cluster_list_request_parses() {
+        let args = vec!["cluster".to_string(), "list".to_string()];
+        let outcome = match parse_request(&args) {
+            Ok(outcome) => outcome,
+            Err(err) => panic!("cluster list request should parse: {}", err.message),
+        };
+
+        match outcome {
+            ParseOutcome::Request(halley_ipc::Request::Cluster(
+                halley_ipc::ClusterRequest::List { output },
+            )) => {
+                assert_eq!(output, None);
+            }
+            _ => panic!("unexpected parse outcome"),
+        }
+    }
+
+    #[test]
+    fn cluster_inspect_request_parses_default_current() {
+        let args = vec!["cluster".to_string(), "inspect".to_string()];
+        let outcome = match parse_request(&args) {
+            Ok(outcome) => outcome,
+            Err(err) => panic!("cluster inspect request should parse: {}", err.message),
+        };
+
+        match outcome {
+            ParseOutcome::Request(halley_ipc::Request::Cluster(
+                halley_ipc::ClusterRequest::Inspect { target, output },
+            )) => {
+                assert!(target.is_none());
+                assert_eq!(output, None);
+            }
+            _ => panic!("unexpected parse outcome"),
+        }
+    }
+
+    #[test]
+    fn cluster_inspect_request_parses_id_target() {
+        let args = vec![
+            "cluster".to_string(),
+            "inspect".to_string(),
+            "2".to_string(),
+        ];
+        let outcome = match parse_request(&args) {
+            Ok(outcome) => outcome,
+            Err(err) => panic!("cluster inspect id request should parse: {}", err.message),
+        };
+
+        match outcome {
+            ParseOutcome::Request(halley_ipc::Request::Cluster(
+                halley_ipc::ClusterRequest::Inspect { target, output },
+            )) => {
+                assert!(matches!(target, Some(halley_ipc::ClusterTarget::Id(2))));
+                assert_eq!(output, None);
+            }
+            _ => panic!("unexpected parse outcome"),
+        }
+    }
 }
 
 pub(crate) fn parse_node_selector(text: &str) -> Result<NodeSelector, UsageError> {

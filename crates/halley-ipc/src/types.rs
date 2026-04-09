@@ -107,6 +107,49 @@ pub struct NodeInfo {
     pub height: f32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClusterLayoutKind {
+    Tiling,
+    Stacking,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterSummary {
+    pub id: u64,
+    pub name: Option<String>,
+    pub output: Option<String>,
+    pub layout: ClusterLayoutKind,
+    pub member_count: usize,
+    pub active: bool,
+    pub focused: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterOutputGroup {
+    pub output: String,
+    pub clusters: Vec<ClusterSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterListResponse {
+    pub outputs: Vec<ClusterOutputGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterInfo {
+    pub id: u64,
+    pub name: Option<String>,
+    pub output: Option<String>,
+    pub layout: ClusterLayoutKind,
+    pub member_count: usize,
+    pub active: bool,
+    pub focused: bool,
+    pub focused_member_index: Option<usize>,
+    pub focused_member_id: Option<u64>,
+    pub members: Vec<NodeInfo>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeOutputGroup {
     pub output: String,
