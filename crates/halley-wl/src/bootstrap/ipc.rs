@@ -28,6 +28,8 @@ static IPC_OUTPUTS: OnceCell<Arc<Mutex<Vec<OutputInfo>>>> = OnceCell::new();
 static IPC_SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 static IPC_SOCKET_PATH: OnceCell<std::path::PathBuf> = OnceCell::new();
 
+const IPC_CLIENT_IO_TIMEOUT: Duration = Duration::from_secs(2);
+
 pub fn init_ipc() -> io::Result<()> {
     if IPC_REQUEST_RX.get().is_some() {
         return Ok(());
@@ -72,9 +74,11 @@ pub fn init_ipc() -> io::Result<()> {
                 }
 
                 match listener.accept() {
-                    Ok((mut stream, _addr)) => {
-                        if let Err(err) = handle_client(&mut stream, &request_tx, &outputs) {
-                            warn!("halley ipc client failed: {}", err);
+                    Ok((stream, _addr)) => {
+                        let request_tx = request_tx.clone();
+                        let outputs = outputs.clone();
+                        if let Err(err) = spawn_ipc_client_handler(stream, request_tx, outputs) {
+                            warn!("halley ipc client spawn failed: {}", err);
                         }
                     }
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
@@ -149,6 +153,24 @@ fn handle_client(
 
     let response_bytes = encode_response(&response).map_err(io::Error::other)?;
     write_frame(stream, &response_bytes).map_err(io::Error::other)
+}
+
+fn spawn_ipc_client_handler(
+    mut stream: UnixStream,
+    request_tx: mpsc::Sender<RuntimeIpcRequest>,
+    outputs: Arc<Mutex<Vec<OutputInfo>>>,
+) -> io::Result<()> {
+    stream.set_read_timeout(Some(IPC_CLIENT_IO_TIMEOUT))?;
+    stream.set_write_timeout(Some(IPC_CLIENT_IO_TIMEOUT))?;
+    thread::Builder::new()
+        .name("halley-ipc-client".to_string())
+        .spawn(move || {
+            if let Err(err) = handle_client(&mut stream, &request_tx, &outputs) {
+                warn!("halley ipc client failed: {}", err);
+            }
+        })
+        .map(|_| ())
+        .map_err(io::Error::other)
 }
 
 fn handle_request(

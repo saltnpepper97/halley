@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
+use std::time::Instant;
 
 use super::*;
 use crate::compositor::overlap::system::CollisionExtents;
@@ -111,11 +112,16 @@ impl<T: Deref<Target = Halley>> FocusDecayController<T> {
 impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
     pub(crate) fn enforce_single_primary_active_unit(&mut self) {
         let now_ms = self.now_ms(Instant::now());
-        let tile_max_stack = self.runtime.tuning.tile_max_stack;
-        let active_windows_allowed = if tile_max_stack == 0 {
+        let visible_limit = self.runtime.tuning.active_cluster_visible_limit();
+        let active_windows_allowed = if visible_limit == 0 {
             usize::MAX
         } else {
-            tile_max_stack + 1
+            match self.runtime.tuning.cluster_layout_kind() {
+                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling => {
+                    visible_limit + 1
+                }
+                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking => visible_limit,
+            }
         };
         let companion = self.companion_surface_node(now_ms);
         let preferred_surface = self.last_input_surface_node();
@@ -215,6 +221,11 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
                 if keep_set.contains(&id) {
                     continue;
                 }
+                crate::compositor::workspace::state::start_active_to_node_close_animation(
+                    self,
+                    id,
+                    Instant::now(),
+                );
                 let _ = self.model.field.set_decay_level(id, DecayLevel::Cold);
             }
         }
@@ -268,6 +279,11 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
             .unwrap_or(0);
 
         if now_ms.saturating_sub(last_focus_ms) >= delay_ms {
+            crate::compositor::workspace::state::start_active_to_node_close_animation(
+                self,
+                id,
+                Instant::now(),
+            );
             let _ = self.model.field.set_decay_level(id, DecayLevel::Cold);
         } else {
             let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);

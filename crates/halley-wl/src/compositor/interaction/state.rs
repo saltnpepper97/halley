@@ -1,14 +1,25 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
+use halley_capit::CaptureCrop;
 use halley_config::CompositorBindingAction;
 use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
 use halley_core::viewport::Viewport;
+use halley_ipc::CaptureMode;
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 
 use crate::compositor::interaction::drag::DragAxisMode;
 use crate::compositor::root::Halley;
 use smithay::input::pointer::CursorIcon;
+
+const BLOOM_PULL_SLOP_PX: f32 = 12.0;
+const BLOOM_TETHER_MAX_PX: f32 = 60.0;
+const BLOOM_TETHER_SOFTNESS_PX: f32 = 30.0;
+const BLOOM_DETACH_HOLD_MS: u64 = 1200;
+const BLOOM_SNAPBACK_MS: u64 = 170;
 
 #[derive(Default, Clone)]
 pub(crate) struct ModState {
@@ -26,6 +37,17 @@ pub(crate) struct ModState {
     pub(crate) right_shift_down: bool,
     pub(crate) intercepted_keys: HashSet<u32>,
     pub(crate) intercepted_compositor_actions: HashMap<u32, CompositorBindingAction>,
+}
+
+pub(crate) fn trap_modal_key_release(st: &mut Halley, code: u32) {
+    st.input.interaction_state.modal_release_keys.insert(code);
+}
+
+impl ModState {
+    pub(crate) fn clear_intercepts(&mut self) {
+        self.intercepted_keys.clear();
+        self.intercepted_compositor_actions.clear();
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -68,10 +90,28 @@ pub(crate) struct ClusterJoinCandidate {
 }
 
 #[derive(Clone)]
+pub(crate) enum BloomPullPhase {
+    Pressed,
+    Tethered {
+        started_at_ms: u64,
+    },
+    Snapback {
+        started_at_ms: u64,
+        from_offset: Vec2,
+    },
+}
+
+#[derive(Clone)]
 pub(crate) struct BloomPullPreview {
     pub(crate) cluster_id: ClusterId,
     pub(crate) member_id: NodeId,
-    pub(crate) mix: f32,
+    pub(crate) monitor: String,
+    pub(crate) core_screen: Vec2,
+    pub(crate) slot_screen: Vec2,
+    pub(crate) pointer_screen: Vec2,
+    pub(crate) display_offset: Vec2,
+    pub(crate) hold_progress: f32,
+    pub(crate) phase: BloomPullPhase,
 }
 
 #[derive(Clone)]
@@ -90,12 +130,26 @@ pub(crate) struct OverlayHoverTarget {
 }
 
 #[derive(Clone)]
+pub(crate) struct PendingCoreHover {
+    pub(crate) node_id: NodeId,
+    pub(crate) monitor: String,
+    pub(crate) started_at_ms: u64,
+}
+
+#[derive(Clone)]
 pub(crate) struct PendingCorePress {
     pub(crate) node_id: NodeId,
     pub(crate) monitor: String,
     pub(crate) press_global_sx: f32,
     pub(crate) press_global_sy: f32,
-    pub(crate) reopen_bloom_on_timeout: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingTitlebarPress {
+    pub(crate) node_id: NodeId,
+    pub(crate) press_global_sx: f32,
+    pub(crate) press_global_sy: f32,
+    pub(crate) workspace_active: bool,
 }
 
 #[derive(Clone)]
@@ -103,7 +157,83 @@ pub(crate) struct PendingCoreClick {
     pub(crate) node_id: NodeId,
     pub(crate) monitor: String,
     pub(crate) deadline_ms: u64,
-    pub(crate) reopen_bloom_on_timeout: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ClusterNamePromptRepeatAction {
+    Insert(char),
+    Backspace,
+    Delete,
+    MoveLeft,
+    MoveRight,
+}
+
+#[derive(Clone)]
+pub(crate) struct ClusterNamePromptRepeatState {
+    pub(crate) monitor: String,
+    pub(crate) code: u32,
+    pub(crate) action: ClusterNamePromptRepeatAction,
+    pub(crate) next_repeat_ms: u64,
+    pub(crate) interval_ms: u64,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ScreenshotSessionState {
+    pub(crate) mode: CaptureMode,
+    pub(crate) monitor: String,
+    pub(crate) selected_window: Option<NodeId>,
+    pub(crate) keyboard_captured: bool,
+    pub(crate) menu_selected: usize,
+    pub(crate) menu_hovered: Option<usize>,
+    pub(crate) drag_anchor: Option<(i32, i32)>,
+    pub(crate) drag_current: Option<(i32, i32)>,
+    pub(crate) selection_rect: Option<CaptureCrop>,
+    pub(crate) region_drag_mode: ScreenshotRegionDragMode,
+    pub(crate) region_grab_cursor: (i32, i32),
+    pub(crate) region_grab_rect: Option<CaptureCrop>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScreenshotRegionDragMode {
+    None,
+    Move,
+    Resize(ScreenshotRegionResizeDir),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ScreenshotRegionResizeDir {
+    pub(crate) left: bool,
+    pub(crate) right: bool,
+    pub(crate) top: bool,
+    pub(crate) bottom: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingScreenshotCapture {
+    pub(crate) monitor: String,
+    pub(crate) serial: u64,
+    pub(crate) crop: CaptureCrop,
+    pub(crate) output_path: std::path::PathBuf,
+    pub(crate) execute_at_ms: u64,
+}
+
+pub(crate) struct InflightScreenshotCapture {
+    pub(crate) monitor: String,
+    pub(crate) serial: u64,
+    pub(crate) rx: Receiver<Result<PathBuf, String>>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ScreenshotCaptureResult {
+    pub(crate) serial: u64,
+    pub(crate) saved_path: Option<PathBuf>,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingModalFocusRestore {
+    pub(crate) target: Option<NodeId>,
+    pub(crate) restore_at_ms: u64,
 }
 
 pub(crate) struct InteractionState {
@@ -129,14 +259,60 @@ pub(crate) struct InteractionState {
     pub(crate) cluster_join_candidate: Option<ClusterJoinCandidate>,
     pub(crate) bloom_pull_preview: Option<BloomPullPreview>,
     pub(crate) cluster_overflow_drag_preview: Option<ClusterOverflowDragPreview>,
+    pub(crate) grabbed_layer_surface: Option<WlSurface>,
+    pub(crate) cluster_name_prompt_drag_monitor: Option<String>,
+    pub(crate) cluster_name_prompt_repeat: Option<ClusterNamePromptRepeatState>,
+    pub(crate) screenshot_session: Option<ScreenshotSessionState>,
+    pub(crate) pending_screenshot_capture: Option<PendingScreenshotCapture>,
+    pub(crate) inflight_screenshot_capture: Option<InflightScreenshotCapture>,
+    pub(crate) screenshot_next_serial: u64,
+    pub(crate) last_screenshot_result: Option<ScreenshotCaptureResult>,
+    pub(crate) modal_release_keys: HashSet<u32>,
+    pub(crate) pending_modal_focus_restore: Option<PendingModalFocusRestore>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
+    pub(crate) cursor_override_until_ms: Option<u64>,
+    pub(crate) pending_core_hover: Option<PendingCoreHover>,
     pub(crate) pending_core_press: Option<PendingCorePress>,
+    pub(crate) pending_titlebar_press: Option<PendingTitlebarPress>,
     pub(crate) pending_core_click: Option<PendingCoreClick>,
     pub(crate) grabbed_edge_pan_active: bool,
     pub(crate) grabbed_edge_pan_direction: Vec2,
     pub(crate) grabbed_edge_pan_pressure: Vec2,
     pub(crate) grabbed_edge_pan_monitor: Option<String>,
     pub(crate) cursor_override_icon: Option<CursorIcon>,
+    pub(crate) cursor_hidden_by_typing: bool,
+    pub(crate) last_cursor_activity_at_ms: u64,
+}
+
+pub(crate) fn note_cursor_activity(st: &mut Halley, now_ms: u64) -> bool {
+    let hide_after_ms = st.runtime.tuning.cursor.hide_after_ms;
+    let was_idle_hidden = hide_after_ms > 0
+        && now_ms.saturating_sub(st.input.interaction_state.last_cursor_activity_at_ms)
+            >= hide_after_ms;
+
+    st.input.interaction_state.last_cursor_activity_at_ms = now_ms;
+
+    let was_typing_hidden = std::mem::take(&mut st.input.interaction_state.cursor_hidden_by_typing);
+
+    was_idle_hidden || was_typing_hidden
+}
+
+pub(crate) fn note_typing_activity(st: &mut Halley, now_ms: u64) -> bool {
+    if !st.runtime.tuning.cursor.hide_while_typing {
+        return false;
+    }
+
+    let hide_after_ms = st.runtime.tuning.cursor.hide_after_ms;
+    if hide_after_ms > 0
+        && now_ms.saturating_sub(st.input.interaction_state.last_cursor_activity_at_ms)
+            < hide_after_ms
+    {
+        return false;
+    }
+
+    let changed = !st.input.interaction_state.cursor_hidden_by_typing;
+    st.input.interaction_state.cursor_hidden_by_typing = true;
+    changed
 }
 
 pub(crate) fn take_input_state_reset_request(st: &mut Halley) -> bool {
@@ -164,6 +340,102 @@ pub(crate) fn tick_cluster_join_candidate_ready(st: &mut Halley, now_ms: u64) {
 pub(crate) fn resize_static_active_for(st: &Halley, node_id: NodeId, now_ms: u64) -> bool {
     st.input.interaction_state.resize_static_node == Some(node_id)
         && now_ms < st.input.interaction_state.resize_static_until_ms
+}
+
+#[inline]
+pub(crate) fn bloom_pull_slop_px() -> f32 {
+    BLOOM_PULL_SLOP_PX
+}
+
+#[inline]
+pub(crate) fn bloom_detach_hold_ms() -> u64 {
+    BLOOM_DETACH_HOLD_MS
+}
+
+#[cfg(test)]
+#[inline]
+pub(crate) fn bloom_tether_max_px() -> f32 {
+    BLOOM_TETHER_MAX_PX
+}
+
+pub(crate) fn bloom_pull_constrained_offset(raw_offset: Vec2) -> Vec2 {
+    let raw_len = raw_offset.x.hypot(raw_offset.y);
+    if raw_len <= f32::EPSILON {
+        return Vec2 { x: 0.0, y: 0.0 };
+    }
+    let display_len = BLOOM_TETHER_MAX_PX * (1.0 - (-raw_len / BLOOM_TETHER_SOFTNESS_PX).exp());
+    let scale = display_len / raw_len;
+    Vec2 {
+        x: raw_offset.x * scale,
+        y: raw_offset.y * scale,
+    }
+}
+
+#[inline]
+pub(crate) fn bloom_pull_display_mix(display_offset: Vec2) -> f32 {
+    (display_offset.x.hypot(display_offset.y) / BLOOM_TETHER_MAX_PX).clamp(0.0, 1.0)
+}
+
+#[inline]
+fn bloom_snapback_progress(started_at_ms: u64, now_ms: u64) -> f32 {
+    (now_ms.saturating_sub(started_at_ms) as f32 / BLOOM_SNAPBACK_MS.max(1) as f32).clamp(0.0, 1.0)
+}
+
+pub(crate) fn bloom_pull_preview_needs_animation(st: &Halley) -> bool {
+    st.input
+        .interaction_state
+        .bloom_pull_preview
+        .as_ref()
+        .is_some_and(|preview| match preview.phase {
+            BloomPullPhase::Pressed => false,
+            BloomPullPhase::Tethered { .. } | BloomPullPhase::Snapback { .. } => true,
+        })
+}
+
+pub(crate) fn bloom_pull_preview_active_for_monitor(st: &Halley, monitor: &str) -> bool {
+    st.input
+        .interaction_state
+        .bloom_pull_preview
+        .as_ref()
+        .is_some_and(|preview| preview.monitor == monitor)
+}
+
+pub(crate) fn tick_bloom_pull_preview(st: &mut Halley, now_ms: u64) {
+    let mut clear_preview = false;
+    if let Some(preview) = st.input.interaction_state.bloom_pull_preview.as_mut() {
+        match preview.phase.clone() {
+            BloomPullPhase::Pressed => {
+                preview.hold_progress = 0.0;
+            }
+            BloomPullPhase::Tethered { started_at_ms } => {
+                preview.hold_progress = (now_ms.saturating_sub(started_at_ms) as f32
+                    / BLOOM_DETACH_HOLD_MS.max(1) as f32)
+                    .clamp(0.0, 1.0);
+            }
+            BloomPullPhase::Snapback {
+                started_at_ms,
+                from_offset,
+            } => {
+                let t = bloom_snapback_progress(started_at_ms, now_ms);
+                let eased = 1.0 - (1.0 - t).powi(3);
+                preview.display_offset = Vec2 {
+                    x: from_offset.x * (1.0 - eased),
+                    y: from_offset.y * (1.0 - eased),
+                };
+                preview.pointer_screen = Vec2 {
+                    x: preview.slot_screen.x + preview.display_offset.x,
+                    y: preview.slot_screen.y + preview.display_offset.y,
+                };
+                preview.hold_progress = 0.0;
+                if t >= 1.0 {
+                    clear_preview = true;
+                }
+            }
+        }
+    }
+    if clear_preview {
+        st.input.interaction_state.bloom_pull_preview = None;
+    }
 }
 
 #[inline]
@@ -196,6 +468,7 @@ fn field_viewport_for_monitor(st: &Halley, monitor_name: &str) -> Option<Viewpor
         .map(|space| Viewport::new(space.viewport.center, space.zoom_ref_size))
 }
 
+#[cfg(test)]
 pub(crate) fn node_fully_visible_on_monitor(
     st: &Halley,
     monitor_name: &str,
@@ -430,6 +703,21 @@ mod tests {
     }
 
     #[test]
+    fn bloom_pull_constraint_stays_bounded() {
+        let offset = bloom_pull_constrained_offset(Vec2 { x: 400.0, y: 0.0 });
+        assert!(offset.x <= bloom_tether_max_px() + 0.01);
+        assert!(offset.y.abs() <= 0.01);
+    }
+
+    #[test]
+    fn bloom_pull_display_mix_tracks_constraint_extent() {
+        let offset = bloom_pull_constrained_offset(Vec2 { x: 18.0, y: 0.0 });
+        let mix = bloom_pull_display_mix(offset);
+        assert!(mix > 0.0);
+        assert!(mix <= 1.0);
+    }
+
+    #[test]
     fn edge_pan_clamp_uses_zoomed_field_viewport() {
         let mut state = zoomed_out_test_state();
         let monitor = state.model.monitor_state.current_monitor.clone();
@@ -451,5 +739,55 @@ mod tests {
 
         assert_eq!(clamped_center, desired_center);
         assert_eq!(edge_contact, Vec2 { x: 0.0, y: 0.0 });
+    }
+
+    #[test]
+    fn hide_cursor_for_typing_waits_for_delay_and_pointer_reveals_it() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cursor.hide_while_typing = true;
+        tuning.cursor.hide_after_ms = 2_000;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.input.interaction_state.last_cursor_activity_at_ms = 10_000;
+
+        assert!(!note_typing_activity(&mut state, 11_999));
+        assert!(!state.input.interaction_state.cursor_hidden_by_typing);
+        assert!(note_typing_activity(&mut state, 12_000));
+        assert!(state.input.interaction_state.cursor_hidden_by_typing);
+        assert!(!note_typing_activity(&mut state, 12_100));
+        assert!(note_cursor_activity(&mut state, 20_001));
+        assert!(!state.input.interaction_state.cursor_hidden_by_typing);
+        assert!(!note_cursor_activity(&mut state, 20_002));
+    }
+
+    #[test]
+    fn effective_cursor_image_status_respects_client_hide_when_disabled() {
+        use crate::compositor::platform::effective_cursor_image_status;
+        use smithay::input::pointer::CursorImageStatus;
+
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+
+        // Case 1: hide-while-typing is false, client requests hidden
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cursor.hide_while_typing = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.platform.cursor_image_status = CursorImageStatus::Hidden;
+
+        // Should return hidden (respecting the client)
+        assert!(matches!(
+            effective_cursor_image_status(&state),
+            CursorImageStatus::Hidden
+        ));
+
+        // Case 2: hide-while-typing is true, client requests hidden
+        state.runtime.tuning.cursor.hide_while_typing = true;
+        assert!(matches!(
+            effective_cursor_image_status(&state),
+            CursorImageStatus::Hidden
+        ));
     }
 }

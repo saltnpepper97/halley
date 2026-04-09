@@ -1,14 +1,120 @@
 use super::*;
 
 use crate::input::ctx::InputCtx;
+use crate::protocol::wayland::portal;
 
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
+use crate::compositor::interaction::PointerState;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
+
+struct WinitOutputCaptureBackend {
+    backend: Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
+    pointer_state: Rc<RefCell<PointerState>>,
+    dmabuf_formats: Vec<smithay::backend::allocator::Format>,
+}
+
+impl WinitOutputCaptureBackend {
+    fn new(
+        backend: Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
+        pointer_state: Rc<RefCell<PointerState>>,
+        dmabuf_formats: Vec<smithay::backend::allocator::Format>,
+    ) -> Self {
+        Self {
+            backend,
+            pointer_state,
+            dmabuf_formats,
+        }
+    }
+}
+
+impl portal::OutputCaptureBackend for WinitOutputCaptureBackend {
+    fn capture_dmabuf_formats(&self) -> Vec<smithay::backend::allocator::Format> {
+        self.dmabuf_formats.clone()
+    }
+
+    fn capture_output_shm(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        overlay_cursor: bool,
+        logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
+    ) -> Result<portal::ShmCaptureFrame, Box<dyn Error>> {
+        let mut backend = self
+            .backend
+            .try_borrow_mut()
+            .map_err(|_| io::Error::other("winit renderer already borrowed during screencopy"))?;
+        let size = backend.window_size();
+        let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
+            (size.w.max(1), size.h.max(1)).into();
+        let ps = self
+            .pointer_state
+            .try_borrow()
+            .map_err(|_| io::Error::other("pointer state already borrowed during screencopy"))?;
+        let now = Instant::now();
+        let resize_preview = ps.resize;
+        let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
+        let cursor_screen = overlay_cursor.then_some(ps.screen);
+        drop(ps);
+
+        portal::capture_output_via_renderer(
+            backend.renderer(),
+            st,
+            output_name,
+            physical_size,
+            st.output_transform_for(output_name),
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            cursor_screen,
+            overlay_cursor,
+            logical_region,
+        )
+    }
+
+    fn capture_output_dmabuf(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        overlay_cursor: bool,
+        logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
+        dmabuf: &mut smithay::backend::allocator::dmabuf::Dmabuf,
+    ) -> Result<crate::backend::interface::CaptureDmabufResult, Box<dyn Error>> {
+        let mut backend = self.backend.try_borrow_mut().map_err(|_| {
+            io::Error::other("winit renderer already borrowed during dma-buf screencopy")
+        })?;
+        let size = backend.window_size();
+        let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
+            (size.w.max(1), size.h.max(1)).into();
+        let ps = self.pointer_state.try_borrow().map_err(|_| {
+            io::Error::other("pointer state already borrowed during dma-buf screencopy")
+        })?;
+        let now = Instant::now();
+        let resize_preview = ps.resize;
+        let (hover_node, preview_hover_node) = resolve_hover_targets(st, &ps, now);
+        let cursor_screen = overlay_cursor.then_some(ps.screen);
+        drop(ps);
+
+        portal::capture_output_into_dmabuf_via_renderer(
+            backend.renderer(),
+            st,
+            output_name,
+            physical_size,
+            st.output_transform_for(output_name),
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            cursor_screen,
+            overlay_cursor,
+            logical_region,
+            dmabuf,
+        )
+    }
+}
 
 fn apply_host_cursor(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
@@ -98,7 +204,7 @@ fn apply_winit_reload(
     );
     let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
-    info!(
+    debug!(
         "{}: reloaded config from {} with viewport {}x{}",
         reason,
         config_path,
@@ -132,8 +238,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 );
             }
             info!("config path: {}", config_path.as_str());
-            info!("keybind modifier: {}", tuning.keybinds.modifier_name());
-            info!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
+            debug!("keybind modifier: {}", tuning.keybinds.modifier_name());
+            debug!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
+            debug!("resolved zoom: {}", tuning.zoom_resolved_summary());
 
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
@@ -260,6 +367,22 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mod_state = Rc::new(RefCell::new(ModState::default()));
             let mod_state_for_winit = mod_state.clone();
             let pointer_state = Rc::new(RefCell::new(PointerState::default()));
+            let capture_dmabuf_formats = {
+                let mut backend_ref = backend.borrow_mut();
+                <GlesRenderer as smithay::backend::renderer::Bind<
+                    smithay::backend::allocator::dmabuf::Dmabuf,
+                >>::supported_formats(backend_ref.renderer())
+                .map(|formats| formats.iter().copied().collect())
+                .unwrap_or_default()
+            };
+            portal::configure_output_capture_backend(
+                &mut state,
+                Rc::new(WinitOutputCaptureBackend::new(
+                    backend.clone(),
+                    pointer_state.clone(),
+                    capture_dmabuf_formats,
+                )),
+            );
             let mod_state_for_timer = mod_state.clone();
             {
                 let ws = backend.borrow().window_size();
@@ -540,7 +663,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let timer = Timer::from_duration(initial_frame_interval);
             ev.handle().insert_source(timer, move |_tick, _, st| {
                 if crate::compositor::interaction::state::take_input_state_reset_request(st) {
-                    *mod_state_for_timer.borrow_mut() = ModState::default();
+                    mod_state_for_timer.borrow_mut().clear_intercepts();
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     ps.intercepted_buttons.clear();
                     ps.intercepted_binding_buttons.clear();
@@ -576,7 +699,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 drain_ipc_commands(|request| match request {
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
-                        st.request_exit();
+                        st.show_exit_confirm_overlay();
                         halley_ipc::Response::Ok
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Reload) => {
@@ -608,7 +731,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 config_path_for_timer.as_str()
                             );
                         }
-                        info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                        debug!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                        debug!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                         halley_ipc::Response::Reloaded
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
@@ -650,6 +774,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     let _ = advance_node_move_anim(st, &mut ps, now);
+                    let _ = advance_resize_anim(st, &mut ps, now);
                 }
                 crate::render::tick_live_overlap(st);
                 if !resize_active {
@@ -700,24 +825,10 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 if reloaded {
-                    info!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                    debug!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
+                    debug!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
                 }
 
-                if st.runtime.tuning.debug_tick_dump {
-                    for (sid, act) in st.runtime.surface_activity.iter_mut() {
-                        if let Some((new_state, cps)) = act.tick(now, true) {
-                            match new_state {
-                                VisualState::Active => {
-                                    info!("visual active surface={} cps={:.1}", sid, cps)
-                                }
-                                VisualState::Fading => {
-                                    debug!("visual fading surface={} cps={:.1}", sid, cps)
-                                }
-                                VisualState::Inactive => info!("visual inactive surface={}", sid),
-                            }
-                        }
-                    }
-                }
                 {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     if let (Some(id), Some(until)) = (ps.resize_trace_node, ps.resize_trace_until) {
@@ -732,7 +843,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             if due {
                                 if let Some(n) = st.model.field.node(id) {
                                     let surf = current_surface_size_for_node(st, id);
-                                    info!(
+                                    debug!(
                                         "resize-trace id={} pos=({:.1},{:.1}) intrinsic=({:.1},{:.1}) surface={:?} state={:?}",
                                         id.as_u64(),
                                         n.pos.x,
@@ -743,7 +854,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                         n.state,
                                     );
                                 } else {
-                                    info!("resize-trace id={} missing-node", id.as_u64());
+                                    debug!("resize-trace id={} missing-node", id.as_u64());
                                 }
                                 ps.resize_trace_last_at = Some(now);
                             }

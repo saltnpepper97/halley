@@ -81,6 +81,8 @@ impl MonitorSpawnState {
 
 pub(crate) struct SpawnState {
     pub pending_spawn_activate_at_ms: HashMap<NodeId, u64>,
+    pub(crate) pending_tiled_insert_reveal_at_ms: HashMap<NodeId, u64>,
+    pub(crate) pending_tiled_insert_preserve_focus: HashSet<NodeId>,
     pub(crate) pending_spawn_monitor: Option<String>,
     pub(crate) per_monitor: HashMap<String, MonitorSpawnState>,
     pub(crate) pending_spawn_pan_queue: VecDeque<PendingSpawnPan>,
@@ -130,6 +132,50 @@ pub(crate) fn spawn_monitor_state_mut<'a>(
 }
 
 pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, now_ms: u64) {
+    let due_tiled_reveals: Vec<NodeId> = st
+        .model
+        .spawn_state
+        .pending_tiled_insert_reveal_at_ms
+        .iter()
+        .filter_map(|(&id, &at)| (now_ms >= at).then_some(id))
+        .collect();
+
+    for id in due_tiled_reveals {
+        if !st.ui.render_state.window_geometry.contains_key(&id) {
+            continue;
+        }
+        let preserve_focus = st
+            .model
+            .spawn_state
+            .pending_tiled_insert_preserve_focus
+            .remove(&id);
+        st.model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .remove(&id);
+        st.ui.render_state.cluster_tile_entry_pending.insert(id);
+        let monitor = st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        if st
+            .active_cluster_workspace_for_monitor(monitor.as_str())
+            .is_some()
+        {
+            st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), now_ms);
+            let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
+            st.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
+            crate::compositor::workspace::state::mark_active_transition(st, id, now, 620);
+            if !preserve_focus {
+                st.set_interaction_focus(Some(id), 30_000, now);
+            }
+            st.request_maintenance();
+        }
+    }
+
     let due: Vec<NodeId> = st
         .model
         .spawn_state

@@ -17,7 +17,8 @@ use crate::compositor::root::Halley;
 use crate::render::app_icon::{ensure_app_icon_resources_for_node_ids, node_app_icon_entry};
 use crate::render::state::NodeAppIconCacheEntry;
 
-use super::utils::{bitmap_text_size, draw_bitmap_text, draw_rect};
+use super::text::{draw_ui_text, ui_text_size};
+use super::utils::draw_rect;
 
 #[derive(Clone, Debug)]
 pub(crate) struct BearingChipLayout {
@@ -35,7 +36,7 @@ const CHIP_PAD_X: i32 = 10;
 const CHIP_PAD_Y: i32 = 7;
 const EDGE_PAD: i32 = 16;
 const LABEL_SCALE: i32 = 2;
-const META_SCALE: i32 = 1;
+const META_SCALE: i32 = 2;
 const ICON_SIZE: i32 = 16;
 const ICON_TEXT_GAP: i32 = 6;
 const DISTANCE_GAP: i32 = 4;
@@ -44,6 +45,8 @@ const META_PAD_Y: i32 = 4;
 const GROUP_GAP: i32 = 10;
 const MAX_LABEL_CHARS: usize = 24;
 const MIN_DISTANCE_ALPHA: f32 = 0.34;
+const CHIP_TEXT_COLOR: Color32F = Color32F::new(0.08, 0.10, 0.12, 1.0);
+const CHIP_FILL_COLOR: Color32F = Color32F::new(0.92, 0.95, 0.98, 1.0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BearingLane {
@@ -204,6 +207,7 @@ pub(crate) fn collect_bearing_layouts(
             .show_distance
             .then(|| format!("{:.0}px", distance.round()));
         let size = bearing_size(
+            st,
             label.as_str(),
             st.runtime.tuning.bearings.show_icons,
             distance_text.as_deref(),
@@ -281,6 +285,7 @@ pub(crate) fn draw_bearings(
     damage: Rectangle<i32, Physical>,
     layouts: &[BearingChipLayout],
 ) -> Result<(), Box<dyn Error>> {
+    let rounded = st.runtime.tuning.border_radius_px > 0;
     for layout in layouts {
         if layout.alpha <= 0.002 {
             continue;
@@ -289,6 +294,7 @@ pub(crate) fn draw_bearings(
         draw_shader_label(
             frame,
             st,
+            rounded,
             layout.chip_rect.loc.x,
             layout.chip_rect.loc.y,
             layout.chip_rect.size.w,
@@ -296,8 +302,18 @@ pub(crate) fn draw_bearings(
             11.0,
             0.0,
             layout.alpha,
-            Color32F::new(0.92, 0.95, 0.98, 0.0),
-            Color32F::new(0.92, 0.95, 0.98, 0.92 * layout.alpha),
+            Color32F::new(
+                CHIP_FILL_COLOR.r(),
+                CHIP_FILL_COLOR.g(),
+                CHIP_FILL_COLOR.b(),
+                0.0,
+            ),
+            Color32F::new(
+                CHIP_FILL_COLOR.r(),
+                CHIP_FILL_COLOR.g(),
+                CHIP_FILL_COLOR.b(),
+                0.92 * layout.alpha,
+            ),
             damage,
         )?;
 
@@ -308,6 +324,7 @@ pub(crate) fn draw_bearings(
             draw_shader_label(
                 frame,
                 st,
+                rounded,
                 distance_rect.loc.x,
                 distance_rect.loc.y,
                 distance_rect.size.w,
@@ -315,17 +332,33 @@ pub(crate) fn draw_bearings(
                 8.0,
                 0.0,
                 layout.alpha,
-                Color32F::new(0.10, 0.14, 0.18, 0.0),
-                Color32F::new(0.10, 0.14, 0.18, 0.84 * layout.alpha),
+                Color32F::new(
+                    CHIP_FILL_COLOR.r(),
+                    CHIP_FILL_COLOR.g(),
+                    CHIP_FILL_COLOR.b(),
+                    0.0,
+                ),
+                Color32F::new(
+                    CHIP_FILL_COLOR.r(),
+                    CHIP_FILL_COLOR.g(),
+                    CHIP_FILL_COLOR.b(),
+                    0.88 * layout.alpha,
+                ),
                 damage,
             )?;
-            draw_bitmap_text(
+            draw_ui_text(
                 frame,
+                st,
                 distance_x,
                 distance_y,
                 distance_text,
                 META_SCALE,
-                Color32F::new(0.86, 0.92, 0.98, layout.alpha * 0.96),
+                Color32F::new(
+                    CHIP_TEXT_COLOR.r(),
+                    CHIP_TEXT_COLOR.g(),
+                    CHIP_TEXT_COLOR.b(),
+                    layout.alpha * 0.96,
+                ),
                 damage,
             )?;
         }
@@ -337,15 +370,21 @@ pub(crate) fn draw_bearings(
             } else {
                 0
             };
-        let (_, label_h) = bitmap_text_size(layout.label.as_str(), LABEL_SCALE);
+        let (_, label_h) = ui_text_size(st, layout.label.as_str(), LABEL_SCALE);
         let text_y = layout.chip_rect.loc.y + (layout.chip_rect.size.h - label_h) / 2;
-        draw_bitmap_text(
+        draw_ui_text(
             frame,
+            st,
             text_x,
             text_y,
             layout.label.as_str(),
             LABEL_SCALE,
-            Color32F::new(0.08, 0.10, 0.12, layout.alpha),
+            Color32F::new(
+                CHIP_TEXT_COLOR.r(),
+                CHIP_TEXT_COLOR.g(),
+                CHIP_TEXT_COLOR.b(),
+                layout.alpha,
+            ),
             damage,
         )?;
 
@@ -412,6 +451,7 @@ fn finalize_group(st: &Halley, members: Vec<BearingCandidate>, ui_mix: f32) -> B
         .show_distance
         .then(|| format!("{:.0}px", distance.round()));
     let size = bearing_size(
+        st,
         label.as_str(),
         member_count == 1 && st.runtime.tuning.bearings.show_icons,
         distance_text.as_deref(),
@@ -548,7 +588,7 @@ fn build_layout_from_group(
         .as_ref()
         .zip(distance_rect)
         .map(|(text, rect)| {
-            let (_, text_h) = bitmap_text_size(text, META_SCALE);
+            let (_, text_h) = ui_text_size(st, text, META_SCALE);
             (
                 rect.loc.x + META_PAD_X,
                 rect.loc.y + (rect.size.h - text_h) / 2,
@@ -567,8 +607,13 @@ fn build_layout_from_group(
     }
 }
 
-fn bearing_size(label: &str, show_icon: bool, distance_text: Option<&str>) -> BearingSize {
-    let (label_w, label_h) = bitmap_text_size(label, LABEL_SCALE);
+fn bearing_size(
+    st: &Halley,
+    label: &str,
+    show_icon: bool,
+    distance_text: Option<&str>,
+) -> BearingSize {
+    let (label_w, label_h) = ui_text_size(st, label, LABEL_SCALE);
     let icon_gap = if show_icon {
         ICON_SIZE + ICON_TEXT_GAP
     } else {
@@ -578,7 +623,7 @@ fn bearing_size(label: &str, show_icon: bool, distance_text: Option<&str>) -> Be
     let chip_h = (CHIP_PAD_Y * 2 + label_h.max(if show_icon { ICON_SIZE } else { 0 })).max(24);
     let (distance_rect_w, distance_rect_h, distance_block_h) = distance_text
         .map(|text| {
-            let (text_w, text_h) = bitmap_text_size(text, META_SCALE);
+            let (text_w, text_h) = ui_text_size(st, text, META_SCALE);
             let rect_w = text_w + META_PAD_X * 2;
             let rect_h = text_h + META_PAD_Y * 2;
             (rect_w, rect_h, rect_h + DISTANCE_GAP)
@@ -870,6 +915,7 @@ fn draw_bearing_icon(
 fn draw_shader_label(
     frame: &mut GlesFrame<'_, '_>,
     st: &Halley,
+    rounded: bool,
     x: i32,
     y: i32,
     w: i32,
@@ -884,7 +930,7 @@ fn draw_shader_label(
     let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.ui.render_state.node_label_program.as_ref() else {
+    let Some(program) = st.ui.render_state.ui_rect_program(rounded) else {
         return Ok(());
     };
 

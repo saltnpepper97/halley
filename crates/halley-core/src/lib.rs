@@ -1,9 +1,11 @@
 pub mod bearings;
 pub mod cluster;
+pub mod cluster_layout;
 pub mod cluster_policy;
 pub mod decay;
 pub mod field;
 pub mod focus;
+pub mod stacking;
 pub mod tiling;
 pub mod trail;
 pub mod viewport;

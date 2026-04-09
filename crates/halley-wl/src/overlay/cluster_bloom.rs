@@ -3,7 +3,7 @@ use std::f32::consts::{PI, TAU};
 
 use smithay::{
     backend::renderer::{
-        Color32F, Texture,
+        Texture,
         gles::{GlesFrame, Uniform},
     },
     utils::{Buffer, Physical, Rectangle, Transform},
@@ -12,7 +12,8 @@ use smithay::{
 use crate::compositor::root::Halley;
 use crate::overlay::{ClusterBloomAnimSnapshot, OverlayView};
 use crate::render::app_icon::ensure_app_icon_resources_for_node_ids;
-use crate::render::utils::{bitmap_text_size, draw_bitmap_text};
+use crate::render::text::{draw_ui_text_in, ui_text_size_in};
+use crate::render::{themed_node_fill_color, themed_node_label_text_color};
 
 #[derive(Clone, Copy)]
 pub(crate) struct BloomTokenLayout {
@@ -191,27 +192,62 @@ fn draw_bloom_token(
     if alpha <= 0.01 {
         return Ok(());
     }
-    let pull_mix = overlay
+    let preview = overlay
         .interaction_state
         .bloom_pull_preview
         .as_ref()
         .filter(|preview| {
-            preview.cluster_id == layout.cluster_id && preview.member_id == layout.member_id
+            preview.monitor == overlay.monitor_state.current_monitor
+                && preview.cluster_id == layout.cluster_id
+                && preview.member_id == layout.member_id
         })
-        .map(|preview| preview.mix)
+        .cloned();
+    let display_offset = preview
+        .as_ref()
+        .map(|preview| preview.display_offset)
+        .unwrap_or(halley_core::field::Vec2 { x: 0.0, y: 0.0 });
+    let tether_origin = preview
+        .as_ref()
+        .map(|preview| preview.slot_screen)
+        .unwrap_or(halley_core::field::Vec2 {
+            x: layout.center_sx as f32,
+            y: layout.center_sy as f32,
+        });
+    let pull_mix = crate::compositor::interaction::state::bloom_pull_display_mix(display_offset);
+    let hold_progress = preview
+        .as_ref()
+        .map(|preview| preview.hold_progress)
         .unwrap_or(0.0);
+    let pre_release_mix = bloom_pre_release_mix(hold_progress);
+    let radius = (layout.token_radius as f32
+        + 5.0 * pull_mix
+        + 1.5 * hold_progress
+        + 12.0 * pre_release_mix)
+        .round()
+        .max(1.0) as i32;
+    let center_sx = layout.center_sx + display_offset.x.round() as i32;
+    let center_sy = layout.center_sy + display_offset.y.round() as i32;
+    if pull_mix > 0.01 {
+        draw_bloom_anchor_dot(
+            frame,
+            overlay,
+            tether_origin.x.round() as i32,
+            tether_origin.y.round() as i32,
+            alpha,
+            pull_mix,
+            pre_release_mix,
+            damage,
+        )?;
+    }
     let Some(texture) = overlay.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
     let Some(program) = overlay.render_state.node_circle_program.as_ref() else {
         return Ok(());
     };
-    let radius = (layout.token_radius as f32 + 5.0 * pull_mix)
-        .round()
-        .max(1.0) as i32;
     let diameter = radius * 2;
     let dest = Rectangle::<i32, Physical>::new(
-        (layout.center_sx - radius, layout.center_sy - radius).into(),
+        (center_sx - radius, center_sy - radius).into(),
         (diameter, diameter).into(),
     );
     let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
@@ -219,9 +255,18 @@ fn draw_bloom_token(
         (0.0, 0.0).into(),
         (tex_size.w as f64, tex_size.h as f64).into(),
     );
+    let fill_color = themed_node_fill_color(overlay.tuning, false);
     let uniforms = [
-        Uniform::new("node_color", (0.12f32, 0.16f32, 0.20f32, 0.0f32)),
-        Uniform::new("fill_color", (0.95f32, 0.97f32, 0.99f32, 1.0f32)),
+        Uniform::new(
+            "node_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 0.0f32),
+        ),
+        Uniform::new(
+            "fill_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 1.0f32),
+        ),
+        Uniform::new("flat_fill", 1.0f32),
+        Uniform::new("center_flat_fill", 1.0f32),
     ];
     frame.render_texture_from_to(
         texture,
@@ -241,7 +286,7 @@ fn draw_bloom_token(
     {
         let side = (diameter as f32 * 0.64).round() as i32;
         let icon_dest = Rectangle::<i32, Physical>::new(
-            (layout.center_sx - side / 2, layout.center_sy - side / 2).into(),
+            (center_sx - side / 2, center_sy - side / 2).into(),
             (side, side).into(),
         );
         let icon_src = Rectangle::<f64, Buffer>::new(
@@ -280,15 +325,77 @@ fn draw_bloom_token(
         .to_ascii_uppercase()
         .to_string();
     let scale = 2;
-    let (text_w, text_h) = bitmap_text_size(&glyph, scale);
-    draw_bitmap_text(
+    let (text_w, text_h) =
+        ui_text_size_in(overlay.render_state, &overlay.tuning.font, &glyph, scale);
+    draw_ui_text_in(
         frame,
-        layout.center_sx - text_w / 2,
-        layout.center_sy - text_h / 2,
+        overlay.render_state,
+        &overlay.tuning.font,
+        center_sx - text_w / 2,
+        center_sy - text_h / 2,
         &glyph,
         scale,
-        Color32F::new(0.16, 0.20, 0.24, alpha),
+        themed_node_label_text_color(fill_color, alpha),
         damage,
+    )?;
+    Ok(())
+}
+
+fn bloom_pre_release_mix(hold_progress: f32) -> f32 {
+    let t = ((hold_progress - 0.62) / 0.38).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn draw_bloom_anchor_dot(
+    frame: &mut GlesFrame<'_, '_>,
+    overlay: &OverlayView<'_>,
+    x: i32,
+    y: i32,
+    alpha: f32,
+    pull_mix: f32,
+    pre_release_mix: f32,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(texture) = overlay.render_state.node_circle_texture.as_ref() else {
+        return Ok(());
+    };
+    let Some(program) = overlay.render_state.node_circle_program.as_ref() else {
+        return Ok(());
+    };
+    let radius = (5.0 + 2.0 * pull_mix + 2.5 * pre_release_mix).round() as i32;
+    let rect = Rectangle::<i32, Physical>::new(
+        (x - radius, y - radius).into(),
+        ((radius * 2).max(1), (radius * 2).max(1)).into(),
+    );
+    let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
+    let src = Rectangle::<f64, Buffer>::new(
+        (0.0, 0.0).into(),
+        (tex_size.w as f64, tex_size.h as f64).into(),
+    );
+    let dot_alpha = alpha * (0.84 + 0.10 * pull_mix + 0.12 * pre_release_mix).clamp(0.0, 1.0);
+    let fill_color = themed_node_fill_color(overlay.tuning, false);
+    let uniforms = [
+        Uniform::new(
+            "node_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 0.0f32),
+        ),
+        Uniform::new(
+            "fill_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 1.0f32),
+        ),
+        Uniform::new("flat_fill", 1.0f32),
+        Uniform::new("center_flat_fill", 1.0f32),
+    ];
+    frame.render_texture_from_to(
+        texture,
+        src,
+        rect,
+        &[damage],
+        &[],
+        Transform::Normal,
+        dot_alpha,
+        Some(program),
+        &uniforms,
     )?;
     Ok(())
 }
@@ -336,9 +443,18 @@ fn draw_cluster_join_affordance(
         (0.0, 0.0).into(),
         (tex_size.w as f64, tex_size.h as f64).into(),
     );
+    let fill_color = themed_node_fill_color(overlay.tuning, true);
     let uniforms = [
-        Uniform::new("node_color", (0.17f32, 0.77f32, 0.70f32, 0.08f32)),
-        Uniform::new("fill_color", (0.17f32, 0.77f32, 0.70f32, 0.05f32)),
+        Uniform::new(
+            "node_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 0.0f32),
+        ),
+        Uniform::new(
+            "fill_color",
+            (fill_color.r(), fill_color.g(), fill_color.b(), 1.0f32),
+        ),
+        Uniform::new("flat_fill", 1.0f32),
+        Uniform::new("center_flat_fill", 1.0f32),
     ];
     frame.render_texture_from_to(
         texture,

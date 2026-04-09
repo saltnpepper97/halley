@@ -137,6 +137,15 @@ pub struct BearingsStatusResponse {
     pub visible: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureStatusResponse {
+    pub active: bool,
+    pub session_serial: Option<u64>,
+    pub last_finished_serial: Option<u64>,
+    pub saved_path: Option<String>,
+    pub error: Option<String>,
+}
+
 impl ModeInfo {
     pub fn display_string(&self) -> String {
         match self.refresh_hz {

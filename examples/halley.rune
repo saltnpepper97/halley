@@ -1,6 +1,9 @@
+@author "Dustin Pilgrim"
+@description "Spatial Wayland compositor built around infinite workspace navigation"
+
 env:
-  XCURSOR_THEME "Adwaita"
-  XCURSOR_SIZE "24"
+  QT_QPA_PLATFORM "wayland"
+  QT_QPA_PLATFORMTHEME "qt6ct"
 end
 
 autostart:
@@ -9,9 +12,26 @@ autostart:
   #once "mako"
   #once "gessod"
   #once "capitd"
+  #once "stasis"
 
   # Example:
   #on-reload "thunderbird"
+end
+
+cursor:
+  theme "Adwaita"
+  size 24
+  hide-when-typing true
+  hide-after-ms 2000
+end
+
+font:
+  family "monospace"
+  size 11
+end
+
+screenshot:
+  directory "$env.HOME/Pictures/Screenshots/"
 end
 
 viewport:
@@ -65,12 +85,27 @@ field:
   pan-to-new "if-needed"
   close-restore-focus true
   close-restore-pan "if-offscreen"
+
+  zoom:
+    enabled true
+
+    step 1.10
+    min 0.35
+    max 1.35
+
+    smooth true
+    smooth-rate 12.5
+  end
 end
 
 node:
   # Keep nodes recognizable without making the field too noisy.
   show-labels "hover"
   show-app-icons "always"
+
+  node-shape "square"
+  node-label-shape "square"
+
   # Size is a fraction of the node diameter.
   icon-size 0.72
 
@@ -85,8 +120,8 @@ node:
 end
 
 decay:
-  active-delay 120
-  inactive-delay 30
+  active-delay 240
+  inactive-delay 120
 end
 
 trail:
@@ -104,54 +139,79 @@ clusters:
   distance-px 280.0
   bloom-direction "clockwise"
   show-icons true
+  default-layout "stacking"
 end
 
 tile:
   new-on-top false
   gaps-inner 20
   gaps-outer 20
+  max-stack 4
   queue-show-icons true
-  max-stack 5
 end
 
 stacking:
+  max-visible 5
 end
 
 physics:
   enabled true
-  damping 0.35
+  damping 0.45
 end
 
 animations:
   enabled true
 
-  window-open:
+  smooth-resize:
     enabled true
+    duration-ms 90  # catch-up / settle time; lower = tighter, higher = softer lag
   end
 
   window-close:
+    enabled true
+    duration-ms 270
+    style "shrink"
   end
 
-  layer-open:
+  window-open:
+    enabled true
+    duration-ms 620
   end
 
-  layer-close:
+  window-close:
+    enabled true
+    duration-ms 250
+    style "shrink"
   end
 
-  tile-rearange:
+  tile:
+    enabled true
+    duration-ms 240
+  end
+
+  stack:
+    enabled true
+    duration-ms 220
   end
 end
 
 decorations:
   border-size 3
-  border-radius 6
-  border-colour-focused "#fd5e53"
+  border-radius 0
+  border-colour-focused "#d65d26"
   border-colour-unfocused "#333333"
   resize-using-border true
 
   # Rounded borders force server-side decorations so clients like GTK/Firefox
   # do not draw their own square CSD frame inside the compositor-rounded shape.
-  no-csd true
+  no-csd false
+end
+
+overlays:
+  background-colour "auto"
+  text-colour "auto"
+  shape "square"
+  borders "true"
 end
 
 keybinds:
@@ -174,7 +234,7 @@ keybinds:
   "$var.mod+up" "node-move up"
   "$var.mod+down" "node-move down"
 
-  # switch monitor focus
+  # switch monitor focus (field + clusters)
   "$var.mod+shift+left" "monitor-focus left"
   "$var.mod+shift+right" "monitor-focus right"
   "$var.mod+shift+up" "monitor-focus up"
@@ -182,6 +242,7 @@ keybinds:
 
   # cluster mode (workspaces)
   "$var.mod+shift+c" "cluster-mode"
+  "$var.mod+l" "cluster-layout cycle"
 
   # bearings
   "$var.mod+z" "bearings-show"
@@ -204,29 +265,35 @@ keybinds:
   "$var.mod+up" "tile-focus up"
   "$var.mod+down" "tile-focus down"
 
-  "$var.mod+shift+left" "tile-swap left"
-  "$var.mod+shift" "tile-swap right"
-  "$var.mod+shift+up" "tile-swap up"
-  "$var.mod+shift+sdown" "tile-swap down"
+  "$var.mod+ctrl+left" "tile-swap left"
+  "$var.mod+ctrl+right" "tile-swap right"
+  "$var.mod+ctrl+up" "tile-swap up"
+  "$var.mod+ctrl+down" "tile-swap down"
 
-  # Stacking + Field
-  "alt+tab" "node-focus-cycle"
+  # stacking layout
+  "$var.mod+left" "stack-cycle forward"
+  "$var.mod+right" "stack-cycle backward"
+
+  #todo
+  "alt+tab" "cycle-focus"
 
   # media
-  "xf86audioraisevolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
-  "xf86audiolowervolume" "wpctl set-volume @default_audio_sink@ 5%-"
-  "xf86audiomute" "wpctl set-mute @default_audio_sink@ toggle"
+  "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
+  "XF86AudioLowerVolume" "wpctl set-volume @default_audio_sink@ 5%-"
+  "XF86AudioMute" "wpctl set-mute @default_audio_sink@ toggle"
 end
 
 rules:
   rule:
-    title ["Picture-in-Picture", r"File Upload.*"]
+    app-id "firefox"
+    title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
     overlap-policy "all"
-    spawn-position "app"
+    spawn-placement "center"
     cluster-participation "float"
   end
 end
 
+#todo
 debug:
   # Post v0.1.0
   overlay-fps false

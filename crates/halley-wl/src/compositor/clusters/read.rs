@@ -1,7 +1,10 @@
 use super::*;
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::monitor::state::MonitorState;
+use crate::render::active_window_frame_pad_px;
 use halley_core::cluster::ClusterId;
+use halley_core::cluster_layout::{ClusterWorkspaceLayoutKind, layout_cluster_workspace};
+use halley_core::tiling::Rect;
 
 pub(super) struct ClusterReadController<'a> {
     pub(super) field: &'a Field,
@@ -31,16 +34,19 @@ pub(super) struct ClusterTilePlacement {
 }
 
 pub(super) struct ClusterLayoutPlan {
+    pub(super) kind: ClusterWorkspaceLayoutKind,
     pub(super) tiles: Vec<ClusterTilePlacement>,
+    pub(super) overflow_members: Vec<NodeId>,
 }
 
 impl<'a> ClusterReadController<'a> {
-    const MASTER_WIDTH_FRAC: f32 = 0.6;
     const OVERFLOW_STRIP_PAD_PX: f32 = 18.0;
     const OVERFLOW_STRIP_W_PX: f32 = 56.0;
+    const OVERFLOW_SCROLLBAR_GUTTER_PX: f32 = 12.0;
     const OVERFLOW_ICON_PAD_PX: f32 = 8.0;
     const OVERFLOW_ICON_SIZE_PX: f32 = 40.0;
     const OVERFLOW_ICON_GAP_PX: f32 = 8.0;
+    const OVERFLOW_VISIBLE_SLOTS: usize = 15;
 
     pub(super) fn cluster_bloom_for_monitor(&self, monitor: &str) -> Option<ClusterId> {
         self.cluster_state.cluster_bloom_open.get(monitor).copied()
@@ -92,28 +98,66 @@ impl<'a> ClusterReadController<'a> {
             .map(|space| space.usable_viewport)
     }
 
-    fn cluster_layout_rects_for_count(
+    fn cluster_layout_kind(&self) -> ClusterWorkspaceLayoutKind {
+        self.tuning.cluster_layout_kind()
+    }
+
+    fn cluster_layout_bounds(
         &self,
         viewport: halley_core::viewport::Viewport,
-        member_count: usize,
-    ) -> Vec<halley_core::tiling::Rect> {
+    ) -> (halley_core::tiling::Rect, f32) {
         let (outer_gap, inner_gap) = compensated_cluster_gaps(
             self.tuning.tile_gaps_outer_px.max(0.0),
             self.tuning.tile_gaps_inner_px.max(0.0),
             self.tuning.border_size_px.max(0) as f32,
         );
-        let limit = if self.tuning.tile_max_stack == 0 {
-            member_count
-        } else {
-            self.tuning.tile_max_stack + 1
-        };
-        direct_cluster_layout_rects(
-            viewport,
-            member_count.min(limit),
-            outer_gap,
-            inner_gap,
-            Self::MASTER_WIDTH_FRAC,
+        let outer_gap = outer_gap.max(0.0);
+        let viewport_left = viewport.center.x - viewport.size.x * 0.5;
+        let viewport_top = viewport.center.y - viewport.size.y * 0.5;
+        (
+            halley_core::tiling::Rect {
+                x: viewport_left + outer_gap,
+                y: viewport_top + outer_gap,
+                w: (viewport.size.x - outer_gap * 2.0).max(0.0),
+                h: (viewport.size.y - outer_gap * 2.0).max(0.0),
+            },
+            inner_gap.max(0.0),
         )
+    }
+
+    fn cluster_layout_plan_for_members(
+        &self,
+        viewport: halley_core::viewport::Viewport,
+        members: &[NodeId],
+    ) -> ClusterLayoutPlan {
+        let kind = self.cluster_layout_kind();
+        let (bounds, inner_gap) = self.cluster_layout_bounds(viewport);
+        let result = layout_cluster_workspace(
+            kind,
+            bounds,
+            inner_gap,
+            active_window_frame_pad_px(self.tuning) as f32,
+            members,
+            self.tuning.active_cluster_visible_limit(),
+        );
+        let overflow_members = if matches!(kind, ClusterWorkspaceLayoutKind::Tiling) {
+            result.queue_members.clone()
+        } else {
+            Vec::new()
+        };
+        let tiles = result
+            .placements
+            .into_iter()
+            .map(|placement| ClusterTilePlacement {
+                node_id: placement.node_id,
+                rect: placement.rect,
+            })
+            .collect::<Vec<_>>();
+        ClusterLayoutPlan {
+            kind,
+            tiles,
+            overflow_members,
+        }
     }
 
     pub(super) fn cluster_spawn_rect_for_new_member(
@@ -123,20 +167,26 @@ impl<'a> ClusterReadController<'a> {
     ) -> Option<halley_core::tiling::Rect> {
         let cluster = self.field.cluster(cid)?;
         let viewport = self.workspace_viewport_for_monitor(monitor)?;
-        let limit = if self.tuning.tile_max_stack == 0 {
-            usize::MAX
-        } else {
-            self.tuning.tile_max_stack + 1
-        };
-        if cluster.members().len() >= limit {
-            return self
-                .cluster_layout_rects_for_count(viewport, limit)
-                .into_iter()
-                .last();
+        let mut preview_members = cluster.members().to_vec();
+        let visible_limit = halley_core::cluster_layout::cluster_visible_limit(
+            self.cluster_layout_kind(),
+            self.tuning.active_cluster_visible_limit(),
+        );
+        if visible_limit == usize::MAX || preview_members.len() < visible_limit {
+            if matches!(
+                self.cluster_layout_kind(),
+                ClusterWorkspaceLayoutKind::Stacking
+            ) {
+                preview_members.insert(0, NodeId::new(u64::MAX));
+            } else {
+                preview_members.push(NodeId::new(u64::MAX));
+            }
         }
-        self.cluster_layout_rects_for_count(viewport, cluster.members().len() + 1)
+        self.cluster_layout_plan_for_members(viewport, &preview_members)
+            .tiles
             .into_iter()
             .last()
+            .map(|tile| tile.rect)
     }
 
     pub(super) fn overflow_strip_rect_for_monitor(
@@ -148,16 +198,43 @@ impl<'a> ClusterReadController<'a> {
             return None;
         }
         let space = self.monitor_state.monitors.get(monitor)?;
-        let visible_slots = overflow_len.min(6) as f32;
+        let strip_w = if overflow_len > Self::OVERFLOW_VISIBLE_SLOTS {
+            Self::OVERFLOW_STRIP_W_PX + Self::OVERFLOW_SCROLLBAR_GUTTER_PX
+        } else {
+            Self::OVERFLOW_STRIP_W_PX
+        };
+        let visible_slots = overflow_len.min(Self::OVERFLOW_VISIBLE_SLOTS) as f32;
         let height = Self::OVERFLOW_ICON_PAD_PX * 2.0
             + visible_slots * Self::OVERFLOW_ICON_SIZE_PX
             + (visible_slots - 1.0).max(0.0) * Self::OVERFLOW_ICON_GAP_PX;
         Some(halley_core::tiling::Rect {
-            x: (space.width as f32 - Self::OVERFLOW_STRIP_W_PX - Self::OVERFLOW_STRIP_PAD_PX)
-                .max(0.0),
+            x: (space.width as f32 - strip_w - Self::OVERFLOW_STRIP_PAD_PX).max(0.0),
             y: ((space.height as f32 - height) * 0.5).max(Self::OVERFLOW_STRIP_PAD_PX),
-            w: Self::OVERFLOW_STRIP_W_PX,
+            w: strip_w,
             h: height,
+        })
+    }
+
+    pub(super) fn overflow_strip_slot_rect_for_monitor(
+        &self,
+        monitor: &str,
+        overflow_len: usize,
+        slot_index: usize,
+    ) -> Option<Rect> {
+        let strip = self.overflow_strip_rect_for_monitor(monitor, overflow_len)?;
+        let scrollbar_extra = if overflow_len > Self::OVERFLOW_VISIBLE_SLOTS {
+            Self::OVERFLOW_SCROLLBAR_GUTTER_PX
+        } else {
+            0.0
+        };
+        let icon_x = strip.x + (strip.w - Self::OVERFLOW_ICON_SIZE_PX - scrollbar_extra) * 0.5;
+        Some(Rect {
+            x: icon_x,
+            y: strip.y
+                + Self::OVERFLOW_ICON_PAD_PX
+                + slot_index as f32 * (Self::OVERFLOW_ICON_SIZE_PX + Self::OVERFLOW_ICON_GAP_PX),
+            w: Self::OVERFLOW_ICON_SIZE_PX,
+            h: Self::OVERFLOW_ICON_SIZE_PX,
         })
     }
 
@@ -168,12 +245,11 @@ impl<'a> ClusterReadController<'a> {
     ) -> Option<EnterClusterWorkspacePlan> {
         let cid = self.field.cluster_id_for_core_public(core_id)?;
         let cluster = self.field.cluster(cid)?;
-        let members = cluster.members().to_vec();
+        let members = cluster.members().iter().copied().collect::<HashSet<_>>();
         let core_pos = self.field.node(core_id)?.pos;
         let current_viewport = self.workspace_viewport_for_monitor(monitor)?;
-        let ids: Vec<NodeId> = self.field.nodes().keys().copied().collect();
         let mut hidden_ids = Vec::new();
-        for id in ids {
+        for &id in self.field.nodes().keys() {
             if members.contains(&id) || id == core_id {
                 continue;
             }
@@ -235,17 +311,26 @@ impl<'a> ClusterReadController<'a> {
             .copied()?;
         let cluster = self.field.cluster(cid)?;
         let viewport = self.workspace_viewport_for_monitor(monitor)?;
-        let visible_members = cluster.visible_members(self.tuning.tile_max_stack);
-        let tiles = self
-            .cluster_layout_rects_for_count(viewport, visible_members.len())
-            .into_iter()
-            .zip(visible_members.iter().copied())
-            .map(|(rect, node_id)| ClusterTilePlacement { node_id, rect })
-            .collect::<Vec<_>>();
-        Some(ClusterLayoutPlan { tiles })
+        Some(self.cluster_layout_plan_for_members(viewport, cluster.members()))
+    }
+
+    pub(super) fn stack_layout_rects_for_members(
+        &self,
+        monitor: &str,
+        members: &[NodeId],
+    ) -> Option<std::collections::HashMap<NodeId, Rect>> {
+        let viewport = self.workspace_viewport_for_monitor(monitor)?;
+        Some(
+            self.cluster_layout_plan_for_members(viewport, members)
+                .tiles
+                .into_iter()
+                .map(|tile| (tile.node_id, tile.rect))
+                .collect(),
+        )
     }
 }
 
+#[cfg(test)]
 fn direct_cluster_layout_rects(
     viewport: halley_core::viewport::Viewport,
     member_count: usize,

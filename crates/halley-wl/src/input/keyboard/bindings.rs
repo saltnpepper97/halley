@@ -1,4 +1,4 @@
-use eventline::{info, warn};
+use eventline::{debug, info, warn};
 
 use super::modkeys::{key_matches, modifier_exact};
 use crate::compositor::actions::window::{
@@ -9,10 +9,30 @@ use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{
-    BearingsBindingAction, CompositorBindingAction, DirectionalAction, MonitorBindingAction,
-    MonitorBindingTarget, NodeBindingAction, RuntimeTuning, TrailBindingAction,
+    BearingsBindingAction, ClusterBindingAction, CompositorBindingAction, CompositorBindingScope,
+    DirectionalAction, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction,
+    RuntimeTuning, StackBindingAction, StackCycleDirection, TileBindingAction, TrailBindingAction,
 };
 use halley_ipc::NodeMoveDirection;
+use std::time::Instant;
+
+fn spawn_launch_binding(st: &mut Halley, command: &str, wayland_display: &str) -> bool {
+    let activation_token =
+        crate::protocol::wayland::activation::issue_external_token(st, st.now_ms(Instant::now()));
+    match super::spawn::spawn_command(
+        command,
+        wayland_display,
+        &st.runtime.tuning.cursor,
+        Some(activation_token.as_str()),
+        "command",
+    ) {
+        Some(child) => {
+            st.runtime.spawned_children.push(child);
+            true
+        }
+        None => false,
+    }
+}
 
 pub(crate) fn input_matches_binding(actual: u32, binding_key: u32) -> bool {
     if is_pointer_button_code(binding_key) || is_wheel_code(binding_key) {
@@ -31,14 +51,42 @@ fn from_directional_action(direction: DirectionalAction) -> NodeMoveDirection {
     }
 }
 
+fn active_binding_scopes(st: &Halley) -> [CompositorBindingScope; 3] {
+    if st.has_active_cluster_workspace() {
+        match st.runtime.tuning.cluster_layout_kind() {
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling => [
+                CompositorBindingScope::Tile,
+                CompositorBindingScope::Cluster,
+                CompositorBindingScope::Global,
+            ],
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking => [
+                CompositorBindingScope::Stack,
+                CompositorBindingScope::Cluster,
+                CompositorBindingScope::Global,
+            ],
+        }
+    } else {
+        [
+            CompositorBindingScope::Field,
+            CompositorBindingScope::Global,
+            CompositorBindingScope::Global,
+        ]
+    }
+}
+
 pub(crate) fn compositor_binding_action(
     st: &Halley,
     key_code: u32,
     mods: &ModState,
 ) -> Option<CompositorBindingAction> {
-    for binding in &st.runtime.tuning.compositor_bindings {
-        if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            return Some(binding.action.clone());
+    for scope in active_binding_scopes(st) {
+        for binding in &st.runtime.tuning.compositor_bindings {
+            if binding.scope == scope
+                && input_matches_binding(key_code, binding.key)
+                && modifier_exact(mods, binding.modifiers)
+            {
+                return Some(binding.action.clone());
+            }
         }
     }
 
@@ -64,6 +112,9 @@ pub(crate) fn compositor_action_allows_repeat(action: CompositorBindingAction) -
     matches!(
         action,
         CompositorBindingAction::Node(NodeBindingAction::Move(_))
+            | CompositorBindingAction::Stack(StackBindingAction::Cycle(_))
+            | CompositorBindingAction::Tile(TileBindingAction::Focus(_))
+            | CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle)
             | CompositorBindingAction::Trail(TrailBindingAction::Prev)
             | CompositorBindingAction::Trail(TrailBindingAction::Next)
             | CompositorBindingAction::ZoomIn
@@ -79,7 +130,7 @@ pub(crate) fn apply_compositor_action_press(
 ) -> bool {
     match action {
         CompositorBindingAction::Quit { .. } => {
-            st.request_exit();
+            st.show_exit_confirm_overlay();
             info!("quit requested via keybind");
             true
         }
@@ -92,10 +143,14 @@ pub(crate) fn apply_compositor_action_press(
                     wayland_display,
                     "manual",
                 );
-                info!("manual config reload from {}", config_path);
-                info!(
+                debug!("manual config reload from {}", config_path);
+                debug!(
                     "resolved keybinds: {}",
                     st.runtime.tuning.keybinds_resolved_summary()
+                );
+                debug!(
+                    "resolved zoom: {}",
+                    st.runtime.tuning.zoom_resolved_summary()
                 );
             } else {
                 warn!(
@@ -116,6 +171,38 @@ pub(crate) fn apply_compositor_action_press(
         CompositorBindingAction::ClusterMode => st.enter_cluster_mode(),
         CompositorBindingAction::Node(NodeBindingAction::Move(direction)) => {
             move_latest_node_direction(st, from_directional_action(direction))
+        }
+        CompositorBindingAction::Stack(StackBindingAction::Cycle(direction)) => {
+            let direction = match direction {
+                StackCycleDirection::Forward => {
+                    halley_core::cluster_layout::ClusterCycleDirection::Next
+                }
+                StackCycleDirection::Backward => {
+                    halley_core::cluster_layout::ClusterCycleDirection::Prev
+                }
+            };
+            let monitor = st.focused_monitor().to_string();
+            st.cycle_active_stack_for_monitor(monitor.as_str(), direction, Instant::now())
+        }
+        CompositorBindingAction::Tile(TileBindingAction::Focus(direction)) => {
+            let monitor = st.focused_monitor().to_string();
+            st.tile_focus_active_cluster_member_for_monitor(
+                monitor.as_str(),
+                direction,
+                Instant::now(),
+            )
+        }
+        CompositorBindingAction::Tile(TileBindingAction::Swap(direction)) => {
+            let monitor = st.focused_monitor().to_string();
+            st.tile_swap_active_cluster_member_for_monitor(
+                monitor.as_str(),
+                direction,
+                Instant::now(),
+            )
+        }
+        CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle) => {
+            let monitor = st.focused_monitor().to_string();
+            st.cycle_active_cluster_layout_for_monitor(monitor.as_str(), Instant::now())
         }
         CompositorBindingAction::Trail(TrailBindingAction::Prev) => {
             crate::compositor::actions::window::step_window_trail(
@@ -218,6 +305,9 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::ToggleState
             | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::ClusterMode
+            | CompositorBindingAction::Stack(_)
+            | CompositorBindingAction::Tile(_)
+            | CompositorBindingAction::Cluster(_)
             | CompositorBindingAction::Trail(TrailBindingAction::Prev)
             | CompositorBindingAction::Trail(TrailBindingAction::Next)
             | CompositorBindingAction::Monitor(_)
@@ -233,20 +323,7 @@ pub(crate) fn apply_bound_key(
 
     for binding in st.runtime.tuning.launch_bindings.clone() {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            // FIX: store the child so it's tracked for cleanup on WM exit,
-            // rather than dropping it immediately (which orphaned the process).
-            let ok = match super::spawn::spawn_command(
-                binding.command.as_str(),
-                wayland_display,
-                "command",
-            ) {
-                Some(child) => {
-                    st.runtime.spawned_children.push(child);
-                    true
-                }
-                None => false,
-            };
-            return ok;
+            return spawn_launch_binding(st, binding.command.as_str(), wayland_display);
         }
     }
     false
@@ -265,18 +342,7 @@ pub(crate) fn apply_bound_pointer_input(
 
     for binding in st.runtime.tuning.launch_bindings.clone() {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
-            let ok = match super::spawn::spawn_command(
-                binding.command.as_str(),
-                wayland_display,
-                "command",
-            ) {
-                Some(child) => {
-                    st.runtime.spawned_children.push(child);
-                    true
-                }
-                None => false,
-            };
-            return ok;
+            return spawn_launch_binding(st, binding.command.as_str(), wayland_display);
         }
     }
     false

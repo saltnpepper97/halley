@@ -10,16 +10,21 @@ use smithay::reexports::wayland_server::backend::ObjectId;
 use super::root::Halley;
 use crate::activity::CommitActivity;
 use crate::animation::AnimSpec;
+use crate::protocol::wayland::activation::ActivationRuntimeState;
+
+const FIXED_ANIM_STATE_CHANGE_MS: u64 = 360;
+const FIXED_ANIM_BOUNCE: f32 = 1.45;
 
 pub(crate) struct RuntimeState {
     pub(crate) tuning: RuntimeTuning,
     pub(crate) surface_activity: HashMap<ObjectId, CommitActivity>,
     pub(crate) exit_requested: bool,
     pub(crate) started_at: Instant,
-    pub(crate) last_debug_dump_at: Instant,
     pub(crate) maintenance_dirty: bool,
+    pub(crate) screenshot_full_repaint_until_ms: u64,
     pub(crate) maintenance_ping: Option<Ping>,
     pub(crate) pending_drm_syncobj_surfaces: Arc<Mutex<Vec<ObjectId>>>,
+    pub(crate) activation: ActivationRuntimeState,
     pub(crate) spawned_children: Vec<std::process::Child>,
 }
 
@@ -90,6 +95,16 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
         }
         if let Some(at_ms) = self
             .model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .values()
+            .copied()
+            .min()
+        {
+            consider(at_ms);
+        }
+        if let Some(at_ms) = self
+            .model
             .workspace_state
             .active_transition_until_ms
             .values()
@@ -120,17 +135,77 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
         {
             consider(deadline_ms);
         }
-        if self.runtime.tuning.debug_tick_dump {
-            consider(
-                now_ms.saturating_add(
-                    self.runtime.tuning.debug_dump_every_ms.saturating_sub(
-                        now.duration_since(self.runtime.last_debug_dump_at)
-                            .as_millis() as u64,
-                    ),
-                ),
-            );
+        if let Some(repeat_at_ms) = self
+            .input
+            .interaction_state
+            .cluster_name_prompt_repeat
+            .as_ref()
+            .map(|repeat| repeat.next_repeat_ms)
+        {
+            consider(repeat_at_ms);
         }
-
+        if let Some(capture_at_ms) = self
+            .input
+            .interaction_state
+            .pending_screenshot_capture
+            .as_ref()
+            .map(|pending| pending.execute_at_ms)
+        {
+            consider(capture_at_ms);
+        }
+        if let Some(restore_at_ms) = self
+            .input
+            .interaction_state
+            .pending_modal_focus_restore
+            .as_ref()
+            .map(|pending| pending.restore_at_ms)
+        {
+            consider(restore_at_ms);
+        }
+        if let Some(until_ms) = self.input.interaction_state.cursor_override_until_ms {
+            consider(until_ms);
+        }
+        if self
+            .input
+            .interaction_state
+            .inflight_screenshot_capture
+            .is_some()
+        {
+            consider(now_ms.saturating_add(33));
+        }
+        if crate::compositor::interaction::state::bloom_pull_preview_needs_animation(self) {
+            consider(now_ms.saturating_add(16));
+        }
+        if self
+            .model
+            .cluster_state
+            .cluster_overflow_reveal_started_at_ms
+            .iter()
+            .any(|(monitor, started_at_ms)| {
+                let visible_until_ms = self
+                    .model
+                    .cluster_state
+                    .cluster_overflow_visible_until_ms
+                    .get(monitor)
+                    .copied();
+                visible_until_ms.is_some_and(|visible_until_ms| {
+                    visible_until_ms > now_ms
+                        && (now_ms.saturating_sub(*started_at_ms) < 220
+                            || visible_until_ms.saturating_sub(now_ms) < 220)
+                })
+            })
+        {
+            consider(now_ms.saturating_add(16));
+        }
+        if self
+            .model
+            .cluster_state
+            .cluster_overflow_promotion_anim
+            .values()
+            .any(|anim| now_ms < anim.reveal_at_ms)
+        {
+            consider(now_ms.saturating_add(16));
+        }
         next_ms.map(|at_ms| {
             now.checked_add(std::time::Duration::from_millis(
                 at_ms.saturating_sub(now_ms),
@@ -145,6 +220,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         let prev_runtime_viewport = self.model.viewport;
         let prev_config_viewport = self.runtime.tuning.viewport();
         let prev_effective_no_csd = self.runtime.tuning.effective_no_csd();
+        let prev_font = self.runtime.tuning.font.clone();
         let prev_physics_enabled = self.runtime.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
         let previous_output_names: std::collections::HashSet<String> = self
@@ -181,15 +257,11 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
 
         self.ui.render_state.animator.set_spec(AnimSpec {
-            state_change_ms: tuning.dev_anim_state_change_ms,
-            bounce: tuning.dev_anim_bounce,
+            state_change_ms: FIXED_ANIM_STATE_CHANGE_MS,
+            bounce: FIXED_ANIM_BOUNCE,
         });
 
         if prev_physics_enabled && !tuning.physics_enabled {
-            self.model
-                .workspace_state
-                .active_transition_until_ms
-                .clear();
             self.input.interaction_state.drag_authority_node = None;
             self.input.interaction_state.physics_velocity.clear();
             self.input.interaction_state.smoothed_render_pos.clear();
@@ -219,6 +291,12 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
 
         self.runtime.tuning = tuning;
+        if self.runtime.tuning.font != prev_font {
+            self.ui.render_state.invalidate_ui_text_cache();
+        }
+        if !self.runtime.tuning.cursor.hide_while_typing {
+            self.input.interaction_state.cursor_hidden_by_typing = false;
+        }
         if prev_effective_no_csd != self.runtime.tuning.effective_no_csd() {
             self.refresh_xdg_decoration_mode();
         }
@@ -259,16 +337,34 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
         crate::compositor::workspace::lifecycle::reconcile_surface_bindings(self);
         let now_ms = now.duration_since(self.runtime.started_at).as_millis() as u64;
+        crate::protocol::wayland::activation::prune_expired(self, now, now_ms);
         let _ = self.recent_top_node_active(now);
         if let Some(pending) = self.input.interaction_state.pending_core_click.clone()
             && now_ms >= pending.deadline_ms
         {
             self.input.interaction_state.pending_core_click = None;
-            if pending.reopen_bloom_on_timeout
-                && let Some(cid) = self.model.field.cluster_id_for_core_public(pending.node_id)
-            {
-                let _ = self.open_cluster_bloom_for_monitor(pending.monitor.as_str(), cid);
-            }
+        }
+        let _ = crate::compositor::clusters::system::cluster_system_controller(&mut **self)
+            .repeat_cluster_name_prompt_input_if_due(now_ms);
+        self.run_pending_screenshot_capture_if_due(now_ms);
+        if let Some(pending) = self
+            .input
+            .interaction_state
+            .pending_modal_focus_restore
+            .clone()
+            && now_ms >= pending.restore_at_ms
+        {
+            self.input.interaction_state.pending_modal_focus_restore = None;
+            self.apply_wayland_focus_state(pending.target);
+        }
+        if self
+            .input
+            .interaction_state
+            .cursor_override_until_ms
+            .is_some_and(|until_ms| now_ms >= until_ms)
+        {
+            self.input.interaction_state.cursor_override_until_ms = None;
+            self.input.interaction_state.cursor_override_icon = None;
         }
         if self.has_any_active_cluster_workspace() {
             let active_monitors = self
@@ -341,6 +437,18 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             .workspace_state
             .manual_collapsed_nodes
             .retain(|id| alive_ids.contains(id));
+        self.model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .retain(|id, _| alive_ids.contains(id));
+        self.model
+            .spawn_state
+            .pending_tiled_insert_preserve_focus
+            .retain(|id| alive_ids.contains(id));
+        self.model
+            .cluster_state
+            .cluster_overflow_promotion_anim
+            .retain(|_, anim| alive_ids.contains(&anim.member_id) && now_ms < anim.reveal_at_ms);
 
         self.process_pending_spawn_activations(now, now_ms);
         let resize_settling = self
@@ -405,17 +513,10 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             self.resolve_surface_overlap();
         }
         self.restore_pan_return_active_focus(now);
+        let animations_enabled = self.runtime.tuning.animations_enabled();
         let crate::compositor::root::Halley { model, ui, .. } = &mut **self;
-        ui.render_state.animator.observe_field(&model.field, now);
-
-        if self.runtime.tuning.debug_tick_dump
-            && now
-                .duration_since(self.runtime.last_debug_dump_at)
-                .as_millis() as u64
-                >= self.runtime.tuning.debug_dump_every_ms
-        {
-            self.debug_dump();
-            self.runtime.last_debug_dump_at = now;
+        if animations_enabled {
+            ui.render_state.animator.observe_field(&model.field, now);
         }
     }
 }

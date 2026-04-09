@@ -3,10 +3,11 @@ use std::time::Instant;
 
 use halley_core::field::{NodeId, NodeKind as FieldNodeKind, NodeState as FieldNodeState};
 use halley_ipc::{
-    BearingsRequest, BearingsStatusResponse, CompositorRequest, IpcError, MonitorFocusDirection,
-    MonitorFocusTarget, MonitorRequest, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup,
-    NodeProtocolFamily, NodeRelationInfo, NodeRequest, NodeRole, NodeSelector, NodeState, Request,
-    Response, TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
+    BearingsRequest, BearingsStatusResponse, CaptureRequest, CaptureStatusResponse, ClusterRequest,
+    CompositorRequest, IpcError, MonitorFocusDirection, MonitorFocusTarget, MonitorRequest,
+    NodeInfo, NodeKind, NodeListResponse, NodeMoveDirection, NodeOutputGroup, NodeProtocolFamily,
+    NodeRelationInfo, NodeRequest, NodeRole, NodeSelector, NodeState, Request, Response,
+    StackRequest, TileRequest, TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
 };
 use smithay::desktop::PopupManager;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
@@ -19,10 +20,14 @@ use crate::compositor::surface_ops::{current_surface_size_for_node, request_clos
 
 pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
     match request {
+        Request::Capture(request) => handle_capture_request(st, request),
         Request::Node(request) => handle_node_request(st, request),
         Request::Trail(request) => handle_trail_request(st, request),
         Request::Monitor(request) => handle_monitor_request(st, request),
         Request::Bearings(request) => handle_bearings_request(st, request),
+        Request::Stack(request) => handle_stack_request(st, request),
+        Request::Tile(request) => handle_tile_request(st, request),
+        Request::Cluster(request) => handle_cluster_request(st, request),
         Request::Compositor(CompositorRequest::Outputs) => Response::Error(IpcError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
@@ -31,6 +36,54 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         | Request::Compositor(CompositorRequest::Dpms { .. }) => Response::Error(
             IpcError::Unsupported("backend request not handled here".into()),
         ),
+    }
+}
+
+fn handle_capture_request(st: &mut Halley, request: CaptureRequest) -> Response {
+    match request {
+        CaptureRequest::Start { mode, output } => {
+            if st.start_screenshot_session(mode, output.as_deref(), Instant::now()) {
+                Response::CaptureStatus(capture_status_response(st))
+            } else {
+                Response::Error(IpcError::Unsupported(
+                    "screenshot session is already active".into(),
+                ))
+            }
+        }
+        CaptureRequest::Status => Response::CaptureStatus(capture_status_response(st)),
+    }
+}
+
+fn capture_status_response(st: &Halley) -> CaptureStatusResponse {
+    let last = st.input.interaction_state.last_screenshot_result.as_ref();
+    CaptureStatusResponse {
+        active: st.screenshot_session_active()
+            || st
+                .input
+                .interaction_state
+                .pending_screenshot_capture
+                .is_some()
+            || st
+                .input
+                .interaction_state
+                .inflight_screenshot_capture
+                .is_some(),
+        session_serial: st
+            .input
+            .interaction_state
+            .screenshot_session
+            .as_ref()
+            .map(|_| {
+                st.input
+                    .interaction_state
+                    .screenshot_next_serial
+                    .saturating_sub(1)
+            }),
+        last_finished_serial: last.map(|result| result.serial),
+        saved_path: last
+            .and_then(|result| result.saved_path.as_ref())
+            .map(|path| path.display().to_string()),
+        error: last.and_then(|result| result.error.clone()),
     }
 }
 
@@ -160,6 +213,92 @@ fn handle_bearings_request(st: &mut Halley, request: BearingsRequest) -> Respons
         BearingsRequest::Status => Response::BearingsStatus(BearingsStatusResponse {
             visible: st.ui.render_state.bearings_visible(),
         }),
+    }
+}
+
+fn handle_stack_request(st: &mut Halley, request: StackRequest) -> Response {
+    match request {
+        StackRequest::Cycle { direction, output } => {
+            match resolve_output_context(st, output.as_deref()).and_then(|monitor| {
+                let now = Instant::now();
+                focus_output_if_needed(st, monitor.as_str(), now);
+                let direction = match direction {
+                    halley_ipc::StackCycleDirection::Forward => {
+                        halley_core::cluster_layout::ClusterCycleDirection::Next
+                    }
+                    halley_ipc::StackCycleDirection::Backward => {
+                        halley_core::cluster_layout::ClusterCycleDirection::Prev
+                    }
+                };
+                if st.cycle_active_stack_for_monitor(monitor.as_str(), direction, now) {
+                    Ok(())
+                } else {
+                    Err(IpcError::Unsupported(format!(
+                        "stack layout is not active on output {}",
+                        monitor
+                    )))
+                }
+            }) {
+                Ok(()) => Response::Ok,
+                Err(err) => Response::Error(err),
+            }
+        }
+    }
+}
+
+fn handle_tile_request(st: &mut Halley, request: TileRequest) -> Response {
+    let (direction, output, swap) = match request {
+        TileRequest::Focus { direction, output } => (direction, output, false),
+        TileRequest::Swap { direction, output } => (direction, output, true),
+    };
+    match resolve_output_context(st, output.as_deref()).and_then(|monitor| {
+        let now = Instant::now();
+        focus_output_if_needed(st, monitor.as_str(), now);
+        let direction = match direction {
+            NodeMoveDirection::Left => halley_config::DirectionalAction::Left,
+            NodeMoveDirection::Right => halley_config::DirectionalAction::Right,
+            NodeMoveDirection::Up => halley_config::DirectionalAction::Up,
+            NodeMoveDirection::Down => halley_config::DirectionalAction::Down,
+        };
+        let ok = if swap {
+            st.tile_swap_active_cluster_member_for_monitor(monitor.as_str(), direction, now)
+        } else {
+            st.tile_focus_active_cluster_member_for_monitor(monitor.as_str(), direction, now)
+        };
+        if ok {
+            Ok(())
+        } else {
+            Err(IpcError::Unsupported(format!(
+                "tiled layout is not active or no tile exists {} on output {}",
+                if swap { "to swap" } else { "to focus" },
+                monitor
+            )))
+        }
+    }) {
+        Ok(()) => Response::Ok,
+        Err(err) => Response::Error(err),
+    }
+}
+
+fn handle_cluster_request(st: &mut Halley, request: ClusterRequest) -> Response {
+    match request {
+        ClusterRequest::LayoutCycle { output } => {
+            match resolve_output_context(st, output.as_deref()).and_then(|monitor| {
+                let now = Instant::now();
+                focus_output_if_needed(st, monitor.as_str(), now);
+                if st.cycle_active_cluster_layout_for_monitor(monitor.as_str(), now) {
+                    Ok(())
+                } else {
+                    Err(IpcError::Unsupported(format!(
+                        "no active cluster workspace on output {}",
+                        monitor
+                    )))
+                }
+            }) {
+                Ok(()) => Response::Ok,
+                Err(err) => Response::Error(err),
+            }
+        }
     }
 }
 

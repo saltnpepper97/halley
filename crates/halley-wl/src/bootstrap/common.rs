@@ -7,7 +7,8 @@ use std::io;
 use std::io::ErrorKind;
 use std::io::IsTerminal;
 use std::io::Write;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::mem::ManuallyDrop;
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
@@ -22,6 +23,7 @@ use eventline::{debug, info, warn};
 use rustix::net::{
     AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
 };
+use rustix::process::{Pid, Signal, kill_process_group, setpgid, test_kill_process};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RuntimeBackend {
@@ -151,6 +153,108 @@ pub(crate) fn ensure_dbus_session_bus_address() {
     unsafe { env::set_var("DBUS_SESSION_BUS_ADDRESS", addr) };
 }
 
+pub(crate) fn sync_portal_activation_environment(wayland_display: &str) {
+    // SAFETY: Called during tty compositor startup before worker threads are spawned.
+    unsafe {
+        env::set_var("WAYLAND_DISPLAY", wayland_display);
+        env::set_var("XDG_SESSION_TYPE", "wayland");
+
+        // What user-facing apps should see as the desktop
+        env::set_var("XDG_SESSION_DESKTOP", "Halley");
+        env::set_var("DESKTOP_SESSION", "Halley");
+
+        // What portals can use for backend matching
+        env::set_var("XDG_CURRENT_DESKTOP", "Halley");
+    }
+
+    let vars = activation_environment_vars();
+    if vars.is_empty() {
+        return;
+    }
+
+    run_activation_env_sync(
+        "dbus-update-activation-environment",
+        Command::new("dbus-update-activation-environment")
+            .arg("--systemd")
+            .args(vars.iter().map(String::as_str)),
+    );
+    run_activation_env_sync(
+        "systemctl import-environment",
+        Command::new("systemctl")
+            .arg("--user")
+            .arg("import-environment")
+            .args(vars.iter().map(String::as_str)),
+    );
+}
+
+pub(crate) fn refresh_portal_services_nonblocking() {
+    run_portal_service_command(
+        "restart xdg-desktop-portal.service",
+        Command::new("systemctl")
+            .arg("--user")
+            .arg("restart")
+            .arg("--no-block")
+            .arg("xdg-desktop-portal.service"),
+    );
+    run_portal_service_command(
+        "start xdg-desktop-portal-wlr.service",
+        Command::new("systemctl")
+            .arg("--user")
+            .arg("start")
+            .arg("--no-block")
+            .arg("xdg-desktop-portal-wlr.service"),
+    );
+}
+
+fn activation_environment_vars() -> Vec<String> {
+    [
+        "WAYLAND_DISPLAY",
+        "XDG_CURRENT_DESKTOP",
+        "XDG_SESSION_TYPE",
+        "XCURSOR_THEME",
+        "XCURSOR_SIZE",
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "PATH",
+    ]
+    .into_iter()
+    .filter(|name| {
+        env::var(name)
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty())
+    })
+    .map(str::to_string)
+    .collect()
+}
+
+fn run_activation_env_sync(label: &str, command: &mut Command) {
+    match command.status() {
+        Ok(status) if status.success() => {
+            debug!("{} completed successfully", label);
+        }
+        Ok(status) => {
+            warn!("{} exited with status {}", label, status);
+        }
+        Err(err) => {
+            warn!("{} failed: {}", label, err);
+        }
+    }
+}
+
+fn run_portal_service_command(label: &str, command: &mut Command) {
+    match command.status() {
+        Ok(status) if status.success() => {
+            debug!("portal sync: {} queued", label);
+        }
+        Ok(status) => {
+            warn!("portal sync failed: {} exited with {}", label, status);
+        }
+        Err(err) => {
+            warn!("portal sync failed: {}: {}", label, err);
+        }
+    }
+}
+
 fn terminate_child_with_timeout(child: &mut Child, label: &str, timeout: Duration) {
     let pid = child.id();
     debug!("terminating {} pid={}", label, pid);
@@ -185,8 +289,8 @@ fn terminate_child_with_timeout(child: &mut Child, label: &str, timeout: Duratio
 fn terminate_process_group_with_timeout(child: &mut Child, label: &str, timeout: Duration) {
     let pid = child.id() as i32;
     debug!("terminating {} process group pgid={}", label, pid);
-    unsafe {
-        let _ = libc::kill(-pid, libc::SIGTERM);
+    if let Some(pid) = Pid::from_raw(pid) {
+        let _ = kill_process_group(pid, Signal::TERM);
     }
 
     let deadline = Instant::now() + timeout;
@@ -204,8 +308,8 @@ fn terminate_process_group_with_timeout(child: &mut Child, label: &str, timeout:
                     "{} pgid={} ignored SIGTERM for {:?}; sending SIGKILL",
                     label, pid, timeout
                 );
-                unsafe {
-                    let _ = libc::kill(-pid, libc::SIGKILL);
+                if let Some(pid) = Pid::from_raw(pid) {
+                    let _ = kill_process_group(pid, Signal::KILL);
                 }
                 let _ = child.wait();
                 break;
@@ -336,10 +440,7 @@ impl X11SocketReservation {
         let reservation = (|| {
             let filesystem_listener = match UnixListener::bind(&socket_path) {
                 Ok(listener) => listener,
-                Err(err) if err.kind() == ErrorKind::AddrInUse => {
-                    let _ = fs::remove_file(&socket_path);
-                    UnixListener::bind(&socket_path)?
-                }
+                Err(err) if err.kind() == ErrorKind::AddrInUse => return Err(err),
                 Err(err) => return Err(err),
             };
             filesystem_listener.set_nonblocking(true)?;
@@ -461,7 +562,7 @@ impl XwaylandSatellite {
                 .env("WAYLAND_DISPLAY", self.wayland_display.as_str())
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::inherit());
+                .stderr(Stdio::null());
 
             for idx in 0..listen_fds.len() {
                 command.arg("-listenfd").arg((3 + idx).to_string());
@@ -470,12 +571,12 @@ impl XwaylandSatellite {
             let raw_fds: Vec<i32> = listen_fds.iter().map(AsRawFd::as_raw_fd).collect();
             unsafe {
                 command.pre_exec(move || {
-                    libc::setpgid(0, 0);
+                    setpgid(None, None).map_err(io::Error::from)?;
                     for (idx, raw_fd) in raw_fds.iter().enumerate() {
                         let target_fd = 3 + idx as i32;
-                        if libc::dup2(*raw_fd, target_fd) == -1 {
-                            return Err(io::Error::last_os_error());
-                        }
+                        let mut target = ManuallyDrop::new(OwnedFd::from_raw_fd(target_fd));
+                        rustix::io::dup2(BorrowedFd::borrow_raw(*raw_fd), &mut target)
+                            .map_err(io::Error::from)?;
                     }
                     Ok(())
                 });
@@ -489,10 +590,10 @@ impl XwaylandSatellite {
                 .env("WAYLAND_DISPLAY", self.wayland_display.as_str())
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::inherit());
+                .stderr(Stdio::null());
             unsafe {
                 command.pre_exec(move || {
-                    libc::setpgid(0, 0);
+                    setpgid(None, None).map_err(io::Error::from)?;
                     Ok(())
                 });
             }
@@ -504,7 +605,7 @@ impl XwaylandSatellite {
                 self.child = Some(child);
                 self.request_pending = false;
                 self.restart_after = None;
-                info!(
+                debug!(
                     "xwayland-satellite started via {} on DISPLAY={} (WAYLAND_DISPLAY={})",
                     self.satellite_bin, self.display, self.wayland_display
                 );
@@ -550,6 +651,9 @@ pub(crate) fn ensure_xwayland_satellite(
     wayland_display: &str,
 ) -> Result<XwaylandSatellite, Box<dyn Error>> {
     let mode = XwaylandMode::from_env()?;
+    let inherited_display = env::var("DISPLAY")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
     if mode == XwaylandMode::Off {
         info!("xwayland integration disabled (HALLEY_DEV_WL_XWAYLAND=off)");
         // SAFETY: Called during startup before worker threads are spawned.
@@ -559,6 +663,26 @@ pub(crate) fn ensure_xwayland_satellite(
             satellite_bin: String::new(),
             wayland_display: wayland_display.to_string(),
             display: String::new(),
+            x11_sockets: None,
+            child: None,
+            restart_delay: Duration::from_millis(1500),
+            restart_after: None,
+            request_pending: false,
+            disabled: true,
+        });
+    }
+
+    if inherited_display.is_some() && mode != XwaylandMode::On {
+        let display = inherited_display.expect("checked above");
+        debug!(
+            "reusing inherited DISPLAY={} and skipping xwayland-satellite startup",
+            display
+        );
+        return Ok(XwaylandSatellite {
+            mode,
+            satellite_bin: String::new(),
+            wayland_display: wayland_display.to_string(),
+            display,
             x11_sockets: None,
             child: None,
             restart_delay: Duration::from_millis(1500),
@@ -638,8 +762,8 @@ pub(crate) fn ensure_xwayland_satellite(
     let display = env::var("HALLEY_DEV_WL_XWAYLAND_DISPLAY")
         .ok()
         .filter(|v| !v.trim().is_empty())
-        .unwrap_or_else(next_free_x11_display);
-    let x11_sockets = X11SocketReservation::try_new(display.as_str()).map_err(|err| {
+        .unwrap_or_else(|| ":0".to_string());
+    let x11_sockets = reserve_default_x11_display(display.as_str()).map_err(|err| {
         io::Error::other(format!(
             "failed to reserve X11 display {} for xwayland-satellite: {}",
             display, err
@@ -711,21 +835,17 @@ fn first_x11_display() -> Option<String> {
     displays.into_iter().next()
 }
 
-fn next_free_x11_display() -> String {
-    let mut used = std::collections::BTreeSet::new();
-    let dir = Path::new("/tmp/.X11-unix");
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.filter_map(|entry| entry.ok()) {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if let Some(num) = name.strip_prefix('X').and_then(|n| n.parse::<u32>().ok()) {
-                used.insert(num);
+fn reserve_default_x11_display(display: &str) -> io::Result<X11SocketReservation> {
+    let deadline = Instant::now() + Duration::from_millis(1600);
+    loop {
+        match X11SocketReservation::try_new(display) {
+            Ok(reservation) => return Ok(reservation),
+            Err(err) if err.kind() == ErrorKind::AddrInUse && Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
             }
+            Err(err) => return Err(err),
         }
     }
-    let next = (0u32..4096u32)
-        .find(|idx| !used.contains(idx))
-        .unwrap_or(4096);
-    format!(":{}", next)
 }
 
 fn reclaim_stale_x11_display(
@@ -733,30 +853,90 @@ fn reclaim_stale_x11_display(
     lock_path: &Path,
     socket_path: &Path,
 ) -> io::Result<()> {
-    let lock_pid = fs::read_to_string(lock_path)
-        .ok()
-        .and_then(|raw| raw.trim().parse::<i32>().ok());
+    let lock_pid = match fs::read_to_string(lock_path) {
+        Ok(raw) => Some(raw.trim().parse::<i32>().map_err(|err| {
+            io::Error::new(
+                ErrorKind::InvalidData,
+                format!("X11 display {display} lock contains invalid pid: {err}"),
+            )
+        })?),
+        Err(err) if err.kind() == ErrorKind::NotFound => None,
+        Err(err) => return Err(err),
+    };
 
     if let Some(pid) = lock_pid {
-        let alive = unsafe {
-            libc::kill(pid, 0) == 0
-                || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-        };
+        let alive = Pid::from_raw(pid).is_some_and(|pid| {
+            test_kill_process(pid).is_ok() || test_kill_process(pid) == Err(rustix::io::Errno::PERM)
+        });
         if alive {
             return Err(io::Error::new(
                 ErrorKind::AddrInUse,
                 format!("X11 display {display} is already in use by pid {pid}"),
             ));
         }
+
+        terminate_orphaned_xwayland_satellite(display);
+
+        if lock_path.exists() {
+            let _ = fs::remove_file(lock_path);
+        }
+        if socket_path.exists() {
+            let _ = fs::remove_file(socket_path);
+        }
+        return Ok(());
+    }
+
+    if socket_path.exists() {
+        terminate_orphaned_xwayland_satellite(display);
+        if socket_path.exists() {
+            let _ = fs::remove_file(socket_path);
+        }
     }
 
     if lock_path.exists() {
         let _ = fs::remove_file(lock_path);
     }
-    if socket_path.exists() {
-        let _ = fs::remove_file(socket_path);
-    }
+
     Ok(())
+}
+
+fn terminate_orphaned_xwayland_satellite(display: &str) {
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return;
+    };
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        let pid = match entry.file_name().to_string_lossy().parse::<i32>() {
+            Ok(pid) => pid,
+            Err(_) => continue,
+        };
+        let cmdline_path = entry.path().join("cmdline");
+        let Ok(cmdline) = fs::read(cmdline_path) else {
+            continue;
+        };
+        if cmdline.is_empty() {
+            continue;
+        }
+        let parts = cmdline
+            .split(|byte| *byte == 0)
+            .filter(|part| !part.is_empty())
+            .map(|part| String::from_utf8_lossy(part).into_owned())
+            .collect::<Vec<_>>();
+        if !parts.iter().any(|part| part.contains("xwayland-satellite")) {
+            continue;
+        }
+        if !parts.iter().any(|part| part == display) {
+            continue;
+        }
+        if let Some(pid) = Pid::from_raw(pid) {
+            let _ = kill_process_group(pid, Signal::TERM);
+            std::thread::sleep(Duration::from_millis(60));
+            if test_kill_process(pid).is_ok()
+                || test_kill_process(pid) == Err(rustix::io::Errno::PERM)
+            {
+                let _ = kill_process_group(pid, Signal::KILL);
+            }
+        }
+    }
 }
 
 fn runtime_dir_is_usable(path: &Path) -> bool {

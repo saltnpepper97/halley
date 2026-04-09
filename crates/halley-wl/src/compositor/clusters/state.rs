@@ -6,8 +6,37 @@ use halley_core::field::{NodeId, Vec2};
 use halley_core::tiling::Rect;
 use halley_core::viewport::Viewport;
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ClusterOverflowPromotionAnim {
+    pub(crate) member_id: NodeId,
+    pub(crate) started_at_ms: u64,
+    pub(crate) reveal_at_ms: u64,
+    pub(crate) source_strip_rect: Rect,
+    pub(crate) source_center: Vec2,
+    pub(crate) target_center: Vec2,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ClusterNameRecord {
+    Generic { slot: u32 },
+    Custom { name: String },
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ClusterNamingPromptState {
+    pub(crate) generated_generic_name: String,
+    pub(crate) input: String,
+    pub(crate) caret_char: usize,
+    pub(crate) selection_anchor_char: usize,
+    pub(crate) selection_focus_char: usize,
+    pub(crate) scroll_char: usize,
+    pub(crate) confirm_hover_mix: f32,
+}
+
 pub(crate) struct ClusterState {
     pub(crate) cluster_form_state: ClusterFormationState,
+    pub(crate) cluster_names: HashMap<ClusterId, ClusterNameRecord>,
+    pub(crate) cluster_name_prompt: HashMap<String, ClusterNamingPromptState>,
     pub(crate) active_cluster_workspaces: HashMap<String, ClusterId>,
     pub(crate) cluster_bloom_open: HashMap<String, ClusterId>,
     pub(crate) cluster_mode_selected_nodes: HashMap<String, HashSet<NodeId>>,
@@ -16,5 +45,8 @@ pub(crate) struct ClusterState {
     pub(crate) workspace_core_positions: HashMap<String, Vec2>,
     pub(crate) cluster_overflow_members: HashMap<String, Vec<NodeId>>,
     pub(crate) cluster_overflow_rects: HashMap<String, Rect>,
+    pub(crate) cluster_overflow_scroll_offsets: HashMap<String, usize>,
+    pub(crate) cluster_overflow_reveal_started_at_ms: HashMap<String, u64>,
     pub(crate) cluster_overflow_visible_until_ms: HashMap<String, u64>,
+    pub(crate) cluster_overflow_promotion_anim: HashMap<String, ClusterOverflowPromotionAnim>,
 }

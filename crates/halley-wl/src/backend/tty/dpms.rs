@@ -141,7 +141,7 @@ pub(crate) fn apply_tty_dpms_command(
                 current.insert(output.clone(), false);
             }
         }
-        info!(
+        debug!(
             "tty dpms: powered off outputs {}",
             target_outputs.join(", ")
         );
@@ -159,7 +159,7 @@ pub(crate) fn apply_tty_dpms_command(
             }
         }
         st.input.interaction_state.dpms_just_woke = true;
-        info!(
+        debug!(
             "tty dpms: powering on outputs {}",
             target_outputs.join(", ")
         );

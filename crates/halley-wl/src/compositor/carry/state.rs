@@ -2,6 +2,7 @@ use halley_core::decay::DecayLevel;
 use halley_core::field::NodeId;
 use halley_core::viewport::FocusZone;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 pub(crate) struct CarryState {
     pub(crate) carry_zone_hint: HashMap<NodeId, FocusZone>,
@@ -54,6 +55,13 @@ pub(crate) fn enforce_carry_zone_states(st: &mut crate::compositor::root::Halley
             FocusZone::Inside => DecayLevel::Cold,
             FocusZone::Outside => DecayLevel::Cold,
         };
+        if matches!(target, DecayLevel::Cold) {
+            crate::compositor::workspace::state::start_active_to_node_close_animation(
+                st,
+                id,
+                Instant::now(),
+            );
+        }
         let _ = st.model.field.set_decay_level(id, target);
     }
 }

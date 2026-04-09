@@ -7,7 +7,7 @@ use std::time::Instant;
 use smithay::{
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
-    utils::Transform,
+    utils::{Logical, Size, Transform},
 };
 
 use crate::compositor::root::Halley;
@@ -34,6 +34,8 @@ pub(crate) struct MonitorState {
     pub(crate) monitors: HashMap<String, MonitorSpace>,
     pub(crate) node_monitor: HashMap<NodeId, String>,
     pub(crate) layer_surface_monitor: HashMap<ObjectId, String>,
+    pub(crate) layer_surface_committed: HashSet<ObjectId>,
+    pub(crate) layer_surface_last_configured_size: HashMap<ObjectId, Size<i32, Logical>>,
     pub(crate) layer_keyboard_focus: Option<ObjectId>,
 }
 
@@ -352,6 +354,7 @@ pub(crate) fn node_visible_on_current_monitor(st: &Halley, id: NodeId) -> bool {
         .is_none_or(|monitor| monitor == &st.model.monitor_state.current_monitor)
 }
 
+#[allow(dead_code)]
 pub(crate) fn assign_node_to_current_monitor(st: &mut Halley, id: NodeId) {
     let monitor = st.model.monitor_state.current_monitor.clone();
     assign_node_to_monitor(st, id, monitor.as_str());

@@ -117,6 +117,20 @@ impl Animator {
         );
     }
 
+    pub fn snap_to_state(&mut self, id: NodeId, state: NodeState, now: Instant) {
+        let target = base_style(state.clone());
+        self.tracks.insert(
+            id,
+            Track {
+                last_state: state,
+                from: target,
+                to: target,
+                started_at: now,
+            },
+        );
+        self.pulses.remove(&id);
+    }
+
     pub fn style_for(&self, id: NodeId, state: NodeState, now: Instant) -> AnimStyle {
         let mut out = if let Some(track) = self.tracks.get(&id) {
             style_for_track(self.spec, track, now)
@@ -145,6 +159,17 @@ impl Animator {
             return None;
         }
         Some(now.saturating_duration_since(track.started_at))
+    }
+
+    pub fn has_active_animations(&self, now: Instant) -> bool {
+        let track_duration = Duration::from_millis(self.spec.state_change_ms.max(1));
+        self.tracks
+            .values()
+            .any(|track| now.saturating_duration_since(track.started_at) < track_duration)
+            || self
+                .pulses
+                .values()
+                .any(|pulse| now.saturating_duration_since(pulse.started_at) < pulse.duration)
     }
 }
 
@@ -194,5 +219,24 @@ fn style_for_track(spec: AnimSpec, track: &Track, now: Instant) -> AnimStyle {
     AnimStyle {
         scale: mix(track.from.scale, track.to.scale, e),
         alpha: mix(track.from.alpha, track.to.alpha, e.clamp(0.0, 1.0)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snap_to_state_skips_interpolated_transition() {
+        let start = Instant::now();
+        let id = NodeId::new(7);
+        let mut animator = Animator::new(start);
+
+        animator.snap_to_state(id, NodeState::Active, start);
+        animator.snap_to_state(id, NodeState::Node, start + Duration::from_millis(1));
+
+        let style = animator.style_for(id, NodeState::Node, start + Duration::from_millis(40));
+        assert_eq!(style.scale, 0.30);
+        assert_eq!(style.alpha, 1.0);
     }
 }

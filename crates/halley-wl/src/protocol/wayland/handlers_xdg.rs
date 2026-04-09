@@ -1,5 +1,5 @@
 use super::*;
-use crate::compositor::{fullscreen, monitor, spawn, workspace};
+use crate::compositor::{actions, fullscreen, monitor, spawn, surface_ops, workspace};
 use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -45,7 +45,6 @@ impl XdgShellHandler for Halley {
         let intent = spawn::rules::resolve_initial_window_intent(self, &toplevel);
         let initial_size = super::handlers::initial_toplevel_size(self, &toplevel, &intent);
         toplevel.with_pending_state(|s| {
-            s.states.set(xdg_toplevel::State::Activated);
             if let Some((w, h)) = initial_size.configure_size {
                 s.size = Some((w, h).into());
             }
@@ -64,6 +63,7 @@ impl XdgShellHandler for Halley {
             &intent,
         );
         let now = Instant::now();
+        let _ = crate::protocol::wayland::activation::consume_pending_surface_activation(self, &wl);
         let node_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
         let handled_by_active_cluster = self
             .model
@@ -108,7 +108,29 @@ impl XdgShellHandler for Halley {
         let _ = popup.send_configure();
     }
 
-    fn move_request(&mut self, _surface: ToplevelSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
+    fn move_request(&mut self, surface: ToplevelSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
+        let key = surface.wl_surface().id();
+        let Some(node_id) = self.model.surface_to_node.get(&key).copied() else {
+            return;
+        };
+        let now = Instant::now();
+        let focus_target =
+            surface_ops::stack_focus_target_for_node(self, node_id).unwrap_or(node_id);
+        self.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
+        self.set_interaction_focus(Some(focus_target), 700, now);
+        if let Some((press_global_sx, press_global_sy)) =
+            self.input.interaction_state.last_pointer_screen_global
+        {
+            self.input.interaction_state.pending_titlebar_press = Some(
+                crate::compositor::interaction::state::PendingTitlebarPress {
+                    node_id,
+                    press_global_sx,
+                    press_global_sy,
+                    workspace_active: self.has_active_cluster_workspace(),
+                },
+            );
+        }
+        self.request_maintenance();
     }
 
     fn resize_request(
@@ -147,6 +169,23 @@ impl XdgShellHandler for Halley {
         );
     }
 
+    fn minimize_request(&mut self, surface: ToplevelSurface) {
+        let key = surface.wl_surface().id();
+        let Some(node_id) = self.model.surface_to_node.get(&key).copied() else {
+            surface.send_configure();
+            return;
+        };
+        let monitor = self
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&node_id)
+            .cloned()
+            .unwrap_or_else(|| self.focused_monitor().to_string());
+        let _ = actions::window::toggle_node_state(self, node_id, Instant::now(), monitor.as_str());
+        surface.send_configure();
+    }
+
     fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, serial: Serial) {
         let popup = PopupKind::from(surface);
         if let Ok(root) = find_popup_root_surface(&popup) {
@@ -180,6 +219,29 @@ impl XdgShellHandler for Halley {
 }
 
 delegate_xdg_shell!(Halley);
+
+impl XdgActivationHandler for Halley {
+    fn activation_state(&mut self) -> &mut XdgActivationState {
+        &mut self.platform.xdg_activation_state
+    }
+
+    fn request_activation(
+        &mut self,
+        token: XdgActivationToken,
+        token_data: XdgActivationTokenData,
+        surface: WlSurface,
+    ) {
+        crate::protocol::wayland::activation::request_surface_activation(
+            self,
+            &surface,
+            token.as_str(),
+            &token_data,
+            Instant::now(),
+        );
+    }
+}
+
+delegate_xdg_activation!(Halley);
 
 impl WlrLayerShellHandler for Halley {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {

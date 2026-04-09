@@ -82,31 +82,134 @@ pub(crate) fn carry_surface_non_overlap(
     to: Vec2,
     clamp_only: bool,
 ) -> bool {
-    let carry_direct = |st: &mut Halley, id: NodeId, to: Vec2| {
-        if st
-            .model
-            .field
-            .node(id)
-            .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
-        {
-            st.model.field.carry_cluster_by_core(id, to)
-        } else {
-            st.model.field.carry(id, to)
-        }
-    };
-    if !st.runtime.tuning.physics_enabled {
-        carry_surface_no_overlap_static(st, id, to)
-    } else if clamp_only
+    if clamp_only
         || st.input.interaction_state.suspend_overlap_resolve
         || st.input.interaction_state.suspend_state_checks
     {
-        carry_surface_no_overlap_static(st, id, to)
+        carry_surface_no_overlap_clamped(st, id, to)
+    } else if !st.runtime.tuning.physics_enabled {
+        carry_surface_no_overlap_split(st, id, to)
     } else {
-        carry_direct(st, id, to)
+        carry_overlap_node_direct(st, id, to)
     }
 }
 
-fn carry_surface_no_overlap_static(st: &mut Halley, id: NodeId, to: Vec2) -> bool {
+fn carry_overlap_node_direct(st: &mut Halley, id: NodeId, to: Vec2) -> bool {
+    if st
+        .model
+        .field
+        .node(id)
+        .is_some_and(|node| node.kind == halley_core::field::NodeKind::Core)
+    {
+        st.model.field.carry_cluster_by_core(id, to)
+    } else {
+        st.model.field.carry(id, to)
+    }
+}
+
+fn carry_surface_no_overlap_split(st: &mut Halley, id: NodeId, to: Vec2) -> bool {
+    let Some(n) = st.model.field.node(id) else {
+        return false;
+    };
+
+    let mover_ext = collision_extents_for_node(st, n);
+    let gap = non_overlap_gap_world(st);
+    let mut mover_pos = to;
+
+    for _ in 0..24 {
+        let others: Vec<(NodeId, Vec2, CollisionExtents, bool)> = st
+            .model
+            .field
+            .nodes()
+            .iter()
+            .filter_map(|(&oid, other)| {
+                if oid == id
+                    || !node_participates_in_overlap(st, oid)
+                    || !nodes_share_overlap_group(st, id, oid)
+                {
+                    return None;
+                }
+                Some((
+                    oid,
+                    other.pos,
+                    collision_extents_for_node(st, other),
+                    other.pinned || st.input.interaction_state.resize_static_node == Some(oid),
+                ))
+            })
+            .collect();
+
+        let mut changed = false;
+
+        for (oid, opos, oext, other_locked) in others {
+            let dx = mover_pos.x - opos.x;
+            let dy = mover_pos.y - opos.y;
+            let req_x = required_sep_x(st, mover_pos.x, mover_ext, opos.x, oext, gap);
+            let req_y = required_sep_y(st, mover_pos.y, mover_ext, opos.y, oext, gap);
+            let ox = req_x - dx.abs();
+            let oy = req_y - dy.abs();
+
+            if ox <= 0.0 || oy <= 0.0 {
+                continue;
+            }
+
+            if ox < oy {
+                let s = if dx.abs() > f32::EPSILON {
+                    dx.signum()
+                } else if oid.as_u64() < id.as_u64() {
+                    1.0
+                } else {
+                    -1.0
+                };
+                let step = ox + 0.3;
+                if other_locked {
+                    mover_pos.x += s * step;
+                } else {
+                    let half = s * (step * 0.5);
+                    mover_pos.x += half;
+                    let _ = carry_overlap_node_direct(
+                        st,
+                        oid,
+                        Vec2 {
+                            x: opos.x - half,
+                            y: opos.y,
+                        },
+                    );
+                }
+            } else {
+                let s = if dy.abs() > f32::EPSILON {
+                    dy.signum()
+                } else {
+                    1.0
+                };
+                let step = oy + 0.3;
+                if other_locked {
+                    mover_pos.y += s * step;
+                } else {
+                    let half = s * (step * 0.5);
+                    mover_pos.y += half;
+                    let _ = carry_overlap_node_direct(
+                        st,
+                        oid,
+                        Vec2 {
+                            x: opos.x,
+                            y: opos.y - half,
+                        },
+                    );
+                }
+            }
+
+            changed = true;
+        }
+
+        if !changed {
+            break;
+        }
+    }
+
+    carry_overlap_node_direct(st, id, mover_pos)
+}
+
+fn carry_surface_no_overlap_clamped(st: &mut Halley, id: NodeId, to: Vec2) -> bool {
     let Some(n) = st.model.field.node(id) else {
         return false;
     };
@@ -217,7 +320,7 @@ pub(crate) fn collision_extents_for_node(
                 .copied()
                 .unwrap_or(n.intrinsic_size);
             let s = OverlapReadContext::active_collision_scale(anim.scale, basis.x, basis.y);
-            let ext = overlap_read_context(st).surface_window_collision_extents(n);
+            let ext = overlap_read_context(st).active_surface_overlap_extents(n);
 
             CollisionExtents {
                 left: ext.left * s,
@@ -252,10 +355,167 @@ fn layout_collision_extents_for_node(
     }
 }
 
-pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
-    if !st.runtime.tuning.physics_enabled {
-        return;
+fn resolve_static_surface_overlap(st: &mut Halley, ids: &[NodeId]) {
+    let drag_authority = st.input.interaction_state.drag_authority_node;
+
+    for _ in 0..24 {
+        let mut changed = false;
+
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                let a = ids[i];
+                let b = ids[j];
+
+                let Some(na) = st.model.field.node(a) else {
+                    continue;
+                };
+                let Some(nb) = st.model.field.node(b) else {
+                    continue;
+                };
+                if !nodes_share_overlap_group(st, a, b) {
+                    continue;
+                }
+
+                let a_locked = na.pinned
+                    || st.input.interaction_state.resize_active == Some(a)
+                    || st.input.interaction_state.resize_static_node == Some(a);
+                let b_locked = nb.pinned
+                    || st.input.interaction_state.resize_active == Some(b)
+                    || st.input.interaction_state.resize_static_node == Some(b);
+                if a_locked && b_locked {
+                    continue;
+                }
+
+                let a_pos = na.pos;
+                let b_pos = nb.pos;
+                let ea = layout_collision_extents_for_node(st, na);
+                let eb = layout_collision_extents_for_node(st, nb);
+                let gap = non_overlap_gap_world(st);
+                let dx = b_pos.x - a_pos.x;
+                let dy = b_pos.y - a_pos.y;
+                let req_x = required_sep_x(st, a_pos.x, ea, b_pos.x, eb, gap);
+                let req_y = required_sep_y(st, a_pos.y, ea, b_pos.y, eb, gap);
+                let ox = req_x - dx.abs();
+                let oy = req_y - dy.abs();
+                if ox <= 0.0 || oy <= 0.0 {
+                    continue;
+                }
+
+                let sep_on_x = ox < oy;
+                let sep = if sep_on_x { ox + 0.3 } else { oy + 0.3 };
+                let dir_x = if dx.abs() > f32::EPSILON {
+                    dx.signum()
+                } else if a.as_u64() < b.as_u64() {
+                    -1.0
+                } else {
+                    1.0
+                };
+                let dir_y = if dy.abs() > f32::EPSILON {
+                    dy.signum()
+                } else {
+                    1.0
+                };
+
+                if drag_authority == Some(a) && !b_locked {
+                    let target = if sep_on_x {
+                        Vec2 {
+                            x: b_pos.x + dir_x * sep,
+                            y: b_pos.y,
+                        }
+                    } else {
+                        Vec2 {
+                            x: b_pos.x,
+                            y: b_pos.y + dir_y * sep,
+                        }
+                    };
+                    if carry_overlap_node_direct(st, b, target) {
+                        changed = true;
+                    }
+                } else if drag_authority == Some(b) && !a_locked {
+                    let target = if sep_on_x {
+                        Vec2 {
+                            x: a_pos.x - dir_x * sep,
+                            y: a_pos.y,
+                        }
+                    } else {
+                        Vec2 {
+                            x: a_pos.x,
+                            y: a_pos.y - dir_y * sep,
+                        }
+                    };
+                    if carry_overlap_node_direct(st, a, target) {
+                        changed = true;
+                    }
+                } else if !a_locked && !b_locked {
+                    let half = sep * 0.5;
+                    let a_target = if sep_on_x {
+                        Vec2 {
+                            x: a_pos.x - dir_x * half,
+                            y: a_pos.y,
+                        }
+                    } else {
+                        Vec2 {
+                            x: a_pos.x,
+                            y: a_pos.y - dir_y * half,
+                        }
+                    };
+                    let b_target = if sep_on_x {
+                        Vec2 {
+                            x: b_pos.x + dir_x * half,
+                            y: b_pos.y,
+                        }
+                    } else {
+                        Vec2 {
+                            x: b_pos.x,
+                            y: b_pos.y + dir_y * half,
+                        }
+                    };
+                    let moved_a = carry_overlap_node_direct(st, a, a_target);
+                    let moved_b = carry_overlap_node_direct(st, b, b_target);
+                    if moved_a || moved_b {
+                        changed = true;
+                    }
+                } else if !a_locked {
+                    let target = if sep_on_x {
+                        Vec2 {
+                            x: a_pos.x - dir_x * sep,
+                            y: a_pos.y,
+                        }
+                    } else {
+                        Vec2 {
+                            x: a_pos.x,
+                            y: a_pos.y - dir_y * sep,
+                        }
+                    };
+                    if carry_overlap_node_direct(st, a, target) {
+                        changed = true;
+                    }
+                } else if !b_locked {
+                    let target = if sep_on_x {
+                        Vec2 {
+                            x: b_pos.x + dir_x * sep,
+                            y: b_pos.y,
+                        }
+                    } else {
+                        Vec2 {
+                            x: b_pos.x,
+                            y: b_pos.y + dir_y * sep,
+                        }
+                    };
+                    if carry_overlap_node_direct(st, b, target) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        if !changed {
+            break;
+        }
     }
+}
+
+pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
     if st.input.interaction_state.suspend_overlap_resolve {
         return;
     }
@@ -275,12 +535,20 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
 
     ids.sort_by_key(|id| id.as_u64());
 
+    if !st.runtime.tuning.physics_enabled {
+        resolve_static_surface_overlap(st, &ids);
+        return;
+    }
+
     let now = Instant::now();
     let dt = now
         .saturating_duration_since(st.input.interaction_state.physics_last_tick)
         .as_secs_f32()
-        .clamp(1.0 / 240.0, 1.0 / 30.0);
+        .min(1.0 / 30.0);
     st.input.interaction_state.physics_last_tick = now;
+    if dt <= f32::EPSILON {
+        return;
+    }
 
     let gap = non_overlap_gap_world(st);
     let damping_per_sec = physics_damping_per_sec(st);
@@ -418,8 +686,9 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
 }
 
 pub(crate) fn request_toplevel_resize(st: &mut Halley, node_id: NodeId, width: i32, height: i32) {
-    let width = width.max(96);
-    let height = height.max(72);
+    let (min_w, min_h) = crate::compositor::surface_ops::toplevel_min_size_for_node(st, node_id);
+    let width = width.max(min_w).max(96);
+    let height = height.max(min_h).max(72);
     let focused_node = st.last_input_surface_node();
 
     for top in st.platform.xdg_shell_state.toplevel_surfaces() {
@@ -471,6 +740,42 @@ mod tests {
         for _ in 0..frames {
             state.resolve_surface_overlap();
         }
+    }
+
+    #[test]
+    fn resolve_surface_overlap_separates_windows_when_physics_disabled() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.physics_enabled = false;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        state.model.zoom_ref_size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+
+        state.resolve_surface_overlap();
+
+        assert!(
+            !nodes_overlap(&state, a, b),
+            "static overlap resolution should separate overlapping windows when physics is disabled"
+        );
     }
 
     #[test]
@@ -795,6 +1100,175 @@ mod tests {
     }
 
     #[test]
+    fn dragged_window_pushes_neighbor_when_physics_disabled() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.physics_enabled = false;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        state.model.zoom_ref_size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+
+        let dragged = state.model.field.spawn_surface(
+            "dragged",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let passive = state.model.field.spawn_surface(
+            "passive",
+            Vec2 { x: 430.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let passive_before = state.model.field.node(passive).expect("passive before").pos;
+
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
+        assert!(state.carry_surface_non_overlap(dragged, Vec2 { x: 280.0, y: 0.0 }, false));
+
+        let dragged_after = state.model.field.node(dragged).expect("dragged after");
+        let passive_after = state.model.field.node(passive).expect("passive after");
+
+        assert!(
+            dragged_after.pos.x < 280.0,
+            "dragged window should yield some correction when sharing the shove: {:?}",
+            dragged_after.pos
+        );
+        assert!(
+            passive_after.pos.x > passive_before.x,
+            "passive neighbor should be pushed when physics is disabled: before={:?} after={:?}",
+            passive_before,
+            passive_after.pos
+        );
+        assert!(
+            !nodes_overlap(&state, dragged, passive),
+            "non-physics drag should still end non-overlapping"
+        );
+    }
+
+    #[test]
+    fn dragged_window_yields_against_pinned_neighbor_when_physics_disabled() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.physics_enabled = false;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        state.model.zoom_ref_size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+
+        let dragged = state.model.field.spawn_surface(
+            "dragged",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let pinned = state.model.field.spawn_surface(
+            "pinned",
+            Vec2 { x: 430.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let pinned_before = state.model.field.node(pinned).expect("pinned before").pos;
+        let _ = state.model.field.set_pinned(pinned, true);
+
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
+        assert!(state.carry_surface_non_overlap(dragged, Vec2 { x: 280.0, y: 0.0 }, false));
+
+        let dragged_after = state.model.field.node(dragged).expect("dragged after");
+        let pinned_after = state.model.field.node(pinned).expect("pinned after");
+
+        assert_eq!(
+            pinned_after.pos, pinned_before,
+            "pinned neighbor should not move in non-physics drag resolution"
+        );
+        assert!(
+            dragged_after.pos.x < 280.0,
+            "dragged window should absorb the full correction against a pinned neighbor"
+        );
+        assert!(
+            !nodes_overlap(&state, dragged, pinned),
+            "dragged window should still end non-overlapping with pinned neighbor"
+        );
+    }
+
+    #[test]
+    fn dragged_window_pushes_collapsed_core_when_physics_disabled() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.physics_enabled = false;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        state.model.zoom_ref_size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+
+        let dragged = state.model.field.spawn_surface(
+            "dragged",
+            Vec2 { x: 400.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 20.0, y: 0.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        let cid = state
+            .model
+            .field
+            .create_cluster(vec![a, b])
+            .expect("cluster");
+        let core = state.model.field.collapse_cluster(cid).expect("core");
+
+        let core_before = state.model.field.node(core).expect("core before").pos;
+        let a_before = state.model.field.node(a).expect("a before").pos;
+        let b_before = state.model.field.node(b).expect("b before").pos;
+
+        crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
+        assert!(state.carry_surface_non_overlap(dragged, Vec2 { x: 0.0, y: 0.0 }, false));
+
+        let core_after = state.model.field.node(core).expect("core after");
+        assert!(
+            core_after.pos != core_before,
+            "collapsed core should be pushed by non-physics drag resolution"
+        );
+        assert_eq!(
+            state.model.field.node(a).expect("a after").pos,
+            a_before,
+            "collapsed cluster members should remain in place while the collapsed core moves"
+        );
+        assert_eq!(
+            state.model.field.node(b).expect("b after").pos,
+            b_before,
+            "collapsed cluster members should remain in place while the collapsed core moves"
+        );
+        assert!(
+            !nodes_overlap(&state, dragged, core),
+            "dragged window should end non-overlapping with the pushed core"
+        );
+    }
+
+    #[test]
     fn active_surface_collision_extents_include_frame_pad() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
@@ -852,6 +1326,42 @@ mod tests {
         assert_eq!(ext.right, expected_half_w);
         assert_eq!(ext.top, expected_half_h);
         assert_eq!(ext.bottom, expected_half_h);
+    }
+
+    #[test]
+    fn active_overlap_extents_preserve_asymmetric_bbox_offsets() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let id = state.model.field.spawn_surface(
+            "gtk-like",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 920.0,
+            },
+        );
+        state.ui.render_state.bbox_loc.insert(id, (4.0, 6.0));
+        state
+            .ui
+            .render_state
+            .window_geometry
+            .insert(id, (12.0, 18.0, 840.0, 620.0));
+
+        let node = state.model.field.node(id).expect("surface node");
+        let ext = state.collision_extents_for_node(node);
+
+        assert!(
+            ext.left > ext.right,
+            "expected asymmetric x extents: {ext:?}"
+        );
+        assert!(
+            ext.top > ext.bottom,
+            "expected asymmetric y extents: {ext:?}"
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
-use eventline::info;
+use eventline::debug;
 use halley_config::{InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, PanToNewMode};
 use halley_core::decay::DecayLevel;
 use halley_core::field::{NodeId, Vec2};
@@ -30,6 +30,11 @@ pub(crate) struct InitialToplevelSize {
 
 fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i32)> {
     let wl = toplevel.wl_surface();
+    let min_size = with_states(wl, |states| {
+        let mut cached = states.cached_state.get::<SurfaceCachedState>();
+        let state = cached.current();
+        (state.min_size.w, state.min_size.h)
+    });
 
     let geometry = with_states(wl, |states| {
         states
@@ -39,16 +44,25 @@ fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i3
             .geometry
     });
     if let Some(geometry) = geometry {
-        return Some((geometry.size.w.max(96), geometry.size.h.max(72)));
+        return Some((
+            geometry.size.w.max(min_size.0).max(96),
+            geometry.size.h.max(min_size.1).max(72),
+        ));
     }
 
     if let Some(size) = toplevel.current_state().size {
-        return Some((size.w.max(96), size.h.max(72)));
+        return Some((
+            size.w.max(min_size.0).max(96),
+            size.h.max(min_size.1).max(72),
+        ));
     }
 
     let bbox = bbox_from_surface_tree(wl, (0, 0));
     if bbox.size.w > 0 && bbox.size.h > 0 {
-        return Some((bbox.size.w.max(96), bbox.size.h.max(72)));
+        return Some((
+            bbox.size.w.max(min_size.0).max(96),
+            bbox.size.h.max(min_size.1).max(72),
+        ));
     }
 
     None
@@ -60,13 +74,16 @@ pub(crate) fn initial_toplevel_size(
     intent: &InitialWindowIntent,
 ) -> InitialToplevelSize {
     let st = &ctx.st;
+    let defer_rule_resolution =
+        crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, intent);
     let predicted_monitor = st.spawn_target_monitor_for_intent(intent);
     let stack_mode_open = st
         .model
         .cluster_state
         .cluster_bloom_open
         .contains_key(predicted_monitor.as_str());
-    if !stack_mode_open
+    if !defer_rule_resolution
+        && !stack_mode_open
         && intent.rule.cluster_participation
             == halley_config::InitialWindowClusterParticipation::Layout
         && let Some(cid) = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str())
@@ -552,7 +569,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             read::spawn_read_context(self).viewport_center_for_monitor(target_monitor.as_str());
         let (focus_id, focus_pos) =
             read::spawn_read_context(self).current_spawn_focus(target_monitor.as_str());
-        info!(
+        debug!(
             "spawn target resolved: target_monitor={} focused_monitor={} interaction_monitor={} anchor_mode={:?} focus_id={:?}",
             target_monitor,
             self.focused_monitor(),
@@ -561,10 +578,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             focus_id.map(|id| id.as_u64())
         );
         let focus_visible = focus_id.is_some_and(|id| {
-            self.surface_is_fully_visible_on_monitor(
-                target_monitor.as_str(),
-                id,
-            )
+            self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), id)
         });
 
         if let Some(id) = focus_id {
@@ -579,7 +593,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                         focus_pos,
                         dir,
                     );
-                    info!(
+                    debug!(
                         "spawn position picked: target_monitor={} anchor=({:.1},{:.1}) focus_pos=({:.1},{:.1}) chosen=({:.1},{:.1}) size=({:.1},{:.1})",
                         target_monitor,
                         focus_pos.x,
@@ -612,7 +626,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             );
             self.spawn_monitor_state_mut(target_monitor.as_str())
                 .spawn_view_anchor = anchor;
-            info!(
+            debug!(
                 "spawn position picked: target_monitor={} anchor=({:.1},{:.1}) focus_pos=({:.1},{:.1}) chosen=({:.1},{:.1}) size=({:.1},{:.1})",
                 target_monitor,
                 anchor.x,
@@ -638,7 +652,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         );
         self.spawn_monitor_state_mut(target_monitor.as_str())
             .spawn_view_anchor = fallback_anchor;
-        info!(
+        debug!(
             "spawn fallback used: target_monitor={} anchor=({:.1},{:.1}) focus_pos=({:.1},{:.1}) chosen=({:.1},{:.1}) size=({:.1},{:.1})",
             target_monitor,
             fallback_anchor.x,
@@ -722,7 +736,10 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 .last_active_size
                 .insert(active.node_id, intrinsic_size);
         }
-        self.mark_active_transition(active.node_id, now, 620);
+        let duration_ms = self.runtime.tuning.window_open_duration_ms();
+        if self.runtime.tuning.window_open_animation_enabled() {
+            self.mark_active_transition(active.node_id, now, duration_ms);
+        }
         self.record_focus_trail_visit(active.node_id);
         self.model.focus_state.suppress_trail_record_once = true;
         self.set_interaction_focus(Some(active.node_id), 30_000, now);
@@ -736,6 +753,42 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         is_transient: bool,
         now: Instant,
     ) {
+        let node_monitor = self
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
+        let cluster_local = self
+            .model
+            .field
+            .cluster_id_for_member_public(id)
+            .is_some_and(|cid| {
+                self.active_cluster_workspace_for_monitor(node_monitor.as_str()) == Some(cid)
+            });
+        if self
+            .model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .contains_key(&id)
+        {
+            return;
+        }
+        if cluster_local {
+            let _ = self.model.field.set_detached(id, false);
+            self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
+            self.set_interaction_focus(Some(id), 30_000, now);
+            self.model
+                .spawn_state
+                .pending_spawn_activate_at_ms
+                .remove(&id);
+            let duration_ms = self.runtime.tuning.window_open_duration_ms();
+            if self.runtime.tuning.window_open_animation_enabled() {
+                self.mark_active_transition(id, now, duration_ms);
+            }
+            return;
+        }
         if self.model.spawn_state.pending_initial_reveal.contains(&id) {
             return;
         }
@@ -746,6 +799,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             .get(&id)
             .is_some_and(|rule| rule.suppress_reveal_pan)
         {
+            let _ = self.model.field.set_detached(id, false);
             self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
             self.record_focus_trail_visit(id);
             self.model.focus_state.suppress_trail_record_once = true;
@@ -754,12 +808,16 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 .spawn_state
                 .pending_spawn_activate_at_ms
                 .remove(&id);
-            self.mark_active_transition(id, now, 620);
+            let duration_ms = self.runtime.tuning.window_open_duration_ms();
+            if self.runtime.tuning.window_open_animation_enabled() {
+                self.mark_active_transition(id, now, duration_ms);
+            }
             return;
         }
         match self.resolve_spawn_reveal_plan(id, is_transient) {
             RevealNewToplevelPlan::AlreadyQueued => {}
             RevealNewToplevelPlan::ActivateNow => {
+                let _ = self.model.field.set_detached(id, false);
                 self.record_focus_trail_visit(id);
                 self.model.focus_state.suppress_trail_record_once = true;
                 self.set_interaction_focus(Some(id), 30_000, now);
@@ -767,7 +825,10 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                     .spawn_state
                     .pending_spawn_activate_at_ms
                     .remove(&id);
-                self.mark_active_transition(id, now, 620);
+                let duration_ms = self.runtime.tuning.window_open_duration_ms();
+                if self.runtime.tuning.window_open_animation_enabled() {
+                    self.mark_active_transition(id, now, duration_ms);
+                }
             }
             RevealNewToplevelPlan::QueuePan { target_center } => {
                 let _ = self.model.field.set_detached(id, true);

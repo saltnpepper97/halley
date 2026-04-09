@@ -171,6 +171,12 @@ impl<'a> OverlapReadContext<'a> {
     }
 
     fn node_allows_overlap_with(&self, id: NodeId, other: NodeId) -> bool {
+        if matches!(
+            self.tuning.cluster_layout_kind(),
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
+        ) {
+            return false;
+        }
         let Some(rule) = self.spawn_state.applied_window_rules.get(&id) else {
             return false;
         };
@@ -296,6 +302,51 @@ impl<'a> OverlapReadContext<'a> {
             right: half_w,
             top: half_h,
             bottom: half_h,
+        }
+    }
+
+    pub(crate) fn active_surface_overlap_extents(
+        &self,
+        n: &halley_core::field::Node,
+    ) -> CollisionExtents {
+        let basis = self
+            .workspace_state
+            .last_active_size
+            .get(&n.id)
+            .copied()
+            .or_else(|| {
+                self.render_state
+                    .window_geometry
+                    .get(&n.id)
+                    .map(|(_, _, w, h)| Vec2 { x: *w, y: *h })
+            })
+            .unwrap_or(n.intrinsic_size);
+        let bbox_w = n.intrinsic_size.x.max(1.0);
+        let bbox_h = n.intrinsic_size.y.max(1.0);
+        let (bbox_lx, bbox_ly) = self
+            .render_state
+            .bbox_loc
+            .get(&n.id)
+            .copied()
+            .unwrap_or((0.0, 0.0));
+        let (geo_lx, geo_ly, geo_w, geo_h) = self
+            .render_state
+            .window_geometry
+            .get(&n.id)
+            .copied()
+            .unwrap_or((bbox_lx, bbox_ly, bbox_w, bbox_h));
+
+        let left = (bbox_w * 0.5 + bbox_lx - geo_lx).max(16.0);
+        let right = (geo_lx + geo_w - bbox_lx - bbox_w * 0.5).max(16.0);
+        let top = (bbox_h * 0.5 + bbox_ly - geo_ly).max(16.0);
+        let bottom = (geo_ly + geo_h - bbox_ly - bbox_h * 0.5).max(16.0);
+        let frame_pad = active_window_frame_pad_px(self.tuning) as f32;
+
+        CollisionExtents {
+            left: left * basis.x.max(1.0) / bbox_w + frame_pad,
+            right: right * basis.x.max(1.0) / bbox_w + frame_pad,
+            top: top * basis.y.max(1.0) / bbox_h + frame_pad,
+            bottom: bottom * basis.y.max(1.0) / bbox_h + frame_pad,
         }
     }
 

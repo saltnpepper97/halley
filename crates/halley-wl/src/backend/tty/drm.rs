@@ -2,6 +2,7 @@ use super::*;
 use std::collections::HashMap;
 
 use crate::compositor::interaction::ResizeCtx;
+use crate::protocol::wayland::portal;
 use halley_ipc::{ModeInfo, OutputInfo, OutputStatus};
 
 use smithay::backend::allocator::Fourcc;
@@ -50,6 +51,12 @@ pub(crate) type HalleyDrmCompositor = DrmCompositor<
     DrmDeviceFd,                         // raw DRM fd
 >;
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct TtyFrameQueueReport {
+    pub(crate) queued: bool,
+    pub(crate) animation_redraw_active: bool,
+}
+
 pub(crate) struct TtyDrmProbe {
     pub(crate) card_path: std::path::PathBuf,
     pub(crate) dev: DrmDevice,
@@ -69,6 +76,114 @@ pub(crate) struct TtyDrmOutput {
     pub(crate) mode: drm_control::Mode,
     /// Atomic DRM compositor — replaces GbmBufferedSurface.
     pub(crate) compositor: Rc<RefCell<HalleyDrmCompositor>>,
+}
+
+pub(crate) struct TtyOutputCaptureBackend {
+    pub(crate) renderer: Rc<RefCell<GlesRenderer>>,
+    pub(crate) outputs: Rc<RefCell<Vec<TtyDrmOutput>>>,
+    pub(crate) pointer_state: Rc<RefCell<PointerState>>,
+    pub(crate) dmabuf_formats: Vec<smithay::backend::allocator::Format>,
+}
+
+impl portal::OutputCaptureBackend for TtyOutputCaptureBackend {
+    fn capture_dmabuf_formats(&self) -> Vec<smithay::backend::allocator::Format> {
+        self.dmabuf_formats.clone()
+    }
+
+    fn capture_output_shm(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        overlay_cursor: bool,
+        logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
+    ) -> Result<portal::ShmCaptureFrame, Box<dyn Error>> {
+        let outputs = self
+            .outputs
+            .try_borrow()
+            .map_err(|_| io::Error::other("tty outputs already borrowed during screencopy"))?;
+        let output = outputs
+            .iter()
+            .find(|output| output.connector_name == output_name)
+            .ok_or_else(|| io::Error::other(format!("unknown tty output {output_name}")))?;
+        let (w, h) = output.mode.size();
+        let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
+            (w as i32, h as i32).into();
+        let ps = self
+            .pointer_state
+            .try_borrow()
+            .map_err(|_| io::Error::other("pointer state already borrowed during screencopy"))?;
+        let now = Instant::now();
+        let resize_preview = ps.resize;
+        let (hover_node, preview_hover_node) =
+            resolve_hover_targets_for_monitor(st, &ps, now, output_name);
+        let cursor_screen = overlay_cursor.then_some(ps.screen);
+        drop(ps);
+
+        let mut renderer = self
+            .renderer
+            .try_borrow_mut()
+            .map_err(|_| io::Error::other("tty renderer already borrowed during screencopy"))?;
+        portal::capture_output_via_renderer(
+            &mut renderer,
+            st,
+            output_name,
+            physical_size,
+            st.output_transform_for(output_name),
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            cursor_screen,
+            overlay_cursor,
+            logical_region,
+        )
+    }
+
+    fn capture_output_dmabuf(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        overlay_cursor: bool,
+        logical_region: Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>,
+        dmabuf: &mut smithay::backend::allocator::dmabuf::Dmabuf,
+    ) -> Result<crate::backend::interface::CaptureDmabufResult, Box<dyn Error>> {
+        let outputs = self.outputs.try_borrow().map_err(|_| {
+            io::Error::other("tty outputs already borrowed during dma-buf screencopy")
+        })?;
+        let output = outputs
+            .iter()
+            .find(|output| output.connector_name == output_name)
+            .ok_or_else(|| io::Error::other(format!("unknown tty output {output_name}")))?;
+        let (w, h) = output.mode.size();
+        let physical_size: smithay::utils::Size<i32, smithay::utils::Physical> =
+            (w as i32, h as i32).into();
+        let ps = self.pointer_state.try_borrow().map_err(|_| {
+            io::Error::other("pointer state already borrowed during dma-buf screencopy")
+        })?;
+        let now = Instant::now();
+        let resize_preview = ps.resize;
+        let (hover_node, preview_hover_node) =
+            resolve_hover_targets_for_monitor(st, &ps, now, output_name);
+        let cursor_screen = overlay_cursor.then_some(ps.screen);
+        drop(ps);
+
+        let mut renderer = self.renderer.try_borrow_mut().map_err(|_| {
+            io::Error::other("tty renderer already borrowed during dma-buf screencopy")
+        })?;
+        portal::capture_output_into_dmabuf_via_renderer(
+            &mut renderer,
+            st,
+            output_name,
+            physical_size,
+            st.output_transform_for(output_name),
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            cursor_screen,
+            overlay_cursor,
+            logical_region,
+            dmabuf,
+        )
+    }
 }
 
 pub(crate) fn probe_tty_drm_device_via_session(
@@ -392,7 +507,7 @@ pub(crate) fn select_tty_scanouts(
                 m.size() == (wanted.width as u16, wanted.height as u16)
                     && wanted
                         .refresh_rate
-                        .is_none_or(|hz| (m.vrefresh() as f64 - hz).abs() < 2.0)
+                        .is_none_or(|hz: f64| (m.vrefresh() as f64 - hz).abs() < 2.0)
             }) else {
                 warn!(
                     "configured viewport {} requests {}x{} @ {:?}Hz, but no matching DRM mode is available; skipping it",
@@ -439,7 +554,10 @@ pub(crate) fn select_tty_scanouts(
             let mut vec: Vec<drm_control::crtc::Handle> = Vec::new();
             let encoder_handles: Vec<_> = {
                 let mut handles = Vec::new();
-                if let Some(enc) = selected_info.current_encoder() {
+                if let Some(enc) = selected_info
+                    .current_encoder()
+                    .map(|enc: drm_control::encoder::Handle| enc)
+                {
                     handles.push(enc);
                 }
                 for &enc in selected_info.encoders() {
@@ -489,7 +607,9 @@ pub(crate) fn select_tty_scanouts(
 
         // Prefer the live CRTC mode to avoid a spurious mode mismatch on
         // the first frame (which would force a blocking commit_pending).
-        if let Some(enc) = selected_info.current_encoder()
+        if let Some(enc) = selected_info
+            .current_encoder()
+            .map(|enc: drm_control::encoder::Handle| enc)
             && let Ok(enc_info) = dev.get_encoder(enc)
             && enc_info.crtc() == Some(crtc)
             && let Ok(crtc_info) = dev.get_crtc(crtc)
@@ -534,7 +654,7 @@ pub(crate) fn select_tty_scanouts(
             if let Err(err) = dev.set_crtc(other_crtc, None, (0, 0), &[], None) {
                 warn!("failed to disable unconfigured connector {}: {}", info, err);
             } else {
-                info!("disabled unconfigured connector {}", info);
+                debug!("disabled unconfigured connector {}", info);
             }
         }
     }
@@ -645,7 +765,7 @@ pub(crate) fn queue_tty_drm_frame(
     preview_hover_node: Option<halley_core::field::NodeId>,
     cursor_screen: Option<(f32, f32)>,
     cursor_image: Option<&smithay::input::pointer::CursorImageStatus>,
-) -> Result<bool, Box<dyn Error>> {
+) -> Result<TtyFrameQueueReport, Box<dyn Error>> {
     use crate::render::draw_debug_frame_to_target;
     let previous_monitor = st.begin_temporary_render_monitor(output_name);
     let previous_layer_configure = st.input.interaction_state.suppress_layer_shell_configure;
@@ -658,6 +778,8 @@ pub(crate) fn queue_tty_drm_frame(
         let (w, h) = mode.size();
         let buffer_size = Size::from((w as i32, h as i32));
         let physical_size: Size<i32, Physical> = (w as i32, h as i32).into();
+        let animation_redraw =
+            crate::render::tty_output_animation_redraw_state(st, output_name, Instant::now());
 
         let local_cursor = cursor_screen.and_then(|(sx, sy)| {
             let target_monitor = st.monitor_for_screen(sx, sy)?;
@@ -693,7 +815,13 @@ pub(crate) fn queue_tty_drm_frame(
                 Some(reason),
             ),
             Some(Ok(candidate)) => {
-                let mut elements: Vec<HalleyDirectScanoutElement> =
+                let mut elements = direct_scanout_cursor_elements(
+                    &mut *renderer_ref,
+                    local_cursor,
+                    cursor_image,
+                    &st.runtime.tuning.cursor,
+                )?;
+                elements.extend(
                     render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
                         &mut *renderer_ref,
                         &candidate.surface,
@@ -703,13 +831,8 @@ pub(crate) fn queue_tty_drm_frame(
                         Kind::Unspecified,
                     )
                     .into_iter()
-                    .map(Into::into)
-                    .collect();
-                elements.extend(direct_scanout_cursor_elements(
-                    &mut *renderer_ref,
-                    local_cursor,
-                    cursor_image,
-                )?);
+                    .map(Into::into),
+                );
                 match compositor.render_frame(
                     &mut *renderer_ref,
                     &elements,
@@ -739,7 +862,10 @@ pub(crate) fn queue_tty_drm_frame(
                         } else {
                             false
                         };
-                        return Ok(queued);
+                        return Ok(TtyFrameQueueReport {
+                            queued,
+                            animation_redraw_active: animation_redraw.active,
+                        });
                     }
                     Err(err) => {
                         st.model.fullscreen_state.set_direct_scanout_status(
@@ -755,6 +881,7 @@ pub(crate) fn queue_tty_drm_frame(
 
         let force_overlay_full_repaint =
             crate::render::monitor_overlay_requires_full_repaint(st, output_name);
+        let force_full_repaint = force_overlay_full_repaint || animation_redraw.force_full_repaint;
         let mut texture: GlesTexture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
             &mut *renderer_ref,
             Fourcc::Abgr8888,
@@ -804,7 +931,7 @@ pub(crate) fn queue_tty_drm_frame(
         );
 
         let elements = [element];
-        if force_overlay_full_repaint {
+        if force_full_repaint {
             compositor.reset_buffers();
         }
         let render_res = compositor
@@ -827,7 +954,10 @@ pub(crate) fn queue_tty_drm_frame(
             false
         };
 
-        Ok(queued)
+        Ok(TtyFrameQueueReport {
+            queued,
+            animation_redraw_active: animation_redraw.active,
+        })
     })();
 
     st.input.interaction_state.suppress_layer_shell_configure = previous_layer_configure;
@@ -844,6 +974,7 @@ fn direct_scanout_cursor_elements(
     renderer: &mut GlesRenderer,
     local_cursor: Option<(f32, f32)>,
     cursor_image: Option<&CursorImageStatus>,
+    cursor_config: &halley_config::CursorConfig,
 ) -> Result<Vec<HalleyDirectScanoutElement>, Box<dyn Error>> {
     let Some((sx, sy)) = local_cursor else {
         return Ok(Vec::new());
@@ -878,7 +1009,9 @@ fn direct_scanout_cursor_elements(
             )
         }
         CursorImageStatus::Named(icon) => {
-            let Some(sprite) = crate::render::themed_cursor_sprite_with_fallback(icon) else {
+            let Some(sprite) =
+                crate::render::themed_cursor_sprite_with_fallback(cursor_config, icon)
+            else {
                 return Ok(Vec::new());
             };
             let loc = (

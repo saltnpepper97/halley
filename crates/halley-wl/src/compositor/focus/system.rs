@@ -1,7 +1,7 @@
 use super::*;
 use crate::compositor::focus::read;
 use crate::compositor::interaction::state::ViewportPanAnim;
-use eventline::info;
+use eventline::debug;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::utils::SERIAL_COUNTER;
@@ -18,7 +18,7 @@ pub(crate) fn on_seat_focus_changed(
     focused: Option<&WlSurface>,
 ) {
     let st = &mut ctx.st;
-    info!(
+    debug!(
         "seat focus_changed -> {:?}",
         focused.map(|wl| format!("{:?}", wl.id()))
     );
@@ -70,11 +70,7 @@ pub(crate) fn update_selection_focus_from_surface(st: &Halley, surface: Option<&
     set_primary_focus(&st.platform.display_handle, &st.platform.seat, client);
 }
 
-pub(crate) fn surface_is_fully_visible_on_monitor(
-    st: &Halley,
-    monitor: &str,
-    id: NodeId,
-) -> bool {
+pub(crate) fn surface_is_fully_visible_on_monitor(st: &Halley, monitor: &str, id: NodeId) -> bool {
     read::surface_is_fully_visible_on_monitor(st, monitor, id)
 }
 

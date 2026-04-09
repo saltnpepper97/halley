@@ -38,16 +38,17 @@ use smithay::{
     wayland::socket::ListeningSocketSource,
 };
 
-use crate::activity::VisualState;
 use crate::animation::advance_node_move_anim;
 use crate::bootstrap::{
     drain_ipc_commands, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite, init_logging, publish_outputs,
-    register_xwayland_request_channel, run_autostart_commands, shutdown_requested,
+    refresh_portal_services_nonblocking, register_xwayland_request_channel, run_autostart_commands,
+    shutdown_requested, sync_portal_activation_environment,
 };
 use crate::compositor::interaction::{ModState, PointerState};
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::current_surface_size_for_node;
+use crate::input::pointer::resize::advance_resize_anim;
 use crate::input::{BackendInputEventData, handle_backend_input_event};
 use crate::protocol::wayland::ClientState;
 use crate::spatial::{node_in_active_area, node_in_active_area_for_monitor};
@@ -72,6 +73,11 @@ pub(crate) fn resolve_hover_targets(
     Option<halley_core::field::NodeId>,
     Option<halley_core::field::NodeId>,
 ) {
+    let bloom_pluck_active =
+        ps.bloom_drag.is_some() || st.input.interaction_state.bloom_pull_preview.is_some();
+    if bloom_pluck_active {
+        return (None, None);
+    }
     let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
     let overlay_hover = st
         .input
@@ -105,6 +111,16 @@ pub(crate) fn resolve_hover_targets_for_monitor(
     Option<halley_core::field::NodeId>,
     Option<halley_core::field::NodeId>,
 ) {
+    let bloom_pluck_active = ps.bloom_drag.is_some()
+        || st
+            .input
+            .interaction_state
+            .bloom_pull_preview
+            .as_ref()
+            .is_some_and(|preview| preview.monitor == monitor);
+    if bloom_pluck_active {
+        return (None, None);
+    }
     let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
     let overlay_hover = st
         .input

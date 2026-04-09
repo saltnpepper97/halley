@@ -16,8 +16,10 @@ use self::bindings::{
 };
 use self::modkeys::{is_modifier_keycode, update_mod_state};
 use halley_config::CompositorBindingAction;
-use halley_config::keybinds::key_name_to_evdev;
+use halley_config::keybinds::{evdev_to_key_name, key_name_to_evdev};
 use smithay::backend::input::KeyState;
+
+use crate::compositor::interaction::state::ClusterNamePromptRepeatAction;
 
 #[inline]
 fn now_millis_u32() -> u32 {
@@ -38,13 +40,282 @@ fn cluster_mode_allows_keyboard_action(action: &CompositorBindingAction) -> bool
     )
 }
 
+fn cluster_prompt_input_char(
+    xkb_code: u32,
+    mods: &crate::compositor::interaction::ModState,
+) -> Option<char> {
+    let evdev = xkb_code.saturating_sub(8);
+    let shifted = mods.shift_down;
+    match evdev_to_key_name(evdev) {
+        "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O"
+        | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" => {
+            let ch = evdev_to_key_name(evdev)
+                .chars()
+                .next()
+                .unwrap_or('a')
+                .to_ascii_lowercase();
+            Some(if shifted { ch.to_ascii_uppercase() } else { ch })
+        }
+        "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0" => {
+            evdev_to_key_name(evdev).chars().next()
+        }
+        "Minus" => Some(if shifted { '_' } else { '-' }),
+        "Equal" => Some(if shifted { '+' } else { '=' }),
+        "[" => Some(if shifted { '{' } else { '[' }),
+        "]" => Some(if shifted { '}' } else { ']' }),
+        ";" => Some(if shifted { ':' } else { ';' }),
+        "'" => Some(if shifted { '"' } else { '\'' }),
+        "`" => Some(if shifted { '~' } else { '`' }),
+        "\\" => Some(if shifted { '|' } else { '\\' }),
+        "Comma" => Some(if shifted { '<' } else { ',' }),
+        "Period" => Some(if shifted { '>' } else { '.' }),
+        "Slash" => Some(if shifted { '?' } else { '/' }),
+        "Space" => Some(' '),
+        _ => None,
+    }
+}
+
+fn log_keyboard_binding_resolution(
+    st: &Halley,
+    code: u32,
+    pressed: bool,
+    mods: &crate::compositor::interaction::ModState,
+    matched_action: Option<&CompositorBindingAction>,
+    matched_launch: Option<&str>,
+    matched_binding: bool,
+    intercept: bool,
+) {
+    let _ = (
+        st,
+        code,
+        pressed,
+        mods,
+        matched_action,
+        matched_launch,
+        matched_binding,
+        intercept,
+    );
+}
+
 pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     st: &mut Halley,
     ctx: &InputCtx<'_, B>,
     code: u32,
     pressed: bool,
 ) {
+    let exit_confirm_active = st.exit_confirm_active();
     update_mod_state(&mut ctx.mod_state.borrow_mut(), code, pressed);
+    if !pressed
+        && st
+            .input
+            .interaction_state
+            .modal_release_keys
+            .contains(&code)
+    {
+        if let Some(keyboard) = st.platform.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(
+                st,
+                code.into(),
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+                serial,
+                now_millis_u32(),
+                |_, _, _| FilterResult::Intercept(()),
+            );
+        }
+        st.input.interaction_state.modal_release_keys.remove(&code);
+        return;
+    }
+    let exit_escape = key_name_to_evdev("escape").map(|code| code + 8);
+    let exit_return = key_name_to_evdev("return").map(|code| code + 8);
+    if exit_confirm_active {
+        if let Some(keyboard) = st.platform.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(
+                st,
+                code.into(),
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+                serial,
+                now_millis_u32(),
+                |_, _, _| FilterResult::Intercept(()),
+            );
+        }
+        if pressed {
+            if Some(code) == exit_escape {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                st.clear_exit_confirm_overlay();
+                ctx.backend.request_redraw();
+            } else if Some(code) == exit_return {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                st.clear_exit_confirm_overlay();
+                st.request_exit();
+                ctx.backend.request_redraw();
+            }
+        }
+        return;
+    }
+
+    if pressed {
+        let now_ms = st.now_ms(Instant::now());
+        if crate::compositor::interaction::state::note_typing_activity(st, now_ms) {
+            ctx.backend.request_redraw();
+        }
+    }
+
+    if st.screenshot_session_active() {
+        if let Some(keyboard) = st.platform.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(
+                st,
+                code.into(),
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+                serial,
+                now_millis_u32(),
+                |_, _, _| FilterResult::Intercept(()),
+            );
+        }
+        if pressed {
+            let escape = key_name_to_evdev("escape").map(|value| value + 8);
+            let enter = key_name_to_evdev("return").map(|value| value + 8);
+            let left = key_name_to_evdev("left").map(|value| value + 8);
+            let right = key_name_to_evdev("right").map(|value| value + 8);
+            let menu_mode = st
+                .input
+                .interaction_state
+                .screenshot_session
+                .as_ref()
+                .is_some_and(|session| session.mode == halley_ipc::CaptureMode::Menu);
+            if Some(code) == escape {
+                if menu_mode {
+                    crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                }
+                let _ = st.cancel_screenshot_session();
+                ctx.backend.request_redraw();
+            } else if Some(code) == enter {
+                if menu_mode {
+                    crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                }
+                let _ = st.confirm_screenshot_session(Instant::now());
+                ctx.backend.request_redraw();
+            } else if Some(code) == left {
+                if menu_mode {
+                    crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                }
+                let _ = st.move_screenshot_menu_selection(-1);
+                ctx.backend.request_redraw();
+            } else if Some(code) == right {
+                if menu_mode {
+                    crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                }
+                let _ = st.move_screenshot_menu_selection(1);
+                ctx.backend.request_redraw();
+            }
+        }
+        return;
+    }
+
+    let prompt_monitor = st.model.monitor_state.current_monitor.clone();
+    if crate::compositor::clusters::system::cluster_system_controller(&*st)
+        .cluster_name_prompt_active_for_monitor(prompt_monitor.as_str())
+    {
+        if let Some(keyboard) = st.platform.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(
+                st,
+                code.into(),
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+                serial,
+                now_millis_u32(),
+                |_, _, _| FilterResult::Intercept(()),
+            );
+        }
+        if pressed {
+            let first_press = ctx.mod_state.borrow_mut().intercepted_keys.insert(code);
+            let left = key_name_to_evdev("left").map(|value| value + 8);
+            let right = key_name_to_evdev("right").map(|value| value + 8);
+            let delete = key_name_to_evdev("delete").map(|value| value + 8);
+            let backspace = key_name_to_evdev("backspace").map(|value| value + 8);
+            let escape = key_name_to_evdev("escape").map(|value| value + 8);
+            let enter = key_name_to_evdev("return").map(|value| value + 8);
+            let repeated_char = cluster_prompt_input_char(code, &ctx.mod_state.borrow());
+            let repeat_action = if Some(code) == left {
+                Some(ClusterNamePromptRepeatAction::MoveLeft)
+            } else if Some(code) == right {
+                Some(ClusterNamePromptRepeatAction::MoveRight)
+            } else if Some(code) == delete {
+                Some(ClusterNamePromptRepeatAction::Delete)
+            } else if Some(code) == backspace {
+                Some(ClusterNamePromptRepeatAction::Backspace)
+            } else {
+                repeated_char.map(ClusterNamePromptRepeatAction::Insert)
+            };
+            let handled = if Some(code) == escape {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                    .cancel_cluster_name_prompt_for_monitor(prompt_monitor.as_str())
+            } else if Some(code) == enter {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                    .confirm_cluster_name_prompt_for_monitor(
+                        prompt_monitor.as_str(),
+                        Instant::now(),
+                    )
+            } else if !first_press && repeat_action.is_none() {
+                false
+            } else if Some(code) == left {
+                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                    .cluster_name_prompt_move_left_for_monitor(prompt_monitor.as_str())
+            } else if Some(code) == right {
+                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                    .cluster_name_prompt_move_right_for_monitor(prompt_monitor.as_str())
+            } else if Some(code) == backspace {
+                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                    .cluster_name_prompt_backspace_for_monitor(prompt_monitor.as_str())
+            } else if Some(code) == delete {
+                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                    .cluster_name_prompt_delete_for_monitor(prompt_monitor.as_str())
+            } else if let Some(ch) = repeated_char {
+                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                    .insert_cluster_name_prompt_char_for_monitor(prompt_monitor.as_str(), ch)
+            } else {
+                false
+            };
+            if handled && let Some(action) = repeat_action {
+                let now_ms = st.now_ms(Instant::now());
+                crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                    .start_cluster_name_prompt_repeat_for_monitor(
+                        prompt_monitor.as_str(),
+                        code,
+                        action,
+                        now_ms,
+                    );
+            }
+            if handled {
+                ctx.backend.request_redraw();
+            }
+        } else {
+            ctx.mod_state.borrow_mut().intercepted_keys.remove(&code);
+            crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                .stop_cluster_name_prompt_repeat_for_code(code);
+        }
+        return;
+    }
 
     let cluster_escape = key_name_to_evdev("escape").map(|code| code + 8);
     let cluster_return = key_name_to_evdev("return").map(|code| code + 8);
@@ -66,8 +337,10 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         }
         if pressed {
             let handled = if Some(code) == cluster_escape {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 st.exit_cluster_mode()
             } else {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 st.confirm_cluster_mode(Instant::now())
             };
             if handled || Some(code) == cluster_return || Some(code) == cluster_escape {
@@ -79,12 +352,28 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
 
     let mods = ctx.mod_state.borrow().clone();
     let is_mod_key = is_modifier_keycode(code);
-    let matched_action = if pressed && !is_mod_key {
+    let layer_shell_keyboard_focus =
+        crate::compositor::monitor::layer_shell::keyboard_focus_is_layer_surface(st);
+    let matched_action = if pressed && !is_mod_key && !layer_shell_keyboard_focus {
         compositor_binding_action(st, code, &mods)
     } else {
         None
     };
+    let matched_launch = if pressed && !is_mod_key && !layer_shell_keyboard_focus {
+        st.runtime
+            .tuning
+            .launch_bindings
+            .iter()
+            .find(|binding| {
+                bindings::input_matches_binding(code, binding.key)
+                    && self::modkeys::modifier_exact(&mods, binding.modifiers)
+            })
+            .map(|binding| binding.command.clone())
+    } else {
+        None
+    };
     let matched_binding = matched_action.is_some()
+        || matched_launch.is_some()
         || (pressed && !is_mod_key && key_is_compositor_binding(st, code, &mods));
     let cluster_blocks_key = st.cluster_mode_active() && !is_mod_key;
     let cluster_allowed_action = matched_action
@@ -95,7 +384,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         && !is_mod_key
         && !matched_binding
         && !cluster_blocks_key
-        && !crate::compositor::monitor::layer_shell::keyboard_focus_is_layer_surface(st)
+        && !layer_shell_keyboard_focus
         && let Some(fid) = st.last_input_surface_node_for_monitor(st.focused_monitor())
     {
         let open_monitors = st
@@ -169,7 +458,9 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     };
 
     if let Some(keyboard) = st.platform.seat.get_keyboard() {
+        let now = Instant::now();
         let serial = SERIAL_COUNTER.next_serial();
+        crate::protocol::wayland::activation::note_input_serial(st, serial, st.now_ms(now));
         let key_state = if pressed {
             KeyState::Pressed
         } else {
@@ -192,13 +483,26 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         );
     }
 
+    log_keyboard_binding_resolution(
+        st,
+        code,
+        pressed,
+        &mods,
+        matched_action.as_ref(),
+        matched_launch.as_deref(),
+        matched_binding,
+        intercept,
+    );
+
     if pressed
         && matched_binding
         && (first_binding_press
             || (repeat_binding_press
                 && matched_action
                     .as_ref()
-                    .is_some_and(|action| compositor_action_allows_repeat(action.clone()))))
+                    .is_some_and(|action: &CompositorBindingAction| {
+                        compositor_action_allows_repeat(action.clone())
+                    })))
         && apply_bound_key(st, code, &mods, ctx.config_path, ctx.wayland_display)
     {
         ctx.backend.request_redraw();

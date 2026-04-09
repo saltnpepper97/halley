@@ -23,6 +23,7 @@ impl DragAxisMode {
 pub(crate) struct DragCtx {
     pub(crate) node_id: NodeId,
     pub(crate) allow_monitor_transfer: bool,
+    pub(crate) requires_drag_modifier: bool,
     pub(crate) edge_pan_eligible: bool,
     pub(crate) current_offset: Vec2,
     pub(crate) center_latched: bool,

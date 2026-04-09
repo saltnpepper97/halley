@@ -6,6 +6,7 @@ pub(crate) enum HelpTopic {
     Quit,
     Reload,
     Outputs,
+    Capture,
     Dpms,
     Node,
     NodeList,
@@ -25,6 +26,14 @@ pub(crate) enum HelpTopic {
     BearingsHide,
     BearingsToggle,
     BearingsStatus,
+    Cluster,
+    ClusterLayout,
+    ClusterLayoutCycle,
+    Stack,
+    StackCycle,
+    Tile,
+    TileFocus,
+    TileSwap,
 }
 
 pub(crate) fn exit_usage(error: UsageError) -> ! {
@@ -46,11 +55,15 @@ pub(crate) fn print_help(topic: HelpTopic) {
                     "Ask the running Halley compositor to reload config",
                 ),
                 ("outputs", "Print current output information"),
+                ("capture", "Enter Halley-native screenshot capture mode"),
                 ("dpms", "Control output power state"),
                 ("node", "Node actions and inspection"),
                 ("trail", "Trail navigation and inspection"),
                 ("monitor", "Monitor-related actions"),
                 ("bearings", "Bearings visibility controls"),
+                ("cluster", "Cluster workspace actions"),
+                ("stack", "Stack layout actions"),
+                ("tile", "Tile layout actions"),
             ],
         ),
         HelpTopic::Quit => print_help_page(
@@ -70,6 +83,22 @@ pub(crate) fn print_help(topic: HelpTopic) {
             "halleyctl outputs",
             &["halleyctl outputs"],
             &[("outputs", "Print current output information")],
+        ),
+        HelpTopic::Capture => print_help_page(
+            "halleyctl capture",
+            &[
+                "halleyctl capture menu",
+                "halleyctl capture region [-o OUTPUT]",
+                "halleyctl capture screen [-o OUTPUT]",
+                "halleyctl capture window [-o OUTPUT]",
+            ],
+            &[
+                ("menu", "Open the Halley-native capture menu"),
+                ("region", "Start region capture mode"),
+                ("screen", "Start screen capture mode"),
+                ("window", "Start window capture mode"),
+                ("-o OUTPUT", "Start capture mode on a specific output"),
+            ],
         ),
         HelpTopic::Dpms => print_help_page(
             "halleyctl dpms",
@@ -221,6 +250,70 @@ pub(crate) fn print_help(topic: HelpTopic) {
             "halleyctl bearings status",
             &["halleyctl bearings status"],
             &[("status", "Print current bearings visibility")],
+        ),
+        HelpTopic::Cluster => print_help_page(
+            "halleyctl cluster",
+            &["halleyctl cluster layout cycle [-o OUTPUT]"],
+            &[("layout", "Cluster workspace layout actions")],
+        ),
+        HelpTopic::ClusterLayout => print_help_page(
+            "halleyctl cluster layout",
+            &["halleyctl cluster layout cycle [-o OUTPUT]"],
+            &[("cycle", "Toggle the active cluster workspace layout")],
+        ),
+        HelpTopic::ClusterLayoutCycle => print_help_page(
+            "halleyctl cluster layout cycle",
+            &["halleyctl cluster layout cycle [-o OUTPUT]"],
+            &[("cycle", "Toggle between tiling and stacking layouts")],
+        ),
+        HelpTopic::Stack => print_help_page(
+            "halleyctl stack",
+            &[
+                "halleyctl stack cycle forward [-o OUTPUT]",
+                "halleyctl stack cycle backward [-o OUTPUT]",
+            ],
+            &[(
+                "cycle",
+                "Rotate the active stacking deck forward or backward",
+            )],
+        ),
+        HelpTopic::StackCycle => print_help_page(
+            "halleyctl stack cycle",
+            &[
+                "halleyctl stack cycle forward [-o OUTPUT]",
+                "halleyctl stack cycle backward [-o OUTPUT]",
+            ],
+            &[("forward|backward", "Cycle the active stacking deck")],
+        ),
+        HelpTopic::Tile => print_help_page(
+            "halleyctl tile",
+            &[
+                "halleyctl tile focus left|right|up|down [-o OUTPUT]",
+                "halleyctl tile swap left|right|up|down [-o OUTPUT]",
+            ],
+            &[
+                ("focus", "Move focus to an adjacent visible tile"),
+                (
+                    "swap",
+                    "Swap the focused tile with an adjacent visible tile",
+                ),
+            ],
+        ),
+        HelpTopic::TileFocus => print_help_page(
+            "halleyctl tile focus",
+            &["halleyctl tile focus left|right|up|down [-o OUTPUT]"],
+            &[(
+                "left|right|up|down",
+                "Direction of the adjacent visible tile",
+            )],
+        ),
+        HelpTopic::TileSwap => print_help_page(
+            "halleyctl tile swap",
+            &["halleyctl tile swap left|right|up|down [-o OUTPUT]"],
+            &[(
+                "left|right|up|down",
+                "Direction of the adjacent visible tile",
+            )],
         ),
     }
 }

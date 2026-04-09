@@ -1,22 +1,310 @@
 use std::time::{Duration, Instant};
 
-use eventline::debug;
-
 use crate::animation::active_surface_render_scale;
 use crate::backend::interface::BackendView;
 use crate::compositor::interaction::{HitNode, PointerState, ResizeCtx, ResizeHandle};
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::{
-    current_surface_size_for_node, request_toplevel_resize_mode, window_geometry_for_node,
+    active_stacking_render_order_for_monitor, current_surface_size_for_node,
+    node_allows_interactive_resize, request_toplevel_resize_mode, toplevel_min_size_for_node,
+    window_geometry_for_node,
 };
 use crate::render::active_window_frame_pad_px;
 use crate::render::world_to_screen;
 use smithay::desktop::utils::bbox_from_surface_tree;
+use smithay::input::pointer::CursorIcon;
 use smithay::reexports::wayland_server::Resource;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::button::ButtonFrame;
+
+pub(crate) fn cursor_icon_for_resize_handle(handle: ResizeHandle) -> CursorIcon {
+    match handle {
+        ResizeHandle::Pending => CursorIcon::Crosshair,
+        ResizeHandle::Left => CursorIcon::WResize,
+        ResizeHandle::Right => CursorIcon::EResize,
+        ResizeHandle::Top => CursorIcon::NResize,
+        ResizeHandle::Bottom => CursorIcon::SResize,
+        ResizeHandle::TopLeft => CursorIcon::NwResize,
+        ResizeHandle::TopRight => CursorIcon::NeResize,
+        ResizeHandle::BottomLeft => CursorIcon::SwResize,
+        ResizeHandle::BottomRight => CursorIcon::SeResize,
+    }
+}
+
+#[inline]
+fn resize_rect_nearly_eq(a: f32, b: f32) -> bool {
+    (a - b).abs() <= 0.5
+}
+
+// `duration-ms` is interpreted as approximate catch-up / settle time for the
+// detached resize preview, not as a restartable tween length.
+fn resize_smoothing_alpha(st: &Halley, dt: Duration) -> f32 {
+    if !st.runtime.tuning.smooth_resize_enabled() {
+        return 1.0;
+    }
+
+    let dt_secs = dt.as_secs_f32().clamp(0.0, 0.25);
+    if dt_secs <= f32::EPSILON {
+        return 0.0;
+    }
+    let duration_secs = (st.runtime.tuning.smooth_resize_duration_ms().max(1) as f32) / 1000.0;
+    (1.0 - 0.1f32.powf(dt_secs / duration_secs.max(0.001))).clamp(0.0, 1.0)
+}
+
+fn snap_resize_preview_edges(resize: &mut ResizeCtx) {
+    if resize_rect_nearly_eq(resize.preview_left_px, resize.target_left_px) {
+        resize.preview_left_px = resize.target_left_px;
+    }
+    if resize_rect_nearly_eq(resize.preview_right_px, resize.target_right_px) {
+        resize.preview_right_px = resize.target_right_px;
+    }
+    if resize_rect_nearly_eq(resize.preview_top_px, resize.target_top_px) {
+        resize.preview_top_px = resize.target_top_px;
+    }
+    if resize_rect_nearly_eq(resize.preview_bottom_px, resize.target_bottom_px) {
+        resize.preview_bottom_px = resize.target_bottom_px;
+    }
+}
+
+fn resize_preview_settled(resize: &ResizeCtx) -> bool {
+    resize_rect_nearly_eq(resize.preview_left_px, resize.target_left_px)
+        && resize_rect_nearly_eq(resize.preview_right_px, resize.target_right_px)
+        && resize_rect_nearly_eq(resize.preview_top_px, resize.target_top_px)
+        && resize_rect_nearly_eq(resize.preview_bottom_px, resize.target_bottom_px)
+}
+
+fn resize_settle_velocity_done(resize: &ResizeCtx) -> bool {
+    resize.preview_velocity_left_pxps.abs() <= 8.0
+        && resize.preview_velocity_right_pxps.abs() <= 8.0
+        && resize.preview_velocity_top_pxps.abs() <= 8.0
+        && resize.preview_velocity_bottom_pxps.abs() <= 8.0
+}
+
+fn advance_resize_preview_toward_target(st: &Halley, resize: &mut ResizeCtx, now: Instant) {
+    if !st.runtime.tuning.smooth_resize_enabled() {
+        resize.preview_left_px = resize.target_left_px;
+        resize.preview_right_px = resize.target_right_px;
+        resize.preview_top_px = resize.target_top_px;
+        resize.preview_bottom_px = resize.target_bottom_px;
+        resize.preview_velocity_left_pxps = 0.0;
+        resize.preview_velocity_right_pxps = 0.0;
+        resize.preview_velocity_top_pxps = 0.0;
+        resize.preview_velocity_bottom_pxps = 0.0;
+        resize.last_smooth_tick_at = now;
+        return;
+    }
+
+    let dt = now.saturating_duration_since(resize.last_smooth_tick_at);
+    resize.last_smooth_tick_at = now;
+    let dt_secs = dt.as_secs_f32().clamp(0.0, 0.25);
+    let alpha = resize_smoothing_alpha(st, dt);
+    let prev_left = resize.preview_left_px;
+    let prev_right = resize.preview_right_px;
+    let prev_top = resize.preview_top_px;
+    let prev_bottom = resize.preview_bottom_px;
+    resize.preview_left_px += (resize.target_left_px - resize.preview_left_px) * alpha;
+    resize.preview_right_px += (resize.target_right_px - resize.preview_right_px) * alpha;
+    resize.preview_top_px += (resize.target_top_px - resize.preview_top_px) * alpha;
+    resize.preview_bottom_px += (resize.target_bottom_px - resize.preview_bottom_px) * alpha;
+    if dt_secs > f32::EPSILON {
+        resize.preview_velocity_left_pxps = (resize.preview_left_px - prev_left) / dt_secs;
+        resize.preview_velocity_right_pxps = (resize.preview_right_px - prev_right) / dt_secs;
+        resize.preview_velocity_top_pxps = (resize.preview_top_px - prev_top) / dt_secs;
+        resize.preview_velocity_bottom_pxps = (resize.preview_bottom_px - prev_bottom) / dt_secs;
+    }
+    snap_resize_preview_edges(resize);
+}
+
+fn advance_resize_preview_toward_stop(st: &Halley, resize: &mut ResizeCtx, now: Instant) {
+    let dt = now.saturating_duration_since(resize.last_smooth_tick_at);
+    resize.last_smooth_tick_at = now;
+    let dt_secs = dt.as_secs_f32().clamp(0.0, 0.25);
+    if dt_secs <= f32::EPSILON {
+        return;
+    }
+
+    let duration_secs = (st.runtime.tuning.smooth_resize_duration_ms().max(1) as f32) / 1000.0;
+    let decay = 0.01f32.powf(dt_secs / duration_secs.max(0.001));
+    resize.preview_left_px += resize.preview_velocity_left_pxps * dt_secs;
+    resize.preview_right_px += resize.preview_velocity_right_pxps * dt_secs;
+    resize.preview_top_px += resize.preview_velocity_top_pxps * dt_secs;
+    resize.preview_bottom_px += resize.preview_velocity_bottom_pxps * dt_secs;
+    resize.preview_velocity_left_pxps *= decay;
+    resize.preview_velocity_right_pxps *= decay;
+    resize.preview_velocity_top_pxps *= decay;
+    resize.preview_velocity_bottom_pxps *= decay;
+    resize.target_left_px = resize.preview_left_px;
+    resize.target_right_px = resize.preview_right_px;
+    resize.target_top_px = resize.preview_top_px;
+    resize.target_bottom_px = resize.preview_bottom_px;
+    if resize_settle_velocity_done(resize) {
+        resize.preview_velocity_left_pxps = 0.0;
+        resize.preview_velocity_right_pxps = 0.0;
+        resize.preview_velocity_top_pxps = 0.0;
+        resize.preview_velocity_bottom_pxps = 0.0;
+    }
+}
+
+fn apply_resize_preview_state(st: &mut Halley, resize: &mut ResizeCtx) -> bool {
+    if resize_preview_settled(resize) {
+        resize.preview_left_px = resize.target_left_px;
+        resize.preview_right_px = resize.target_right_px;
+        resize.preview_top_px = resize.target_top_px;
+        resize.preview_bottom_px = resize.target_bottom_px;
+    }
+
+    let (min_lw, min_lh) = toplevel_min_size_for_node(st, resize.node_id);
+    let cam_scale = st.camera_render_scale();
+    let min_w = (min_lw as f32 * cam_scale).max(96.0);
+    let min_h = (min_lh as f32 * cam_scale).max(72.0);
+    let preview_visual_w = (resize.preview_right_px - resize.preview_left_px)
+        .round()
+        .max(min_w) as i32;
+    let preview_visual_h = (resize.preview_bottom_px - resize.preview_top_px)
+        .round()
+        .max(min_h) as i32;
+    let visual_delta_w = preview_visual_w - resize.start_visual_w;
+    let visual_delta_h = preview_visual_h - resize.start_visual_h;
+    let logical_delta_w = (visual_delta_w as f32 / cam_scale.max(0.001)).round() as i32;
+    let logical_delta_h = (visual_delta_h as f32 / cam_scale.max(0.001)).round() as i32;
+    let min_logical_w = (min_w / cam_scale.max(0.001)).round() as i32;
+    let min_logical_h = (min_h / cam_scale.max(0.001)).round() as i32;
+    let target_w = (resize.start_surface_w + logical_delta_w).max(min_logical_w);
+    let target_h = (resize.start_surface_h + logical_delta_h).max(min_logical_h);
+
+    if target_w != resize.last_sent_w || target_h != resize.last_sent_h {
+        request_toplevel_resize_mode(st, resize.node_id, target_w, target_h, true);
+        resize.last_sent_w = target_w;
+        resize.last_sent_h = target_h;
+    }
+
+    st.input
+        .interaction_state
+        .physics_velocity
+        .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
+
+    let center_sx = (resize.preview_left_px + resize.preview_right_px) * 0.5;
+    let center_sy = (resize.preview_top_px + resize.preview_bottom_px) * 0.5;
+    let center_world = crate::spatial::screen_to_world(
+        st,
+        resize.workspace_w,
+        resize.workspace_h,
+        center_sx,
+        center_sy,
+    );
+    if let Some(n) = st.model.field.node_mut(resize.node_id) {
+        n.pos = center_world;
+    }
+    let _ = st.model.field.set_resize_footprint(
+        resize.node_id,
+        Some(halley_core::field::Vec2 {
+            x: target_w as f32,
+            y: target_h as f32,
+        }),
+    );
+    let _ = st
+        .model
+        .field
+        .set_decay_level(resize.node_id, halley_core::decay::DecayLevel::Hot);
+
+    resize_preview_settled(resize)
+}
+
+fn refresh_resize_preview_state(st: &mut Halley, resize: &mut ResizeCtx, now: Instant) -> bool {
+    if resize.settling {
+        advance_resize_preview_toward_stop(st, resize, now);
+    } else {
+        advance_resize_preview_toward_target(st, resize, now);
+    }
+    apply_resize_preview_state(st, resize)
+}
+
+fn finish_resize_interaction(
+    st: &mut Halley,
+    ps: &mut PointerState,
+    resize: ResizeCtx,
+    now: Instant,
+) {
+    ps.resize_trace_node = None;
+    ps.resize_trace_until = None;
+    ps.resize_trace_last_at = None;
+    ps.preview_block_until = Some(now + Duration::from_millis(360));
+    ps.resize = None;
+
+    if !resize.drag_started {
+        if resize.resize_mode_sent {
+            request_toplevel_resize_mode(
+                st,
+                resize.node_id,
+                resize.last_sent_w,
+                resize.last_sent_h,
+                false,
+            );
+        }
+        st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
+        st.end_resize_interaction(now);
+        st.resolve_overlap_now();
+        return;
+    }
+
+    let (min_w, min_h) = toplevel_min_size_for_node(st, resize.node_id);
+    let final_w = resize.last_sent_w.max(min_w).max(96);
+    let final_h = resize.last_sent_h.max(min_h).max(72);
+    let final_bbox_w =
+        ((resize.start_bbox_w as f32) + ((final_w - resize.start_surface_w) as f32)).max(1.0);
+    let final_bbox_h =
+        ((resize.start_bbox_h as f32) + ((final_h - resize.start_surface_h) as f32)).max(1.0);
+    request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, true);
+    request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, false);
+    if let Some(n) = st.model.field.node_mut(resize.node_id) {
+        n.intrinsic_size.x = final_bbox_w;
+        n.intrinsic_size.y = final_bbox_h;
+    }
+    let _ = st
+        .model
+        .field
+        .sync_active_footprint_to_intrinsic(resize.node_id);
+    st.set_last_active_size_now(
+        resize.node_id,
+        halley_core::field::Vec2 {
+            x: final_bbox_w,
+            y: final_bbox_h,
+        },
+    );
+    st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
+    st.end_resize_interaction(now);
+    st.resolve_overlap_now();
+}
+
+pub(crate) fn advance_resize_anim(
+    st: &mut Halley,
+    ps: &mut PointerState,
+    now: Instant,
+) -> Option<halley_core::field::NodeId> {
+    let Some(mut resize) = ps.resize.take() else {
+        return None;
+    };
+    if !resize.drag_started {
+        ps.resize = Some(resize);
+        return None;
+    }
+    if !st.runtime.tuning.smooth_resize_enabled() && !resize.settling {
+        ps.resize = Some(resize);
+        return None;
+    }
+
+    let settled = refresh_resize_preview_state(st, &mut resize, now);
+    let node_id = resize.node_id;
+    if resize.settling && settled && resize_settle_velocity_done(&resize) {
+        finish_resize_interaction(st, ps, resize, now);
+        return Some(node_id);
+    }
+
+    ps.resize = Some(resize);
+    Some(node_id)
+}
 
 pub(super) fn begin_resize(
     st: &mut Halley,
@@ -25,6 +313,9 @@ pub(super) fn begin_resize(
     hit: HitNode,
     frame: ButtonFrame,
 ) {
+    if !node_allows_interactive_resize(st, hit.node_id) {
+        return;
+    }
     let Some(n) = st.model.field.node(hit.node_id) else {
         return;
     };
@@ -76,8 +367,16 @@ pub(super) fn begin_resize(
         .insert(hit.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
     st.begin_resize_interaction(hit.node_id, Instant::now());
 
-    let start_w = (start_right - start_left).max(96.0).round() as i32;
-    let start_h = (start_bottom - start_top).max(72.0).round() as i32;
+    let (min_lw, min_lh) = toplevel_min_size_for_node(st, hit.node_id);
+    let cam_scale = st.camera_render_scale();
+    let start_w = (start_right - start_left)
+        .max(min_lw as f32 * cam_scale)
+        .max(96.0)
+        .round() as i32;
+    let start_h = (start_bottom - start_top)
+        .max(min_lh as f32 * cam_scale)
+        .max(72.0)
+        .round() as i32;
     let start_surface =
         current_surface_size_for_node(st, hit.node_id).unwrap_or(halley_core::field::Vec2 {
             x: start_w as f32,
@@ -103,8 +402,10 @@ pub(super) fn begin_resize(
 
     let resize_ctx = ResizeCtx {
         node_id: hit.node_id,
-        start_surface_w: start_surface.x.max(96.0).round() as i32,
-        start_surface_h: start_surface.y.max(72.0).round() as i32,
+        workspace_w: frame.ws_w,
+        workspace_h: frame.ws_h,
+        start_surface_w: start_surface.x.max(min_lw as f32).max(96.0).round() as i32,
+        start_surface_h: start_surface.y.max(min_lh as f32).max(72.0).round() as i32,
         start_bbox_w: start_bbox.x.round() as i32,
         start_bbox_h: start_bbox.y.round() as i32,
         start_visual_w: start_w,
@@ -121,9 +422,17 @@ pub(super) fn begin_resize(
         preview_right_px: start_right,
         preview_top_px: start_top,
         preview_bottom_px: start_bottom,
-        last_sent_w: start_surface.x.max(96.0).round() as i32,
-        last_sent_h: start_surface.y.max(72.0).round() as i32,
-        last_configure_at: Instant::now(),
+        target_left_px: start_left,
+        target_right_px: start_right,
+        target_top_px: start_top,
+        target_bottom_px: start_bottom,
+        preview_velocity_left_pxps: 0.0,
+        preview_velocity_right_pxps: 0.0,
+        preview_velocity_top_pxps: 0.0,
+        preview_velocity_bottom_pxps: 0.0,
+        last_sent_w: start_surface.x.max(min_lw as f32).max(96.0).round() as i32,
+        last_sent_h: start_surface.y.max(min_lh as f32).max(72.0).round() as i32,
+        last_smooth_tick_at: Instant::now(),
         handle,
         press_sx: frame.sx,
         press_sy: frame.sy,
@@ -132,35 +441,22 @@ pub(super) fn begin_resize(
         v_weight_top,
         v_weight_bottom,
         drag_started: false,
+        settling: false,
         resize_mode_sent: false,
     };
 
-    if st.runtime.tuning.debug_tick_dump {
-        debug!(
-            "resize-start id={} handle={:?} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) start_surface=({}, {}) start_bbox=({}, {})",
-            resize_ctx.node_id.as_u64(),
-            resize_ctx.handle,
-            resize_ctx.preview_left_px,
-            resize_ctx.preview_top_px,
-            resize_ctx.preview_right_px,
-            resize_ctx.preview_bottom_px,
-            resize_ctx.start_geo_lx,
-            resize_ctx.start_geo_ly,
-            resize_ctx.start_surface_w,
-            resize_ctx.start_surface_h,
-            resize_ctx.start_bbox_w,
-            resize_ctx.start_bbox_h,
-        );
-    }
-
     ps.resize = Some(resize_ctx);
+    crate::compositor::interaction::pointer::set_cursor_override_icon(
+        st,
+        Some(cursor_icon_for_resize_handle(handle)),
+    );
     backend.request_redraw();
 }
 
 pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &dyn BackendView) {
     let ended_resize = ps.resize.take();
     ps.panning = false;
-    let Some(resize) = ended_resize else {
+    let Some(mut resize) = ended_resize else {
         return;
     };
 
@@ -171,84 +467,32 @@ pub(super) fn finalize_resize(st: &mut Halley, ps: &mut PointerState, backend: &
         .interaction_state
         .physics_velocity
         .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
-    if st.runtime.tuning.debug_tick_dump {
-        ps.resize_trace_node = Some(resize.node_id);
-        ps.resize_trace_until = Some(now + Duration::from_millis(1_200));
-        ps.resize_trace_last_at = None;
-    } else {
-        ps.resize_trace_node = None;
-        ps.resize_trace_until = None;
-        ps.resize_trace_last_at = None;
-    }
-    ps.preview_block_until = Some(now + Duration::from_millis(360));
-    if !resize.drag_started {
-        if resize.resize_mode_sent {
-            request_toplevel_resize_mode(
-                st,
-                resize.node_id,
-                resize.last_sent_w,
-                resize.last_sent_h,
-                false,
-            );
-        }
-        st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
-        st.end_resize_interaction(now);
-        st.resolve_overlap_now();
-        backend.request_redraw();
-        return;
+    ps.resize_trace_node = None;
+    ps.resize_trace_until = None;
+    ps.resize_trace_last_at = None;
+    if st.runtime.tuning.smooth_resize_enabled() && resize.drag_started {
+        let _ = refresh_resize_preview_state(st, &mut resize, now);
+        resize.preview_velocity_left_pxps = 0.0;
+        resize.preview_velocity_right_pxps = 0.0;
+        resize.preview_velocity_top_pxps = 0.0;
+        resize.preview_velocity_bottom_pxps = 0.0;
+        resize.target_left_px = resize.preview_left_px;
+        resize.target_right_px = resize.preview_right_px;
+        resize.target_top_px = resize.preview_top_px;
+        resize.target_bottom_px = resize.preview_bottom_px;
+        resize.settling = false;
     }
 
-    let final_w = resize.last_sent_w.max(96);
-    let final_h = resize.last_sent_h.max(72);
-    let final_bbox_w =
-        ((resize.start_bbox_w as f32) + ((final_w - resize.start_surface_w) as f32)).max(1.0);
-    let final_bbox_h =
-        ((resize.start_bbox_h as f32) + ((final_h - resize.start_surface_h) as f32)).max(1.0);
-    if st.runtime.tuning.debug_tick_dump {
-        debug!(
-            "resize-end id={} handle={:?} preview=({:.1},{:.1},{:.1},{:.1}) frozen_geo=({:.1},{:.1}) final_surface=({}, {}) final_bbox=({:.1}, {:.1})",
-            resize.node_id.as_u64(),
-            resize.handle,
-            resize.preview_left_px,
-            resize.preview_top_px,
-            resize.preview_right_px,
-            resize.preview_bottom_px,
-            resize.start_geo_lx,
-            resize.start_geo_ly,
-            final_w,
-            final_h,
-            final_bbox_w,
-            final_bbox_h,
-        );
-    }
-    request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, true);
-    request_toplevel_resize_mode(st, resize.node_id, final_w, final_h, false);
-    if let Some(n) = st.model.field.node_mut(resize.node_id) {
-        n.intrinsic_size.x = final_bbox_w;
-        n.intrinsic_size.y = final_bbox_h;
-    }
-    let _ = st
-        .model
-        .field
-        .sync_active_footprint_to_intrinsic(resize.node_id);
-    st.set_last_active_size_now(
-        resize.node_id,
-        halley_core::field::Vec2 {
-            x: final_bbox_w,
-            y: final_bbox_h,
-        },
-    );
-    st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
-    st.end_resize_interaction(now);
-    st.resolve_overlap_now();
+    finish_resize_interaction(st, ps, resize, now);
+    crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
     backend.request_redraw();
 }
 
 pub(super) fn handle_resize_motion(
     st: &mut Halley,
     ps: &mut crate::compositor::interaction::PointerState,
-    local_w: i32,
-    local_h: i32,
+    _local_w: i32,
+    _local_h: i32,
     local_sx: f32,
     local_sy: f32,
     backend: &impl crate::backend::interface::BackendView,
@@ -256,8 +500,19 @@ pub(super) fn handle_resize_motion(
     let Some(resize) = ps.resize else {
         return false;
     };
+    if resize.settling {
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(cursor_icon_for_resize_handle(resize.handle)),
+        );
+        return false;
+    }
 
     let mut next = resize;
+    crate::compositor::interaction::pointer::set_cursor_override_icon(
+        st,
+        Some(cursor_icon_for_resize_handle(next.handle)),
+    );
     let dx = local_sx - resize.press_sx;
     let dy = local_sy - resize.press_sy;
 
@@ -280,11 +535,12 @@ pub(super) fn handle_resize_motion(
             true,
         );
         next.resize_mode_sent = true;
-        next.last_configure_at = Instant::now();
     }
 
-    let min_w = 96.0_f32;
-    let min_h = 72.0_f32;
+    let (min_lw, min_lh) = toplevel_min_size_for_node(st, resize.node_id);
+    let cam_scale = st.camera_render_scale();
+    let min_w = (min_lw as f32 * cam_scale).max(96.0);
+    let min_h = (min_lh as f32 * cam_scale).max(72.0);
 
     let desired_left = resize.start_left_px + next.h_weight_left * dx;
     let desired_right = resize.start_right_px + next.h_weight_right * dx;
@@ -337,57 +593,21 @@ pub(super) fn handle_resize_motion(
         }
     };
 
-    let target_visual_w = (right - left).round().max(min_w) as i32;
-    let target_visual_h = (bottom - top).round().max(min_h) as i32;
-    let cam_scale = st.camera_render_scale();
-    let visual_delta_w = target_visual_w - resize.start_visual_w;
-    let visual_delta_h = target_visual_h - resize.start_visual_h;
-    let logical_delta_w = (visual_delta_w as f32 / cam_scale.max(0.001)).round() as i32;
-    let logical_delta_h = (visual_delta_h as f32 / cam_scale.max(0.001)).round() as i32;
-    let min_logical_w = (min_w / cam_scale.max(0.001)).round() as i32;
-    let min_logical_h = (min_h / cam_scale.max(0.001)).round() as i32;
-
-    let target_w = (resize.start_surface_w + logical_delta_w).max(min_logical_w);
-    let target_h = (resize.start_surface_h + logical_delta_h).max(min_logical_h);
-
     let now = Instant::now();
-    let size_changed = target_w != resize.last_sent_w || target_h != resize.last_sent_h;
-    if size_changed {
-        request_toplevel_resize_mode(st, resize.node_id, target_w, target_h, true);
-        next.last_sent_w = target_w;
-        next.last_sent_h = target_h;
-        next.last_configure_at = now;
+    advance_resize_preview_toward_target(st, &mut next, now);
+    next.target_left_px = left;
+    next.target_right_px = right;
+    next.target_top_px = top;
+    next.target_bottom_px = bottom;
+    next.settling = false;
+    if !st.runtime.tuning.smooth_resize_enabled() {
+        next.preview_left_px = left;
+        next.preview_right_px = right;
+        next.preview_top_px = top;
+        next.preview_bottom_px = bottom;
     }
-
-    st.input
-        .interaction_state
-        .physics_velocity
-        .insert(resize.node_id, halley_core::field::Vec2 { x: 0.0, y: 0.0 });
-
-    let center_sx = (left + right) * 0.5;
-    let center_sy = (top + bottom) * 0.5;
-    let center_world = crate::spatial::screen_to_world(st, local_w, local_h, center_sx, center_sy);
-    if let Some(n) = st.model.field.node_mut(resize.node_id) {
-        n.pos = center_world;
-    }
-    let _ = st.model.field.set_resize_footprint(
-        resize.node_id,
-        Some(halley_core::field::Vec2 {
-            x: target_w as f32,
-            y: target_h as f32,
-        }),
-    );
-
-    next.preview_left_px = left;
-    next.preview_right_px = right;
-    next.preview_top_px = top;
-    next.preview_bottom_px = bottom;
+    let _ = apply_resize_preview_state(st, &mut next);
     ps.resize = Some(next);
-
-    let _ = st
-        .model
-        .field
-        .set_decay_level(resize.node_id, halley_core::decay::DecayLevel::Hot);
     backend.request_redraw();
     true
 }
@@ -644,6 +864,10 @@ pub(crate) fn weights_from_handle(handle: ResizeHandle) -> (f32, f32, f32, f32) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::interface::TtyBackendHandle;
+    use crate::compositor::interaction::{HitNode, PointerState};
+    use crate::compositor::root::Halley;
+    use smithay::reexports::wayland_server::Display;
 
     #[test]
     fn drag_direction_maps_to_y_down_resize_handles() {
@@ -670,6 +894,213 @@ mod tests {
         assert_eq!(
             weights_from_handle(ResizeHandle::BottomRight),
             (0.0, 1.0, 0.0, 1.0)
+        );
+    }
+
+    fn single_monitor_tiling_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        tuning
+    }
+
+    fn resize_button_frame() -> ButtonFrame {
+        ButtonFrame {
+            ws_w: 800,
+            ws_h: 600,
+            global_sx: 400.0,
+            global_sy: 300.0,
+            sx: 400.0,
+            sy: 300.0,
+            world_now: halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            workspace_active: false,
+        }
+    }
+
+    #[test]
+    fn begin_resize_blocks_active_tiled_workspace_members() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tiling_tuning());
+        let backend = TtyBackendHandle::new(800, 600);
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            halley_core::field::Vec2 { x: 120.0, y: 120.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            halley_core::field::Vec2 { x: 520.0, y: 120.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        for id in [master, stack] {
+            st.assign_node_to_monitor(id, "monitor_a");
+        }
+        let cid = st
+            .model
+            .field
+            .create_cluster(vec![master, stack])
+            .expect("cluster");
+        let core = st.model.field.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+
+        let mut ps = PointerState::default();
+        begin_resize(
+            &mut st,
+            &mut ps,
+            &backend,
+            HitNode {
+                node_id: master,
+                on_titlebar: false,
+                is_core: false,
+            },
+            resize_button_frame(),
+        );
+
+        assert!(ps.resize.is_none());
+        assert!(st.input.interaction_state.resize_active.is_none());
+    }
+
+    #[test]
+    fn begin_resize_allows_non_tiled_active_windows() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tiling_tuning());
+        let backend = TtyBackendHandle::new(800, 600);
+
+        let window = st.model.field.spawn_surface(
+            "window",
+            halley_core::field::Vec2 { x: 300.0, y: 220.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(window, "monitor_a");
+
+        let mut ps = PointerState::default();
+        begin_resize(
+            &mut st,
+            &mut ps,
+            &backend,
+            HitNode {
+                node_id: window,
+                on_titlebar: false,
+                is_core: false,
+            },
+            resize_button_frame(),
+        );
+
+        assert!(ps.resize.is_some());
+        assert_eq!(st.input.interaction_state.resize_active, Some(window));
+    }
+
+    #[test]
+    fn smooth_resize_continues_advancing_across_quick_pointer_updates() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tiling_tuning();
+        tuning.animations.smooth_resize.enabled = true;
+        tuning.animations.smooth_resize.duration_ms = 400;
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let backend = TtyBackendHandle::new(800, 600);
+
+        let window = st.model.field.spawn_surface(
+            "window",
+            halley_core::field::Vec2 { x: 300.0, y: 220.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(window, "monitor_a");
+
+        let mut ps = PointerState::default();
+        begin_resize(
+            &mut st,
+            &mut ps,
+            &backend,
+            HitNode {
+                node_id: window,
+                on_titlebar: false,
+                is_core: false,
+            },
+            resize_button_frame(),
+        );
+
+        assert!(handle_resize_motion(
+            &mut st, &mut ps, 800, 600, 520.0, 380.0, &backend,
+        ));
+
+        let first = ps.resize.expect("resize in progress");
+        assert!(
+            !resize_rect_nearly_eq(first.preview_right_px, first.target_right_px)
+                || !resize_rect_nearly_eq(first.preview_bottom_px, first.target_bottom_px),
+            "smooth resize should lag behind the cursor-driven target while dragging"
+        );
+        let first_preview_right = first.preview_right_px;
+        let first_target_right = first.target_right_px;
+
+        let tick_one_at = first.last_smooth_tick_at + Duration::from_millis(16);
+        let ticked = advance_resize_anim(&mut st, &mut ps, tick_one_at).expect("resize tick one");
+        assert_eq!(ticked, window);
+
+        let after_tick_one = ps.resize.expect("resize after first tick");
+        assert!(
+            after_tick_one.preview_right_px > first_preview_right + 0.1,
+            "preview should move continuously toward the target during drag"
+        );
+        assert!(after_tick_one.preview_right_px < after_tick_one.target_right_px);
+
+        assert!(handle_resize_motion(
+            &mut st, &mut ps, 800, 600, 620.0, 460.0, &backend,
+        ));
+
+        let second = ps.resize.expect("resize after second pointer update");
+        assert!(
+            second.target_right_px > first_target_right,
+            "second pointer update should move the target farther out"
+        );
+        assert!(
+            second.preview_right_px >= after_tick_one.preview_right_px - 0.5,
+            "preview should not reset or jump backward on rapid pointer updates"
+        );
+
+        let tick_two_at = second.last_smooth_tick_at + Duration::from_millis(16);
+        let ticked = advance_resize_anim(&mut st, &mut ps, tick_two_at).expect("resize tick two");
+        assert_eq!(ticked, window);
+
+        let after_tick_two = ps.resize.expect("resize after second tick");
+        assert!(
+            after_tick_two.preview_right_px > second.preview_right_px + 0.1,
+            "preview should keep advancing instead of hesitating after repeated quick motion"
+        );
+        assert!(after_tick_two.preview_right_px < after_tick_two.target_right_px);
+        let release_preview_right = after_tick_two.preview_right_px;
+        let release_target_right = after_tick_two.target_right_px;
+
+        finalize_resize(&mut st, &mut ps, &backend);
+        assert!(
+            ps.resize.is_none(),
+            "resize should stop immediately at release instead of entering a settle animation"
+        );
+        let final_rect = active_node_screen_rect(&st, 800, 600, window, Instant::now(), None)
+            .expect("final window rect");
+        assert!(
+            final_rect.2 < release_target_right - 8.0,
+            "release should not finish the full trajectory to the old cursor target"
+        );
+        assert!(
+            final_rect.2 >= release_preview_right - 4.0,
+            "release should stop near the current preview instead of snapping backward"
+        );
+        assert!(
+            st.input.interaction_state.resize_active.is_none(),
+            "resize interaction should end immediately on release"
         );
     }
 }
@@ -707,9 +1138,24 @@ pub(crate) fn active_node_screen_rect(
     let (gx, gy, gw, gh) = local_geo;
     let rw = (gw * xform.scale).round().max(1.0);
     let rh = (gh * xform.scale).round().max(1.0);
-    let rx = xform.origin_x + (gx * xform.scale).round();
-    let ry = xform.origin_y + (gy * xform.scale).round();
-    Some((rx, ry, rx + rw, ry + rh))
+    let mut rx = xform.origin_x + (gx * xform.scale).round();
+    let mut ry = xform.origin_y + (gy * xform.scale).round();
+    let mut rr = rx + rw;
+    let mut rb = ry + rh;
+
+    let stack_render_order = active_stacking_render_order_for_monitor(
+        st,
+        st.model.monitor_state.current_monitor.as_str(),
+    );
+    if stack_render_order.contains_key(&node_id) {
+        let frame_pad_px = active_window_frame_pad_px(&st.runtime.tuning) as f32 * xform.scale;
+        rx -= frame_pad_px;
+        ry -= frame_pad_px;
+        rr += frame_pad_px;
+        rb += frame_pad_px;
+    }
+
+    Some((rx, ry, rr, rb))
 }
 
 /// Compute the screen-space surface-tree origin and scale for an active node,

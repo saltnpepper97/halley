@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use halley_core::field::{NodeId, Vec2};
+use halley_core::field::{NodeId, NodeKind, NodeState, Vec2};
 
 use crate::compositor::root::Halley;
 
@@ -13,7 +13,7 @@ pub(crate) struct WorkspaceState {
 }
 
 pub fn mark_active_transition(st: &mut Halley, id: NodeId, now: Instant, duration_ms: u64) {
-    if !st.runtime.tuning.physics_enabled {
+    if !st.runtime.tuning.animations_enabled() {
         return;
     }
     st.model
@@ -24,7 +24,7 @@ pub fn mark_active_transition(st: &mut Halley, id: NodeId, now: Instant, duratio
 }
 
 pub fn active_transition_alpha(st: &Halley, id: NodeId, now: Instant) -> f32 {
-    if !st.runtime.tuning.physics_enabled {
+    if !st.runtime.tuning.animations_enabled() {
         return 0.0;
     }
     let now_ms = st.now_ms(now);
@@ -43,6 +43,43 @@ pub fn active_transition_alpha(st: &Halley, id: NodeId, now: Instant) -> f32 {
     let total = 420.0f32;
     let remaining = (until.saturating_sub(now_ms)) as f32;
     (remaining / total).clamp(0.0, 1.0)
+}
+
+pub(crate) fn start_active_to_node_close_animation(st: &mut Halley, id: NodeId, now: Instant) {
+    if !st.runtime.tuning.window_close_animation_enabled() {
+        return;
+    }
+    let Some(node) = st.model.field.node(id) else {
+        return;
+    };
+    if node.kind != NodeKind::Surface || node.state != NodeState::Active {
+        return;
+    }
+    let Some(monitor) = st.model.monitor_state.node_monitor.get(&id).cloned() else {
+        return;
+    };
+    let duration_ms = st.runtime.tuning.window_close_duration_ms();
+    let style = st.runtime.tuning.window_close_style();
+    let Some((border_rect, offscreen_textures)) =
+        crate::render::capture_closing_window_animation(st, monitor.as_str(), id)
+    else {
+        return;
+    };
+
+    st.ui.render_state.start_closing_window_animation(
+        id,
+        monitor.as_str(),
+        now,
+        duration_ms,
+        style,
+        border_rect,
+        offscreen_textures,
+    );
+    st.ui
+        .render_state
+        .animator
+        .snap_to_state(id, NodeState::Node, now);
+    st.request_maintenance();
 }
 
 pub(crate) fn preserve_collapsed_surface(st: &Halley, id: NodeId) -> bool {

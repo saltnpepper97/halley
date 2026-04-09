@@ -1,17 +1,25 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use halley_config::WindowCloseAnimationStyle;
 use halley_core::cluster::ClusterId;
+use halley_core::cluster_layout::ClusterCycleDirection;
 use halley_core::field::{Field, NodeId, Vec2};
+use halley_core::tiling::Rect;
 
 use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
 use smithay::utils::{Logical, Rectangle};
 
-use crate::animation::Animator;
+use crate::animation::{Animator, ClusterTileTracks};
 use crate::overlay::{
-    ClusterBloomAnimSnapshot, ClusterBloomAnimState, OverlayBannerSnapshot, OverlayBannerState,
+    ClusterBloomAnimSnapshot, ClusterBloomAnimState, ExitConfirmOverlaySnapshot,
+    ExitConfirmOverlayState, OverlayActionHint, OverlayBannerSnapshot, OverlayBannerState,
     OverlayToastSnapshot, OverlayToastState,
 };
+use crate::render::text::UiTextRenderer;
+
+use super::window::{ActiveBorderRect, OffscreenNodeTexture};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct WindowOffscreenKey {
@@ -35,6 +43,9 @@ pub(crate) struct WindowOffscreenCache {
 
     /// Logical bbox paired with the cached texture.
     pub bbox: Option<Rectangle<i32, Logical>>,
+
+    /// True once the cached offscreen image contains actual surface content.
+    pub has_content: bool,
 }
 
 impl WindowOffscreenCache {
@@ -78,28 +89,98 @@ pub(crate) enum NodeAppIconCacheEntry {
     Missing,
 }
 
+#[derive(Default)]
+pub(crate) struct ClusterCoreIconCache {
+    pub(crate) focused_color: [u8; 4],
+    pub(crate) unfocused_color: [u8; 4],
+    pub(crate) focused: Option<NodeAppIconTexture>,
+    pub(crate) unfocused: Option<NodeAppIconTexture>,
+}
+
+#[derive(Default)]
+pub(crate) struct ScreenshotMenuIconCache {
+    pub(crate) active_color: [u8; 4],
+    pub(crate) inactive_color: [u8; 4],
+    pub(crate) region_active: Option<NodeAppIconTexture>,
+    pub(crate) region_inactive: Option<NodeAppIconTexture>,
+    pub(crate) screen_active: Option<NodeAppIconTexture>,
+    pub(crate) screen_inactive: Option<NodeAppIconTexture>,
+    pub(crate) window_active: Option<NodeAppIconTexture>,
+    pub(crate) window_inactive: Option<NodeAppIconTexture>,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct PreviewHoverState {
     pub(crate) node: Option<NodeId>,
     pub(crate) mix: f32,
+    pub(crate) overlay_anchor: Option<((i32, i32), bool)>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StackCycleTransitionState {
+    pub(crate) direction: ClusterCycleDirection,
+    pub(crate) started_at: Instant,
+    pub(crate) duration_ms: u64,
+    pub(crate) old_visible: Vec<NodeId>,
+    pub(crate) new_visible: Vec<NodeId>,
+    pub(crate) source_rects: Option<HashMap<NodeId, Rect>>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StackCycleTransitionSnapshot {
+    pub(crate) direction: ClusterCycleDirection,
+    pub(crate) progress: f32,
+    pub(crate) old_visible: Vec<NodeId>,
+    pub(crate) new_visible: Vec<NodeId>,
+    pub(crate) source_rects: Option<HashMap<NodeId, Rect>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ClosingWindowAnimationState {
+    pub(crate) monitor: String,
+    pub(crate) started_at: Instant,
+    pub(crate) duration_ms: u64,
+    pub(crate) style: WindowCloseAnimationStyle,
+    pub(crate) border_rect: Option<ActiveBorderRect>,
+    pub(crate) offscreen_textures: Vec<OffscreenNodeTexture>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ClosingWindowAnimationSnapshot {
+    pub(crate) progress: f32,
+    pub(crate) style: WindowCloseAnimationStyle,
+    pub(crate) border_rect: Option<ActiveBorderRect>,
+    pub(crate) offscreen_textures: Vec<OffscreenNodeTexture>,
 }
 
 pub(crate) struct RenderState {
     pub animator: Animator,
 
     pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
+    pub(crate) cluster_core_icon_cache: ClusterCoreIconCache,
+    pub(crate) screenshot_menu_icon_cache: ScreenshotMenuIconCache,
     pub(crate) node_hover_mix: HashMap<NodeId, f32>,
     pub(crate) node_preview_hover: HashMap<String, PreviewHoverState>,
     pub(crate) bearings_visible: bool,
     pub(crate) bearings_mix: HashMap<String, f32>,
+    pub(crate) cluster_tile_tracks: ClusterTileTracks,
+    pub(crate) cluster_tile_entry_pending: HashSet<NodeId>,
+    pub(crate) cluster_tile_frozen_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) cluster_bloom_mix: HashMap<String, ClusterBloomAnimState>,
     pub(crate) overlay_banner: HashMap<String, OverlayBannerState>,
     pub(crate) overlay_toast: HashMap<String, OverlayToastState>,
+    pub(crate) overlay_exit_confirm: HashMap<String, ExitConfirmOverlayState>,
+    pub(crate) closing_window_animations: HashMap<NodeId, ClosingWindowAnimationState>,
+    pub(crate) stack_cycle_transition: HashMap<String, StackCycleTransitionState>,
+    pub(crate) ui_text: RefCell<UiTextRenderer>,
     pub(crate) node_circle_texture: Option<GlesTexture>,
     pub(crate) node_circle_program: Option<GlesTexProgram>,
+    pub(crate) node_square_program: Option<GlesTexProgram>,
     pub(crate) node_squircle_program: Option<GlesTexProgram>,
-    pub(crate) node_label_program: Option<GlesTexProgram>,
-    pub(crate) node_label_program_failed: bool,
+    pub(crate) ui_rect_rounded_program: Option<GlesTexProgram>,
+    pub(crate) ui_rect_rounded_program_failed: bool,
+    pub(crate) ui_rect_square_program: Option<GlesTexProgram>,
+    pub(crate) ui_rect_square_program_failed: bool,
     pub(crate) window_texture_program: Option<GlesTexProgram>,
     pub(crate) window_texture_program_failed: bool,
     pub(crate) surface_clip_program: Option<GlesTexProgram>,
@@ -119,6 +200,142 @@ pub(crate) struct RenderState {
 }
 
 impl RenderState {
+    pub(crate) fn start_closing_window_animation(
+        &mut self,
+        node_id: NodeId,
+        monitor: &str,
+        now: Instant,
+        duration_ms: u64,
+        style: WindowCloseAnimationStyle,
+        border_rect: Option<ActiveBorderRect>,
+        offscreen_textures: Vec<OffscreenNodeTexture>,
+    ) {
+        if border_rect.is_none() && offscreen_textures.is_empty() {
+            return;
+        }
+        self.closing_window_animations.insert(
+            node_id,
+            ClosingWindowAnimationState {
+                monitor: monitor.to_string(),
+                started_at: now,
+                duration_ms: duration_ms.max(1),
+                style,
+                border_rect,
+                offscreen_textures,
+            },
+        );
+    }
+
+    pub(crate) fn closing_window_animation_active_for_monitor(
+        &self,
+        monitor: &str,
+        now: Instant,
+    ) -> bool {
+        self.closing_window_animations.values().any(|state| {
+            state.monitor == monitor
+                && (now.saturating_duration_since(state.started_at).as_millis() as u64)
+                    < state.duration_ms
+        })
+    }
+
+    pub(crate) fn closing_window_animation_snapshots(
+        &mut self,
+        monitor: &str,
+        now: Instant,
+    ) -> Vec<ClosingWindowAnimationSnapshot> {
+        self.closing_window_animations.retain(|_, state| {
+            (now.saturating_duration_since(state.started_at).as_millis() as u64) < state.duration_ms
+        });
+        self.closing_window_animations
+            .values()
+            .filter(|state| state.monitor == monitor)
+            .map(|state| {
+                let elapsed_ms = now.saturating_duration_since(state.started_at).as_millis() as u64;
+                ClosingWindowAnimationSnapshot {
+                    progress: (elapsed_ms as f32 / state.duration_ms.max(1) as f32).clamp(0.0, 1.0),
+                    style: state.style,
+                    border_rect: state.border_rect.clone(),
+                    offscreen_textures: state.offscreen_textures.clone(),
+                }
+            })
+            .collect()
+    }
+
+    pub(crate) fn start_stack_cycle_transition(
+        &mut self,
+        monitor: &str,
+        direction: ClusterCycleDirection,
+        old_visible: Vec<NodeId>,
+        new_visible: Vec<NodeId>,
+        now: Instant,
+        duration_ms: u64,
+    ) {
+        self.start_stack_cycle_transition_from_rects(
+            monitor,
+            direction,
+            old_visible,
+            new_visible,
+            HashMap::new(),
+            now,
+            duration_ms,
+        );
+    }
+
+    pub(crate) fn start_stack_cycle_transition_from_rects(
+        &mut self,
+        monitor: &str,
+        direction: ClusterCycleDirection,
+        old_visible: Vec<NodeId>,
+        new_visible: Vec<NodeId>,
+        source_rects: HashMap<NodeId, Rect>,
+        now: Instant,
+        duration_ms: u64,
+    ) {
+        if old_visible == new_visible && source_rects.is_empty() {
+            self.stack_cycle_transition.remove(monitor);
+            return;
+        }
+        self.stack_cycle_transition.insert(
+            monitor.to_string(),
+            StackCycleTransitionState {
+                direction,
+                started_at: now,
+                duration_ms: duration_ms.max(1),
+                old_visible,
+                new_visible,
+                source_rects: (!source_rects.is_empty()).then_some(source_rects),
+            },
+        );
+    }
+
+    pub(crate) fn stack_cycle_transition_for_monitor(
+        &mut self,
+        monitor: &str,
+        now: Instant,
+    ) -> Option<StackCycleTransitionSnapshot> {
+        let state = self.stack_cycle_transition.get(monitor)?.clone();
+        let elapsed_ms = now.saturating_duration_since(state.started_at).as_millis() as u64;
+        if elapsed_ms >= state.duration_ms {
+            self.stack_cycle_transition.remove(monitor);
+            return None;
+        }
+        Some(StackCycleTransitionSnapshot {
+            direction: state.direction,
+            progress: (elapsed_ms as f32 / state.duration_ms as f32).clamp(0.0, 1.0),
+            old_visible: state.old_visible,
+            new_visible: state.new_visible,
+            source_rects: state.source_rects,
+        })
+    }
+
+    pub(crate) fn ui_rect_program(&self, rounded: bool) -> Option<&GlesTexProgram> {
+        if rounded {
+            self.ui_rect_rounded_program.as_ref()
+        } else {
+            self.ui_rect_square_program.as_ref()
+        }
+    }
+
     pub(crate) fn anim_track_elapsed_for(
         &self,
         id: NodeId,
@@ -151,6 +368,7 @@ impl RenderState {
         if hovered.is_some() && hovered != state.node {
             state.node = hovered;
             state.mix = 0.0;
+            state.overlay_anchor = None;
         }
         let target = if hovered.is_some() { 1.0 } else { 0.0 };
         let k = if target > 0.5 { 0.30 } else { 0.14 };
@@ -161,6 +379,7 @@ impl RenderState {
         if target <= 0.0 && state.mix <= 0.002 {
             state.mix = 0.0;
             state.node = None;
+            state.overlay_anchor = None;
         }
         state.node.map(|id| (id, state.mix))
     }
@@ -242,6 +461,7 @@ impl RenderState {
         monitor: &str,
         title: &str,
         subtitle: Option<&str>,
+        actions: &[OverlayActionHint],
     ) {
         let state = self
             .overlay_banner
@@ -249,11 +469,13 @@ impl RenderState {
             .or_insert_with(|| OverlayBannerState {
                 title: String::new(),
                 subtitle: None,
+                actions: Vec::new(),
                 visible: false,
                 mix: 0.0,
             });
         state.title = title.to_string();
         state.subtitle = subtitle.map(str::to_string);
+        state.actions = actions.to_vec();
         state.visible = true;
     }
 
@@ -281,6 +503,7 @@ impl RenderState {
         Some(OverlayBannerSnapshot {
             title: state.title.clone(),
             subtitle: state.subtitle.clone(),
+            actions: state.actions.clone(),
             mix: state.mix,
         })
     }
@@ -326,15 +549,50 @@ impl RenderState {
         })
     }
 
-    pub(crate) fn tick_animator_frame(
-        &mut self,
-        field: &Field,
-        physics_enabled: bool,
-        now: Instant,
-    ) {
-        if !physics_enabled {
-            return;
+    pub(crate) fn show_exit_confirm(&mut self, monitor: &str) {
+        let exit_confirm = self
+            .overlay_exit_confirm
+            .entry(monitor.to_string())
+            .or_default();
+        exit_confirm.visible = true;
+        if exit_confirm.mix < 0.12 {
+            exit_confirm.mix = 0.0;
         }
+    }
+
+    pub(crate) fn clear_exit_confirm(&mut self, monitor: &str) {
+        if let Some(exit_confirm) = self.overlay_exit_confirm.get_mut(monitor) {
+            exit_confirm.visible = false;
+        }
+    }
+
+    pub(crate) fn exit_confirm_visible(&self) -> bool {
+        self.overlay_exit_confirm
+            .values()
+            .any(|state| state.visible)
+    }
+
+    pub(crate) fn exit_confirm_snapshot(
+        &mut self,
+        monitor: &str,
+    ) -> Option<ExitConfirmOverlaySnapshot> {
+        let exit_confirm = self.overlay_exit_confirm.get_mut(monitor)?;
+        let target = if exit_confirm.visible { 1.0 } else { 0.0 };
+        let k = if target > 0.5 { 0.34 } else { 0.24 };
+        exit_confirm.mix += (target - exit_confirm.mix) * k;
+        if (exit_confirm.mix - target).abs() < 0.015 {
+            exit_confirm.mix = target;
+        }
+        if target <= 0.0 && exit_confirm.mix <= 0.015 {
+            self.overlay_exit_confirm.remove(monitor);
+            return None;
+        }
+        Some(ExitConfirmOverlaySnapshot {
+            mix: exit_confirm.mix,
+        })
+    }
+
+    pub(crate) fn tick_animator_frame(&mut self, field: &Field, now: Instant) {
         self.animator.observe_field(field, now);
     }
 
@@ -345,19 +603,21 @@ impl RenderState {
         height: i32,
         now: Instant,
     ) -> &mut WindowOffscreenCache {
-        let cache = self.window_offscreen_cache.entry(node_id).or_default();
         let width = width.max(1);
         let height = height.max(1);
-
+        let cache = self.window_offscreen_cache.entry(node_id).or_default();
         if !cache.matches_size(width, height) {
             cache.set_size(width, height);
             cache.texture = None;
             cache.bbox = None;
+            cache.has_content = false;
             cache.mark_dirty();
         }
 
         cache.touch(now);
-        cache
+        self.window_offscreen_cache
+            .get_mut(&node_id)
+            .expect("offscreen cache should exist after ensure")
     }
 
     pub(crate) fn mark_window_offscreen_dirty(&mut self, node_id: NodeId) {
@@ -377,5 +637,13 @@ impl RenderState {
                     .last_used_at
                     .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5)
         });
+    }
+
+    pub(crate) fn invalidate_ui_text_cache(&mut self) {
+        self.ui_text.get_mut().clear();
+    }
+
+    pub(crate) fn prune_ui_text_cache(&mut self, now: Instant) {
+        self.ui_text.get_mut().prune(now);
     }
 }

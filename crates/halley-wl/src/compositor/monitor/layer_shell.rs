@@ -7,7 +7,7 @@ use smithay::{
         compositor::with_states,
         shell::wlr_layer::{
             Anchor, ExclusiveZone, KeyboardInteractivity, Layer, LayerSurface,
-            LayerSurfaceCachedState,
+            LayerSurfaceCachedState, LayerSurfaceData,
         },
     },
 };
@@ -97,10 +97,15 @@ fn layer_popup_constraint_target(
 }
 
 fn rectangle_fits_within(target: Rectangle<i32, Logical>, rect: Rectangle<i32, Logical>) -> bool {
+    let rect_right = i64::from(rect.loc.x) + i64::from(rect.size.w);
+    let rect_bottom = i64::from(rect.loc.y) + i64::from(rect.size.h);
+    let target_right = i64::from(target.loc.x) + i64::from(target.size.w);
+    let target_bottom = i64::from(target.loc.y) + i64::from(target.size.h);
+
     rect.loc.x >= target.loc.x
         && rect.loc.y >= target.loc.y
-        && rect.loc.x + rect.size.w <= target.loc.x + target.size.w
-        && rect.loc.y + rect.size.h <= target.loc.y + target.size.h
+        && rect_right <= target_right
+        && rect_bottom <= target_bottom
 }
 
 pub(crate) fn refresh_monitor_usable_viewports(st: &mut Halley) {
@@ -237,12 +242,6 @@ fn register_layer_surface_impl(
         st.model.monitor_state.current_monitor.clone()
     };
 
-    let size = layer_output_size_for_monitor(st, &assigned_monitor);
-    surface.with_pending_state(|state| {
-        state.size = Some(size);
-    });
-    surface.send_configure();
-
     st.assign_layer_surface_to_monitor(surface.wl_surface(), assigned_monitor.clone());
 
     if let Some(requested_output) = output.as_ref() {
@@ -269,6 +268,17 @@ fn register_layer_surface_impl(
 /// the client has committed its desired `keyboard_interactivity`, so the
 /// cached state is still the default `None` at that point.
 fn maybe_grant_layer_surface_focus_on_commit_impl(st: &mut Halley, surface: &WlSurface) {
+    st.model
+        .monitor_state
+        .layer_surface_committed
+        .insert(surface.id());
+
+    if !layer_surface_initial_configure_sent(surface) {
+        let monitor = layer_surface_monitor_name(st, surface);
+        configure_layer_shell_surfaces_for_monitor(st, monitor.as_str());
+        refresh_monitor_usable_viewports(st);
+    }
+
     if st.model.monitor_state.layer_keyboard_focus == Some(surface.id()) {
         return;
     }
@@ -297,6 +307,14 @@ fn remove_layer_surface_impl(st: &mut Halley, surface: &LayerSurface) {
     st.model
         .monitor_state
         .layer_surface_monitor
+        .remove(&surface.wl_surface().id());
+    st.model
+        .monitor_state
+        .layer_surface_committed
+        .remove(&surface.wl_surface().id());
+    st.model
+        .monitor_state
+        .layer_surface_last_configured_size
         .remove(&surface.wl_surface().id());
     if removed_focused_layer {
         st.model.monitor_state.layer_keyboard_focus = None;
@@ -357,26 +375,71 @@ pub(crate) fn configure_layer_shell_surfaces(st: &mut Halley, _output_size: Size
         .cloned()
         .collect::<Vec<_>>()
     {
-        let output_size = layer_output_size_for_monitor(st, &monitor_name);
-        let output_rect = Rectangle::from_size(output_size);
-        let mut zone = output_rect;
-
-        for surface in layer_shell_surfaces_sorted(st) {
-            if layer_surface_monitor_name(st, surface.wl_surface()) != monitor_name {
-                continue;
-            }
-            let data = layer_cached_state(&surface);
-            let (_, size) = compute_layer_placement(output_rect, &mut zone, data);
-            if data.size == size {
-                continue;
-            }
-            surface.with_pending_state(|state| {
-                state.size = Some(size);
-            });
-            let _ = surface.send_pending_configure();
-        }
+        configure_layer_shell_surfaces_for_monitor(st, monitor_name.as_str());
     }
     refresh_monitor_usable_viewports(st);
+}
+
+fn configure_layer_shell_surfaces_for_monitor(st: &mut Halley, monitor_name: &str) {
+    let output_size = layer_output_size_for_monitor(st, monitor_name);
+    let output_rect = Rectangle::from_size(output_size);
+    let mut zone = output_rect;
+
+    for surface in layer_shell_surfaces_sorted(st) {
+        if layer_surface_monitor_name(st, surface.wl_surface()) != monitor_name {
+            continue;
+        }
+        if !st
+            .model
+            .monitor_state
+            .layer_surface_committed
+            .contains(&surface.wl_surface().id())
+        {
+            continue;
+        }
+        let data = layer_cached_state(&surface);
+        let (_, size) = compute_layer_placement(output_rect, &mut zone, data);
+        if last_configured_layer_surface_size(st, surface.wl_surface()) == Some(size) {
+            continue;
+        }
+        surface.with_pending_state(|state| {
+            state.size = Some(size);
+        });
+        surface.send_configure();
+        record_layer_surface_configured_size(st, surface.wl_surface(), size);
+    }
+}
+
+fn last_configured_layer_surface_size(
+    st: &Halley,
+    surface: &WlSurface,
+) -> Option<Size<i32, Logical>> {
+    st.model
+        .monitor_state
+        .layer_surface_last_configured_size
+        .get(&surface.id())
+        .copied()
+}
+
+fn record_layer_surface_configured_size(
+    st: &mut Halley,
+    surface: &WlSurface,
+    size: Size<i32, Logical>,
+) {
+    st.model
+        .monitor_state
+        .layer_surface_last_configured_size
+        .insert(surface.id(), size);
+}
+
+fn layer_surface_initial_configure_sent(surface: &WlSurface) -> bool {
+    with_states(surface, |states| {
+        states
+            .data_map
+            .get::<LayerSurfaceData>()
+            .map(|data| data.lock().unwrap().initial_configure_sent)
+            .unwrap_or(false)
+    })
 }
 
 pub(crate) fn layer_shell_placements(
@@ -644,12 +707,14 @@ fn compute_layer_placement(
     let anchored_right = data.anchor.contains(Anchor::RIGHT);
     let anchored_top = data.anchor.contains(Anchor::TOP);
     let anchored_bottom = data.anchor.contains(Anchor::BOTTOM);
+    let fill_full_output = data.layer == Layer::Overlay;
+    let placement_zone = if fill_full_output { output_rect } else { *zone };
 
     if width == 0 && anchored_left && anchored_right {
-        width = zone.size.w.max(1);
+        width = placement_zone.size.w.max(1);
     }
     if height == 0 && anchored_top && anchored_bottom {
-        height = zone.size.h.max(1);
+        height = placement_zone.size.h.max(1);
     }
     if width == 0 {
         width = output_rect.size.w.max(1);
@@ -659,28 +724,28 @@ fn compute_layer_placement(
     }
 
     let mut x = if anchored_left {
-        zone.loc.x + data.margin.left
+        placement_zone.loc.x + data.margin.left
     } else if anchored_right {
-        zone.loc.x + zone.size.w - width - data.margin.right
+        placement_zone.loc.x + placement_zone.size.w - width - data.margin.right
     } else {
-        zone.loc.x + (zone.size.w - width) / 2
+        placement_zone.loc.x + (placement_zone.size.w - width) / 2
     };
 
     let mut y = if anchored_top {
-        zone.loc.y + data.margin.top
+        placement_zone.loc.y + data.margin.top
     } else if anchored_bottom {
-        zone.loc.y + zone.size.h - height - data.margin.bottom
+        placement_zone.loc.y + placement_zone.size.h - height - data.margin.bottom
     } else {
-        zone.loc.y + (zone.size.h - height) / 2
+        placement_zone.loc.y + (placement_zone.size.h - height) / 2
     };
 
     if anchored_left && anchored_right {
-        x = zone.loc.x + data.margin.left;
-        width = (zone.size.w - data.margin.left - data.margin.right).max(1);
+        x = placement_zone.loc.x + data.margin.left;
+        width = (placement_zone.size.w - data.margin.left - data.margin.right).max(1);
     }
     if anchored_top && anchored_bottom {
-        y = zone.loc.y + data.margin.top;
-        height = (zone.size.h - data.margin.top - data.margin.bottom).max(1);
+        y = placement_zone.loc.y + data.margin.top;
+        height = (placement_zone.size.h - data.margin.top - data.margin.bottom).max(1);
     }
 
     let size: Size<i32, Logical> = (width, height).into();

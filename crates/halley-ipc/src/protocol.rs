@@ -19,6 +19,12 @@ pub enum TrailDirection {
     Next,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StackCycleDirection {
+    Forward,
+    Backward,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum DpmsCommand {
     Off,
@@ -60,6 +66,48 @@ pub enum BearingsRequest {
     Show,
     Hide,
     Toggle,
+    Status,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StackRequest {
+    Cycle {
+        direction: StackCycleDirection,
+        output: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TileRequest {
+    Focus {
+        direction: NodeMoveDirection,
+        output: Option<String>,
+    },
+    Swap {
+        direction: NodeMoveDirection,
+        output: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ClusterRequest {
+    LayoutCycle { output: Option<String> },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CaptureMode {
+    Menu,
+    Region,
+    Screen,
+    Window,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CaptureRequest {
+    Start {
+        mode: CaptureMode,
+        output: Option<String>,
+    },
     Status,
 }
 
@@ -123,10 +171,14 @@ pub enum MonitorRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
     Compositor(CompositorRequest),
+    Capture(CaptureRequest),
     Node(NodeRequest),
     Trail(TrailRequest),
     Monitor(MonitorRequest),
     Bearings(BearingsRequest),
+    Stack(StackRequest),
+    Tile(TileRequest),
+    Cluster(ClusterRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +186,7 @@ pub enum Response {
     Ok,
     Reloaded,
     Outputs(OutputsResponse),
+    CaptureStatus(crate::types::CaptureStatusResponse),
     NodeList(NodeListResponse),
     NodeInfo(NodeInfo),
     TrailList(TrailListResponse),

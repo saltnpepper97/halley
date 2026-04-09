@@ -16,18 +16,12 @@ use crate::compositor::interaction::state::NodeMoveAnim;
 use crate::compositor::root::Halley;
 use crate::input::active_node_surface_transform_screen_details;
 
-#[derive(Clone, Copy)]
-pub(crate) struct TitleClickCtx {
-    pub(crate) node_id: NodeId,
-    pub(crate) at: Instant,
-}
-
 #[derive(Clone)]
 pub(crate) struct BloomDragCtx {
     pub(crate) cluster_id: ClusterId,
     pub(crate) member_id: NodeId,
     pub(crate) monitor: String,
-    pub(crate) core_screen: (f32, f32),
+    pub(crate) slot_screen: (f32, f32),
 }
 
 #[derive(Clone)]
@@ -44,7 +38,7 @@ pub(crate) struct HitNode {
     pub(crate) is_core: bool,
 }
 
-pub(crate) const NODE_DOUBLE_CLICK_MS: u64 = 350;
+pub(crate) const CORE_BLOOM_HOLD_MS: u64 = 1_700;
 
 #[derive(Clone)]
 pub(crate) struct PointerState {
@@ -59,10 +53,10 @@ pub(crate) struct PointerState {
     pub(crate) move_anim: HashMap<NodeId, NodeMoveAnim>,
     pub(crate) bloom_drag: Option<BloomDragCtx>,
     pub(crate) overflow_drag: Option<OverflowDragCtx>,
-    pub(crate) last_title_click: Option<TitleClickCtx>,
     pub(crate) panning: bool,
     pub(crate) pan_monitor: Option<String>,
     pub(crate) pan_last_screen: (f32, f32),
+    pub(crate) left_button_down: bool,
     pub(crate) hover_started_at: Option<Instant>,
     pub(crate) preview_block_until: Option<Instant>,
     pub(crate) resize_trace_node: Option<NodeId>,
@@ -84,10 +78,10 @@ impl Default for PointerState {
             move_anim: HashMap::new(),
             bloom_drag: None,
             overflow_drag: None,
-            last_title_click: None,
             panning: false,
             pan_monitor: None,
             pan_last_screen: (0.0, 0.0),
+            left_button_down: false,
             hover_started_at: None,
             preview_block_until: None,
             resize_trace_node: None,
@@ -108,6 +102,19 @@ pub(crate) fn cursor_position_hint(
 
 pub(crate) fn set_cursor_override_icon(st: &mut Halley, icon: Option<CursorIcon>) {
     st.input.interaction_state.cursor_override_icon = icon;
+    st.input.interaction_state.cursor_override_until_ms = None;
+}
+
+pub(crate) fn set_temporary_cursor_override_icon(
+    st: &mut Halley,
+    icon: CursorIcon,
+    now: Instant,
+    duration_ms: u64,
+) {
+    st.input.interaction_state.cursor_override_icon = Some(icon);
+    st.input.interaction_state.cursor_override_until_ms =
+        Some(st.now_ms(now).saturating_add(duration_ms.max(1)));
+    st.request_maintenance();
 }
 
 pub(crate) fn activate_pointer_constraint_for_surface(st: &mut Halley, surface: &WlSurface) {
@@ -127,6 +134,7 @@ pub(crate) fn clear_pointer_focus(st: &mut Halley) {
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return;
     };
+    st.input.interaction_state.grabbed_layer_surface = None;
     if pointer.is_grabbed() {
         pointer.unset_grab(st, SERIAL_COUNTER.next_serial(), 0);
     }

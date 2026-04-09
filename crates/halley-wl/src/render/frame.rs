@@ -3,6 +3,8 @@ use std::error::Error;
 use std::time::Instant;
 
 use halley_core::field::{NodeId, Vec2};
+use smithay::desktop::{PopupKind, find_popup_root_surface};
+use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::wayland::compositor::{
     SurfaceAttributes, TraversalAction, with_states, with_surface_tree_downward,
 };
@@ -17,21 +19,23 @@ use smithay::{
         utils::draw_render_elements,
     },
     backend::winit::WinitGraphicsBackend,
-    utils::{Buffer, Physical, Rectangle, Transform},
+    utils::{Buffer, Physical, Rectangle, Size, Transform},
 };
 
 use crate::animation::AnimStyle;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::overlay::{
-    OverlayView, draw_cluster_bloom, draw_cluster_overflow_strip, draw_cluster_selection_markers,
-    draw_monitor_hud, draw_overlay_hover_label, ensure_cluster_bloom_icon_resources,
+    OverlayView, draw_cluster_bloom, draw_cluster_overflow_promotion, draw_cluster_overflow_strip,
+    draw_cluster_selection_markers, draw_monitor_hud, draw_overlay_hover_label,
+    ensure_cluster_bloom_icon_resources,
 };
 use crate::spatial::node_in_active_area_for_monitor;
 
 use super::app_icon::{ensure_app_icon_resources_for_node_ids, ensure_node_app_icon_resources};
 use super::bearings::BearingChipLayout;
 use super::bearings::{collect_bearing_layouts, draw_bearings, ensure_bearing_icon_resources};
+use super::cluster_icon::ensure_cluster_core_icon_resources;
 use super::cursor::{cursor_surface_hotspot, draw_cursor_sprite};
 use super::cursor_theme::themed_cursor_sprite_with_fallback;
 use super::layer_shell::collect_layer_surfaces;
@@ -40,21 +44,153 @@ use super::node::{
     NodeSnapshot, collect_hover_preview, draw_node_hover_labels, draw_node_markers,
     ensure_node_circle_resources,
 };
+use super::screenshot_icon::ensure_screenshot_menu_icon_resources;
+use super::state::ClosingWindowAnimationSnapshot;
+use super::text::ensure_ui_text_resources;
 use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
-use super::window::{ActiveBorderRect, OffscreenNodeTexture, collect_active_surfaces};
+use super::window::{
+    ActiveBorderRect, CroppedClippedSurfaceElement, OffscreenNodeTexture, StackWindowDrawUnit,
+    collect_active_surfaces,
+};
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct TtyOutputAnimationRedrawState {
+    pub active: bool,
+    pub force_full_repaint: bool,
+}
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
-type CroppedSurfaceElement =
-    smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>;
 
 const WINDOW_TEXTURE_SHADER: &str = include_str!("shaders/window_rounded_texture.frag");
 const SURFACE_CLIP_SHADER: &str = include_str!("shaders/surface_clipped_texture.frag");
 
 pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) -> bool {
+    if st.now_ms(std::time::Instant::now()) < st.runtime.screenshot_full_repaint_until_ms {
+        return true;
+    }
     st.cluster_mode_active_for_monitor(monitor)
+        || st
+            .model
+            .cluster_state
+            .cluster_bloom_open
+            .contains_key(monitor)
+        || st
+            .model
+            .cluster_state
+            .cluster_overflow_visible_until_ms
+            .get(monitor)
+            .is_some_and(|visible_until_ms| {
+                *visible_until_ms > st.now_ms(std::time::Instant::now())
+            })
+        || st
+            .model
+            .cluster_state
+            .cluster_overflow_promotion_anim
+            .contains_key(monitor)
+        || crate::compositor::interaction::state::bloom_pull_preview_active_for_monitor(st, monitor)
         || st.ui.render_state.overlay_banner.contains_key(monitor)
         || st.ui.render_state.overlay_toast.contains_key(monitor)
+        || st
+            .model
+            .cluster_state
+            .cluster_name_prompt
+            .contains_key(monitor)
+        || st.screenshot_session_active()
+        || st
+            .ui
+            .render_state
+            .overlay_exit_confirm
+            .contains_key(monitor)
+}
+
+pub(crate) fn tty_output_animation_redraw_state(
+    st: &Halley,
+    monitor: &str,
+    now: Instant,
+) -> TtyOutputAnimationRedrawState {
+    let now_ms = st.now_ms(now);
+    let node_transition_active = st.runtime.tuning.animations_enabled()
+        && st.ui.render_state.animator.has_active_animations(now);
+    let active_transition_active = st.runtime.tuning.animations_enabled()
+        && st
+            .model
+            .workspace_state
+            .active_transition_until_ms
+            .values()
+            .any(|&until| until > now_ms);
+    let tiled_insert_reveal_active = st
+        .model
+        .spawn_state
+        .pending_tiled_insert_reveal_at_ms
+        .values()
+        .any(|&until| until > now_ms);
+    let spawn_activation_active = st
+        .model
+        .spawn_state
+        .pending_spawn_activate_at_ms
+        .values()
+        .any(|&until| until > now_ms);
+    let cluster_tile_active = st.runtime.tuning.tile_animation_enabled()
+        && crate::animation::cluster_tile_tracks_animating(
+            &st.ui.render_state.cluster_tile_tracks,
+            now,
+        );
+    let close_window_active = st.runtime.tuning.window_close_animation_enabled()
+        && st
+            .ui
+            .render_state
+            .closing_window_animation_active_for_monitor(monitor, now);
+    let stack_cycle_active = st.runtime.tuning.stack_animation_enabled()
+        && st
+            .ui
+            .render_state
+            .stack_cycle_transition
+            .get(monitor)
+            .is_some_and(|transition| {
+                (now.saturating_duration_since(transition.started_at)
+                    .as_millis() as u64)
+                    < transition.duration_ms
+            });
+    let fullscreen_motion_active = !st.model.fullscreen_state.fullscreen_motion.is_empty()
+        || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
+    let viewport_pan_active = st.input.interaction_state.viewport_pan_anim.is_some()
+        || !st.model.spawn_state.pending_spawn_pan_queue.is_empty();
+    let camera_smoothing_active =
+        (st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
+            || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
+            || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
+            || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05;
+    let overlay_active = monitor_overlay_requires_full_repaint(st, monitor)
+        || st
+            .ui
+            .render_state
+            .cluster_bloom_mix
+            .get(monitor)
+            .is_some_and(|state| state.mix > 0.01)
+        || st
+            .ui
+            .render_state
+            .bearings_mix
+            .get(monitor)
+            .is_some_and(|mix| *mix > 0.02);
+    let fade_related = node_transition_active
+        || active_transition_active
+        || tiled_insert_reveal_active
+        || spawn_activation_active
+        || fullscreen_motion_active;
+    let active = fade_related
+        || cluster_tile_active
+        || close_window_active
+        || stack_cycle_active
+        || viewport_pan_active
+        || camera_smoothing_active
+        || overlay_active;
+
+    TtyOutputAnimationRedrawState {
+        active,
+        force_full_repaint: active,
+    }
 }
 
 pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
@@ -86,7 +222,18 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
         .retain(|monitor, state| {
             st.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
         });
+    st.ui
+        .render_state
+        .cluster_tile_entry_pending
+        .retain(|id| alive.contains(id));
+    st.ui
+        .render_state
+        .cluster_tile_frozen_geometry
+        .retain(|id, _| {
+            alive.contains(id) && st.ui.render_state.cluster_tile_tracks.contains_key(id)
+        });
     st.ui.render_state.prune_window_offscreen_cache(&alive, now);
+    st.ui.render_state.prune_ui_text_cache(now);
 }
 
 pub(crate) fn anim_style_for(
@@ -95,7 +242,7 @@ pub(crate) fn anim_style_for(
     state: halley_core::field::NodeState,
     now: Instant,
 ) -> AnimStyle {
-    if !st.runtime.tuning.dev_anim_enabled || !st.runtime.tuning.physics_enabled {
+    if !st.runtime.tuning.animations_enabled() {
         return AnimStyle::default();
     }
 
@@ -111,9 +258,10 @@ pub(crate) fn anim_style_for(
 }
 
 pub(crate) fn tick_animator_frame(st: &mut Halley, now: Instant) {
-    st.ui
-        .render_state
-        .tick_animator_frame(&st.model.field, st.runtime.tuning.physics_enabled, now);
+    if !st.runtime.tuning.animations_enabled() {
+        return;
+    }
+    st.ui.render_state.tick_animator_frame(&st.model.field, now);
 }
 
 pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
@@ -122,7 +270,33 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     st.tick_pending_spawn_pan(now, now_ms);
     tick_active_drag(st, now);
     crate::compositor::interaction::state::tick_cluster_join_candidate_ready(st, now_ms);
+    crate::compositor::interaction::state::tick_bloom_pull_preview(st, now_ms);
+    tick_pending_core_hover_bloom(st, now_ms);
     st.tick_camera_smoothing(now);
+}
+
+fn tick_pending_core_hover_bloom(st: &mut Halley, now_ms: u64) {
+    let Some(pending_hover) = st.input.interaction_state.pending_core_hover.clone() else {
+        return;
+    };
+    if now_ms
+        < pending_hover
+            .started_at_ms
+            .saturating_add(crate::compositor::interaction::CORE_BLOOM_HOLD_MS)
+    {
+        return;
+    }
+
+    st.input.interaction_state.pending_core_hover = None;
+    if let Some(cid) = st
+        .model
+        .field
+        .cluster_id_for_core_public(pending_hover.node_id)
+        && st.cluster_bloom_for_monitor(pending_hover.monitor.as_str()) != Some(cid)
+    {
+        st.input.interaction_state.overlay_hover_target = None;
+        let _ = st.open_cluster_bloom_for_monitor(pending_hover.monitor.as_str(), cid);
+    }
 }
 
 fn tick_active_drag(st: &mut Halley, now: Instant) {
@@ -306,6 +480,52 @@ pub(crate) fn send_frame_callbacks(st: &mut Halley, now: Instant) {
     }
 }
 
+pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str, now: Instant) {
+    let elapsed_ms = now.duration_since(st.runtime.started_at).as_millis();
+    let time_ms = elapsed_ms.min(u32::MAX as u128) as u32;
+
+    for layer in st.platform.wlr_layer_shell_state.layer_surfaces() {
+        let surface = layer.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            send_frames_surface_tree(surface, time_ms);
+        }
+    }
+
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let surface = top.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            send_frames_surface_tree(surface, time_ms);
+        }
+    }
+
+    for popup in st.platform.xdg_shell_state.popup_surfaces() {
+        let popup_kind = PopupKind::from(popup.clone());
+        let Ok(root) = find_popup_root_surface(&popup_kind) else {
+            continue;
+        };
+        if surface_on_output(st, &root, output_name) {
+            send_frames_surface_tree(popup.wl_surface(), time_ms);
+        }
+    }
+}
+
+fn surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> bool {
+    if let Some(node_id) = st.model.surface_to_node.get(&surface.id()).copied() {
+        return st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&node_id)
+            .is_some_and(|monitor| monitor == output_name);
+    }
+
+    st.model
+        .monitor_state
+        .layer_surface_monitor
+        .get(&surface.id())
+        .is_some_and(|monitor| monitor == output_name)
+}
+
 fn send_frames_surface_tree(
     surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     time_ms: u32,
@@ -361,6 +581,164 @@ fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mut Halley) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn multi_monitor_state() -> Halley {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        Halley::new_for_test(&dh, tuning)
+    }
+
+    #[test]
+    fn camera_smoothing_marks_all_monitors_active() {
+        let mut state = multi_monitor_state();
+        let _ = state.activate_monitor("right");
+
+        state.model.camera_target_center.x += 240.0;
+
+        let now = Instant::now();
+        assert!(tty_output_animation_redraw_state(&state, "right", now).active);
+        assert!(tty_output_animation_redraw_state(&state, "left", now).active);
+    }
+
+    #[test]
+    fn viewport_pan_marks_all_monitors_active() {
+        let mut state = multi_monitor_state();
+        let _ = state.activate_monitor("right");
+        state.input.interaction_state.viewport_pan_anim =
+            Some(crate::compositor::interaction::state::ViewportPanAnim {
+                start_ms: 0,
+                delay_ms: 0,
+                duration_ms: 120,
+                from_center: state.model.viewport.center,
+                to_center: Vec2 {
+                    x: state.model.viewport.center.x + 100.0,
+                    y: state.model.viewport.center.y,
+                },
+            });
+
+        let now = Instant::now();
+        assert!(tty_output_animation_redraw_state(&state, "right", now).active);
+        assert!(tty_output_animation_redraw_state(&state, "left", now).active);
+    }
+
+    #[test]
+    fn closing_window_animation_only_marks_target_monitor_active() {
+        let mut state = multi_monitor_state();
+        let start = Instant::now();
+
+        state.ui.render_state.start_closing_window_animation(
+            NodeId::new(77),
+            "right",
+            start,
+            250,
+            halley_config::WindowCloseAnimationStyle::Shrink,
+            Some(ActiveBorderRect {
+                x: 100,
+                y: 100,
+                w: 300,
+                h: 220,
+                inner_offset_x: 3.0,
+                inner_offset_y: 3.0,
+                inner_w: 300.0,
+                inner_h: 220.0,
+                alpha: 1.0,
+                border_px: 3.0,
+                corner_radius: 0.0,
+                inner_corner_radius: 0.0,
+                border_color: Color32F::new(1.0, 1.0, 1.0, 1.0),
+            }),
+            Vec::new(),
+        );
+
+        assert!(tty_output_animation_redraw_state(&state, "right", start).active);
+        assert!(!tty_output_animation_redraw_state(&state, "left", start).active);
+        assert!(
+            !tty_output_animation_redraw_state(
+                &state,
+                "right",
+                start + std::time::Duration::from_millis(300)
+            )
+            .active
+        );
+    }
+
+    #[test]
+    fn animations_continue_when_physics_is_disabled() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.physics_enabled = false;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let id = state.model.field.spawn_surface(
+            "anim",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        let start = Instant::now();
+
+        state
+            .ui
+            .render_state
+            .animator
+            .observe_field(&state.model.field, start);
+        let _ = state
+            .model
+            .field
+            .set_state(id, halley_core::field::NodeState::Node);
+        tick_animator_frame(&mut state, start + std::time::Duration::from_millis(16));
+
+        let anim = anim_style_for(
+            &state,
+            id,
+            halley_core::field::NodeState::Node,
+            start + std::time::Duration::from_millis(32),
+        );
+        assert!(
+            anim.scale < 1.0,
+            "node transition animation should still run when physics is disabled: {anim:?}"
+        );
+
+        state.mark_active_transition(id, start, 620);
+        assert!(
+            state.active_transition_alpha(id, start + std::time::Duration::from_millis(32)) > 0.0,
+            "active transition alpha should still be tracked when physics is disabled"
+        );
+    }
+}
+
 fn ensure_surface_clip_program(renderer: &mut GlesRenderer, st: &mut Halley) {
     if st.ui.render_state.surface_clip_program.is_some()
         || st.ui.render_state.surface_clip_program_failed
@@ -371,10 +749,12 @@ fn ensure_surface_clip_program(renderer: &mut GlesRenderer, st: &mut Halley) {
     match renderer.compile_custom_texture_shader(
         SURFACE_CLIP_SHADER,
         &[
+            UniformName::new("clip_scale", UniformType::_1f),
             UniformName::new("geo_size", UniformType::_2f),
-            UniformName::new("elem_size", UniformType::_2f),
-            UniformName::new("elem_offset", UniformType::_2f),
-            UniformName::new("corner_radius", UniformType::_1f),
+            UniformName::new("corner_radius", UniformType::_4f),
+            UniformName::new("input_to_geo_row_0", UniformType::_3f),
+            UniformName::new("input_to_geo_row_1", UniformType::_3f),
+            UniformName::new("input_to_geo_row_2", UniformType::_3f),
         ],
     ) {
         Ok(program) => st.ui.render_state.surface_clip_program = Some(program),
@@ -399,20 +779,22 @@ struct SceneCollections {
     layer_bottom_elements: Vec<SurfaceElement>,
     layer_top_elements: Vec<SurfaceElement>,
     layer_overlay_elements: Vec<SurfaceElement>,
-    active_elements: Vec<CroppedSurfaceElement>,
-    resized_active_elements: Vec<CroppedSurfaceElement>,
-    fullscreen_active_elements: Vec<CroppedSurfaceElement>,
+    active_elements: Vec<CroppedClippedSurfaceElement>,
+    resized_active_elements: Vec<CroppedClippedSurfaceElement>,
+    fullscreen_active_elements: Vec<CroppedClippedSurfaceElement>,
     offscreen_textures: Vec<OffscreenNodeTexture>,
     resized_offscreen_textures: Vec<OffscreenNodeTexture>,
     fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
     popup_offscreen_textures: Vec<OffscreenNodeTexture>,
-    popup_elements: Vec<CroppedSurfaceElement>,
+    popup_elements:
+        Vec<smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>>,
     fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
-    fullscreen_popup_elements: Vec<CroppedSurfaceElement>,
+    fullscreen_popup_elements:
+        Vec<smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>>,
+    stack_window_units: Vec<StackWindowDrawUnit>,
     border_rects: Vec<ActiveBorderRect>,
     resized_border_rects: Vec<ActiveBorderRect>,
-    overlay_rects: Vec<(i32, i32, i32, i32, Color32F)>,
-    overlay_points: Vec<(i32, i32, Color32F)>,
+    closing_window_animations: Vec<ClosingWindowAnimationSnapshot>,
     overlap_overlay_rects: Vec<(i32, i32, i32, i32)>,
     hover_preview_rect: Option<(i32, i32, i32, i32)>,
     hover_preview_elements: Vec<SurfaceElement>,
@@ -521,6 +903,8 @@ pub(crate) fn draw_debug_frame_to_target(
         prepared.now,
     );
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
+    ensure_cluster_core_icon_resources(renderer, st)?;
+    ensure_screenshot_menu_icon_resources(renderer, st)?;
     let current_monitor = st.model.monitor_state.current_monitor.clone();
     let overflow_ids = st
         .model
@@ -537,16 +921,30 @@ pub(crate) fn draw_debug_frame_to_target(
                 .filter(|preview| preview.monitor == current_monitor)
                 .map(|preview| preview.member_id),
         )
+        .chain(
+            st.model
+                .cluster_state
+                .cluster_overflow_promotion_anim
+                .get(current_monitor.as_str())
+                .map(|anim| anim.member_id),
+        )
         .collect::<Vec<_>>();
     ensure_app_icon_resources_for_node_ids(renderer, st, overflow_ids.into_iter())?;
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
+    ensure_ui_text_resources(renderer, st)?;
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
 
     draw_debug_frame_scene(&mut frame, st, size, &prepared, &scene, hover_node)?;
-    draw_cursor_layer(&mut frame, prepared.damage, cursor_screen, &cursor)?;
+    draw_cursor_layer(
+        &mut frame,
+        prepared.damage,
+        cursor_screen,
+        &cursor,
+        &st.runtime.tuning.cursor,
+    )?;
 
     let _ = frame.finish()?;
     Ok(())
@@ -603,12 +1001,18 @@ fn collect_debug_frame_scene(
         fullscreen_popup_offscreen_textures,
         fullscreen_popup_elements,
         node_surface_map,
+        stack_window_units,
         border_rects,
         resized_border_rects,
-        overlay_rects,
-        overlay_points,
         overlap_overlay_rects,
     ) = collect_active_surfaces(renderer, st, size, resize_preview, now);
+    let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled() {
+        st.ui
+            .render_state
+            .closing_window_animation_snapshots(render_monitor.as_str(), now)
+    } else {
+        Vec::new()
+    };
 
     let hovered_preview_id = preview_hover_node.and_then(|id| {
         st.model.field.node(id).and_then(|n| {
@@ -689,10 +1093,10 @@ fn collect_debug_frame_scene(
         popup_elements,
         fullscreen_popup_offscreen_textures,
         fullscreen_popup_elements,
+        stack_window_units,
         border_rects,
         resized_border_rects,
-        overlay_rects,
-        overlay_points,
+        closing_window_animations,
         overlap_overlay_rects,
         hover_preview_rect,
         hover_preview_elements,
@@ -782,15 +1186,8 @@ fn draw_debug_frame_scene(
         &scene.offscreen_textures,
         st.ui.render_state.window_texture_program.as_ref(),
     )?;
+    draw_stack_window_units(frame, size, prepared.damage, &scene.stack_window_units, st)?;
     draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
-    draw_window_borders(
-        frame,
-        size,
-        prepared.damage,
-        &scene.resized_border_rects,
-        st,
-    )?;
-
     if !scene.resized_active_elements.is_empty() {
         let _ = draw_render_elements(
             frame,
@@ -806,6 +1203,13 @@ fn draw_debug_frame_scene(
         &scene.resized_offscreen_textures,
         st.ui.render_state.window_texture_program.as_ref(),
     )?;
+    draw_window_borders(
+        frame,
+        size,
+        prepared.damage,
+        &scene.resized_border_rects,
+        st,
+    )?;
     draw_offscreen_textures(
         frame,
         prepared.damage,
@@ -816,6 +1220,14 @@ fn draw_debug_frame_scene(
     if !scene.popup_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.popup_elements, &[prepared.damage]);
     }
+
+    draw_closing_window_animations(
+        frame,
+        size,
+        prepared.damage,
+        &scene.closing_window_animations,
+        st,
+    )?;
 
     draw_geometry_overlays(frame, st, size, prepared.damage, scene)?;
 
@@ -833,6 +1245,13 @@ fn draw_debug_frame_scene(
     )?;
     let overlay = OverlayView::from_halley(st);
     draw_cluster_overflow_strip(
+        frame,
+        &overlay,
+        bloom_monitor.as_str(),
+        prepared.damage,
+        st.now_ms(prepared.now),
+    )?;
+    draw_cluster_overflow_promotion(
         frame,
         &overlay,
         bloom_monitor.as_str(),
@@ -962,7 +1381,6 @@ fn draw_offscreen_textures(
             (visible.loc.x - dst.loc.x, visible.loc.y - dst.loc.y).into(),
             visible.size,
         );
-
         let uniforms = [
             Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
             Uniform::new("corner_radius", tex.corner_radius.max(0.0)),
@@ -994,6 +1412,136 @@ fn draw_offscreen_textures(
     Ok(())
 }
 
+fn transform_rect_about_center(
+    _x: i32,
+    _y: i32,
+    w: i32,
+    h: i32,
+    center: (f32, f32),
+    scale: f32,
+) -> (i32, i32, i32, i32) {
+    let new_w = (w as f32 * scale).round().max(1.0) as i32;
+    let new_h = (h as f32 * scale).round().max(1.0) as i32;
+    (
+        (center.0 - new_w as f32 * 0.5).round() as i32,
+        (center.1 - new_h as f32 * 0.5).round() as i32,
+        new_w,
+        new_h,
+    )
+}
+
+fn draw_closing_window_animations(
+    frame: &mut GlesFrame<'_, '_>,
+    size: Size<i32, Physical>,
+    damage: Rectangle<i32, Physical>,
+    animations: &[ClosingWindowAnimationSnapshot],
+    st: &mut Halley,
+) -> Result<(), Box<dyn Error>> {
+    for animation in animations {
+        let scale = match animation.style {
+            halley_config::WindowCloseAnimationStyle::Shrink => {
+                (1.0 - crate::animation::ease_in_out_cubic(animation.progress)).clamp(0.0, 1.0)
+            }
+        };
+        if scale <= 0.001 {
+            continue;
+        }
+
+        if let Some(border_rect) = animation.border_rect.as_ref() {
+            let center = (
+                border_rect.x as f32 + border_rect.w as f32 * 0.5,
+                border_rect.y as f32 + border_rect.h as f32 * 0.5,
+            );
+            let (x, y, w, h) = transform_rect_about_center(
+                border_rect.x,
+                border_rect.y,
+                border_rect.w,
+                border_rect.h,
+                center,
+                scale,
+            );
+            let scaled_border = ActiveBorderRect {
+                x,
+                y,
+                w,
+                h,
+                inner_offset_x: border_rect.inner_offset_x * scale,
+                inner_offset_y: border_rect.inner_offset_y * scale,
+                inner_w: (border_rect.inner_w * scale).max(1.0),
+                inner_h: (border_rect.inner_h * scale).max(1.0),
+                alpha: border_rect.alpha,
+                border_px: border_rect.border_px * scale,
+                corner_radius: border_rect.corner_radius * scale,
+                inner_corner_radius: border_rect.inner_corner_radius * scale,
+                border_color: border_rect.border_color,
+            };
+            draw_window_borders(
+                frame,
+                size,
+                damage,
+                std::slice::from_ref(&scaled_border),
+                st,
+            )?;
+        }
+
+        let scaled_textures = animation
+            .offscreen_textures
+            .iter()
+            .cloned()
+            .map(|mut tex| {
+                let center = (
+                    tex.dst_x as f32 + tex.dst_w as f32 * 0.5,
+                    tex.dst_y as f32 + tex.dst_h as f32 * 0.5,
+                );
+                let (dst_x, dst_y, dst_w, dst_h) = transform_rect_about_center(
+                    tex.dst_x, tex.dst_y, tex.dst_w, tex.dst_h, center, scale,
+                );
+                tex.dst_x = dst_x;
+                tex.dst_y = dst_y;
+                tex.dst_w = dst_w;
+                tex.dst_h = dst_h;
+                tex.geo_offset_x *= scale;
+                tex.geo_offset_y *= scale;
+                tex.geo_w *= scale;
+                tex.geo_h *= scale;
+                tex.corner_radius *= scale;
+                tex
+            })
+            .collect::<Vec<_>>();
+        draw_offscreen_textures(
+            frame,
+            damage,
+            &scaled_textures,
+            st.ui.render_state.window_texture_program.as_ref(),
+        )?;
+    }
+    Ok(())
+}
+
+fn draw_stack_window_units(
+    frame: &mut GlesFrame<'_, '_>,
+    size: Size<i32, Physical>,
+    damage: Rectangle<i32, Physical>,
+    stack_window_units: &[StackWindowDrawUnit],
+    st: &mut Halley,
+) -> Result<(), Box<dyn Error>> {
+    for unit in stack_window_units {
+        if let Some(border_rect) = unit.border_rect.as_ref() {
+            draw_window_borders(frame, size, damage, std::slice::from_ref(border_rect), st)?;
+        }
+        if !unit.active_elements.is_empty() {
+            let _ = draw_render_elements(frame, 1.0, &unit.active_elements, &[damage]);
+        }
+        draw_offscreen_textures(
+            frame,
+            damage,
+            &unit.offscreen_textures,
+            st.ui.render_state.window_texture_program.as_ref(),
+        )?;
+    }
+    Ok(())
+}
+
 fn draw_window_borders(
     frame: &mut GlesFrame<'_, '_>,
     size: smithay::utils::Size<i32, Physical>,
@@ -1002,7 +1550,7 @@ fn draw_window_borders(
     st: &Halley,
 ) -> Result<(), Box<dyn Error>> {
     let border_texture = st.ui.render_state.node_circle_texture.as_ref();
-    let border_program = st.ui.render_state.node_label_program.as_ref();
+    let border_program = st.ui.render_state.ui_rect_rounded_program.as_ref();
     let window_program = st.ui.render_state.window_texture_program.as_ref();
     let framebuffer = Rectangle::<i32, Physical>::from_size(size);
 
@@ -1030,6 +1578,7 @@ fn draw_window_borders(
             (visible.loc.x - dst.loc.x, visible.loc.y - dst.loc.y).into(),
             visible.size,
         );
+        let fill_color = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
 
         if rect.corner_radius > 0.0 {
             if let (Some(texture), Some(program)) = (border_texture, border_program) {
@@ -1048,7 +1597,7 @@ fn draw_window_borders(
                             rect.border_color.a(),
                         ),
                     ),
-                    Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+                    Uniform::new("fill_color", fill_color),
                     Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
                     Uniform::new("inner_rect_size", (rect.inner_w, rect.inner_h)),
                     Uniform::new(
@@ -1093,7 +1642,7 @@ fn draw_window_borders(
                             rect.border_color.a(),
                         ),
                     ),
-                    Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+                    Uniform::new("fill_color", fill_color),
                     Uniform::new("content_alpha_scale", 0.0f32),
                     // Border-only draw: no content geo offset needed.
                     Uniform::new("geo_offset", (0.0f32, 0.0f32)),
@@ -1115,12 +1664,10 @@ fn draw_window_borders(
             }
         }
 
-        draw_rect(
+        draw_clamped_outline_rect(
             frame,
-            visible.loc.x,
-            visible.loc.y,
-            visible.size.w,
-            visible.size.h,
+            (dst.loc.x, dst.loc.y, dst.size.w, dst.size.h),
+            border_px,
             Color32F::new(
                 rect.border_color.r(),
                 rect.border_color.g(),
@@ -1128,6 +1675,7 @@ fn draw_window_borders(
                 rect.border_color.a() * rect.alpha.clamp(0.0, 1.0),
             ),
             damage,
+            size,
         )?;
     }
 
@@ -1167,24 +1715,15 @@ where
 }
 
 fn draw_geometry_overlays<F>(
-    frame: &mut F,
-    st: &Halley,
-    size: smithay::utils::Size<i32, Physical>,
-    damage: Rectangle<i32, Physical>,
-    scene: &SceneCollections,
+    _frame: &mut F,
+    _st: &Halley,
+    _size: smithay::utils::Size<i32, Physical>,
+    _damage: Rectangle<i32, Physical>,
+    _scene: &SceneCollections,
 ) -> Result<(), F::Error>
 where
     F: Frame,
 {
-    if st.runtime.tuning.dev_enabled && st.runtime.tuning.dev_show_geometry_overlay {
-        for &(x, y, w, h, color) in &scene.overlay_rects {
-            draw_clamped_outline_rect(frame, (x, y, w, h), 2, color, damage, size)?;
-        }
-        for &(x, y, color) in &scene.overlay_points {
-            draw_rect(frame, x - 2, y - 2, 5, 5, color, damage)?;
-        }
-    }
-
     Ok(())
 }
 
@@ -1218,12 +1757,13 @@ fn draw_cursor_layer(
     damage: Rectangle<i32, Physical>,
     cursor_screen: Option<(f32, f32)>,
     cursor: &CursorScene,
+    cursor_config: &halley_config::CursorConfig,
 ) -> Result<(), Box<dyn Error>> {
     if let Some((sx, sy)) = cursor_screen {
         let draw_fallback_arrow = match &cursor.cursor_status {
             smithay::input::pointer::CursorImageStatus::Hidden => false,
             smithay::input::pointer::CursorImageStatus::Named(icon) => {
-                if let Some(sprite) = themed_cursor_sprite_with_fallback(*icon) {
+                if let Some(sprite) = themed_cursor_sprite_with_fallback(cursor_config, *icon) {
                     draw_cursor_sprite(frame, damage, (sx, sy), sprite.as_ref())?;
                     false
                 } else {

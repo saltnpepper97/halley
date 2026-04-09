@@ -12,7 +12,7 @@ use super::focus::pointer_focus_for_screen;
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
-use halley_config::{WHEEL_DOWN_CODE, WHEEL_UP_CODE};
+use halley_config::{CompositorBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE};
 use smithay::backend::input::{Axis, AxisRelativeDirection, AxisSource};
 
 #[inline]
@@ -36,6 +36,16 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     relative_direction_horizontal: AxisRelativeDirection,
     relative_direction_vertical: AxisRelativeDirection,
 ) {
+    if st.exit_confirm_active() {
+        return;
+    }
+    if st.screenshot_session_active() {
+        return;
+    }
+    if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
+        ctx.backend.request_redraw();
+    }
+
     let mut steps = (amount_v120_vertical.unwrap_or(0.0) as f32) / 120.0;
     if steps.abs() < f32::EPSILON {
         let px = amount_vertical.unwrap_or(0.0) as f32;
@@ -53,6 +63,21 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         };
         if let Some(action) = compositor_binding_action_active(st, wheel_code, &mods) {
             ctx.pointer_state.borrow_mut().panning = false;
+            if matches!(
+                action,
+                CompositorBindingAction::ZoomIn | CompositorBindingAction::ZoomOut
+            ) {
+                crate::compositor::interaction::pointer::set_temporary_cursor_override_icon(
+                    st,
+                    if matches!(action, CompositorBindingAction::ZoomIn) {
+                        smithay::input::pointer::CursorIcon::ZoomIn
+                    } else {
+                        smithay::input::pointer::CursorIcon::ZoomOut
+                    },
+                    Instant::now(),
+                    220,
+                );
+            }
             if apply_compositor_action_press(st, action, ctx.config_path, ctx.wayland_display) {
                 ctx.backend.request_redraw();
             }
@@ -82,6 +107,33 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     let world_now = screen_to_world(st, ws_w, ws_h, sx, sy);
     ctx.pointer_state.borrow_mut().world = world_now;
     let now = Instant::now();
+    let now_ms = st.now_ms(now);
+    if steps.abs() >= f32::EPSILON {
+        let overlay = crate::overlay::OverlayView::from_halley(st);
+        let overflow_scrollable = overlay
+            .cluster_overflow_member_ids_for_monitor(target_monitor.as_str())
+            .len()
+            > 15;
+        let over_overflow_strip = overflow_scrollable
+            && crate::overlay::cluster_overflow_strip_slot_at(
+                &overlay,
+                target_monitor.as_str(),
+                sx,
+                sy,
+                now_ms,
+            )
+            .is_some();
+        if over_overflow_strip {
+            let delta = if steps > 0.0 { 1 } else { -1 };
+            let changed =
+                st.adjust_cluster_overflow_scroll_for_monitor(target_monitor.as_str(), delta);
+            st.reveal_cluster_overflow_for_monitor(target_monitor.as_str(), now_ms);
+            if changed {
+                ctx.backend.request_redraw();
+            }
+            return;
+        }
+    }
     let resize_preview = ctx.pointer_state.borrow().resize;
     if let Some(pointer) = st.platform.seat.get_pointer() {
         if pointer.current_focus().is_none()

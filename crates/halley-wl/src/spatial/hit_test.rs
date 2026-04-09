@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use crate::compositor::interaction::{HitNode, ResizeCtx};
 use crate::compositor::root::Halley;
+use crate::compositor::surface_ops::active_stacking_visible_members_for_monitor;
 use crate::input::active_node_screen_rect;
 use crate::render::{node_marker_metrics, world_to_screen};
 use halley_core::viewport::FocusZone;
@@ -17,7 +18,15 @@ pub(crate) fn pick_hit_node_at(
 ) -> Option<HitNode> {
     let mut active: Vec<HitNode> = Vec::new();
     let mut node_dot: Vec<HitNode> = Vec::new();
-
+    let stack_visible_front_to_back = active_stacking_visible_members_for_monitor(
+        st,
+        st.model.monitor_state.current_monitor.as_str(),
+    );
+    let stack_ranks = stack_visible_front_to_back
+        .iter()
+        .enumerate()
+        .map(|(index, &node_id)| (node_id, index))
+        .collect::<std::collections::HashMap<_, _>>();
     for id in st.model.field.node_ids_all() {
         let Some(n) = st.model.field.node(id) else {
             continue;
@@ -89,7 +98,18 @@ pub(crate) fn pick_hit_node_at(
         };
     }
 
-    active.sort_by_key(|h| std::cmp::Reverse(h.node_id.as_u64()));
+    active.sort_by(
+        |a, b| match (stack_ranks.get(&a.node_id), stack_ranks.get(&b.node_id)) {
+            (Some(a_rank), Some(b_rank)) => a_rank.cmp(b_rank).then_with(|| {
+                std::cmp::Reverse(a.node_id.as_u64()).cmp(&std::cmp::Reverse(b.node_id.as_u64()))
+            }),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => {
+                std::cmp::Reverse(a.node_id.as_u64()).cmp(&std::cmp::Reverse(b.node_id.as_u64()))
+            }
+        },
+    );
     node_dot.sort_by_key(|h| std::cmp::Reverse(h.node_id.as_u64()));
 
     active

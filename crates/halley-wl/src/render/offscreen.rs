@@ -52,6 +52,7 @@ impl From<GlesError> for OffscreenSurfaceError {
 pub(crate) struct OffscreenSurfaceTexture {
     pub texture: GlesTexture,
     pub bbox: Rectangle<i32, Logical>,
+    pub has_content: bool,
 }
 
 pub(crate) fn render_surface_tree_to_texture(
@@ -82,6 +83,7 @@ pub(crate) fn render_surface_tree_to_texture(
             (geo_rect.size.w, geo_rect.size.h).into(),
         )
     });
+    let has_content = !elements.is_empty();
     let elements: Vec<OffscreenElement> = elements
         .into_iter()
         .map(|elem| {
@@ -111,5 +113,9 @@ pub(crate) fn render_surface_tree_to_texture(
         let _ = frame.finish()?;
     }
 
-    Ok(OffscreenSurfaceTexture { texture, bbox })
+    Ok(OffscreenSurfaceTexture {
+        texture,
+        bbox,
+        has_content,
+    })
 }

@@ -16,19 +16,20 @@ use smithay::{
 };
 
 use crate::compositor::root::Halley;
-use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy};
+use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, ShapeStyle};
 
 use super::log_rounded_shader_failure;
+use super::text::{draw_ui_text, ui_text_size};
 use super::utils::{
-    bitmap_text_size, draw_bitmap_text, node_marker_bounds, node_marker_metrics,
-    node_render_diameter_px, world_to_screen,
+    node_marker_bounds, node_marker_metrics, node_render_diameter_px, world_to_screen,
 };
 use crate::animation::ease_in_out_cubic;
 
+const NODE_SQUARE_SHADER: &str = include_str!("shaders/node_square_shader.frag");
 const NODE_SQUIRCLE_SHADER: &str = include_str!("shaders/node_squircle_shader.frag");
 const NODE_CIRCLE_SHADER: &str = include_str!("shaders/node_circle_shader.frag");
-
-const NODE_LABEL_SHADER: &str = include_str!("shaders/node_label_rounded_shader.frag");
+const UI_RECT_ROUNDED_SHADER: &str = include_str!("shaders/ui_rect_rounded_shader.frag");
+const UI_RECT_SQUARE_SHADER: &str = include_str!("shaders/ui_rect_square_shader.frag");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,6 +66,20 @@ pub(crate) fn ensure_node_circle_resources(
             &[
                 UniformName::new("node_color", UniformType::_4f),
                 UniformName::new("fill_color", UniformType::_4f),
+                UniformName::new("flat_fill", UniformType::_1f),
+                UniformName::new("center_flat_fill", UniformType::_1f),
+            ],
+        )?);
+    }
+
+    if st.ui.render_state.node_square_program.is_none() {
+        st.ui.render_state.node_square_program = Some(renderer.compile_custom_texture_shader(
+            NODE_SQUARE_SHADER,
+            &[
+                UniformName::new("node_color", UniformType::_4f),
+                UniformName::new("fill_color", UniformType::_4f),
+                UniformName::new("flat_fill", UniformType::_1f),
+                UniformName::new("center_flat_fill", UniformType::_1f),
             ],
         )?);
     }
@@ -75,15 +90,17 @@ pub(crate) fn ensure_node_circle_resources(
             &[
                 UniformName::new("node_color", UniformType::_4f),
                 UniformName::new("fill_color", UniformType::_4f),
+                UniformName::new("flat_fill", UniformType::_1f),
+                UniformName::new("center_flat_fill", UniformType::_1f),
             ],
         )?);
     }
 
-    if st.ui.render_state.node_label_program.is_none()
-        && !st.ui.render_state.node_label_program_failed
+    if st.ui.render_state.ui_rect_rounded_program.is_none()
+        && !st.ui.render_state.ui_rect_rounded_program_failed
     {
         match renderer.compile_custom_texture_shader(
-            NODE_LABEL_SHADER,
+            UI_RECT_ROUNDED_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
                 UniformName::new("fill_color", UniformType::_4f),
@@ -95,11 +112,39 @@ pub(crate) fn ensure_node_circle_resources(
                 UniformName::new("border_px", UniformType::_1f),
             ],
         ) {
-            Ok(program) => st.ui.render_state.node_label_program = Some(program),
+            Ok(program) => st.ui.render_state.ui_rect_rounded_program = Some(program),
             Err(err) => {
-                st.ui.render_state.node_label_program_failed = true;
+                st.ui.render_state.ui_rect_rounded_program_failed = true;
                 log_rounded_shader_failure(
-                    "render/shaders/node_label_rounded_shader.frag",
+                    "render/shaders/ui_rect_rounded_shader.frag",
+                    "border-mask",
+                    &err,
+                );
+            }
+        }
+    }
+
+    if st.ui.render_state.ui_rect_square_program.is_none()
+        && !st.ui.render_state.ui_rect_square_program_failed
+    {
+        match renderer.compile_custom_texture_shader(
+            UI_RECT_SQUARE_SHADER,
+            &[
+                UniformName::new("node_color", UniformType::_4f),
+                UniformName::new("fill_color", UniformType::_4f),
+                UniformName::new("rect_size", UniformType::_2f),
+                UniformName::new("inner_rect_size", UniformType::_2f),
+                UniformName::new("inner_rect_offset", UniformType::_2f),
+                UniformName::new("corner_radius", UniformType::_1f),
+                UniformName::new("inner_corner_radius", UniformType::_1f),
+                UniformName::new("border_px", UniformType::_1f),
+            ],
+        ) {
+            Ok(program) => st.ui.render_state.ui_rect_square_program = Some(program),
+            Err(err) => {
+                st.ui.render_state.ui_rect_square_program_failed = true;
+                log_rounded_shader_failure(
+                    "render/shaders/ui_rect_square_shader.frag",
                     "border-mask",
                     &err,
                 );
@@ -120,6 +165,8 @@ fn draw_shader_circle(
     alpha: f32,
     border_color: Color32F,
     fill_color: Color32F,
+    flat_fill: bool,
+    center_flat_fill: bool,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
     let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
@@ -127,6 +174,7 @@ fn draw_shader_circle(
     };
     let program = match round_shape {
         NodeRoundShape::Circle => st.ui.render_state.node_circle_program.as_ref(),
+        NodeRoundShape::Square => st.ui.render_state.node_square_program.as_ref(),
         NodeRoundShape::Squircle => st.ui.render_state.node_squircle_program.as_ref(),
     };
     let Some(program) = program else {
@@ -163,6 +211,11 @@ fn draw_shader_circle(
                 fill_color.a(),
             ),
         ),
+        Uniform::new("flat_fill", if flat_fill { 1.0f32 } else { 0.0f32 }),
+        Uniform::new(
+            "center_flat_fill",
+            if center_flat_fill { 1.0f32 } else { 0.0f32 },
+        ),
     ];
 
     frame.render_texture_from_to(
@@ -183,12 +236,14 @@ fn draw_shader_circle(
 #[derive(Clone, Copy)]
 enum NodeRoundShape {
     Circle,
+    Square,
     Squircle,
 }
 
 fn draw_shader_label(
     frame: &mut GlesFrame<'_, '_>,
     st: &Halley,
+    rounded: bool,
     x: i32,
     y: i32,
     w: i32,
@@ -203,7 +258,7 @@ fn draw_shader_label(
     let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = st.ui.render_state.node_label_program.as_ref() else {
+    let Some(program) = st.ui.render_state.ui_rect_program(rounded) else {
         return Ok(());
     };
 
@@ -290,19 +345,18 @@ fn node_ring_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
 }
 
 fn node_fill_color(st: &Halley, hovered: bool) -> Color32F {
-    match st.runtime.tuning.node_background_color {
-        NodeBackgroundColorMode::Auto | NodeBackgroundColorMode::Theme => {
-            let ring = node_ring_color(st, hovered, 1.0);
-            let base = (0.94, 0.96, 0.985);
-            Color32F::new(
-                base.0 * 0.86 + ring.r() * 0.14,
-                base.1 * 0.86 + ring.g() * 0.14,
-                base.2 * 0.86 + ring.b() * 0.14,
-                1.0,
-            )
-        }
-        NodeBackgroundColorMode::Fixed { r, g, b } => Color32F::new(r, g, b, 1.0),
-    }
+    super::themed_node_fill_color(&st.runtime.tuning, hovered)
+}
+
+fn node_fill_uses_flat_mode(st: &Halley) -> bool {
+    !matches!(
+        st.runtime.tuning.node_background_color,
+        NodeBackgroundColorMode::Auto | NodeBackgroundColorMode::Theme
+    )
+}
+
+fn node_label_text_color(fill_color: Color32F, alpha: f32) -> Color32F {
+    super::themed_node_label_text_color(fill_color, alpha)
 }
 
 fn node_icon_glyph(st: &Halley, id: halley_core::field::NodeId, fallback: &str) -> Option<char> {
@@ -362,9 +416,31 @@ pub(crate) fn collect_hover_preview(
         return (None, Vec::new());
     };
 
-    let overlay_anchor = overlay_hover_preview
+    let live_overlay_anchor = overlay_hover_preview
         .filter(|preview| preview.0 == preview_id)
         .map(|preview| (preview.1, preview.2));
+    let fading_overlay_preview = hovered_preview_id.is_none() && overlay_hover_preview.is_none();
+    let overlay_anchor = {
+        let preview_state = st
+            .ui
+            .render_state
+            .node_preview_hover
+            .entry(monitor.to_string())
+            .or_default();
+        if preview_state.node != Some(preview_id) {
+            preview_state.overlay_anchor = None;
+        }
+        if let Some(anchor) = live_overlay_anchor {
+            preview_state.overlay_anchor = Some(anchor);
+        }
+        if live_overlay_anchor.is_some() {
+            live_overlay_anchor
+        } else if fading_overlay_preview && preview_state.node == Some(preview_id) {
+            preview_state.overlay_anchor
+        } else {
+            None
+        }
+    };
     if overlay_anchor.is_none()
         && !matches!(
             node_state,
@@ -523,7 +599,10 @@ pub(crate) fn draw_node_markers(
         let round_shape = if is_core {
             NodeRoundShape::Circle
         } else {
-            NodeRoundShape::Squircle
+            match st.runtime.tuning.node_shape {
+                ShapeStyle::Square => NodeRoundShape::Square,
+                ShapeStyle::Squircle => NodeRoundShape::Squircle,
+            }
         };
 
         if proxy_mix > 0.01 && border_mix < 0.99 {
@@ -538,6 +617,8 @@ pub(crate) fn draw_node_markers(
                 1.0 - border_mix,
                 proxy_col,
                 proxy_col,
+                false,
+                false,
                 damage,
             )?;
         }
@@ -546,6 +627,13 @@ pub(crate) fn draw_node_markers(
         if dot_alpha <= 0.01 {
             continue;
         }
+
+        let show_icon = match st.runtime.tuning.node_show_app_icons {
+            NodeDisplayPolicy::Off => false,
+            NodeDisplayPolicy::Hover => highlighted,
+            NodeDisplayPolicy::Always => true,
+        };
+        let icon_alpha = (dot_alpha * icon_mix).clamp(0.0, 1.0);
 
         let ring_mix = if is_core {
             dot_alpha.max(border_mix)
@@ -563,6 +651,7 @@ pub(crate) fn draw_node_markers(
             // fill_color.rgb  = node fill colour (inner fill + outer halo)
             let node_color = Color32F::new(nc.r(), nc.g(), nc.b(), border_frac);
             let fill_color = node_fill_color(st, highlighted);
+            let fill_flat = node_fill_uses_flat_mode(st);
             draw_shader_circle(
                 frame,
                 st,
@@ -573,19 +662,43 @@ pub(crate) fn draw_node_markers(
                 ring_mix,
                 node_color,
                 fill_color,
+                fill_flat,
+                show_icon && icon_alpha > 0.01,
                 damage,
             )?;
         }
-
-        let show_icon = match st.runtime.tuning.node_show_app_icons {
-            NodeDisplayPolicy::Off => false,
-            NodeDisplayPolicy::Hover => highlighted,
-            NodeDisplayPolicy::Always => true,
-        };
         if show_icon {
-            let icon_alpha = (dot_alpha * icon_mix).clamp(0.0, 1.0);
             let mut drew_real_icon = false;
             if icon_alpha > 0.01
+                && is_core
+                && let Some(icon) = crate::render::cluster_core_icon_texture(st, focused)
+            {
+                let side = ((render_radius * 2) as f32 * st.runtime.tuning.node_icon_size * 0.98)
+                    .round() as i32;
+                let side = side.clamp(16, 42);
+                let dest = Rectangle::<i32, Physical>::new(
+                    (sx - side / 2, sy - side / 2).into(),
+                    (side, side).into(),
+                );
+                let src = Rectangle::<f64, Buffer>::new(
+                    (0.0, 0.0).into(),
+                    (icon.width as f64, icon.height as f64).into(),
+                );
+                frame.render_texture_from_to(
+                    &icon.texture,
+                    src,
+                    dest,
+                    &[damage],
+                    &[],
+                    Transform::Normal,
+                    icon_alpha,
+                    None,
+                    &[],
+                )?;
+                drew_real_icon = true;
+            }
+            if !drew_real_icon
+                && icon_alpha > 0.01
                 && let Some(app_id) = st.model.node_app_ids.get(&id)
                 && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
                     st.ui.render_state.node_app_icon_cache.get(app_id)
@@ -621,11 +734,12 @@ pub(crate) fn draw_node_markers(
             {
                 let scale = if render_radius >= 24 { 3 } else { 2 };
                 let icon_text = icon.to_string();
-                let (tw, th) = bitmap_text_size(&icon_text, scale);
+                let (tw, th) = ui_text_size(st, &icon_text, scale);
                 let text_x = sx - (tw / 2);
                 let text_y = sy - (th / 2);
-                draw_bitmap_text(
+                draw_ui_text(
                     frame,
+                    st,
                     text_x,
                     text_y,
                     &icon_text,
@@ -721,10 +835,11 @@ pub(crate) fn draw_node_hover_labels(
         let final_x = label_x.clamp(margin, (size.w - label_w - margin).max(margin));
         let final_y = label_y.clamp(margin, (size.h - label_h - margin).max(margin));
 
-        let fill_color = Color32F::new(0.96, 0.98, 1.0, 1.0);
+        let fill_color = node_fill_color(st, hover_node == Some(node.id));
         draw_shader_label(
             frame,
             st,
+            st.runtime.tuning.node_label_shape == ShapeStyle::Squircle,
             final_x,
             final_y,
             label_w.max(1),
@@ -740,22 +855,23 @@ pub(crate) fn draw_node_hover_labels(
         let text_scale = 2;
         let char_advance = 5 * text_scale + text_scale;
         let max_chars = ((label_w - 20).max(0) / char_advance).max(1) as usize;
-        let mut text = node.label.to_ascii_uppercase();
+        let mut text = node.label.clone();
         if text.chars().count() > max_chars {
             let keep = max_chars.saturating_sub(3);
             text = text.chars().take(keep).collect::<String>();
             text.push_str("...");
         }
-        let (text_w, text_h) = bitmap_text_size(&text, text_scale);
+        let (text_w, text_h) = ui_text_size(st, &text, text_scale);
         let text_x = final_x + ((label_w - text_w).max(0) / 2);
         let text_y = final_y + ((label_h - text_h).max(0) / 2);
-        draw_bitmap_text(
+        draw_ui_text(
             frame,
+            st,
             text_x,
             text_y,
             &text,
             text_scale,
-            Color32F::new(0.16, 0.18, 0.22, 0.94 * dot_alpha * label_fade),
+            node_label_text_color(fill_color, 0.94 * dot_alpha * label_fade),
             damage,
         )?;
     }

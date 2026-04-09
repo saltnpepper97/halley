@@ -1,5 +1,5 @@
 use crate::compositor::root::Halley;
-use eventline::info;
+use eventline::debug;
 use halley_config::{ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode};
 use halley_core::decay::DecayLevel;
 use halley_core::viewport::FocusZone;
@@ -137,11 +137,22 @@ pub(crate) fn focus_or_reveal_surface_node(
         halley_core::field::NodeState::Node => promote_node_level(st, node_id, now),
         halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting => {
             st.set_interaction_focus(Some(node_id), 30_000, now);
-            let panned = st
-                .minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
-                .map(|target| st.animate_viewport_center_to(target, now))
-                .unwrap_or(false);
-            panned || true
+            let is_pending_tiled = st
+                .model
+                .spawn_state
+                .pending_tiled_insert_reveal_at_ms
+                .contains_key(&node_id);
+            let is_pending_reveal = st
+                .model
+                .spawn_state
+                .pending_initial_reveal
+                .contains(&node_id);
+            if !is_pending_tiled && !is_pending_reveal {
+                let _ = st
+                    .minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
+                    .map(|target| st.animate_viewport_center_to(target, now));
+            }
+            true
         }
         halley_core::field::NodeState::Core => false,
     }
@@ -163,6 +174,9 @@ pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
     let Some(id) = latest_surface_node(st) else {
         return false;
     };
+    if crate::compositor::surface_ops::is_active_stacking_workspace_member(st, id) {
+        return false;
+    }
     let Some(n) = st.model.field.node(id) else {
         return false;
     };
@@ -177,7 +191,7 @@ pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
         crate::compositor::carry::system::end_carry_state_tracking(st, id);
         st.set_interaction_focus(Some(id), 30_000, Instant::now());
         if let Some(nn) = st.model.field.node(id) {
-            info!(
+            debug!(
                 "moved node id={} to ({:.0},{:.0}) state={:?}",
                 id.as_u64(),
                 nn.pos.x,
@@ -197,8 +211,8 @@ pub(crate) fn move_latest_node_direction(st: &mut Halley, direction: NodeMoveDir
     match direction {
         NodeMoveDirection::Left => move_latest_node(st, -STEP_NODE, 0.0),
         NodeMoveDirection::Right => move_latest_node(st, STEP_NODE, 0.0),
-        NodeMoveDirection::Up => move_latest_node(st, 0.0, STEP_NODE),
-        NodeMoveDirection::Down => move_latest_node(st, 0.0, -STEP_NODE),
+        NodeMoveDirection::Up => move_latest_node(st, 0.0, -STEP_NODE),
+        NodeMoveDirection::Down => move_latest_node(st, 0.0, STEP_NODE),
     }
 }
 
@@ -208,31 +222,54 @@ pub(crate) fn step_window_trail(st: &mut Halley, direction: TrailDirection) -> b
 
 pub(crate) fn toggle_focused_active_node_state(st: &mut Halley) -> bool {
     let now = Instant::now();
+    let focused_monitor = st.focused_monitor().to_string();
 
     let Some(id) = st
-        .last_focused_surface_node_for_monitor(st.focused_monitor())
+        .focused_node_for_monitor(focused_monitor.as_str())
+        .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id))
+        .or(st
+            .model
+            .focus_state
+            .primary_interaction_focus
+            .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id)))
+        .or_else(|| st.last_focused_surface_node_for_monitor(focused_monitor.as_str()))
         .or_else(|| st.last_focused_surface_node())
     else {
         return false;
     };
 
+    toggle_node_state(st, id, now, focused_monitor.as_str())
+}
+
+pub(crate) fn toggle_node_state(
+    st: &mut Halley,
+    id: halley_core::field::NodeId,
+    now: Instant,
+    focused_monitor: &str,
+) -> bool {
     let Some(n) = st.model.field.node(id) else {
         return false;
     };
+
+    if n.kind == halley_core::field::NodeKind::Core
+        && n.state == halley_core::field::NodeState::Core
+    {
+        return st.toggle_cluster_workspace_by_core(id, now);
+    }
 
     if n.kind != halley_core::field::NodeKind::Surface {
         return false;
     }
 
     if let Some(cid) = st.model.field.cluster_id_for_member_public(id) {
-        let monitor = st.focused_monitor().to_string();
-        if st.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(cid) {
+        if st.active_cluster_workspace_for_monitor(focused_monitor) == Some(cid) {
             return st.collapse_active_cluster_workspace(now);
         }
     }
 
     match n.state {
         halley_core::field::NodeState::Active => {
+            crate::compositor::workspace::state::start_active_to_node_close_animation(st, id, now);
             let _ = st
                 .model
                 .field

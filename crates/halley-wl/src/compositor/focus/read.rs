@@ -122,12 +122,7 @@ impl<'a> FocusReadContext<'a> {
             })
     }
 
-    fn surface_is_fully_visible_on_monitor(
-        &self,
-        st: &Halley,
-        monitor: &str,
-        id: NodeId,
-    ) -> bool {
+    fn surface_is_fully_visible_on_monitor(&self, st: &Halley, monitor: &str, id: NodeId) -> bool {
         let Some(node) = self.field.node(id) else {
             return false;
         };
@@ -356,11 +351,7 @@ pub(crate) fn fullscreen_focus_override(st: &Halley, requested: Option<NodeId>) 
     focus_read_context(st).fullscreen_focus_override(requested)
 }
 
-pub(crate) fn surface_is_fully_visible_on_monitor(
-    st: &Halley,
-    monitor: &str,
-    id: NodeId,
-) -> bool {
+pub(crate) fn surface_is_fully_visible_on_monitor(st: &Halley, monitor: &str, id: NodeId) -> bool {
     focus_read_context(st).surface_is_fully_visible_on_monitor(st, monitor, id)
 }
 

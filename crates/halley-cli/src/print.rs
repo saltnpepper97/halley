@@ -1,7 +1,7 @@
 use halley_ipc::{
-    IpcError, LogicalOutputInfo, NodeInfo, NodeListResponse, NodeProtocolFamily, NodeRelationInfo,
-    NodeRole, OutputInfo, OutputStatus, OutputsResponse, Response, TrailEntryInfo,
-    TrailListResponse,
+    CaptureStatusResponse, IpcError, LogicalOutputInfo, NodeInfo, NodeListResponse,
+    NodeProtocolFamily, NodeRelationInfo, NodeRole, OutputInfo, OutputStatus, OutputsResponse,
+    Response, TrailEntryInfo, TrailListResponse,
 };
 
 pub(crate) fn print_response(response: Response) -> Result<(), String> {
@@ -16,6 +16,10 @@ pub(crate) fn print_response(response: Response) -> Result<(), String> {
         }
         Response::Outputs(outputs) => {
             print_outputs(outputs);
+            Ok(())
+        }
+        Response::CaptureStatus(status) => {
+            print_capture_status(&status);
             Ok(())
         }
         Response::NodeList(list) => {
@@ -67,6 +71,18 @@ fn format_ipc_error(err: &IpcError) -> String {
         | IpcError::Ambiguous(message)
         | IpcError::Unsupported(message)
         | IpcError::Internal(message) => message.clone(),
+    }
+}
+
+fn print_capture_status(status: &CaptureStatusResponse) {
+    if let Some(path) = &status.saved_path {
+        println!("saved: {path}");
+    } else if let Some(error) = &status.error {
+        println!("capture: {error}");
+    } else if status.active {
+        println!("capture active");
+    } else {
+        println!("capture idle");
     }
 }
 
