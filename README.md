@@ -1,4 +1,4 @@
-# Halley
+<h1 align="center">Halley</h1>
 *Named after Halley's comet — periodic, precise, returning.*
 
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blueviolet?style=for-the-badge)
