@@ -269,6 +269,7 @@ pub(crate) fn toggle_node_state(
 
     match n.state {
         halley_core::field::NodeState::Active => {
+            crate::compositor::workspace::state::start_active_to_node_close_animation(st, id, now);
             let _ = st
                 .model
                 .field
