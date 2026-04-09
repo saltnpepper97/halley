@@ -29,7 +29,7 @@ use smithay::input::pointer::{ButtonEvent, MotionEvent};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
-use super::focus::{layer_surface_focus_for_screen, pointer_focus_for_screen};
+use super::focus::{grabbed_layer_surface_focus, layer_surface_focus_for_screen, pointer_focus_for_screen};
 use super::motion::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
 use super::resize::{begin_resize, finalize_resize};
 use crate::input::keyboard::bindings::{
@@ -365,6 +365,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     if matches!(button_state, ButtonState::Pressed)
         && let Some((surface, _)) = layer_focus.as_ref()
     {
+        st.input.interaction_state.grabbed_layer_surface = Some(surface.clone());
         let monitor =
             crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface);
         st.model.spawn_state.pending_spawn_monitor = Some(monitor.clone());
@@ -434,6 +435,9 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 return;
             }
         }
+    }
+    if matches!(button_state, ButtonState::Released) {
+        st.input.interaction_state.grabbed_layer_surface = None;
     }
     if st.cluster_mode_active() && !cluster_pointer_passthrough {
         ps.world = world_now;
@@ -1307,15 +1311,25 @@ pub(super) fn dispatch_pointer_button(
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return;
     };
-    let focus = pointer_focus_for_screen(
-        st,
-        frame.ws_w,
-        frame.ws_h,
-        frame.sx,
-        frame.sy,
-        std::time::Instant::now(),
-        resize_preview,
-    );
+    let grabbed_layer_surface = st
+        .input
+        .interaction_state
+        .grabbed_layer_surface
+        .clone()
+        .filter(|surface| crate::compositor::monitor::layer_shell::is_layer_surface(st, surface));
+    let focus = if let Some(surface) = grabbed_layer_surface {
+        grabbed_layer_surface_focus(st, &surface)
+    } else {
+        pointer_focus_for_screen(
+            st,
+            frame.ws_w,
+            frame.ws_h,
+            frame.sx,
+            frame.sy,
+            std::time::Instant::now(),
+            resize_preview,
+        )
+    };
     let motion_serial = SERIAL_COUNTER.next_serial();
     let button_serial = SERIAL_COUNTER.next_serial();
     crate::protocol::wayland::activation::note_input_serial(
@@ -1440,6 +1454,12 @@ pub(super) fn button_frame_for_monitor(
     screen: (f32, f32),
 ) -> (ButtonFrame, String, (f32, f32)) {
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, screen.0, screen.1);
+    let grabbed_layer_surface_monitor = st
+        .input
+        .interaction_state
+        .grabbed_layer_surface
+        .as_ref()
+        .map(|surface| crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface));
     let target_monitor =
         crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
             .and_then(|(surface, _)| {
@@ -1453,12 +1473,15 @@ pub(super) fn button_frame_for_monitor(
                         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
                 )
             })
+            .or(grabbed_layer_surface_monitor)
             .unwrap_or_else(|| {
                 st.monitor_for_screen(sx, sy)
                     .unwrap_or_else(|| st.interaction_monitor().to_string())
             });
-    st.set_interaction_monitor(target_monitor.as_str());
-    let _ = st.activate_monitor(target_monitor.as_str());
+    if st.input.interaction_state.grabbed_layer_surface.is_none() {
+        st.set_interaction_monitor(target_monitor.as_str());
+        let _ = st.activate_monitor(target_monitor.as_str());
+    }
     st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
     let (local_w, local_h, local_sx, local_sy) =
         st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);

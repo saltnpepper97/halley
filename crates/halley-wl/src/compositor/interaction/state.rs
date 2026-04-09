@@ -5,6 +5,7 @@ use halley_config::CompositorBindingAction;
 use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
 use halley_core::viewport::Viewport;
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 
 use crate::compositor::interaction::drag::DragAxisMode;
 use crate::compositor::root::Halley;
@@ -183,6 +184,7 @@ pub(crate) struct InteractionState {
     pub(crate) cluster_join_candidate: Option<ClusterJoinCandidate>,
     pub(crate) bloom_pull_preview: Option<BloomPullPreview>,
     pub(crate) cluster_overflow_drag_preview: Option<ClusterOverflowDragPreview>,
+    pub(crate) grabbed_layer_surface: Option<WlSurface>,
     pub(crate) cluster_name_prompt_drag_monitor: Option<String>,
     pub(crate) cluster_name_prompt_repeat: Option<ClusterNamePromptRepeatState>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,

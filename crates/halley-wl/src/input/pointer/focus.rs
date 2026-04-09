@@ -1,8 +1,8 @@
 use std::time::Instant;
 
 use smithay::desktop::{
-    PopupManager, WindowSurfaceType,
     utils::{bbox_from_surface_tree, under_from_surface_tree},
+    PopupManager, WindowSurfaceType,
 };
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};
@@ -263,6 +263,26 @@ pub(crate) fn layer_surface_focus_for_screen(
     }
 
     None
+}
+
+pub(crate) fn grabbed_layer_surface_focus(
+    st: &mut Halley,
+    surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+) -> Option<(
+    smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    Point<f64, Logical>,
+)> {
+    let monitor = crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface);
+    let placement = crate::compositor::monitor::layer_shell::layer_shell_placements_for_monitor(
+        st,
+        monitor.as_str(),
+    )
+    .into_iter()
+    .find(|placement| placement.wl_surface == *surface)?;
+    Some((
+        surface.clone(),
+        Point::<f64, Logical>::from((placement.origin.x as f64, placement.origin.y as f64)),
+    ))
 }
 
 /// Resolve the Wayland surface and compositor-space surface origin for a

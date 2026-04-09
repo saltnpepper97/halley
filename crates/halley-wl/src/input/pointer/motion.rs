@@ -19,7 +19,7 @@ use super::button::{
     ButtonFrame, active_pointer_binding, clamp_screen_to_monitor, clamp_screen_to_workspace,
     now_millis_u32,
 };
-use super::focus::pointer_focus_for_screen;
+use super::focus::{grabbed_layer_surface_focus, pointer_focus_for_screen};
 use super::resize::handle_resize_motion;
 use crate::input::keyboard::modkeys::modifier_active;
 
@@ -251,6 +251,13 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     let locked_surface = constrained_surface_info
         .as_ref()
         .and_then(|(s, locked)| if *locked { Some(s.clone()) } else { None });
+    let grabbed_layer_surface = st
+        .platform
+        .seat
+        .get_pointer()
+        .and_then(|pointer| pointer.is_grabbed().then_some(()))
+        .and_then(|_| st.input.interaction_state.grabbed_layer_surface.clone())
+        .filter(|surface| crate::compositor::monitor::layer_shell::is_layer_surface(st, surface));
     let mods = ctx.mod_state.borrow().clone();
     let drag_state = {
         let ps = ctx.pointer_state.borrow();
@@ -277,6 +284,9 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 .cloned()
                 .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
         )
+    });
+    let grabbed_layer_surface_monitor = grabbed_layer_surface.as_ref().map(|surface| {
+        crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface)
     });
     let locked_drag_monitor = drag_state
         .as_ref()
@@ -306,7 +316,9 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let ps = ctx.pointer_state.borrow();
         ps.overflow_drag.as_ref().map(|drag| drag.monitor.clone())
     };
-    let (effective_sx, effective_sy) = if let Some(owner) = constrained_surface_monitor.as_deref() {
+    let (effective_sx, effective_sy) = if grabbed_layer_surface_monitor.is_some() {
+        (raw_sx, raw_sy)
+    } else if let Some(owner) = constrained_surface_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
     } else if let Some(owner) = locked_resize_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
@@ -324,8 +336,11 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         (sx, sy)
     };
 
+    let grabbed_layer_surface_active = grabbed_layer_surface_monitor.is_some();
     let target_monitor = {
-        if let Some(owner) = locked_overflow_monitor {
+        if let Some(owner) = grabbed_layer_surface_monitor {
+            owner
+        } else if let Some(owner) = locked_overflow_monitor {
             owner
         } else if let Some(owner) = locked_bloom_monitor {
             owner
@@ -347,14 +362,18 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 .unwrap_or_else(|| st.interaction_monitor().to_string())
         }
     };
-    st.set_interaction_monitor(target_monitor.as_str());
-    let _ = st.activate_monitor(target_monitor.as_str());
+    if !grabbed_layer_surface_active {
+        st.set_interaction_monitor(target_monitor.as_str());
+        let _ = st.activate_monitor(target_monitor.as_str());
+    }
     let (local_w, local_h, local_sx, local_sy) =
         st.local_screen_in_monitor(target_monitor.as_str(), effective_sx, effective_sy);
 
     if let Some(pointer) = st.platform.seat.get_pointer() {
         let resize_preview = ctx.pointer_state.borrow().resize;
-        let focus = if let Some(surface) = locked_surface.clone() {
+        let focus = if let Some(surface) = grabbed_layer_surface.clone() {
+            grabbed_layer_surface_focus(st, &surface)
+        } else if let Some(surface) = locked_surface.clone() {
             Some((surface, pointer.current_location()))
         } else {
             pointer_focus_for_screen(

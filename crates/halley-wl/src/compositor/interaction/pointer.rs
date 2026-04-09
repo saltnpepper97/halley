@@ -128,6 +128,7 @@ pub(crate) fn clear_pointer_focus(st: &mut Halley) {
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return;
     };
+    st.input.interaction_state.grabbed_layer_surface = None;
     if pointer.is_grabbed() {
         pointer.unset_grab(st, SERIAL_COUNTER.next_serial(), 0);
     }

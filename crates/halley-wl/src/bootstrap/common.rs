@@ -651,6 +651,9 @@ pub(crate) fn ensure_xwayland_satellite(
     wayland_display: &str,
 ) -> Result<XwaylandSatellite, Box<dyn Error>> {
     let mode = XwaylandMode::from_env()?;
+    let inherited_display = env::var("DISPLAY")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
     if mode == XwaylandMode::Off {
         info!("xwayland integration disabled (HALLEY_DEV_WL_XWAYLAND=off)");
         // SAFETY: Called during startup before worker threads are spawned.
@@ -660,6 +663,26 @@ pub(crate) fn ensure_xwayland_satellite(
             satellite_bin: String::new(),
             wayland_display: wayland_display.to_string(),
             display: String::new(),
+            x11_sockets: None,
+            child: None,
+            restart_delay: Duration::from_millis(1500),
+            restart_after: None,
+            request_pending: false,
+            disabled: true,
+        });
+    }
+
+    if inherited_display.is_some() && mode != XwaylandMode::On {
+        let display = inherited_display.expect("checked above");
+        debug!(
+            "reusing inherited DISPLAY={} and skipping xwayland-satellite startup",
+            display
+        );
+        return Ok(XwaylandSatellite {
+            mode,
+            satellite_bin: String::new(),
+            wayland_display: wayland_display.to_string(),
+            display,
             x11_sockets: None,
             child: None,
             restart_delay: Duration::from_millis(1500),
@@ -739,8 +762,8 @@ pub(crate) fn ensure_xwayland_satellite(
     let display = env::var("HALLEY_DEV_WL_XWAYLAND_DISPLAY")
         .ok()
         .filter(|v| !v.trim().is_empty())
-        .unwrap_or_else(next_free_x11_display);
-    let x11_sockets = X11SocketReservation::try_new(display.as_str()).map_err(|err| {
+        .unwrap_or_else(|| ":0".to_string());
+    let x11_sockets = reserve_default_x11_display(display.as_str()).map_err(|err| {
         io::Error::other(format!(
             "failed to reserve X11 display {} for xwayland-satellite: {}",
             display, err
@@ -812,21 +835,17 @@ fn first_x11_display() -> Option<String> {
     displays.into_iter().next()
 }
 
-fn next_free_x11_display() -> String {
-    let mut used = std::collections::BTreeSet::new();
-    let dir = Path::new("/tmp/.X11-unix");
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.filter_map(|entry| entry.ok()) {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if let Some(num) = name.strip_prefix('X').and_then(|n| n.parse::<u32>().ok()) {
-                used.insert(num);
+fn reserve_default_x11_display(display: &str) -> io::Result<X11SocketReservation> {
+    let deadline = Instant::now() + Duration::from_millis(1600);
+    loop {
+        match X11SocketReservation::try_new(display) {
+            Ok(reservation) => return Ok(reservation),
+            Err(err) if err.kind() == ErrorKind::AddrInUse && Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
             }
+            Err(err) => return Err(err),
         }
     }
-    let next = (0u32..4096u32)
-        .find(|idx| !used.contains(idx))
-        .unwrap_or(4096);
-    format!(":{}", next)
 }
 
 fn reclaim_stale_x11_display(
@@ -856,6 +875,8 @@ fn reclaim_stale_x11_display(
             ));
         }
 
+        terminate_orphaned_xwayland_satellite(display);
+
         if lock_path.exists() {
             let _ = fs::remove_file(lock_path);
         }
@@ -866,12 +887,10 @@ fn reclaim_stale_x11_display(
     }
 
     if socket_path.exists() {
-        return Err(io::Error::new(
-            ErrorKind::AddrInUse,
-            format!(
-                "X11 display {display} socket exists without a verifiable stale lock; refusing to reclaim"
-            ),
-        ));
+        terminate_orphaned_xwayland_satellite(display);
+        if socket_path.exists() {
+            let _ = fs::remove_file(socket_path);
+        }
     }
 
     if lock_path.exists() {
@@ -879,6 +898,45 @@ fn reclaim_stale_x11_display(
     }
 
     Ok(())
+}
+
+fn terminate_orphaned_xwayland_satellite(display: &str) {
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return;
+    };
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        let pid = match entry.file_name().to_string_lossy().parse::<i32>() {
+            Ok(pid) => pid,
+            Err(_) => continue,
+        };
+        let cmdline_path = entry.path().join("cmdline");
+        let Ok(cmdline) = fs::read(cmdline_path) else {
+            continue;
+        };
+        if cmdline.is_empty() {
+            continue;
+        }
+        let parts = cmdline
+            .split(|byte| *byte == 0)
+            .filter(|part| !part.is_empty())
+            .map(|part| String::from_utf8_lossy(part).into_owned())
+            .collect::<Vec<_>>();
+        if !parts.iter().any(|part| part.contains("xwayland-satellite")) {
+            continue;
+        }
+        if !parts.iter().any(|part| part == display) {
+            continue;
+        }
+        if let Some(pid) = Pid::from_raw(pid) {
+            let _ = kill_process_group(pid, Signal::TERM);
+            std::thread::sleep(Duration::from_millis(60));
+            if test_kill_process(pid).is_ok()
+                || test_kill_process(pid) == Err(rustix::io::Errno::PERM)
+            {
+                let _ = kill_process_group(pid, Signal::KILL);
+            }
+        }
+    }
 }
 
 fn runtime_dir_is_usable(path: &Path) -> bool {

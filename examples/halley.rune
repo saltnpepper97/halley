@@ -165,7 +165,7 @@ animations:
 
   window-close:
     enabled true
-    duration-ms 250
+    duration-ms 270
     style "shrink"
   end
 

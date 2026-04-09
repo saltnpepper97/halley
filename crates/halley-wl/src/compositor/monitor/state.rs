@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use smithay::{
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
-    reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
+    reexports::wayland_server::{backend::ObjectId, protocol::wl_surface::WlSurface, Resource},
     utils::{Logical, Size, Transform},
 };
 
@@ -34,6 +34,7 @@ pub(crate) struct MonitorState {
     pub(crate) monitors: HashMap<String, MonitorSpace>,
     pub(crate) node_monitor: HashMap<NodeId, String>,
     pub(crate) layer_surface_monitor: HashMap<ObjectId, String>,
+    pub(crate) layer_surface_committed: HashSet<ObjectId>,
     pub(crate) layer_surface_last_configured_size: HashMap<ObjectId, Size<i32, Logical>>,
     pub(crate) layer_keyboard_focus: Option<ObjectId>,
 }

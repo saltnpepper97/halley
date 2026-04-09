@@ -265,12 +265,14 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
 
     let mods = ctx.mod_state.borrow().clone();
     let is_mod_key = is_modifier_keycode(code);
-    let matched_action = if pressed && !is_mod_key {
+    let layer_shell_keyboard_focus =
+        crate::compositor::monitor::layer_shell::keyboard_focus_is_layer_surface(st);
+    let matched_action = if pressed && !is_mod_key && !layer_shell_keyboard_focus {
         compositor_binding_action(st, code, &mods)
     } else {
         None
     };
-    let matched_launch = if pressed && !is_mod_key {
+    let matched_launch = if pressed && !is_mod_key && !layer_shell_keyboard_focus {
         st.runtime
             .tuning
             .launch_bindings
@@ -295,7 +297,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         && !is_mod_key
         && !matched_binding
         && !cluster_blocks_key
-        && !crate::compositor::monitor::layer_shell::keyboard_focus_is_layer_surface(st)
+        && !layer_shell_keyboard_focus
         && let Some(fid) = st.last_input_surface_node_for_monitor(st.focused_monitor())
     {
         let open_monitors = st
