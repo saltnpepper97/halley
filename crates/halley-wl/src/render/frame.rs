@@ -44,6 +44,7 @@ use super::node::{
     NodeSnapshot, collect_hover_preview, draw_node_hover_labels, draw_node_markers,
     ensure_node_circle_resources,
 };
+use super::screenshot_icon::ensure_screenshot_menu_icon_resources;
 use super::state::ClosingWindowGhostSnapshot;
 use super::text::ensure_ui_text_resources;
 use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
@@ -65,6 +66,9 @@ const WINDOW_TEXTURE_SHADER: &str = include_str!("shaders/window_rounded_texture
 const SURFACE_CLIP_SHADER: &str = include_str!("shaders/surface_clipped_texture.frag");
 
 pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) -> bool {
+    if st.now_ms(std::time::Instant::now()) < st.runtime.screenshot_full_repaint_until_ms {
+        return true;
+    }
     st.cluster_mode_active_for_monitor(monitor)
         || st
             .model
@@ -92,6 +96,7 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
             .cluster_state
             .cluster_name_prompt
             .contains_key(monitor)
+        || st.screenshot_session_active()
         || st
             .ui
             .render_state
@@ -899,6 +904,7 @@ pub(crate) fn draw_debug_frame_to_target(
     );
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
     ensure_cluster_core_icon_resources(renderer, st)?;
+    ensure_screenshot_menu_icon_resources(renderer, st)?;
     let current_monitor = st.model.monitor_state.current_monitor.clone();
     let overflow_ids = st
         .model

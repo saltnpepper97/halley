@@ -439,6 +439,74 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     ps.workspace_size = (local_w, local_h);
     st.input.interaction_state.last_pointer_screen_global = Some((effective_sx, effective_sy));
 
+    if let Some((dragging_region, _)) =
+        st.input
+            .interaction_state
+            .screenshot_session
+            .as_ref()
+            .map(|session| {
+                (
+                    session.drag_anchor.is_some()
+                        && session.mode == halley_ipc::CaptureMode::Region,
+                    session.mode,
+                )
+            })
+    {
+        st.update_screenshot_session_monitor(target_monitor.clone());
+        let menu_mode = st
+            .input
+            .interaction_state
+            .screenshot_session
+            .as_ref()
+            .is_some_and(|session| session.mode == halley_ipc::CaptureMode::Menu);
+        if menu_mode {
+            let hit =
+                crate::overlay::screenshot_menu_hit_test(local_w, local_h, local_sx, local_sy);
+            let idx = match hit {
+                Some(crate::overlay::ScreenshotMenuHit::Item(idx)) => Some(idx),
+                None => None,
+            };
+            st.hover_screenshot_menu_item(idx);
+            crate::compositor::interaction::pointer::set_cursor_override_icon(
+                st,
+                Some(smithay::input::pointer::CursorIcon::Pointer),
+            );
+            ctx.backend.request_redraw();
+            return;
+        }
+        let window_mode = st
+            .input
+            .interaction_state
+            .screenshot_session
+            .as_ref()
+            .is_some_and(|session| session.mode == halley_ipc::CaptureMode::Window);
+        if dragging_region {
+            st.update_screenshot_region_drag(
+                effective_sx.round() as i32,
+                effective_sy.round() as i32,
+            );
+        } else if window_mode {
+            st.update_screenshot_window_selection_from_pointer(
+                target_monitor.as_str(),
+                local_w,
+                local_h,
+                local_sx,
+                local_sy,
+                now,
+            );
+        }
+        crate::compositor::interaction::pointer::set_cursor_override_icon(
+            st,
+            Some(if window_mode {
+                smithay::input::pointer::CursorIcon::Pointer
+            } else {
+                smithay::input::pointer::CursorIcon::Crosshair
+            }),
+        );
+        ctx.backend.request_redraw();
+        return;
+    }
+
     let prompt_monitor = st.model.monitor_state.current_monitor.clone();
     if crate::compositor::clusters::system::cluster_system_controller(&*st)
         .cluster_name_prompt_active_for_monitor(prompt_monitor.as_str())

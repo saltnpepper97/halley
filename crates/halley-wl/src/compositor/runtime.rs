@@ -21,6 +21,7 @@ pub(crate) struct RuntimeState {
     pub(crate) exit_requested: bool,
     pub(crate) started_at: Instant,
     pub(crate) maintenance_dirty: bool,
+    pub(crate) screenshot_full_repaint_until_ms: u64,
     pub(crate) maintenance_ping: Option<Ping>,
     pub(crate) pending_drm_syncobj_surfaces: Arc<Mutex<Vec<ObjectId>>>,
     pub(crate) activation: ActivationRuntimeState,
@@ -142,6 +143,32 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
             .map(|repeat| repeat.next_repeat_ms)
         {
             consider(repeat_at_ms);
+        }
+        if let Some(capture_at_ms) = self
+            .input
+            .interaction_state
+            .pending_screenshot_capture
+            .as_ref()
+            .map(|pending| pending.execute_at_ms)
+        {
+            consider(capture_at_ms);
+        }
+        if let Some(restore_at_ms) = self
+            .input
+            .interaction_state
+            .pending_modal_focus_restore
+            .as_ref()
+            .map(|pending| pending.restore_at_ms)
+        {
+            consider(restore_at_ms);
+        }
+        if self
+            .input
+            .interaction_state
+            .inflight_screenshot_capture
+            .is_some()
+        {
+            consider(now_ms.saturating_add(33));
         }
         if crate::compositor::interaction::state::bloom_pull_preview_needs_animation(self) {
             consider(now_ms.saturating_add(16));
@@ -316,6 +343,17 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
         let _ = crate::compositor::clusters::system::cluster_system_controller(&mut **self)
             .repeat_cluster_name_prompt_input_if_due(now_ms);
+        self.run_pending_screenshot_capture_if_due(now_ms);
+        if let Some(pending) = self
+            .input
+            .interaction_state
+            .pending_modal_focus_restore
+            .clone()
+            && now_ms >= pending.restore_at_ms
+        {
+            self.input.interaction_state.pending_modal_focus_restore = None;
+            self.apply_wayland_focus_state(pending.target);
+        }
         if self.has_any_active_cluster_workspace() {
             let active_monitors = self
                 .model

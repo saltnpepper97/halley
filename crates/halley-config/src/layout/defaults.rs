@@ -13,7 +13,8 @@ use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
     DecorationBorderColor, FontConfig, NodeBackgroundColorMode, NodeBorderColorMode,
-    NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, RuntimeTuning, ShapeStyle,
+    NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, RuntimeTuning, ScreenshotConfig,
+    ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -111,6 +112,7 @@ impl Default for RuntimeTuning {
             font: FontConfig::default(),
             animations: AnimationsConfig::default(),
             overlay_style: OverlayStyleConfig::default(),
+            screenshot: ScreenshotConfig::default(),
             env: HashMap::new(),
         }
     }

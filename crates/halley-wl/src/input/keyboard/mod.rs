@@ -105,6 +105,31 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
 ) {
     let exit_confirm_active = st.exit_confirm_active();
     update_mod_state(&mut ctx.mod_state.borrow_mut(), code, pressed);
+    if !pressed
+        && st
+            .input
+            .interaction_state
+            .modal_release_keys
+            .contains(&code)
+    {
+        if let Some(keyboard) = st.platform.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(
+                st,
+                code.into(),
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+                serial,
+                now_millis_u32(),
+                |_, _, _| FilterResult::Intercept(()),
+            );
+        }
+        st.input.interaction_state.modal_release_keys.remove(&code);
+        return;
+    }
     let exit_escape = key_name_to_evdev("escape").map(|code| code + 8);
     let exit_return = key_name_to_evdev("return").map(|code| code + 8);
     if exit_confirm_active {
@@ -125,9 +150,11 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         }
         if pressed {
             if Some(code) == exit_escape {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 st.clear_exit_confirm_overlay();
                 ctx.backend.request_redraw();
             } else if Some(code) == exit_return {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 st.clear_exit_confirm_overlay();
                 st.request_exit();
                 ctx.backend.request_redraw();
@@ -141,6 +168,62 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         if crate::compositor::interaction::state::note_typing_activity(st, now_ms) {
             ctx.backend.request_redraw();
         }
+    }
+
+    if st.screenshot_session_active() {
+        if let Some(keyboard) = st.platform.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(
+                st,
+                code.into(),
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+                serial,
+                now_millis_u32(),
+                |_, _, _| FilterResult::Intercept(()),
+            );
+        }
+        if pressed {
+            let escape = key_name_to_evdev("escape").map(|value| value + 8);
+            let enter = key_name_to_evdev("return").map(|value| value + 8);
+            let left = key_name_to_evdev("left").map(|value| value + 8);
+            let right = key_name_to_evdev("right").map(|value| value + 8);
+            let menu_mode = st
+                .input
+                .interaction_state
+                .screenshot_session
+                .as_ref()
+                .is_some_and(|session| session.mode == halley_ipc::CaptureMode::Menu);
+            if Some(code) == escape {
+                if menu_mode {
+                    crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                }
+                let _ = st.cancel_screenshot_session();
+                ctx.backend.request_redraw();
+            } else if Some(code) == enter {
+                if menu_mode {
+                    crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                }
+                let _ = st.confirm_screenshot_session(Instant::now());
+                ctx.backend.request_redraw();
+            } else if Some(code) == left {
+                if menu_mode {
+                    crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                }
+                let _ = st.move_screenshot_menu_selection(-1);
+                ctx.backend.request_redraw();
+            } else if Some(code) == right {
+                if menu_mode {
+                    crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                }
+                let _ = st.move_screenshot_menu_selection(1);
+                ctx.backend.request_redraw();
+            }
+        }
+        return;
     }
 
     let prompt_monitor = st.model.monitor_state.current_monitor.clone();
@@ -183,9 +266,11 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
                 repeated_char.map(ClusterNamePromptRepeatAction::Insert)
             };
             let handled = if Some(code) == escape {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 crate::compositor::clusters::system::cluster_system_controller(&mut *st)
                     .cancel_cluster_name_prompt_for_monitor(prompt_monitor.as_str())
             } else if Some(code) == enter {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 crate::compositor::clusters::system::cluster_system_controller(&mut *st)
                     .confirm_cluster_name_prompt_for_monitor(
                         prompt_monitor.as_str(),
@@ -252,8 +337,10 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         }
         if pressed {
             let handled = if Some(code) == cluster_escape {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 st.exit_cluster_mode()
             } else {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 st.confirm_cluster_mode(Instant::now())
             };
             if handled || Some(code) == cluster_return || Some(code) == cluster_escape {

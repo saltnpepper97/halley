@@ -1,10 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
+use halley_capit::CaptureCrop;
 use halley_config::CompositorBindingAction;
 use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
 use halley_core::viewport::Viewport;
+use halley_ipc::CaptureMode;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 
 use crate::compositor::interaction::drag::DragAxisMode;
@@ -33,6 +37,10 @@ pub(crate) struct ModState {
     pub(crate) right_shift_down: bool,
     pub(crate) intercepted_keys: HashSet<u32>,
     pub(crate) intercepted_compositor_actions: HashMap<u32, CompositorBindingAction>,
+}
+
+pub(crate) fn trap_modal_key_release(st: &mut Halley, code: u32) {
+    st.input.interaction_state.modal_release_keys.insert(code);
 }
 
 impl ModState {
@@ -161,6 +169,65 @@ pub(crate) struct ClusterNamePromptRepeatState {
     pub(crate) interval_ms: u64,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ScreenshotSessionState {
+    pub(crate) mode: CaptureMode,
+    pub(crate) monitor: String,
+    pub(crate) selected_window: Option<NodeId>,
+    pub(crate) keyboard_captured: bool,
+    pub(crate) menu_selected: usize,
+    pub(crate) menu_hovered: Option<usize>,
+    pub(crate) drag_anchor: Option<(i32, i32)>,
+    pub(crate) drag_current: Option<(i32, i32)>,
+    pub(crate) selection_rect: Option<CaptureCrop>,
+    pub(crate) region_drag_mode: ScreenshotRegionDragMode,
+    pub(crate) region_grab_cursor: (i32, i32),
+    pub(crate) region_grab_rect: Option<CaptureCrop>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScreenshotRegionDragMode {
+    None,
+    Move,
+    Resize(ScreenshotRegionResizeDir),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ScreenshotRegionResizeDir {
+    pub(crate) left: bool,
+    pub(crate) right: bool,
+    pub(crate) top: bool,
+    pub(crate) bottom: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingScreenshotCapture {
+    pub(crate) monitor: String,
+    pub(crate) serial: u64,
+    pub(crate) crop: CaptureCrop,
+    pub(crate) output_path: std::path::PathBuf,
+    pub(crate) execute_at_ms: u64,
+}
+
+pub(crate) struct InflightScreenshotCapture {
+    pub(crate) monitor: String,
+    pub(crate) serial: u64,
+    pub(crate) rx: Receiver<Result<PathBuf, String>>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ScreenshotCaptureResult {
+    pub(crate) serial: u64,
+    pub(crate) saved_path: Option<PathBuf>,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingModalFocusRestore {
+    pub(crate) target: Option<NodeId>,
+    pub(crate) restore_at_ms: u64,
+}
+
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
@@ -187,6 +254,13 @@ pub(crate) struct InteractionState {
     pub(crate) grabbed_layer_surface: Option<WlSurface>,
     pub(crate) cluster_name_prompt_drag_monitor: Option<String>,
     pub(crate) cluster_name_prompt_repeat: Option<ClusterNamePromptRepeatState>,
+    pub(crate) screenshot_session: Option<ScreenshotSessionState>,
+    pub(crate) pending_screenshot_capture: Option<PendingScreenshotCapture>,
+    pub(crate) inflight_screenshot_capture: Option<InflightScreenshotCapture>,
+    pub(crate) screenshot_next_serial: u64,
+    pub(crate) last_screenshot_result: Option<ScreenshotCaptureResult>,
+    pub(crate) modal_release_keys: HashSet<u32>,
+    pub(crate) pending_modal_focus_restore: Option<PendingModalFocusRestore>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
     pub(crate) pending_core_hover: Option<PendingCoreHover>,
     pub(crate) pending_core_press: Option<PendingCorePress>,

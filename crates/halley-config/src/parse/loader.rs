@@ -10,8 +10,8 @@ use super::sections::{
     load_animations_section, load_autostart_section, load_bearings_section, load_clusters_section,
     load_cursor_section, load_decay_section, load_decorations_section, load_env_section,
     load_field_section, load_focus_ring_section, load_font_section, load_keybind_sections,
-    load_nodes_section, load_overlays_section, load_physics_section, load_stacking_section,
-    load_tile_section, load_trail_section, load_viewport_section,
+    load_nodes_section, load_overlays_section, load_physics_section, load_screenshot_section,
+    load_stacking_section, load_tile_section, load_trail_section, load_viewport_section,
 };
 
 impl RuntimeTuning {
@@ -55,6 +55,7 @@ impl RuntimeTuning {
         load_decorations_section(&cfg, &mut out);
         load_animations_section(&cfg, &mut out);
         load_overlays_section(&cfg, &mut out);
+        load_screenshot_section(&cfg, &mut out);
         if let Err(err) = load_keybind_sections(&cfg, &mut out) {
             eprintln!("halley config keybind parse error: {err}");
             return None;

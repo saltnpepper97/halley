@@ -3,11 +3,11 @@ use std::time::Instant;
 
 use halley_core::field::{NodeId, NodeKind as FieldNodeKind, NodeState as FieldNodeState};
 use halley_ipc::{
-    BearingsRequest, BearingsStatusResponse, ClusterRequest, CompositorRequest, IpcError,
-    MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, NodeInfo, NodeKind,
-    NodeListResponse, NodeMoveDirection, NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo,
-    NodeRequest, NodeRole, NodeSelector, NodeState, Request, Response, StackRequest, TileRequest,
-    TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
+    BearingsRequest, BearingsStatusResponse, CaptureRequest, CaptureStatusResponse, ClusterRequest,
+    CompositorRequest, IpcError, MonitorFocusDirection, MonitorFocusTarget, MonitorRequest,
+    NodeInfo, NodeKind, NodeListResponse, NodeMoveDirection, NodeOutputGroup, NodeProtocolFamily,
+    NodeRelationInfo, NodeRequest, NodeRole, NodeSelector, NodeState, Request, Response,
+    StackRequest, TileRequest, TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
 };
 use smithay::desktop::PopupManager;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
@@ -20,6 +20,7 @@ use crate::compositor::surface_ops::{current_surface_size_for_node, request_clos
 
 pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
     match request {
+        Request::Capture(request) => handle_capture_request(st, request),
         Request::Node(request) => handle_node_request(st, request),
         Request::Trail(request) => handle_trail_request(st, request),
         Request::Monitor(request) => handle_monitor_request(st, request),
@@ -35,6 +36,54 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         | Request::Compositor(CompositorRequest::Dpms { .. }) => Response::Error(
             IpcError::Unsupported("backend request not handled here".into()),
         ),
+    }
+}
+
+fn handle_capture_request(st: &mut Halley, request: CaptureRequest) -> Response {
+    match request {
+        CaptureRequest::Start { mode, output } => {
+            if st.start_screenshot_session(mode, output.as_deref(), Instant::now()) {
+                Response::CaptureStatus(capture_status_response(st))
+            } else {
+                Response::Error(IpcError::Unsupported(
+                    "screenshot session is already active".into(),
+                ))
+            }
+        }
+        CaptureRequest::Status => Response::CaptureStatus(capture_status_response(st)),
+    }
+}
+
+fn capture_status_response(st: &Halley) -> CaptureStatusResponse {
+    let last = st.input.interaction_state.last_screenshot_result.as_ref();
+    CaptureStatusResponse {
+        active: st.screenshot_session_active()
+            || st
+                .input
+                .interaction_state
+                .pending_screenshot_capture
+                .is_some()
+            || st
+                .input
+                .interaction_state
+                .inflight_screenshot_capture
+                .is_some(),
+        session_serial: st
+            .input
+            .interaction_state
+            .screenshot_session
+            .as_ref()
+            .map(|_| {
+                st.input
+                    .interaction_state
+                    .screenshot_next_serial
+                    .saturating_sub(1)
+            }),
+        last_finished_serial: last.map(|result| result.serial),
+        saved_path: last
+            .and_then(|result| result.saved_path.as_ref())
+            .map(|path| path.display().to_string()),
+        error: last.and_then(|result| result.error.clone()),
     }
 }
 

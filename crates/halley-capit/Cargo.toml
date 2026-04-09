@@ -1,0 +1,12 @@
+[package]
+name = "halley-capit"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+memmap2 = "0.9.9"
+smithay-client-toolkit = "0.20.0"
+tempfile = "3.23.0"
+wayland-client = "0.31.11"
+wayland-protocols-wlr = { version = "0.3.9", features = ["client"] }

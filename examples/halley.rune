@@ -30,6 +30,10 @@ font:
   size 11
 end
 
+screenshot:
+  directory "$env.HOME/Pictures/Screenshots/"
+end
+
 viewport:
   DP-1:
     enabled true

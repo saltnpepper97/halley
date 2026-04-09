@@ -1,5 +1,4 @@
 use halley_core::cluster::ClusterId;
-
 #[derive(Clone, Debug)]
 pub(crate) struct OverlayActionHint {
     pub(crate) key: String,

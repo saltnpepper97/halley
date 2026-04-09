@@ -306,6 +306,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 confirm_hover_mix: 0.0,
             },
         );
+        self.begin_modal_keyboard_capture();
         cluster_name_prompt_banner(self, monitor.as_str());
         true
     }
@@ -339,6 +340,12 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         }
         if removed && self.cluster_mode_active_for_monitor(monitor) {
             cluster_mode_selection_banner(self, monitor);
+        }
+        if removed {
+            let focused_surface = self
+                .last_input_surface_node_for_monitor(monitor)
+                .or(self.last_input_surface_node());
+            self.schedule_modal_focus_restore(focused_surface, Instant::now());
         }
         removed
     }
@@ -629,6 +636,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .cluster_mutation_controller()
                 .exit_cluster_mode(monitor);
             self.ui.render_state.clear_persistent_mode_banner(monitor);
+            let focused_surface = self
+                .last_input_surface_node_for_monitor(monitor)
+                .or(self.last_input_surface_node());
+            self.schedule_modal_focus_restore(focused_surface, Instant::now());
             return true;
         }
         false

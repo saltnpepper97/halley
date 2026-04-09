@@ -138,6 +138,20 @@ impl Default for AnimationsConfig {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScreenshotConfig {
+    pub directory: String,
+}
+
+impl Default for ScreenshotConfig {
+    fn default() -> Self {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        Self {
+            directory: format!("{home}/Pictures/Screenshots"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DecorationBorderColor {
     pub r: f32,

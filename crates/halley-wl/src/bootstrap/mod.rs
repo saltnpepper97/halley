@@ -7,13 +7,13 @@ use std::sync::mpsc;
 use halley_config::RuntimeTuning;
 
 use eventline::{
-    debug, enable_console_color, enable_console_duration, enable_console_scope_exits,
-    enable_console_scope_labels, info, scope, warn, FileSetup, LogLevel, LogPolicy, RunHeader,
-    Setup,
+    FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, enable_console_color,
+    enable_console_duration, enable_console_scope_exits, enable_console_scope_labels, info, scope,
+    warn,
 };
 use once_cell::sync::OnceCell;
 use rustix::process::Signal;
-use rustix::runtime::{kernel_sigaction, KernelSigSet, KernelSigaction};
+use rustix::runtime::{KernelSigSet, KernelSigaction, kernel_sigaction};
 
 use crate::compositor::interaction::state::ViewportPanAnim;
 use crate::compositor::root::Halley;
@@ -23,9 +23,9 @@ mod common;
 mod ipc;
 
 pub(crate) use common::{
-    auto_backend, ensure_dbus_session_bus_address, ensure_host_display, ensure_xdg_runtime_dir,
-    ensure_xwayland_satellite, halley_runtime_dir, refresh_portal_services_nonblocking,
-    sync_portal_activation_environment, RuntimeBackend,
+    RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
+    ensure_xdg_runtime_dir, ensure_xwayland_satellite, halley_runtime_dir,
+    refresh_portal_services_nonblocking, sync_portal_activation_environment,
 };
 pub(crate) use ipc::{drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc};
 

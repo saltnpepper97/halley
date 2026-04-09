@@ -72,6 +72,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         {
             return false;
         }
+        self.begin_modal_keyboard_capture();
         cluster_mode_selection_banner(self, monitor.as_str());
         true
     }
@@ -122,11 +123,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 })
             })
             .or_else(|| self.last_input_surface_node_for_monitor(monitor.as_str()));
-        if let Some(surface_id) = focused_surface {
-            self.set_interaction_focus(Some(surface_id), 30_000, Instant::now());
-        } else {
-            self.reassert_wayland_keyboard_focus_if_drifted(None);
-        }
+        self.schedule_modal_focus_restore(focused_surface, Instant::now());
         true
     }
 

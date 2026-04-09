@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+halley-capit = { path = "../halley-capit" }
 halley-core = { path = "../halley-core" }
 halley-config = { path = "../halley-config" }
 halley-ipc = { path = "../halley-ipc" }

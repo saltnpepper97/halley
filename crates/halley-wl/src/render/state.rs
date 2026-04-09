@@ -97,6 +97,18 @@ pub(crate) struct ClusterCoreIconCache {
     pub(crate) unfocused: Option<NodeAppIconTexture>,
 }
 
+#[derive(Default)]
+pub(crate) struct ScreenshotMenuIconCache {
+    pub(crate) active_color: [u8; 4],
+    pub(crate) inactive_color: [u8; 4],
+    pub(crate) region_active: Option<NodeAppIconTexture>,
+    pub(crate) region_inactive: Option<NodeAppIconTexture>,
+    pub(crate) screen_active: Option<NodeAppIconTexture>,
+    pub(crate) screen_inactive: Option<NodeAppIconTexture>,
+    pub(crate) window_active: Option<NodeAppIconTexture>,
+    pub(crate) window_inactive: Option<NodeAppIconTexture>,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct PreviewHoverState {
     pub(crate) node: Option<NodeId>,
@@ -146,6 +158,7 @@ pub(crate) struct RenderState {
 
     pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
     pub(crate) cluster_core_icon_cache: ClusterCoreIconCache,
+    pub(crate) screenshot_menu_icon_cache: ScreenshotMenuIconCache,
     pub(crate) node_hover_mix: HashMap<NodeId, f32>,
     pub(crate) node_preview_hover: HashMap<String, PreviewHoverState>,
     pub(crate) bearings_visible: bool,

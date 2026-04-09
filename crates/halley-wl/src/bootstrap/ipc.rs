@@ -13,8 +13,8 @@ use std::time::Duration;
 use crate::bootstrap::common::halley_runtime_dir;
 use eventline::{error, info, warn};
 use halley_ipc::{
-    decode_request, encode_response, read_frame, write_frame, IpcError, OutputInfo,
-    OutputsResponse, Request, Response,
+    IpcError, OutputInfo, OutputsResponse, Request, Response, decode_request, encode_response,
+    read_frame, write_frame,
 };
 
 #[derive(Debug)]

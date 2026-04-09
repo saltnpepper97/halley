@@ -13,8 +13,8 @@ use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
     DecorationBorderColor, FocusRingConfig, FontConfig, NodeBackgroundColorMode,
-    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, ShapeStyle,
-    ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, ScreenshotConfig,
+    ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Debug)]
@@ -96,6 +96,7 @@ pub struct RuntimeTuning {
     pub font: FontConfig,
     pub animations: AnimationsConfig,
     pub overlay_style: OverlayStyleConfig,
+    pub screenshot: ScreenshotConfig,
     pub env: HashMap<String, String>,
 }
 impl RuntimeTuning {

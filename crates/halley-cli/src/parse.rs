@@ -4,9 +4,9 @@ use halley_ipc::{
 };
 
 use crate::cmd::{
-    bearings::parse_bearings_request, cluster::parse_cluster_request,
-    monitor::parse_monitor_request, node::parse_node_request, stack::parse_stack_request,
-    tile::parse_tile_request, trail::parse_trail_request,
+    bearings::parse_bearings_request, capture::parse_capture_request,
+    cluster::parse_cluster_request, monitor::parse_monitor_request, node::parse_node_request,
+    stack::parse_stack_request, tile::parse_tile_request, trail::parse_trail_request,
 };
 use crate::help::HelpTopic;
 
@@ -51,6 +51,7 @@ pub(crate) fn parse_request(args: &[String]) -> Result<ParseOutcome, UsageError>
             HelpTopic::Outputs,
             Request::Compositor(CompositorRequest::Outputs),
         ),
+        "capture" => parse_capture_request(&args[1..]),
         "dpms" => parse_dpms(&args[1..]),
         "node" => parse_node_request(&args[1..]),
         "trail" => parse_trail_request(&args[1..]),

@@ -1,4 +1,5 @@
 pub(crate) mod bearings;
+pub(crate) mod capture;
 pub(crate) mod cluster;
 pub(crate) mod monitor;
 pub(crate) mod node;

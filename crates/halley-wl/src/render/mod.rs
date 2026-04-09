@@ -13,6 +13,7 @@ mod frame;
 pub mod layer_shell;
 mod node;
 mod offscreen;
+mod screenshot_icon;
 pub(crate) mod state;
 pub(crate) mod text;
 pub(crate) mod utils;
@@ -49,6 +50,7 @@ pub(crate) use frame::{
     monitor_overlay_requires_full_repaint, send_frame_callbacks, send_frame_callbacks_for_output,
     tick_animator_frame, tick_frame_effects, tick_live_overlap, tty_output_animation_redraw_state,
 };
+pub(crate) use screenshot_icon::screenshot_menu_icon_texture;
 pub(crate) use utils::preview_proxy_size;
 pub(crate) use utils::{node_marker_metrics, world_to_screen};
 pub(crate) use window::capture_closing_window_ghost;

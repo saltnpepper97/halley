@@ -554,7 +554,10 @@ pub(crate) fn select_tty_scanouts(
             let mut vec: Vec<drm_control::crtc::Handle> = Vec::new();
             let encoder_handles: Vec<_> = {
                 let mut handles = Vec::new();
-                if let Some(enc) = selected_info.current_encoder().map(|enc: drm_control::encoder::Handle| enc) {
+                if let Some(enc) = selected_info
+                    .current_encoder()
+                    .map(|enc: drm_control::encoder::Handle| enc)
+                {
                     handles.push(enc);
                 }
                 for &enc in selected_info.encoders() {
@@ -604,7 +607,9 @@ pub(crate) fn select_tty_scanouts(
 
         // Prefer the live CRTC mode to avoid a spurious mode mismatch on
         // the first frame (which would force a blocking commit_pending).
-        if let Some(enc) = selected_info.current_encoder().map(|enc: drm_control::encoder::Handle| enc)
+        if let Some(enc) = selected_info
+            .current_encoder()
+            .map(|enc: drm_control::encoder::Handle| enc)
             && let Ok(enc_info) = dev.get_encoder(enc)
             && enc_info.crtc() == Some(crtc)
             && let Ok(crtc_info) = dev.get_crtc(crtc)

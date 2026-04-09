@@ -6,6 +6,7 @@ pub(crate) enum HelpTopic {
     Quit,
     Reload,
     Outputs,
+    Capture,
     Dpms,
     Node,
     NodeList,
@@ -54,6 +55,7 @@ pub(crate) fn print_help(topic: HelpTopic) {
                     "Ask the running Halley compositor to reload config",
                 ),
                 ("outputs", "Print current output information"),
+                ("capture", "Enter Halley-native screenshot capture mode"),
                 ("dpms", "Control output power state"),
                 ("node", "Node actions and inspection"),
                 ("trail", "Trail navigation and inspection"),
@@ -81,6 +83,22 @@ pub(crate) fn print_help(topic: HelpTopic) {
             "halleyctl outputs",
             &["halleyctl outputs"],
             &[("outputs", "Print current output information")],
+        ),
+        HelpTopic::Capture => print_help_page(
+            "halleyctl capture",
+            &[
+                "halleyctl capture menu",
+                "halleyctl capture region [-o OUTPUT]",
+                "halleyctl capture screen [-o OUTPUT]",
+                "halleyctl capture window [-o OUTPUT]",
+            ],
+            &[
+                ("menu", "Open the Halley-native capture menu"),
+                ("region", "Start region capture mode"),
+                ("screen", "Start screen capture mode"),
+                ("window", "Start window capture mode"),
+                ("-o OUTPUT", "Start capture mode on a specific output"),
+            ],
         ),
         HelpTopic::Dpms => print_help_page(
             "halleyctl dpms",

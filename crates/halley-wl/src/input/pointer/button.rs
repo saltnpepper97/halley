@@ -29,7 +29,9 @@ use smithay::input::pointer::{ButtonEvent, MotionEvent};
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
-use super::focus::{grabbed_layer_surface_focus, layer_surface_focus_for_screen, pointer_focus_for_screen};
+use super::focus::{
+    grabbed_layer_surface_focus, layer_surface_focus_for_screen, pointer_focus_for_screen,
+};
 use super::motion::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
 use super::resize::{begin_resize, finalize_resize};
 use crate::input::keyboard::bindings::{
@@ -390,6 +392,62 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     ) || ps.drag.is_some()
         || ps.resize.is_some();
     let prompt_monitor = st.model.monitor_state.current_monitor.clone();
+    if st.screenshot_session_active() {
+        ps.world = world_now;
+        let session_mode = st
+            .input
+            .interaction_state
+            .screenshot_session
+            .as_ref()
+            .map(|session| session.mode);
+        if left && matches!(button_state, ButtonState::Pressed) {
+            match session_mode {
+                Some(halley_ipc::CaptureMode::Menu) => {
+                    if let Some(crate::overlay::ScreenshotMenuHit::Item(idx)) =
+                        crate::overlay::screenshot_menu_hit_test(
+                            local_w, local_h, local_sx, local_sy,
+                        )
+                    {
+                        st.hover_screenshot_menu_item(Some(idx));
+                        let _ = st.activate_screenshot_menu_item(idx);
+                    }
+                }
+                Some(halley_ipc::CaptureMode::Region) => {
+                    let _ = st.begin_screenshot_region_drag(
+                        frame.global_sx.round() as i32,
+                        frame.global_sy.round() as i32,
+                    );
+                }
+                Some(halley_ipc::CaptureMode::Screen) => {
+                    let _ = st.confirm_screenshot_session(Instant::now());
+                }
+                Some(halley_ipc::CaptureMode::Window) => {
+                    let now = Instant::now();
+                    st.update_screenshot_window_selection_from_pointer(
+                        target_monitor.as_str(),
+                        local_w,
+                        local_h,
+                        local_sx,
+                        local_sy,
+                        now,
+                    );
+                    let _ = st.confirm_screenshot_session(now);
+                }
+                _ => {}
+            }
+        }
+        if left
+            && matches!(button_state, ButtonState::Released)
+            && matches!(session_mode, Some(halley_ipc::CaptureMode::Region))
+        {
+            st.end_screenshot_region_drag();
+        }
+        if matches!(button_state, ButtonState::Released) {
+            handle_button_release(st, &mut ps, ctx.backend, button_code, None, world_now);
+        }
+        ctx.backend.request_redraw();
+        return;
+    }
     if crate::compositor::clusters::system::cluster_system_controller(&*st)
         .cluster_name_prompt_active_for_monitor(prompt_monitor.as_str())
         && !cluster_pointer_passthrough
@@ -1459,7 +1517,9 @@ pub(super) fn button_frame_for_monitor(
         .interaction_state
         .grabbed_layer_surface
         .as_ref()
-        .map(|surface| crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface));
+        .map(|surface| {
+            crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface)
+        });
     let target_monitor =
         crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
             .and_then(|(surface, _)| {

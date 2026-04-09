@@ -1,8 +1,8 @@
 use smithay::{
     reexports::wayland_server::{
-        protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface, Resource,
+        Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
     },
-    utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER},
+    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size},
     wayland::{
         compositor::with_states,
         shell::wlr_layer::{
@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use super::Halley;
 use crate::compositor::ctx::LayerShellCtx;
-use smithay::desktop::{find_popup_root_surface, PopupKind};
+use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::wayland::shell::xdg::PopupSurface;
 use smithay::wayland::shell::xdg::PositionerState;
 
@@ -707,12 +707,14 @@ fn compute_layer_placement(
     let anchored_right = data.anchor.contains(Anchor::RIGHT);
     let anchored_top = data.anchor.contains(Anchor::TOP);
     let anchored_bottom = data.anchor.contains(Anchor::BOTTOM);
+    let fill_full_output = data.layer == Layer::Overlay;
+    let placement_zone = if fill_full_output { output_rect } else { *zone };
 
     if width == 0 && anchored_left && anchored_right {
-        width = zone.size.w.max(1);
+        width = placement_zone.size.w.max(1);
     }
     if height == 0 && anchored_top && anchored_bottom {
-        height = zone.size.h.max(1);
+        height = placement_zone.size.h.max(1);
     }
     if width == 0 {
         width = output_rect.size.w.max(1);
@@ -722,28 +724,28 @@ fn compute_layer_placement(
     }
 
     let mut x = if anchored_left {
-        zone.loc.x + data.margin.left
+        placement_zone.loc.x + data.margin.left
     } else if anchored_right {
-        zone.loc.x + zone.size.w - width - data.margin.right
+        placement_zone.loc.x + placement_zone.size.w - width - data.margin.right
     } else {
-        zone.loc.x + (zone.size.w - width) / 2
+        placement_zone.loc.x + (placement_zone.size.w - width) / 2
     };
 
     let mut y = if anchored_top {
-        zone.loc.y + data.margin.top
+        placement_zone.loc.y + data.margin.top
     } else if anchored_bottom {
-        zone.loc.y + zone.size.h - height - data.margin.bottom
+        placement_zone.loc.y + placement_zone.size.h - height - data.margin.bottom
     } else {
-        zone.loc.y + (zone.size.h - height) / 2
+        placement_zone.loc.y + (placement_zone.size.h - height) / 2
     };
 
     if anchored_left && anchored_right {
-        x = zone.loc.x + data.margin.left;
-        width = (zone.size.w - data.margin.left - data.margin.right).max(1);
+        x = placement_zone.loc.x + data.margin.left;
+        width = (placement_zone.size.w - data.margin.left - data.margin.right).max(1);
     }
     if anchored_top && anchored_bottom {
-        y = zone.loc.y + data.margin.top;
-        height = (zone.size.h - data.margin.top - data.margin.bottom).max(1);
+        y = placement_zone.loc.y + data.margin.top;
+        height = (placement_zone.size.h - data.margin.top - data.margin.bottom).max(1);
     }
 
     let size: Size<i32, Logical> = (width, height).into();

@@ -94,6 +94,23 @@ pub enum ClusterRequest {
     LayoutCycle { output: Option<String> },
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CaptureMode {
+    Menu,
+    Region,
+    Screen,
+    Window,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CaptureRequest {
+    Start {
+        mode: CaptureMode,
+        output: Option<String>,
+    },
+    Status,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompositorRequest {
     Quit,
@@ -154,6 +171,7 @@ pub enum MonitorRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
     Compositor(CompositorRequest),
+    Capture(CaptureRequest),
     Node(NodeRequest),
     Trail(TrailRequest),
     Monitor(MonitorRequest),
@@ -168,6 +186,7 @@ pub enum Response {
     Ok,
     Reloaded,
     Outputs(OutputsResponse),
+    CaptureStatus(crate::types::CaptureStatusResponse),
     NodeList(NodeListResponse),
     NodeInfo(NodeInfo),
     TrailList(TrailListResponse),

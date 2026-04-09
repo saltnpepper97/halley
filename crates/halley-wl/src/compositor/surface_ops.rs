@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use halley_core::cluster_layout::{cluster_visible_limit, ClusterWorkspaceLayoutKind};
+use halley_core::cluster_layout::{ClusterWorkspaceLayoutKind, cluster_visible_limit};
 use smithay::desktop::utils::bbox_from_surface_tree;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;

@@ -1,5 +1,6 @@
 mod cluster_bloom;
 mod cluster_naming;
+mod screenshot;
 mod state;
 mod view;
 
@@ -26,6 +27,7 @@ pub(crate) use cluster_bloom::{
 pub(crate) use cluster_naming::{
     ClusterNamingDialogHit, cluster_naming_dialog_hit_test, draw_cluster_naming_dialog,
 };
+pub(crate) use screenshot::{ScreenshotMenuHit, draw_screenshot_overlay, screenshot_menu_hit_test};
 pub(crate) use state::{
     ClusterBloomAnimSnapshot, ClusterBloomAnimState, ExitConfirmOverlaySnapshot,
     ExitConfirmOverlayState, OverlayActionHint, OverlayBannerSnapshot, OverlayBannerState,
@@ -1017,6 +1019,7 @@ pub(crate) fn draw_monitor_hud(
         )?;
     }
     draw_cluster_naming_dialog(frame, st, screen_w, screen_h, damage)?;
+    draw_screenshot_overlay(frame, st, screen_w, screen_h, damage)?;
     Ok(())
 }
 

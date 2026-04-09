@@ -15,7 +15,7 @@ pub use layout::{
     DecorationBorderColor, FontConfig, InitialWindowClusterParticipation,
     InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, NodeBackgroundColorMode,
     NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode, OverlayShape, OverlayStyleConfig,
-    PanToNewMode, RuntimeTuning, ShapeStyle, TimedAnimationConfig, ViewportOutputConfig,
-    ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle, WindowRule,
-    WindowRulePattern,
+    PanToNewMode, RuntimeTuning, ScreenshotConfig, ShapeStyle, TimedAnimationConfig,
+    ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle,
+    WindowRule, WindowRulePattern,
 };
