@@ -110,6 +110,26 @@ pub(crate) fn themed_node_label_text_color(fill_color: Color32F, alpha: f32) -> 
     }
 }
 
+pub(crate) fn themed_node_label_fill_color(
+    tuning: &RuntimeTuning,
+    hovered: bool,
+    alpha: f32,
+) -> Color32F {
+    let fill = themed_node_fill_color(tuning, hovered);
+    Color32F::new(fill.r(), fill.g(), fill.b(), alpha)
+}
+
+pub(crate) fn themed_node_label_colors(
+    tuning: &RuntimeTuning,
+    hovered: bool,
+    fill_alpha: f32,
+    text_alpha: f32,
+) -> (Color32F, Color32F) {
+    let fill = themed_node_label_fill_color(tuning, hovered, fill_alpha);
+    let text = themed_node_label_text_color(fill, text_alpha);
+    (fill, text)
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct DebugPalette {
     pub clear: Vec4,

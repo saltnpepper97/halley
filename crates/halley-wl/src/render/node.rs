@@ -359,6 +359,10 @@ fn node_label_text_color(fill_color: Color32F, alpha: f32) -> Color32F {
     super::themed_node_label_text_color(fill_color, alpha)
 }
 
+fn node_label_fill_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
+    super::themed_node_label_fill_color(&st.runtime.tuning, hovered, alpha)
+}
+
 fn node_icon_glyph(st: &Halley, id: halley_core::field::NodeId, fallback: &str) -> Option<char> {
     st.model
         .node_app_ids
@@ -835,7 +839,8 @@ pub(crate) fn draw_node_hover_labels(
         let final_x = label_x.clamp(margin, (size.w - label_w - margin).max(margin));
         let final_y = label_y.clamp(margin, (size.h - label_h - margin).max(margin));
 
-        let fill_color = node_fill_color(st, hover_node == Some(node.id));
+        let hovered = hover_node == Some(node.id);
+        let fill_color = node_label_fill_color(st, hovered, 1.0);
         draw_shader_label(
             frame,
             st,

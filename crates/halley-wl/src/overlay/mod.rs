@@ -17,6 +17,7 @@ use smithay::{
 
 use crate::compositor::root::Halley;
 use crate::render::state::RenderState;
+use crate::render::themed_node_label_colors;
 use crate::render::utils::draw_rect;
 
 use crate::render::text::{draw_ui_text, draw_ui_text_in, ui_text_size, ui_text_size_in};
@@ -1112,6 +1113,12 @@ pub(crate) fn draw_overlay_hover_label(
     let rect =
         Rectangle::<i32, Physical>::new((label_x, label_y).into(), (label_w, label_h).into());
     let visuals = resolve_overlay_visuals(&st.runtime.tuning);
+    let (label_fill, label_text) = themed_node_label_colors(
+        &st.runtime.tuning,
+        true,
+        0.96 * label_fade,
+        0.94 * label_fade,
+    );
 
     draw_overlay_chip(
         frame,
@@ -1119,7 +1126,7 @@ pub(crate) fn draw_overlay_hover_label(
         &visuals,
         rect,
         (label_h as f32) * 0.32,
-        visuals.palette.fill.alpha(0.96 * label_fade),
+        label_fill,
         false,
         damage,
         label_fade,
@@ -1131,7 +1138,7 @@ pub(crate) fn draw_overlay_hover_label(
         rect.loc.y + ((rect.size.h - text_h).max(0) / 2),
         &text,
         text_scale,
-        visuals.palette.text.alpha(0.94 * label_fade),
+        label_text,
         damage,
     )?;
     Ok(())
