@@ -7,6 +7,15 @@ use crate::input::active_node_screen_rect;
 use crate::render::{node_marker_metrics, world_to_screen};
 use halley_core::viewport::FocusZone;
 
+fn active_window_hit_is_titlebar(st: &Halley, top: i32, height: i32, sy: f32) -> bool {
+    if !st.runtime.tuning.effective_no_csd() {
+        return false;
+    }
+
+    let title_h = ((height as f32) * 0.20).round().clamp(28.0, 56.0) as i32;
+    sy <= (top + title_h) as f32
+}
+
 pub(crate) fn pick_hit_node_at(
     st: &Halley,
     w: i32,
@@ -57,10 +66,12 @@ pub(crate) fn pick_hit_node_at(
                         && sy >= y as f32
                         && sy <= (y + hh) as f32
                     {
-                        let title_h = ((hh as f32) * 0.20).round().clamp(28.0, 56.0) as i32;
                         Some(HitNode {
                             node_id: id,
-                            on_titlebar: sy <= (y + title_h) as f32,
+                            // Only synthesize a compositor-owned titlebar hit zone when
+                            // clients were asked to drop CSD. CSD windows should rely on
+                            // explicit xdg_toplevel.move requests instead.
+                            on_titlebar: active_window_hit_is_titlebar(st, y, hh, sy),
                             is_core: false,
                         })
                     } else {
@@ -146,4 +157,71 @@ pub(crate) fn node_in_active_area_for_monitor(
     let focus_ring = st.focus_ring_for_monitor(monitor);
     let focus_center = st.view_center_for_monitor(monitor);
     matches!(focus_ring.zone(focus_center, n.pos), FocusZone::Inside)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::input::active_node_screen_rect;
+    use smithay::reexports::wayland_server::Display;
+
+    fn single_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        tuning
+    }
+
+    fn active_surface_hit_with_tuning(
+        tuning: halley_config::RuntimeTuning,
+    ) -> crate::compositor::interaction::HitNode {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let node_id = st.model.field.spawn_surface(
+            "test",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(node_id, "monitor_a");
+        let _ = st
+            .model
+            .field
+            .set_state(node_id, halley_core::field::NodeState::Active);
+
+        let now = Instant::now();
+        let (left, top, right, _) =
+            active_node_screen_rect(&st, 800, 600, node_id, now, None).expect("active rect");
+        let sx = (left + right) * 0.5;
+        let sy = top + 4.0;
+
+        pick_hit_node_at(&st, 800, 600, sx, sy, now, None).expect("surface hit")
+    }
+
+    #[test]
+    fn csd_windows_do_not_synthesize_titlebar_hits() {
+        let hit = active_surface_hit_with_tuning(single_monitor_tuning());
+        assert!(!hit.on_titlebar);
+        assert!(!hit.is_core);
+    }
+
+    #[test]
+    fn no_csd_windows_keep_synthetic_titlebar_hits() {
+        let mut tuning = single_monitor_tuning();
+        tuning.no_csd = true;
+
+        let hit = active_surface_hit_with_tuning(tuning);
+        assert!(hit.on_titlebar);
+        assert!(!hit.is_core);
+    }
 }
