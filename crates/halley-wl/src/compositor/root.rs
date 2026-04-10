@@ -1965,12 +1965,10 @@ impl Halley {
         self.input.interaction_state.last_screenshot_result = None;
         let (selected_window, initial_selection) =
             initial_screenshot_selection(self, mode, monitor.as_str());
-        let keyboard_captured = mode == CaptureMode::Menu;
-        if keyboard_captured {
-            self.begin_modal_keyboard_capture();
-            if let Some(enter) = halley_config::keybinds::key_name_to_evdev("return") {
-                crate::compositor::interaction::state::trap_modal_key_release(self, enter + 8);
-            }
+        let keyboard_captured = true;
+        self.begin_modal_keyboard_capture();
+        if let Some(enter) = halley_config::keybinds::key_name_to_evdev("return") {
+            crate::compositor::interaction::state::trap_modal_key_release(self, enter + 8);
         }
         self.input.interaction_state.screenshot_session = Some(
             crate::compositor::interaction::state::ScreenshotSessionState {
