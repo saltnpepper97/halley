@@ -149,6 +149,37 @@ fn screenshot_menu_modes() -> [CaptureMode; 3] {
     ]
 }
 
+fn screenshot_menu_index(mode: CaptureMode) -> Option<usize> {
+    screenshot_menu_modes()
+        .iter()
+        .position(|candidate| *candidate == mode)
+}
+
+fn screenshot_session_monitor(st: &Halley, output: Option<&str>) -> String {
+    output
+        .and_then(|name| {
+            st.model
+                .monitor_state
+                .monitors
+                .contains_key(name)
+                .then_some(name.to_string())
+        })
+        .or_else(|| {
+            st.input
+                .interaction_state
+                .last_pointer_screen_global
+                .and_then(|(sx, sy)| st.monitor_for_screen(sx, sy))
+        })
+        .or_else(|| {
+            st.model
+                .monitor_state
+                .monitors
+                .contains_key(st.interaction_monitor())
+                .then(|| st.interaction_monitor().to_string())
+        })
+        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
+}
+
 fn screenshot_contains(rect: CaptureCrop, px: i32, py: i32) -> bool {
     px >= rect.x && py >= rect.y && px < rect.x + rect.w && py < rect.y + rect.h
 }
@@ -502,10 +533,10 @@ impl Halley {
                 data_device_state: DataDeviceState::new::<Halley>(dh),
                 primary_selection_state,
                 data_control_state,
-                session_lock: crate::protocol::wayland::session_lock::HalleySessionLockState::new::<Halley, _>(
-                    dh,
-                    |_| true,
-                ),
+                session_lock: crate::protocol::wayland::session_lock::HalleySessionLockState::new::<
+                    Halley,
+                    _,
+                >(dh, |_| true),
                 seat,
                 cursor_image_status: CursorImageStatus::Named(
                     smithay::input::pointer::CursorIcon::Default,
@@ -1982,15 +2013,7 @@ impl Halley {
         if self.screenshot_session_active() {
             return false;
         }
-        let monitor = output
-            .and_then(|name| {
-                self.model
-                    .monitor_state
-                    .monitors
-                    .contains_key(name)
-                    .then_some(name.to_string())
-            })
-            .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
+        let monitor = screenshot_session_monitor(self, output);
         let serial = self.input.interaction_state.screenshot_next_serial;
         self.input.interaction_state.screenshot_next_serial = serial.saturating_add(1);
         self.input.interaction_state.last_screenshot_result = None;
@@ -2080,6 +2103,42 @@ impl Halley {
         session.region_drag_mode =
             crate::compositor::interaction::state::ScreenshotRegionDragMode::None;
         session.region_grab_rect = session.selection_rect;
+        session.drag_anchor = None;
+        session.drag_current = None;
+        self.request_maintenance();
+        true
+    }
+
+    pub(crate) fn return_screenshot_session_to_menu(&mut self) -> bool {
+        let (mode, monitor) = match self
+            .input
+            .interaction_state
+            .screenshot_session
+            .as_ref()
+            .map(|session| (session.mode, session.monitor.clone()))
+        {
+            Some(state) => state,
+            None => return false,
+        };
+        if mode == CaptureMode::Menu {
+            return false;
+        }
+
+        let menu_selected = screenshot_menu_index(mode).unwrap_or(0);
+        let (selected_window, selection_rect) =
+            initial_screenshot_selection(self, CaptureMode::Menu, monitor.as_str());
+        let Some(session) = self.input.interaction_state.screenshot_session.as_mut() else {
+            return false;
+        };
+        session.mode = CaptureMode::Menu;
+        session.monitor = monitor;
+        session.selected_window = selected_window;
+        session.menu_selected = menu_selected;
+        session.menu_hovered = Some(menu_selected);
+        session.selection_rect = selection_rect;
+        session.region_drag_mode =
+            crate::compositor::interaction::state::ScreenshotRegionDragMode::None;
+        session.region_grab_rect = selection_rect;
         session.drag_anchor = None;
         session.drag_current = None;
         self.request_maintenance();
@@ -2371,6 +2430,93 @@ impl Halley {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn two_monitor_tuning() -> RuntimeTuning {
+        let mut tuning = RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        tuning
+    }
+
+    #[test]
+    fn screenshot_session_uses_pointer_monitor_by_default() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, two_monitor_tuning());
+        state.input.interaction_state.last_pointer_screen_global = Some((1200.0, 300.0));
+
+        assert!(state.start_screenshot_session(CaptureMode::Menu, None, Instant::now()));
+        assert_eq!(
+            state
+                .input
+                .interaction_state
+                .screenshot_session
+                .as_ref()
+                .map(|session| session.monitor.as_str()),
+            Some("right")
+        );
+    }
+
+    #[test]
+    fn screenshot_escape_target_returns_to_menu_before_cancel() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, RuntimeTuning::default());
+
+        assert!(state.start_screenshot_session(CaptureMode::Menu, None, Instant::now()));
+        assert!(state.activate_screenshot_menu_item(0));
+        assert_eq!(
+            state
+                .input
+                .interaction_state
+                .screenshot_session
+                .as_ref()
+                .map(|session| session.mode),
+            Some(CaptureMode::Region)
+        );
+
+        assert!(state.return_screenshot_session_to_menu());
+        let session = state
+            .input
+            .interaction_state
+            .screenshot_session
+            .as_ref()
+            .expect("session");
+        assert_eq!(session.mode, CaptureMode::Menu);
+        assert_eq!(session.menu_selected, 0);
+        assert_eq!(session.menu_hovered, Some(0));
     }
 }
 

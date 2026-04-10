@@ -4,7 +4,9 @@ use smithay::{
     delegate_session_lock,
     desktop::{WindowSurfaceType, utils::under_from_surface_tree},
     output::Output,
-    reexports::wayland_server::{Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface},
+    reexports::wayland_server::{
+        Resource, protocol::wl_output::WlOutput, protocol::wl_surface::WlSurface,
+    },
     utils::{Logical, Point, SERIAL_COUNTER, Size},
     wayland::compositor::get_parent,
     wayland::session_lock::{
@@ -23,7 +25,8 @@ pub(crate) struct SessionLockSurfaceEntry {
 #[derive(Debug)]
 pub(crate) struct HalleySessionLockState {
     pub(crate) manager_state: SessionLockManagerState,
-    pub(crate) surfaces: HashMap<smithay::reexports::wayland_server::backend::ObjectId, SessionLockSurfaceEntry>,
+    pub(crate) surfaces:
+        HashMap<smithay::reexports::wayland_server::backend::ObjectId, SessionLockSurfaceEntry>,
     pub(crate) last_configured_size:
         HashMap<smithay::reexports::wayland_server::backend::ObjectId, Size<u32, Logical>>,
     pub(crate) keyboard_focus: Option<smithay::reexports::wayland_server::backend::ObjectId>,
@@ -121,7 +124,13 @@ fn focus_candidate_surface(st: &Halley) -> Option<WlSurface> {
 
 fn configure_lock_surface(st: &mut Halley, surface: &LockSurface, monitor: &str) {
     let size = lock_surface_size(st, monitor);
-    if st.platform.session_lock.last_configured_size.get(&surface.wl_surface().id()) == Some(&size) {
+    if st
+        .platform
+        .session_lock
+        .last_configured_size
+        .get(&surface.wl_surface().id())
+        == Some(&size)
+    {
         return;
     }
     surface.with_pending_state(|state| {
@@ -219,7 +228,8 @@ pub(crate) fn focus_for_screen(
     }
 
     for surface in current_monitor_surfaces(st) {
-        let local = Point::<f64, Logical>::from((sx.round() as i32 as f64, sy.round() as i32 as f64));
+        let local =
+            Point::<f64, Logical>::from((sx.round() as i32 as f64, sy.round() as i32 as f64));
         let Some((hit, surface_loc)) =
             under_from_surface_tree(&surface, local, (0, 0), WindowSurfaceType::ALL)
         else {
@@ -257,7 +267,11 @@ pub(crate) fn reassert_keyboard_focus_if_drifted(st: &mut Halley) {
         return;
     }
 
-    keyboard.set_focus(st, Some(desired_focus.clone()), SERIAL_COUNTER.next_serial());
+    keyboard.set_focus(
+        st,
+        Some(desired_focus.clone()),
+        SERIAL_COUNTER.next_serial(),
+    );
     st.update_selection_focus_from_surface(Some(&desired_focus));
 }
 

@@ -268,7 +268,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             ps.world = screen_to_world(st, local_w, local_h, local_sx, local_sy);
         }
         if let Some(pointer) = st.platform.seat.get_pointer() {
-            let focus = pointer_focus_for_screen(st, local_w, local_h, local_sx, local_sy, now, None);
+            let focus =
+                pointer_focus_for_screen(st, local_w, local_h, local_sx, local_sy, now, None);
             if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
                 pointer.relative_motion(
                     st,

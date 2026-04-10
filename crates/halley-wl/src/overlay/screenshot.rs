@@ -1,13 +1,18 @@
 use std::error::Error;
 
 use halley_capit::CaptureCrop;
+use halley_config::RuntimeTuning;
 use halley_ipc::CaptureMode;
 use smithay::{
-    backend::renderer::{Color32F, gles::GlesFrame},
+    backend::renderer::{
+        Color32F, Texture,
+        gles::{GlesFrame, Uniform},
+    },
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
 use crate::compositor::root::Halley;
+use crate::render::state::RenderState;
 use crate::render::utils::{draw_outline_rect, draw_rect, draw_ring};
 use crate::render::{
     screenshot_menu_background_color, screenshot_menu_highlight_color,
@@ -33,6 +38,8 @@ const MENU_PAD: i32 = 10;
 const MENU_ICON_SIZE: i32 = 42;
 const ACTIVE_BORDER_ALPHA: f32 = 1.0;
 const INACTIVE_BORDER_ALPHA: f32 = 0.72;
+const MENU_BAR_CORNER_RADIUS: f32 = 16.0;
+const MENU_ITEM_CORNER_RADIUS: f32 = 12.0;
 
 #[derive(Clone, Copy)]
 pub(crate) enum ScreenshotMenuHit {
@@ -45,6 +52,175 @@ struct RectLocal {
     y: i32,
     w: i32,
     h: i32,
+}
+
+#[derive(Clone, Copy)]
+struct ScreenshotMenuStyle {
+    rounded: bool,
+    border_px: f32,
+    bar_corner_radius: f32,
+    item_corner_radius: f32,
+}
+
+fn resolve_screenshot_menu_style(tuning: &RuntimeTuning) -> ScreenshotMenuStyle {
+    let visuals = super::resolve_overlay_visuals(tuning);
+    ScreenshotMenuStyle {
+        rounded: visuals.rounded,
+        border_px: visuals.border_px,
+        bar_corner_radius: if visuals.rounded {
+            MENU_BAR_CORNER_RADIUS
+        } else {
+            0.0
+        },
+        item_corner_radius: if visuals.rounded {
+            MENU_ITEM_CORNER_RADIUS
+        } else {
+            0.0
+        },
+    }
+}
+
+fn draw_rect_border(
+    frame: &mut GlesFrame<'_, '_>,
+    rect: Rectangle<i32, Physical>,
+    border_px: i32,
+    color: Color32F,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    let border_px = border_px
+        .max(0)
+        .min((rect.size.w / 2).max(0))
+        .min((rect.size.h / 2).max(0));
+    if border_px <= 0 {
+        return Ok(());
+    }
+    draw_rect(
+        frame,
+        rect.loc.x,
+        rect.loc.y,
+        rect.size.w,
+        border_px,
+        color,
+        damage,
+    )?;
+    draw_rect(
+        frame,
+        rect.loc.x,
+        rect.loc.y + rect.size.h - border_px,
+        rect.size.w,
+        border_px,
+        color,
+        damage,
+    )?;
+    draw_rect(
+        frame,
+        rect.loc.x,
+        rect.loc.y,
+        border_px,
+        rect.size.h,
+        color,
+        damage,
+    )?;
+    draw_rect(
+        frame,
+        rect.loc.x + rect.size.w - border_px,
+        rect.loc.y,
+        border_px,
+        rect.size.h,
+        color,
+        damage,
+    )?;
+    Ok(())
+}
+
+fn draw_screenshot_menu_chip(
+    frame: &mut GlesFrame<'_, '_>,
+    render_state: &RenderState,
+    rect: Rectangle<i32, Physical>,
+    rounded: bool,
+    corner_radius: f32,
+    border_px: f32,
+    fill_color: Color32F,
+    border_color: Color32F,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    if let (Some(texture), Some(program)) = (
+        render_state.node_circle_texture.as_ref(),
+        render_state.ui_rect_program(rounded),
+    ) {
+        let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
+        let src = Rectangle::<f64, Buffer>::new(
+            (0.0, 0.0).into(),
+            (tex_size.w as f64, tex_size.h as f64).into(),
+        );
+        let border_px = border_px.max(0.0);
+        let uniforms = [
+            Uniform::new(
+                "node_color",
+                (
+                    border_color.r(),
+                    border_color.g(),
+                    border_color.b(),
+                    border_color.a(),
+                ),
+            ),
+            Uniform::new(
+                "fill_color",
+                (
+                    fill_color.r(),
+                    fill_color.g(),
+                    fill_color.b(),
+                    fill_color.a(),
+                ),
+            ),
+            Uniform::new("rect_size", (rect.size.w as f32, rect.size.h as f32)),
+            Uniform::new(
+                "inner_rect_size",
+                (
+                    (rect.size.w as f32 - border_px * 2.0).max(1.0),
+                    (rect.size.h as f32 - border_px * 2.0).max(1.0),
+                ),
+            ),
+            Uniform::new(
+                "inner_rect_offset",
+                (border_px.max(0.0), border_px.max(0.0)),
+            ),
+            Uniform::new("corner_radius", corner_radius),
+            Uniform::new("inner_corner_radius", (corner_radius - border_px).max(0.0)),
+            Uniform::new("border_px", border_px),
+        ];
+
+        frame.render_texture_from_to(
+            texture,
+            src,
+            rect,
+            &[damage],
+            &[],
+            Transform::Normal,
+            1.0,
+            Some(program),
+            &uniforms,
+        )?;
+        return Ok(());
+    }
+
+    draw_rect(
+        frame,
+        rect.loc.x,
+        rect.loc.y,
+        rect.size.w,
+        rect.size.h,
+        fill_color,
+        damage,
+    )?;
+    draw_rect_border(
+        frame,
+        rect,
+        border_px.round().max(0.0) as i32,
+        border_color,
+        damage,
+    )?;
+    Ok(())
 }
 
 fn screenshot_menu_modes() -> [CaptureMode; 3] {
@@ -108,40 +284,46 @@ fn draw_screenshot_menu(
     let background = screenshot_menu_background_color(overlay.tuning);
     let highlight = screenshot_menu_highlight_color(overlay.tuning);
     let item_fill = screenshot_menu_item_fill_color(overlay.tuning);
+    let style = resolve_screenshot_menu_style(overlay.tuning);
     let bar_rect = screenshot_menu_bar_rect(screen_w, screen_h);
-    draw_rect(
+    let shadow_rect_1 = Rectangle::<i32, Physical>::new(
+        (bar_rect.loc.x + 4, bar_rect.loc.y + 5).into(),
+        bar_rect.size,
+    );
+    let shadow_rect_2 = Rectangle::<i32, Physical>::new(
+        (bar_rect.loc.x + 2, bar_rect.loc.y + 2).into(),
+        bar_rect.size,
+    );
+    draw_screenshot_menu_chip(
         frame,
-        bar_rect.loc.x + 4,
-        bar_rect.loc.y + 5,
-        bar_rect.size.w,
-        bar_rect.size.h,
+        overlay.render_state,
+        shadow_rect_1,
+        style.rounded,
+        style.bar_corner_radius,
+        0.0,
         SHADOW_COLOR_1,
+        Color32F::new(0.0, 0.0, 0.0, 0.0),
         damage,
     )?;
-    draw_rect(
+    draw_screenshot_menu_chip(
         frame,
-        bar_rect.loc.x + 2,
-        bar_rect.loc.y + 2,
-        bar_rect.size.w,
-        bar_rect.size.h,
+        overlay.render_state,
+        shadow_rect_2,
+        style.rounded,
+        style.bar_corner_radius,
+        0.0,
         SHADOW_COLOR_2,
+        Color32F::new(0.0, 0.0, 0.0, 0.0),
         damage,
     )?;
-    draw_rect(
+    draw_screenshot_menu_chip(
         frame,
-        bar_rect.loc.x,
-        bar_rect.loc.y,
-        bar_rect.size.w,
-        bar_rect.size.h,
+        overlay.render_state,
+        bar_rect,
+        style.rounded,
+        style.bar_corner_radius,
+        style.border_px,
         color32f(background, 0.96),
-        damage,
-    )?;
-    draw_outline_rect(
-        frame,
-        bar_rect.loc.x,
-        bar_rect.loc.y,
-        bar_rect.size.w,
-        bar_rect.size.h,
         color32f(highlight, ACTIVE_BORDER_ALPHA),
         damage,
     )?;
@@ -158,21 +340,18 @@ fn draw_screenshot_menu(
         } else {
             color32f(highlight, INACTIVE_BORDER_ALPHA)
         };
-        draw_rect(
+        let item_rect = Rectangle::<i32, Physical>::new(
+            (rect.loc.x + MENU_PAD, rect.loc.y + MENU_PAD).into(),
+            (rect.size.w - MENU_PAD * 2, rect.size.h - MENU_PAD * 2).into(),
+        );
+        draw_screenshot_menu_chip(
             frame,
-            rect.loc.x + MENU_PAD,
-            rect.loc.y + MENU_PAD,
-            rect.size.w - MENU_PAD * 2,
-            rect.size.h - MENU_PAD * 2,
+            overlay.render_state,
+            item_rect,
+            style.rounded,
+            style.item_corner_radius,
+            style.border_px,
             fill,
-            damage,
-        )?;
-        draw_outline_rect(
-            frame,
-            rect.loc.x + MENU_PAD,
-            rect.loc.y + MENU_PAD,
-            rect.size.w - MENU_PAD * 2,
-            rect.size.h - MENU_PAD * 2,
             border,
             damage,
         )?;
@@ -203,6 +382,38 @@ fn draw_screenshot_menu(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use halley_config::{OverlayShape, RuntimeTuning};
+
+    use super::{MENU_BAR_CORNER_RADIUS, MENU_ITEM_CORNER_RADIUS, resolve_screenshot_menu_style};
+
+    #[test]
+    fn screenshot_menu_style_follows_overlay_shape_and_border_size() {
+        let mut tuning = RuntimeTuning::default();
+        tuning.border_size_px = 6;
+        tuning.overlay_style.shape = OverlayShape::Rounded;
+        tuning.overlay_style.borders = true;
+
+        let style = resolve_screenshot_menu_style(&tuning);
+
+        assert!(style.rounded);
+        assert_eq!(style.border_px, 6.0);
+        assert_eq!(style.bar_corner_radius, MENU_BAR_CORNER_RADIUS);
+        assert_eq!(style.item_corner_radius, MENU_ITEM_CORNER_RADIUS);
+
+        tuning.overlay_style.shape = OverlayShape::Square;
+        tuning.overlay_style.borders = false;
+
+        let style = resolve_screenshot_menu_style(&tuning);
+
+        assert!(!style.rounded);
+        assert_eq!(style.border_px, 0.0);
+        assert_eq!(style.bar_corner_radius, 0.0);
+        assert_eq!(style.item_corner_radius, 0.0);
+    }
 }
 
 fn color32f(color: halley_config::DecorationBorderColor, alpha: f32) -> Color32F {
@@ -456,6 +667,9 @@ pub(crate) fn draw_screenshot_overlay(
     };
 
     if session.mode == CaptureMode::Menu {
+        if overlay.monitor_state.current_monitor != session.monitor {
+            return Ok(());
+        }
         return draw_screenshot_menu(frame, &*st, &overlay, screen_w, screen_h, damage);
     }
 

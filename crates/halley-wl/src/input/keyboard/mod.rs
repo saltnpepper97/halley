@@ -203,7 +203,11 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
                 .is_some_and(|session| session.mode == halley_ipc::CaptureMode::Menu);
             if Some(code) == escape {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                let _ = st.cancel_screenshot_session();
+                if menu_mode {
+                    let _ = st.cancel_screenshot_session();
+                } else {
+                    let _ = st.return_screenshot_session_to_menu();
+                }
                 ctx.backend.request_redraw();
             } else if Some(code) == enter {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);

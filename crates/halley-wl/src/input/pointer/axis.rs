@@ -88,8 +88,10 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                 if let Some(v120) = amount_v120_vertical {
                     frame = frame.v120(Axis::Vertical, v120.round() as i32);
                 }
-                let horizontal_value = amount_horizontal.or_else(|| amount_v120_horizontal.map(|v| v / 8.0));
-                let vertical_value = amount_vertical.or_else(|| amount_v120_vertical.map(|v| v / 8.0));
+                let horizontal_value =
+                    amount_horizontal.or_else(|| amount_v120_horizontal.map(|v| v / 8.0));
+                let vertical_value =
+                    amount_vertical.or_else(|| amount_v120_vertical.map(|v| v / 8.0));
                 if let Some(v) = horizontal_value {
                     frame = frame.value(Axis::Horizontal, v);
                 }
@@ -197,14 +199,15 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             && let Some(focus) =
                 pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)
         {
-            let location = if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0)
-                || crate::protocol::wayland::session_lock::is_session_lock_surface(st, &focus.0)
-            {
-                (sx as f64, sy as f64).into()
-            } else {
-                let cam_scale = st.camera_render_scale() as f64;
-                (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
-            };
+            let location =
+                if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0)
+                    || crate::protocol::wayland::session_lock::is_session_lock_surface(st, &focus.0)
+                {
+                    (sx as f64, sy as f64).into()
+                } else {
+                    let cam_scale = st.camera_render_scale() as f64;
+                    (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
+                };
             pointer.motion(
                 st,
                 Some(focus),

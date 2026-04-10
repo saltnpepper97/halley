@@ -1046,19 +1046,20 @@ fn collect_debug_frame_scene(
     now: Instant,
 ) -> SceneCollections {
     if crate::protocol::wayland::session_lock::session_lock_active(st) {
-        let session_lock_elements = crate::protocol::wayland::session_lock::current_monitor_surfaces(st)
-            .into_iter()
-            .flat_map(|surface| {
-                render_elements_from_surface_tree(
-                    renderer,
-                    &surface,
-                    (0, 0),
-                    1.0,
-                    1.0,
-                    Kind::Unspecified,
-                )
-            })
-            .collect();
+        let session_lock_elements =
+            crate::protocol::wayland::session_lock::current_monitor_surfaces(st)
+                .into_iter()
+                .flat_map(|surface| {
+                    render_elements_from_surface_tree(
+                        renderer,
+                        &surface,
+                        (0, 0),
+                        1.0,
+                        1.0,
+                        Kind::Unspecified,
+                    )
+                })
+                .collect();
         return SceneCollections {
             session_lock_elements,
             layer_background_elements: Vec::new(),
@@ -1263,7 +1264,8 @@ fn draw_debug_frame_scene(
 ) -> Result<(), Box<dyn Error>> {
     if crate::protocol::wayland::session_lock::session_lock_active(st) {
         if !scene.session_lock_elements.is_empty() {
-            let _ = draw_render_elements(frame, 1.0, &scene.session_lock_elements, &[prepared.damage]);
+            let _ =
+                draw_render_elements(frame, 1.0, &scene.session_lock_elements, &[prepared.damage]);
         }
         return Ok(());
     }
