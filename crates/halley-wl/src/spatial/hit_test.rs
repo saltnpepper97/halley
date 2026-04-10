@@ -73,7 +73,11 @@ pub(crate) fn pick_hit_node_at(
             halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
                 let (cx, cy) = world_to_screen(st, w, h, n.pos.x, n.pos.y);
                 let (dot_half, _, _, _) = node_marker_metrics(st, n.label.len(), anim.scale);
-                let radius = (dot_half + 10).max(1) as f32;
+                let radius = if n.state == halley_core::field::NodeState::Core {
+                    34.0
+                } else {
+                    (dot_half as f32 * 1.5).round().max(1.0)
+                };
                 let dx = sx - cx as f32;
                 let dy = sy - cy as f32;
                 if dx * dx + dy * dy <= radius * radius {
