@@ -1775,48 +1775,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
 
-                    if tty_animation_redraw_active(
-                        st,
-                        &outputs_for_timer,
-                        &pointer_state_for_timer,
-                        now,
-                    ) {
-                        let due_animation_outputs: HashSet<String> = due_outputs
-                            .iter()
-                            .filter(|output_name| {
-                                tty_output_animation_redraw_active(
-                                    st,
-                                    &pointer_state_for_timer,
-                                    output_name.as_str(),
-                                    now,
-                                )
-                            })
-                            .cloned()
-                            .collect();
-                        if !due_animation_outputs.is_empty()
-                            && !output_frame_pending_for_dpms_timer
-                                .borrow()
-                                .values()
-                                .copied()
-                                .any(|pending| pending)
-                        {
-                            advance_tty_redraw_frame(st, &pointer_state_for_timer, now, false);
-                            queue_ready_tty_outputs(
-                                &outputs_for_timer,
-                                &dpms_enabled_for_timer,
-                                &output_frame_pending,
-                                &output_animation_redraw_active,
-                                &pointer_state_for_timer,
-                                &renderer_for_timer,
-                                &first_frame_queued_for_timer,
-                                st,
-                                now,
-                                resize_preview,
-                                Some(&due_animation_outputs),
-                                "timer",
-                            );
-                        }
-                    } else if !due_outputs.is_empty() {
+                    if !due_outputs.is_empty() {
+                        // Keep the redraw-ping path biased toward animation-active outputs, but
+                        // let the timer continue servicing every due output. Otherwise local
+                        // zoom/pan on one monitor can starve unrelated outputs that still need
+                        // regular scanout, such as fullscreen video playback.
                         advance_tty_redraw_frame(st, &pointer_state_for_timer, now, false);
                         queue_ready_tty_outputs(
                             &outputs_for_timer,
