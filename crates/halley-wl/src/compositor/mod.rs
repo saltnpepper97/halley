@@ -10,6 +10,7 @@ pub mod overlap;
 pub mod platform;
 pub mod root;
 pub mod runtime;
+pub mod screenshot;
 pub mod spawn;
 pub mod surface_ops;
 pub mod workspace;

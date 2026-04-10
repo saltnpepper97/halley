@@ -826,6 +826,77 @@ pub(crate) fn capture_closing_window_animation(
     Some((border_rect, vec![offscreen]))
 }
 
+pub(crate) fn prewarm_visible_active_window_offscreen_caches(
+    renderer: &mut GlesRenderer,
+    st: &mut Halley,
+    now: Instant,
+) {
+    let mut wl_surfaces: Vec<_> = st
+        .platform
+        .xdg_shell_state
+        .toplevel_surfaces()
+        .iter()
+        .filter_map(|toplevel| {
+            let wl = toplevel.wl_surface().clone();
+            let node_id = st.model.surface_to_node.get(&wl.id()).copied()?;
+            Some((node_id, wl))
+        })
+        .collect();
+
+    wl_surfaces.sort_by_key(|(id, _)| std::cmp::Reverse(id.as_u64()));
+
+    for (node_id, wl) in wl_surfaces {
+        let bbox = sync_node_size_from_surface(st, node_id, &wl);
+        let Some(node) = st.model.field.node(node_id) else {
+            continue;
+        };
+        if node.state != halley_core::field::NodeState::Active
+            || !st.model.field.is_visible(node_id)
+            || !st.node_visible_on_current_monitor(node_id)
+        {
+            continue;
+        }
+
+        let cache_missing = st
+            .ui
+            .render_state
+            .window_offscreen_cache
+            .get(&node_id)
+            .is_none_or(|cache| {
+                !cache.matches_size(bbox.size.w, bbox.size.h)
+                    || cache.texture.is_none()
+                    || cache.bbox.is_none()
+                    || !cache.has_content
+            });
+        if !cache_missing {
+            continue;
+        }
+
+        let cache = st.ui.render_state.ensure_window_offscreen_cache(
+            node_id,
+            bbox.size.w,
+            bbox.size.h,
+            now,
+        );
+        if !cache.dirty && cache.texture.is_some() && cache.bbox.is_some() && cache.has_content {
+            continue;
+        }
+
+        if let Ok(offscreen) = render_surface_tree_to_texture(renderer, &wl, 1.0, None) {
+            let cache = st
+                .ui
+                .render_state
+                .window_offscreen_cache
+                .get_mut(&node_id)
+                .expect("offscreen cache should exist after prewarm ensure");
+            cache.texture = Some(offscreen.texture);
+            cache.bbox = Some(offscreen.bbox);
+            cache.has_content = offscreen.has_content;
+            cache.mark_clean(now);
+        }
+    }
+}
+
 #[allow(clippy::type_complexity)]
 pub(crate) fn collect_active_surfaces(
     renderer: &mut GlesRenderer,

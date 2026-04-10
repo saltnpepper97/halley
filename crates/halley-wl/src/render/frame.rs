@@ -41,7 +41,7 @@ use super::text::ensure_ui_text_resources;
 use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 use super::window::{
     ActiveBorderRect, CroppedClippedSurfaceElement, OffscreenNodeTexture, StackWindowDrawUnit,
-    collect_active_surfaces,
+    collect_active_surfaces, prewarm_visible_active_window_offscreen_caches,
 };
 use crate::animation::AnimStyle;
 use crate::compositor::interaction::ResizeCtx;
@@ -953,6 +953,7 @@ pub(crate) fn draw_debug_frame_to_target(
     ensure_surface_clip_program(renderer, st);
 
     let prepared = prepare_debug_frame_state(st, size);
+    prewarm_visible_active_window_offscreen_caches(renderer, st, prepared.now);
     let scene = collect_debug_frame_scene(
         renderer,
         st,

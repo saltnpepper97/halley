@@ -30,8 +30,15 @@ use smithay::backend::input::{
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 const OUTPUT_RESCAN_POLL_MS: u64 = 750;
+const VBLANK_MISMATCH_LOG_AFTER_MS: u64 = 1_000;
 
 const HALLEY_X11_DISPLAY_NUM: u32 = 0;
+
+#[derive(Clone, Debug, Default)]
+struct VBlankMismatchState {
+    first_seen_at: Option<Instant>,
+    reported_active: bool,
+}
 
 fn queue_ready_tty_outputs(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
@@ -1021,8 +1028,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let scanout_signature = Rc::new(RefCell::new(current_tty_output_signature(
                 &outputs.borrow(),
             )));
-            let warned_vblank_mismatch = Rc::new(RefCell::new(false));
-            let warned_vblank_mismatch_for_notifier = warned_vblank_mismatch.clone();
+            let vblank_mismatch_state = Rc::new(RefCell::new(VBlankMismatchState::default()));
+            let vblank_mismatch_state_for_notifier = vblank_mismatch_state.clone();
             let output_frame_pending_for_notifier = output_frame_pending.clone();
             let output_frame_pending_for_dpms_input = output_frame_pending.clone();
             let output_frame_pending_for_dpms_timer = output_frame_pending.clone();
@@ -1151,35 +1158,44 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 .cloned()
                                 .collect();
 
-                            if !recoverable_outputs.is_empty() {
-                                if !*warned_vblank_mismatch_for_notifier.borrow() {
+                            let mut mismatch_state =
+                                vblank_mismatch_state_for_notifier.borrow_mut();
+                            let active_for = mismatch_state
+                                .first_seen_at
+                                .get_or_insert(timestamp)
+                                .elapsed();
+                            if active_for
+                                >= Duration::from_millis(VBLANK_MISMATCH_LOG_AFTER_MS)
+                                && !mismatch_state.reported_active
+                            {
+                                if !recoverable_outputs.is_empty() {
                                     debug!(
                                         "drm vblank crtc mismatch (got={:?}); releasing pending outputs {:?} to keep scanout advancing",
                                         crtc, recoverable_outputs
                                     );
-                                    *warned_vblank_mismatch_for_notifier.borrow_mut() = true;
-                                }
-                            } else if !pending_outputs.is_empty() {
-                                if !*warned_vblank_mismatch_for_notifier.borrow() {
+                                } else if !pending_outputs.is_empty() {
                                     debug!(
                                         "drm vblank crtc mismatch (got={:?}); keeping pending outputs {:?} blocked until they receive a real matched vblank",
                                         crtc, pending_outputs
                                     );
-                                    *warned_vblank_mismatch_for_notifier.borrow_mut() = true;
+                                } else {
+                                    debug!(
+                                        "drm vblank crtc mismatch (got={:?}); no configured output matched",
+                                        crtc
+                                    );
                                 }
-                            } else if !*warned_vblank_mismatch_for_notifier.borrow() {
-                                debug!(
-                                    "drm vblank crtc mismatch (got={:?}); no configured output matched",
-                                    crtc
-                                );
-                                *warned_vblank_mismatch_for_notifier.borrow_mut() = true;
+                                mismatch_state.reported_active = true;
                             }
-                        } else if *warned_vblank_mismatch_for_notifier.borrow() {
-                            debug!(
-                                "drm vblank crtc routing recovered on {:?} for {:?}",
-                                crtc, matched_outputs
-                            );
-                            *warned_vblank_mismatch_for_notifier.borrow_mut() = false;
+                        } else {
+                            let mut mismatch_state = vblank_mismatch_state_for_notifier.borrow_mut();
+                            if mismatch_state.reported_active {
+                                debug!(
+                                    "drm vblank crtc routing recovered on {:?} for {:?}",
+                                    crtc, matched_outputs
+                                );
+                            }
+                            mismatch_state.first_seen_at = None;
+                            mismatch_state.reported_active = false;
                         }
                     }
                     DrmEvent::Error(err) => warn!("drm event error: {}", err),
