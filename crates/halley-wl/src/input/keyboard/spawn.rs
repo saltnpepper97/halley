@@ -1,4 +1,7 @@
+use std::env;
+use std::ffi::OsStr;
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::Child;
 use std::process::Command;
 
@@ -6,6 +9,17 @@ use eventline::{debug, warn};
 use halley_config::CursorConfig;
 
 use crate::bootstrap::request_xwayland_start;
+
+const WAYLAND_TERMINAL_CANDIDATES: &[&str] = &[
+    "ghostty",
+    "kitty",
+    "footclient",
+    "foot",
+    "wezterm",
+    "alacritty",
+    "rio",
+    "contour",
+];
 
 fn apply_spawn_environment(
     cmd: &mut Command,
@@ -26,6 +40,26 @@ fn apply_spawn_environment(
     if let Some(token) = activation_token {
         cmd.env("XDG_ACTIVATION_TOKEN", token);
     }
+}
+
+fn command_exists_in_path(command: &str, path: Option<&OsStr>) -> bool {
+    path.is_some_and(|path| {
+        env::split_paths(path).any(|dir| {
+            let candidate = dir.join(command);
+            Path::new(candidate.as_path()).is_file()
+        })
+    })
+}
+
+fn resolve_first_available_terminal_in_path(path: Option<&OsStr>) -> Option<&'static str> {
+    WAYLAND_TERMINAL_CANDIDATES
+        .iter()
+        .copied()
+        .find(|command| command_exists_in_path(command, path))
+}
+
+pub(crate) fn resolve_first_available_terminal() -> Option<&'static str> {
+    resolve_first_available_terminal_in_path(env::var_os("PATH").as_deref())
 }
 
 pub(crate) fn spawn_command(
@@ -71,9 +105,38 @@ pub(crate) fn spawn_command(
     }
 }
 
+pub(crate) fn spawn_wayland_terminal(
+    wayland_display: &str,
+    cursor: &CursorConfig,
+    activation_token: Option<&str>,
+) -> Option<Child> {
+    let Some(command) = resolve_first_available_terminal() else {
+        warn!(
+            "open-terminal could not find a supported Wayland terminal in PATH ({})",
+            WAYLAND_TERMINAL_CANDIDATES.join(", ")
+        );
+        return None;
+    };
+
+    spawn_command(
+        command,
+        wayland_display,
+        cursor,
+        activation_token,
+        "terminal",
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::apply_spawn_environment;
+    use std::ffi::OsStr;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::{
+        WAYLAND_TERMINAL_CANDIDATES, apply_spawn_environment,
+        resolve_first_available_terminal_in_path,
+    };
     use halley_config::CursorConfig;
 
     #[test]
@@ -122,5 +185,41 @@ mod tests {
             .get_envs()
             .any(|(key, _)| key.to_string_lossy() == "XDG_ACTIVATION_TOKEN");
         assert!(!has_activation_token);
+    }
+
+    #[test]
+    fn terminal_resolver_returns_first_available_candidate() {
+        let base = std::env::temp_dir().join(format!(
+            "halley-terminal-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time should be after epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&base).expect("temp dir should be created");
+
+        for command in ["wezterm", "foot"] {
+            let path = base.join(command);
+            fs::write(&path, "#!/bin/sh\nexit 0\n").expect("stub executable should be written");
+            let mut perms = fs::metadata(&path)
+                .expect("stub executable metadata")
+                .permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&path, perms).expect("stub executable permissions");
+        }
+
+        let resolved = resolve_first_available_terminal_in_path(Some(base.as_os_str()));
+        assert_eq!(resolved, Some("foot"));
+
+        fs::remove_dir_all(base).expect("temp dir should be removed");
+    }
+
+    #[test]
+    fn terminal_resolver_returns_none_when_no_candidates_exist() {
+        let resolved =
+            resolve_first_available_terminal_in_path(Some(OsStr::new("/definitely/not/here")));
+        assert_eq!(resolved, None);
+        assert!(!WAYLAND_TERMINAL_CANDIDATES.is_empty());
     }
 }

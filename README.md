@@ -113,7 +113,7 @@ Defaults follow `examples/halley.rune`.
 | Bearings | `Super+Shift+z` | Toggle bearings |
 | Trail | `Super+Shift+,` | Trail previous |
 | Trail | `Super+Shift+.` | Trail next |
-| Launch | `Super+Return` | Launch `kitty` |
+| Launch | `Super+Return` | Open terminal |
 | Launch | `Super+d` | Launch `fuzzel` |
 | Pointer | `Super+LeftMouse` | Move window |
 | Pointer | `Super+RightMouse` | Resize window |

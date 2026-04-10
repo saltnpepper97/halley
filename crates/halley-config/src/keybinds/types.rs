@@ -99,6 +99,7 @@ pub enum BearingsBindingAction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CompositorBindingAction {
     Reload,
+    OpenTerminal,
     ToggleState,
     CloseFocusedWindow,
     ClusterMode,

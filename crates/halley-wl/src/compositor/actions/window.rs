@@ -269,28 +269,22 @@ pub(crate) fn toggle_node_state(
 
     match n.state {
         halley_core::field::NodeState::Active => {
-            crate::compositor::workspace::state::start_active_to_node_close_animation(st, id, now);
-            let _ = st
-                .model
-                .field
-                .set_state(id, halley_core::field::NodeState::Node);
-            let _ = st
-                .model
-                .field
-                .set_decay_level(id, halley_core::decay::DecayLevel::Cold);
-            st.model
-                .spawn_state
-                .pending_spawn_activate_at_ms
-                .remove(&id);
-            st.model.workspace_state.manual_collapsed_nodes.insert(id);
-
-            st.set_interaction_focus(None, 0, now);
-            st.model.focus_state.pan_restore_active_focus = None;
+            if crate::compositor::workspace::state::start_active_to_node_close_animation(
+                st, id, now,
+            ) {
+                let _ = crate::compositor::workspace::state::finish_manual_collapse(st, id, now);
+            } else {
+                crate::compositor::workspace::state::queue_pending_manual_collapse(st, id, now);
+            }
             true
         }
 
         halley_core::field::NodeState::Node => {
             st.model.workspace_state.manual_collapsed_nodes.remove(&id);
+            st.model
+                .workspace_state
+                .pending_manual_collapses
+                .remove(&id);
             let _ = st
                 .model
                 .field

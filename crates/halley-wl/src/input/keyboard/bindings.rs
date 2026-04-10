@@ -34,6 +34,22 @@ fn spawn_launch_binding(st: &mut Halley, command: &str, wayland_display: &str) -
     }
 }
 
+fn spawn_open_terminal_binding(st: &mut Halley, wayland_display: &str) -> bool {
+    let activation_token =
+        crate::protocol::wayland::activation::issue_external_token(st, st.now_ms(Instant::now()));
+    match super::spawn::spawn_wayland_terminal(
+        wayland_display,
+        &st.runtime.tuning.cursor,
+        Some(activation_token.as_str()),
+    ) {
+        Some(child) => {
+            st.runtime.spawned_children.push(child);
+            true
+        }
+        None => false,
+    }
+}
+
 pub(crate) fn input_matches_binding(actual: u32, binding_key: u32) -> bool {
     if is_pointer_button_code(binding_key) || is_wheel_code(binding_key) {
         actual == binding_key
@@ -162,6 +178,7 @@ pub(crate) fn apply_compositor_action_press(
             }
             true
         }
+        CompositorBindingAction::OpenTerminal => spawn_open_terminal_binding(st, wayland_display),
         CompositorBindingAction::ToggleState => {
             if st.has_active_cluster_workspace() {
                 st.collapse_active_cluster_workspace(std::time::Instant::now())
@@ -304,6 +321,7 @@ pub(crate) fn apply_bound_key(
         return match action {
             CompositorBindingAction::Node(NodeBindingAction::Move(_))
             | CompositorBindingAction::Reload
+            | CompositorBindingAction::OpenTerminal
             | CompositorBindingAction::ToggleState
             | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::ClusterMode
@@ -387,6 +405,9 @@ mod tests {
         ));
         assert!(!compositor_action_allows_repeat(
             CompositorBindingAction::ToggleState
+        ));
+        assert!(!compositor_action_allows_repeat(
+            CompositorBindingAction::OpenTerminal
         ));
     }
 }

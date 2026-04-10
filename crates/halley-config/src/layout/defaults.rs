@@ -153,6 +153,12 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
         CompositorBinding {
             scope: CompositorBindingScope::Global,
             modifiers: modifier,
+            key: key("return"),
+            action: CompositorBindingAction::OpenTerminal,
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
             key: key("n"),
             action: CompositorBindingAction::ToggleState,
         },

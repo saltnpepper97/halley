@@ -23,14 +23,6 @@ use smithay::{
     utils::{Buffer, Physical, Rectangle, Size, Transform},
 };
 
-use crate::animation::AnimStyle;
-use crate::compositor::interaction::ResizeCtx;
-use crate::compositor::root::Halley;
-use crate::overlay::{
-    OverlayView, draw_cluster_bloom, draw_cluster_overflow_promotion, draw_cluster_overflow_strip,
-    draw_cluster_selection_markers, draw_monitor_hud, draw_overlay_hover_label,
-    ensure_cluster_bloom_icon_resources,
-};
 use super::app_icon::{ensure_app_icon_resources_for_node_ids, ensure_node_app_icon_resources};
 use super::bearings::BearingChipLayout;
 use super::bearings::{collect_bearing_layouts, draw_bearings, ensure_bearing_icon_resources};
@@ -50,6 +42,14 @@ use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 use super::window::{
     ActiveBorderRect, CroppedClippedSurfaceElement, OffscreenNodeTexture, StackWindowDrawUnit,
     collect_active_surfaces,
+};
+use crate::animation::AnimStyle;
+use crate::compositor::interaction::ResizeCtx;
+use crate::compositor::root::Halley;
+use crate::overlay::{
+    OverlayView, draw_cluster_bloom, draw_cluster_overflow_promotion, draw_cluster_overflow_strip,
+    draw_cluster_selection_markers, draw_monitor_hud, draw_overlay_hover_label,
+    ensure_cluster_bloom_icon_resources,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -979,6 +979,11 @@ pub(crate) fn draw_debug_frame_to_target(
     )?;
 
     let _ = frame.finish()?;
+    crate::compositor::workspace::state::process_pending_manual_collapses_for_monitor(
+        st,
+        current_monitor.as_str(),
+        prepared.now,
+    );
     Ok(())
 }
 

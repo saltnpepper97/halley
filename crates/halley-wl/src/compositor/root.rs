@@ -565,6 +565,7 @@ impl Halley {
                 workspace_state: WorkspaceState {
                     last_active_size: HashMap::new(),
                     manual_collapsed_nodes: HashSet::new(),
+                    pending_manual_collapses: HashMap::new(),
                     active_transition_until_ms: HashMap::new(),
                     primary_promote_cooldown_until_ms: HashMap::new(),
                 },

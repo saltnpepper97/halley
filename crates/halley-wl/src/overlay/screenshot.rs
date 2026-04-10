@@ -3,7 +3,7 @@ use std::error::Error;
 use halley_capit::CaptureCrop;
 use halley_ipc::CaptureMode;
 use smithay::{
-    backend::renderer::{gles::GlesFrame, Color32F},
+    backend::renderer::{Color32F, gles::GlesFrame},
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
@@ -343,84 +343,6 @@ fn draw_screenshot_selection_overlay(
                 )?;
             }
 
-            let mostly_visible = sel.x >= -20
-                && sel.y >= -20
-                && sel.x + sel.w <= screen_w + 20
-                && sel.y + sel.h <= screen_h + 20;
-            if mostly_visible {
-                draw_rect(
-                    frame,
-                    sel.x + 2,
-                    sel.y + 2,
-                    sel.w,
-                    BORDER_THICKNESS + 2,
-                    SHADOW_COLOR_2,
-                    damage,
-                )?;
-                draw_rect(
-                    frame,
-                    sel.x + 2,
-                    sel.y + sel.h - BORDER_THICKNESS,
-                    sel.w,
-                    BORDER_THICKNESS + 2,
-                    SHADOW_COLOR_2,
-                    damage,
-                )?;
-                draw_rect(
-                    frame,
-                    sel.x + 2,
-                    sel.y + 2,
-                    BORDER_THICKNESS + 2,
-                    sel.h,
-                    SHADOW_COLOR_2,
-                    damage,
-                )?;
-                draw_rect(
-                    frame,
-                    sel.x + sel.w - BORDER_THICKNESS,
-                    sel.y + 2,
-                    BORDER_THICKNESS + 2,
-                    sel.h,
-                    SHADOW_COLOR_2,
-                    damage,
-                )?;
-                draw_rect(
-                    frame,
-                    sel.x + 1,
-                    sel.y + 1,
-                    sel.w,
-                    BORDER_THICKNESS + 1,
-                    SHADOW_COLOR_1,
-                    damage,
-                )?;
-                draw_rect(
-                    frame,
-                    sel.x + 1,
-                    sel.y + sel.h - BORDER_THICKNESS,
-                    sel.w,
-                    BORDER_THICKNESS + 1,
-                    SHADOW_COLOR_1,
-                    damage,
-                )?;
-                draw_rect(
-                    frame,
-                    sel.x + 1,
-                    sel.y + 1,
-                    BORDER_THICKNESS + 1,
-                    sel.h,
-                    SHADOW_COLOR_1,
-                    damage,
-                )?;
-                draw_rect(
-                    frame,
-                    sel.x + sel.w - BORDER_THICKNESS,
-                    sel.y + 1,
-                    BORDER_THICKNESS + 1,
-                    sel.h,
-                    SHADOW_COLOR_1,
-                    damage,
-                )?;
-            }
             draw_dashed_border(frame, sel, border_color, damage)?;
             draw_corner_handles(frame, sel, border_color, damage)?;
         } else {

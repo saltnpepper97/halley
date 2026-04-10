@@ -221,6 +221,15 @@ fn apply_explicit_binding(
                 CompositorBindingAction::Reload,
             );
         }
+        "open_terminal" | "open-terminal" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::OpenTerminal,
+            );
+        }
         "toggle_state" | "toggle-state" | "minimize_focused" | "minimize-focused" => {
             upsert_compositor_binding(
                 out,
@@ -705,6 +714,22 @@ end
                     == CompositorBindingAction::Stack(crate::keybinds::StackBindingAction::Cycle(
                         crate::keybinds::StackCycleDirection::Backward,
                     ))
+        }));
+    }
+
+    #[test]
+    fn open_terminal_keyword_parses_as_compositor_action() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+        out.launch_bindings.clear();
+
+        let bindings = vec![("mod+return".to_string(), "open-terminal".to_string())];
+        assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+
+        assert!(out.launch_bindings.is_empty());
+        assert!(out.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Global
+                && binding.action == CompositorBindingAction::OpenTerminal
         }));
     }
 }
