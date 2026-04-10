@@ -51,7 +51,7 @@ use crate::compositor::surface_ops::current_surface_size_for_node;
 use crate::input::pointer::resize::advance_resize_anim;
 use crate::input::{BackendInputEventData, handle_backend_input_event};
 use crate::protocol::wayland::ClientState;
-use crate::spatial::{node_in_active_area, node_in_active_area_for_monitor};
+use crate::spatial::node_in_active_area;
 
 pub(crate) mod interface;
 pub(crate) mod tty;
@@ -145,7 +145,13 @@ pub(crate) fn resolve_hover_targets_for_monitor(
     let preview_ready = hovered.is_some_and(|id| {
         ps.hover_started_at
             .is_some_and(|at| now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS)
-            && (overlay_hover == Some(id) || node_in_active_area_for_monitor(st, id, monitor))
+            && (overlay_hover == Some(id)
+                || st
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&id)
+                    .is_none_or(|node_monitor| node_monitor == monitor))
     });
     if preview_ready {
         (None, hovered)

@@ -3,7 +3,7 @@ use std::error::Error;
 use halley_capit::CaptureCrop;
 use halley_ipc::CaptureMode;
 use smithay::{
-    backend::renderer::{Color32F, gles::GlesFrame},
+    backend::renderer::{gles::GlesFrame, Color32F},
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
@@ -553,7 +553,6 @@ pub(crate) fn draw_screenshot_overlay(
         }
         CaptureMode::Screen => {
             let selected = overlay.monitor_state.current_monitor == session.monitor;
-            draw_rect(frame, 0, 0, screen_w, screen_h, SCREEN_DIM_COLOR, damage)?;
             if selected {
                 draw_outline_rect(
                     frame,
@@ -564,19 +563,33 @@ pub(crate) fn draw_screenshot_overlay(
                     screenshot_highlight,
                     damage,
                 )?;
+            } else {
+                draw_rect(frame, 0, 0, screen_w, screen_h, SCREEN_DIM_COLOR, damage)?;
             }
         }
         CaptureMode::Window => {
-            draw_screenshot_window_overlay(
-                frame,
-                session.selection_rect,
-                space.offset_x,
-                space.offset_y,
-                screen_w,
-                screen_h,
-                Color32F::new(0.0, 0.0, 0.0, 0.18),
-                damage,
-            )?;
+            if overlay.monitor_state.current_monitor == session.monitor {
+                draw_screenshot_window_overlay(
+                    frame,
+                    session.selection_rect,
+                    space.offset_x,
+                    space.offset_y,
+                    screen_w,
+                    screen_h,
+                    Color32F::new(0.0, 0.0, 0.0, 0.18),
+                    damage,
+                )?;
+            } else {
+                draw_rect(
+                    frame,
+                    0,
+                    0,
+                    screen_w,
+                    screen_h,
+                    Color32F::new(0.0, 0.0, 0.0, 0.18),
+                    damage,
+                )?;
+            }
         }
         CaptureMode::Menu => unreachable!(),
     }

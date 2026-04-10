@@ -31,8 +31,6 @@ use crate::overlay::{
     draw_cluster_selection_markers, draw_monitor_hud, draw_overlay_hover_label,
     ensure_cluster_bloom_icon_resources,
 };
-use crate::spatial::node_in_active_area_for_monitor;
-
 use super::app_icon::{ensure_app_icon_resources_for_node_ids, ensure_node_app_icon_resources};
 use super::bearings::BearingChipLayout;
 use super::bearings::{collect_bearing_layouts, draw_bearings, ensure_bearing_icon_resources};
@@ -1050,11 +1048,10 @@ fn collect_debug_frame_scene(
 
     let hovered_preview_id = preview_hover_node.and_then(|id| {
         st.model.field.node(id).and_then(|n| {
-            (node_in_active_area_for_monitor(st, id, render_monitor.as_str())
-                && matches!(
-                    n.state,
-                    halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
-                ))
+            matches!(
+                n.state,
+                halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+            )
             .then_some(id)
         })
     });
