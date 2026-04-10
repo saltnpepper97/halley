@@ -5,6 +5,7 @@ use smithay::backend::renderer::ImportMem;
 use smithay::backend::renderer::gles::GlesRenderer;
 
 use crate::compositor::root::Halley;
+use crate::render::icon_tint::tint_alpha_mask_image;
 use crate::render::state::{NodeAppIconTexture, ScreenshotMenuIconCache};
 
 const ICON_RASTER_PX: u32 = 48;
@@ -174,14 +175,6 @@ fn load_svg_raster(svg: &[u8], rgba: [u8; 4]) -> Option<RgbaImage> {
     let transform = tiny_skia::Transform::from_scale(scale, scale).post_translate(dx, dy);
     resvg::render(&tree, transform, &mut pixmap.as_mut());
     let mut image = RgbaImage::from_vec(ICON_RASTER_PX, ICON_RASTER_PX, pixmap.data().to_vec())?;
-    for pixel in image.pixels_mut() {
-        if pixel[3] == 0 {
-            continue;
-        }
-        pixel[0] = rgba[0];
-        pixel[1] = rgba[1];
-        pixel[2] = rgba[2];
-        pixel[3] = ((pixel[3] as u16 * rgba[3] as u16) / 255) as u8;
-    }
+    tint_alpha_mask_image(&mut image, rgba);
     Some(image)
 }

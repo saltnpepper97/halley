@@ -11,6 +11,7 @@ mod cluster_icon;
 mod cursor;
 mod cursor_theme;
 mod frame;
+mod icon_tint;
 pub mod layer_shell;
 mod node;
 mod offscreen;

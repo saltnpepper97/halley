@@ -5,6 +5,7 @@ use smithay::backend::renderer::ImportMem;
 use smithay::backend::renderer::gles::GlesRenderer;
 
 use crate::compositor::root::Halley;
+use crate::render::icon_tint::tint_alpha_mask_image;
 use crate::render::state::{ClusterCoreIconCache, NodeAppIconTexture};
 
 const CLUSTER_ICON_RASTER_PX: u32 = 64;
@@ -107,13 +108,5 @@ fn load_cluster_icon_raster(rgba: [u8; 4]) -> Option<RgbaImage> {
 }
 
 fn tint_cluster_icon(image: &mut RgbaImage, rgba: [u8; 4]) {
-    for pixel in image.pixels_mut() {
-        if pixel[3] == 0 {
-            continue;
-        }
-        pixel[0] = rgba[0];
-        pixel[1] = rgba[1];
-        pixel[2] = rgba[2];
-        pixel[3] = ((pixel[3] as u16 * rgba[3] as u16) / 255) as u8;
-    }
+    tint_alpha_mask_image(image, rgba);
 }
