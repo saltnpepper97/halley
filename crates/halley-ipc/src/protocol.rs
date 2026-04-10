@@ -132,6 +132,7 @@ pub enum CompositorRequest {
     Quit,
     Reload,
     Outputs,
+    ApertureStatus,
     Dpms {
         command: DpmsCommand,
         output: Option<String>,
@@ -202,6 +203,7 @@ pub enum Response {
     Ok,
     Reloaded,
     Outputs(OutputsResponse),
+    ApertureStatus(crate::types::ApertureStatusResponse),
     CaptureStatus(crate::types::CaptureStatusResponse),
     NodeList(NodeListResponse),
     NodeInfo(NodeInfo),

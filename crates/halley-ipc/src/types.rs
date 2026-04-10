@@ -5,6 +5,20 @@ pub struct OutputsResponse {
     pub outputs: Vec<OutputInfo>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApertureMode {
+    Normal,
+    Collapsed,
+    Hidden,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApertureStatusResponse {
+    pub output: Option<String>,
+    pub mode: ApertureMode,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputInfo {
     pub name: String,

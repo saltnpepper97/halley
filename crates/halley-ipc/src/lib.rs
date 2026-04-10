@@ -14,10 +14,11 @@ pub use protocol::{
     TrailDirection, TrailRequest, TrailTarget,
 };
 pub use types::{
-    BearingsStatusResponse, CaptureStatusResponse, ClusterInfo, ClusterLayoutKind,
-    ClusterListResponse, ClusterOutputGroup, ClusterSummary, LogicalOutputInfo, ModeInfo, NodeInfo,
-    NodeKind, NodeListResponse, NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo, NodeRole,
-    NodeState, OutputInfo, OutputStatus, OutputsResponse, TrailEntryInfo, TrailListResponse,
+    ApertureMode, ApertureStatusResponse, BearingsStatusResponse, CaptureStatusResponse,
+    ClusterInfo, ClusterLayoutKind, ClusterListResponse, ClusterOutputGroup, ClusterSummary,
+    LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup,
+    NodeProtocolFamily, NodeRelationInfo, NodeRole, NodeState, OutputInfo, OutputStatus,
+    OutputsResponse, TrailEntryInfo, TrailListResponse,
 };
 
 use std::env;

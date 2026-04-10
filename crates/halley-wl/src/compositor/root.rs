@@ -372,6 +372,7 @@ pub struct Halley {
     pub(crate) platform: PlatformState,
     pub(crate) model: ModelState,
     pub(crate) ui: UiState,
+    pub(crate) aperture: crate::aperture::ApertureState,
     pub(crate) input: InputState,
     pub(crate) portal: crate::protocol::wayland::portal::PortalState,
     pub(crate) runtime: RuntimeState,
@@ -402,6 +403,7 @@ impl Halley {
         tuning: RuntimeTuning,
     ) -> Self {
         let now = Instant::now();
+        let initial_aperture_config = halley_aperture::ApertureConfig::default();
         let mut monitors = HashMap::new();
         for viewport in tuning
             .tty_viewports
@@ -637,6 +639,7 @@ impl Halley {
                     window_offscreen_cache: HashMap::new(),
                 },
             },
+            aperture: crate::aperture::ApertureState::new(initial_aperture_config, now),
             input: InputState {
                 interaction_state: InteractionState {
                     reset_input_state_requested: false,
@@ -735,6 +738,29 @@ impl Halley {
             calloop::EventLoop::<Self>::try_new().expect("test event loop"),
         ));
         Self::new(dh, event_loop.handle(), tuning)
+    }
+
+    pub(crate) fn apply_aperture_config(&mut self, config: halley_aperture::ApertureConfig) {
+        self.aperture.apply_config(config);
+    }
+
+    pub(crate) fn aperture_config(&self) -> &halley_aperture::ApertureConfig {
+        self.aperture.config()
+    }
+
+    pub(crate) fn aperture_snapshot_for_mode<F>(
+        &self,
+        mode: halley_aperture::ApertureMode,
+        output_rect: halley_aperture::Rect,
+        work_area_rect: halley_aperture::Rect,
+        scale: f64,
+        measure_text: F,
+    ) -> Option<halley_aperture::ClockSnapshot>
+    where
+        F: FnMut(u32, &str) -> halley_aperture::Size,
+    {
+        self.aperture
+            .snapshot_for_mode(mode, output_rect, work_area_rect, scale, measure_text)
     }
 
     pub(crate) fn focus_ctx(&mut self) -> super::ctx::FocusCtx<'_> {

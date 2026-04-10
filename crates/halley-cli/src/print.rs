@@ -1,8 +1,8 @@
 use halley_ipc::{
-    CaptureStatusResponse, ClusterInfo, ClusterLayoutKind, ClusterListResponse, ClusterSummary,
-    IpcError, LogicalOutputInfo, NodeInfo, NodeListResponse, NodeProtocolFamily, NodeRelationInfo,
-    NodeRole, OutputInfo, OutputStatus, OutputsResponse, Response, TrailEntryInfo,
-    TrailListResponse,
+    ApertureStatusResponse, CaptureStatusResponse, ClusterInfo, ClusterLayoutKind,
+    ClusterListResponse, ClusterSummary, IpcError, LogicalOutputInfo, NodeInfo, NodeListResponse,
+    NodeProtocolFamily, NodeRelationInfo, NodeRole, OutputInfo, OutputStatus, OutputsResponse,
+    Response, TrailEntryInfo, TrailListResponse,
 };
 
 pub(crate) fn print_response(response: Response) -> Result<(), String> {
@@ -18,6 +18,14 @@ pub(crate) fn print_response(response: Response) -> Result<(), String> {
         Response::Outputs(outputs) => {
             print_outputs(outputs);
             Ok(())
+        }
+        Response::ApertureStatus(status) => {
+            if wants_json() {
+                print_json(&status)
+            } else {
+                print_aperture_status(&status);
+                Ok(())
+            }
         }
         Response::CaptureStatus(status) => {
             print_capture_status(&status);
@@ -69,6 +77,12 @@ pub(crate) fn print_response(response: Response) -> Result<(), String> {
         }
         Response::Error(err) => Err(format_ipc_error(&err)),
     }
+}
+
+fn print_aperture_status(status: &ApertureStatusResponse) {
+    let output = status.output.as_deref().unwrap_or("(default)");
+    println!("output: {output}");
+    println!("mode: {:?}", status.mode);
 }
 
 fn wants_json() -> bool {

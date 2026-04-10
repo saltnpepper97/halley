@@ -135,6 +135,8 @@ pub(crate) fn apply_compositor_action_press(
             true
         }
         CompositorBindingAction::Reload => {
+            let aperture_path = crate::aperture::default_aperture_config_path();
+            let _ = crate::aperture::reload_aperture_config(st, aperture_path.as_path(), "manual");
             if let Some(next) = RuntimeTuning::try_load_from_path(config_path) {
                 crate::bootstrap::apply_reloaded_tuning(
                     st,

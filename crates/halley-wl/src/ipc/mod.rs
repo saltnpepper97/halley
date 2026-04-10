@@ -36,6 +36,9 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Compositor(CompositorRequest::Outputs) => Response::Error(IpcError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
+        Request::Compositor(CompositorRequest::ApertureStatus) => {
+            Response::ApertureStatus(crate::aperture::aperture_status(st))
+        }
         Request::Compositor(CompositorRequest::Quit)
         | Request::Compositor(CompositorRequest::Reload)
         | Request::Compositor(CompositorRequest::Dpms { .. }) => Response::Error(
