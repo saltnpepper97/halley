@@ -84,7 +84,7 @@ Once inside, you leave the Field entirely. The cluster is its own contained spac
 | **Trail** | Recent-focus navigation — back and forward |
 | **Bearings** | Directional overlays and navigation cues |
 | **Jump / Field Jump** | Fast cross-monitor grabbed-window movement |
-| **IPC** | Unix socket control at `$XDG_RUNTIME_DIR/halley/hally.sock` |
+| **IPC** | Unix socket control at `$XDG_RUNTIME_DIR/halley/halley.sock` |
 | **Xwayland** | On-demand support via `xwayland-satellite` |
 
 ---
@@ -137,4 +137,3 @@ View the [contributing](CONTRIBUTING.md) guidelines before making any pull reque
 ## License
 
 **GPL-3.0-only**
-

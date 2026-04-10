@@ -13,8 +13,8 @@ use std::time::Duration;
 use crate::bootstrap::common::halley_runtime_dir;
 use eventline::{error, info, warn};
 use halley_ipc::{
-    IpcError, OutputInfo, OutputsResponse, Request, Response, decode_request, encode_response,
-    read_frame, write_frame,
+    decode_request, encode_response, read_frame, write_frame, IpcError, OutputInfo,
+    OutputsResponse, Request, Response,
 };
 
 #[derive(Debug)]
@@ -35,7 +35,7 @@ pub fn init_ipc() -> io::Result<()> {
         return Ok(());
     }
 
-    let socket_path = halley_runtime_dir()?.join("socket");
+    let socket_path = halley_runtime_dir()?.join("halley.sock");
     if let Some(parent) = socket_path.parent() {
         fs::create_dir_all(parent)?;
     }
