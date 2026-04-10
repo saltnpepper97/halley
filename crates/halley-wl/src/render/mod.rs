@@ -52,7 +52,10 @@ pub(crate) use frame::{
     monitor_overlay_requires_full_repaint, send_frame_callbacks, send_frame_callbacks_for_output,
     tick_animator_frame, tick_frame_effects, tick_live_overlap, tty_output_animation_redraw_state,
 };
-pub(crate) use screenshot_icon::screenshot_menu_icon_texture;
+pub(crate) use screenshot_icon::{
+    screenshot_menu_background_color, screenshot_menu_highlight_color,
+    screenshot_menu_icon_texture, screenshot_menu_item_fill_color,
+};
 pub(crate) use utils::preview_proxy_size;
 pub(crate) use utils::{node_marker_metrics, world_to_screen};
 pub(crate) use window::capture_closing_window_animation;

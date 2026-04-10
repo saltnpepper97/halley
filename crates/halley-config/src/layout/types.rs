@@ -141,6 +141,8 @@ impl Default for AnimationsConfig {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScreenshotConfig {
     pub directory: String,
+    pub highlight_color: OverlayColorMode,
+    pub background_color: OverlayColorMode,
 }
 
 impl Default for ScreenshotConfig {
@@ -148,6 +150,8 @@ impl Default for ScreenshotConfig {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         Self {
             directory: format!("{home}/Pictures/Screenshots"),
+            highlight_color: OverlayColorMode::Auto,
+            background_color: OverlayColorMode::Auto,
         }
     }
 }

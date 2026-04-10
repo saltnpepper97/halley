@@ -8,10 +8,13 @@ use smithay::{
 };
 
 use crate::compositor::root::Halley;
-use crate::render::screenshot_menu_icon_texture;
 use crate::render::utils::{draw_outline_rect, draw_rect, draw_ring};
+use crate::render::{
+    screenshot_menu_background_color, screenshot_menu_highlight_color,
+    screenshot_menu_icon_texture, screenshot_menu_item_fill_color,
+};
 
-use super::{OverlayView, resolve_overlay_visuals};
+use super::OverlayView;
 
 const BORDER_THICKNESS: i32 = 2;
 const HANDLE_SIZE: i32 = 12;
@@ -28,6 +31,8 @@ const MENU_BAR_H: i32 = 80;
 const MENU_SLOT_W: i32 = MENU_BAR_W / 3;
 const MENU_PAD: i32 = 10;
 const MENU_ICON_SIZE: i32 = 42;
+const ACTIVE_BORDER_ALPHA: f32 = 1.0;
+const INACTIVE_BORDER_ALPHA: f32 = 0.72;
 
 #[derive(Clone, Copy)]
 pub(crate) enum ScreenshotMenuHit {
@@ -93,7 +98,6 @@ fn draw_screenshot_menu(
     screen_h: i32,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let visuals = resolve_overlay_visuals(overlay.tuning);
     let (selected_idx, hovered_idx) = st
         .input
         .interaction_state
@@ -101,6 +105,9 @@ fn draw_screenshot_menu(
         .as_ref()
         .map(|s| (s.menu_selected, s.menu_hovered))
         .unwrap_or((0, None));
+    let background = screenshot_menu_background_color(overlay.tuning);
+    let highlight = screenshot_menu_highlight_color(overlay.tuning);
+    let item_fill = screenshot_menu_item_fill_color(overlay.tuning);
     let bar_rect = screenshot_menu_bar_rect(screen_w, screen_h);
     draw_rect(
         frame,
@@ -126,7 +133,7 @@ fn draw_screenshot_menu(
         bar_rect.loc.y,
         bar_rect.size.w,
         bar_rect.size.h,
-        visuals.palette.fill.alpha(0.96),
+        color32f(background, 0.96),
         damage,
     )?;
     draw_outline_rect(
@@ -135,21 +142,21 @@ fn draw_screenshot_menu(
         bar_rect.loc.y,
         bar_rect.size.w,
         bar_rect.size.h,
-        visuals.palette.border.alpha(0.72),
+        color32f(highlight, ACTIVE_BORDER_ALPHA),
         damage,
     )?;
     for (idx, mode) in screenshot_menu_modes().into_iter().enumerate() {
         let rect = screenshot_menu_rect(idx, screen_w, screen_h);
         let active = hovered_idx == Some(idx) || selected_idx == idx;
         let fill = if active {
-            visuals.palette.fill.alpha(0.96)
+            color32f(background, 0.96)
         } else {
-            visuals.palette.key_fill.alpha(0.94)
+            color32f(item_fill, 0.94)
         };
         let border = if active {
-            visuals.palette.border.alpha(0.98)
+            color32f(highlight, ACTIVE_BORDER_ALPHA)
         } else {
-            visuals.palette.border.alpha(0.40)
+            color32f(highlight, INACTIVE_BORDER_ALPHA)
         };
         draw_rect(
             frame,
@@ -196,6 +203,10 @@ fn draw_screenshot_menu(
         }
     }
     Ok(())
+}
+
+fn color32f(color: halley_config::DecorationBorderColor, alpha: f32) -> Color32F {
+    Color32F::new(color.r, color.g, color.b, alpha)
 }
 
 fn to_local_rect(crop: CaptureCrop, offset_x: i32, offset_y: i32) -> RectLocal {
@@ -510,7 +521,10 @@ pub(crate) fn draw_screenshot_overlay(
         return Ok(());
     };
     let overlay = OverlayView::from_halley(st);
-    let visuals = resolve_overlay_visuals(overlay.tuning);
+    let screenshot_highlight = color32f(
+        screenshot_menu_highlight_color(overlay.tuning),
+        ACTIVE_BORDER_ALPHA,
+    );
     let Some(space) = overlay
         .monitor_state
         .monitors
@@ -532,7 +546,7 @@ pub(crate) fn draw_screenshot_overlay(
                 space.offset_y,
                 screen_w,
                 screen_h,
-                visuals.palette.border.alpha(0.98),
+                screenshot_highlight,
                 DIM_COLOR,
                 damage,
             )?;
@@ -547,7 +561,7 @@ pub(crate) fn draw_screenshot_overlay(
                     0,
                     screen_w,
                     screen_h,
-                    visuals.palette.border.alpha(0.98),
+                    screenshot_highlight,
                     damage,
                 )?;
             }

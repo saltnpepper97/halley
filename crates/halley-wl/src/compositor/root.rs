@@ -1,13 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use calloop::LoopHandle;
-use halley_capit::{
-    CaptureCrop, capture_desktop_to_temp_file, default_output_path_in, save_cropped_png,
-};
+use halley_capit::{CaptureCrop, capture_crop_to_png, default_output_path_in};
 use halley_config::RuntimeTuning;
 use halley_core::cluster_policy::ClusterFormationState;
 use halley_core::field::{Field, NodeId, Vec2};
@@ -2276,14 +2273,8 @@ impl Halley {
                 let output_path = pending.output_path.clone();
                 let crop = pending.crop;
                 std::thread::spawn(move || {
-                    let result =
-                        capture_desktop_to_temp_file(output_path.as_path()).and_then(|tmp| {
-                            let save_result =
-                                save_cropped_png(tmp.as_path(), output_path.as_path(), crop)
-                                    .map(|_| output_path.clone());
-                            let _ = fs::remove_file(tmp);
-                            save_result
-                        });
+                    let result = capture_crop_to_png(output_path.as_path(), crop)
+                        .map(|_| output_path.clone());
                     let _ = tx.send(result);
                 });
                 self.input.interaction_state.inflight_screenshot_capture = Some(

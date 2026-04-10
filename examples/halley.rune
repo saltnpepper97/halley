@@ -167,12 +167,6 @@ animations:
     duration-ms 90  # catch-up / settle time; lower = tighter, higher = softer lag
   end
 
-  window-close:
-    enabled true
-    duration-ms 270
-    style "shrink"
-  end
-
   window-open:
     enabled true
     duration-ms 620
@@ -180,7 +174,7 @@ animations:
 
   window-close:
     enabled true
-    duration-ms 250
+    duration-ms 270
     style "shrink"
   end
 
@@ -252,7 +246,7 @@ keybinds:
   "$var.mod+." "trail-next"
 
   # applications
-  "$var.mod+return" "kitty"
+  "$var.mod+return" "open-terminal"
   "$var.mod+d" "fuzzel"
 
   "$var.mod+leftmouse" "move-window"
