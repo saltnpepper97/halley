@@ -3,15 +3,15 @@ use std::rc::Rc;
 
 use smithay::{
     desktop::PopupManager,
-    input::{Seat, SeatState, pointer::CursorImageStatus},
+    input::{pointer::CursorImageStatus, Seat, SeatState},
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode,
         wayland_server::{
-            DisplayHandle, Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
+            backend::ObjectId, protocol::wl_surface::WlSurface, DisplayHandle, Resource,
         },
     },
     wayland::{
-        compositor::{CompositorState, add_blocker, with_states},
+        compositor::{add_blocker, with_states, CompositorState},
         cursor_shape::CursorShapeManagerState,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjState},
@@ -24,7 +24,7 @@ use smithay::{
             wlr_data_control::DataControlState,
         },
         shell::wlr_layer::WlrLayerShellState,
-        shell::xdg::{ToplevelState, XdgShellState, decoration::XdgDecorationState},
+        shell::xdg::{decoration::XdgDecorationState, ToplevelState, XdgShellState},
         shm::ShmState,
         viewporter::ViewporterState,
         xdg_activation::XdgActivationState,
@@ -70,6 +70,7 @@ pub(crate) struct PlatformState {
     pub(crate) data_device_state: DataDeviceState,
     pub(crate) primary_selection_state: PrimarySelectionState,
     pub(crate) data_control_state: DataControlState,
+    pub(crate) session_lock: crate::protocol::wayland::session_lock::HalleySessionLockState,
     pub(crate) seat: Seat<Halley>,
     pub(crate) cursor_image_status: CursorImageStatus,
     pub(crate) dmabuf_importer: Option<Rc<dyn DmabufImportBackend>>,

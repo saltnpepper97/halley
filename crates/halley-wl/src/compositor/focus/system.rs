@@ -127,6 +127,10 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
     }
 
     pub fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
+        if crate::protocol::wayland::session_lock::session_lock_active(self) {
+            crate::protocol::wayland::session_lock::reassert_keyboard_focus_if_drifted(self);
+            return;
+        }
         let focus_id = self.fullscreen_focus_override(id).or(id);
         if let Some(fid) = focus_id
             && self

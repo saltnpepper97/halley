@@ -32,11 +32,11 @@ use super::cursor_theme::themed_cursor_sprite_with_fallback;
 use super::layer_shell::collect_layer_surfaces;
 use super::log_rounded_shader_failure;
 use super::node::{
-    NodeSnapshot, collect_hover_preview, draw_node_hover_labels, draw_node_markers,
-    ensure_node_circle_resources,
+    NodeSnapshot, collect_hover_preview, draw_closing_node_markers, draw_node_hover_labels,
+    draw_node_markers, ensure_node_circle_resources,
 };
 use super::screenshot_icon::ensure_screenshot_menu_icon_resources;
-use super::state::ClosingWindowAnimationSnapshot;
+use super::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
 use super::text::ensure_ui_text_resources;
 use super::utils::{draw_outline_rect, draw_rect, draw_ring, world_to_screen};
 use super::window::{
@@ -709,6 +709,33 @@ mod tests {
     }
 
     #[test]
+    fn closing_node_animation_only_marks_target_monitor_active() {
+        let mut state = multi_monitor_state();
+        let start = Instant::now();
+
+        state.ui.render_state.start_closing_node_animation(
+            NodeId::new(78),
+            "right",
+            start,
+            250,
+            Vec2 { x: 100.0, y: 120.0 },
+            "node".to_string(),
+            halley_core::field::NodeState::Node,
+        );
+
+        assert!(tty_output_animation_redraw_state(&state, "right", start).active);
+        assert!(!tty_output_animation_redraw_state(&state, "left", start).active);
+        assert!(
+            !tty_output_animation_redraw_state(
+                &state,
+                "right",
+                start + std::time::Duration::from_millis(300)
+            )
+            .active
+        );
+    }
+
+    #[test]
     fn focus_ring_preview_radii_follow_zoomed_camera_view() {
         let focus_ring = FocusRing::new(200.0, 100.0, 0.0, 0.0);
         let output_size = Size::<i32, Physical>::from((1920, 1080));
@@ -807,6 +834,7 @@ struct PreparedFrameState {
 }
 
 struct SceneCollections {
+    session_lock_elements: Vec<SurfaceElement>,
     layer_background_elements: Vec<SurfaceElement>,
     layer_bottom_elements: Vec<SurfaceElement>,
     layer_top_elements: Vec<SurfaceElement>,
@@ -992,6 +1020,9 @@ fn prepare_debug_frame_state(
     size: smithay::utils::Size<i32, Physical>,
 ) -> PreparedFrameState {
     let now = Instant::now();
+    if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        crate::protocol::wayland::session_lock::configure_surfaces(st);
+    }
     if !st.input.interaction_state.suppress_layer_shell_configure {
         crate::compositor::monitor::layer_shell::configure_layer_shell_surfaces(
             st,
@@ -1014,6 +1045,48 @@ fn collect_debug_frame_scene(
     preview_hover_node: Option<halley_core::field::NodeId>,
     now: Instant,
 ) -> SceneCollections {
+    if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        let session_lock_elements = crate::protocol::wayland::session_lock::current_monitor_surfaces(st)
+            .into_iter()
+            .flat_map(|surface| {
+                render_elements_from_surface_tree(
+                    renderer,
+                    &surface,
+                    (0, 0),
+                    1.0,
+                    1.0,
+                    Kind::Unspecified,
+                )
+            })
+            .collect();
+        return SceneCollections {
+            session_lock_elements,
+            layer_background_elements: Vec::new(),
+            layer_bottom_elements: Vec::new(),
+            layer_top_elements: Vec::new(),
+            layer_overlay_elements: Vec::new(),
+            active_elements: Vec::new(),
+            resized_active_elements: Vec::new(),
+            fullscreen_active_elements: Vec::new(),
+            offscreen_textures: Vec::new(),
+            resized_offscreen_textures: Vec::new(),
+            fullscreen_offscreen_textures: Vec::new(),
+            popup_offscreen_textures: Vec::new(),
+            popup_elements: Vec::new(),
+            fullscreen_popup_offscreen_textures: Vec::new(),
+            fullscreen_popup_elements: Vec::new(),
+            stack_window_units: Vec::new(),
+            border_rects: Vec::new(),
+            resized_border_rects: Vec::new(),
+            closing_window_animations: Vec::new(),
+            overlap_overlay_rects: Vec::new(),
+            hover_preview_rect: None,
+            hover_preview_elements: Vec::new(),
+            render_nodes: Vec::new(),
+            bearing_layouts: Vec::new(),
+        };
+    }
+
     let render_monitor = st.model.monitor_state.current_monitor.clone();
     let bearings_mix = st
         .ui
@@ -1115,6 +1188,7 @@ fn collect_debug_frame_scene(
         collect_bearing_layouts(st, size.w, size.h, render_monitor.as_str(), bearings_mix);
 
     SceneCollections {
+        session_lock_elements: Vec::new(),
         layer_background_elements,
         layer_bottom_elements,
         layer_top_elements,
@@ -1187,6 +1261,13 @@ fn draw_debug_frame_scene(
     scene: &SceneCollections,
     hover_node: Option<halley_core::field::NodeId>,
 ) -> Result<(), Box<dyn Error>> {
+    if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        if !scene.session_lock_elements.is_empty() {
+            let _ = draw_render_elements(frame, 1.0, &scene.session_lock_elements, &[prepared.damage]);
+        }
+        return Ok(());
+    }
+
     if !scene.layer_background_elements.is_empty() {
         let _ = draw_render_elements(
             frame,
@@ -1471,8 +1552,19 @@ fn draw_closing_window_animations(
     animations: &[ClosingWindowAnimationSnapshot],
     st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
+    draw_closing_node_markers(frame, st, size, animations, damage)?;
+
     for animation in animations {
-        let scale = match animation.style {
+        let ClosingWindowAnimationKind::Window {
+            style,
+            border_rect,
+            offscreen_textures,
+        } = &animation.kind
+        else {
+            continue;
+        };
+
+        let scale = match style {
             halley_config::WindowCloseAnimationStyle::Shrink => {
                 (1.0 - crate::animation::ease_in_out_cubic(animation.progress)).clamp(0.0, 1.0)
             }
@@ -1481,7 +1573,7 @@ fn draw_closing_window_animations(
             continue;
         }
 
-        if let Some(border_rect) = animation.border_rect.as_ref() {
+        if let Some(border_rect) = border_rect.as_ref() {
             let center = (
                 border_rect.x as f32 + border_rect.w as f32 * 0.5,
                 border_rect.y as f32 + border_rect.h as f32 * 0.5,
@@ -1518,8 +1610,7 @@ fn draw_closing_window_animations(
             )?;
         }
 
-        let scaled_textures = animation
-            .offscreen_textures
+        let scaled_textures = offscreen_textures
             .iter()
             .cloned()
             .map(|mut tex| {

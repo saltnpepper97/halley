@@ -1,8 +1,8 @@
 use std::time::Instant;
 
 use smithay::desktop::{
-    PopupManager, WindowSurfaceType,
     utils::{bbox_from_surface_tree, under_from_surface_tree},
+    PopupManager, WindowSurfaceType,
 };
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point};
@@ -316,6 +316,9 @@ pub(crate) fn pointer_focus_for_screen(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
 )> {
+    if let Some(focus) = crate::protocol::wayland::session_lock::focus_for_screen(st, sx, sy) {
+        return Some(focus);
+    }
     if let Some(focus) = layer_surface_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)
     {
         return Some(focus);

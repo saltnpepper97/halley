@@ -390,7 +390,9 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
                 self.set_interaction_focus(None, 0, now);
             }
         }
-        if self.model.focus_state.primary_interaction_focus.is_none()
+        if crate::protocol::wayland::session_lock::session_lock_active(self) {
+            crate::protocol::wayland::session_lock::reassert_keyboard_focus_if_drifted(self);
+        } else if self.model.focus_state.primary_interaction_focus.is_none()
             && self.model.monitor_state.layer_keyboard_focus.is_some()
         {
             crate::compositor::monitor::layer_shell::reassert_layer_surface_keyboard_focus_if_drifted(self);

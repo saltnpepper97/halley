@@ -46,6 +46,63 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         ctx.backend.request_redraw();
     }
 
+    if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        let (sx, sy) = {
+            let ps = ctx.pointer_state.borrow();
+            (ps.screen.0, ps.screen.1)
+        };
+        let target_monitor = st
+            .monitor_for_screen(sx, sy)
+            .unwrap_or_else(|| st.interaction_monitor().to_string());
+        st.set_interaction_monitor(target_monitor.as_str());
+        let _ = st.activate_monitor(target_monitor.as_str());
+        let (ws_w, ws_h, sx, sy) = st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
+        {
+            let mut ps = ctx.pointer_state.borrow_mut();
+            ps.workspace_size = (ws_w, ws_h);
+            ps.world = screen_to_world(st, ws_w, ws_h, sx, sy);
+        }
+        if let Some(pointer) = st.platform.seat.get_pointer() {
+            if pointer.current_focus().is_none()
+                && let Some(focus) =
+                    pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, Instant::now(), None)
+            {
+                pointer.motion(
+                    st,
+                    Some(focus),
+                    &MotionEvent {
+                        location: (sx as f64, sy as f64).into(),
+                        serial: SERIAL_COUNTER.next_serial(),
+                        time: now_millis_u32(),
+                    },
+                );
+            }
+            if pointer.current_focus().is_some() {
+                let mut frame = AxisFrame::new(now_millis_u32())
+                    .source(source)
+                    .relative_direction(Axis::Horizontal, relative_direction_horizontal)
+                    .relative_direction(Axis::Vertical, relative_direction_vertical);
+                if let Some(v120) = amount_v120_horizontal {
+                    frame = frame.v120(Axis::Horizontal, v120.round() as i32);
+                }
+                if let Some(v120) = amount_v120_vertical {
+                    frame = frame.v120(Axis::Vertical, v120.round() as i32);
+                }
+                let horizontal_value = amount_horizontal.or_else(|| amount_v120_horizontal.map(|v| v / 8.0));
+                let vertical_value = amount_vertical.or_else(|| amount_v120_vertical.map(|v| v / 8.0));
+                if let Some(v) = horizontal_value {
+                    frame = frame.value(Axis::Horizontal, v);
+                }
+                if let Some(v) = vertical_value {
+                    frame = frame.value(Axis::Vertical, v);
+                }
+                pointer.axis(st, frame);
+                pointer.frame(st);
+            }
+        }
+        return;
+    }
+
     let mut steps = (amount_v120_vertical.unwrap_or(0.0) as f32) / 120.0;
     if steps.abs() < f32::EPSILON {
         let px = amount_vertical.unwrap_or(0.0) as f32;
@@ -140,13 +197,14 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             && let Some(focus) =
                 pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)
         {
-            let location =
-                if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0) {
-                    (sx as f64, sy as f64).into()
-                } else {
-                    let cam_scale = st.camera_render_scale() as f64;
-                    (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
-                };
+            let location = if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0)
+                || crate::protocol::wayland::session_lock::is_session_lock_surface(st, &focus.0)
+            {
+                (sx as f64, sy as f64).into()
+            } else {
+                let cam_scale = st.camera_render_scale() as f64;
+                (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
+            };
             pointer.motion(
                 st,
                 Some(focus),

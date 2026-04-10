@@ -24,6 +24,7 @@ use super::utils::{
     node_marker_bounds, node_marker_metrics, node_render_diameter_px, world_to_screen,
 };
 use crate::animation::ease_in_out_cubic;
+use crate::render::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
 
 const NODE_SQUARE_SHADER: &str = include_str!("shaders/node_square_shader.frag");
 const NODE_SQUIRCLE_SHADER: &str = include_str!("shaders/node_squircle_shader.frag");
@@ -754,6 +755,70 @@ pub(crate) fn draw_node_markers(
             }
         }
     }
+    Ok(())
+}
+
+pub(crate) fn draw_closing_node_markers(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &mut Halley,
+    size: Size<i32, Physical>,
+    animations: &[ClosingWindowAnimationSnapshot],
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    for animation in animations {
+        let ClosingWindowAnimationKind::Node { pos, label, state } = &animation.kind else {
+            continue;
+        };
+
+        let alpha = (1.0 - animation.progress).clamp(0.0, 1.0);
+        if alpha <= 0.01 {
+            continue;
+        }
+
+        let (sx, sy) = world_to_screen(st, size.w, size.h, pos.x, pos.y);
+        let is_core = *state == halley_core::field::NodeState::Core;
+        let anim_scale = 0.30;
+        let (dot_half, _, _, _) = node_marker_metrics(st, label.len(), anim_scale);
+        let core_border_px = 5.0f32;
+        let render_radius = if is_core {
+            ((dot_half as f32 * 1.68) + core_border_px).round() as i32
+        } else {
+            (dot_half as f32 * 1.5).round() as i32
+        };
+        let round_shape = if is_core {
+            NodeRoundShape::Circle
+        } else {
+            match st.runtime.tuning.node_shape {
+                ShapeStyle::Square => NodeRoundShape::Square,
+                ShapeStyle::Squircle => NodeRoundShape::Squircle,
+            }
+        };
+        let border_frac = if is_core {
+            (core_border_px / render_radius as f32).clamp(0.04, 0.5)
+        } else {
+            (3.0 / render_radius as f32).clamp(0.01, 0.5)
+        };
+        let nc = node_ring_color(st, false, 1.0);
+        let node_color = Color32F::new(nc.r(), nc.g(), nc.b(), border_frac);
+        let fill_color = node_fill_color(st, false);
+        let fill_flat = node_fill_uses_flat_mode(st);
+
+        draw_shader_circle(
+            frame,
+            st,
+            sx,
+            sy,
+            render_radius,
+            round_shape,
+            alpha,
+            node_color,
+            fill_color,
+            fill_flat,
+            false,
+            damage,
+        )?;
+    }
+
     Ok(())
 }
 

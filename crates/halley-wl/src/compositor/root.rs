@@ -502,6 +502,10 @@ impl Halley {
                 data_device_state: DataDeviceState::new::<Halley>(dh),
                 primary_selection_state,
                 data_control_state,
+                session_lock: crate::protocol::wayland::session_lock::HalleySessionLockState::new::<Halley, _>(
+                    dh,
+                    |_| true,
+                ),
                 seat,
                 cursor_image_status: CursorImageStatus::Named(
                     smithay::input::pointer::CursorIcon::Default,

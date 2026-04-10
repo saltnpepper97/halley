@@ -253,6 +253,45 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     let raw_sy = sy;
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
     let now = Instant::now();
+    if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        let target_monitor = st
+            .monitor_for_screen(sx, sy)
+            .unwrap_or_else(|| st.interaction_monitor().to_string());
+        st.set_interaction_monitor(target_monitor.as_str());
+        let _ = st.activate_monitor(target_monitor.as_str());
+        let (local_w, local_h, local_sx, local_sy) =
+            st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
+        {
+            let mut ps = ctx.pointer_state.borrow_mut();
+            ps.screen = (sx, sy);
+            ps.workspace_size = (local_w, local_h);
+            ps.world = screen_to_world(st, local_w, local_h, local_sx, local_sy);
+        }
+        if let Some(pointer) = st.platform.seat.get_pointer() {
+            let focus = pointer_focus_for_screen(st, local_w, local_h, local_sx, local_sy, now, None);
+            if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
+                pointer.relative_motion(
+                    st,
+                    focus.clone(),
+                    &RelativeMotionEvent {
+                        delta: delta.into(),
+                        delta_unaccel: delta_unaccel.into(),
+                        utime: time_usec,
+                    },
+                );
+            }
+            pointer.motion(
+                st,
+                focus,
+                &MotionEvent {
+                    location: (local_sx as f64, local_sy as f64).into(),
+                    serial: SERIAL_COUNTER.next_serial(),
+                    time: now_millis_u32(),
+                },
+            );
+        }
+        return;
+    }
     let constrained_surface_info =
         crate::compositor::interaction::pointer::active_constrained_pointer_surface(st);
     let locked_surface = constrained_surface_info
@@ -411,6 +450,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         if locked_surface.is_none() {
             let location = if focus.as_ref().is_some_and(|(surface, _)| {
                 crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+                    || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
             }) {
                 (local_sx as f64, local_sy as f64).into()
             } else {

@@ -408,6 +408,13 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     let (local_w, local_h, local_sx, local_sy) = (frame.ws_w, frame.ws_h, frame.sx, frame.sy);
     ps.screen = (sx, sy);
     ps.workspace_size = (local_w, local_h);
+    if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        let resize = ps.resize;
+        ps.world = frame.world_now;
+        drop(ps);
+        dispatch_pointer_button(st, frame, resize, button_code, button_state);
+        return;
+    }
     let layer_focus = layer_surface_focus_for_screen(
         st,
         local_w,
@@ -1425,6 +1432,7 @@ pub(super) fn dispatch_pointer_button(
     );
     let location = if focus.as_ref().is_some_and(|(surface, _)| {
         crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+            || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
     }) {
         (frame.sx as f64, frame.sy as f64).into()
     } else {

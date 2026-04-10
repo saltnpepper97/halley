@@ -659,6 +659,8 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         .on_commit(now);
     let target_monitor = if let Some(node_id) = st.model.surface_to_node.get(&root_key) {
         st.model.monitor_state.node_monitor.get(node_id).cloned()
+    } else if crate::protocol::wayland::session_lock::is_session_lock_surface(st, &root_surface) {
+        crate::protocol::wayland::session_lock::monitor_for_surface(st, &root_surface)
     } else {
         None
     }
@@ -676,6 +678,7 @@ fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         &mut st.layer_shell_ctx(),
         surface,
     );
+    crate::protocol::wayland::session_lock::maybe_focus_surface_on_commit(st, surface);
 
     if let Some(node_id) = st.model.surface_to_node.get(&root_key).copied() {
         st.ui.render_state.mark_window_offscreen_dirty(node_id);
@@ -994,20 +997,36 @@ fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         let close_anim_duration_ms = st.runtime.tuning.window_close_duration_ms();
         let close_anim_style = st.runtime.tuning.window_close_style();
         let closing_monitor = st.model.monitor_state.node_monitor.get(&id).cloned();
+        let closing_node_snapshot = st.model.field.node(id).and_then(|node| {
+            matches!(node.state, halley_core::field::NodeState::Node)
+                .then(|| (node.pos, node.label.clone(), node.state.clone()))
+        });
         if st.runtime.tuning.window_close_animation_enabled()
             && let Some(monitor) = closing_monitor.as_deref()
-            && let Some((border_rect, offscreen_textures)) =
-                crate::render::capture_closing_window_animation(st, monitor, id)
         {
-            st.ui.render_state.start_closing_window_animation(
-                id,
-                monitor,
-                Instant::now(),
-                close_anim_duration_ms,
-                close_anim_style,
-                border_rect,
-                offscreen_textures,
-            );
+            if let Some((pos, label, state)) = closing_node_snapshot {
+                st.ui.render_state.start_closing_node_animation(
+                    id,
+                    monitor,
+                    Instant::now(),
+                    close_anim_duration_ms,
+                    pos,
+                    label,
+                    state,
+                );
+            } else if let Some((border_rect, offscreen_textures)) =
+                crate::render::capture_closing_window_animation(st, monitor, id)
+            {
+                st.ui.render_state.start_closing_window_animation(
+                    id,
+                    monitor,
+                    Instant::now(),
+                    close_anim_duration_ms,
+                    close_anim_style,
+                    border_rect,
+                    offscreen_textures,
+                );
+            }
         }
         let queued_promotion = capture_queued_overflow_promotion(st, id);
         let active_tiled_focus_restore = st

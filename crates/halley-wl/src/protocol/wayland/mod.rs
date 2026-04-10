@@ -60,5 +60,6 @@ mod handlers;
 mod handlers_xdg;
 pub(crate) mod portal;
 mod screencopy;
+pub(crate) mod session_lock;
 
 pub use client_state::ClientState;
