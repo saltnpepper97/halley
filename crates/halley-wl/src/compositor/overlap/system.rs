@@ -701,6 +701,7 @@ pub(crate) fn request_toplevel_resize(st: &mut Halley, node_id: NodeId, width: i
 
         top.with_pending_state(|s| {
             s.size = Some((width, height).into());
+            s.bounds = s.size;
             if focused_node == Some(node_id) {
                 s.states.set(xdg_toplevel::State::Activated);
             } else {

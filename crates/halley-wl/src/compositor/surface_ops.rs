@@ -200,6 +200,7 @@ pub(crate) fn request_toplevel_resize_mode(
         }
         top.with_pending_state(|s| {
             s.size = Some((width, height).into());
+            s.bounds = s.size;
             // Keep toplevel activated during compositor-driven interactive resize.
             // Some CSD clients behave poorly if activation silently drops.
             s.states.set(xdg_toplevel::State::Activated);

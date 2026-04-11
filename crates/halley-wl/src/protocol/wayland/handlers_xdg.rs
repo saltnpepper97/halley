@@ -47,6 +47,7 @@ impl XdgShellHandler for Halley {
         toplevel.with_pending_state(|s| {
             if let Some((w, h)) = initial_size.configure_size {
                 s.size = Some((w, h).into());
+                s.bounds = s.size;
             }
             s.decoration_mode = Some(self.preferred_xdg_decoration_mode());
             self.apply_toplevel_tiled_hint(s);
