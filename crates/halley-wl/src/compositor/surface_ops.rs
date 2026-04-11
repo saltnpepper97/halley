@@ -198,9 +198,13 @@ pub(crate) fn request_toplevel_resize_mode(
         if st.model.surface_to_node.get(&key).copied() != Some(node_id) {
             continue;
         }
+        let monitor = st.model.monitor_state.node_monitor.get(&node_id).cloned().unwrap_or_else(|| st.focused_monitor().to_string());
+        let view = st.usable_viewport_for_monitor(&monitor);
+        let bounds_w = view.size.x as i32;
+        let bounds_h = view.size.y as i32;
         top.with_pending_state(|s| {
             s.size = Some((width, height).into());
-            s.bounds = s.size;
+            s.bounds = Some((bounds_w, bounds_h).into());
             // Keep toplevel activated during compositor-driven interactive resize.
             // Some CSD clients behave poorly if activation silently drops.
             s.states.set(xdg_toplevel::State::Activated);

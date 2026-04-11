@@ -44,10 +44,14 @@ impl XdgShellHandler for Halley {
     fn new_toplevel(&mut self, toplevel: ToplevelSurface) {
         let intent = spawn::rules::resolve_initial_window_intent(self, &toplevel);
         let initial_size = super::handlers::initial_toplevel_size(self, &toplevel, &intent);
+        let monitor = self.focused_monitor().to_string();
+        let view = self.usable_viewport_for_monitor(&monitor);
+        let bounds_w = view.size.x as i32;
+        let bounds_h = view.size.y as i32;
         toplevel.with_pending_state(|s| {
             if let Some((w, h)) = initial_size.configure_size {
                 s.size = Some((w, h).into());
-                s.bounds = s.size;
+                s.bounds = Some((bounds_w, bounds_h).into());
             }
             s.decoration_mode = Some(self.preferred_xdg_decoration_mode());
             self.apply_toplevel_tiled_hint(s);
