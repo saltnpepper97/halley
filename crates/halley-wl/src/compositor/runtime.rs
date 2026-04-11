@@ -7,7 +7,9 @@ use calloop::ping::Ping;
 use halley_config::RuntimeTuning;
 use smithay::reexports::wayland_server::backend::ObjectId;
 
+use super::monitor::camera::camera_controller;
 use super::root::Halley;
+use super::screenshot::screenshot_controller;
 use crate::activity::CommitActivity;
 use crate::animation::AnimSpec;
 use crate::protocol::wayland::activation::ActivationRuntimeState;
@@ -346,7 +348,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
         let _ = crate::compositor::clusters::system::cluster_system_controller(&mut **self)
             .repeat_cluster_name_prompt_input_if_due(now_ms);
-        self.run_pending_screenshot_capture_if_due(now_ms);
+        screenshot_controller(&mut **self).run_pending_screenshot_capture_if_due(now_ms);
         if let Some(pending) = self
             .input
             .interaction_state
@@ -493,7 +495,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             && !(self.input.interaction_state.resize_static_node.is_some()
                 && now_ms < self.input.interaction_state.resize_static_until_ms)
         {
-            self.update_zoom_live_surface_sizes();
+            camera_controller(&mut **self).update_zoom_live_surface_sizes();
         }
         let cluster_policy = halley_core::cluster_policy::ClusterPolicy {
             enabled: false,

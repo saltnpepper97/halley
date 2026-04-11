@@ -21,6 +21,7 @@ use smithay::wayland::shell::xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData};
 use crate::compositor::actions::window::promote_node_level;
 use crate::compositor::clusters::state::ClusterNameRecord;
 use crate::compositor::root::Halley;
+use crate::compositor::screenshot::screenshot_controller;
 use crate::compositor::surface_ops::{current_surface_size_for_node, request_close_node_toplevel};
 
 pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
@@ -50,7 +51,11 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
 fn handle_capture_request(st: &mut Halley, request: CaptureRequest) -> Response {
     match request {
         CaptureRequest::Start { mode, output } => {
-            if st.start_screenshot_session(mode, output.as_deref(), Instant::now()) {
+            if screenshot_controller(&mut *st).start_screenshot_session(
+                mode,
+                output.as_deref(),
+                Instant::now(),
+            ) {
                 Response::CaptureStatus(capture_status_response(st))
             } else {
                 Response::Error(IpcError::Unsupported(
@@ -65,7 +70,7 @@ fn handle_capture_request(st: &mut Halley, request: CaptureRequest) -> Response 
 fn capture_status_response(st: &Halley) -> CaptureStatusResponse {
     let last = st.input.interaction_state.last_screenshot_result.as_ref();
     CaptureStatusResponse {
-        active: st.screenshot_session_active()
+        active: screenshot_controller(st).screenshot_session_active()
             || st
                 .input
                 .interaction_state

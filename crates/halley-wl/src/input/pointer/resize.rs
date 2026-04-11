@@ -1174,7 +1174,8 @@ pub(crate) fn active_node_surface_transform_screen_details(
     }
 
     let anim = crate::render::anim_style_for(st, node_id, n.state.clone(), now);
-    let transition_alpha = st.active_transition_alpha(node_id, now);
+    let transition_alpha =
+        crate::compositor::workspace::state::active_transition_alpha(st, node_id, now);
     let cam_scale = st.camera_render_scale();
 
     // Fit scale for fullscreen windows that don't match the physical monitor resolution.

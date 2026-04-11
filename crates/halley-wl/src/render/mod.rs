@@ -11,6 +11,7 @@ mod cluster_icon;
 mod cursor;
 mod cursor_theme;
 mod frame;
+mod frame_runtime;
 mod icon_tint;
 pub mod layer_shell;
 mod node;
@@ -47,10 +48,11 @@ pub(crate) use bearings::bearing_hit_test;
 pub(crate) use cluster_icon::cluster_core_icon_texture;
 pub(crate) use cursor::cursor_surface_hotspot;
 pub(crate) use cursor_theme::themed_cursor_sprite_with_fallback;
-pub(crate) use frame::{
-    anim_style_for, begin_render_frame, draw_debug_frame, draw_debug_frame_to_target,
-    monitor_overlay_requires_full_repaint, send_frame_callbacks, send_frame_callbacks_for_output,
-    tick_animator_frame, tick_frame_effects, tick_live_overlap, tty_output_animation_redraw_state,
+pub(crate) use frame::{draw_debug_frame, draw_debug_frame_to_target};
+pub(crate) use frame_runtime::{
+    anim_style_for, begin_render_frame, monitor_overlay_requires_full_repaint,
+    send_frame_callbacks, send_frame_callbacks_for_output, tick_animator_frame, tick_frame_effects,
+    tick_live_overlap, tty_output_animation_redraw_state,
 };
 pub(crate) use screenshot_icon::{
     screenshot_menu_background_color, screenshot_menu_highlight_color,

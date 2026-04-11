@@ -4,7 +4,9 @@ use super::modkeys::{key_matches, modifier_exact};
 use crate::compositor::actions::window::{
     move_latest_node_direction, toggle_focused_active_node_state,
 };
+use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ModState;
+use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
@@ -146,7 +148,7 @@ pub(crate) fn apply_compositor_action_press(
 ) -> bool {
     match action {
         CompositorBindingAction::Quit { .. } => {
-            st.show_exit_confirm_overlay();
+            exit_confirm_controller(st).show();
             info!("quit requested via keybind");
             true
         }
@@ -275,24 +277,24 @@ pub(crate) fn apply_compositor_action_press(
             true
         }
         CompositorBindingAction::ZoomIn => {
-            if st.zoom_blocked_by_interaction() {
+            if camera_controller(&*st).zoom_blocked_by_interaction() {
                 return false;
             }
-            st.zoom_by_steps(1.0);
+            camera_controller(st).zoom_by_steps(1.0);
             true
         }
         CompositorBindingAction::ZoomOut => {
-            if st.zoom_blocked_by_interaction() {
+            if camera_controller(&*st).zoom_blocked_by_interaction() {
                 return false;
             }
-            st.zoom_by_steps(-1.0);
+            camera_controller(st).zoom_by_steps(-1.0);
             true
         }
         CompositorBindingAction::ZoomReset => {
-            if st.zoom_blocked_by_interaction() {
+            if camera_controller(&*st).zoom_blocked_by_interaction() {
                 return false;
             }
-            st.reset_zoom();
+            camera_controller(st).reset_zoom();
             true
         }
     }

@@ -248,7 +248,7 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
             return;
         }
 
-        if self.preserve_collapsed_surface(id) {
+        if crate::compositor::workspace::state::preserve_collapsed_surface(&**self, id) {
             self.model
                 .focus_state
                 .outside_focus_ring_since_ms

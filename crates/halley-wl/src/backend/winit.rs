@@ -6,7 +6,9 @@ use crate::protocol::wayland::portal;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
+use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::PointerState;
+use crate::compositor::monitor::camera::camera_controller;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
@@ -355,7 +357,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     x: ws.w.max(1) as f32,
                     y: ws.h.max(1) as f32,
                 };
-                state.snap_camera_targets_to_live();
+                camera_controller(&mut state).snap_targets_to_live();
                 state.advertise_output(
                     "winit-0",
                     smithay::output::Mode {
@@ -467,7 +469,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             x: size.w.max(1) as f32,
                             y: size.h.max(1) as f32,
                         };
-                        st.snap_camera_targets_to_live();
+                        camera_controller(&mut *st).snap_targets_to_live();
                         st.advertise_output(
                             "winit-0",
                             smithay::output::Mode {
@@ -712,7 +714,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 drain_ipc_commands(|request| match request {
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
-                        st.show_exit_confirm_overlay();
+                        exit_confirm_controller(&mut *st).show();
                         halley_ipc::Response::Ok
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Reload) => {

@@ -5,8 +5,10 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
+use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::state::ActiveDragState;
 use crate::compositor::interaction::{DragAxisMode, DragCtx, HitNode, ModState, PointerState};
+use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::{
     is_active_stacking_workspace_member, stack_focus_target_for_node,
@@ -21,6 +23,7 @@ use super::button::{
 };
 use super::focus::{grabbed_layer_surface_focus, pointer_focus_for_screen};
 use super::resize::handle_resize_motion;
+use super::screenshot::handle_screenshot_pointer_motion;
 use crate::input::keyboard::modkeys::modifier_active;
 
 fn detach_bloom_drag_into_pointer_drag(
@@ -237,7 +240,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     delta_unaccel: (f64, f64),
     time_usec: u64,
 ) {
-    if st.exit_confirm_active() {
+    if exit_confirm_controller(&*st).active() {
         return;
     }
     if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
@@ -489,71 +492,18 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     ps.workspace_size = (local_w, local_h);
     st.input.interaction_state.last_pointer_screen_global = Some((effective_sx, effective_sy));
 
-    if let Some((dragging_region, _)) =
-        st.input
-            .interaction_state
-            .screenshot_session
-            .as_ref()
-            .map(|session| {
-                (
-                    session.drag_anchor.is_some()
-                        && session.mode == halley_ipc::CaptureMode::Region,
-                    session.mode,
-                )
-            })
-    {
-        st.update_screenshot_session_monitor(target_monitor.clone());
-        let menu_mode = st
-            .input
-            .interaction_state
-            .screenshot_session
-            .as_ref()
-            .is_some_and(|session| session.mode == halley_ipc::CaptureMode::Menu);
-        if menu_mode {
-            let hit =
-                crate::overlay::screenshot_menu_hit_test(local_w, local_h, local_sx, local_sy);
-            let idx = match hit {
-                Some(crate::overlay::ScreenshotMenuHit::Item(idx)) => Some(idx),
-                None => None,
-            };
-            st.hover_screenshot_menu_item(idx);
-            crate::compositor::interaction::pointer::set_cursor_override_icon(
-                st,
-                Some(smithay::input::pointer::CursorIcon::Pointer),
-            );
-            ctx.backend.request_redraw();
-            return;
-        }
-        let window_mode = st
-            .input
-            .interaction_state
-            .screenshot_session
-            .as_ref()
-            .is_some_and(|session| session.mode == halley_ipc::CaptureMode::Window);
-        if dragging_region {
-            st.update_screenshot_region_drag(
-                effective_sx.round() as i32,
-                effective_sy.round() as i32,
-            );
-        } else if window_mode {
-            st.update_screenshot_window_selection_from_pointer(
-                target_monitor.as_str(),
-                local_w,
-                local_h,
-                local_sx,
-                local_sy,
-                now,
-            );
-        }
-        crate::compositor::interaction::pointer::set_cursor_override_icon(
-            st,
-            Some(if window_mode {
-                smithay::input::pointer::CursorIcon::Pointer
-            } else {
-                smithay::input::pointer::CursorIcon::Crosshair
-            }),
-        );
-        ctx.backend.request_redraw();
+    if handle_screenshot_pointer_motion(
+        st,
+        ctx,
+        target_monitor.as_str(),
+        local_w,
+        local_h,
+        local_sx,
+        local_sy,
+        effective_sx,
+        effective_sy,
+        now,
+    ) {
         return;
     }
 
@@ -821,12 +771,12 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let (lsx, lsy) = ps.pan_last_screen;
         let dx_px = effective_sx - lsx;
         let dy_px = effective_sy - lsy;
-        let camera = st.camera_view_size();
+        let camera = camera_controller(&*st).view_size();
         let dx_world = dx_px * camera.x.max(1.0) / (local_w as f32).max(1.0);
         let dy_world = dy_px * camera.y.max(1.0) / (local_h as f32).max(1.0);
         let now = Instant::now();
         st.note_pan_activity(now);
-        st.pan_camera_target(halley_core::field::Vec2 {
+        camera_controller(&mut *st).pan_target(halley_core::field::Vec2 {
             x: -dx_world,
             y: -dy_world,
         });

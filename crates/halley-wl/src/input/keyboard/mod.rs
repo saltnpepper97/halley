@@ -2,7 +2,9 @@ pub(crate) mod bindings;
 pub(crate) mod modkeys;
 pub(crate) mod spawn;
 
+use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::root::Halley;
+use crate::compositor::screenshot::screenshot_controller;
 use crate::input::ctx::InputCtx;
 
 use std::time::Instant;
@@ -122,7 +124,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     code: u32,
     pressed: bool,
 ) {
-    let exit_confirm_active = st.exit_confirm_active();
+    let exit_confirm_active = exit_confirm_controller(&*st).active();
     update_mod_state(&mut ctx.mod_state.borrow_mut(), code, pressed);
     if !pressed
         && st
@@ -155,11 +157,11 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         if pressed {
             if Some(code) == exit_escape {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                st.clear_exit_confirm_overlay();
+                exit_confirm_controller(&mut *st).clear();
                 ctx.backend.request_redraw();
             } else if Some(code) == exit_return {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                st.clear_exit_confirm_overlay();
+                exit_confirm_controller(&mut *st).clear();
                 st.request_exit();
                 ctx.backend.request_redraw();
             }
@@ -174,7 +176,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         }
     }
 
-    if st.screenshot_session_active() {
+    if screenshot_controller(&mut *st).screenshot_session_active() {
         if let Some(keyboard) = st.platform.seat.get_keyboard() {
             let serial = SERIAL_COUNTER.next_serial();
             keyboard.input::<(), _>(
@@ -204,26 +206,26 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
             if Some(code) == escape {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 if menu_mode {
-                    let _ = st.cancel_screenshot_session();
+                    let _ = screenshot_controller(&mut *st).cancel_screenshot_session();
                 } else {
-                    let _ = st.return_screenshot_session_to_menu();
+                    let _ = screenshot_controller(&mut *st).return_screenshot_session_to_menu();
                 }
                 ctx.backend.request_redraw();
             } else if Some(code) == enter {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                let _ = st.confirm_screenshot_session(Instant::now());
+                let _ = screenshot_controller(&mut *st).confirm_screenshot_session(Instant::now());
                 ctx.backend.request_redraw();
             } else if Some(code) == left {
                 if menu_mode {
                     crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 }
-                let _ = st.move_screenshot_menu_selection(-1);
+                let _ = screenshot_controller(&mut *st).move_screenshot_menu_selection(-1);
                 ctx.backend.request_redraw();
             } else if Some(code) == right {
                 if menu_mode {
                     crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 }
-                let _ = st.move_screenshot_menu_selection(1);
+                let _ = screenshot_controller(&mut *st).move_screenshot_menu_selection(1);
                 ctx.backend.request_redraw();
             }
         }

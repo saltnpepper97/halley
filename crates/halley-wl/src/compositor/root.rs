@@ -518,18 +518,6 @@ impl Halley {
         super::ctx::workspace_ctx(self)
     }
 
-    pub fn mark_active_transition(&mut self, id: NodeId, now: Instant, duration_ms: u64) {
-        super::workspace::state::mark_active_transition(self, id, now, duration_ms)
-    }
-
-    pub fn active_transition_alpha(&self, id: NodeId, now: Instant) -> f32 {
-        super::workspace::state::active_transition_alpha(self, id, now)
-    }
-
-    pub(crate) fn preserve_collapsed_surface(&self, id: NodeId) -> bool {
-        super::workspace::state::preserve_collapsed_surface(self, id)
-    }
-
     #[allow(dead_code)]
     pub(crate) fn default_spawn_view_anchor_for_monitor(&self, monitor: &str) -> Vec2 {
         super::spawn::state::default_spawn_view_anchor_for_monitor(self, monitor)
@@ -551,48 +539,6 @@ impl Halley {
 
     pub(crate) fn process_pending_spawn_activations(&mut self, now: Instant, now_ms: u64) {
         super::spawn::state::process_pending_spawn_activations(self, now, now_ms)
-    }
-
-    pub(crate) fn camera_view_size(&self) -> Vec2 {
-        super::monitor::camera::camera_view_size(self)
-    }
-
-    pub(crate) fn pan_camera_target(&mut self, delta: Vec2) {
-        super::monitor::camera::pan_camera_target(self, delta)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_camera_target_view_size(&mut self, size: Vec2) {
-        super::monitor::camera::set_camera_target_view_size(self, size)
-    }
-
-    pub(crate) fn snap_camera_targets_to_live(&mut self) {
-        super::monitor::camera::snap_camera_targets_to_live(self)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn clamp_camera_view_size(&self, size: Vec2) -> Vec2 {
-        super::monitor::camera::clamp_camera_view_size(self, size)
-    }
-
-    pub(crate) fn zoom_blocked_by_interaction(&self) -> bool {
-        super::monitor::camera::zoom_blocked_by_interaction(self)
-    }
-
-    pub(crate) fn update_zoom_live_surface_sizes(&mut self) {
-        super::monitor::camera::update_zoom_live_surface_sizes(self)
-    }
-
-    pub(crate) fn zoom_by_steps(&mut self, steps: f32) {
-        super::monitor::camera::zoom_by_steps(self, steps)
-    }
-
-    pub(crate) fn reset_zoom(&mut self) {
-        super::monitor::camera::reset_zoom(self)
-    }
-
-    pub(crate) fn tick_camera_smoothing(&mut self, now: Instant) {
-        super::monitor::camera::tick_camera_smoothing(self, now)
     }
 
     pub fn active_zoom_lock_scale(&self) -> f32 {
@@ -674,41 +620,6 @@ impl Halley {
         );
         self.request_input_state_reset();
         self.request_maintenance();
-    }
-
-    pub(crate) fn show_exit_confirm_overlay(&mut self) {
-        self.begin_modal_keyboard_capture();
-        let mut monitors: Vec<String> = self.model.monitor_state.monitors.keys().cloned().collect();
-        if monitors.is_empty() {
-            monitors.push(self.model.monitor_state.current_monitor.clone());
-        }
-        for monitor in monitors {
-            self.ui.render_state.show_exit_confirm(monitor.as_str());
-        }
-    }
-
-    pub(crate) fn clear_exit_confirm_overlay(&mut self) {
-        let mut monitors: Vec<String> = self
-            .ui
-            .render_state
-            .overlay_exit_confirm
-            .keys()
-            .cloned()
-            .collect();
-        if monitors.is_empty() {
-            monitors.push(self.model.monitor_state.current_monitor.clone());
-        }
-        for monitor in monitors {
-            self.ui.render_state.clear_exit_confirm(monitor.as_str());
-        }
-        let restore_focus = self
-            .last_input_surface_node_for_monitor(self.model.monitor_state.current_monitor.as_str())
-            .or(self.last_input_surface_node());
-        self.schedule_modal_focus_restore(restore_focus, Instant::now());
-    }
-
-    pub(crate) fn exit_confirm_active(&self) -> bool {
-        self.ui.render_state.exit_confirm_visible()
     }
 
     pub(crate) fn reconfigure_active_tty_monitors(&mut self, active_outputs: &[String]) {

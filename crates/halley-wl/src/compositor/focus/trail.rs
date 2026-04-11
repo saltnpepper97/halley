@@ -280,7 +280,12 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
                     .spawn_state
                     .pending_spawn_activate_at_ms
                     .remove(&id);
-                self.mark_active_transition(id, now, 360);
+                crate::compositor::workspace::state::mark_active_transition(
+                    &mut **self,
+                    id,
+                    now,
+                    360,
+                );
                 self.set_interaction_focus(Some(id), 30_000, now);
                 if !cluster_local && !suppress_pan {
                     self.maybe_pan_to_restored_focus_on_close(monitor, id, now);

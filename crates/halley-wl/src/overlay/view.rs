@@ -5,6 +5,7 @@ use halley_core::viewport::Viewport;
 
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::interaction::state::InteractionState;
+use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::monitor::state::MonitorState;
 use crate::compositor::root::Halley;
 use crate::render::state::{NodeAppIconCacheEntry, RenderState};
@@ -32,7 +33,7 @@ impl<'a> OverlayView<'a> {
             tuning: &st.runtime.tuning,
             node_app_ids: &st.model.node_app_ids,
             viewport: st.model.viewport,
-            camera_view_size: st.camera_view_size(),
+            camera_view_size: camera_controller(st).view_size(),
         }
     }
 

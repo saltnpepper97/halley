@@ -20,6 +20,7 @@ use crate::backend::tty::drm::{
     selected_tty_scanout_signature,
 };
 use crate::backend::vblank_throttle::VBlankThrottle;
+use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ResizeCtx;
 use calloop::{Interest, Mode, PostAction, generic::Generic, ping::make_ping};
 
@@ -1537,7 +1538,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 drain_ipc_commands(|request| match request {
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
-                        st.show_exit_confirm_overlay();
+                        exit_confirm_controller(&mut *st).show();
                         halley_ipc::Response::Ok
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Reload) => {

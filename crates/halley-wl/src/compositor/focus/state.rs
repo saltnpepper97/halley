@@ -271,7 +271,7 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
             return;
         }
 
-        if self.preserve_collapsed_surface(id) {
+        if crate::compositor::workspace::state::preserve_collapsed_surface(&**self, id) {
             self.model.focus_state.pan_restore_active_focus = None;
             return;
         }
@@ -290,7 +290,7 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
         }
 
         let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-        self.mark_active_transition(id, now, 280);
+        crate::compositor::workspace::state::mark_active_transition(&mut **self, id, now, 280);
 
         self.set_interaction_focus(Some(id), 12_000, now);
         self.model.focus_state.pan_restore_active_focus = None;

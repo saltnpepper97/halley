@@ -33,7 +33,7 @@ pub(crate) fn enforce_carry_zone_states(st: &mut crate::compositor::root::Halley
         if n.kind != halley_core::field::NodeKind::Surface {
             continue;
         }
-        if st.preserve_collapsed_surface(id) {
+        if crate::compositor::workspace::state::preserve_collapsed_surface(&*st, id) {
             continue;
         }
 

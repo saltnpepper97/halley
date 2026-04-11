@@ -41,7 +41,7 @@ pub(crate) fn promote_node_level(
             .remove(&node_id);
 
         let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
-        st.mark_active_transition(node_id, now, 360);
+        crate::compositor::workspace::state::mark_active_transition(st, node_id, now, 360);
 
         st.set_interaction_focus(Some(node_id), 30_000, now);
         return true;
@@ -89,7 +89,7 @@ pub(crate) fn activate_collapsed_node_from_click(
         .manual_collapsed_nodes
         .remove(&node_id);
     let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
-    st.mark_active_transition(node_id, now, 360);
+    crate::compositor::workspace::state::mark_active_transition(st, node_id, now, 360);
     st.set_interaction_focus(Some(node_id), 30_000, now);
 
     match st.runtime.tuning.click_collapsed_pan {
@@ -293,7 +293,7 @@ pub(crate) fn toggle_node_state(
                 .spawn_state
                 .pending_spawn_activate_at_ms
                 .remove(&id);
-            st.mark_active_transition(id, now, 360);
+            crate::compositor::workspace::state::mark_active_transition(st, id, now, 360);
 
             st.set_interaction_focus(Some(id), 30_000, now);
             true

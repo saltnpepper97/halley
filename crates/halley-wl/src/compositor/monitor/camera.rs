@@ -1,4 +1,27 @@
 use super::*;
+use std::ops::{Deref, DerefMut};
+
+pub(crate) struct CameraController<T> {
+    st: T,
+}
+
+pub(crate) fn camera_controller<T>(st: T) -> CameraController<T> {
+    CameraController { st }
+}
+
+impl<T: Deref<Target = Halley>> Deref for CameraController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for CameraController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
 
 #[inline]
 fn zoom_step(st: &Halley) -> f32 {
@@ -20,6 +43,55 @@ fn zoom_smooth_rate(st: &Halley) -> f32 {
 #[inline]
 pub(crate) fn camera_view_size(st: &Halley) -> Vec2 {
     st.model.zoom_ref_size
+}
+
+impl<T: Deref<Target = Halley>> CameraController<T> {
+    #[inline]
+    pub(crate) fn view_size(&self) -> Vec2 {
+        camera_view_size(self)
+    }
+
+    #[inline]
+    pub(crate) fn zoom_blocked_by_interaction(&self) -> bool {
+        zoom_blocked_by_interaction(self)
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> CameraController<T> {
+    #[inline]
+    pub(crate) fn pan_target(&mut self, delta: Vec2) {
+        pan_camera_target(self, delta)
+    }
+
+    #[inline]
+    pub(crate) fn set_target_view_size(&mut self, size: Vec2) {
+        set_camera_target_view_size(self, size)
+    }
+
+    #[inline]
+    pub(crate) fn snap_targets_to_live(&mut self) {
+        snap_camera_targets_to_live(self)
+    }
+
+    #[inline]
+    pub(crate) fn update_zoom_live_surface_sizes(&mut self) {
+        update_zoom_live_surface_sizes(self)
+    }
+
+    #[inline]
+    pub(crate) fn zoom_by_steps(&mut self, steps: f32) {
+        zoom_by_steps(self, steps)
+    }
+
+    #[inline]
+    pub(crate) fn reset_zoom(&mut self) {
+        reset_zoom(self)
+    }
+
+    #[inline]
+    pub(crate) fn tick_smoothing(&mut self, now: Instant) {
+        tick_camera_smoothing(self, now)
+    }
 }
 
 #[inline]
@@ -249,11 +321,11 @@ mod tests {
             y: base.y * 1.5,
         };
         state.model.camera_target_view_size = zoomed_out;
-        state.reset_zoom();
+        camera_controller(&mut state).reset_zoom();
         assert_eq!(state.model.camera_target_view_size, zoomed_out);
 
         state.model.camera_target_view_size = base;
-        state.zoom_by_steps(-1.0);
+        camera_controller(&mut state).zoom_by_steps(-1.0);
         assert_eq!(state.model.camera_target_view_size, base);
     }
 
@@ -308,7 +380,7 @@ mod tests {
         let _ = state.activate_monitor("right");
 
         let before = state.model.camera_target_view_size;
-        state.zoom_by_steps(-1.0);
+        camera_controller(&mut state).zoom_by_steps(-1.0);
 
         assert!(state.model.camera_target_view_size.x > before.x);
         assert!(state.model.camera_target_view_size.y > before.y);
@@ -324,8 +396,8 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
 
         let before = state.model.camera_target_view_size;
-        state.zoom_by_steps(1.0);
-        state.reset_zoom();
+        camera_controller(&mut state).zoom_by_steps(1.0);
+        camera_controller(&mut state).reset_zoom();
 
         assert_eq!(state.model.camera_target_view_size, before);
     }
@@ -341,14 +413,14 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, tuning);
         let base = state.model.viewport.size;
 
-        state.set_camera_target_view_size(Vec2 {
+        camera_controller(&mut state).set_target_view_size(Vec2 {
             x: base.x * 10.0,
             y: base.y * 10.0,
         });
         assert_eq!(state.model.camera_target_view_size.x, base.x / 0.5);
         assert_eq!(state.model.camera_target_view_size.y, base.y / 0.5);
 
-        state.set_camera_target_view_size(Vec2 {
+        camera_controller(&mut state).set_target_view_size(Vec2 {
             x: base.x * 0.1,
             y: base.y * 0.1,
         });

@@ -2,6 +2,7 @@ pub mod actions;
 pub mod carry;
 pub mod clusters;
 pub mod ctx;
+pub mod exit_confirm;
 pub mod focus;
 pub mod fullscreen;
 pub mod interaction;

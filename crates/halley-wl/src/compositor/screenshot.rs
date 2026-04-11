@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -341,11 +342,35 @@ fn screenshot_region_apply_drag(
     }
 }
 
-impl Halley {
+pub(crate) struct ScreenshotController<T> {
+    st: T,
+}
+
+pub(crate) fn screenshot_controller<T>(st: T) -> ScreenshotController<T> {
+    ScreenshotController { st }
+}
+
+impl<T: Deref<Target = Halley>> Deref for ScreenshotController<T> {
+    type Target = Halley;
+
+    fn deref(&self) -> &Self::Target {
+        self.st.deref()
+    }
+}
+
+impl<T: DerefMut<Target = Halley>> DerefMut for ScreenshotController<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.st.deref_mut()
+    }
+}
+
+impl<T: Deref<Target = Halley>> ScreenshotController<T> {
     pub(crate) fn screenshot_session_active(&self) -> bool {
         self.input.interaction_state.screenshot_session.is_some()
     }
+}
 
+impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
     pub(crate) fn start_screenshot_session(
         &mut self,
         mode: CaptureMode,
@@ -790,6 +815,7 @@ fn expand_screenshot_directory(raw: &str) -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use halley_config::RuntimeTuning;
     use smithay::reexports::wayland_server::Display;
 
     use super::*;
@@ -831,7 +857,11 @@ mod tests {
         let mut state = Halley::new_for_test(&dh, two_monitor_tuning());
         state.input.interaction_state.last_pointer_screen_global = Some((1200.0, 300.0));
 
-        assert!(state.start_screenshot_session(CaptureMode::Menu, None, Instant::now()));
+        assert!(screenshot_controller(&mut state).start_screenshot_session(
+            CaptureMode::Menu,
+            None,
+            Instant::now()
+        ));
         assert_eq!(
             state
                 .input
@@ -848,8 +878,12 @@ mod tests {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, RuntimeTuning::default());
 
-        assert!(state.start_screenshot_session(CaptureMode::Menu, None, Instant::now()));
-        assert!(state.activate_screenshot_menu_item(0));
+        assert!(screenshot_controller(&mut state).start_screenshot_session(
+            CaptureMode::Menu,
+            None,
+            Instant::now()
+        ));
+        assert!(screenshot_controller(&mut state).activate_screenshot_menu_item(0));
         assert_eq!(
             state
                 .input
@@ -860,7 +894,7 @@ mod tests {
             Some(CaptureMode::Region)
         );
 
-        assert!(state.return_screenshot_session_to_menu());
+        assert!(screenshot_controller(&mut state).return_screenshot_session_to_menu());
         let session = state
             .input
             .interaction_state

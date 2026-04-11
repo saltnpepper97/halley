@@ -9,6 +9,7 @@ use crate::backend::interface::BackendView;
 use crate::compositor::actions::window::{
     activate_collapsed_node_from_click, focus_or_reveal_surface_node,
 };
+use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::state::{
     PendingCoreClick, PendingCorePress, PendingTitlebarPress,
 };
@@ -35,6 +36,7 @@ use super::focus::{
 };
 use super::motion::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
 use super::resize::{begin_resize, finalize_resize};
+use super::screenshot::handle_screenshot_pointer_button;
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
 };
@@ -329,7 +331,7 @@ fn handle_resize_binding_press(
     }
 }
 
-fn handle_button_release(
+pub(super) fn handle_button_release(
     st: &mut Halley,
     ps: &mut PointerState,
     backend: &dyn BackendView,
@@ -388,7 +390,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     button_code: u32,
     button_state: ButtonState,
 ) {
-    if st.exit_confirm_active() {
+    if exit_confirm_controller(&*st).active() {
         return;
     }
     if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
@@ -452,60 +454,21 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     ) || ps.drag.is_some()
         || ps.resize.is_some();
     let prompt_monitor = st.model.monitor_state.current_monitor.clone();
-    if st.screenshot_session_active() {
-        ps.world = world_now;
-        let session_mode = st
-            .input
-            .interaction_state
-            .screenshot_session
-            .as_ref()
-            .map(|session| session.mode);
-        if left && matches!(button_state, ButtonState::Pressed) {
-            match session_mode {
-                Some(halley_ipc::CaptureMode::Menu) => {
-                    if let Some(crate::overlay::ScreenshotMenuHit::Item(idx)) =
-                        crate::overlay::screenshot_menu_hit_test(
-                            local_w, local_h, local_sx, local_sy,
-                        )
-                    {
-                        st.hover_screenshot_menu_item(Some(idx));
-                        let _ = st.activate_screenshot_menu_item(idx);
-                    }
-                }
-                Some(halley_ipc::CaptureMode::Region) => {
-                    let _ = st.begin_screenshot_region_drag(
-                        frame.global_sx.round() as i32,
-                        frame.global_sy.round() as i32,
-                    );
-                }
-                Some(halley_ipc::CaptureMode::Screen) => {
-                    let _ = st.confirm_screenshot_session(Instant::now());
-                }
-                Some(halley_ipc::CaptureMode::Window) => {
-                    let now = Instant::now();
-                    st.update_screenshot_window_selection_from_pointer(
-                        target_monitor.as_str(),
-                        local_w,
-                        local_h,
-                        local_sx,
-                        local_sy,
-                        now,
-                    );
-                    let _ = st.confirm_screenshot_session(now);
-                }
-                _ => {}
-            }
-        }
-        if left
-            && matches!(button_state, ButtonState::Released)
-            && matches!(session_mode, Some(halley_ipc::CaptureMode::Region))
-        {
-            st.end_screenshot_region_drag();
-        }
-        if matches!(button_state, ButtonState::Released) {
-            handle_button_release(st, &mut ps, ctx.backend, button_code, None, world_now);
-        }
-        ctx.backend.request_redraw();
+    if handle_screenshot_pointer_button(
+        st,
+        ctx,
+        &mut ps,
+        button_code,
+        button_state,
+        left,
+        frame,
+        target_monitor.as_str(),
+        local_w,
+        local_h,
+        local_sx,
+        local_sy,
+        world_now,
+    ) {
         return;
     }
     if crate::compositor::clusters::system::cluster_system_controller(&*st)

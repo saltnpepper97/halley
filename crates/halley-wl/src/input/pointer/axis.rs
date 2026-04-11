@@ -4,7 +4,10 @@ use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
+use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
+use crate::compositor::screenshot::screenshot_controller;
 use crate::input::ctx::InputCtx;
 use crate::spatial::screen_to_world;
 
@@ -36,10 +39,10 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     relative_direction_horizontal: AxisRelativeDirection,
     relative_direction_vertical: AxisRelativeDirection,
 ) {
-    if st.exit_confirm_active() {
+    if exit_confirm_controller(&*st).active() {
         return;
     }
-    if st.screenshot_session_active() {
+    if screenshot_controller(&mut *st).screenshot_session_active() {
         return;
     }
     if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
@@ -269,14 +272,14 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     }
 
     let steps = steps.clamp(-4.0, 4.0);
-    let camera = st.camera_view_size();
+    let camera = camera_controller(&*st).view_size();
     let pan_y = -camera.y * (steps / 18.0);
     {
         let mut ps = ctx.pointer_state.borrow_mut();
         ps.panning = false;
     }
     st.note_pan_activity(now);
-    st.pan_camera_target(halley_core::field::Vec2 { x: 0.0, y: pan_y });
+    camera_controller(&mut *st).pan_target(halley_core::field::Vec2 { x: 0.0, y: pan_y });
     st.note_pan_viewport_change(now);
     ctx.backend.request_redraw();
 }
