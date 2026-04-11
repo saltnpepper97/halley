@@ -1,19 +1,21 @@
 use std::env;
 use std::error::Error;
+use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
-use halley_config::RuntimeTuning;
+use halley_config::{RuntimeTuning, ViewportOutputConfig};
 
 use eventline::{
-    FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, enable_console_color,
-    enable_console_duration, enable_console_scope_exits, enable_console_scope_labels, info, scope,
-    warn,
+    debug, enable_console_color, enable_console_duration, enable_console_scope_exits,
+    enable_console_scope_labels, info, scope, warn, FileSetup, LogLevel, LogPolicy, RunHeader,
+    Setup,
 };
 use once_cell::sync::OnceCell;
 use rustix::process::Signal;
-use rustix::runtime::{KernelSigSet, KernelSigaction, kernel_sigaction};
+use rustix::runtime::{kernel_sigaction, KernelSigSet, KernelSigaction};
 
 use crate::compositor::interaction::state::ViewportPanAnim;
 use crate::compositor::root::Halley;
@@ -23,9 +25,9 @@ mod common;
 mod ipc;
 
 pub(crate) use common::{
-    RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
-    ensure_xdg_runtime_dir, ensure_xwayland_satellite, halley_runtime_dir,
-    refresh_portal_services_nonblocking, sync_portal_activation_environment,
+    auto_backend, ensure_dbus_session_bus_address, ensure_host_display, ensure_xdg_runtime_dir,
+    ensure_xwayland_satellite, halley_runtime_dir, refresh_portal_services_nonblocking,
+    sync_portal_activation_environment, RuntimeBackend,
 };
 pub(crate) use ipc::{drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc};
 
@@ -196,6 +198,76 @@ pub(crate) fn preserve_viewport_section(
         })
         .collect();
     next
+}
+
+pub(crate) fn ensure_default_user_config(tty_viewports: Option<&[ViewportOutputConfig]>) {
+    if env::var("HALLEY_WL_CONFIG").is_ok() {
+        return;
+    }
+
+    let home_path = PathBuf::from(RuntimeTuning::default_home_config_path());
+    if home_path.exists() {
+        return;
+    }
+
+    let Some(parent) = home_path.parent() else {
+        warn!(
+            "bootstrap: unable to determine config directory for {}",
+            home_path.display()
+        );
+        return;
+    };
+    if let Err(err) = fs::create_dir_all(parent) {
+        warn!(
+            "bootstrap: failed to create config directory {}: {}",
+            parent.display(),
+            err
+        );
+        return;
+    }
+
+    let global_path = RuntimeTuning::global_config_path();
+    let (base_template, source_label) = if Path::new(global_path.as_str()).exists() {
+        match fs::read_to_string(global_path.as_str()) {
+            Ok(template) => (template, format!("global config {}", global_path)),
+            Err(err) => {
+                warn!(
+                    "bootstrap: failed to read global config {}; using internal template instead: {}",
+                    global_path,
+                    err
+                );
+                (
+                    RuntimeTuning::internal_config_template().to_string(),
+                    "internal template".to_string(),
+                )
+            }
+        }
+    } else {
+        (
+            RuntimeTuning::internal_config_template().to_string(),
+            "internal template".to_string(),
+        )
+    };
+
+    let rendered = RuntimeTuning::render_bootstrap_config(
+        base_template.as_str(),
+        tty_viewports.unwrap_or(&[]),
+    );
+    if let Err(err) = fs::write(&home_path, rendered) {
+        warn!(
+            "bootstrap: failed to write {} from {}: {}",
+            home_path.display(),
+            source_label,
+            err
+        );
+        return;
+    }
+
+    info!(
+        "bootstrap: wrote {} using {}",
+        home_path.display(),
+        source_label
+    );
 }
 
 pub fn run() -> Result<(), Box<dyn Error>> {

@@ -28,7 +28,8 @@ use super::layer_shell::collect_layer_surfaces;
 use super::log_rounded_shader_failure;
 use super::node::{
     NodeSnapshot, collect_hover_preview, draw_closing_node_markers, draw_node_hover_labels,
-    draw_node_markers, ensure_node_circle_resources,
+    draw_node_markers, ensure_node_circle_resources, node_app_icon_texture_allowed,
+    node_markers_need_app_icon_resources,
 };
 use super::screenshot_icon::ensure_screenshot_menu_icon_resources;
 use super::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
@@ -255,14 +256,16 @@ pub(crate) fn draw_debug_frame_to_target(
     let prepared = prepare_debug_frame_state(st, size);
     prewarm_visible_active_window_offscreen_caches(renderer, st, prepared.now);
 
-    let mut prewarm_icons = Vec::new();
-    for (node_id, app_id) in &st.model.node_app_ids {
-        if !st.ui.render_state.node_app_icon_cache.contains_key(app_id) {
-            prewarm_icons.push(*node_id);
+    if node_markers_need_app_icon_resources(st.runtime.tuning.node_show_app_icons) {
+        let mut prewarm_icons = Vec::new();
+        for (node_id, app_id) in &st.model.node_app_ids {
+            if !st.ui.render_state.node_app_icon_cache.contains_key(app_id) {
+                prewarm_icons.push(*node_id);
+            }
         }
-    }
-    if !prewarm_icons.is_empty() {
-        let _ = ensure_app_icon_resources_for_node_ids(renderer, st, prewarm_icons.into_iter());
+        if !prewarm_icons.is_empty() {
+            let _ = ensure_app_icon_resources_for_node_ids(renderer, st, prewarm_icons.into_iter());
+        }
     }
 
     let scene = collect_debug_frame_scene(
@@ -275,33 +278,39 @@ pub(crate) fn draw_debug_frame_to_target(
         prepared.now,
     );
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
-    ensure_cluster_core_icon_resources(renderer, st)?;
+    if node_markers_need_app_icon_resources(st.runtime.tuning.node_show_app_icons) {
+        ensure_cluster_core_icon_resources(renderer, st)?;
+    }
     ensure_screenshot_menu_icon_resources(renderer, st)?;
     let current_monitor = st.model.monitor_state.current_monitor.clone();
-    let overflow_ids = st
-        .model
-        .cluster_state
-        .cluster_overflow_members
-        .get(current_monitor.as_str())
-        .into_iter()
-        .flat_map(|ids| ids.iter().copied())
-        .chain(
-            st.input
-                .interaction_state
-                .cluster_overflow_drag_preview
-                .as_ref()
-                .filter(|preview| preview.monitor == current_monitor)
-                .map(|preview| preview.member_id),
-        )
-        .chain(
-            st.model
-                .cluster_state
-                .cluster_overflow_promotion_anim
-                .get(current_monitor.as_str())
-                .map(|anim| anim.member_id),
-        )
-        .collect::<Vec<_>>();
-    ensure_app_icon_resources_for_node_ids(renderer, st, overflow_ids.into_iter())?;
+    if st.runtime.tuning.tile_queue_show_icons
+        && node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, false)
+    {
+        let overflow_ids = st
+            .model
+            .cluster_state
+            .cluster_overflow_members
+            .get(current_monitor.as_str())
+            .into_iter()
+            .flat_map(|ids| ids.iter().copied())
+            .chain(
+                st.input
+                    .interaction_state
+                    .cluster_overflow_drag_preview
+                    .as_ref()
+                    .filter(|preview| preview.monitor == current_monitor)
+                    .map(|preview| preview.member_id),
+            )
+            .chain(
+                st.model
+                    .cluster_state
+                    .cluster_overflow_promotion_anim
+                    .get(current_monitor.as_str())
+                    .map(|anim| anim.member_id),
+            )
+            .collect::<Vec<_>>();
+        ensure_app_icon_resources_for_node_ids(renderer, st, overflow_ids.into_iter())?;
+    }
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_ui_text_resources(renderer, st)?;

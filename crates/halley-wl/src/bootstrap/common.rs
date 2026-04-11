@@ -21,9 +21,9 @@ use std::time::{Duration, Instant};
 
 use eventline::{debug, info, warn};
 use rustix::net::{
-    AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
+    bind, listen, socket_with, AddressFamily, SocketAddrUnix, SocketFlags, SocketType,
 };
-use rustix::process::{Pid, Signal, kill_process_group, setpgid, test_kill_process};
+use rustix::process::{kill_process_group, setpgid, test_kill_process, Pid, Signal};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RuntimeBackend {

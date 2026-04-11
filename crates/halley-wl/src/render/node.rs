@@ -365,14 +365,38 @@ fn node_label_fill_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
 }
 
 fn node_icon_glyph(st: &Halley, id: halley_core::field::NodeId, fallback: &str) -> Option<char> {
-    st.model
-        .node_app_ids
-        .get(&id)
-        .map(String::as_str)
+    Some(node_app_icon_fallback_glyph(
+        st.model.node_app_ids.get(&id).map(String::as_str),
+        fallback,
+    ))
+}
+
+#[inline]
+pub(crate) fn node_markers_need_app_icon_resources(policy: NodeDisplayPolicy) -> bool {
+    !matches!(policy, NodeDisplayPolicy::Off)
+}
+
+#[inline]
+pub(crate) fn node_app_icon_texture_allowed(
+    policy: NodeDisplayPolicy,
+    highlighted: bool,
+) -> bool {
+    match policy {
+        NodeDisplayPolicy::Off => false,
+        NodeDisplayPolicy::Hover => highlighted,
+        NodeDisplayPolicy::Always => true,
+    }
+}
+
+#[inline]
+pub(crate) fn node_app_icon_fallback_glyph(app_id: Option<&str>, fallback: &str) -> char {
+    app_id
+        .filter(|app_id| !app_id.trim().is_empty())
         .unwrap_or(fallback)
         .chars()
         .find(|ch| ch.is_ascii_alphanumeric())
-        .map(|ch| ch.to_ascii_uppercase())
+        .unwrap_or('?')
+        .to_ascii_uppercase()
 }
 
 // ---------------------------------------------------------------------------
@@ -633,11 +657,8 @@ pub(crate) fn draw_node_markers(
             continue;
         }
 
-        let show_icon = match st.runtime.tuning.node_show_app_icons {
-            NodeDisplayPolicy::Off => false,
-            NodeDisplayPolicy::Hover => highlighted,
-            NodeDisplayPolicy::Always => true,
-        };
+        let allow_app_icon =
+            node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, highlighted);
         let icon_alpha = (dot_alpha * icon_mix).clamp(0.0, 1.0);
 
         let ring_mix = if is_core {
@@ -668,13 +689,14 @@ pub(crate) fn draw_node_markers(
                 node_color,
                 fill_color,
                 fill_flat,
-                show_icon && icon_alpha > 0.01,
+                icon_alpha > 0.01,
                 damage,
             )?;
         }
-        if show_icon {
+        if icon_alpha > 0.01 {
             let mut drew_real_icon = false;
             if icon_alpha > 0.01
+                && allow_app_icon
                 && is_core
                 && let Some(icon) = crate::render::cluster_core_icon_texture(st, focused)
             {
@@ -704,6 +726,7 @@ pub(crate) fn draw_node_markers(
             }
             if !drew_real_icon
                 && icon_alpha > 0.01
+                && allow_app_icon
                 && let Some(app_id) = st.model.node_app_ids.get(&id)
                 && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
                     st.ui.render_state.node_app_icon_cache.get(app_id)
@@ -733,10 +756,7 @@ pub(crate) fn draw_node_markers(
                 drew_real_icon = true;
             }
 
-            if !drew_real_icon
-                && icon_alpha > 0.01
-                && let Some(icon) = node_icon_glyph(st, id, node_label)
-            {
+            if !drew_real_icon && let Some(icon) = node_icon_glyph(st, id, node_label) {
                 let scale = if render_radius >= 24 { 3 } else { 2 };
                 let icon_text = icon.to_string();
                 let (tw, th) = ui_text_size(st, &icon_text, scale);
@@ -756,6 +776,37 @@ pub(crate) fn draw_node_markers(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        node_app_icon_fallback_glyph, node_app_icon_texture_allowed,
+        node_markers_need_app_icon_resources,
+    };
+    use halley_config::NodeDisplayPolicy;
+
+    #[test]
+    fn node_marker_icon_texture_policy_honors_off_hover_and_always() {
+        assert!(!node_markers_need_app_icon_resources(NodeDisplayPolicy::Off));
+        assert!(!node_app_icon_texture_allowed(NodeDisplayPolicy::Off, false));
+        assert!(!node_app_icon_texture_allowed(NodeDisplayPolicy::Off, true));
+
+        assert!(node_markers_need_app_icon_resources(NodeDisplayPolicy::Hover));
+        assert!(!node_app_icon_texture_allowed(NodeDisplayPolicy::Hover, false));
+        assert!(node_app_icon_texture_allowed(NodeDisplayPolicy::Hover, true));
+
+        assert!(node_markers_need_app_icon_resources(NodeDisplayPolicy::Always));
+        assert!(node_app_icon_texture_allowed(NodeDisplayPolicy::Always, false));
+        assert!(node_app_icon_texture_allowed(NodeDisplayPolicy::Always, true));
+    }
+
+    #[test]
+    fn node_icon_fallback_glyph_prefers_app_id_initial() {
+        assert_eq!(node_app_icon_fallback_glyph(Some("firefox"), "Window"), 'F');
+        assert_eq!(node_app_icon_fallback_glyph(Some("org.wezfurlong.wezterm"), "Window"), 'O');
+        assert_eq!(node_app_icon_fallback_glyph(None, "Window"), 'W');
+    }
 }
 
 pub(crate) fn draw_closing_node_markers(

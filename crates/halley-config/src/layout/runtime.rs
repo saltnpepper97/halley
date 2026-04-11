@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::env;
+use std::path::Path;
+use std::sync::OnceLock;
 
 use halley_core::cluster_layout::ClusterWorkspaceLayoutKind;
 use halley_core::decay::FocusRingDecayPolicy;
@@ -8,7 +10,7 @@ use halley_core::viewport::{FocusRing, Viewport};
 
 use crate::keybinds::{CompositorBinding, Keybinds, LaunchBinding, PointerBinding};
 
-use super::paths::{absolutize_path, default_config_path};
+use super::paths::{absolutize_path, default_config_path, global_config_path};
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
@@ -100,6 +102,43 @@ pub struct RuntimeTuning {
     pub env: HashMap<String, String>,
 }
 impl RuntimeTuning {
+    pub fn default_home_config_path() -> String {
+        default_config_path().to_string_lossy().to_string()
+    }
+
+    pub fn global_config_path() -> String {
+        global_config_path().to_string_lossy().to_string()
+    }
+
+    pub fn internal_config_template() -> &'static str {
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/halley.rune"
+        ))
+    }
+
+    pub fn builtin_defaults() -> Self {
+        static BUILTIN_DEFAULTS: OnceLock<RuntimeTuning> = OnceLock::new();
+
+        BUILTIN_DEFAULTS
+            .get_or_init(|| {
+                RuntimeTuning::from_rune_str_with_seed(
+                    RuntimeTuning::internal_config_template(),
+                    RuntimeTuning::default(),
+                )
+                .unwrap_or_default()
+            })
+            .clone()
+    }
+
+    pub fn render_bootstrap_config(
+        base_template: &str,
+        tty_viewports: &[ViewportOutputConfig],
+    ) -> String {
+        let viewport_block = render_viewport_section(tty_viewports);
+        replace_or_insert_top_level_section(base_template, "viewport", viewport_block.as_str())
+    }
+
     pub fn effective_no_csd(&self) -> bool {
         self.no_csd || self.border_radius_px > 0
     }
@@ -166,7 +205,19 @@ impl RuntimeTuning {
     pub fn config_path() -> String {
         match env::var("HALLEY_WL_CONFIG") {
             Ok(path) => absolutize_path(&path).to_string_lossy().to_string(),
-            Err(_) => default_config_path().to_string_lossy().to_string(),
+            Err(_) => {
+                let home = default_config_path();
+                if Path::new(&home).exists() {
+                    home.to_string_lossy().to_string()
+                } else {
+                    let global = global_config_path();
+                    if Path::new(&global).exists() {
+                        global.to_string_lossy().to_string()
+                    } else {
+                        home.to_string_lossy().to_string()
+                    }
+                }
+            }
         }
     }
 
@@ -175,7 +226,7 @@ impl RuntimeTuning {
     }
 
     pub fn load_from_path(path: &str) -> Self {
-        let mut out = Self::try_load_from_path(path).unwrap_or_default();
+        let mut out = Self::try_load_from_path(path).unwrap_or_else(Self::builtin_defaults);
         out.clamp_values();
         out
     }
@@ -263,6 +314,116 @@ impl RuntimeTuning {
     }
 }
 
+fn render_viewport_section(tty_viewports: &[ViewportOutputConfig]) -> String {
+    if tty_viewports.is_empty() {
+        return [
+            "# A viewport represents one monitor/output.",
+            "# Halley bootstraps detected outputs here on first tty launch.",
+            "viewport:",
+            "end",
+            "",
+        ]
+        .join("\n");
+    }
+
+    let mut lines = vec![
+        "# A viewport represents one monitor/output.".to_string(),
+        "# Bootstrapped from detected outputs on first launch.".to_string(),
+        "viewport:".to_string(),
+    ];
+
+    for viewport in tty_viewports {
+        lines.push(format!("  {}:", viewport.connector));
+        lines.push(format!("    enabled {}", viewport.enabled));
+        lines.push(format!("    offset-x {}", viewport.offset_x));
+        lines.push(format!("    offset-y {}", viewport.offset_y));
+        lines.push(format!("    width {}", viewport.width));
+        lines.push(format!("    height {}", viewport.height));
+        if let Some(refresh_rate) = viewport.refresh_rate {
+            lines.push(format!("    rate {:.3}", refresh_rate));
+        }
+        lines.push(format!("    transform {}", viewport.transform_degrees));
+        lines.push(format!("    vrr \"{}\"", viewport.vrr.as_str()));
+        lines.push("  end".to_string());
+        lines.push(String::new());
+    }
+
+    lines.push("end".to_string());
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn replace_or_insert_top_level_section(
+    template: &str,
+    section_name: &str,
+    replacement: &str,
+) -> String {
+    let sections = top_level_sections(template);
+    if let Some((start, end)) = sections
+        .iter()
+        .find(|(name, _, _)| name == section_name)
+        .map(|(_, start, end)| (*start, *end))
+    {
+        let mut rendered = String::with_capacity(template.len() + replacement.len());
+        rendered.push_str(&template[..start]);
+        rendered.push_str(replacement);
+        rendered.push_str(&template[end..]);
+        return rendered;
+    }
+
+    let insert_at = sections
+        .iter()
+        .find(|(name, _, _)| name == "field")
+        .map(|(_, start, _)| *start)
+        .unwrap_or(template.len());
+    let mut rendered = String::with_capacity(template.len() + replacement.len() + 1);
+    rendered.push_str(&template[..insert_at]);
+    if insert_at > 0 && !template[..insert_at].ends_with('\n') {
+        rendered.push('\n');
+    }
+    rendered.push_str(replacement);
+    rendered.push_str(&template[insert_at..]);
+    rendered
+}
+
+fn top_level_sections(template: &str) -> Vec<(String, usize, usize)> {
+    let mut headers = Vec::new();
+    let mut offset = 0usize;
+    for line in template.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if !trimmed.is_empty()
+            && !line.starts_with([' ', '\t'])
+            && !trimmed.starts_with('#')
+            && trimmed.ends_with(':')
+        {
+            headers.push((trimmed.trim_end_matches(':').to_string(), offset));
+        }
+        offset += line.len();
+    }
+    if !template.ends_with('\n') {
+        let trailing = template[offset..].trim();
+        if !trailing.is_empty()
+            && !template[offset..].starts_with([' ', '\t'])
+            && !trailing.starts_with('#')
+            && trailing.ends_with(':')
+        {
+            headers.push((trailing.trim_end_matches(':').to_string(), offset));
+        }
+    }
+
+    headers
+        .iter()
+        .enumerate()
+        .map(|(index, (name, start))| {
+            let end = headers
+                .get(index + 1)
+                .map(|(_, next_start)| *next_start)
+                .unwrap_or(template.len());
+            (name.clone(), *start, end)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +437,38 @@ mod tests {
 
         tuning.border_radius_px = 0;
         assert!(!tuning.effective_no_csd());
+    }
+
+    #[test]
+    fn builtin_defaults_follow_example_config() {
+        let tuning = RuntimeTuning::builtin_defaults();
+
+        assert_eq!(tuning.node_shape, ShapeStyle::Square);
+        assert_eq!(tuning.node_label_shape, ShapeStyle::Square);
+        assert_eq!(tuning.cursor.hide_after_ms, 2000);
+        assert_eq!(tuning.cluster_dwell_ms, 2000);
+    }
+
+    #[test]
+    fn render_bootstrap_config_replaces_viewport_section() {
+        let rendered = RuntimeTuning::render_bootstrap_config(
+            RuntimeTuning::internal_config_template(),
+            &[ViewportOutputConfig {
+                connector: "DP-1".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 2560,
+                height: 1440,
+                refresh_rate: Some(180.0),
+                transform_degrees: 0,
+                vrr: crate::ViewportVrrMode::Off,
+                focus_ring: None,
+            }],
+        );
+
+        assert!(rendered.contains("viewport:\n  DP-1:"));
+        assert!(rendered.contains("    rate 180.000"));
+        assert!(!rendered.contains("# Example second monitor configuration."));
     }
 }

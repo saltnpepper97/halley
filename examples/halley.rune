@@ -14,9 +14,9 @@
 #end
 
 autostart:
-  once "waybar"
-
   # Common examples you may want later:
+  #once "waybar"
+
   #once "mako"
   #once "gessod"
   #once "stasis"
@@ -44,52 +44,9 @@ screenshot:
 end
 
 # A viewport represents one monitor/output.
-# This block defines resolution, refresh rate, transform, VRR,
-# and the focus ring for that output.
+# On first tty launch Halley writes the detected outputs here for you.
+# If you want to manage monitors manually later, edit this section.
 viewport:
-  DP-1:
-    enabled true
-    
-    offset-x 0
-    offset-y 0
-    
-    width 2560
-    height 1440
-    
-    rate 180.0
-    transform 0
-    vrr "on"
-
-    # The focus ring is Halley's active zone.
-    # Windows inside it stay more fully active.
-    # Windows outside it may decay into nodes depending on config.
-    focus-ring:
-      primary-rx 820.0
-      primary-ry 420.0
-      offset-x 0
-      offset-y 0
-    end
-  end
-
-  # Example second monitor configuration.
-  # Uncomment and edit if needed.
-  #DP-2:
-  #  enabled true
-  #  offset-x 0
-  #  offset-y 0
-  #  width 1920
-  #  height 1200
-  #  rate 75.0
-  #  transform 0
-  #  vrr "off"
-  #
-  #  focus-ring:
-  #    primary-rx 820.0
-  #    primary-ry 420.0
-  #    offset-x 0
-  #    offset-y 0
-  #  end
-  #end
 end
 
 # The field is Halley's spatial world for a monitor.

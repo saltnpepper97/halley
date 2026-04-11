@@ -102,22 +102,30 @@ Defaults follow `examples/halley.rune`.
 | Zoom | `Super+MouseWheelUp` | Zoom in |
 | Zoom | `Super+MouseWheelDown` | Zoom out |
 | Zoom | `Super+MiddleMouse` | Reset zoom |
-| Move | `Super+h` | Move node left |
-| Move | `Super+l` | Move node right |
-| Move | `Super+k` | Move node up |
-| Move | `Super+j` | Move node down |
-| Monitor | `Super+Shift+h` | Focus monitor left |
-| Monitor | `Super+Shift+l` | Focus monitor right |
+| Move | `Super+Left` | Move node left |
+| Move | `Super+Right` | Move node right |
+| Move | `Super+Up` | Move node up |
+| Move | `Super+Down` | Move node down |
+| Monitor | `Super+Shift+Left` | Focus monitor left |
+| Monitor | `Super+Shift+Right` | Focus monitor right |
+| Monitor | `Super+Shift+Up` | Focus monitor up |
+| Monitor | `Super+Shift+Down` | Focus monitor down |
 | Clusters | `Super+Shift+c` | Enter cluster mode |
+| Clusters | `Super+l` | Cycle cluster layout |
 | Bearings | `Super+z` | Show bearings |
 | Bearings | `Super+Shift+z` | Toggle bearings |
-| Trail | `Super+Shift+,` | Trail previous |
-| Trail | `Super+Shift+.` | Trail next |
+| Trail | `Super+,` | Trail previous |
+| Trail | `Super+.` | Trail next |
 | Launch | `Super+Return` | Open terminal |
 | Launch | `Super+d` | Launch `fuzzel` |
 | Pointer | `Super+LeftMouse` | Move window |
 | Pointer | `Super+RightMouse` | Resize window |
 | Pointer | `Super+Shift+LeftMouse` | Field jump |
+| Screenshot | `Super+Shift+s` | Open capture menu |
+| Tile | `Super+Left/Right/Up/Down` | Focus tile in that direction |
+| Tile | `Super+Ctrl+Left/Right/Up/Down` | Swap tile in that direction |
+| Stacking | `Super+Left` | Cycle stack forward |
+| Stacking | `Super+Right` | Cycle stack backward |
 | Media | `XF86AudioRaiseVolume` | Raise volume |
 | Media | `XF86AudioLowerVolume` | Lower volume |
 | Media | `XF86AudioMute` | Toggle mute |
@@ -126,13 +134,22 @@ Defaults follow `examples/halley.rune`.
 
 ## Configuration
 
-Handled by `crates/hally-config`. Covers keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
+On first launch Halley bootstraps `~/.config/halley/halley.rune` for you. Normal config precedence is `~/.config/halley/halley.rune`, then `/etc/halley/halley.rune`, then the bundled internal defaults from `examples/halley.rune`.
+
+Handled by `crates/halley-config`. Covers keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
 
 ## Contributing
 
 View the [contributing](CONTRIBUTING.md) guidelines before making any pull requests
 
 ---
+
+## Inspirations
+
+- [niri](https://github.com/niri-wm/niri) — for how to do Wayland compositor things in Rust
+- [vxwm](https://codeberg.org/wh1tepearl/vxwm) — for studying some of its eyecandy
+- [hevel](https://sr.ht/~dlm/hevel/) — for zoooooooom
+- [Hyprland](https://github.com/hyprwm/hyprland) — for some config organization and eyecandy
 
 ## License
 

@@ -58,6 +58,7 @@ pub(crate) use screenshot_icon::{
     screenshot_menu_background_color, screenshot_menu_highlight_color,
     screenshot_menu_icon_texture, screenshot_menu_item_fill_color,
 };
+pub(crate) use node::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
 pub(crate) use utils::preview_proxy_size;
 pub(crate) use utils::{node_marker_metrics, world_to_screen};
 pub(crate) use window::capture_closing_window_animation;

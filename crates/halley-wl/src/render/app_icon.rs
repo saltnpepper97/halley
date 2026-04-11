@@ -11,7 +11,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use crate::compositor::root::Halley;
 use crate::render::state::{NodeAppIconCacheEntry, NodeAppIconTexture};
 
-use super::node::NodeSnapshot;
+use super::node::{NodeSnapshot, node_markers_need_app_icon_resources};
 
 const NODE_ICON_RASTER_PX: u32 = 64;
 const ICON_WALK_MAX_DEPTH: usize = 6;
@@ -27,6 +27,10 @@ pub(crate) fn ensure_node_app_icon_resources(
     st: &mut Halley,
     render_nodes: &[NodeSnapshot],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if !node_markers_need_app_icon_resources(st.runtime.tuning.node_show_app_icons) {
+        return Ok(());
+    }
+
     let node_ids = render_nodes
         .iter()
         .filter(|node| {

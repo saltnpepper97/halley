@@ -19,6 +19,7 @@ use crate::compositor::root::Halley;
 use crate::render::state::RenderState;
 use crate::render::themed_node_label_colors;
 use crate::render::utils::draw_rect;
+use crate::render::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
 
 use crate::render::text::{draw_ui_text, draw_ui_text_in, ui_text_size, ui_text_size_in};
 
@@ -301,6 +302,7 @@ fn draw_overflow_member_chip(
         alpha,
     )?;
     if overlay.tuning.tile_queue_show_icons
+        && node_app_icon_texture_allowed(overlay.tuning.node_show_app_icons, false)
         && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
             overlay.node_app_icon_entry(node_id)
     {
@@ -325,18 +327,15 @@ fn draw_overflow_member_chip(
         )?;
         return Ok(());
     }
-    let fallback = overlay
-        .node_app_ids
-        .get(&node_id)
-        .map(String::as_str)
-        .or_else(|| overlay.field.node(node_id).map(|n| n.label.as_str()))
-        .unwrap_or("?");
-    let glyph = fallback
-        .chars()
-        .find(|ch| ch.is_ascii_alphanumeric())
-        .unwrap_or('?')
-        .to_ascii_uppercase()
-        .to_string();
+    let glyph = node_app_icon_fallback_glyph(
+        overlay.node_app_ids.get(&node_id).map(String::as_str),
+        overlay
+            .field
+            .node(node_id)
+            .map(|n| n.label.as_str())
+            .unwrap_or("?"),
+    )
+    .to_string();
     let (text_w, text_h) = ui_text_size_in(overlay.render_state, &overlay.tuning.font, &glyph, 2);
     draw_ui_text_in(
         frame,

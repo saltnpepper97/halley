@@ -9,7 +9,7 @@ use crate::backend::interface::{
 use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::PointerState;
 use crate::compositor::monitor::camera::camera_controller;
-use calloop::{Interest, Mode, PostAction, generic::Generic};
+use calloop::{generic::Generic, Interest, Mode, PostAction};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
@@ -230,6 +230,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mut display: Display<Halley> = Display::new()?;
             let dh = display.handle();
 
+            crate::bootstrap::ensure_default_user_config(None);
             let config_path = Rc::new(RuntimeTuning::config_path());
             let aperture_config_path = Rc::new(crate::aperture::default_aperture_config_path());
             let tuning = RuntimeTuning::load_from_path(config_path.as_str());

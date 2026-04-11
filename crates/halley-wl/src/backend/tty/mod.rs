@@ -393,22 +393,7 @@ fn outputs_match(a: &[TtyDrmOutput], b: &[TtyDrmOutput]) -> bool {
     })
 }
 
-fn effective_tty_viewports_for_outputs(
-    tuning: &RuntimeTuning,
-    outputs: &[TtyDrmOutput],
-) -> Vec<ViewportOutputConfig> {
-    let active_names = active_output_names(outputs);
-    let configured: Vec<_> = tuning
-        .tty_viewports
-        .iter()
-        .filter(|viewport| viewport.enabled)
-        .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
-        .cloned()
-        .collect();
-    if !configured.is_empty() {
-        return configured;
-    }
-
+fn bootstrap_tty_viewports(outputs: &[TtyDrmOutput]) -> Vec<ViewportOutputConfig> {
     let mut ordered: Vec<_> = outputs
         .iter()
         .map(|output| {
@@ -443,6 +428,25 @@ fn effective_tty_viewports_for_outputs(
             viewport
         })
         .collect()
+}
+
+fn effective_tty_viewports_for_outputs(
+    tuning: &RuntimeTuning,
+    outputs: &[TtyDrmOutput],
+) -> Vec<ViewportOutputConfig> {
+    let active_names = active_output_names(outputs);
+    let configured: Vec<_> = tuning
+        .tty_viewports
+        .iter()
+        .filter(|viewport| viewport.enabled)
+        .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
+        .cloned()
+        .collect();
+    if !configured.is_empty() {
+        return configured;
+    }
+
+    bootstrap_tty_viewports(outputs)
 }
 
 fn effective_tty_viewport_fallback_reason(
@@ -836,6 +840,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let mut display: Display<Halley> = Display::new()?;
             let dh = display.handle();
 
+            crate::bootstrap::ensure_default_user_config(Some(&bootstrap_tty_viewports(
+                drm_probe.outputs.as_slice(),
+            )));
             let config_path = Rc::new(RuntimeTuning::config_path());
             let aperture_config_path = Rc::new(crate::aperture::default_aperture_config_path());
             let tuning = RuntimeTuning::load_from_path(config_path.as_str());
