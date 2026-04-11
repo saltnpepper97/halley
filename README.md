@@ -91,7 +91,7 @@ Once inside, you leave the Field entirely. The cluster is its own contained spac
 
 ## Default Keybinds
 
-Defaults follow `examples/halley.rune`.
+Defaults follow Halley's shipped fresh-config template.
 
 | Category | Keybind | Action |
 |---|---|---|
@@ -134,7 +134,7 @@ Defaults follow `examples/halley.rune`.
 
 ## Configuration
 
-On first launch Halley bootstraps `~/.config/halley/halley.rune` for you. Normal config precedence is `~/.config/halley/halley.rune`, then `/etc/halley/halley.rune`, then the bundled internal defaults from `examples/halley.rune`.
+On first launch Halley bootstraps `~/.config/halley/halley.rune` for you from an internal fully documented template, inserting detected tty monitors into the `viewport` section. Normal config precedence is `~/.config/halley/halley.rune`, then `/etc/halley/halley.rune`, then bundled internal defaults.
 
 Handled by `crates/halley-config`. Covers keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
 
@@ -150,6 +150,9 @@ View the [contributing](CONTRIBUTING.md) guidelines before making any pull reque
 - [vxwm](https://codeberg.org/wh1tepearl/vxwm) — for studying some of its eyecandy
 - [hevel](https://sr.ht/~dlm/hevel/) — for zoooooooom
 - [Hyprland](https://github.com/hyprwm/hyprland) — for some config organization and eyecandy
+- [newm](https://github.com/jbuchermn/newm) - Godfather of spatial compositing
+
+---
 
 ## License
 

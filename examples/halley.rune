@@ -13,6 +13,8 @@
 #  QT_QPA_PLATFORMTHEME "qt6ct"
 #end
 
+# Autostart lets Halley launch bars, notifiers, and background helpers.
+# `once` runs only on compositor startup. `on-reload` runs after a config reload.
 autostart:
   # Common examples you may want later:
   #once "waybar"
@@ -25,6 +27,8 @@ autostart:
   #on-reload "thunderbird"
 end
 
+# Cursor settings apply to the compositor itself and child apps started by Halley.
+# `hide-when-typing` is useful when you mostly drive the field with the keyboard.
 cursor:
   theme "Adwaita"
   size 24
@@ -39,6 +43,7 @@ font:
 end
 
 # Where screenshots taken through Halley are saved.
+# Use an absolute path or an env-expanded path like `$env.HOME/...`.
 screenshot:
   directory "$env.HOME/Pictures/Screenshots/"
 end
@@ -47,13 +52,57 @@ end
 # On first tty launch Halley writes the detected outputs here for you.
 # If you want to manage monitors manually later, edit this section.
 viewport:
+  DP-1:
+    enabled true
+    
+    offset-x 0
+    offset-y 0
+    
+    width 2560
+    height 1440
+    
+    rate 180.0
+    transform 0
+    vrr "on"
+    # The focus ring is Halley's active zone.
+    # Windows inside it stay more fully active.
+    # Windows outside it may decay into nodes depending on config.
+    focus-ring:
+      primary-rx 820.0
+      primary-ry 420.0
+      offset-x 0
+      offset-y 0
+    end
+  end
+  # Example second monitor configuration.
+  # Uncomment and edit if needed.
+  #DP-2:
+  #  enabled true
+  #  offset-x 0
+  #  offset-y 0
+  #  width 1920
+  #  height 1200
+  #  rate 75.0
+  #  transform 0
+  #  vrr "off"
+  #
+  #  focus-ring:
+  #    primary-rx 820.0
+  #    primary-ry 420.0
+  #    offset-x 0
+  #    offset-y 0
+  #  end
+  #end
 end
 
 # The field is Halley's spatial world for a monitor.
 # Windows live on this field instead of being arranged into fixed desktops.
 field:
+  # Gap in pixels between windows and layout elements.
   gap 20.0
+  # Maximum number of fully active windows before decay takes over.
   active-windows-allowed 5
+  # How aggressively the camera pans to newly opened windows.
   pan-to-new "if-needed"
   close-restore-focus true
   close-restore-pan "if-offscreen"
@@ -74,6 +123,8 @@ end
 node:
   # Keep nodes recognizable without making the field too noisy.
   show-labels "hover"
+  # `always`, `hover`, or `off` for real app icons. Halley falls back to
+  # the app-id initial when an icon is unavailable or intentionally hidden.
   show-app-icons "always"
 
   node-shape "square"
@@ -94,6 +145,7 @@ end
 
 # Decay controls how windows transition between active, inactive,
 # and collapsed states.
+# Lower values make Halley condense inactive work more quickly.
 decay:
   active-delay 240
   inactive-delay 120
@@ -107,6 +159,7 @@ trail:
 end
 
 # Bearings are directional indicators for offscreen things.
+# They can show both labels and distance to help you re-orient quickly.
 bearings:
   show-distance true
   show-icons true
@@ -272,6 +325,7 @@ keybinds:
 end
 
 # Rules let you special-case certain windows/apps.
+# This example keeps common Firefox file dialogs centered and floating.
 rules:
   rule:
     app-id "firefox"

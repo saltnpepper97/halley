@@ -1,7 +1,6 @@
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -226,47 +225,19 @@ pub(crate) fn ensure_default_user_config(tty_viewports: Option<&[ViewportOutputC
         return;
     }
 
-    let global_path = RuntimeTuning::global_config_path();
-    let (base_template, source_label) = if Path::new(global_path.as_str()).exists() {
-        match fs::read_to_string(global_path.as_str()) {
-            Ok(template) => (template, format!("global config {}", global_path)),
-            Err(err) => {
-                warn!(
-                    "bootstrap: failed to read global config {}; using internal template instead: {}",
-                    global_path,
-                    err
-                );
-                (
-                    RuntimeTuning::internal_config_template().to_string(),
-                    "internal template".to_string(),
-                )
-            }
-        }
-    } else {
-        (
-            RuntimeTuning::internal_config_template().to_string(),
-            "internal template".to_string(),
-        )
-    };
-
-    let rendered = RuntimeTuning::render_bootstrap_config(
-        base_template.as_str(),
-        tty_viewports.unwrap_or(&[]),
-    );
+    let rendered = RuntimeTuning::render_fresh_config(tty_viewports.unwrap_or(&[]));
     if let Err(err) = fs::write(&home_path, rendered) {
         warn!(
-            "bootstrap: failed to write {} from {}: {}",
+            "bootstrap: failed to write {} from internal template: {}",
             home_path.display(),
-            source_label,
             err
         );
         return;
     }
 
     info!(
-        "bootstrap: wrote {} using {}",
-        home_path.display(),
-        source_label
+        "bootstrap: wrote {} using internal template",
+        home_path.display()
     );
 }
 
