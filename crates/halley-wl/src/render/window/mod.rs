@@ -36,11 +36,13 @@ use super::utils::{sync_node_size_from_surface, world_to_screen};
 mod offscreen;
 mod stack;
 
-use offscreen::world_to_screen_for_view;
 pub(crate) use offscreen::{
     capture_closing_window_animation, prewarm_visible_active_window_offscreen_caches,
 };
 use stack::{build_stack_transition_plan, clone_stack_window_unit_for_pose, stack_draw_order_map};
+
+#[cfg(test)]
+use offscreen::world_to_screen_for_view;
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;

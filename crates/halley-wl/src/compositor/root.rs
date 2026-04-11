@@ -10,8 +10,8 @@ use halley_core::viewport::Viewport;
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
-    input::{SeatState, pointer::CursorImageStatus},
-    reexports::wayland_server::{DisplayHandle, backend::ObjectId},
+    input::{pointer::CursorImageStatus, SeatState},
+    reexports::wayland_server::{backend::ObjectId, DisplayHandle},
     wayland::{
         compositor::CompositorState,
         cursor_shape::CursorShapeManagerState,
@@ -25,7 +25,7 @@ use smithay::{
             wlr_data_control::DataControlState,
         },
         shell::wlr_layer::WlrLayerShellState,
-        shell::xdg::{XdgShellState, decoration::XdgDecorationState},
+        shell::xdg::{decoration::XdgDecorationState, XdgShellState},
         shm::ShmState,
         viewporter::ViewporterState,
     },
@@ -622,8 +622,11 @@ impl Halley {
         self.request_maintenance();
     }
 
-    pub(crate) fn reconfigure_active_tty_monitors(&mut self, active_outputs: &[String]) {
-        super::monitor::state::reconfigure_active_tty_monitors(self, active_outputs)
+    pub(crate) fn reconfigure_active_tty_monitors(
+        &mut self,
+        active_viewports: &[halley_config::ViewportOutputConfig],
+    ) {
+        super::monitor::state::reconfigure_active_tty_monitors(self, active_viewports)
     }
 
     pub(crate) fn monitor_for_screen(&self, sx: f32, sy: f32) -> Option<String> {

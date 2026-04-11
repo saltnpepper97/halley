@@ -468,6 +468,27 @@ pub(crate) fn select_tty_scanouts(
         return Err(io::Error::other("no connected drm connector with a usable mode found").into());
     }
 
+    let default_scanouts = |
+        connected: &Vec<(drm_control::connector::Handle, drm_control::connector::Info)>,
+    | {
+        connected
+            .iter()
+            .map(|(conn, info): &(drm_control::connector::Handle, drm_control::connector::Info)| {
+                let mode = info
+                    .modes()
+                    .iter()
+                    .copied()
+                    .find(|mode: &drm_control::Mode| {
+                        mode.mode_type()
+                            .contains(drm_control::ModeTypeFlags::PREFERRED)
+                    })
+                    .or_else(|| info.modes().first().copied())
+                    .ok_or_else(|| io::Error::other(format!("connector {} has no modes", info)))?;
+                Ok((*conn, info.clone(), mode))
+            })
+            .collect::<Result<Vec<_>, io::Error>>()
+    };
+
     let configured: Vec<_> = tuning
         .tty_viewports
         .iter()
@@ -475,19 +496,12 @@ pub(crate) fn select_tty_scanouts(
         .collect();
     let desired: Vec<_> = if configured.is_empty() {
         if tuning.tty_viewports.is_empty() {
-            connected
-                .iter()
-                .map(|(conn, info)| {
-                    let mode = info.modes().first().copied().ok_or_else(|| {
-                        io::Error::other(format!("connector {} has no modes", info))
-                    })?;
-                    Ok((*conn, info.clone(), mode))
-                })
-                .collect::<Result<Vec<_>, io::Error>>()?
+            default_scanouts(&connected)?
         } else {
-            return Err(
-                io::Error::other("viewport outputs are configured, but none are enabled").into(),
+            warn!(
+                "viewport outputs are configured, but none are enabled; falling back to detected outputs"
             );
+            default_scanouts(&connected)?
         }
     } else {
         let mut found = Vec::new();
@@ -519,8 +533,8 @@ pub(crate) fn select_tty_scanouts(
             found.push((*conn, info.clone(), mode));
         }
         if found.is_empty() {
-            return Err(io::Error::other(format!(
-                "none of the configured viewport outputs are usable right now: {}",
+            warn!(
+                "none of the configured viewport outputs are usable right now: {}; falling back to detected outputs",
                 configured
                     .iter()
                     .map(|v| match v.refresh_rate {
@@ -531,18 +545,18 @@ pub(crate) fn select_tty_scanouts(
                     })
                     .collect::<Vec<_>>()
                     .join(", ")
-            ))
-            .into());
-        }
-
-        if found.len() < configured.len() {
-            warn!(
-                "using {} of {} configured viewport outputs; invalid outputs were skipped",
-                found.len(),
-                configured.len()
             );
+            default_scanouts(&connected)?
+        } else {
+            if found.len() < configured.len() {
+                warn!(
+                    "using {} of {} configured viewport outputs; invalid outputs were skipped",
+                    found.len(),
+                    configured.len()
+                );
+            }
+            found
         }
-        found
     };
 
     let mut used_crtcs = std::collections::HashSet::new();

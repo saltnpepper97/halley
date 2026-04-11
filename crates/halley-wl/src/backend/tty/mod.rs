@@ -4,6 +4,7 @@ mod drm;
 use super::*;
 
 use crate::input::ctx::InputCtx;
+use halley_config::{ViewportOutputConfig, ViewportVrrMode};
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -392,21 +393,134 @@ fn outputs_match(a: &[TtyDrmOutput], b: &[TtyDrmOutput]) -> bool {
     })
 }
 
+fn effective_tty_viewports_for_outputs(
+    tuning: &RuntimeTuning,
+    outputs: &[TtyDrmOutput],
+) -> Vec<ViewportOutputConfig> {
+    let active_names = active_output_names(outputs);
+    let configured: Vec<_> = tuning
+        .tty_viewports
+        .iter()
+        .filter(|viewport| viewport.enabled)
+        .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
+        .cloned()
+        .collect();
+    if !configured.is_empty() {
+        return configured;
+    }
+
+    let mut ordered: Vec<_> = outputs
+        .iter()
+        .map(|output| {
+            let (width, height) = output.mode.size();
+            (
+                output.connector_name.clone(),
+                width as u32,
+                height as u32,
+                output.mode.vrefresh() as f64,
+            )
+        })
+        .collect();
+    ordered.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut offset_x = 0;
+    ordered
+        .into_iter()
+        .map(|(connector, width, height, refresh_rate)| {
+            let viewport = ViewportOutputConfig {
+                connector,
+                enabled: true,
+                offset_x,
+                offset_y: 0,
+                width,
+                height,
+                refresh_rate: Some(refresh_rate),
+                transform_degrees: 0,
+                vrr: ViewportVrrMode::Off,
+                focus_ring: None,
+            };
+            offset_x += width as i32;
+            viewport
+        })
+        .collect()
+}
+
+fn effective_tty_viewport_fallback_reason(
+    tuning: &RuntimeTuning,
+    outputs: &[TtyDrmOutput],
+) -> Option<&'static str> {
+    let active_names = active_output_names(outputs);
+    let enabled_configured = tuning.tty_viewports.iter().filter(|viewport| viewport.enabled);
+    let matched = enabled_configured
+        .clone()
+        .any(|viewport| active_names.iter().any(|name| name == &viewport.connector));
+    if matched {
+        return None;
+    }
+
+    if tuning.tty_viewports.is_empty() {
+        Some("no viewport outputs configured")
+    } else if tuning.tty_viewports.iter().all(|viewport| !viewport.enabled) {
+        Some("viewport outputs configured but none are enabled")
+    } else {
+        Some("no enabled viewport outputs matched detected outputs")
+    }
+}
+
+fn log_effective_tty_viewport_fallback(
+    tuning: &RuntimeTuning,
+    outputs: &[TtyDrmOutput],
+    source: &str,
+) {
+    let Some(reason) = effective_tty_viewport_fallback_reason(tuning, outputs) else {
+        return;
+    };
+    let layout = effective_tty_viewports_for_outputs(tuning, outputs)
+        .into_iter()
+        .map(|viewport| {
+            let refresh = viewport
+                .refresh_rate
+                .map(|hz| format!("@{hz:.3}Hz"))
+                .unwrap_or_default();
+            format!(
+                "{}={}x{}{}+{}+{}",
+                viewport.connector,
+                viewport.width,
+                viewport.height,
+                refresh,
+                viewport.offset_x,
+                viewport.offset_y,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    warn!("{}: tty monitor fallback active: {}; derived layout [{}]", source, reason, layout);
+}
+
+fn effective_tty_viewport_for_output<'a>(
+    tuning: &RuntimeTuning,
+    outputs: &'a [TtyDrmOutput],
+    output_name: &str,
+) -> Option<ViewportOutputConfig> {
+    effective_tty_viewports_for_outputs(tuning, outputs)
+        .into_iter()
+        .find(|viewport| viewport.connector == output_name)
+}
+
 fn canonical_tty_main_output_name(
     outputs: &[TtyDrmOutput],
     tuning: &RuntimeTuning,
 ) -> Option<String> {
+    let effective_viewports = effective_tty_viewports_for_outputs(tuning, outputs);
     outputs
         .iter()
         .min_by(|a, b| {
-            let a_viewport = tuning
-                .tty_viewports
+            let a_viewport = effective_viewports
                 .iter()
-                .find(|viewport| viewport.enabled && viewport.connector == a.connector_name);
-            let b_viewport = tuning
-                .tty_viewports
+                .find(|viewport| viewport.connector == a.connector_name);
+            let b_viewport = effective_viewports
                 .iter()
-                .find(|viewport| viewport.enabled && viewport.connector == b.connector_name);
+                .find(|viewport| viewport.connector == b.connector_name);
 
             let a_offset_x = a_viewport.map(|viewport| viewport.offset_x).unwrap_or(0);
             let b_offset_x = b_viewport.map(|viewport| viewport.offset_x).unwrap_or(0);
@@ -423,13 +537,13 @@ fn canonical_tty_main_output_name(
 
 fn output_advertise_order(outputs: &[TtyDrmOutput], tuning: &RuntimeTuning) -> Vec<String> {
     let main_output = canonical_tty_main_output_name(outputs, tuning);
+    let effective_viewports = effective_tty_viewports_for_outputs(tuning, outputs);
     let mut ordered: Vec<(String, i32, i32, bool)> = outputs
         .iter()
         .map(|output| {
-            let (offset_x, offset_y) = tuning
-                .tty_viewports
+            let (offset_x, offset_y) = effective_viewports
                 .iter()
-                .find(|viewport| viewport.enabled && viewport.connector == output.connector_name)
+                .find(|viewport| viewport.connector == output.connector_name)
                 .map(|viewport| (viewport.offset_x, viewport.offset_y))
                 .unwrap_or((0, 0));
             let is_main = main_output
@@ -454,13 +568,7 @@ fn output_advertise_order(outputs: &[TtyDrmOutput], tuning: &RuntimeTuning) -> V
 }
 
 fn layout_size_for_outputs(tuning: &RuntimeTuning, outputs: &[TtyDrmOutput]) -> (i32, i32) {
-    let active_names = active_output_names(outputs);
-    let active_viewports: Vec<_> = tuning
-        .tty_viewports
-        .iter()
-        .filter(|viewport| viewport.enabled)
-        .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
-        .collect();
+    let active_viewports = effective_tty_viewports_for_outputs(tuning, outputs);
 
     if active_viewports.is_empty() {
         return (
@@ -534,6 +642,7 @@ fn apply_tty_reload(
     let next_modes = active_mode_map(&rebuilt);
     let (layout_w, layout_h) = layout_size_for_outputs(&next, &rebuilt);
     backend_handle.set_size(layout_w, layout_h);
+    log_effective_tty_viewport_fallback(&next, &rebuilt, reason);
 
     {
         let mut ps = pointer_state.borrow_mut();
@@ -552,7 +661,8 @@ fn apply_tty_reload(
     let live_camera = crate::bootstrap::capture_live_camera_state(st);
     st.apply_tuning(next);
     if reason != "rescan" {
-        st.reconfigure_active_tty_monitors(&active_output_names(&rebuilt));
+        let effective_viewports = effective_tty_viewports_for_outputs(&st.runtime.tuning, &rebuilt);
+        st.reconfigure_active_tty_monitors(&effective_viewports);
         let target_monitor = [
             st.focused_monitor().to_string(),
             st.interaction_monitor().to_string(),
@@ -643,19 +753,14 @@ fn primary_tty_monitor_dims(
     };
 
     preferred_name
-        .and_then(|name| {
-            tuning
-                .tty_viewports
-                .iter()
-                .find(|viewport| viewport.enabled && viewport.connector == name)
-                .map(|viewport| {
-                    (
-                        viewport.width as i32,
-                        viewport.height as i32,
-                        viewport.offset_x,
-                        viewport.offset_y,
-                    )
-                })
+        .and_then(|name| effective_tty_viewport_for_output(tuning, outputs, name))
+        .map(|viewport| {
+            (
+                viewport.width as i32,
+                viewport.height as i32,
+                viewport.offset_x,
+                viewport.offset_y,
+            )
         })
         .or_else(|| {
             outputs.iter().find_map(|output| {
@@ -667,19 +772,13 @@ fn primary_tty_monitor_dims(
         })
         .or_else(|| {
             canonical_tty_main_output_name(outputs, tuning).and_then(|name| {
-                outputs.iter().find_map(|output| {
-                    (output.connector_name == name).then(|| {
-                        let (w, h) = output.mode.size();
-                        let (offset_x, offset_y) = tuning
-                            .tty_viewports
-                            .iter()
-                            .find(|viewport| {
-                                viewport.enabled && viewport.connector == output.connector_name
-                            })
-                            .map(|viewport| (viewport.offset_x, viewport.offset_y))
-                            .unwrap_or((0, 0));
-                        (w as i32, h as i32, offset_x, offset_y)
-                    })
+                effective_tty_viewport_for_output(tuning, outputs, name.as_str()).map(|viewport| {
+                    (
+                        viewport.width as i32,
+                        viewport.height as i32,
+                        viewport.offset_x,
+                        viewport.offset_y,
+                    )
                 })
             })
         })
@@ -841,6 +940,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 .unwrap_or_default()
             };
             let outputs = Rc::new(RefCell::new(drm_probe.outputs));
+            log_effective_tty_viewport_fallback(&tuning, outputs.borrow().as_slice(), "startup");
+            let effective_viewports =
+                effective_tty_viewports_for_outputs(&tuning, outputs.borrow().as_slice());
+            state.reconfigure_active_tty_monitors(&effective_viewports);
             let dmabuf_importer: Rc<dyn DmabufImportBackend> =
                 Rc::new(TtyDmabufImportBackend::new(drm_probe.renderer.clone()));
             state.configure_dmabuf_importer_for_fd(dmabuf_importer, drm_probe.dev.device_fd());
@@ -948,7 +1051,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let config_path_for_timer = config_path.clone();
             let aperture_config_path_for_timer = aperture_config_path.clone();
             let wayland_display_for_timer = sock_name.clone();
-            state.reconfigure_active_tty_monitors(&active_output_names(&outputs.borrow()));
             let target_monitor = [
                 state.focused_monitor().to_string(),
                 state.interaction_monitor().to_string(),

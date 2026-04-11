@@ -8,11 +8,13 @@ use smithay::wayland::compositor::{
     SurfaceAttributes, TraversalAction, with_surface_tree_downward,
 };
 
-use super::window::ActiveBorderRect;
 use crate::animation::AnimStyle;
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::compositor::screenshot::screenshot_controller;
+
+#[cfg(test)]
+use super::window::ActiveBorderRect;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct TtyOutputAnimationRedrawState {

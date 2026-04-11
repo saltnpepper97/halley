@@ -63,6 +63,7 @@ impl<T: DerefMut<Target = Halley>> CameraController<T> {
         pan_camera_target(self, delta)
     }
 
+    #[cfg(test)]
     #[inline]
     pub(crate) fn set_target_view_size(&mut self, size: Vec2) {
         set_camera_target_view_size(self, size)

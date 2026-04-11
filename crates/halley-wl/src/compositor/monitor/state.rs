@@ -6,12 +6,13 @@ use std::time::Instant;
 
 use smithay::{
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
-    reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
+    reexports::wayland_server::{backend::ObjectId, protocol::wl_surface::WlSurface, Resource},
     utils::{Logical, Size, Transform},
 };
 
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::state::MonitorSpawnState;
+use halley_config::ViewportOutputConfig;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MonitorSpace {
@@ -173,24 +174,16 @@ pub(crate) fn set_focused_monitor(st: &mut Halley, name: &str) {
     }
 }
 
-pub(crate) fn reconfigure_active_tty_monitors(st: &mut Halley, active_outputs: &[String]) {
+pub(crate) fn reconfigure_active_tty_monitors(
+    st: &mut Halley,
+    active_viewports: &[ViewportOutputConfig],
+) {
     sync_current_monitor_state(st);
 
     let previous = st.model.monitor_state.monitors.clone();
     let mut monitors = HashMap::new();
 
-    for viewport in st
-        .runtime
-        .tuning
-        .tty_viewports
-        .iter()
-        .filter(|viewport| viewport.enabled)
-        .filter(|viewport| {
-            active_outputs
-                .iter()
-                .any(|name| name == &viewport.connector)
-        })
-    {
+    for viewport in active_viewports.iter().filter(|viewport| viewport.enabled) {
         let width = viewport.width.max(1) as i32;
         let height = viewport.height.max(1) as i32;
         let center = Vec2 {
@@ -490,7 +483,8 @@ mod tests {
 
         state.set_interaction_monitor("left");
         state.set_focused_monitor("right");
-        state.reconfigure_active_tty_monitors(&["left".to_string(), "right".to_string()]);
+        let active = state.runtime.tuning.tty_viewports.clone();
+        state.reconfigure_active_tty_monitors(&active);
 
         assert_eq!(state.focused_monitor(), "right");
         assert_eq!(state.interaction_monitor(), "left");
@@ -506,7 +500,15 @@ mod tests {
 
         state.set_interaction_monitor("left");
         state.set_focused_monitor("right");
-        state.reconfigure_active_tty_monitors(&["left".to_string()]);
+        let active: Vec<_> = state
+            .runtime
+            .tuning
+            .tty_viewports
+            .iter()
+            .filter(|viewport| viewport.connector == "left")
+            .cloned()
+            .collect();
+        state.reconfigure_active_tty_monitors(&active);
 
         assert_eq!(state.focused_monitor(), "left");
         assert_eq!(state.interaction_monitor(), "left");
@@ -541,5 +543,48 @@ mod tests {
             state.usable_viewport_for_monitor("left"),
             Viewport::new(Vec2 { x: 400.0, y: 320.0 }, Vec2 { x: 800.0, y: 560.0 })
         );
+    }
+
+    #[test]
+    fn reconfigure_active_monitors_uses_supplied_fallback_viewports() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+
+        let fallback = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "HDMI-A-1".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_rate: Some(60.0),
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "DP-1".to_string(),
+                enabled: true,
+                offset_x: 1920,
+                offset_y: 0,
+                width: 2560,
+                height: 1440,
+                refresh_rate: Some(144.0),
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+
+        state.reconfigure_active_tty_monitors(&fallback);
+
+        assert_eq!(state.model.monitor_state.monitors.len(), 2);
+        assert!(state.model.monitor_state.monitors.contains_key("HDMI-A-1"));
+        assert!(state.model.monitor_state.monitors.contains_key("DP-1"));
+        assert_eq!(state.model.monitor_state.current_monitor, "HDMI-A-1");
+        assert_eq!(state.model.monitor_state.monitors["DP-1"].offset_x, 1920);
     }
 }

@@ -1,14 +1,22 @@
 @author "Dustin Pilgrim"
 @description "Spatial Wayland compositor built around infinite workspace navigation"
 
-env:
-  QT_QPA_PLATFORM "wayland"
-  QT_QPA_PLATFORMTHEME "qt6ct"
-end
+# Halley is a spatial compositor.
+# Instead of fixed workspaces, each monitor has a navigable field where
+# windows live in space. You move through that space with panning, zooming,
+# clusters, and focus-aware behavior.
+
+# Optional environment variables for apps launched by Halley.
+# Uncomment these if you want to prefer Wayland for Qt apps and use qt6ct.
+#env:
+#  QT_QPA_PLATFORM "wayland"
+#  QT_QPA_PLATFORMTHEME "qt6ct"
+#end
 
 autostart:
   once "waybar"
 
+  # Common examples you may want later:
   #once "mako"
   #once "gessod"
   #once "stasis"
@@ -24,15 +32,20 @@ cursor:
   hide-after-ms 2000
 end
 
+# Default font used for compositor UI like labels and overlays.
 font:
   family "monospace"
   size 11
 end
 
+# Where screenshots taken through Halley are saved.
 screenshot:
   directory "$env.HOME/Pictures/Screenshots/"
 end
 
+# A viewport represents one monitor/output.
+# This block defines resolution, refresh rate, transform, VRR,
+# and the focus ring for that output.
 viewport:
   DP-1:
     enabled true
@@ -47,6 +60,9 @@ viewport:
     transform 0
     vrr "on"
 
+    # The focus ring is Halley's active zone.
+    # Windows inside it stay more fully active.
+    # Windows outside it may decay into nodes depending on config.
     focus-ring:
       primary-rx 820.0
       primary-ry 420.0
@@ -55,19 +71,17 @@ viewport:
     end
   end
 
+  # Example second monitor configuration.
+  # Uncomment and edit if needed.
   #DP-2:
   #  enabled true
-  #  
   #  offset-x 0
   #  offset-y 0
-  #  
   #  width 1920
   #  height 1200
-  #  
   #  rate 75.0
   #  transform 0
   #  vrr "off"
-  #
   #
   #  focus-ring:
   #    primary-rx 820.0
@@ -78,6 +92,8 @@ viewport:
   #end
 end
 
+# The field is Halley's spatial world for a monitor.
+# Windows live on this field instead of being arranged into fixed desktops.
 field:
   gap 20.0
   active-windows-allowed 5
@@ -87,16 +103,17 @@ field:
 
   zoom:
     enabled true
-
     step 1.10
     min 0.35
     max 1.35
-
     smooth true
     smooth-rate 12.5
   end
 end
 
+# A node is Halley's collapsed representation of a window.
+# When a window is no longer active enough to stay expanded,
+# it can decay into a compact node that still exists on the field.
 node:
   # Keep nodes recognizable without making the field too noisy.
   show-labels "hover"
@@ -118,29 +135,38 @@ node:
   click-collapsed-pan "if-offscreen"
 end
 
+# Decay controls how windows transition between active, inactive,
+# and collapsed states.
 decay:
   active-delay 240
   inactive-delay 120
 end
 
+# Trail is Halley's navigation history.
+# Think back/forward through previously focused places or windows.
 trail:
   history-length 25
   wrap true
 end
 
+# Bearings are directional indicators for offscreen things.
 bearings:
   show-distance true
   show-icons true
   fade-distance 1200
 end
 
+# Clusters are Halley's workspace-like grouping system.
+# Unlike traditional workspaces, clusters live in the field.
 clusters:
+  cluster-dwell-ms 2000
   distance-px 280.0
   bloom-direction "clockwise"
   show-icons true
   default-layout "stacking"
 end
 
+# Settings for tiled layout inside a cluster.
 tile:
   new-on-top false
   gaps-inner 20
@@ -149,21 +175,24 @@ tile:
   queue-show-icons true
 end
 
+# Settings for stacking layout inside a cluster.
 stacking:
   max-visible 5
 end
 
+# Halley can use gentle physics-style motion instead of purely rigid snapping.
 physics:
   enabled true
   damping 0.45
 end
 
+# Animation controls for window and layout transitions.
 animations:
   enabled true
 
   smooth-resize:
     enabled true
-    duration-ms 90  # catch-up / settle time; lower = tighter, higher = softer lag
+    duration-ms 90  # lower = tighter, higher = softer
   end
 
   window-open:
@@ -188,6 +217,7 @@ animations:
   end
 end
 
+# Server-side decoration settings managed by Halley.
 decorations:
   border-size 3
   border-radius 0
@@ -195,11 +225,12 @@ decorations:
   border-colour-unfocused "#333333"
   resize-using-border true
 
-  # Rounded borders force server-side decorations so clients like GTK/Firefox
-  # do not draw their own square CSD frame inside the compositor-rounded shape.
+  # Rounded borders usually require server-side decorations so
+  # clients do not draw their own square frame inside the compositor shape.
   no-csd false
 end
 
+# Styling for compositor-drawn overlays like labels and helper UI.
 overlays:
   background-colour "auto"
   text-colour "auto"
@@ -207,52 +238,59 @@ overlays:
   borders "true"
 end
 
+# Main input bindings.
+# Some bindings are context-sensitive. The same key may do different things
+# in the field versus inside a tile or stacking layout.
 keybinds:
   mod "super"
 
-  # basic compositor controls
+  # Basic compositor controls.
   "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
   "$var.mod+q" "close-focused"
+
+  # Zoom controls for the field camera.
   "$var.mod+mousewheelup" "zoom-in"
   "$var.mod+mousewheeldown" "zoom-out"
   "$var.mod+middlemouse" "zoom-reset"
 
-  # quit halley
   "$var.mod+shift+e" "quit"
 
-  # move the selected/latest node in a direction
+  # Move the selected/latest node in the field.
   "$var.mod+left" "node-move left"
   "$var.mod+right" "node-move right"
   "$var.mod+up" "node-move up"
   "$var.mod+down" "node-move down"
 
-  # switch monitor focus (field + clusters)
+  # Switch active monitor focus.
   "$var.mod+shift+left" "monitor-focus left"
   "$var.mod+shift+right" "monitor-focus right"
   "$var.mod+shift+up" "monitor-focus up"
   "$var.mod+shift+down" "monitor-focus down"
 
-  # cluster mode (workspaces)
+  # Cluster controls.
   "$var.mod+shift+c" "cluster-mode"
   "$var.mod+l" "cluster-layout cycle"
 
-  # bearings
+  # Bearings controls.
   "$var.mod+z" "bearings-show"
   "$var.mod+shift+z" "bearings-toggle"
 
+  # Trail navigation.
   "$var.mod+," "trail-prev"
   "$var.mod+." "trail-next"
 
-  # applications (`open-terminal` picks the first supported Wayland terminal in PATH)
+  # Applications.
+  # `open-terminal` picks the first supported Wayland terminal in PATH.
   "$var.mod+return" "open-terminal"
   "$var.mod+d" "fuzzel"
 
+  # Mouse actions.
   "$var.mod+leftmouse" "move-window"
   "$var.mod+rightmouse" "resize-window"
   "$var.mod+shift+leftmouse" "field-jump"
 
-  # tile layout
+  # Tile layout controls.
   "$var.mod+left" "tile-focus left"
   "$var.mod+right" "tile-focus right"
   "$var.mod+up" "tile-focus up"
@@ -263,19 +301,20 @@ keybinds:
   "$var.mod+ctrl+up" "tile-swap up"
   "$var.mod+ctrl+down" "tile-swap down"
 
-  # stacking layout
+  # Stacking layout controls.
   "$var.mod+left" "stack-cycle forward"
   "$var.mod+right" "stack-cycle backward"
 
-  #todo
-  "alt+tab" "cycle-focus"
+  # Screenshot UI
+  "$var.mod+shift+s" "halleyctl capture menu"
 
-  # media
+  # Media keys.
   "XF86AudioRaiseVolume" "wpctl set-volume -l 1 @default_audio_sink@ 5%+"
   "XF86AudioLowerVolume" "wpctl set-volume @default_audio_sink@ 5%-"
   "XF86AudioMute" "wpctl set-mute @default_audio_sink@ toggle"
 end
 
+# Rules let you special-case certain windows/apps.
 rules:
   rule:
     app-id "firefox"
@@ -284,13 +323,4 @@ rules:
     spawn-placement "center"
     cluster-participation "float"
   end
-end
-
-#todo
-debug:
-  # Post v0.1.0
-  overlay-fps false
-
-  # Show focus ring while resizing it, including after resizing in config
-  show-ring-when-resizing true
 end
