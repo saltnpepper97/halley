@@ -13,7 +13,8 @@ use crate::render::utils::draw_rect;
 use super::{
     ACTION_ROW_GAP_Y, BANNER_GAP, BANNER_META_SCALE, BANNER_TITLE_SCALE,
     EXIT_CONFIRM_MAX_WIDTH_PAD, OverlayView, draw_overlay_action_row, draw_overlay_chip,
-    overlay_action_row_size, resolve_overlay_visuals,
+    overlay_accent_fill, overlay_action_row_size, overlay_text_color_for_fill,
+    resolve_overlay_visuals,
 };
 
 const CLUSTER_DIALOG_TITLE: &str = "Create cluster";
@@ -88,10 +89,6 @@ fn color_mix(a: Color32F, b: Color32F, amount: f32) -> Color32F {
         a.b() + (b.b() - a.b()) * t,
         a.a() + (b.a() - a.a()) * t,
     )
-}
-
-fn color_luminance(color: Color32F) -> f32 {
-    color.r() * 0.2126 + color.g() * 0.7152 + color.b() * 0.0722
 }
 
 fn ensure_prompt_scroll(
@@ -418,6 +415,7 @@ pub(crate) fn draw_cluster_naming_dialog(
             damage,
             1.0,
         )?;
+        let selection_fill = overlay_accent_fill(&visuals, 0.78, 0.92);
         if layout.has_visible_selection {
             draw_rect(
                 frame,
@@ -425,7 +423,7 @@ pub(crate) fn draw_cluster_naming_dialog(
                 layout.input_rect.loc.y + 7,
                 (layout.selection_x1 - layout.selection_x0).max(1),
                 (layout.input_rect.size.h - 14).max(1),
-                visuals.palette.border.alpha(0.18),
+                selection_fill,
                 damage,
             )?;
         }
@@ -445,6 +443,26 @@ pub(crate) fn draw_cluster_naming_dialog(
             visuals.palette.text.alpha(1.0),
             damage,
         )?;
+        if layout.has_visible_selection
+            && let Some((sel_start, sel_end)) = prompt_selection_range(&prompt)
+        {
+            let vis_start = sel_start.clamp(layout.text_visible_start, layout.text_visible_end);
+            let vis_end = sel_end.clamp(layout.text_visible_start, layout.text_visible_end);
+            if vis_start < vis_end {
+                let selected_text = prompt_slice(prompt.input.as_str(), vis_start, vis_end);
+                draw_ui_text_in(
+                    frame,
+                    overlay.render_state,
+                    &overlay.tuning.font,
+                    layout.selection_x0,
+                    layout.text_y,
+                    selected_text.as_str(),
+                    CLUSTER_DIALOG_SCALE,
+                    overlay_text_color_for_fill(selection_fill, 1.0),
+                    damage,
+                )?;
+            }
+        }
         if !layout.has_visible_selection {
             draw_rect(
                 frame,
@@ -461,11 +479,7 @@ pub(crate) fn draw_cluster_naming_dialog(
             visuals.palette.border.alpha(0.98),
             prompt.confirm_hover_mix,
         );
-        let confirm_text_color = if color_luminance(confirm_fill) < 0.45 {
-            Color32F::new(0.96, 0.98, 1.0, 1.0)
-        } else {
-            visuals.palette.text.alpha(1.0)
-        };
+        let confirm_text_color = overlay_text_color_for_fill(confirm_fill, 1.0);
         draw_overlay_chip(
             frame,
             overlay.render_state,

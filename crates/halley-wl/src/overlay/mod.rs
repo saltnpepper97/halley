@@ -191,6 +191,26 @@ fn resolve_overlay_visuals(tuning: &RuntimeTuning) -> OverlayVisuals {
     }
 }
 
+fn color_luminance(color: Color32F) -> f32 {
+    color.r() * 0.2126 + color.g() * 0.7152 + color.b() * 0.0722
+}
+
+fn overlay_text_color_for_fill(fill: Color32F, alpha: f32) -> Color32F {
+    if color_luminance(fill) < 0.45 {
+        DARK_OVERLAY_TEXT.alpha(alpha)
+    } else {
+        LIGHT_OVERLAY_TEXT.alpha(alpha)
+    }
+}
+
+fn overlay_accent_fill(visuals: &OverlayVisuals, border_mix: f32, alpha: f32) -> Color32F {
+    visuals
+        .palette
+        .fill
+        .mix(visuals.palette.border, border_mix)
+        .alpha(alpha)
+}
+
 fn overlay_text_mix(mix: f32) -> f32 {
     let t = ((mix - 0.10) / 0.90).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
@@ -345,7 +365,7 @@ fn draw_overflow_member_chip(
         icon_rect.loc.y + (icon_rect.size.h - text_h) / 2,
         &glyph,
         2,
-        visuals.palette.text.alpha(alpha),
+        overlay_text_color_for_fill(chip_fill, alpha),
         damage,
     )?;
     Ok(())
@@ -415,7 +435,7 @@ pub(crate) fn draw_cluster_overflow_promotion(
         &visuals,
         anim.member_id,
         icon_rect,
-        visuals.palette.fill.alpha(0.97),
+        visuals.palette.border.alpha(0.97),
         1.0,
         damage,
     )?;
@@ -661,7 +681,7 @@ pub(crate) fn draw_cluster_overflow_strip(
             &visuals,
             node_id,
             icon_rect,
-            visuals.palette.key_fill.alpha(0.68 * reveal_alpha),
+            visuals.palette.border.alpha(1.0),
             reveal_alpha,
             damage,
         )?;
@@ -707,7 +727,7 @@ pub(crate) fn draw_cluster_overflow_strip(
             &visuals,
             node_id,
             icon_rect,
-            visuals.palette.fill.alpha(0.97),
+            visuals.palette.border.alpha(0.97),
             1.0,
             damage,
         )?;
@@ -1286,7 +1306,7 @@ fn draw_overlay_chip(
 mod tests {
     use halley_config::{OverlayColorMode, OverlayShape};
 
-    use super::resolve_overlay_visuals;
+    use super::{overlay_accent_fill, overlay_text_color_for_fill, resolve_overlay_visuals};
 
     #[test]
     fn overlay_auto_text_tracks_background_contrast() {
@@ -1313,5 +1333,31 @@ mod tests {
         tuning.overlay_style.borders = false;
         let visuals = resolve_overlay_visuals(&tuning);
         assert_eq!(visuals.border_px, 0.0);
+    }
+
+    #[test]
+    fn overlay_accent_fill_pulls_toward_border_color() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let visuals = resolve_overlay_visuals(&tuning);
+
+        let accent = overlay_accent_fill(&visuals, 0.5, 1.0);
+
+        assert_ne!(accent.r(), visuals.palette.fill.r);
+        assert_ne!(accent.g(), visuals.palette.fill.g);
+        assert_ne!(accent.b(), visuals.palette.fill.b);
+    }
+
+    #[test]
+    fn overlay_text_for_fill_tracks_fill_contrast() {
+        let dark_text = overlay_text_color_for_fill(
+            smithay::backend::renderer::Color32F::new(0.10, 0.12, 0.14, 1.0),
+            1.0,
+        );
+        let light_text = overlay_text_color_for_fill(
+            smithay::backend::renderer::Color32F::new(0.92, 0.95, 0.98, 1.0),
+            1.0,
+        );
+
+        assert!(super::color_luminance(dark_text) > super::color_luminance(light_text));
     }
 }
