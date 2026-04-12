@@ -633,6 +633,14 @@ impl Halley {
         super::monitor::state::monitor_for_screen(self, sx, sy)
     }
 
+    pub(crate) fn monitor_for_screen_clamped(
+        &self,
+        sx: f32,
+        sy: f32,
+    ) -> Option<(String, f32, f32)> {
+        super::monitor::state::monitor_for_screen_clamped(self, sx, sy)
+    }
+
     pub(crate) fn local_screen_in_monitor(
         &self,
         name: &str,

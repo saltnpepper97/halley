@@ -11,6 +11,7 @@ use crate::compositor::screenshot::screenshot_controller;
 use crate::input::ctx::InputCtx;
 use crate::spatial::screen_to_world;
 
+use super::button::clamp_screen_to_monitor;
 use super::focus::pointer_focus_for_screen;
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
@@ -57,6 +58,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         let target_monitor = st
             .monitor_for_screen(sx, sy)
             .unwrap_or_else(|| st.interaction_monitor().to_string());
+        let (sx, sy) = clamp_screen_to_monitor(st, target_monitor.as_str(), sx, sy);
         st.set_interaction_monitor(target_monitor.as_str());
         let _ = st.activate_monitor(target_monitor.as_str());
         let (ws_w, ws_h, sx, sy) = st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
@@ -159,6 +161,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     let target_monitor = st
         .monitor_for_screen(sx, sy)
         .unwrap_or_else(|| st.interaction_monitor().to_string());
+    let (sx, sy) = clamp_screen_to_monitor(st, target_monitor.as_str(), sx, sy);
     st.set_interaction_monitor(target_monitor.as_str());
     let _ = st.activate_monitor(target_monitor.as_str());
     let (ws_w, ws_h, sx, sy) = st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);

@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use halley_core::field::{NodeId, Vec2};
 use halley_core::viewport::Viewport;
 use std::collections::HashMap;
@@ -287,36 +289,50 @@ pub(crate) fn reconfigure_active_tty_monitors(
     let _ = load_monitor_state(st, current.as_str());
 }
 
-pub(crate) fn monitor_for_screen(st: &Halley, sx: f32, sy: f32) -> Option<String> {
-    let mut best: Option<(&String, i64)> = None;
+pub(crate) fn monitor_for_screen_clamped(
+    st: &Halley,
+    sx: f32,
+    sy: f32,
+) -> Option<(String, f32, f32)> {
+    let mut best: Option<(&String, f64, f32, f32, i32, i32)> = None;
     for (name, monitor) in &st.model.monitor_state.monitors {
-        let inside = sx >= monitor.offset_x as f32
-            && sx < (monitor.offset_x + monitor.width) as f32
-            && sy >= monitor.offset_y as f32
-            && sy < (monitor.offset_y + monitor.height) as f32;
-        let dx = if sx < monitor.offset_x as f32 {
-            (monitor.offset_x as f32 - sx).round() as i64
-        } else if sx >= (monitor.offset_x + monitor.width) as f32 {
-            (sx - (monitor.offset_x + monitor.width) as f32).round() as i64
-        } else {
-            0
-        };
-        let dy = if sy < monitor.offset_y as f32 {
-            (monitor.offset_y as f32 - sy).round() as i64
-        } else if sy >= (monitor.offset_y + monitor.height) as f32 {
-            (sy - (monitor.offset_y + monitor.height) as f32).round() as i64
-        } else {
-            0
-        };
+        let min_x = monitor.offset_x as f32;
+        let max_x = (monitor.offset_x + monitor.width - 1) as f32;
+        let min_y = monitor.offset_y as f32;
+        let max_y = (monitor.offset_y + monitor.height - 1) as f32;
+        let clamped_sx = sx.clamp(min_x, max_x);
+        let clamped_sy = sy.clamp(min_y, max_y);
+        let dx = (sx - clamped_sx) as f64;
+        let dy = (sy - clamped_sy) as f64;
         let distance = dx * dx + dy * dy;
-        if inside {
-            return Some(name.clone());
-        }
-        if best.is_none_or(|(_, best_distance)| distance < best_distance) {
-            best = Some((name, distance));
+        let better = best.as_ref().is_none_or(
+            |(best_name, best_distance, _, _, best_offset_x, best_offset_y)| match distance
+                .total_cmp(best_distance)
+            {
+                Ordering::Less => true,
+                Ordering::Greater => false,
+                Ordering::Equal => {
+                    (monitor.offset_x, monitor.offset_y, name.as_str())
+                        < (*best_offset_x, *best_offset_y, best_name.as_str())
+                }
+            },
+        );
+        if better {
+            best = Some((
+                name,
+                distance,
+                clamped_sx,
+                clamped_sy,
+                monitor.offset_x,
+                monitor.offset_y,
+            ));
         }
     }
-    best.map(|(name, _)| name.clone())
+    best.map(|(name, _, clamped_sx, clamped_sy, _, _)| (name.clone(), clamped_sx, clamped_sy))
+}
+
+pub(crate) fn monitor_for_screen(st: &Halley, sx: f32, sy: f32) -> Option<String> {
+    monitor_for_screen_clamped(st, sx, sy).map(|(name, _, _)| name)
 }
 
 pub(crate) fn local_screen_in_monitor(
@@ -586,5 +602,63 @@ mod tests {
         assert!(state.model.monitor_state.monitors.contains_key("DP-1"));
         assert_eq!(state.model.monitor_state.current_monitor, "HDMI-A-1");
         assert_eq!(state.model.monitor_state.monitors["DP-1"].offset_x, 1920);
+    }
+
+    #[test]
+    fn monitor_for_screen_clamped_snaps_gap_points_to_nearest_monitor_edge() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 2560,
+                height: 1440,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 2560,
+                offset_y: 0,
+                width: 1920,
+                height: 1200,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let state = Halley::new_for_test(&dh, tuning);
+
+        let (monitor, sx, sy) =
+            monitor_for_screen_clamped(&state, 3000.0, 1300.0).expect("clamped monitor");
+
+        assert_eq!(monitor, "right");
+        assert_eq!(sx, 3000.0);
+        assert_eq!(sy, 1199.0);
+    }
+
+    #[test]
+    fn monitor_for_screen_clamped_preserves_points_inside_a_monitor() {
+        let tuning = two_monitor_tuning();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let state = Halley::new_for_test(&dh, tuning);
+
+        let (monitor, sx, sy) =
+            monitor_for_screen_clamped(&state, 1200.0, 200.0).expect("clamped monitor");
+
+        assert_eq!(monitor, "right");
+        assert_eq!(sx, 1200.0);
+        assert_eq!(sy, 200.0);
     }
 }

@@ -288,6 +288,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let target_monitor = st
             .monitor_for_screen(sx, sy)
             .unwrap_or_else(|| st.interaction_monitor().to_string());
+        let (sx, sy) = clamp_screen_to_monitor(st, target_monitor.as_str(), sx, sy);
         st.set_interaction_monitor(target_monitor.as_str());
         let _ = st.activate_monitor(target_monitor.as_str());
         let (local_w, local_h, local_sx, local_sy) =
@@ -394,7 +395,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         let ps = ctx.pointer_state.borrow();
         ps.overflow_drag.as_ref().map(|drag| drag.monitor.clone())
     };
-    let (effective_sx, effective_sy) = if grabbed_layer_surface_monitor.is_some() {
+    let (mut effective_sx, mut effective_sy) = if grabbed_layer_surface_monitor.is_some() {
         (raw_sx, raw_sy)
     } else if let Some(owner) = constrained_surface_monitor.as_deref() {
         clamp_screen_to_monitor(st, owner, raw_sx, raw_sy)
@@ -442,6 +443,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 .unwrap_or_else(|| st.interaction_monitor().to_string())
         }
     };
+    if !grabbed_layer_surface_active {
+        (effective_sx, effective_sy) =
+            clamp_screen_to_monitor(st, target_monitor.as_str(), effective_sx, effective_sy);
+    }
     if !grabbed_layer_surface_active {
         st.set_interaction_monitor(target_monitor.as_str());
         let _ = st.activate_monitor(target_monitor.as_str());

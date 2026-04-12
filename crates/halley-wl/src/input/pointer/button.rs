@@ -1537,6 +1537,11 @@ pub(super) fn button_frame_for_monitor(
                 st.monitor_for_screen(sx, sy)
                     .unwrap_or_else(|| st.interaction_monitor().to_string())
             });
+    let (sx, sy) = if st.input.interaction_state.grabbed_layer_surface.is_none() {
+        clamp_screen_to_monitor(st, target_monitor.as_str(), sx, sy)
+    } else {
+        (sx, sy)
+    };
     if st.input.interaction_state.grabbed_layer_surface.is_none() {
         st.set_interaction_monitor(target_monitor.as_str());
         let _ = st.activate_monitor(target_monitor.as_str());

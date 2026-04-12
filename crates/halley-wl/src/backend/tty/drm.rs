@@ -802,7 +802,7 @@ pub(crate) fn queue_tty_drm_frame(
             crate::render::tty_output_animation_redraw_state(st, output_name, Instant::now());
 
         let local_cursor = cursor_screen.and_then(|(sx, sy)| {
-            let target_monitor = st.monitor_for_screen(sx, sy)?;
+            let (target_monitor, sx, sy) = st.monitor_for_screen_clamped(sx, sy)?;
             if target_monitor != output_name {
                 return None;
             }
