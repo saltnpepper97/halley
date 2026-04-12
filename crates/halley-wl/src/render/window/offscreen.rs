@@ -120,7 +120,8 @@ pub(crate) fn capture_closing_window_animation(
     );
     let preserve_visual_margin = !strict_square_csd_transition
         && !st.runtime.tuning.no_csd
-        && effective_corner_radius_px == 0;
+        && effective_corner_radius_px == 0
+        && effective_border_px == 0;
     let lock_dst_to_geometry = effective_corner_radius_px > 0;
     let (src_x, src_y, src_w, src_h, dst_x, dst_y, dst_w, dst_h, clip_x, clip_y, clip_w, clip_h) =
         offscreen_visual_crop_and_dst(
@@ -153,7 +154,8 @@ pub(crate) fn capture_closing_window_animation(
     };
     let disable_geo_clip = !strict_square_csd_transition
         && !st.runtime.tuning.no_csd
-        && effective_corner_radius_px == 0;
+        && effective_corner_radius_px == 0
+        && effective_border_px == 0;
     let geo_local_x = local_geo.0 - ob.loc.x as f32;
     let geo_local_y = local_geo.1 - ob.loc.y as f32;
     let geo_src_x = (geo_local_x - src_x as f32).max(0.0);

@@ -697,7 +697,8 @@ pub(crate) fn collect_active_surfaces(
         };
         let preserve_visual_margin = !strict_square_csd_transition
             && !st.runtime.tuning.no_csd
-            && effective_corner_radius_px == 0;
+            && effective_corner_radius_px == 0
+            && effective_border_px == 0;
         let border_color = if st.model.focus_state.primary_interaction_focus == Some(node_id) {
             let color = st.runtime.tuning.border_color_focused;
             Color32F::new(color.r, color.g, color.b, 1.0)
@@ -1102,7 +1103,8 @@ pub(crate) fn collect_active_surfaces(
                     };
                     let disable_geo_clip = !strict_square_csd_transition
                         && !st.runtime.tuning.no_csd
-                        && effective_corner_radius_px == 0;
+                        && effective_corner_radius_px == 0
+                        && effective_border_px == 0;
                     // local_geo is (geo_lx, geo_ly, geo_w, geo_h) in surface-local logical px.
                     // In bbox-local space the geo origin is (geo_lx - ob.loc.x, geo_ly - ob.loc.y).
                     let geo_local_x = local_geo.0 - ob.loc.x as f32;
