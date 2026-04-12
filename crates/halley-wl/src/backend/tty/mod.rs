@@ -454,7 +454,10 @@ fn effective_tty_viewport_fallback_reason(
     outputs: &[TtyDrmOutput],
 ) -> Option<&'static str> {
     let active_names = active_output_names(outputs);
-    let enabled_configured = tuning.tty_viewports.iter().filter(|viewport| viewport.enabled);
+    let enabled_configured = tuning
+        .tty_viewports
+        .iter()
+        .filter(|viewport| viewport.enabled);
     let matched = enabled_configured
         .clone()
         .any(|viewport| active_names.iter().any(|name| name == &viewport.connector));
@@ -464,7 +467,11 @@ fn effective_tty_viewport_fallback_reason(
 
     if tuning.tty_viewports.is_empty() {
         Some("no viewport outputs configured")
-    } else if tuning.tty_viewports.iter().all(|viewport| !viewport.enabled) {
+    } else if tuning
+        .tty_viewports
+        .iter()
+        .all(|viewport| !viewport.enabled)
+    {
         Some("viewport outputs configured but none are enabled")
     } else {
         Some("no enabled viewport outputs matched detected outputs")
@@ -498,7 +505,10 @@ fn log_effective_tty_viewport_fallback(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    warn!("{}: tty monitor fallback active: {}; derived layout [{}]", source, reason, layout);
+    warn!(
+        "{}: tty monitor fallback active: {}; derived layout [{}]",
+        source, reason, layout
+    );
 }
 
 fn effective_tty_viewport_for_output<'a>(
@@ -967,7 +977,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             if state
                 .platform
                 .seat
-                .add_keyboard(Default::default(), 200, 30)
+                .add_keyboard(
+                    Default::default(),
+                    tuning.input.repeat_delay,
+                    tuning.input.repeat_rate,
+                )
                 .is_err()
             {
                 warn!("failed to initialize wl_seat keyboard");

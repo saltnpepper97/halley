@@ -30,6 +30,8 @@ impl RuntimeTuning {
         self.tile_max_stack = self.tile_max_stack.clamp(0, 64);
         self.stacking_max_visible = self.stacking_max_visible.clamp(0, 64);
         self.trail_history_length = self.trail_history_length.clamp(1, 512);
+        self.input.repeat_rate = self.input.repeat_rate.clamp(0, 1000);
+        self.input.repeat_delay = self.input.repeat_delay.clamp(0, 10_000);
         self.cursor.size = self.cursor.size.clamp(8, 128);
         if self.cursor.theme.trim().is_empty() {
             self.cursor.theme = CursorConfig::default().theme;

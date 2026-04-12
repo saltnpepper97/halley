@@ -318,7 +318,10 @@ fn draw_bloom_token(
     }
 
     let glyph = node_app_icon_fallback_glyph(
-        overlay.node_app_ids.get(&layout.member_id).map(String::as_str),
+        overlay
+            .node_app_ids
+            .get(&layout.member_id)
+            .map(String::as_str),
         overlay
             .field
             .node(layout.member_id)

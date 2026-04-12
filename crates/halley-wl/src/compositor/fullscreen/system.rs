@@ -299,7 +299,13 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             }
             let (min_w, min_h) =
                 crate::compositor::surface_ops::toplevel_min_size_for_node(self, node_id);
-            let monitor = self.model.monitor_state.node_monitor.get(&node_id).cloned().unwrap_or_else(|| self.focused_monitor().to_string());
+            let monitor = self
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&node_id)
+                .cloned()
+                .unwrap_or_else(|| self.focused_monitor().to_string());
             let view = self.usable_viewport_for_monitor(&monitor);
             let bounds_w = view.size.x as i32;
             let bounds_h = view.size.y as i32;

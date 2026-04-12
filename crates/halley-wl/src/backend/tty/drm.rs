@@ -468,26 +468,32 @@ pub(crate) fn select_tty_scanouts(
         return Err(io::Error::other("no connected drm connector with a usable mode found").into());
     }
 
-    let default_scanouts = |
-        connected: &Vec<(drm_control::connector::Handle, drm_control::connector::Info)>,
-    | {
-        connected
-            .iter()
-            .map(|(conn, info): &(drm_control::connector::Handle, drm_control::connector::Info)| {
-                let mode = info
-                    .modes()
-                    .iter()
-                    .copied()
-                    .find(|mode: &drm_control::Mode| {
-                        mode.mode_type()
-                            .contains(drm_control::ModeTypeFlags::PREFERRED)
-                    })
-                    .or_else(|| info.modes().first().copied())
-                    .ok_or_else(|| io::Error::other(format!("connector {} has no modes", info)))?;
-                Ok((*conn, info.clone(), mode))
-            })
-            .collect::<Result<Vec<_>, io::Error>>()
-    };
+    let default_scanouts =
+        |connected: &Vec<(drm_control::connector::Handle, drm_control::connector::Info)>| {
+            connected
+                .iter()
+                .map(
+                    |(conn, info): &(
+                        drm_control::connector::Handle,
+                        drm_control::connector::Info,
+                    )| {
+                        let mode = info
+                            .modes()
+                            .iter()
+                            .copied()
+                            .find(|mode: &drm_control::Mode| {
+                                mode.mode_type()
+                                    .contains(drm_control::ModeTypeFlags::PREFERRED)
+                            })
+                            .or_else(|| info.modes().first().copied())
+                            .ok_or_else(|| {
+                                io::Error::other(format!("connector {} has no modes", info))
+                            })?;
+                        Ok((*conn, info.clone(), mode))
+                    },
+                )
+                .collect::<Result<Vec<_>, io::Error>>()
+        };
 
     let configured: Vec<_> = tuning
         .tty_viewports

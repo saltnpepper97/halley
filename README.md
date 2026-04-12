@@ -136,7 +136,7 @@ Defaults follow Halley's shipped fresh-config template.
 
 On first launch Halley bootstraps `~/.config/halley/halley.rune` for you from an internal fully documented template, inserting detected tty monitors into the `viewport` section. Normal config precedence is `~/.config/halley/halley.rune`, then `/etc/halley/halley.rune`, then bundled internal defaults.
 
-Handled by `crates/halley-config`. Covers keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
+Handled by `crates/halley-config`. Covers input settings like repeat/focus mode, keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
 
 ## Contributing
 

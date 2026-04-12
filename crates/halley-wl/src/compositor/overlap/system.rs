@@ -699,7 +699,13 @@ pub(crate) fn request_toplevel_resize(st: &mut Halley, node_id: NodeId, width: i
             continue;
         }
 
-        let monitor = st.model.monitor_state.node_monitor.get(&node_id).cloned().unwrap_or_else(|| st.focused_monitor().to_string());
+        let monitor = st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&node_id)
+            .cloned()
+            .unwrap_or_else(|| st.focused_monitor().to_string());
         let view = st.usable_viewport_for_monitor(&monitor);
         let bounds_w = view.size.x as i32;
         let bounds_h = view.size.y as i32;

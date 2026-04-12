@@ -36,6 +36,14 @@ cursor:
   hide-after-ms 2000
 end
 
+# Keyboard repeat and pointer-driven focus behavior.
+# `focus-mode "click"` preserves the existing click-to-focus behavior.
+input:
+  repeat-rate 30
+  repeat-delay 500
+  focus-mode "click"
+end
+
 # Default font used for compositor UI like labels and overlays.
 font:
   family "monospace"

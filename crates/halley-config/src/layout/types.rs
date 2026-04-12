@@ -190,6 +190,29 @@ pub enum ClickCollapsedPanMode {
     Always,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputFocusMode {
+    Click,
+    Hover,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InputConfig {
+    pub repeat_rate: i32,
+    pub repeat_delay: i32,
+    pub focus_mode: InputFocusMode,
+}
+
+impl Default for InputConfig {
+    fn default() -> Self {
+        Self {
+            repeat_rate: 30,
+            repeat_delay: 500,
+            focus_mode: InputFocusMode::Click,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FocusRingConfig {
     pub rx: f32,

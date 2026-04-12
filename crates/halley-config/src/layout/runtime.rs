@@ -14,7 +14,7 @@ use super::paths::{absolutize_path, default_config_path, global_config_path};
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
-    DecorationBorderColor, FocusRingConfig, FontConfig, NodeBackgroundColorMode,
+    DecorationBorderColor, FocusRingConfig, FontConfig, InputConfig, NodeBackgroundColorMode,
     NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, ScreenshotConfig,
     ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
 };
@@ -94,6 +94,7 @@ pub struct RuntimeTuning {
     pub tty_viewports: Vec<ViewportOutputConfig>,
     pub autostart_once: Vec<String>,
     pub autostart_on_reload: Vec<String>,
+    pub input: InputConfig,
     pub cursor: CursorConfig,
     pub font: FontConfig,
     pub animations: AnimationsConfig,
@@ -120,11 +121,8 @@ impl RuntimeTuning {
         BUILTIN_DEFAULTS
             .get_or_init(|| {
                 let template = RuntimeTuning::internal_config_template();
-                RuntimeTuning::from_rune_str_with_seed(
-                    &template,
-                    RuntimeTuning::default(),
-                )
-                .unwrap_or_default()
+                RuntimeTuning::from_rune_str_with_seed(&template, RuntimeTuning::default())
+                    .unwrap_or_default()
             })
             .clone()
     }
@@ -351,6 +349,14 @@ cursor:
   size 24
   hide-when-typing true
   hide-after-ms 2000
+end
+
+# Keyboard repeat and pointer-driven focus behavior.
+# `focus-mode "click"` preserves the existing click-to-focus behavior.
+input:
+  repeat-rate 30
+  repeat-delay 500
+  focus-mode "click"
 end
 
 # Default font used for compositor UI like labels and overlays.
@@ -657,9 +663,8 @@ fn render_viewport_section(tty_viewports: &[ViewportOutputConfig]) -> String {
         lines.push(format!("    vrr \"{}\"", viewport.vrr.as_str()));
         lines.push("    # The focus ring is Halley's active zone.".to_string());
         lines.push("    # Windows inside it stay more fully active.".to_string());
-        lines.push(
-            "    # Windows outside it may decay into nodes depending on config.".to_string(),
-        );
+        lines
+            .push("    # Windows outside it may decay into nodes depending on config.".to_string());
         lines.push("    focus-ring:".to_string());
         lines.push(format!("      primary-rx {:.1}", focus_ring.rx));
         lines.push(format!("      primary-ry {:.1}", focus_ring.ry));
@@ -728,35 +733,46 @@ mod tests {
         assert_eq!(tuning.node_label_shape, ShapeStyle::Square);
         assert_eq!(tuning.cursor.hide_after_ms, 2000);
         assert_eq!(tuning.cluster_dwell_ms, 2000);
+        assert_eq!(tuning.input.repeat_rate, 30);
+        assert_eq!(tuning.input.repeat_delay, 500);
     }
 
     #[test]
     fn render_fresh_config_includes_detected_viewports() {
         let rendered = RuntimeTuning::render_fresh_config(&[ViewportOutputConfig {
-                connector: "DP-1".to_string(),
-                enabled: true,
-                offset_x: 0,
-                offset_y: 0,
-                width: 2560,
-                height: 1440,
-                refresh_rate: Some(180.0),
-                transform_degrees: 0,
-                vrr: crate::ViewportVrrMode::Off,
-                focus_ring: None,
-            }]);
+            connector: "DP-1".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 2560,
+            height: 1440,
+            refresh_rate: Some(180.0),
+            transform_degrees: 0,
+            vrr: crate::ViewportVrrMode::Off,
+            focus_ring: None,
+        }]);
 
         assert!(rendered.contains("viewport:\n  DP-1:"));
         assert!(rendered.contains("    rate 180.000"));
         assert!(rendered.contains("# Example second monitor configuration."));
         assert!(rendered.contains("    focus-ring:"));
         assert!(rendered.contains("# Cursor settings apply to the compositor itself"));
+        assert!(
+            rendered.contains(
+                "input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"\nend"
+            )
+        );
     }
 
     #[test]
     fn render_fresh_config_without_outputs_keeps_documented_viewport_block() {
         let rendered = RuntimeTuning::render_fresh_config(&[]);
 
-        assert!(rendered.contains("# Autostart lets Halley launch bars, notifiers, and background helpers."));
+        assert!(
+            rendered.contains(
+                "# Autostart lets Halley launch bars, notifiers, and background helpers."
+            )
+        );
         assert!(rendered.contains("viewport:\nend\n"));
     }
 }

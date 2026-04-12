@@ -9,7 +9,7 @@ use crate::backend::interface::{
 use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::PointerState;
 use crate::compositor::monitor::camera::camera_controller;
-use calloop::{generic::Generic, Interest, Mode, PostAction};
+use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
@@ -333,7 +333,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             if state
                 .platform
                 .seat
-                .add_keyboard(Default::default(), 200, 30)
+                .add_keyboard(
+                    Default::default(),
+                    tuning.input.repeat_delay,
+                    tuning.input.repeat_rate,
+                )
                 .is_err()
             {
                 warn!("failed to initialize wl_seat keyboard");

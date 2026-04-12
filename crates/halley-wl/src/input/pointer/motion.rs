@@ -15,7 +15,7 @@ use crate::compositor::surface_ops::{
 };
 use crate::input::ctx::InputCtx;
 use crate::spatial::{pick_hit_node_at, screen_to_world};
-use halley_config::PointerBindingAction;
+use halley_config::{InputFocusMode, PointerBindingAction};
 
 use super::button::{
     ButtonFrame, active_pointer_binding, clamp_screen_to_monitor, clamp_screen_to_workspace,
@@ -177,6 +177,34 @@ pub(crate) fn begin_drag(
     };
     let _ = st.carry_surface_non_overlap(hit.node_id, to, false);
     backend.request_redraw();
+}
+
+fn apply_hover_focus_mode(st: &mut Halley, hit: Option<HitNode>, blocked: bool, now: Instant) {
+    if blocked || st.runtime.tuning.input.focus_mode != InputFocusMode::Hover {
+        return;
+    }
+    let Some(hit) = hit else {
+        return;
+    };
+    if hit.is_core {
+        return;
+    }
+    let Some(node) = st.model.field.node(hit.node_id) else {
+        return;
+    };
+    if node.kind != halley_core::field::NodeKind::Surface
+        || !st.model.field.is_visible(hit.node_id)
+        || !matches!(
+            node.state,
+            halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting
+        )
+    {
+        return;
+    }
+
+    let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
+    st.set_recent_top_node(focus_target, now + Duration::from_millis(1200));
+    st.set_interaction_focus(Some(focus_target), 30_000, now);
 }
 
 pub(crate) fn finish_pointer_drag(
@@ -388,6 +416,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
 
     let grabbed_layer_surface_active = grabbed_layer_surface_monitor.is_some();
     let mut desktop_hover = false;
+    let mut hover_focus_blocked = false;
     let target_monitor = {
         if let Some(owner) = grabbed_layer_surface_monitor {
             owner
@@ -438,6 +467,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             )
         };
         desktop_hover = focus.is_none();
+        hover_focus_blocked = focus.as_ref().is_some_and(|(surface, _)| {
+            crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+                || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
+        });
 
         if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
             pointer.relative_motion(
@@ -809,20 +842,18 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         None
     };
 
+    let hover_hit =
+        if bloom_hover.is_none() && ps.drag.is_none() && ps.resize.is_none() && !ps.panning {
+            pick_hit_node_at(st, local_w, local_h, local_sx, local_sy, now, ps.resize)
+        } else {
+            None
+        };
+
     let next_hover = if let Some((node_id, target)) = bloom_hover {
         st.input.interaction_state.overlay_hover_target = Some(target);
         Some(node_id)
-    } else if ps.drag.is_none() && ps.resize.is_none() && !ps.panning {
-        pick_hit_node_at(
-            st,
-            local_w,
-            local_h,
-            local_sx,
-            local_sy,
-            Instant::now(),
-            ps.resize,
-        )
-        .and_then(|hit| {
+    } else {
+        hover_hit.and_then(|hit| {
             st.model.field.node(hit.node_id).and_then(|n| {
                 matches!(
                     n.state,
@@ -831,9 +862,9 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 .then_some(hit.node_id)
             })
         })
-    } else {
-        None
     };
+
+    apply_hover_focus_mode(st, hover_hit, hover_focus_blocked, now);
 
     if next_hover != ps.hover_node {
         ps.hover_started_at = next_hover.map(|_| now);
@@ -1337,4 +1368,84 @@ fn update_drag_edge_pan(
     next_drag.edge_pan_x = DragAxisMode::Free;
     next_drag.edge_pan_y = DragAxisMode::Free;
     next_drag.edge_pan_pressure = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use smithay::reexports::wayland_server::Display;
+
+    fn single_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        tuning
+    }
+
+    #[test]
+    fn hover_focus_mode_focuses_hovered_surface() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.input.focus_mode = InputFocusMode::Hover;
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        let node_id = st.model.field.spawn_surface(
+            "surface",
+            halley_core::field::Vec2 { x: 100.0, y: 100.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(node_id, "monitor_a");
+
+        apply_hover_focus_mode(
+            &mut st,
+            Some(HitNode {
+                node_id,
+                on_titlebar: false,
+                is_core: false,
+            }),
+            false,
+            Instant::now(),
+        );
+
+        assert_eq!(
+            st.model.focus_state.primary_interaction_focus,
+            Some(node_id)
+        );
+    }
+
+    #[test]
+    fn click_focus_mode_keeps_hover_focus_disabled() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let node_id = st.model.field.spawn_surface(
+            "surface",
+            halley_core::field::Vec2 { x: 100.0, y: 100.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(node_id, "monitor_a");
+
+        apply_hover_focus_mode(
+            &mut st,
+            Some(HitNode {
+                node_id,
+                on_titlebar: false,
+                is_core: false,
+            }),
+            false,
+            Instant::now(),
+        );
+
+        assert_eq!(st.model.focus_state.primary_interaction_focus, None);
+    }
 }

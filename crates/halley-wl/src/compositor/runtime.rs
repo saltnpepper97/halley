@@ -223,6 +223,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         let prev_config_viewport = self.runtime.tuning.viewport();
         let prev_effective_no_csd = self.runtime.tuning.effective_no_csd();
         let prev_font = self.runtime.tuning.font.clone();
+        let prev_input = self.runtime.tuning.input;
         let prev_physics_enabled = self.runtime.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
         let previous_output_names: std::collections::HashSet<String> = self
@@ -293,6 +294,14 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
 
         self.runtime.tuning = tuning;
+        if self.runtime.tuning.input != prev_input
+            && let Some(keyboard) = self.platform.seat.get_keyboard()
+        {
+            keyboard.change_repeat_info(
+                self.runtime.tuning.input.repeat_rate,
+                self.runtime.tuning.input.repeat_delay,
+            );
+        }
         if self.runtime.tuning.font != prev_font {
             self.ui.render_state.invalidate_ui_text_cache();
         }

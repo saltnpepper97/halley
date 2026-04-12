@@ -377,10 +377,7 @@ pub(crate) fn node_markers_need_app_icon_resources(policy: NodeDisplayPolicy) ->
 }
 
 #[inline]
-pub(crate) fn node_app_icon_texture_allowed(
-    policy: NodeDisplayPolicy,
-    highlighted: bool,
-) -> bool {
+pub(crate) fn node_app_icon_texture_allowed(policy: NodeDisplayPolicy, highlighted: bool) -> bool {
     match policy {
         NodeDisplayPolicy::Off => false,
         NodeDisplayPolicy::Hover => highlighted,
@@ -788,23 +785,47 @@ mod tests {
 
     #[test]
     fn node_marker_icon_texture_policy_honors_off_hover_and_always() {
-        assert!(!node_markers_need_app_icon_resources(NodeDisplayPolicy::Off));
-        assert!(!node_app_icon_texture_allowed(NodeDisplayPolicy::Off, false));
+        assert!(!node_markers_need_app_icon_resources(
+            NodeDisplayPolicy::Off
+        ));
+        assert!(!node_app_icon_texture_allowed(
+            NodeDisplayPolicy::Off,
+            false
+        ));
         assert!(!node_app_icon_texture_allowed(NodeDisplayPolicy::Off, true));
 
-        assert!(node_markers_need_app_icon_resources(NodeDisplayPolicy::Hover));
-        assert!(!node_app_icon_texture_allowed(NodeDisplayPolicy::Hover, false));
-        assert!(node_app_icon_texture_allowed(NodeDisplayPolicy::Hover, true));
+        assert!(node_markers_need_app_icon_resources(
+            NodeDisplayPolicy::Hover
+        ));
+        assert!(!node_app_icon_texture_allowed(
+            NodeDisplayPolicy::Hover,
+            false
+        ));
+        assert!(node_app_icon_texture_allowed(
+            NodeDisplayPolicy::Hover,
+            true
+        ));
 
-        assert!(node_markers_need_app_icon_resources(NodeDisplayPolicy::Always));
-        assert!(node_app_icon_texture_allowed(NodeDisplayPolicy::Always, false));
-        assert!(node_app_icon_texture_allowed(NodeDisplayPolicy::Always, true));
+        assert!(node_markers_need_app_icon_resources(
+            NodeDisplayPolicy::Always
+        ));
+        assert!(node_app_icon_texture_allowed(
+            NodeDisplayPolicy::Always,
+            false
+        ));
+        assert!(node_app_icon_texture_allowed(
+            NodeDisplayPolicy::Always,
+            true
+        ));
     }
 
     #[test]
     fn node_icon_fallback_glyph_prefers_app_id_initial() {
         assert_eq!(node_app_icon_fallback_glyph(Some("firefox"), "Window"), 'F');
-        assert_eq!(node_app_icon_fallback_glyph(Some("org.wezfurlong.wezterm"), "Window"), 'O');
+        assert_eq!(
+            node_app_icon_fallback_glyph(Some("org.wezfurlong.wezterm"), "Window"),
+            'O'
+        );
         assert_eq!(node_app_icon_fallback_glyph(None, "Window"), 'W');
     }
 }

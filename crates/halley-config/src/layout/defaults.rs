@@ -12,7 +12,7 @@ use crate::keybinds::{
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
-    DecorationBorderColor, FontConfig, NodeBackgroundColorMode, NodeBorderColorMode,
+    DecorationBorderColor, FontConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode,
     NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, RuntimeTuning, ScreenshotConfig,
     ShapeStyle,
 };
@@ -108,6 +108,7 @@ impl Default for RuntimeTuning {
             tty_viewports: Vec::new(),
             autostart_once: Vec::new(),
             autostart_on_reload: Vec::new(),
+            input: InputConfig::default(),
             cursor: CursorConfig::default(),
             font: FontConfig::default(),
             animations: AnimationsConfig::default(),
