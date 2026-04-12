@@ -8,12 +8,12 @@ use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::input::ctx::InputCtx;
+use crate::input::pointer::focus;
 use crate::spatial::pick_hit_node_at;
 
 pub(crate) mod bloom;
 pub(crate) mod cluster;
 pub(crate) mod drag;
-pub(crate) mod focus;
 pub(crate) mod pending;
 pub(crate) mod routing;
 
