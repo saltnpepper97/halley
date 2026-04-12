@@ -180,7 +180,11 @@ pub(crate) fn begin_drag(
 }
 
 fn apply_hover_focus_mode(st: &mut Halley, hit: Option<HitNode>, blocked: bool, now: Instant) {
-    if blocked || st.runtime.tuning.input.focus_mode != InputFocusMode::Hover {
+    if !hover_focus_enabled(
+        st.runtime.tuning.input.focus_mode,
+        blocked,
+        crate::compositor::monitor::layer_shell::keyboard_focus_is_layer_surface(st),
+    ) {
         return;
     }
     let Some(hit) = hit else {
@@ -205,6 +209,14 @@ fn apply_hover_focus_mode(st: &mut Halley, hit: Option<HitNode>, blocked: bool, 
     let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
     st.set_recent_top_node(focus_target, now + Duration::from_millis(1200));
     st.set_interaction_focus(Some(focus_target), 30_000, now);
+}
+
+fn hover_focus_enabled(
+    focus_mode: InputFocusMode,
+    blocked: bool,
+    layer_shell_keyboard_focus: bool,
+) -> bool {
+    !blocked && focus_mode == InputFocusMode::Hover && !layer_shell_keyboard_focus
 }
 
 pub(crate) fn finish_pointer_drag(
@@ -1452,5 +1464,11 @@ mod tests {
         );
 
         assert_eq!(st.model.focus_state.primary_interaction_focus, None);
+    }
+
+    #[test]
+    fn hover_focus_gate_disables_focus_follows_mouse_while_layer_shell_is_active() {
+        assert!(!hover_focus_enabled(InputFocusMode::Hover, false, true));
+        assert!(hover_focus_enabled(InputFocusMode::Hover, false, false));
     }
 }
