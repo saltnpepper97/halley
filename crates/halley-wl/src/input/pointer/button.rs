@@ -17,7 +17,7 @@ use crate::compositor::interaction::{
     BloomDragCtx, HitNode, ModState, OverflowDragCtx, PointerState,
 };
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::{node_allows_interactive_resize, stack_focus_target_for_node};
+use crate::compositor::surface_ops::node_allows_interactive_resize;
 use crate::input::ctx::InputCtx;
 use crate::input::keyboard::modkeys::modifier_active;
 use crate::overlay::{
@@ -25,12 +25,11 @@ use crate::overlay::{
 };
 use crate::render::bearing_hit_test;
 use crate::spatial::pick_hit_node_at;
-use crate::spatial::screen_to_world;
 use smithay::backend::input::ButtonState;
 use smithay::input::pointer::{ButtonEvent, MotionEvent};
-use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
+use super::context::{clamp_screen_to_workspace, pointer_screen_context_for_monitor};
 use super::focus::{
     grabbed_layer_surface_focus, layer_surface_focus_for_screen, pointer_focus_for_screen,
 };
@@ -85,9 +84,7 @@ fn handle_left_press(
 ) {
     let Some(hit) = hit else {
         let now = Instant::now();
-        let monitor = st
-            .monitor_for_screen(frame.global_sx, frame.global_sy)
-            .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
         let _ = st.close_cluster_bloom_for_monitor(monitor.as_str());
         st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
@@ -117,9 +114,7 @@ fn handle_left_press(
         }
         if hit.on_titlebar && drag_target_ok && !hit.is_core {
             let now = Instant::now();
-            let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
-            st.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
-            st.set_interaction_focus(Some(focus_target), 700, now);
+            st.focus_pointer_target(hit.node_id, 700, now);
             st.input.interaction_state.pending_titlebar_press = Some(PendingTitlebarPress {
                 node_id: hit.node_id,
                 press_global_sx: frame.global_sx,
@@ -145,9 +140,7 @@ fn handle_left_press(
     let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);
     if hit.on_titlebar && drag_target_ok && !hit.is_core {
         let now = Instant::now();
-        let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
-        st.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
-        st.set_interaction_focus(Some(focus_target), 700, now);
+        st.focus_pointer_target(hit.node_id, 700, now);
         st.input.interaction_state.pending_titlebar_press = Some(PendingTitlebarPress {
             node_id: hit.node_id,
             press_global_sx: frame.global_sx,
@@ -165,12 +158,7 @@ fn handle_left_press(
                 && st.model.field.is_visible(hit.node_id)
         })
     {
-        let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
-        st.set_recent_top_node(
-            focus_target,
-            Instant::now() + std::time::Duration::from_millis(1200),
-        );
-        st.set_interaction_focus(Some(focus_target), 30_000, Instant::now());
+        st.focus_pointer_target(hit.node_id, 30_000, Instant::now());
     }
 
     let mut handled_node_click = false;
@@ -208,9 +196,7 @@ fn handle_left_press(
 
     if hit.is_core {
         let now = Instant::now();
-        let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
-        st.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
-        st.set_interaction_focus(Some(focus_target), 700, now);
+        st.focus_pointer_target(hit.node_id, 700, now);
         backend.request_redraw();
     }
 }
@@ -229,9 +215,7 @@ fn handle_right_press(
             return;
         }
         let now = Instant::now();
-        let monitor = st
-            .monitor_for_screen(frame.global_sx, frame.global_sy)
-            .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
         st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
@@ -263,9 +247,7 @@ fn handle_move_binding_press(
             return;
         }
         let now = Instant::now();
-        let monitor = st
-            .monitor_for_screen(frame.global_sx, frame.global_sy)
-            .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
         st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
@@ -309,9 +291,7 @@ fn handle_resize_binding_press(
 
     let Some(hit) = hit else {
         let now = Instant::now();
-        let monitor = st
-            .monitor_for_screen(frame.global_sx, frame.global_sy)
-            .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
         st.focus_monitor_view(monitor.as_str(), now);
         ps.panning = true;
         ps.pan_monitor = Some(monitor);
@@ -544,9 +524,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 }
 
                 let now = Instant::now();
-                let monitor = st
-                    .monitor_for_screen(frame.global_sx, frame.global_sy)
-                    .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+                let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
                 st.focus_monitor_view(monitor.as_str(), now);
                 ps.panning = true;
                 ps.pan_monitor = Some(monitor);
@@ -934,13 +912,7 @@ pub(super) fn collapse_bloom_for_core_if_open(
     let Some(cid) = st.model.field.cluster_id_for_core_public(node_id) else {
         return false;
     };
-    let monitor = st
-        .model
-        .monitor_state
-        .node_monitor
-        .get(&node_id)
-        .cloned()
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let monitor = st.monitor_for_node_or_current(node_id);
     if st.cluster_bloom_for_monitor(monitor.as_str()) != Some(cid) {
         return false;
     }
@@ -959,8 +931,7 @@ pub(super) fn restore_fullscreen_click_focus(
     let monitor_name = st
         .fullscreen_monitor_for_node(node_id)
         .map(str::to_owned)
-        .or_else(|| st.model.monitor_state.node_monitor.get(&node_id).cloned())
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        .unwrap_or_else(|| st.monitor_for_node_or_current(node_id));
 
     let entry = st
         .model
@@ -1087,9 +1058,7 @@ pub(super) fn handle_workspace_left_press(
         return;
     }
     let focus_hold_ms = if hit.is_core { 700 } else { 30_000 };
-    let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
-    st.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
-    st.set_interaction_focus(Some(focus_target), focus_hold_ms, now);
+    st.focus_pointer_target(hit.node_id, focus_hold_ms, now);
     backend.request_redraw();
 }
 
@@ -1445,27 +1414,6 @@ pub(super) fn now_millis_u32() -> u32 {
 }
 
 #[inline]
-pub(super) fn clamp_screen_to_workspace(ws_w: i32, ws_h: i32, sx: f32, sy: f32) -> (f32, f32) {
-    let max_x = (ws_w.max(1) - 1) as f32;
-    let max_y = (ws_h.max(1) - 1) as f32;
-    (sx.clamp(0.0, max_x), sy.clamp(0.0, max_y))
-}
-
-#[inline]
-pub(super) fn clamp_screen_to_monitor(st: &Halley, name: &str, sx: f32, sy: f32) -> (f32, f32) {
-    if let Some(monitor) = st.model.monitor_state.monitors.get(name) {
-        let max_x = (monitor.offset_x + monitor.width - 1) as f32;
-        let max_y = (monitor.offset_y + monitor.height - 1) as f32;
-        (
-            sx.clamp(monitor.offset_x as f32, max_x),
-            sy.clamp(monitor.offset_y as f32, max_y),
-        )
-    } else {
-        (sx, sy)
-    }
-}
-
-#[inline]
 fn modifier_specificity(modifiers: KeyModifiers) -> u32 {
     [
         modifiers.super_key,
@@ -1511,6 +1459,7 @@ pub(super) fn button_frame_for_monitor(
     screen: (f32, f32),
 ) -> (ButtonFrame, String, (f32, f32)) {
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, screen.0, screen.1);
+    let grabbed_layer_surface_active = st.input.interaction_state.grabbed_layer_surface.is_some();
     let grabbed_layer_surface_monitor = st
         .input
         .interaction_state
@@ -1521,47 +1470,30 @@ pub(super) fn button_frame_for_monitor(
         });
     let target_monitor =
         crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
-            .and_then(|(surface, _)| {
-                let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
-                Some(
-                    st.model
-                        .monitor_state
-                        .node_monitor
-                        .get(&node_id)
-                        .cloned()
-                        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
-                )
-            })
+            .and_then(|(surface, _)| Some(st.monitor_for_surface_or_current(&surface)))
             .or(grabbed_layer_surface_monitor)
-            .unwrap_or_else(|| {
-                st.monitor_for_screen(sx, sy)
-                    .unwrap_or_else(|| st.interaction_monitor().to_string())
-            });
-    let (sx, sy) = if st.input.interaction_state.grabbed_layer_surface.is_none() {
-        clamp_screen_to_monitor(st, target_monitor.as_str(), sx, sy)
-    } else {
-        (sx, sy)
-    };
-    if st.input.interaction_state.grabbed_layer_surface.is_none() {
-        st.set_interaction_monitor(target_monitor.as_str());
-        let _ = st.activate_monitor(target_monitor.as_str());
-    }
-    st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
-    let (local_w, local_h, local_sx, local_sy) =
-        st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
-    let world_now = screen_to_world(st, local_w, local_h, local_sx, local_sy);
-    (
-        ButtonFrame {
-            ws_w: local_w,
-            ws_h: local_h,
-            global_sx: sx,
-            global_sy: sy,
-            sx: local_sx,
-            sy: local_sy,
-            world_now,
-            workspace_active: st.has_active_cluster_workspace(),
-        },
+            .unwrap_or_else(|| st.monitor_for_screen_or_interaction(sx, sy));
+    let context = pointer_screen_context_for_monitor(
+        st,
         target_monitor,
         (sx, sy),
+        !grabbed_layer_surface_active,
+        !grabbed_layer_surface_active,
+    );
+    st.input.interaction_state.last_pointer_screen_global =
+        Some((context.global_sx, context.global_sy));
+    (
+        ButtonFrame {
+            ws_w: context.ws_w,
+            ws_h: context.ws_h,
+            global_sx: context.global_sx,
+            global_sy: context.global_sy,
+            sx: context.local_sx,
+            sy: context.local_sy,
+            world_now: context.world,
+            workspace_active: st.has_active_cluster_workspace(),
+        },
+        context.monitor.clone(),
+        (context.global_sx, context.global_sy),
     )
 }

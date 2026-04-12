@@ -21,13 +21,7 @@ pub(crate) fn promote_node_level(
         return false;
     }
     let target_pos = n.pos;
-    let target_monitor = st
-        .model
-        .monitor_state
-        .node_monitor
-        .get(&node_id)
-        .cloned()
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let target_monitor = st.monitor_for_node_or_current(node_id);
     let focus_center = st.view_center_for_monitor(target_monitor.as_str());
     let focus_ring = st.focus_ring_for_monitor(target_monitor.as_str());
 
@@ -67,13 +61,7 @@ pub(crate) fn activate_collapsed_node_from_click(
         return false;
     }
 
-    let target_monitor = st
-        .model
-        .monitor_state
-        .node_monitor
-        .get(&node_id)
-        .cloned()
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let target_monitor = st.monitor_for_node_or_current(node_id);
     let focus_center = st.view_center_for_monitor(target_monitor.as_str());
     let focus_ring = st.focus_ring_for_monitor(target_monitor.as_str());
     let in_focus_ring = focus_ring.zone(focus_center, n.pos) == FocusZone::Inside;
@@ -122,13 +110,7 @@ pub(crate) fn focus_or_reveal_surface_node(
         return false;
     }
 
-    let target_monitor = st
-        .model
-        .monitor_state
-        .node_monitor
-        .get(&node_id)
-        .cloned()
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let target_monitor = st.monitor_for_node_or_current(node_id);
     if st.focused_monitor() != target_monitor {
         st.focus_monitor_view(target_monitor.as_str(), now);
     }

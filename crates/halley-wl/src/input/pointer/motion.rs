@@ -1,7 +1,6 @@
 use std::time::{Duration, Instant};
 
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
-use smithay::reexports::wayland_server::Resource;
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
@@ -10,16 +9,14 @@ use crate::compositor::interaction::state::ActiveDragState;
 use crate::compositor::interaction::{DragAxisMode, DragCtx, HitNode, ModState, PointerState};
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::{
-    is_active_stacking_workspace_member, stack_focus_target_for_node,
-};
+use crate::compositor::surface_ops::is_active_stacking_workspace_member;
 use crate::input::ctx::InputCtx;
-use crate::spatial::{pick_hit_node_at, screen_to_world};
+use crate::spatial::pick_hit_node_at;
 use halley_config::{InputFocusMode, PointerBindingAction};
 
-use super::button::{
-    ButtonFrame, active_pointer_binding, clamp_screen_to_monitor, clamp_screen_to_workspace,
-    now_millis_u32,
+use super::button::{ButtonFrame, active_pointer_binding, now_millis_u32};
+use super::context::{
+    clamp_screen_to_monitor, clamp_screen_to_workspace, pointer_screen_context_for_monitor,
 };
 use super::focus::{grabbed_layer_surface_focus, pointer_focus_for_screen};
 use super::resize::handle_resize_motion;
@@ -100,13 +97,7 @@ pub(crate) fn begin_drag(
 ) {
     st.input.interaction_state.pending_core_press = None;
     st.input.interaction_state.pending_core_click = None;
-    let drag_monitor = st
-        .model
-        .monitor_state
-        .node_monitor
-        .get(&hit.node_id)
-        .cloned()
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let drag_monitor = st.monitor_for_node_or_current(hit.node_id);
     let edge_pan_eligible = false;
     let mut drag_ctx = DragCtx {
         node_id: hit.node_id,
@@ -164,12 +155,7 @@ pub(crate) fn begin_drag(
         Some(smithay::input::pointer::CursorIcon::Grabbing),
     );
     if !hit.is_core {
-        let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
-        st.set_recent_top_node(
-            focus_target,
-            Instant::now() + std::time::Duration::from_millis(1200),
-        );
-        st.set_interaction_focus(Some(focus_target), 30_000, Instant::now());
+        st.focus_pointer_target(hit.node_id, 30_000, Instant::now());
     }
     let to = halley_core::field::Vec2 {
         x: world_now.x - drag_ctx.current_offset.x,
@@ -206,9 +192,7 @@ fn apply_hover_focus_mode(st: &mut Halley, hit: Option<HitNode>, blocked: bool, 
         return;
     }
 
-    let focus_target = stack_focus_target_for_node(st, hit.node_id).unwrap_or(hit.node_id);
-    st.set_recent_top_node(focus_target, now + Duration::from_millis(1200));
-    st.set_interaction_focus(Some(focus_target), 30_000, now);
+    st.focus_pointer_target(hit.node_id, 30_000, now);
 }
 
 fn hover_focus_enabled(
@@ -297,23 +281,24 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     let (sx, sy) = clamp_screen_to_workspace(ws_w, ws_h, raw_sx, raw_sy);
     let now = Instant::now();
     if crate::protocol::wayland::session_lock::session_lock_active(st) {
-        let target_monitor = st
-            .monitor_for_screen(sx, sy)
-            .unwrap_or_else(|| st.interaction_monitor().to_string());
-        let (sx, sy) = clamp_screen_to_monitor(st, target_monitor.as_str(), sx, sy);
-        st.set_interaction_monitor(target_monitor.as_str());
-        let _ = st.activate_monitor(target_monitor.as_str());
-        let (local_w, local_h, local_sx, local_sy) =
-            st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
+        let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
+        let context = pointer_screen_context_for_monitor(st, target_monitor, (sx, sy), true, true);
         {
             let mut ps = ctx.pointer_state.borrow_mut();
-            ps.screen = (sx, sy);
-            ps.workspace_size = (local_w, local_h);
-            ps.world = screen_to_world(st, local_w, local_h, local_sx, local_sy);
+            ps.screen = (context.global_sx, context.global_sy);
+            ps.workspace_size = (context.ws_w, context.ws_h);
+            ps.world = context.world;
         }
         if let Some(pointer) = st.platform.seat.get_pointer() {
-            let focus =
-                pointer_focus_for_screen(st, local_w, local_h, local_sx, local_sy, now, None);
+            let focus = pointer_focus_for_screen(
+                st,
+                context.ws_w,
+                context.ws_h,
+                context.local_sx,
+                context.local_sy,
+                now,
+                None,
+            );
             if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
                 pointer.relative_motion(
                     st,
@@ -329,7 +314,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 st,
                 focus,
                 &MotionEvent {
-                    location: (local_sx as f64, local_sy as f64).into(),
+                    location: (context.local_sx as f64, context.local_sy as f64).into(),
                     serial: SERIAL_COUNTER.next_serial(),
                     time: now_millis_u32(),
                 },
@@ -353,29 +338,15 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     let drag_state = {
         let ps = ctx.pointer_state.borrow();
         ps.drag.map(|drag| {
-            let owner = st
-                .model
-                .monitor_state
-                .node_monitor
-                .get(&drag.node_id)
-                .cloned()
-                .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+            let owner = st.monitor_for_node_or_current(drag.node_id);
             let allow_monitor_transfer =
                 active_pointer_binding(st, &mods, 0x110) == Some(PointerBindingAction::FieldJump);
             (drag, owner, allow_monitor_transfer)
         })
     };
-    let constrained_surface_monitor = constrained_surface_info.as_ref().and_then(|(surface, _)| {
-        let node_id = st.model.surface_to_node.get(&surface.id()).copied()?;
-        Some(
-            st.model
-                .monitor_state
-                .node_monitor
-                .get(&node_id)
-                .cloned()
-                .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
-        )
-    });
+    let constrained_surface_monitor = constrained_surface_info
+        .as_ref()
+        .and_then(|(surface, _)| Some(st.monitor_for_surface_or_current(surface)));
     let grabbed_layer_surface_monitor = grabbed_layer_surface.as_ref().map(|surface| {
         crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface)
     });
@@ -386,14 +357,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         });
     let locked_resize_monitor = {
         let ps = ctx.pointer_state.borrow();
-        ps.resize.and_then(|resize| {
-            st.model
-                .monitor_state
-                .node_monitor
-                .get(&resize.node_id)
-                .cloned()
-                .or_else(|| Some(st.model.monitor_state.current_monitor.clone()))
-        })
+        ps.resize
+            .map(|resize| st.monitor_for_node_or_current(resize.node_id))
     };
     let locked_pan_monitor = {
         let ps = ctx.pointer_state.borrow();
@@ -451,20 +416,24 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         } else if let Some(owner) = locked_pan_monitor {
             owner
         } else {
-            st.monitor_for_screen(effective_sx, effective_sy)
-                .unwrap_or_else(|| st.interaction_monitor().to_string())
+            st.monitor_for_screen_or_interaction(effective_sx, effective_sy)
         }
     };
-    if !grabbed_layer_surface_active {
-        (effective_sx, effective_sy) =
-            clamp_screen_to_monitor(st, target_monitor.as_str(), effective_sx, effective_sy);
-    }
-    if !grabbed_layer_surface_active {
-        st.set_interaction_monitor(target_monitor.as_str());
-        let _ = st.activate_monitor(target_monitor.as_str());
-    }
-    let (local_w, local_h, local_sx, local_sy) =
-        st.local_screen_in_monitor(target_monitor.as_str(), effective_sx, effective_sy);
+    let context = pointer_screen_context_for_monitor(
+        st,
+        target_monitor,
+        (effective_sx, effective_sy),
+        !grabbed_layer_surface_active,
+        !grabbed_layer_surface_active,
+    );
+    let pointer_world = context.world;
+    effective_sx = context.global_sx;
+    effective_sy = context.global_sy;
+    let target_monitor = context.monitor;
+    let local_w = context.ws_w;
+    let local_h = context.ws_h;
+    let local_sx = context.local_sx;
+    let local_sy = context.local_sy;
 
     if let Some(pointer) = st.platform.seat.get_pointer() {
         let resize_preview = ctx.pointer_state.borrow().resize;
@@ -528,7 +497,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         }
         pointer.frame(st);
     }
-    let p = screen_to_world(st, local_w, local_h, local_sx, local_sy);
+    let p = pointer_world;
     let drag_mod_ok = modifier_active(&mods, st.runtime.tuning.keybinds.modifier)
         || matches!(
             active_pointer_binding(st, &mods, 0x110),

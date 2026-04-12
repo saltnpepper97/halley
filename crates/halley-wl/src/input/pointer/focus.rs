@@ -159,20 +159,11 @@ fn fullscreen_hit_blocks_non_overlay_layers(
         return false;
     }
 
-    let pointer_monitor = st
-        .monitor_for_screen(sx, sy)
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let pointer_monitor = st.monitor_for_screen_or_current(sx, sy);
     let node_monitor = st
         .fullscreen_monitor_for_node(hit.node_id)
         .map(str::to_owned)
-        .or_else(|| {
-            st.model
-                .monitor_state
-                .node_monitor
-                .get(&hit.node_id)
-                .cloned()
-        })
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        .unwrap_or_else(|| st.monitor_for_node_or_current(hit.node_id));
 
     pointer_monitor == node_monitor
 }

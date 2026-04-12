@@ -164,6 +164,32 @@ pub(crate) fn focused_monitor(st: &Halley) -> &str {
     }
 }
 
+pub(crate) fn monitor_for_node_or_current(st: &Halley, node_id: NodeId) -> String {
+    st.model
+        .monitor_state
+        .node_monitor
+        .get(&node_id)
+        .cloned()
+        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
+}
+
+pub(crate) fn monitor_for_surface_or_current(st: &Halley, surface: &WlSurface) -> String {
+    st.model
+        .surface_to_node
+        .get(&surface.id())
+        .copied()
+        .map(|node_id| monitor_for_node_or_current(st, node_id))
+        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
+}
+
+pub(crate) fn monitor_for_screen_or_current(st: &Halley, sx: f32, sy: f32) -> String {
+    monitor_for_screen(st, sx, sy).unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
+}
+
+pub(crate) fn monitor_for_screen_or_interaction(st: &Halley, sx: f32, sy: f32) -> String {
+    monitor_for_screen(st, sx, sy).unwrap_or_else(|| interaction_monitor(st).to_string())
+}
+
 pub(crate) fn set_interaction_monitor(st: &mut Halley, name: &str) {
     if st.model.monitor_state.monitors.contains_key(name) {
         st.model.monitor_state.interaction_monitor = name.to_string();

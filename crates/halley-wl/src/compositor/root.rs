@@ -633,6 +633,25 @@ impl Halley {
         super::monitor::state::monitor_for_screen(self, sx, sy)
     }
 
+    pub(crate) fn monitor_for_node_or_current(&self, node_id: NodeId) -> String {
+        super::monitor::state::monitor_for_node_or_current(self, node_id)
+    }
+
+    pub(crate) fn monitor_for_surface_or_current(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) -> String {
+        super::monitor::state::monitor_for_surface_or_current(self, surface)
+    }
+
+    pub(crate) fn monitor_for_screen_or_current(&self, sx: f32, sy: f32) -> String {
+        super::monitor::state::monitor_for_screen_or_current(self, sx, sy)
+    }
+
+    pub(crate) fn monitor_for_screen_or_interaction(&self, sx: f32, sy: f32) -> String {
+        super::monitor::state::monitor_for_screen_or_interaction(self, sx, sy)
+    }
+
     pub(crate) fn monitor_for_screen_clamped(
         &self,
         sx: f32,
@@ -979,6 +998,15 @@ impl Halley {
 
     pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
         super::focus::state::focus_state_controller(self).set_recent_top_node(node_id, until)
+    }
+
+    pub(crate) fn focus_pointer_target(
+        &mut self,
+        node_id: NodeId,
+        hold_ms: u64,
+        now: Instant,
+    ) -> NodeId {
+        super::focus::system::focus_pointer_target(self, node_id, hold_ms, now)
     }
 
     pub fn recent_top_node_active(&mut self, now: Instant) -> Option<NodeId> {
