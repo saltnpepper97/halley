@@ -16,7 +16,8 @@ use crate::render::state::RenderState;
 use crate::render::utils::{draw_outline_rect, draw_rect, draw_ring};
 use crate::render::{
     screenshot_menu_background_color, screenshot_menu_highlight_color,
-    screenshot_menu_icon_texture, screenshot_menu_item_fill_color,
+    screenshot_menu_icon_texture, screenshot_menu_inactive_highlight_color,
+    screenshot_menu_item_fill_color,
 };
 
 use super::OverlayView;
@@ -36,10 +37,11 @@ const MENU_BAR_H: i32 = 80;
 const MENU_SLOT_W: i32 = MENU_BAR_W / 3;
 const MENU_PAD: i32 = 10;
 const MENU_ICON_SIZE: i32 = 42;
+const MENU_ITEM_BORDER_PX: f32 = 2.0;
 const ACTIVE_BORDER_ALPHA: f32 = 1.0;
 const INACTIVE_BORDER_ALPHA: f32 = 0.72;
-const MENU_BAR_CORNER_RADIUS: f32 = 16.0;
-const MENU_ITEM_CORNER_RADIUS: f32 = 12.0;
+const MENU_BAR_CORNER_RADIUS: f32 = 3.0;
+const MENU_ITEM_CORNER_RADIUS: f32 = 2.0;
 
 #[derive(Clone, Copy)]
 pub(crate) enum ScreenshotMenuHit {
@@ -57,7 +59,8 @@ struct RectLocal {
 #[derive(Clone, Copy)]
 struct ScreenshotMenuStyle {
     rounded: bool,
-    border_px: f32,
+    outer_border_px: f32,
+    item_border_px: f32,
     bar_corner_radius: f32,
     item_corner_radius: f32,
 }
@@ -66,7 +69,8 @@ fn resolve_screenshot_menu_style(tuning: &RuntimeTuning) -> ScreenshotMenuStyle 
     let visuals = super::resolve_overlay_visuals(tuning);
     ScreenshotMenuStyle {
         rounded: visuals.rounded,
-        border_px: visuals.border_px,
+        outer_border_px: visuals.border_px,
+        item_border_px: MENU_ITEM_BORDER_PX,
         bar_corner_radius: if visuals.rounded {
             MENU_BAR_CORNER_RADIUS
         } else {
@@ -322,7 +326,7 @@ fn draw_screenshot_menu(
         bar_rect,
         style.rounded,
         style.bar_corner_radius,
-        style.border_px,
+        style.outer_border_px,
         color32f(background, 0.96),
         color32f(highlight, ACTIVE_BORDER_ALPHA),
         damage,
@@ -338,7 +342,10 @@ fn draw_screenshot_menu(
         let border = if active {
             color32f(highlight, ACTIVE_BORDER_ALPHA)
         } else {
-            color32f(highlight, INACTIVE_BORDER_ALPHA)
+            color32f(
+                screenshot_menu_inactive_highlight_color(overlay.tuning),
+                INACTIVE_BORDER_ALPHA,
+            )
         };
         let item_rect = Rectangle::<i32, Physical>::new(
             (rect.loc.x + MENU_PAD, rect.loc.y + MENU_PAD).into(),
@@ -350,7 +357,7 @@ fn draw_screenshot_menu(
             item_rect,
             style.rounded,
             style.item_corner_radius,
-            style.border_px,
+            style.item_border_px,
             fill,
             border,
             damage,
@@ -388,10 +395,13 @@ fn draw_screenshot_menu(
 mod tests {
     use halley_config::{OverlayShape, RuntimeTuning};
 
-    use super::{resolve_screenshot_menu_style, MENU_BAR_CORNER_RADIUS, MENU_ITEM_CORNER_RADIUS};
+    use super::{
+        resolve_screenshot_menu_style, MENU_BAR_CORNER_RADIUS, MENU_ITEM_BORDER_PX,
+        MENU_ITEM_CORNER_RADIUS,
+    };
 
     #[test]
-    fn screenshot_menu_style_follows_overlay_shape_and_border_size() {
+    fn screenshot_menu_style_uses_internal_radii_and_overlay_border_toggle() {
         let mut tuning = RuntimeTuning::default();
         tuning.decorations.border.size_px = 6;
         tuning.overlay_style.shape = OverlayShape::Rounded;
@@ -400,7 +410,8 @@ mod tests {
         let style = resolve_screenshot_menu_style(&tuning);
 
         assert!(style.rounded);
-        assert_eq!(style.border_px, 6.0);
+        assert_eq!(style.outer_border_px, 6.0);
+        assert_eq!(style.item_border_px, MENU_ITEM_BORDER_PX);
         assert_eq!(style.bar_corner_radius, MENU_BAR_CORNER_RADIUS);
         assert_eq!(style.item_corner_radius, MENU_ITEM_CORNER_RADIUS);
 
@@ -410,7 +421,8 @@ mod tests {
         let style = resolve_screenshot_menu_style(&tuning);
 
         assert!(!style.rounded);
-        assert_eq!(style.border_px, 0.0);
+        assert_eq!(style.outer_border_px, 0.0);
+        assert_eq!(style.item_border_px, MENU_ITEM_BORDER_PX);
         assert_eq!(style.bar_corner_radius, 0.0);
         assert_eq!(style.item_corner_radius, 0.0);
     }

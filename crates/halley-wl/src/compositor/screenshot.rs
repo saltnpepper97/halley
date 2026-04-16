@@ -1,4 +1,5 @@
 use std::ops::{Deref, DerefMut};
+use std::path::Path;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -695,6 +696,20 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
                 CaptureMode::Window => "halley-window",
             },
         );
+        if let Err(err) = ensure_screenshot_output_directory(output_path.as_path()) {
+            self.input.interaction_state.last_screenshot_result = Some(
+                crate::compositor::interaction::state::ScreenshotCaptureResult {
+                    serial: self
+                        .input
+                        .interaction_state
+                        .screenshot_next_serial
+                        .saturating_sub(1),
+                    saved_path: None,
+                    error: Some(err),
+                },
+            );
+            return false;
+        }
         let monitor = session.monitor.clone();
         let serial = self
             .input
@@ -813,6 +828,14 @@ fn expand_screenshot_directory(raw: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(raw)
 }
 
+fn ensure_screenshot_output_directory(path: &Path) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("create screenshot directory {}: {err}", parent.display()))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use halley_config::RuntimeTuning;
@@ -904,5 +927,23 @@ mod tests {
         assert_eq!(session.mode, CaptureMode::Menu);
         assert_eq!(session.menu_selected, 0);
         assert_eq!(session.menu_hovered, Some(0));
+    }
+
+    #[test]
+    fn ensure_screenshot_output_directory_creates_missing_parent() {
+        let base = std::env::temp_dir().join(format!(
+            "halley-screenshot-dir-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let out = base.join("nested").join("capture.png");
+
+        ensure_screenshot_output_directory(out.as_path()).expect("directory should be created");
+
+        assert!(out.parent().is_some_and(|parent| parent.exists()));
+
+        let _ = std::fs::remove_dir_all(base);
     }
 }

@@ -2,8 +2,8 @@ use halley_config::{DecorationBorderColor, OverlayColorMode, RuntimeTuning};
 use image::RgbaImage;
 use resvg::{tiny_skia, usvg};
 use smithay::backend::allocator::Fourcc;
-use smithay::backend::renderer::ImportMem;
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::ImportMem;
 
 use crate::compositor::root::Halley;
 use crate::render::icon_tint::tint_alpha_mask_image;
@@ -111,6 +111,19 @@ pub(crate) fn screenshot_menu_highlight_color(tuning: &RuntimeTuning) -> Decorat
     }
 }
 
+pub(crate) fn screenshot_menu_inactive_highlight_color(
+    tuning: &RuntimeTuning,
+) -> DecorationBorderColor {
+    match tuning.screenshot.highlight_color {
+        OverlayColorMode::Fixed { .. } => mix_color(
+            screenshot_menu_background_color(tuning),
+            screenshot_menu_highlight_color(tuning),
+            0.58,
+        ),
+        _ => screenshot_menu_highlight_color(tuning),
+    }
+}
+
 pub(crate) fn screenshot_menu_item_fill_color(tuning: &RuntimeTuning) -> DecorationBorderColor {
     mix_color(
         screenshot_menu_background_color(tuning),
@@ -137,7 +150,10 @@ fn screenshot_menu_active_rgba(tuning: &RuntimeTuning) -> [u8; 4] {
 }
 
 fn screenshot_menu_inactive_rgba(tuning: &RuntimeTuning) -> [u8; 4] {
-    rgba_bytes_from_overlay_color(screenshot_menu_highlight_color(tuning), INACTIVE_ICON_ALPHA)
+    rgba_bytes_from_overlay_color(
+        screenshot_menu_inactive_highlight_color(tuning),
+        INACTIVE_ICON_ALPHA,
+    )
 }
 
 fn rgba_bytes_from_overlay_color(
@@ -158,7 +174,8 @@ mod tests {
 
     use super::{
         screenshot_menu_active_rgba, screenshot_menu_background_color,
-        screenshot_menu_highlight_color, screenshot_menu_inactive_rgba,
+        screenshot_menu_highlight_color, screenshot_menu_inactive_highlight_color,
+        screenshot_menu_inactive_rgba,
     };
 
     #[test]
@@ -185,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn screenshot_inactive_rgba_does_not_mix_with_background_color() {
+    fn screenshot_inactive_rgba_softens_fixed_highlight_toward_background() {
         let mut tuning_a = RuntimeTuning::default();
         tuning_a.screenshot.background_color = OverlayColorMode::Fixed {
             r: 0.20,
@@ -205,14 +222,32 @@ mod tests {
             b: 0.90,
         };
 
+        let inactive_a = screenshot_menu_inactive_highlight_color(&tuning_a);
+        let inactive_b = screenshot_menu_inactive_highlight_color(&tuning_b);
+
+        assert_ne!(
+            (inactive_a.r, inactive_a.g, inactive_a.b),
+            (0.90, 0.80, 0.10)
+        );
+        assert_ne!(
+            (inactive_b.r, inactive_b.g, inactive_b.b),
+            (0.90, 0.80, 0.10)
+        );
         assert_eq!(
             screenshot_menu_inactive_rgba(&tuning_a),
-            [230, 204, 26, 184]
+            [155, 150, 58, 184]
         );
         assert_eq!(
             screenshot_menu_inactive_rgba(&tuning_b),
-            [230, 204, 26, 184]
+            [135, 123, 111, 184]
         );
+    }
+
+    #[test]
+    fn screenshot_inactive_rgba_keeps_builtin_palette_rgb() {
+        let tuning = RuntimeTuning::default();
+
+        assert_eq!(screenshot_menu_inactive_rgba(&tuning), [20, 26, 31, 184]);
     }
 }
 

@@ -54,6 +54,8 @@ end
 # Use an absolute path or an env-expanded path like `$env.HOME/...`.
 screenshot:
   directory "$env.HOME/Pictures/Screenshots/"
+  highlight-color "auto"
+  background-color "auto"
 end
 
 # A viewport represents one monitor/output.
