@@ -661,6 +661,10 @@ impl RenderState {
         self.window_offscreen_cache.remove(&node_id);
     }
 
+    pub(crate) fn clear_window_offscreen_caches(&mut self) {
+        self.window_offscreen_cache.clear();
+    }
+
     pub(crate) fn prune_window_offscreen_cache(&mut self, alive: &HashSet<NodeId>, now: Instant) {
         self.window_offscreen_cache.retain(|id, cache| {
             alive.contains(id)

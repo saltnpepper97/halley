@@ -614,8 +614,6 @@ fn draw_debug_frame_scene(
         prepared.now,
     )?;
 
-    draw_window_borders(frame, size, prepared.damage, &scene.border_rects, st)?;
-
     if !scene.active_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
     }
@@ -626,6 +624,7 @@ fn draw_debug_frame_scene(
         &scene.offscreen_textures,
         st.ui.render_state.window_texture_program.as_ref(),
     )?;
+    draw_window_borders(frame, size, prepared.damage, &scene.border_rects, st)?;
     draw_stack_window_units(frame, size, prepared.damage, &scene.stack_window_units, st)?;
     draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
     if !scene.resized_active_elements.is_empty() {
@@ -896,6 +895,35 @@ fn draw_closing_window_animations(
             continue;
         }
 
+        let scaled_textures = offscreen_textures
+            .iter()
+            .cloned()
+            .map(|mut tex| {
+                let center = (
+                    tex.dst_x as f32 + tex.dst_w as f32 * 0.5,
+                    tex.dst_y as f32 + tex.dst_h as f32 * 0.5,
+                );
+                let (dst_x, dst_y, dst_w, dst_h) = transform_rect_about_center(
+                    tex.dst_x, tex.dst_y, tex.dst_w, tex.dst_h, center, scale,
+                );
+                tex.dst_x = dst_x;
+                tex.dst_y = dst_y;
+                tex.dst_w = dst_w;
+                tex.dst_h = dst_h;
+                tex.geo_offset_x *= scale;
+                tex.geo_offset_y *= scale;
+                tex.geo_w *= scale;
+                tex.geo_h *= scale;
+                tex.corner_radius *= scale;
+                tex
+            })
+            .collect::<Vec<_>>();
+        draw_offscreen_textures(
+            frame,
+            damage,
+            &scaled_textures,
+            st.ui.render_state.window_texture_program.as_ref(),
+        )?;
         if !border_rects.is_empty() {
             let scaled_border_rects = border_rects
                 .iter()
@@ -937,36 +965,6 @@ fn draw_closing_window_animations(
                 st,
             )?;
         }
-
-        let scaled_textures = offscreen_textures
-            .iter()
-            .cloned()
-            .map(|mut tex| {
-                let center = (
-                    tex.dst_x as f32 + tex.dst_w as f32 * 0.5,
-                    tex.dst_y as f32 + tex.dst_h as f32 * 0.5,
-                );
-                let (dst_x, dst_y, dst_w, dst_h) = transform_rect_about_center(
-                    tex.dst_x, tex.dst_y, tex.dst_w, tex.dst_h, center, scale,
-                );
-                tex.dst_x = dst_x;
-                tex.dst_y = dst_y;
-                tex.dst_w = dst_w;
-                tex.dst_h = dst_h;
-                tex.geo_offset_x *= scale;
-                tex.geo_offset_y *= scale;
-                tex.geo_w *= scale;
-                tex.geo_h *= scale;
-                tex.corner_radius *= scale;
-                tex
-            })
-            .collect::<Vec<_>>();
-        draw_offscreen_textures(
-            frame,
-            damage,
-            &scaled_textures,
-            st.ui.render_state.window_texture_program.as_ref(),
-        )?;
     }
     Ok(())
 }
@@ -979,9 +977,6 @@ fn draw_stack_window_units(
     st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
     for unit in stack_window_units {
-        if !unit.border_rects.is_empty() {
-            draw_window_borders(frame, size, damage, &unit.border_rects, st)?;
-        }
         if !unit.active_elements.is_empty() {
             let _ = draw_render_elements(frame, 1.0, &unit.active_elements, &[damage]);
         }
@@ -991,6 +986,9 @@ fn draw_stack_window_units(
             &unit.offscreen_textures,
             st.ui.render_state.window_texture_program.as_ref(),
         )?;
+        if !unit.border_rects.is_empty() {
+            draw_window_borders(frame, size, damage, &unit.border_rects, st)?;
+        }
     }
     Ok(())
 }

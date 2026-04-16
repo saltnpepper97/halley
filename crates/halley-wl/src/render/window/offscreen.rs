@@ -91,23 +91,27 @@ pub(crate) fn capture_closing_window_animation(
     let fullscreen_on_monitor = st
         .fullscreen_monitor_for_node(node_id)
         .is_some_and(|fullscreen_monitor| fullscreen_monitor == monitor);
-    let effective_border_px = if fullscreen_on_monitor {
-        0
+    let decoration_metrics = if fullscreen_on_monitor {
+        window_decoration_metrics(0, 0, 0, 0)
     } else {
-        scaled_window_border_px(
-            st.runtime.tuning.window_primary_border_size_px(),
-            render_scale,
+        window_decoration_metrics(
+            scaled_window_border_px(st.runtime.tuning.window_border_radius_px(), render_scale),
+            scaled_window_border_px(
+                st.runtime.tuning.window_primary_border_size_px(),
+                render_scale,
+            ),
+            scaled_window_border_px(
+                st.runtime.tuning.window_secondary_border_gap_px(),
+                render_scale,
+            ),
+            scaled_window_border_px(
+                st.runtime.tuning.window_secondary_border_size_px(),
+                render_scale,
+            ),
         )
     };
-    let effective_corner_radius_px = if fullscreen_on_monitor {
-        0
-    } else {
-        scaled_window_border_px(st.runtime.tuning.window_border_radius_px(), render_scale)
-    };
-    let effective_content_corner_radius_px =
-        (effective_corner_radius_px - effective_border_px).max(0);
     let preserve_visual_margin = false;
-    let lock_dst_to_geometry = effective_corner_radius_px > 0;
+    let lock_dst_to_geometry = decoration_metrics.content_corner_radius_px > 0;
     let (src_x, src_y, src_w, src_h, dst_x, dst_y, dst_w, dst_h, clip_x, clip_y, clip_w, clip_h) =
         offscreen_visual_crop_and_dst(
             ob.loc.x,
@@ -127,45 +131,34 @@ pub(crate) fn capture_closing_window_animation(
             preserve_visual_margin,
             lock_dst_to_geometry,
         );
-    let src_scale_x = if src_w > 0.0 {
-        dst_w as f32 / src_w as f32
+    let (geo_offset_x, geo_offset_y, geo_w_px, geo_h_px) = if lock_dst_to_geometry {
+        (0.0, 0.0, dst_w.max(1) as f32, dst_h.max(1) as f32)
     } else {
-        1.0
-    };
-    let src_scale_y = if src_h > 0.0 {
-        dst_h as f32 / src_h as f32
-    } else {
-        1.0
-    };
-    let disable_geo_clip = false;
-    let geo_local_x = local_geo.0 - ob.loc.x as f32;
-    let geo_local_y = local_geo.1 - ob.loc.y as f32;
-    let geo_src_x = (geo_local_x - src_x as f32).max(0.0);
-    let geo_src_y = (geo_local_y - src_y as f32).max(0.0);
-    let geo_offset_x = if disable_geo_clip {
-        0.0
-    } else {
-        (geo_src_x * src_scale_x).max(0.0)
-    };
-    let geo_offset_y = if disable_geo_clip {
-        0.0
-    } else {
-        (geo_src_y * src_scale_y).max(0.0)
-    };
-    let geo_w_px = if disable_geo_clip {
-        0.0
-    } else {
-        (local_geo.2 * src_scale_x).min(dst_w as f32).max(1.0)
-    };
-    let geo_h_px = if disable_geo_clip {
-        0.0
-    } else {
-        (local_geo.3 * src_scale_y).min(dst_h as f32).max(1.0)
+        let src_scale_x = if src_w > 0.0 {
+            dst_w as f32 / src_w as f32
+        } else {
+            1.0
+        };
+        let src_scale_y = if src_h > 0.0 {
+            dst_h as f32 / src_h as f32
+        } else {
+            1.0
+        };
+        let geo_local_x = local_geo.0 - ob.loc.x as f32;
+        let geo_local_y = local_geo.1 - ob.loc.y as f32;
+        let geo_src_x = (geo_local_x - src_x as f32).max(0.0);
+        let geo_src_y = (geo_local_y - src_y as f32).max(0.0);
+        (
+            (geo_src_x * src_scale_x).max(0.0),
+            (geo_src_y * src_scale_y).max(0.0),
+            (local_geo.2 * src_scale_x).min(dst_w as f32).max(1.0),
+            (local_geo.3 * src_scale_y).min(dst_h as f32).max(1.0),
+        )
     };
     let offscreen = OffscreenNodeTexture {
         texture,
         alpha: 1.0,
-        corner_radius: effective_content_corner_radius_px as f32,
+        corner_radius: decoration_metrics.content_corner_radius_px as f32,
         src_x,
         src_y,
         src_w,
