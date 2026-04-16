@@ -5,8 +5,8 @@ use halley_config::RuntimeTuning;
 use halley_ipc::CaptureMode;
 use smithay::{
     backend::renderer::{
-        Color32F, Texture,
         gles::{GlesFrame, Uniform},
+        Color32F, Texture,
     },
     utils::{Buffer, Physical, Rectangle, Transform},
 };
@@ -388,12 +388,12 @@ fn draw_screenshot_menu(
 mod tests {
     use halley_config::{OverlayShape, RuntimeTuning};
 
-    use super::{MENU_BAR_CORNER_RADIUS, MENU_ITEM_CORNER_RADIUS, resolve_screenshot_menu_style};
+    use super::{resolve_screenshot_menu_style, MENU_BAR_CORNER_RADIUS, MENU_ITEM_CORNER_RADIUS};
 
     #[test]
     fn screenshot_menu_style_follows_overlay_shape_and_border_size() {
         let mut tuning = RuntimeTuning::default();
-        tuning.border_size_px = 6;
+        tuning.decorations.border.size_px = 6;
         tuning.overlay_style.shape = OverlayShape::Rounded;
         tuning.overlay_style.borders = true;
 

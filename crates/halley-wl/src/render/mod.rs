@@ -23,7 +23,7 @@ pub(crate) mod utils;
 mod window;
 
 pub(crate) fn active_window_frame_pad_px(tuning: &RuntimeTuning) -> i32 {
-    tuning.border_size_px.max(0)
+    tuning.total_window_border_footprint_px()
 }
 
 pub(crate) fn log_rounded_shader_failure(
@@ -64,12 +64,12 @@ pub(crate) use utils::{node_marker_metrics, world_to_screen};
 pub(crate) use window::capture_closing_window_animation;
 
 fn window_active_border_color_for_tuning(tuning: &RuntimeTuning) -> Color32F {
-    let color = tuning.border_color_focused;
+    let color = tuning.decorations.border.color_focused;
     Color32F::new(color.r, color.g, color.b, 1.0)
 }
 
 fn window_inactive_border_color_for_tuning(tuning: &RuntimeTuning) -> Color32F {
-    let color = tuning.border_color_unfocused;
+    let color = tuning.decorations.border.color_unfocused;
     Color32F::new(color.r, color.g, color.b, 1.0)
 }
 

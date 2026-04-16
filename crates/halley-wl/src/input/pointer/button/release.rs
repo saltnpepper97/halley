@@ -24,7 +24,7 @@ pub(crate) fn handle_button_release(
                 crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
             }
             st.input.interaction_state.active_drag = None;
-            st.input.interaction_state.pending_titlebar_press = None;
+            st.input.interaction_state.pending_move_press = None;
             if ps.panning {
                 crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
             }
@@ -35,7 +35,7 @@ pub(crate) fn handle_button_release(
             }
         }
         Some(PointerBindingAction::ResizeWindow) => {
-            st.input.interaction_state.pending_titlebar_press = None;
+            st.input.interaction_state.pending_move_press = None;
             finalize_resize(st, ps, backend);
         }
         None => {
@@ -49,7 +49,7 @@ pub(crate) fn handle_button_release(
             }
             if button_code == 0x110 || button_code == 0x111 {
                 if button_code == 0x110 {
-                    st.input.interaction_state.pending_titlebar_press = None;
+                    st.input.interaction_state.pending_move_press = None;
                 }
                 if ps.panning {
                     crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
@@ -69,7 +69,7 @@ pub(crate) fn clear_pointer_activity(st: &mut Halley, ps: &mut PointerState) {
     crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
     st.input.interaction_state.active_drag = None;
     st.input.interaction_state.pending_core_press = None;
-    st.input.interaction_state.pending_titlebar_press = None;
+    st.input.interaction_state.pending_move_press = None;
     st.input.interaction_state.cluster_overflow_drag_preview = None;
     crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
     ps.drag = None;

@@ -7,15 +7,6 @@ use crate::input::active_node_screen_rect;
 use crate::render::{node_marker_metrics, world_to_screen};
 use halley_core::viewport::FocusZone;
 
-fn active_window_hit_is_titlebar(st: &Halley, top: i32, height: i32, sy: f32) -> bool {
-    if !st.runtime.tuning.effective_no_csd() {
-        return false;
-    }
-
-    let title_h = ((height as f32) * 0.20).round().clamp(28.0, 56.0) as i32;
-    sy <= (top + title_h) as f32
-}
-
 pub(crate) fn pick_hit_node_at(
     st: &Halley,
     w: i32,
@@ -68,10 +59,7 @@ pub(crate) fn pick_hit_node_at(
                     {
                         Some(HitNode {
                             node_id: id,
-                            // Only synthesize a compositor-owned titlebar hit zone when
-                            // clients were asked to drop CSD. CSD windows should rely on
-                            // explicit xdg_toplevel.move requests instead.
-                            on_titlebar: active_window_hit_is_titlebar(st, y, hh, sy),
+                            move_surface: false,
                             is_core: false,
                         })
                     } else {
@@ -94,7 +82,7 @@ pub(crate) fn pick_hit_node_at(
                 if dx * dx + dy * dy <= radius * radius {
                     Some(HitNode {
                         node_id: id,
-                        on_titlebar: false,
+                        move_surface: false,
                         is_core: n.state == halley_core::field::NodeState::Core,
                     })
                 } else {
@@ -209,19 +197,9 @@ mod tests {
     }
 
     #[test]
-    fn csd_windows_do_not_synthesize_titlebar_hits() {
+    fn active_surface_hits_do_not_synthesize_move_zones() {
         let hit = active_surface_hit_with_tuning(single_monitor_tuning());
-        assert!(!hit.on_titlebar);
-        assert!(!hit.is_core);
-    }
-
-    #[test]
-    fn no_csd_windows_keep_synthetic_titlebar_hits() {
-        let mut tuning = single_monitor_tuning();
-        tuning.no_csd = true;
-
-        let hit = active_surface_hit_with_tuning(tuning);
-        assert!(hit.on_titlebar);
+        assert!(!hit.move_surface);
         assert!(!hit.is_core);
     }
 }

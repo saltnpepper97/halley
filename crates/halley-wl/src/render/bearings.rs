@@ -292,7 +292,7 @@ pub(crate) fn draw_bearings(
     damage: Rectangle<i32, Physical>,
     layouts: &[BearingChipLayout],
 ) -> Result<(), Box<dyn Error>> {
-    let rounded = st.runtime.tuning.border_radius_px > 0;
+    let rounded = st.runtime.tuning.window_border_radius_px() > 0;
     for layout in layouts {
         if layout.alpha <= 0.002 {
             continue;

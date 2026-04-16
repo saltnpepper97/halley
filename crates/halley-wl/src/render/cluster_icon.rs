@@ -1,8 +1,8 @@
 use image::RgbaImage;
 use resvg::{tiny_skia, usvg};
 use smithay::backend::allocator::Fourcc;
-use smithay::backend::renderer::ImportMem;
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::ImportMem;
 
 use crate::compositor::root::Halley;
 use crate::render::icon_tint::tint_alpha_mask_image;
@@ -15,8 +15,9 @@ pub(crate) fn ensure_cluster_core_icon_resources(
     renderer: &mut GlesRenderer,
     st: &mut Halley,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let focused = rgba_bytes_from_border_color(st.runtime.tuning.border_color_focused);
-    let unfocused = rgba_bytes_from_border_color(st.runtime.tuning.border_color_unfocused);
+    let focused = rgba_bytes_from_border_color(st.runtime.tuning.decorations.border.color_focused);
+    let unfocused =
+        rgba_bytes_from_border_color(st.runtime.tuning.decorations.border.color_unfocused);
     if st.ui.render_state.cluster_core_icon_cache.focused_color == focused
         && st.ui.render_state.cluster_core_icon_cache.unfocused_color == unfocused
         && st.ui.render_state.cluster_core_icon_cache.focused.is_some()

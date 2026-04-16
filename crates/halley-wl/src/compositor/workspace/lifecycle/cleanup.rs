@@ -302,7 +302,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
                     label,
                     state,
                 );
-            } else if let Some((border_rect, offscreen_textures)) =
+            } else if let Some((border_rects, offscreen_textures)) =
                 crate::render::capture_closing_window_animation(st, monitor, id)
             {
                 st.ui.render_state.start_closing_window_animation(
@@ -311,7 +311,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
                     Instant::now(),
                     close_anim_duration_ms,
                     close_anim_style,
-                    border_rect,
+                    border_rects,
                     offscreen_textures,
                 );
             }

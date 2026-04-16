@@ -50,7 +50,7 @@ pub(crate) fn capture_closing_window_animation(
     st: &Halley,
     monitor: &str,
     node_id: NodeId,
-) -> Option<(Option<ActiveBorderRect>, Vec<OffscreenNodeTexture>)> {
+) -> Option<(Vec<ActiveBorderRect>, Vec<OffscreenNodeTexture>)> {
     let node = st.model.field.node(node_id)?;
     let cache = st.ui.render_state.window_offscreen_cache.get(&node_id)?;
     let texture = cache.texture.clone()?;
@@ -94,34 +94,19 @@ pub(crate) fn capture_closing_window_animation(
     let effective_border_px = if fullscreen_on_monitor {
         0
     } else {
-        let base = st.runtime.tuning.border_size_px.max(0) as f32;
-        let scaled = (base * render_scale).round();
-        if base > 0.0 {
-            scaled.max(1.0) as i32
-        } else {
-            0
-        }
+        scaled_window_border_px(
+            st.runtime.tuning.window_primary_border_size_px(),
+            render_scale,
+        )
     };
     let effective_corner_radius_px = if fullscreen_on_monitor {
         0
     } else {
-        let base = st.runtime.tuning.border_radius_px.max(0) as f32;
-        let scaled = (base * render_scale).round();
-        if base > 0.0 {
-            scaled.max(1.0) as i32
-        } else {
-            0
-        }
+        scaled_window_border_px(st.runtime.tuning.window_border_radius_px(), render_scale)
     };
-    let strict_square_csd_transition = strict_square_csd_transition_mode(
-        st.runtime.tuning.no_csd,
-        effective_corner_radius_px,
-        false,
-    );
-    let preserve_visual_margin = !strict_square_csd_transition
-        && !st.runtime.tuning.no_csd
-        && effective_corner_radius_px == 0
-        && effective_border_px == 0;
+    let effective_content_corner_radius_px =
+        (effective_corner_radius_px - effective_border_px).max(0);
+    let preserve_visual_margin = false;
     let lock_dst_to_geometry = effective_corner_radius_px > 0;
     let (src_x, src_y, src_w, src_h, dst_x, dst_y, dst_w, dst_h, clip_x, clip_y, clip_w, clip_h) =
         offscreen_visual_crop_and_dst(
@@ -152,10 +137,7 @@ pub(crate) fn capture_closing_window_animation(
     } else {
         1.0
     };
-    let disable_geo_clip = !strict_square_csd_transition
-        && !st.runtime.tuning.no_csd
-        && effective_corner_radius_px == 0
-        && effective_border_px == 0;
+    let disable_geo_clip = false;
     let geo_local_x = local_geo.0 - ob.loc.x as f32;
     let geo_local_y = local_geo.1 - ob.loc.y as f32;
     let geo_src_x = (geo_local_x - src_x as f32).max(0.0);
@@ -183,7 +165,7 @@ pub(crate) fn capture_closing_window_animation(
     let offscreen = OffscreenNodeTexture {
         texture,
         alpha: 1.0,
-        corner_radius: (effective_corner_radius_px - effective_border_px).max(0) as f32,
+        corner_radius: effective_content_corner_radius_px as f32,
         src_x,
         src_y,
         src_w,
@@ -201,34 +183,19 @@ pub(crate) fn capture_closing_window_animation(
         geo_w: geo_w_px,
         geo_h: geo_h_px,
     };
-    let border_rect = if effective_border_px > 0 {
-        let border_color = if st.model.focus_state.primary_interaction_focus == Some(node_id) {
-            let color = st.runtime.tuning.border_color_focused;
-            Color32F::new(color.r, color.g, color.b, 1.0)
-        } else {
-            let color = st.runtime.tuning.border_color_unfocused;
-            Color32F::new(color.r, color.g, color.b, 1.0)
-        };
-        Some(ActiveBorderRect {
-            x: gx,
-            y: gy,
-            w: gw.max(1),
-            h: gh.max(1),
-            inner_offset_x: effective_border_px as f32,
-            inner_offset_y: effective_border_px as f32,
-            inner_w: gw.max(1) as f32,
-            inner_h: gh.max(1) as f32,
-            alpha: 1.0,
-            border_px: effective_border_px as f32,
-            corner_radius: effective_corner_radius_px as f32,
-            inner_corner_radius: (effective_corner_radius_px - effective_border_px).max(0) as f32,
-            border_color,
-        })
-    } else {
-        None
-    };
+    let border_rects = build_window_border_rects(
+        st,
+        node_id,
+        gx,
+        gy,
+        gw.max(1),
+        gh.max(1),
+        1.0,
+        render_scale,
+        fullscreen_on_monitor,
+    );
 
-    Some((border_rect, vec![offscreen]))
+    Some((border_rects, vec![offscreen]))
 }
 
 pub(crate) fn prewarm_visible_active_window_offscreen_caches(

@@ -25,7 +25,7 @@ fn single_monitor_tuning() -> halley_config::RuntimeTuning {
 }
 
 #[test]
-fn workspace_titlebar_double_click_does_not_exit_cluster() {
+fn workspace_move_target_double_click_does_not_exit_cluster() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
     let backend = TtyBackendHandle::new(800, 600);
@@ -62,7 +62,7 @@ fn workspace_titlebar_double_click_does_not_exit_cluster() {
         &backend,
         HitNode {
             node_id: master,
-            on_titlebar: true,
+            move_surface: true,
             is_core: false,
         },
     );
@@ -107,7 +107,7 @@ fn core_single_click_only_focuses_without_opening_bloom() {
         &backend,
         HitNode {
             node_id: core,
-            on_titlebar: true,
+            move_surface: true,
             is_core: true,
         },
         ButtonFrame {
@@ -185,7 +185,7 @@ fn core_double_click_enters_cluster_workspace() {
         &backend,
         HitNode {
             node_id: core,
-            on_titlebar: true,
+            move_surface: true,
             is_core: true,
         },
         frame,
@@ -208,7 +208,7 @@ fn core_double_click_enters_cluster_workspace() {
         &backend,
         HitNode {
             node_id: core,
-            on_titlebar: true,
+            move_surface: true,
             is_core: true,
         },
         frame,

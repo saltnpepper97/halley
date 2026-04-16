@@ -3,16 +3,16 @@ use std::collections::HashMap;
 use halley_core::field::Vec2;
 
 use crate::keybinds::{
-    BearingsBindingAction, ClusterBindingAction, CompositorBinding, CompositorBindingAction,
-    CompositorBindingScope, DirectionalAction, KeyModifiers, Keybinds, NodeBindingAction,
-    PointerBinding, PointerBindingAction, TileBindingAction, TrailBindingAction, WHEEL_DOWN_CODE,
-    WHEEL_UP_CODE, key_name_to_evdev,
+    key_name_to_evdev, BearingsBindingAction, ClusterBindingAction, CompositorBinding,
+    CompositorBindingAction, CompositorBindingScope, DirectionalAction, KeyModifiers, Keybinds,
+    NodeBindingAction, PointerBinding, PointerBindingAction, TileBindingAction, TrailBindingAction,
+    WHEEL_DOWN_CODE, WHEEL_UP_CODE,
 };
 
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
-    DecorationBorderColor, FontConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode,
+    DecorationsConfig, FontConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode,
     NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, RuntimeTuning, ScreenshotConfig,
     ShapeStyle,
 };
@@ -41,19 +41,7 @@ impl Default for RuntimeTuning {
             node_background_color: NodeBackgroundColorMode::Auto,
             node_border_color_hover: NodeBorderColorMode::UseWindowActive,
             node_border_color_inactive: NodeBorderColorMode::UseWindowInactive,
-            border_size_px: 3,
-            border_radius_px: 0,
-            border_color_focused: DecorationBorderColor {
-                r: 0.22,
-                g: 0.82,
-                b: 0.92,
-            },
-            border_color_unfocused: DecorationBorderColor {
-                r: 0.28,
-                g: 0.30,
-                b: 0.35,
-            },
-            resize_using_border: false,
+            decorations: DecorationsConfig::default(),
             click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode::Activate,
             click_collapsed_pan: ClickCollapsedPanMode::IfOffscreen,
             bearings: BearingsConfig {
@@ -97,7 +85,6 @@ impl Default for RuntimeTuning {
             center_window_to_mouse: false,
             restore_last_active_on_pan_return: true,
             physics_enabled: true,
-            no_csd: false,
             window_rules: Vec::new(),
 
             keybinds: Keybinds::default(),

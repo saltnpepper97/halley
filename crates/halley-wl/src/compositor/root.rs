@@ -10,8 +10,8 @@ use halley_core::viewport::Viewport;
 use smithay::{
     delegate_dmabuf,
     desktop::PopupManager,
-    input::{SeatState, pointer::CursorImageStatus},
-    reexports::wayland_server::{DisplayHandle, backend::ObjectId},
+    input::{pointer::CursorImageStatus, SeatState},
+    reexports::wayland_server::{backend::ObjectId, DisplayHandle},
     wayland::{
         compositor::CompositorState,
         cursor_shape::CursorShapeManagerState,
@@ -25,7 +25,7 @@ use smithay::{
             wlr_data_control::DataControlState,
         },
         shell::wlr_layer::WlrLayerShellState,
-        shell::xdg::{XdgShellState, decoration::XdgDecorationState},
+        shell::xdg::{decoration::XdgDecorationState, XdgShellState},
         shm::ShmState,
         viewporter::ViewporterState,
     },
@@ -384,7 +384,7 @@ impl Halley {
                     cursor_override_until_ms: None,
                     pending_core_hover: None,
                     pending_core_press: None,
-                    pending_titlebar_press: None,
+                    pending_move_press: None,
                     pending_core_click: None,
                     grabbed_edge_pan_active: false,
                     grabbed_edge_pan_direction: Vec2 { x: 0.0, y: 0.0 },

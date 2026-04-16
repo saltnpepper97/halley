@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::backend::interface::BackendView;
 use crate::compositor::actions::window::activate_collapsed_node_from_click;
-use crate::compositor::interaction::state::PendingTitlebarPress;
+use crate::compositor::interaction::state::PendingMovePress;
 use crate::compositor::interaction::{HitNode, PointerState};
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::node_allows_interactive_resize;
@@ -86,10 +86,10 @@ pub(super) fn handle_left_press(
             );
             return;
         }
-        if hit.on_titlebar && drag_target_ok && !hit.is_core {
+        if hit.move_surface && drag_target_ok && !hit.is_core {
             let now = Instant::now();
             st.focus_pointer_target(hit.node_id, 700, now);
-            st.input.interaction_state.pending_titlebar_press = Some(PendingTitlebarPress {
+            st.input.interaction_state.pending_move_press = Some(PendingMovePress {
                 node_id: hit.node_id,
                 press_global_sx: frame.global_sx,
                 press_global_sy: frame.global_sy,
@@ -112,10 +112,10 @@ pub(super) fn handle_left_press(
     }
 
     let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);
-    if hit.on_titlebar && drag_target_ok && !hit.is_core {
+    if hit.move_surface && drag_target_ok && !hit.is_core {
         let now = Instant::now();
         st.focus_pointer_target(hit.node_id, 700, now);
-        st.input.interaction_state.pending_titlebar_press = Some(PendingTitlebarPress {
+        st.input.interaction_state.pending_move_press = Some(PendingMovePress {
             node_id: hit.node_id,
             press_global_sx: frame.global_sx,
             press_global_sy: frame.global_sy,
@@ -126,7 +126,7 @@ pub(super) fn handle_left_press(
     }
 
     if !drag_binding_active
-        && !hit.on_titlebar
+        && !hit.move_surface
         && st.model.field.node(hit.node_id).is_some_and(|n| {
             n.kind == halley_core::field::NodeKind::Surface
                 && st.model.field.is_visible(hit.node_id)
@@ -136,7 +136,7 @@ pub(super) fn handle_left_press(
     }
 
     let mut handled_node_click = false;
-    if !drag_binding_active && !hit.on_titlebar && !hit.is_core {
+    if !drag_binding_active && !hit.move_surface && !hit.is_core {
         let is_node = st
             .model
             .field
@@ -340,7 +340,7 @@ pub(crate) fn handle_workspace_left_press(
             st.hide_cluster_overflow_for_monitor(monitor.as_str());
         }
     }
-    if hit.on_titlebar && !hit.is_core {
+    if hit.move_surface && !hit.is_core {
         backend.request_redraw();
         return;
     }

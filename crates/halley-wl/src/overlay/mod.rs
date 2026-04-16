@@ -161,7 +161,7 @@ fn resolve_overlay_base_text(mode: OverlayColorMode, background: OverlayRgb) -> 
 }
 
 fn resolve_overlay_border_color(tuning: &RuntimeTuning) -> OverlayRgb {
-    let color = tuning.border_color_focused;
+    let color = tuning.decorations.border.color_focused;
     OverlayRgb {
         r: color.r,
         g: color.g,
@@ -176,7 +176,7 @@ fn resolve_overlay_visuals(tuning: &RuntimeTuning) -> OverlayVisuals {
     OverlayVisuals {
         rounded: matches!(tuning.overlay_style.shape, OverlayShape::Rounded),
         border_px: if tuning.overlay_style.borders {
-            tuning.border_size_px.max(0) as f32
+            tuning.window_primary_border_size_px() as f32
         } else {
             0.0
         },
@@ -1321,7 +1321,7 @@ mod tests {
     #[test]
     fn overlay_shape_and_border_width_follow_overlay_config() {
         let mut tuning = halley_config::RuntimeTuning::default();
-        tuning.border_size_px = 5;
+        tuning.decorations.border.size_px = 5;
         tuning.overlay_style.shape = OverlayShape::Rounded;
         tuning.overlay_style.borders = true;
 

@@ -126,14 +126,13 @@ impl XdgShellHandler for Halley {
         if let Some((press_global_sx, press_global_sy)) =
             self.input.interaction_state.last_pointer_screen_global
         {
-            self.input.interaction_state.pending_titlebar_press = Some(
-                crate::compositor::interaction::state::PendingTitlebarPress {
+            self.input.interaction_state.pending_move_press =
+                Some(crate::compositor::interaction::state::PendingMovePress {
                     node_id,
                     press_global_sx,
                     press_global_sy,
                     workspace_active: self.has_active_cluster_workspace(),
-                },
-            );
+                });
         }
         self.request_maintenance();
     }

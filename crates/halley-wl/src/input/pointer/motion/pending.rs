@@ -1,8 +1,8 @@
+use super::super::button::ButtonFrame;
+use super::drag::{begin_drag, node_is_pointer_draggable};
 use crate::backend::interface::BackendView;
 use crate::compositor::interaction::{HitNode, PointerState};
 use crate::compositor::root::Halley;
-use super::super::button::ButtonFrame;
-use super::drag::{begin_drag, node_is_pointer_draggable};
 
 pub(super) fn maybe_begin_core_drag_from_pending_press(
     st: &mut Halley,
@@ -29,7 +29,7 @@ pub(super) fn maybe_begin_core_drag_from_pending_press(
                     backend,
                     HitNode {
                         node_id: pending_press.node_id,
-                        on_titlebar: true,
+                        move_surface: true,
                         is_core: true,
                     },
                     ButtonFrame {
@@ -52,7 +52,7 @@ pub(super) fn maybe_begin_core_drag_from_pending_press(
     }
 }
 
-pub(super) fn maybe_begin_titlebar_drag_from_pending_press(
+pub(super) fn maybe_begin_move_drag_from_pending_press(
     st: &mut Halley,
     ps: &mut PointerState,
     backend: &impl BackendView,
@@ -64,16 +64,16 @@ pub(super) fn maybe_begin_titlebar_drag_from_pending_press(
     local_sy: f32,
     pointer_world: halley_core::field::Vec2,
 ) {
-    if let Some(pending_press) = st.input.interaction_state.pending_titlebar_press.clone() {
+    if let Some(pending_press) = st.input.interaction_state.pending_move_press.clone() {
         if !ps.left_button_down {
-            st.input.interaction_state.pending_titlebar_press = None;
+            st.input.interaction_state.pending_move_press = None;
             return;
         }
         let dx = effective_sx - pending_press.press_global_sx;
         let dy = effective_sy - pending_press.press_global_sy;
-        const TITLEBAR_DRAG_THRESHOLD_PX: f32 = 8.0;
-        if dx.hypot(dy) >= TITLEBAR_DRAG_THRESHOLD_PX {
-            st.input.interaction_state.pending_titlebar_press = None;
+        const MOVE_DRAG_THRESHOLD_PX: f32 = 8.0;
+        if dx.hypot(dy) >= MOVE_DRAG_THRESHOLD_PX {
+            st.input.interaction_state.pending_move_press = None;
             if node_is_pointer_draggable(st, pending_press.node_id) {
                 begin_drag(
                     st,
@@ -81,7 +81,7 @@ pub(super) fn maybe_begin_titlebar_drag_from_pending_press(
                     backend,
                     HitNode {
                         node_id: pending_press.node_id,
-                        on_titlebar: true,
+                        move_surface: true,
                         is_core: false,
                     },
                     ButtonFrame {

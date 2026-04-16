@@ -14,9 +14,9 @@ use super::paths::{absolutize_path, default_config_path, global_config_path};
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
-    DecorationBorderColor, FocusRingConfig, FontConfig, InputConfig, NodeBackgroundColorMode,
-    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, ScreenshotConfig,
-    ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    DecorationsConfig, FocusRingConfig, FontConfig, InputConfig, NodeBackgroundColorMode,
+    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode,
+    ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Debug)]
@@ -39,11 +39,7 @@ pub struct RuntimeTuning {
     pub node_background_color: NodeBackgroundColorMode,
     pub node_border_color_hover: NodeBorderColorMode,
     pub node_border_color_inactive: NodeBorderColorMode,
-    pub border_size_px: i32,
-    pub border_radius_px: i32,
-    pub border_color_focused: DecorationBorderColor,
-    pub border_color_unfocused: DecorationBorderColor,
-    pub resize_using_border: bool,
+    pub decorations: DecorationsConfig,
     pub click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode,
     pub click_collapsed_pan: ClickCollapsedPanMode,
     pub bearings: BearingsConfig,
@@ -83,7 +79,6 @@ pub struct RuntimeTuning {
     pub center_window_to_mouse: bool,
     pub restore_last_active_on_pan_return: bool,
     pub physics_enabled: bool,
-    pub no_csd: bool,
     pub window_rules: Vec<WindowRule>,
 
     pub keybinds: Keybinds,
@@ -138,8 +133,38 @@ impl RuntimeTuning {
         rendered
     }
 
-    pub fn effective_no_csd(&self) -> bool {
-        self.no_csd || self.border_radius_px > 0
+    pub fn window_primary_border_size_px(&self) -> i32 {
+        self.decorations.border.size_px.max(0)
+    }
+
+    pub fn window_border_radius_px(&self) -> i32 {
+        self.decorations.border.radius_px.max(0)
+    }
+
+    pub fn window_secondary_border_enabled(&self) -> bool {
+        self.decorations.secondary_border.enabled && self.decorations.secondary_border.size_px > 0
+    }
+
+    pub fn window_secondary_border_size_px(&self) -> i32 {
+        if self.window_secondary_border_enabled() {
+            self.decorations.secondary_border.size_px.max(0)
+        } else {
+            0
+        }
+    }
+
+    pub fn window_secondary_border_gap_px(&self) -> i32 {
+        if self.window_secondary_border_enabled() {
+            self.decorations.secondary_border.gap_px.max(0)
+        } else {
+            0
+        }
+    }
+
+    pub fn total_window_border_footprint_px(&self) -> i32 {
+        self.window_primary_border_size_px()
+            + self.window_secondary_border_gap_px()
+            + self.window_secondary_border_size_px()
     }
 
     pub fn cluster_layout_kind(&self) -> ClusterWorkspaceLayoutKind {
@@ -506,17 +531,24 @@ animations:
   end
 end
 
-# Server-side decoration settings managed by Halley.
+# Compositor-owned window borders managed by Halley.
 decorations:
-  border-size 3
-  border-radius 0
-  border-colour-focused "#d65d26"
-  border-colour-unfocused "#333333"
-  resize-using-border true
+  border:
+    size 3
+    radius 0
+    colour-focused "#d65d26"
+    colour-unfocused "#333333"
+  end
 
-  # Rounded borders usually require server-side decorations so
-  # clients do not draw their own square frame inside the compositor shape.
-  no-csd false
+  secondary-border:
+    enabled false
+    size 1
+    gap 2
+    colour-focused "#fabd2f"
+    colour-unfocused "#1f1f1f"
+  end
+
+  resize-using-border true
 end
 
 # Styling for compositor-drawn overlays like labels and helper UI.
@@ -715,14 +747,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rounded_borders_force_effective_no_csd() {
+    fn total_window_border_footprint_includes_secondary_border_when_enabled() {
         let mut tuning = RuntimeTuning::default();
-        tuning.no_csd = false;
-        tuning.border_radius_px = 12;
-        assert!(tuning.effective_no_csd());
+        assert_eq!(tuning.total_window_border_footprint_px(), 3);
 
-        tuning.border_radius_px = 0;
-        assert!(!tuning.effective_no_csd());
+        tuning.decorations.secondary_border.enabled = true;
+        tuning.decorations.secondary_border.size_px = 2;
+        tuning.decorations.secondary_border.gap_px = 4;
+        assert_eq!(tuning.total_window_border_footprint_px(), 9);
     }
 
     #[test]

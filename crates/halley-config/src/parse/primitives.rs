@@ -242,15 +242,6 @@ pub(crate) fn pick_bool(cfg: &RuneConfig, paths: &[&str], default: bool) -> bool
     default
 }
 
-pub(crate) fn pick_optional_bool(cfg: &RuneConfig, paths: &[&str]) -> Option<bool> {
-    for path in paths {
-        if let Ok(Some(v)) = cfg.get_optional::<bool>(path) {
-            return Some(v);
-        }
-    }
-    None
-}
-
 pub(crate) fn pick_string(cfg: &RuneConfig, paths: &[&str]) -> Option<String> {
     for path in paths {
         if let Ok(Some(v)) = cfg.get_optional::<String>(path) {

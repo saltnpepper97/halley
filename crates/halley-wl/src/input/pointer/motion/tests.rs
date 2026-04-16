@@ -1,8 +1,8 @@
+use crate::compositor::interaction::HitNode;
+use crate::compositor::root::Halley;
+use halley_config::InputFocusMode;
 use smithay::reexports::wayland_server::Display;
 use std::time::Instant;
-use crate::compositor::interaction::HitNode;
-use halley_config::InputFocusMode;
-use crate::compositor::root::Halley;
 
 fn single_monitor_tuning() -> halley_config::RuntimeTuning {
     let mut tuning = halley_config::RuntimeTuning::default();
@@ -39,7 +39,7 @@ fn hover_focus_mode_focuses_hovered_surface() {
         &mut st,
         Some(HitNode {
             node_id,
-            on_titlebar: false,
+            move_surface: false,
             is_core: false,
         }),
         false,
@@ -68,7 +68,7 @@ fn click_focus_mode_keeps_hover_focus_disabled() {
         &mut st,
         Some(HitNode {
             node_id,
-            on_titlebar: false,
+            move_surface: false,
             is_core: false,
         }),
         false,
@@ -80,6 +80,14 @@ fn click_focus_mode_keeps_hover_focus_disabled() {
 
 #[test]
 fn hover_focus_gate_disables_focus_follows_mouse_while_layer_shell_is_active() {
-    assert!(!super::focus::hover_focus_enabled(InputFocusMode::Hover, false, true));
-    assert!(super::focus::hover_focus_enabled(InputFocusMode::Hover, false, false));
+    assert!(!super::focus::hover_focus_enabled(
+        InputFocusMode::Hover,
+        false,
+        true
+    ));
+    assert!(super::focus::hover_focus_enabled(
+        InputFocusMode::Hover,
+        false,
+        false
+    ));
 }

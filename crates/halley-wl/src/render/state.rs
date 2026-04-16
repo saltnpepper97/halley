@@ -139,7 +139,7 @@ pub(crate) struct StackCycleTransitionSnapshot {
 pub(crate) enum ClosingWindowAnimationKind {
     Window {
         style: WindowCloseAnimationStyle,
-        border_rect: Option<ActiveBorderRect>,
+        border_rects: Vec<ActiveBorderRect>,
         offscreen_textures: Vec<OffscreenNodeTexture>,
     },
     Node {
@@ -217,10 +217,10 @@ impl RenderState {
         now: Instant,
         duration_ms: u64,
         style: WindowCloseAnimationStyle,
-        border_rect: Option<ActiveBorderRect>,
+        border_rects: Vec<ActiveBorderRect>,
         offscreen_textures: Vec<OffscreenNodeTexture>,
     ) {
-        if border_rect.is_none() && offscreen_textures.is_empty() {
+        if border_rects.is_empty() && offscreen_textures.is_empty() {
             return;
         }
         self.closing_window_animations.insert(
@@ -231,7 +231,7 @@ impl RenderState {
                 duration_ms: duration_ms.max(1),
                 kind: ClosingWindowAnimationKind::Window {
                     style,
-                    border_rect,
+                    border_rects,
                     offscreen_textures,
                 },
             },

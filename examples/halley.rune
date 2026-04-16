@@ -235,17 +235,24 @@ animations:
   end
 end
 
-# Server-side decoration settings managed by Halley.
+# Compositor-owned window borders managed by Halley.
 decorations:
-  border-size 3
-  border-radius 0
-  border-colour-focused "#d65d26"
-  border-colour-unfocused "#333333"
-  resize-using-border true
+  border:
+    size 3
+    radius 0
+    colour-focused "#d65d26"
+    colour-unfocused "#333333"
+  end
 
-  # Rounded borders usually require server-side decorations so
-  # clients do not draw their own square frame inside the compositor shape.
-  no-csd false
+  secondary-border:
+    enabled false
+    size 1
+    gap 2
+    colour-focused "#fabd2f"
+    colour-unfocused "#333333"
+  end
+
+  resize-using-border true
 end
 
 # Styling for compositor-drawn overlays like labels and helper UI.

@@ -10,7 +10,9 @@ use crate::compositor::surface_ops::{
 use crate::render::active_window_frame_pad_px;
 use crate::render::world_to_screen;
 
-use super::anim::{apply_resize_now, advance_resize_preview_toward_target, finish_resize_now, refresh_resize_now};
+use super::anim::{
+    advance_resize_preview_toward_target, apply_resize_now, finish_resize_now, refresh_resize_now,
+};
 use super::geometry::active_node_screen_rect;
 use super::handles::{
     cursor_icon_for_resize_handle, handle_from_press_position, pick_resize_handle_from_screen,
@@ -54,7 +56,7 @@ pub(crate) fn begin_resize(
 
     let rect = (start_left, start_top, start_right, start_bottom);
     let border_slop = active_window_frame_pad_px(&st.runtime.tuning) as f32;
-    let handle = if st.runtime.tuning.resize_using_border
+    let handle = if st.runtime.tuning.decorations.resize_using_border
         && border_slop > 0.0
         && press_is_near_edge(rect, (frame.sx, frame.sy), border_slop)
     {

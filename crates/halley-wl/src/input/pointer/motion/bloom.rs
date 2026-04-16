@@ -1,10 +1,10 @@
 use std::time::{Duration, Instant};
 
+use super::super::button::ButtonFrame;
+use super::drag::begin_drag;
 use crate::backend::interface::BackendView;
 use crate::compositor::interaction::{BloomDragCtx, HitNode, PointerState};
 use crate::compositor::root::Halley;
-use super::super::button::ButtonFrame;
-use super::drag::begin_drag;
 
 pub(super) fn detach_bloom_drag_into_pointer_drag(
     st: &mut Halley,
@@ -35,7 +35,7 @@ pub(super) fn detach_bloom_drag_into_pointer_drag(
             backend,
             HitNode {
                 node_id: bloom_drag.member_id,
-                on_titlebar: false,
+                move_surface: false,
                 is_core: false,
             },
             ButtonFrame {
@@ -112,12 +112,9 @@ pub(super) fn handle_bloom_pull_motion(
                         };
                 }
             }
-            crate::compositor::interaction::state::BloomPullPhase::Tethered {
-                started_at_ms,
-            } => {
+            crate::compositor::interaction::state::BloomPullPhase::Tethered { started_at_ms } => {
                 if outward_pull < slop_px * 0.75 {
-                    preview.phase =
-                        crate::compositor::interaction::state::BloomPullPhase::Pressed;
+                    preview.phase = crate::compositor::interaction::state::BloomPullPhase::Pressed;
                     preview.hold_progress = 0.0;
                 } else {
                     preview.hold_progress = (now_ms.saturating_sub(started_at_ms) as f32

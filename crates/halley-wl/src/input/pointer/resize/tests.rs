@@ -6,12 +6,12 @@ use crate::backend::interface::TtyBackendHandle;
 use crate::compositor::interaction::{HitNode, PointerState, ResizeHandle};
 use crate::compositor::root::Halley;
 
-use crate::input::pointer::button::ButtonFrame;
-use super::{
-active_node_screen_rect, advance_resize_anim, begin_resize, finalize_resize,
-handle_resize_motion, resize_rect_nearly_eq,
-};
 use super::handles::{commit_handle_from_drag, weights_from_handle};
+use super::{
+    active_node_screen_rect, advance_resize_anim, begin_resize, finalize_resize,
+    handle_resize_motion, resize_rect_nearly_eq,
+};
+use crate::input::pointer::button::ButtonFrame;
 
 fn single_monitor_tiling_tuning() -> halley_config::RuntimeTuning {
     let mut tuning = halley_config::RuntimeTuning::default();
@@ -49,14 +49,23 @@ fn drag_direction_maps_to_y_down_resize_handles() {
     assert_eq!(commit_handle_from_drag(0.0, -40.0), ResizeHandle::Top);
     assert_eq!(commit_handle_from_drag(0.0, 40.0), ResizeHandle::Bottom);
     assert_eq!(commit_handle_from_drag(40.0, -40.0), ResizeHandle::TopRight);
-    assert_eq!(commit_handle_from_drag(-40.0, 40.0), ResizeHandle::BottomLeft);
+    assert_eq!(
+        commit_handle_from_drag(-40.0, 40.0),
+        ResizeHandle::BottomLeft
+    );
 }
 
 #[test]
 fn top_and_bottom_weights_follow_screen_space_motion() {
     assert_eq!(weights_from_handle(ResizeHandle::Top), (0.0, 0.0, 1.0, 0.0));
-    assert_eq!(weights_from_handle(ResizeHandle::Bottom), (0.0, 0.0, 0.0, 1.0));
-    assert_eq!(weights_from_handle(ResizeHandle::TopLeft), (1.0, 0.0, 1.0, 0.0));
+    assert_eq!(
+        weights_from_handle(ResizeHandle::Bottom),
+        (0.0, 0.0, 0.0, 1.0)
+    );
+    assert_eq!(
+        weights_from_handle(ResizeHandle::TopLeft),
+        (1.0, 0.0, 1.0, 0.0)
+    );
     assert_eq!(
         weights_from_handle(ResizeHandle::BottomRight),
         (0.0, 1.0, 0.0, 1.0)
@@ -98,7 +107,7 @@ fn begin_resize_blocks_active_tiled_workspace_members() {
         &backend,
         HitNode {
             node_id: master,
-            on_titlebar: false,
+            move_surface: false,
             is_core: false,
         },
         resize_button_frame(),
@@ -128,7 +137,7 @@ fn begin_resize_allows_non_tiled_active_windows() {
         &backend,
         HitNode {
             node_id: window,
-            on_titlebar: false,
+            move_surface: false,
             is_core: false,
         },
         resize_button_frame(),
@@ -161,7 +170,7 @@ fn smooth_resize_continues_advancing_across_quick_pointer_updates() {
         &backend,
         HitNode {
             node_id: window,
-            on_titlebar: false,
+            move_surface: false,
             is_core: false,
         },
         resize_button_frame(),

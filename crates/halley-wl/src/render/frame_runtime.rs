@@ -608,7 +608,7 @@ mod tests {
             start,
             250,
             halley_config::WindowCloseAnimationStyle::Shrink,
-            Some(ActiveBorderRect {
+            vec![ActiveBorderRect {
                 x: 100,
                 y: 100,
                 w: 300,
@@ -622,7 +622,7 @@ mod tests {
                 corner_radius: 0.0,
                 inner_corner_radius: 0.0,
                 border_color: Color32F::new(1.0, 1.0, 1.0, 1.0),
-            }),
+            }],
             Vec::new(),
         );
 

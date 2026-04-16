@@ -163,6 +163,79 @@ pub struct DecorationBorderColor {
     pub b: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PrimaryBorderConfig {
+    pub size_px: i32,
+    pub radius_px: i32,
+    pub color_focused: DecorationBorderColor,
+    pub color_unfocused: DecorationBorderColor,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SecondaryBorderConfig {
+    pub enabled: bool,
+    pub size_px: i32,
+    pub gap_px: i32,
+    pub color_focused: DecorationBorderColor,
+    pub color_unfocused: DecorationBorderColor,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DecorationsConfig {
+    pub border: PrimaryBorderConfig,
+    pub secondary_border: SecondaryBorderConfig,
+    pub resize_using_border: bool,
+}
+
+impl Default for PrimaryBorderConfig {
+    fn default() -> Self {
+        Self {
+            size_px: 3,
+            radius_px: 0,
+            color_focused: DecorationBorderColor {
+                r: 0.22,
+                g: 0.82,
+                b: 0.92,
+            },
+            color_unfocused: DecorationBorderColor {
+                r: 0.28,
+                g: 0.30,
+                b: 0.35,
+            },
+        }
+    }
+}
+
+impl Default for SecondaryBorderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            size_px: 1,
+            gap_px: 2,
+            color_focused: DecorationBorderColor {
+                r: 0.98,
+                g: 0.74,
+                b: 0.15,
+            },
+            color_unfocused: DecorationBorderColor {
+                r: 0.12,
+                g: 0.12,
+                b: 0.12,
+            },
+        }
+    }
+}
+
+impl Default for DecorationsConfig {
+    fn default() -> Self {
+        Self {
+            border: PrimaryBorderConfig::default(),
+            secondary_border: SecondaryBorderConfig::default(),
+            resize_using_border: false,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PanToNewMode {
     Never,

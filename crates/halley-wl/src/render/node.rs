@@ -323,12 +323,12 @@ fn draw_shader_label(
 }
 
 fn window_active_border_color(st: &Halley) -> Color32F {
-    let color = st.runtime.tuning.border_color_focused;
+    let color = st.runtime.tuning.decorations.border.color_focused;
     Color32F::new(color.r, color.g, color.b, 1.0)
 }
 
 fn window_inactive_border_color(st: &Halley) -> Color32F {
-    let color = st.runtime.tuning.border_color_unfocused;
+    let color = st.runtime.tuning.decorations.border.color_unfocused;
     Color32F::new(color.r, color.g, color.b, 1.0)
 }
 

@@ -234,26 +234,31 @@ pub(super) fn clone_stack_window_unit_for_pose(
     let scale_x = (to_pose.size.x / from_pose.size.x.max(1.0)).max(0.01);
     let scale_y = (to_pose.size.y / from_pose.size.y.max(1.0)).max(0.01);
 
-    let border_rect = unit.border_rect.as_ref().cloned().map(|mut rect| {
-        let (x, y, w, h) = transform_rect_about_center(
-            rect.x,
-            rect.y,
-            rect.w,
-            rect.h,
-            (from_cx as f32, from_cy as f32),
-            (to_cx as f32, to_cy as f32),
-            scale_x,
-            scale_y,
-        );
-        rect.x = x;
-        rect.y = y;
-        rect.w = w;
-        rect.h = h;
-        rect.inner_w = w as f32;
-        rect.inner_h = h as f32;
-        rect.alpha *= to_pose.alpha.clamp(0.0, 1.0);
-        rect
-    });
+    let border_rects = unit
+        .border_rects
+        .iter()
+        .cloned()
+        .map(|mut rect| {
+            let (x, y, w, h) = transform_rect_about_center(
+                rect.x,
+                rect.y,
+                rect.w,
+                rect.h,
+                (from_cx as f32, from_cy as f32),
+                (to_cx as f32, to_cy as f32),
+                scale_x,
+                scale_y,
+            );
+            rect.x = x;
+            rect.y = y;
+            rect.w = w;
+            rect.h = h;
+            rect.inner_w = w as f32;
+            rect.inner_h = h as f32;
+            rect.alpha *= to_pose.alpha.clamp(0.0, 1.0);
+            rect
+        })
+        .collect::<Vec<_>>();
 
     let offscreen_textures = unit
         .offscreen_textures
@@ -297,14 +302,14 @@ pub(super) fn clone_stack_window_unit_for_pose(
         })
         .collect::<Vec<_>>();
 
-    if border_rect.is_none() && offscreen_textures.is_empty() {
+    if border_rects.is_empty() && offscreen_textures.is_empty() {
         return None;
     }
 
     Some(StackWindowDrawUnit {
         node_id: unit.node_id,
         draw_order: to_pose.draw_order,
-        border_rect,
+        border_rects,
         active_elements: Vec::new(),
         offscreen_textures,
     })

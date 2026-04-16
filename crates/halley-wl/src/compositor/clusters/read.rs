@@ -3,7 +3,7 @@ use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::monitor::state::MonitorState;
 use crate::render::active_window_frame_pad_px;
 use halley_core::cluster::ClusterId;
-use halley_core::cluster_layout::{ClusterWorkspaceLayoutKind, layout_cluster_workspace};
+use halley_core::cluster_layout::{layout_cluster_workspace, ClusterWorkspaceLayoutKind};
 use halley_core::tiling::Rect;
 
 pub(super) struct ClusterReadController<'a> {
@@ -109,7 +109,7 @@ impl<'a> ClusterReadController<'a> {
         let (outer_gap, inner_gap) = compensated_cluster_gaps(
             self.tuning.tile_gaps_outer_px.max(0.0),
             self.tuning.tile_gaps_inner_px.max(0.0),
-            self.tuning.border_size_px.max(0) as f32,
+            active_window_frame_pad_px(self.tuning) as f32,
         );
         let outer_gap = outer_gap.max(0.0);
         let viewport_left = viewport.center.x - viewport.size.x * 0.5;

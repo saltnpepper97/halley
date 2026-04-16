@@ -880,7 +880,7 @@ fn draw_closing_window_animations(
     for animation in animations {
         let ClosingWindowAnimationKind::Window {
             style,
-            border_rect,
+            border_rects,
             offscreen_textures,
         } = &animation.kind
         else {
@@ -896,39 +896,44 @@ fn draw_closing_window_animations(
             continue;
         }
 
-        if let Some(border_rect) = border_rect.as_ref() {
-            let center = (
-                border_rect.x as f32 + border_rect.w as f32 * 0.5,
-                border_rect.y as f32 + border_rect.h as f32 * 0.5,
-            );
-            let (x, y, w, h) = transform_rect_about_center(
-                border_rect.x,
-                border_rect.y,
-                border_rect.w,
-                border_rect.h,
-                center,
-                scale,
-            );
-            let scaled_border = ActiveBorderRect {
-                x,
-                y,
-                w,
-                h,
-                inner_offset_x: border_rect.inner_offset_x * scale,
-                inner_offset_y: border_rect.inner_offset_y * scale,
-                inner_w: (border_rect.inner_w * scale).max(1.0),
-                inner_h: (border_rect.inner_h * scale).max(1.0),
-                alpha: border_rect.alpha,
-                border_px: border_rect.border_px * scale,
-                corner_radius: border_rect.corner_radius * scale,
-                inner_corner_radius: border_rect.inner_corner_radius * scale,
-                border_color: border_rect.border_color,
-            };
+        if !border_rects.is_empty() {
+            let scaled_border_rects = border_rects
+                .iter()
+                .map(|border_rect| {
+                    let center = (
+                        border_rect.x as f32 + border_rect.w as f32 * 0.5,
+                        border_rect.y as f32 + border_rect.h as f32 * 0.5,
+                    );
+                    let (x, y, w, h) = transform_rect_about_center(
+                        border_rect.x,
+                        border_rect.y,
+                        border_rect.w,
+                        border_rect.h,
+                        center,
+                        scale,
+                    );
+                    ActiveBorderRect {
+                        x,
+                        y,
+                        w,
+                        h,
+                        inner_offset_x: border_rect.inner_offset_x * scale,
+                        inner_offset_y: border_rect.inner_offset_y * scale,
+                        inner_w: (border_rect.inner_w * scale).max(1.0),
+                        inner_h: (border_rect.inner_h * scale).max(1.0),
+                        alpha: border_rect.alpha,
+                        border_px: border_rect.border_px * scale,
+                        corner_radius: border_rect.corner_radius * scale,
+                        inner_corner_radius: border_rect.inner_corner_radius * scale,
+                        border_color: border_rect.border_color,
+                    }
+                })
+                .collect::<Vec<_>>();
             draw_window_borders(
                 frame,
                 size,
                 damage,
-                std::slice::from_ref(&scaled_border),
+                &scaled_border_rects,
                 st,
             )?;
         }
@@ -974,8 +979,8 @@ fn draw_stack_window_units(
     st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
     for unit in stack_window_units {
-        if let Some(border_rect) = unit.border_rect.as_ref() {
-            draw_window_borders(frame, size, damage, std::slice::from_ref(border_rect), st)?;
+        if !unit.border_rects.is_empty() {
+            draw_window_borders(frame, size, damage, &unit.border_rects, st)?;
         }
         if !unit.active_elements.is_empty() {
             let _ = draw_render_elements(frame, 1.0, &unit.active_elements, &[damage]);

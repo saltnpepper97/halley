@@ -189,7 +189,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         routing.local_sy,
         routing.world,
     );
-    pending::maybe_begin_titlebar_drag_from_pending_press(
+    pending::maybe_begin_move_drag_from_pending_press(
         st,
         &mut ps,
         ctx.backend,

@@ -406,7 +406,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         }
         ButtonState::Released => {
             if left {
-                st.input.interaction_state.pending_titlebar_press = None;
+                st.input.interaction_state.pending_move_press = None;
             }
             if left && ps.drag.is_some() {
                 handle_button_release(
