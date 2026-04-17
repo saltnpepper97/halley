@@ -75,7 +75,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             })
             .map(|(_, monitor)| {
                 let old_visible =
-                    crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                    crate::compositor::surface::active_stacking_visible_members_for_monitor(
                         self,
                         monitor.as_str(),
                     );
@@ -112,10 +112,11 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                         && transition_monitor == &cluster_monitor
                     {
                         let duration_ms = self.runtime.tuning.stack_animation_duration_ms();
-                        let new_visible = crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
-                            self,
-                            cluster_monitor.as_str(),
-                        );
+                        let new_visible =
+                            crate::compositor::surface::active_stacking_visible_members_for_monitor(
+                                self,
+                                cluster_monitor.as_str(),
+                            );
                         if self.runtime.tuning.stack_animation_enabled() {
                             self.ui.render_state.start_stack_cycle_transition(
                                 cluster_monitor.as_str(),
@@ -231,7 +232,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             })
             .map(|monitor| {
                 let old_visible =
-                    crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                    crate::compositor::surface::active_stacking_visible_members_for_monitor(
                         self,
                         monitor.as_str(),
                     );
@@ -261,7 +262,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     {
                         let duration_ms = self.runtime.tuning.stack_animation_duration_ms();
                         let new_visible =
-                            crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                            crate::compositor::surface::active_stacking_visible_members_for_monitor(
                                 self,
                                 cluster_monitor.as_str(),
                             );

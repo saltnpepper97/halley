@@ -12,11 +12,11 @@ use smithay::reexports::wayland_server::{
     Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
 };
 
-use crate::activity::{CommitActivity, VisualState};
 use crate::animation::{AnimSpec, AnimStyle};
+use crate::compositor::activity::{CommitActivity, VisualState};
 use crate::compositor::ctx::ClusterCtx;
+use crate::compositor::debug_scene::{DebugScene, build_debug_scene};
 use crate::compositor::root::Halley;
-use crate::render::{DebugScene, build_debug_scene};
 
 pub mod read;
 pub mod state;

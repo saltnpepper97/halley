@@ -1,5 +1,5 @@
 use super::curves::{ease_in_out_cubic, ease_out_back};
-use crate::render::preview_proxy_size;
+use crate::presentation::preview_proxy_size;
 
 #[inline]
 pub(crate) fn active_surface_scale(anim_scale: f32, zoom_lock_scale: f32) -> f32 {

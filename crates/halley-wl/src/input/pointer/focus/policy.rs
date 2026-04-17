@@ -4,7 +4,12 @@ use crate::compositor::interaction::HitNode;
 use crate::compositor::root::Halley;
 use halley_config::InputFocusMode;
 
-pub(crate) fn apply_hover_focus_mode(st: &mut Halley, hit: Option<HitNode>, blocked: bool, now: Instant) {
+pub(crate) fn apply_hover_focus_mode(
+    st: &mut Halley,
+    hit: Option<HitNode>,
+    blocked: bool,
+    now: Instant,
+) {
     if !hover_focus_enabled(
         st.runtime.tuning.input.focus_mode,
         blocked,
@@ -29,6 +34,23 @@ pub(crate) fn apply_hover_focus_mode(st: &mut Halley, hit: Option<HitNode>, bloc
         )
     {
         return;
+    }
+
+    if crate::compositor::surface::is_active_stacking_workspace_member(st, hit.node_id) {
+        let monitor = st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&hit.node_id)
+            .cloned()
+            .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        let front = crate::compositor::surface::active_stacking_front_member_for_monitor(
+            st,
+            monitor.as_str(),
+        );
+        if Some(hit.node_id) != front {
+            return;
+        }
     }
 
     st.focus_pointer_target(hit.node_id, 30_000, now);

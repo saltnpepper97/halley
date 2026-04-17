@@ -1,9 +1,9 @@
 use super::*;
 use crate::compositor::clusters::state::ClusterState;
 use crate::compositor::monitor::state::MonitorState;
-use crate::render::active_window_frame_pad_px;
+use crate::window::active_window_frame_pad_px;
 use halley_core::cluster::ClusterId;
-use halley_core::cluster_layout::{layout_cluster_workspace, ClusterWorkspaceLayoutKind};
+use halley_core::cluster_layout::{ClusterWorkspaceLayoutKind, layout_cluster_workspace};
 use halley_core::tiling::Rect;
 
 pub(super) struct ClusterReadController<'a> {

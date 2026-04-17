@@ -1,5 +1,5 @@
 use super::*;
-use crate::compositor::surface_ops::is_active_cluster_workspace_member;
+use crate::compositor::surface::is_active_cluster_workspace_member;
 
 pub(super) fn exit_monitor_fullscreen_for_new_toplevel(
     st: &mut Halley,
@@ -272,6 +272,7 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         let bbox = bbox_from_surface_tree(&root_surface, (0, 0));
         st.ui
             .render_state
+            .cache
             .bbox_loc
             .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
 
@@ -289,6 +290,7 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         );
         st.ui
             .render_state
+            .cache
             .window_geometry
             .insert(node_id, window_geometry);
         if is_active_cluster_workspace_member(st, node_id) {
@@ -420,7 +422,7 @@ pub(super) fn ensure_node_for_surface_impl(
                 )
         })
         .map(|_| {
-            crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+            crate::compositor::surface::active_stacking_visible_members_for_monitor(
                 st,
                 predicted_monitor.as_str(),
             )
@@ -483,7 +485,7 @@ pub(super) fn ensure_node_for_surface_impl(
     }
 
     st.model.surface_to_node.insert(key, id);
-    st.ui.render_state.zoom_nominal_size.insert(id, size);
+    st.ui.render_state.cache.zoom_nominal_size.insert(id, size);
     st.model.workspace_state.last_active_size.insert(id, size);
     let joined_active_cluster = spawned_in_active_cluster;
     if st.runtime.tuning.animations_enabled() {
@@ -517,7 +519,7 @@ pub(super) fn ensure_node_for_surface_impl(
             )
         {
             let new_visible =
-                crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                crate::compositor::surface::active_stacking_visible_members_for_monitor(
                     st,
                     monitor.as_str(),
                 );

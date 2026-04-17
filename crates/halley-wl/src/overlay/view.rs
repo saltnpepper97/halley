@@ -100,7 +100,7 @@ impl<'a> OverlayView<'a> {
     pub(crate) fn node_app_icon_entry(&self, node_id: NodeId) -> Option<&'a NodeAppIconCacheEntry> {
         self.node_app_ids
             .get(&node_id)
-            .and_then(|app_id| self.render_state.node_app_icon_cache.get(app_id))
+            .and_then(|app_id| self.render_state.cache.node_app_icon_cache.get(app_id))
     }
 
     pub(crate) fn world_to_screen(&self, w: i32, h: i32, x: f32, y: f32) -> (i32, i32) {

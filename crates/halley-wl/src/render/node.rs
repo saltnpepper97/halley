@@ -19,12 +19,14 @@ use crate::compositor::root::Halley;
 use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, ShapeStyle};
 
 use super::log_rounded_shader_failure;
-use super::text::{draw_ui_text, ui_text_size};
-use super::utils::{
-    node_marker_bounds, node_marker_metrics, node_render_diameter_px, world_to_screen,
-};
 use crate::animation::ease_in_out_cubic;
+use crate::frame_loop::anim_style_for;
+use crate::presentation::{
+    node_marker_bounds, node_marker_metrics, node_render_diameter_px, themed_node_fill_color,
+    themed_node_label_fill_color, themed_node_label_text_color, world_to_screen,
+};
 use crate::render::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
+use crate::text::{draw_ui_text, ui_text_size};
 
 const NODE_SQUARE_SHADER: &str = include_str!("shaders/node_square_shader.frag");
 const NODE_SQUIRCLE_SHADER: &str = include_str!("shaders/node_squircle_shader.frag");
@@ -50,10 +52,10 @@ pub(crate) fn ensure_node_circle_resources(
     renderer: &mut GlesRenderer,
     st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
-    if st.ui.render_state.node_circle_texture.is_none() {
+    if st.ui.render_state.gpu.node_circle_texture.is_none() {
         const TEX_SIZE: usize = 4;
         let pixel = vec![255u8; TEX_SIZE * TEX_SIZE * 4];
-        st.ui.render_state.node_circle_texture = Some(renderer.import_memory(
+        st.ui.render_state.gpu.node_circle_texture = Some(renderer.import_memory(
             &pixel,
             Fourcc::Abgr8888,
             (TEX_SIZE as i32, TEX_SIZE as i32).into(),
@@ -61,20 +63,21 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.ui.render_state.node_squircle_program.is_none() {
-        st.ui.render_state.node_squircle_program = Some(renderer.compile_custom_texture_shader(
-            NODE_SQUIRCLE_SHADER,
-            &[
-                UniformName::new("node_color", UniformType::_4f),
-                UniformName::new("fill_color", UniformType::_4f),
-                UniformName::new("flat_fill", UniformType::_1f),
-                UniformName::new("center_flat_fill", UniformType::_1f),
-            ],
-        )?);
+    if st.ui.render_state.gpu.node_squircle_program.is_none() {
+        st.ui.render_state.gpu.node_squircle_program =
+            Some(renderer.compile_custom_texture_shader(
+                NODE_SQUIRCLE_SHADER,
+                &[
+                    UniformName::new("node_color", UniformType::_4f),
+                    UniformName::new("fill_color", UniformType::_4f),
+                    UniformName::new("flat_fill", UniformType::_1f),
+                    UniformName::new("center_flat_fill", UniformType::_1f),
+                ],
+            )?);
     }
 
-    if st.ui.render_state.node_square_program.is_none() {
-        st.ui.render_state.node_square_program = Some(renderer.compile_custom_texture_shader(
+    if st.ui.render_state.gpu.node_square_program.is_none() {
+        st.ui.render_state.gpu.node_square_program = Some(renderer.compile_custom_texture_shader(
             NODE_SQUARE_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
@@ -85,8 +88,8 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.ui.render_state.node_circle_program.is_none() {
-        st.ui.render_state.node_circle_program = Some(renderer.compile_custom_texture_shader(
+    if st.ui.render_state.gpu.node_circle_program.is_none() {
+        st.ui.render_state.gpu.node_circle_program = Some(renderer.compile_custom_texture_shader(
             NODE_CIRCLE_SHADER,
             &[
                 UniformName::new("node_color", UniformType::_4f),
@@ -97,8 +100,8 @@ pub(crate) fn ensure_node_circle_resources(
         )?);
     }
 
-    if st.ui.render_state.ui_rect_rounded_program.is_none()
-        && !st.ui.render_state.ui_rect_rounded_program_failed
+    if st.ui.render_state.gpu.ui_rect_rounded_program.is_none()
+        && !st.ui.render_state.gpu.ui_rect_rounded_program_failed
     {
         match renderer.compile_custom_texture_shader(
             UI_RECT_ROUNDED_SHADER,
@@ -113,9 +116,9 @@ pub(crate) fn ensure_node_circle_resources(
                 UniformName::new("border_px", UniformType::_1f),
             ],
         ) {
-            Ok(program) => st.ui.render_state.ui_rect_rounded_program = Some(program),
+            Ok(program) => st.ui.render_state.gpu.ui_rect_rounded_program = Some(program),
             Err(err) => {
-                st.ui.render_state.ui_rect_rounded_program_failed = true;
+                st.ui.render_state.gpu.ui_rect_rounded_program_failed = true;
                 log_rounded_shader_failure(
                     "render/shaders/ui_rect_rounded_shader.frag",
                     "border-mask",
@@ -125,8 +128,8 @@ pub(crate) fn ensure_node_circle_resources(
         }
     }
 
-    if st.ui.render_state.ui_rect_square_program.is_none()
-        && !st.ui.render_state.ui_rect_square_program_failed
+    if st.ui.render_state.gpu.ui_rect_square_program.is_none()
+        && !st.ui.render_state.gpu.ui_rect_square_program_failed
     {
         match renderer.compile_custom_texture_shader(
             UI_RECT_SQUARE_SHADER,
@@ -141,9 +144,9 @@ pub(crate) fn ensure_node_circle_resources(
                 UniformName::new("border_px", UniformType::_1f),
             ],
         ) {
-            Ok(program) => st.ui.render_state.ui_rect_square_program = Some(program),
+            Ok(program) => st.ui.render_state.gpu.ui_rect_square_program = Some(program),
             Err(err) => {
-                st.ui.render_state.ui_rect_square_program_failed = true;
+                st.ui.render_state.gpu.ui_rect_square_program_failed = true;
                 log_rounded_shader_failure(
                     "render/shaders/ui_rect_square_shader.frag",
                     "border-mask",
@@ -170,13 +173,13 @@ fn draw_shader_circle(
     center_flat_fill: bool,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = st.ui.render_state.gpu.node_circle_texture.as_ref() else {
         return Ok(());
     };
     let program = match round_shape {
-        NodeRoundShape::Circle => st.ui.render_state.node_circle_program.as_ref(),
-        NodeRoundShape::Square => st.ui.render_state.node_square_program.as_ref(),
-        NodeRoundShape::Squircle => st.ui.render_state.node_squircle_program.as_ref(),
+        NodeRoundShape::Circle => st.ui.render_state.gpu.node_circle_program.as_ref(),
+        NodeRoundShape::Square => st.ui.render_state.gpu.node_square_program.as_ref(),
+        NodeRoundShape::Squircle => st.ui.render_state.gpu.node_squircle_program.as_ref(),
     };
     let Some(program) = program else {
         return Ok(());
@@ -256,7 +259,7 @@ fn draw_shader_label(
     fill_color: Color32F,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = st.ui.render_state.gpu.node_circle_texture.as_ref() else {
         return Ok(());
     };
     let Some(program) = st.ui.render_state.ui_rect_program(rounded) else {
@@ -346,7 +349,7 @@ fn node_ring_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
 }
 
 fn node_fill_color(st: &Halley, hovered: bool) -> Color32F {
-    super::themed_node_fill_color(&st.runtime.tuning, hovered)
+    themed_node_fill_color(&st.runtime.tuning, hovered)
 }
 
 fn node_fill_uses_flat_mode(st: &Halley) -> bool {
@@ -357,11 +360,11 @@ fn node_fill_uses_flat_mode(st: &Halley) -> bool {
 }
 
 fn node_label_text_color(fill_color: Color32F, alpha: f32) -> Color32F {
-    super::themed_node_label_text_color(fill_color, alpha)
+    themed_node_label_text_color(fill_color, alpha)
 }
 
 fn node_label_fill_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
-    super::themed_node_label_fill_color(&st.runtime.tuning, hovered, alpha)
+    themed_node_label_fill_color(&st.runtime.tuning, hovered, alpha)
 }
 
 fn node_icon_glyph(st: &Halley, id: halley_core::field::NodeId, fallback: &str) -> Option<char> {
@@ -482,7 +485,7 @@ pub(crate) fn collect_hover_preview(
     }
 
     let preview_mix = ease_in_out_cubic(preview_mix_raw.clamp(0.0, 1.0));
-    let anim = crate::render::anim_style_for(st, preview_id, node_state.clone(), now);
+    let anim = anim_style_for(st, preview_id, node_state.clone(), now);
 
     const PROXY_TO_MARKER_START: f32 = 0.50;
     const PROXY_TO_MARKER_END: f32 = 0.20;
@@ -566,7 +569,7 @@ pub(crate) fn draw_node_markers(
         let node_pos = *node_pos;
         let intrinsic_size = *intrinsic_size;
 
-        let anim = crate::render::anim_style_for(st, id, node_state.clone(), now);
+        let anim = anim_style_for(st, id, node_state.clone(), now);
 
         if !matches!(
             node_state,
@@ -726,7 +729,7 @@ pub(crate) fn draw_node_markers(
                 && allow_app_icon
                 && let Some(app_id) = st.model.node_app_ids.get(&id)
                 && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
-                    st.ui.render_state.node_app_icon_cache.get(app_id)
+                    st.ui.render_state.cache.node_app_icon_cache.get(app_id)
             {
                 let side =
                     ((render_radius * 2) as f32 * st.runtime.tuning.node_icon_size).round() as i32;
@@ -915,7 +918,7 @@ pub(crate) fn draw_node_hover_labels(
             continue;
         }
 
-        let anim = crate::render::anim_style_for(st, node.id, node.state.clone(), now);
+        let anim = anim_style_for(st, node.id, node.state.clone(), now);
         let dot_alpha = (anim.alpha
             * ease_in_out_cubic(((0.50 - anim.scale) / (0.50 - 0.20)).clamp(0.0, 1.0)))
         .clamp(0.0, 1.0);

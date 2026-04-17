@@ -313,6 +313,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             let frozen_geo = self
                 .ui
                 .render_state
+                .cache
                 .window_geometry
                 .get(&placement.node_id)
                 .copied();
@@ -349,7 +350,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         members: &HashSet<NodeId>,
     ) -> HashMap<NodeId, Vec2> {
         let mut sizes = HashMap::with_capacity(members.len());
-        for (&node_id, &(_, _, w, h)) in &self.ui.render_state.window_geometry {
+        for (&node_id, &(_, _, w, h)) in &self.ui.render_state.cache.window_geometry {
             if members.contains(&node_id) {
                 sizes.insert(
                     node_id,

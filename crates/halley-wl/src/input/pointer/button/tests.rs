@@ -253,7 +253,7 @@ fn hovering_core_long_enough_opens_bloom() {
             started_at_ms: st.now_ms(Instant::now()),
         });
 
-    crate::render::tick_frame_effects(
+    crate::frame_loop::tick_frame_effects(
         &mut st,
         Instant::now()
             + Duration::from_millis(crate::compositor::interaction::CORE_BLOOM_HOLD_MS + 1),

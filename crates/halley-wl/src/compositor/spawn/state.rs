@@ -141,7 +141,7 @@ pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, n
         .collect();
 
     for id in due_tiled_reveals {
-        if !st.ui.render_state.window_geometry.contains_key(&id) {
+        if !st.ui.render_state.cache.window_geometry.contains_key(&id) {
             continue;
         }
         let preserve_focus = st
@@ -212,7 +212,7 @@ pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, n
             .active_cluster_workspace_for_monitor(node_monitor.as_str())
             .is_some();
         let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
-        if let Some((_, _, w, h)) = st.ui.render_state.window_geometry.get(&id) {
+        if let Some((_, _, w, h)) = st.ui.render_state.cache.window_geometry.get(&id) {
             st.model
                 .workspace_state
                 .last_active_size

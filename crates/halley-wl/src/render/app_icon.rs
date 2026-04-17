@@ -37,8 +37,11 @@ pub(crate) fn ensure_node_app_icon_resources(
             matches!(
                 node.state,
                 halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
-            )
-                && !st.ui.render_state.closing_window_animations.contains_key(&node.id)
+            ) && !st
+                .ui
+                .render_state
+                .closing_window_animations
+                .contains_key(&node.id)
         })
         .map(|node| node.id)
         .collect::<Vec<_>>();
@@ -67,13 +70,20 @@ fn ensure_app_icon_resource(
     st: &mut Halley,
     app_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if st.ui.render_state.node_app_icon_cache.contains_key(app_id) {
+    if st
+        .ui
+        .render_state
+        .cache
+        .node_app_icon_cache
+        .contains_key(app_id)
+    {
         return Ok(());
     }
 
     let Some(icon_path) = resolve_app_icon_path(app_id) else {
         st.ui
             .render_state
+            .cache
             .node_app_icon_cache
             .insert(app_id.to_string(), NodeAppIconCacheEntry::Missing);
         return Ok(());
@@ -99,6 +109,7 @@ fn ensure_app_icon_resource(
 
     st.ui
         .render_state
+        .cache
         .node_app_icon_cache
         .insert(app_id.to_string(), entry);
 
@@ -112,7 +123,7 @@ pub(crate) fn node_app_icon_entry<'a>(
     st.model
         .node_app_ids
         .get(&node_id)
-        .and_then(|app_id| st.ui.render_state.node_app_icon_cache.get(app_id))
+        .and_then(|app_id| st.ui.render_state.cache.node_app_icon_cache.get(app_id))
 }
 
 fn resolve_app_icon_path(app_id: &str) -> Option<PathBuf> {

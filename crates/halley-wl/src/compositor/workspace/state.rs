@@ -68,7 +68,7 @@ pub(crate) fn start_active_to_node_close_animation(
     let duration_ms = st.runtime.tuning.window_close_duration_ms();
     let style = st.runtime.tuning.window_close_style();
     let Some((border_rects, offscreen_textures)) =
-        crate::render::capture_closing_window_animation(st, monitor.as_str(), id)
+        crate::window::capture_closing_window_animation(st, monitor.as_str(), id)
     else {
         return false;
     };

@@ -79,9 +79,23 @@ pub fn run() -> Result<(), String> {
     app.recreate_layer(&qh)?;
 
     while !app.exit {
-        event_queue
-            .blocking_dispatch(&mut app)
-            .map_err(|err| format!("event dispatch: {err}"))?;
+        if app.runtime.overlay_active() || !app.configured {
+            event_queue
+                .blocking_dispatch(&mut app)
+                .map_err(|err| format!("event dispatch: {err}"))?;
+        } else {
+            event_queue
+                .dispatch_pending(&mut app)
+                .map_err(|err| format!("event dispatch: {err}"))?;
+            let now = Instant::now();
+            let next_wake = app.next_status_poll.min(app.next_config_poll);
+            if now < next_wake {
+                std::thread::sleep((next_wake - now).min(Duration::from_millis(32)));
+            }
+            if let Err(err) = app.draw(&qh) {
+                return Err(format!("draw failed: {err}"));
+            }
+        }
     }
 
     Ok(())
@@ -255,10 +269,14 @@ impl StandaloneAperture {
             );
         }
 
+        let request_next_frame = self.runtime.overlay_active();
+
         layer
             .wl_surface()
             .damage_buffer(0, 0, buffer_width as i32, buffer_height as i32);
-        layer.wl_surface().frame(qh, layer.wl_surface().clone());
+        if request_next_frame {
+            layer.wl_surface().frame(qh, layer.wl_surface().clone());
+        }
         buffer
             .attach_to(layer.wl_surface())
             .map_err(|err| format!("attach buffer: {err}"))?;
@@ -395,14 +413,37 @@ struct FontRenderer {
 
 impl FontRenderer {
     fn new(family: &str) -> Result<Self, String> {
+        let request = parse_font_request(family);
         let mut db = Database::new();
         db.load_system_fonts();
+        let families = if request.family.trim().eq_ignore_ascii_case("serif") {
+            vec![Family::Serif, Family::Monospace, Family::SansSerif]
+        } else if matches!(
+            request.family.trim().to_ascii_lowercase().as_str(),
+            "sans-serif" | "sans_serif" | "sansserif" | "sans"
+        ) {
+            vec![Family::SansSerif, Family::Monospace, Family::Serif]
+        } else if request.family.trim().eq_ignore_ascii_case("cursive") {
+            vec![Family::Cursive, Family::SansSerif, Family::Monospace]
+        } else if request.family.trim().eq_ignore_ascii_case("fantasy") {
+            vec![Family::Fantasy, Family::SansSerif, Family::Monospace]
+        } else if request.family.trim().eq_ignore_ascii_case("monospace")
+            || request.family.trim().is_empty()
+        {
+            vec![Family::Monospace, Family::SansSerif]
+        } else {
+            vec![
+                Family::Name(request.family),
+                Family::Monospace,
+                Family::SansSerif,
+            ]
+        };
         let id = db
             .query(&Query {
-                families: &[Family::Name(family), Family::Monospace, Family::SansSerif],
-                weight: Weight::NORMAL,
+                families: families.as_slice(),
+                weight: request.weight,
                 stretch: Stretch::Normal,
-                style: Style::Normal,
+                style: request.style,
             })
             .ok_or_else(|| format!("unable to resolve font family '{family}'"))?;
         let bytes = db
@@ -482,6 +523,115 @@ impl FontRenderer {
             h: font_px as f32,
         })
     }
+}
+
+#[derive(Clone, Copy)]
+struct ParsedFontRequest<'a> {
+    family: &'a str,
+    style: Style,
+    weight: Weight,
+}
+
+fn parse_font_request(requested: &str) -> ParsedFontRequest<'_> {
+    let trimmed = requested.trim();
+    let mut family = trimmed;
+    let mut style = Style::Normal;
+    let mut weight = Weight::NORMAL;
+
+    loop {
+        if matches!(style, Style::Normal) {
+            if let Some(stripped) = strip_font_suffix(family, &[" italic"]) {
+                family = stripped;
+                style = Style::Italic;
+                continue;
+            }
+            if let Some(stripped) = strip_font_suffix(family, &[" oblique"]) {
+                family = stripped;
+                style = Style::Oblique;
+                continue;
+            }
+        }
+
+        if matches!(weight, Weight::NORMAL) {
+            let weight_suffixes = [
+                (
+                    &[
+                        " extra bold",
+                        " extra-bold",
+                        " extrabold",
+                        " ultra bold",
+                        " ultra-bold",
+                        " ultrabold",
+                    ][..],
+                    Weight::EXTRA_BOLD,
+                ),
+                (
+                    &[
+                        " semi bold",
+                        " semi-bold",
+                        " semibold",
+                        " demi bold",
+                        " demi-bold",
+                        " demibold",
+                    ][..],
+                    Weight::SEMIBOLD,
+                ),
+                (
+                    &[
+                        " extra light",
+                        " extra-light",
+                        " extralight",
+                        " ultra light",
+                        " ultra-light",
+                        " ultralight",
+                    ][..],
+                    Weight::EXTRA_LIGHT,
+                ),
+                (&[" bold"][..], Weight::BOLD),
+                (&[" medium"][..], Weight::MEDIUM),
+                (&[" light"][..], Weight::LIGHT),
+                (&[" thin"][..], Weight::THIN),
+                (&[" black", " heavy"][..], Weight::BLACK),
+                (
+                    &[" regular", " normal", " book", " roman"][..],
+                    Weight::NORMAL,
+                ),
+            ];
+            if let Some((stripped, parsed_weight)) =
+                weight_suffixes
+                    .iter()
+                    .find_map(|(suffixes, parsed_weight)| {
+                        strip_font_suffix(family, suffixes)
+                            .map(|stripped| (stripped, *parsed_weight))
+                    })
+            {
+                family = stripped;
+                weight = parsed_weight;
+                continue;
+            }
+        }
+
+        break;
+    }
+
+    ParsedFontRequest {
+        family: if family.trim().is_empty() {
+            trimmed
+        } else {
+            family.trim()
+        },
+        style,
+        weight,
+    }
+}
+
+fn strip_font_suffix<'a>(value: &'a str, suffixes: &[&str]) -> Option<&'a str> {
+    let folded = value.to_ascii_lowercase();
+    suffixes.iter().find_map(|suffix| {
+        folded
+            .ends_with(suffix)
+            .then(|| value[..value.len().saturating_sub(suffix.len())].trim_end())
+    })
 }
 
 #[derive(Clone, Copy)]

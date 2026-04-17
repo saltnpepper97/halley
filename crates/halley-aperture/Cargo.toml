@@ -1,14 +1,22 @@
 [package]
 name = "halley-aperture"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "A status bar and utility for the Halley Wayland compositor."
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
 
 [dependencies]
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
-halley-ipc = { path = "../halley-ipc" }
+halley-ipc = { path = "../halley-ipc", version = "0.1.0" }
 rusttype = "0.9.3"
 smithay-client-toolkit = "0.20.0"
-rune-cfg = { version =  "0.4.4", path = "../../../../libs/rune-cfg" }
+rune-cfg = "0.4.4"
 fontdb = "0.23.0"
 wayland-client = "0.31.14"
 

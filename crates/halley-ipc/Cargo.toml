@@ -1,8 +1,16 @@
 [package]
 name = "halley-ipc"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Inter-process communication protocol for the Halley Wayland compositor."
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-postcard = { version = "1", features = ["use-std"] }
+serde = { version = "1.0", features = ["derive"] }
+postcard = { version = "1.0", features = ["use-std"] }

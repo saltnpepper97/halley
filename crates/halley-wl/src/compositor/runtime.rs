@@ -10,8 +10,8 @@ use smithay::reexports::wayland_server::backend::ObjectId;
 use super::monitor::camera::camera_controller;
 use super::root::Halley;
 use super::screenshot::screenshot_controller;
-use crate::activity::CommitActivity;
 use crate::animation::AnimSpec;
+use crate::compositor::activity::CommitActivity;
 use crate::protocol::wayland::activation::ActivationRuntimeState;
 
 const FIXED_ANIM_STATE_CHANGE_MS: u64 = 360;

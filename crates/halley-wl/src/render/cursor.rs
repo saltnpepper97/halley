@@ -7,7 +7,7 @@ use smithay::{
 };
 
 use super::cursor_theme::SoftwareCursorSprite;
-use super::utils::draw_rect;
+use super::draw_primitives::draw_rect;
 
 // ---------------------------------------------------------------------------
 // Hotspot

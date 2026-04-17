@@ -11,12 +11,11 @@ use smithay::{
 
 use crate::compositor::root::Halley;
 use crate::overlay::{ClusterBloomAnimSnapshot, OverlayView};
+use crate::presentation::{themed_node_fill_color, themed_node_label_text_color};
 use crate::render::app_icon::ensure_app_icon_resources_for_node_ids;
-use crate::render::text::{draw_ui_text_in, ui_text_size_in};
-use crate::render::{
-    node_app_icon_fallback_glyph, node_app_icon_texture_allowed, themed_node_fill_color,
-    themed_node_label_text_color,
-};
+use crate::render::state::NodeAppIconCacheEntry;
+use crate::render::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
+use crate::text::{draw_ui_text_in, ui_text_size_in};
 
 #[derive(Clone, Copy)]
 pub(crate) struct BloomTokenLayout {
@@ -248,10 +247,10 @@ fn draw_bloom_token(
             damage,
         )?;
     }
-    let Some(texture) = overlay.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = overlay.render_state.gpu.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = overlay.render_state.node_circle_program.as_ref() else {
+    let Some(program) = overlay.render_state.gpu.node_circle_program.as_ref() else {
         return Ok(());
     };
     let diameter = radius * 2;
@@ -291,7 +290,7 @@ fn draw_bloom_token(
 
     if overlay.tuning.cluster_show_icons
         && node_app_icon_texture_allowed(overlay.tuning.node_show_app_icons, false)
-        && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
+        && let Some(NodeAppIconCacheEntry::Ready(icon)) =
             overlay.node_app_icon_entry(layout.member_id)
     {
         let side = (diameter as f32 * 0.64).round() as i32;
@@ -361,10 +360,10 @@ fn draw_bloom_anchor_dot(
     pre_release_mix: f32,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = overlay.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = overlay.render_state.gpu.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = overlay.render_state.node_circle_program.as_ref() else {
+    let Some(program) = overlay.render_state.gpu.node_circle_program.as_ref() else {
         return Ok(());
     };
     let radius = (5.0 + 2.0 * pull_mix + 2.5 * pre_release_mix).round() as i32;
@@ -437,10 +436,10 @@ fn draw_cluster_join_affordance(
         (sx - radius, sy - radius).into(),
         (radius * 2, radius * 2).into(),
     );
-    let Some(texture) = overlay.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = overlay.render_state.gpu.node_circle_texture.as_ref() else {
         return Ok(());
     };
-    let Some(program) = overlay.render_state.node_circle_program.as_ref() else {
+    let Some(program) = overlay.render_state.gpu.node_circle_program.as_ref() else {
         return Ok(());
     };
     let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();

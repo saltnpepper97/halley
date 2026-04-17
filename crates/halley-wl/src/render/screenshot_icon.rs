@@ -2,8 +2,8 @@ use halley_config::{DecorationBorderColor, OverlayColorMode, RuntimeTuning};
 use image::RgbaImage;
 use resvg::{tiny_skia, usvg};
 use smithay::backend::allocator::Fourcc;
-use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::ImportMem;
+use smithay::backend::renderer::gles::GlesRenderer;
 
 use crate::compositor::root::Halley;
 use crate::render::icon_tint::tint_alpha_mask_image;
@@ -22,7 +22,7 @@ pub(crate) fn ensure_screenshot_menu_icon_resources(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let active = screenshot_menu_active_rgba(&st.runtime.tuning);
     let inactive = screenshot_menu_inactive_rgba(&st.runtime.tuning);
-    let cache = &st.ui.render_state.screenshot_menu_icon_cache;
+    let cache = &st.ui.render_state.cache.screenshot_menu_icon_cache;
     if cache.active_color == active
         && cache.inactive_color == inactive
         && cache.region_active.is_some()
@@ -35,7 +35,7 @@ pub(crate) fn ensure_screenshot_menu_icon_resources(
         return Ok(());
     }
 
-    st.ui.render_state.screenshot_menu_icon_cache = ScreenshotMenuIconCache {
+    st.ui.render_state.cache.screenshot_menu_icon_cache = ScreenshotMenuIconCache {
         active_color: active,
         inactive_color: inactive,
         region_active: load_svg_icon_texture(renderer, REGION_SVG, active)?,
@@ -53,7 +53,7 @@ pub(crate) fn screenshot_menu_icon_texture(
     mode: halley_ipc::CaptureMode,
     active: bool,
 ) -> Option<&NodeAppIconTexture> {
-    let cache = &st.ui.render_state.screenshot_menu_icon_cache;
+    let cache = &st.ui.render_state.cache.screenshot_menu_icon_cache;
     match (mode, active) {
         (halley_ipc::CaptureMode::Region, true) => cache.region_active.as_ref(),
         (halley_ipc::CaptureMode::Region, false) => cache.region_inactive.as_ref(),

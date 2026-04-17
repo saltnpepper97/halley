@@ -8,7 +8,7 @@ use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ModState;
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::request_close_focused_toplevel;
+use crate::compositor::surface::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{
     BearingsBindingAction, ClusterBindingAction, CompositorBindingAction, CompositorBindingScope,

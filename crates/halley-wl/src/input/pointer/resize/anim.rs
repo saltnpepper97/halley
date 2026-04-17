@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::compositor::interaction::{PointerState, ResizeCtx};
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::{request_toplevel_resize_mode, toplevel_min_size_for_node};
+use crate::compositor::surface::{request_toplevel_resize_mode, toplevel_min_size_for_node};
 
 use super::resize_rect_nearly_eq;
 

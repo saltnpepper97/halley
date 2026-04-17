@@ -5,15 +5,15 @@ use halley_config::RuntimeTuning;
 use halley_ipc::CaptureMode;
 use smithay::{
     backend::renderer::{
-        gles::{GlesFrame, Uniform},
         Color32F, Texture,
+        gles::{GlesFrame, Uniform},
     },
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
 use crate::compositor::root::Halley;
+use crate::render::draw_primitives::{draw_outline_rect, draw_rect, draw_ring};
 use crate::render::state::RenderState;
-use crate::render::utils::{draw_outline_rect, draw_rect, draw_ring};
 use crate::render::{
     screenshot_menu_background_color, screenshot_menu_highlight_color,
     screenshot_menu_icon_texture, screenshot_menu_inactive_highlight_color,
@@ -28,8 +28,6 @@ const DIM_COLOR: Color32F = Color32F::new(0.0, 0.0, 0.0, 0.40);
 const SCREEN_DIM_COLOR: Color32F = Color32F::new(0.0, 0.0, 0.0, 0.28);
 const WINDOW_CAPTURE_FILL: Color32F = Color32F::new(0.45, 0.45, 0.45, 0.34);
 const WINDOW_CAPTURE_OUTLINE: Color32F = Color32F::new(0.72, 0.72, 0.72, 0.78);
-const SHADOW_COLOR_1: Color32F = Color32F::new(0.0, 0.0, 0.0, 0.16);
-const SHADOW_COLOR_2: Color32F = Color32F::new(0.0, 0.0, 0.0, 0.10);
 const DASH_LEN: i32 = 10;
 const GAP_LEN: i32 = 6;
 const MENU_BAR_W: i32 = 420;
@@ -149,7 +147,7 @@ fn draw_screenshot_menu_chip(
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
     if let (Some(texture), Some(program)) = (
-        render_state.node_circle_texture.as_ref(),
+        render_state.gpu.node_circle_texture.as_ref(),
         render_state.ui_rect_program(rounded),
     ) {
         let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
@@ -290,36 +288,6 @@ fn draw_screenshot_menu(
     let item_fill = screenshot_menu_item_fill_color(overlay.tuning);
     let style = resolve_screenshot_menu_style(overlay.tuning);
     let bar_rect = screenshot_menu_bar_rect(screen_w, screen_h);
-    let shadow_rect_1 = Rectangle::<i32, Physical>::new(
-        (bar_rect.loc.x + 4, bar_rect.loc.y + 5).into(),
-        bar_rect.size,
-    );
-    let shadow_rect_2 = Rectangle::<i32, Physical>::new(
-        (bar_rect.loc.x + 2, bar_rect.loc.y + 2).into(),
-        bar_rect.size,
-    );
-    draw_screenshot_menu_chip(
-        frame,
-        overlay.render_state,
-        shadow_rect_1,
-        style.rounded,
-        style.bar_corner_radius,
-        0.0,
-        SHADOW_COLOR_1,
-        Color32F::new(0.0, 0.0, 0.0, 0.0),
-        damage,
-    )?;
-    draw_screenshot_menu_chip(
-        frame,
-        overlay.render_state,
-        shadow_rect_2,
-        style.rounded,
-        style.bar_corner_radius,
-        0.0,
-        SHADOW_COLOR_2,
-        Color32F::new(0.0, 0.0, 0.0, 0.0),
-        damage,
-    )?;
     draw_screenshot_menu_chip(
         frame,
         overlay.render_state,
@@ -396,8 +364,8 @@ mod tests {
     use halley_config::{OverlayShape, RuntimeTuning};
 
     use super::{
-        resolve_screenshot_menu_style, MENU_BAR_CORNER_RADIUS, MENU_ITEM_BORDER_PX,
-        MENU_ITEM_CORNER_RADIUS,
+        MENU_BAR_CORNER_RADIUS, MENU_ITEM_BORDER_PX, MENU_ITEM_CORNER_RADIUS,
+        resolve_screenshot_menu_style,
     };
 
     #[test]

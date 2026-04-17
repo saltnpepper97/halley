@@ -10,7 +10,7 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::ToplevelSurface;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
-use crate::activity::CommitActivity;
+use crate::compositor::activity::CommitActivity;
 use crate::compositor::ctx::SurfaceLifecycleCtx;
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::rules::InitialWindowIntent;
@@ -384,6 +384,7 @@ mod tests {
             state
                 .ui
                 .render_state
+                .cache
                 .window_geometry
                 .insert(id, (0.0, 0.0, 320.0, 240.0));
         }

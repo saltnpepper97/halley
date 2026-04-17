@@ -7,8 +7,9 @@ use smithay::{
 
 use crate::compositor::clusters::state::ClusterNamingPromptState;
 use crate::compositor::root::Halley;
-use crate::render::text::{draw_ui_text_in, ui_text_size_in};
-use crate::render::utils::draw_rect;
+use crate::render::draw_primitives::draw_rect;
+use crate::render::state::RenderState;
+use crate::text::{draw_ui_text_in, ui_text_size_in};
 
 use super::{
     ACTION_ROW_GAP_Y, BANNER_GAP, BANNER_META_SCALE, BANNER_TITLE_SCALE,
@@ -73,11 +74,7 @@ fn prompt_selection_range(prompt: &ClusterNamingPromptState) -> Option<(usize, u
     })
 }
 
-fn text_width(
-    render_state: &crate::render::state::RenderState,
-    font: &halley_config::FontConfig,
-    text: &str,
-) -> i32 {
+fn text_width(render_state: &RenderState, font: &halley_config::FontConfig, text: &str) -> i32 {
     ui_text_size_in(render_state, font, text, CLUSTER_DIALOG_SCALE).0
 }
 
@@ -92,7 +89,7 @@ fn color_mix(a: Color32F, b: Color32F, amount: f32) -> Color32F {
 }
 
 fn ensure_prompt_scroll(
-    render_state: &crate::render::state::RenderState,
+    render_state: &RenderState,
     font: &halley_config::FontConfig,
     prompt: &mut ClusterNamingPromptState,
     visible_width: i32,

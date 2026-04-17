@@ -1,6 +1,14 @@
 [package]
 name = "halley-core"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Core layout and window management logic for the Halley Wayland compositor."
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
 
 [dependencies]

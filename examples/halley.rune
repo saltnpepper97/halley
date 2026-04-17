@@ -18,8 +18,8 @@
 autostart:
   # Common examples you may want later:
   #once "waybar"
-
   #once "mako"
+  
   #once "gessod"
   #once "stasis"
 
@@ -54,7 +54,7 @@ end
 # Use an absolute path or an env-expanded path like `$env.HOME/...`.
 screenshot:
   directory "$env.HOME/Pictures/Screenshots/"
-  highlight-color "auto"
+  highlight-color "#d65d26"
   background-color "auto"
 end
 
@@ -110,7 +110,8 @@ end
 field:
   # Gap in pixels between windows and layout elements.
   gap 20.0
-  # Maximum number of fully active windows before decay takes over.
+  # Maximum number of non-node windows allowed on the Field before decay takes over.
+  # Set to 0 to disable decay entirely.
   active-windows-allowed 5
   # How aggressively the camera pans to newly opened windows.
   pan-to-new "if-needed"
@@ -251,7 +252,7 @@ decorations:
     size 1
     gap 2
     colour-focused "#fabd2f"
-    colour-unfocused "#333333"
+    colour-unfocused "#1f1f1f"
   end
 
   resize-using-border true

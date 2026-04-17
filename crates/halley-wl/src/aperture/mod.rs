@@ -8,7 +8,7 @@ use halley_aperture::{ApertureConfig, ApertureMode, ApertureRuntime, ClockSnapsh
 use halley_ipc::{ApertureMode as IpcApertureMode, ApertureStatusResponse};
 
 use crate::compositor::root::Halley;
-use crate::render::text::ui_text_size_px_in;
+use crate::text::ui_text_size_px_in;
 
 use halley_core::field::NodeId;
 
@@ -122,6 +122,7 @@ fn derive_aperture_mode(
     scale: f64,
 ) -> ApertureMode {
     let render_state = &st.ui.render_state;
+    let windows = active_window_rects_for_current_monitor(st, Instant::now());
     let family = st.aperture_config().clock.font_family.clone();
     let normal = st.aperture_snapshot_for_mode(
         ApertureMode::Normal,
@@ -138,12 +139,11 @@ fn derive_aperture_mode(
     );
     if normal
         .as_ref()
-        .is_some_and(|snapshot| !clock_obstructed(st, snapshot.bounds))
+        .is_some_and(|snapshot| !clock_obstructed(snapshot.bounds, &windows))
     {
         return ApertureMode::Normal;
     }
 
-    let family = st.aperture_config().clock.font_family.clone();
     let collapsed = st.aperture_snapshot_for_mode(
         ApertureMode::Collapsed,
         output_rect,
@@ -159,7 +159,7 @@ fn derive_aperture_mode(
     );
     if collapsed
         .as_ref()
-        .is_some_and(|snapshot| !clock_obstructed(st, snapshot.bounds))
+        .is_some_and(|snapshot| !clock_obstructed(snapshot.bounds, &windows))
     {
         ApertureMode::Collapsed
     } else {
@@ -167,13 +167,14 @@ fn derive_aperture_mode(
     }
 }
 
-fn clock_obstructed(st: &Halley, clock_bounds: Rect) -> bool {
-    active_window_rects_for_current_monitor(st)
-        .into_iter()
+fn clock_obstructed(clock_bounds: Rect, windows: &[Rect]) -> bool {
+    windows
+        .iter()
+        .copied()
         .any(|window| rects_intersect(clock_bounds, window))
 }
 
-fn active_window_rects_for_current_monitor(st: &Halley) -> Vec<Rect> {
+fn active_window_rects_for_current_monitor(st: &Halley, now: Instant) -> Vec<Rect> {
     let monitor = st.model.monitor_state.current_monitor.as_str();
     let width = st
         .model
@@ -201,15 +202,16 @@ fn active_window_rects_for_current_monitor(st: &Halley) -> Vec<Rect> {
             .then_some(node_id)
         })
         .filter_map(|node_id| {
-            crate::input::active_node_screen_rect(st, width, height, node_id, Instant::now(), None)
-                .map(|(left, top, right, bottom)| {
+            crate::input::active_node_screen_rect(st, width, height, node_id, now, None).map(
+                |(left, top, right, bottom)| {
                     Rect::new(
                         left.min(right),
                         top.min(bottom),
                         (right - left).abs(),
                         (bottom - top).abs(),
                     )
-                })
+                },
+            )
         })
         .collect()
 }

@@ -116,6 +116,25 @@ impl portal::OutputCaptureBackend for WinitOutputCaptureBackend {
             dmabuf,
         )
     }
+
+    fn capture_window_png(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        node_id: halley_core::field::NodeId,
+        output_path: &std::path::Path,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut backend = self.backend.try_borrow_mut().map_err(|_| {
+            io::Error::other("winit renderer already borrowed during window capture")
+        })?;
+        crate::window::capture_window_to_png_via_renderer(
+            backend.renderer(),
+            st,
+            output_name,
+            node_id,
+            output_path,
+        )
+    }
 }
 
 fn apply_host_cursor(
@@ -465,7 +484,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         ) {
                             debug!("draw failed: {}", err);
                         } else {
-                            crate::render::send_frame_callbacks(st, now);
+                            crate::frame_loop::send_frame_callbacks(st, now);
                         }
                     }
                     WinitEvent::Resized { size, .. } => {
@@ -508,7 +527,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         ) {
                             debug!("draw failed: {}", err);
                         } else {
-                            crate::render::send_frame_callbacks(st, now);
+                            crate::frame_loop::send_frame_callbacks(st, now);
                         }
                     }
                     WinitEvent::Focus(false) => {
@@ -792,16 +811,16 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     let ps = pointer_state_for_timer.borrow();
                     ps.resize.is_some()
                 };
-                crate::render::tick_frame_effects(st, now);
-                crate::render::tick_animator_frame(st, now);
+                crate::frame_loop::tick_frame_effects(st, now);
+                crate::frame_loop::tick_animator_frame(st, now);
                 st.tick_fullscreen_motion(now);
-                crate::render::begin_render_frame(st, now);
+                crate::frame_loop::begin_render_frame(st, now);
                 {
                     let mut ps = pointer_state_for_timer.borrow_mut();
                     let _ = advance_node_move_anim(st, &mut ps, now);
                     let _ = advance_resize_anim(st, &mut ps, now);
                 }
-                crate::render::tick_live_overlap(st);
+                crate::frame_loop::tick_live_overlap(st);
                 if !resize_active {
                     st.run_maintenance_if_needed(now);
                 }

@@ -91,3 +91,126 @@ fn hover_focus_gate_disables_focus_follows_mouse_while_layer_shell_is_active() {
         false
     ));
 }
+
+#[test]
+fn hover_focus_mode_works_for_tiled_cluster_members() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut tuning = single_monitor_tuning();
+    tuning.input.focus_mode = InputFocusMode::Hover;
+    tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+    let mut st = Halley::new_for_test(&dh, tuning);
+
+    let a = st.model.field.spawn_surface(
+        "A",
+        halley_core::field::Vec2 { x: 100.0, y: 100.0 },
+        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+    );
+    let b = st.model.field.spawn_surface(
+        "B",
+        halley_core::field::Vec2 { x: 120.0, y: 100.0 },
+        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+    );
+    for id in [a, b] {
+        st.assign_node_to_monitor(id, "monitor_a");
+    }
+
+    let cid = st
+        .model
+        .field
+        .create_cluster(vec![a, b])
+        .expect("cluster");
+    let core = st.model.field.collapse_cluster(cid).expect("core");
+    st.assign_node_to_monitor(core, "monitor_a");
+    assert!(st.toggle_cluster_workspace_by_core(core, Instant::now()));
+
+    // Hover B
+    super::focus::apply_hover_focus_mode(
+        &mut st,
+        Some(HitNode {
+            node_id: b,
+            move_surface: false,
+            is_core: false,
+        }),
+        false,
+        Instant::now(),
+    );
+
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(b));
+
+    // Hover A
+    super::focus::apply_hover_focus_mode(
+        &mut st,
+        Some(HitNode {
+            node_id: a,
+            move_surface: false,
+            is_core: false,
+        }),
+        false,
+        Instant::now(),
+    );
+
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(a));
+}
+
+#[test]
+fn hover_focus_mode_only_focuses_top_of_stack_in_clusters() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut tuning = single_monitor_tuning();
+    tuning.input.focus_mode = InputFocusMode::Hover;
+    tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Stacking;
+    let mut st = Halley::new_for_test(&dh, tuning);
+
+    let a = st.model.field.spawn_surface(
+        "A",
+        halley_core::field::Vec2 { x: 100.0, y: 100.0 },
+        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+    );
+    let b = st.model.field.spawn_surface(
+        "B",
+        halley_core::field::Vec2 { x: 120.0, y: 100.0 },
+        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+    );
+    for id in [a, b] {
+        st.assign_node_to_monitor(id, "monitor_a");
+    }
+
+    let cid = st
+        .model
+        .field
+        .create_cluster(vec![a, b])
+        .expect("cluster");
+    let core = st.model.field.collapse_cluster(cid).expect("core");
+    st.assign_node_to_monitor(core, "monitor_a");
+    assert!(st.toggle_cluster_workspace_by_core(core, Instant::now()));
+
+    // A is front (members[0])
+    // Hover B (peeked back member)
+    super::focus::apply_hover_focus_mode(
+        &mut st,
+        Some(HitNode {
+            node_id: b,
+            move_surface: false,
+            is_core: false,
+        }),
+        false,
+        Instant::now(),
+    );
+
+    // Should NOT focus B because it's in stack but not front
+    assert_ne!(st.model.focus_state.primary_interaction_focus, Some(b));
+
+    // Hover A (front member)
+    super::focus::apply_hover_focus_mode(
+        &mut st,
+        Some(HitNode {
+            node_id: a,
+            move_surface: false,
+            is_core: false,
+        }),
+        false,
+        Instant::now(),
+    );
+
+    // Should focus A because it's front of stack
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(a));
+}

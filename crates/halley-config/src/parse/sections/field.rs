@@ -3,11 +3,19 @@ use rune_cfg::RuneConfig;
 use crate::layout::RuntimeTuning;
 
 use super::super::primitives::{
-    pick_bool, pick_close_restore_pan_mode, pick_f32, pick_pan_to_new_mode,
+    pick_bool, pick_close_restore_pan_mode, pick_f32, pick_pan_to_new_mode, pick_u64,
 };
 
 pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.non_overlap_gap_px = pick_f32(cfg, &["field.gap", "field.gap-px"], out.non_overlap_gap_px);
+    out.field_active_windows_allowed = pick_u64(
+        cfg,
+        &[
+            "field.active-windows-allowed",
+            "field.active_windows_allowed",
+        ],
+        out.field_active_windows_allowed as u64,
+    ) as usize;
     out.pan_to_new = pick_pan_to_new_mode(
         cfg,
         &["field.pan-to-new", "field.pan_to_new"],
@@ -45,4 +53,33 @@ pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.zoom_smooth_rate,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use rune_cfg::RuneConfig;
+
+    use crate::layout::RuntimeTuning;
+
+    use super::load_field_section;
+
+    #[test]
+    fn field_section_parses_active_window_limit_without_touching_tile_stack_limit() {
+        let cfg = RuneConfig::from_str(
+            r##"
+field:
+  active-windows-allowed 7
+end
+"##,
+        )
+        .expect("field config should parse");
+
+        let mut out = RuntimeTuning::default();
+        out.tile_max_stack = 11;
+
+        load_field_section(&cfg, &mut out);
+
+        assert_eq!(out.field_active_windows_allowed, 7);
+        assert_eq!(out.tile_max_stack, 11);
+    }
 }

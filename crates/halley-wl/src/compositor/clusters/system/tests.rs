@@ -184,24 +184,27 @@ fn cluster_mode_confirm_opens_name_prompt_before_creating() {
     assert!(st.toggle_cluster_mode_selection(first));
     assert!(st.toggle_cluster_mode_selection(second));
     assert!(st.confirm_cluster_mode(now));
-    assert!(st
-        .model
-        .cluster_state
-        .cluster_name_prompt
-        .contains_key("monitor_a"));
+    assert!(
+        st.model
+            .cluster_state
+            .cluster_name_prompt
+            .contains_key("monitor_a")
+    );
     assert!(st.model.field.cluster_id_for_member_public(first).is_none());
-    assert!(st
-        .model
-        .field
-        .cluster_id_for_member_public(second)
-        .is_none());
+    assert!(
+        st.model
+            .field
+            .cluster_id_for_member_public(second)
+            .is_none()
+    );
 
     assert!(cluster_system_controller(&mut st).cancel_cluster_name_prompt_for_monitor("monitor_a"));
-    assert!(!st
-        .model
-        .cluster_state
-        .cluster_name_prompt
-        .contains_key("monitor_a"));
+    assert!(
+        !st.model
+            .cluster_state
+            .cluster_name_prompt
+            .contains_key("monitor_a")
+    );
     assert!(st.cluster_mode_active_for_monitor("monitor_a"));
     assert_eq!(
         st.model
