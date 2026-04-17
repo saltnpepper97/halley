@@ -96,6 +96,36 @@ Once inside, you leave the Field entirely. The cluster is its own contained spac
 
 ---
 
+## Install
+
+### AUR
+
+    yay -S halley    
+
+or
+
+    paru -S halley
+
+Or for the latest commit:
+
+    yay -S halley-dev
+
+or
+
+    paru -S halley-dev
+
+### From Source
+
+```bash
+git clone https://github.com/saltnpepper97/halley
+cd halley
+cargo build --release
+```
+
+The compositor binary will be available at `target/release/halley`.
+
+---
+
 ## Default Keybinds
 
 Defaults follow Halley's shipped fresh-config template.
