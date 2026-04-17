@@ -190,6 +190,14 @@ fn resolve_overlay_visuals(tuning: &RuntimeTuning) -> OverlayVisuals {
     }
 }
 
+pub(crate) fn overlay_fill_and_text_colors(tuning: &RuntimeTuning) -> (Color32F, Color32F) {
+    let visuals = resolve_overlay_visuals(tuning);
+    (
+        visuals.palette.fill.alpha(1.0),
+        visuals.palette.text.alpha(1.0),
+    )
+}
+
 fn color_luminance(color: Color32F) -> f32 {
     color.r() * 0.2126 + color.g() * 0.7152 + color.b() * 0.0722
 }

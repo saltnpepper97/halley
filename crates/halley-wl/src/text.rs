@@ -294,6 +294,35 @@ pub(crate) fn draw_ui_text(
     )
 }
 
+pub(crate) fn prime_ui_text(st: &Halley, text: &str, scale: i32, color: Color32F) {
+    prime_ui_text_in(
+        &st.ui.render_state,
+        &st.runtime.tuning.font,
+        text,
+        scale,
+        color,
+    )
+}
+
+pub(crate) fn prime_ui_text_in(
+    render_state: &RenderState,
+    font: &FontConfig,
+    text: &str,
+    scale: i32,
+    color: Color32F,
+) {
+    if color.a() <= 0.001 || text.is_empty() {
+        return;
+    }
+
+    let opaque_color = Color32F::new(color.r(), color.g(), color.b(), 1.0);
+    let _ = render_state
+        .cache
+        .ui_text
+        .borrow_mut()
+        .prepared(font, text, scale, opaque_color);
+}
+
 pub(crate) fn draw_ui_text_in(
     frame: &mut GlesFrame<'_, '_>,
     render_state: &RenderState,

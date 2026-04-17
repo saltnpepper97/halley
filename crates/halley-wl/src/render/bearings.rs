@@ -14,11 +14,12 @@ use smithay::{
 };
 
 use crate::compositor::root::Halley;
+use crate::overlay::overlay_fill_and_text_colors;
 use crate::render::app_icon::{ensure_app_icon_resources_for_node_ids, node_app_icon_entry};
 use crate::render::draw_primitives::draw_rect;
 use crate::render::state::NodeAppIconCacheEntry;
 use crate::render::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
-use crate::text::{draw_ui_text, ui_text_size};
+use crate::text::{draw_ui_text, prime_ui_text, ui_text_size};
 
 #[derive(Clone, Debug)]
 pub(crate) struct BearingChipLayout {
@@ -45,8 +46,7 @@ const META_PAD_Y: i32 = 4;
 const GROUP_GAP: i32 = 10;
 const MAX_LABEL_CHARS: usize = 24;
 const MIN_DISTANCE_ALPHA: f32 = 0.34;
-const CHIP_TEXT_COLOR: Color32F = Color32F::new(0.08, 0.10, 0.12, 1.0);
-const CHIP_FILL_COLOR: Color32F = Color32F::new(0.92, 0.95, 0.98, 1.0);
+const DISTANCE_HIDE_MULTIPLIER: f32 = 1.5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BearingLane {
@@ -246,8 +246,22 @@ pub(crate) fn collect_bearing_layouts(
                 .then(a.node_id.as_u64().cmp(&b.node_id.as_u64()))
         });
 
-        let groups = group_lane_candidates(st, lane_candidates, ui_mix);
+        let groups = group_lane_candidates(st, lane_candidates, ui_mix)
+            .into_iter()
+            .filter(|group| group.alpha > 0.002)
+            .collect::<Vec<_>>();
+        if groups.is_empty() {
+            continue;
+        }
         layouts.extend(layout_lane_groups(st, lane, groups, screen_w, screen_h));
+    }
+
+    let (_, chip_text_color) = overlay_fill_and_text_colors(&st.runtime.tuning);
+    for layout in &layouts {
+        prime_ui_text(st, layout.label.as_str(), LABEL_SCALE, chip_text_color);
+        if let Some(distance_text) = layout.distance_text.as_ref() {
+            prime_ui_text(st, distance_text, META_SCALE, chip_text_color);
+        }
     }
 
     layouts
@@ -292,6 +306,7 @@ pub(crate) fn draw_bearings(
     layouts: &[BearingChipLayout],
 ) -> Result<(), Box<dyn Error>> {
     let rounded = st.runtime.tuning.window_border_radius_px() > 0;
+    let (chip_fill_color, chip_text_color) = overlay_fill_and_text_colors(&st.runtime.tuning);
     for layout in layouts {
         if layout.alpha <= 0.002 {
             continue;
@@ -309,15 +324,15 @@ pub(crate) fn draw_bearings(
             0.0,
             layout.alpha,
             Color32F::new(
-                CHIP_FILL_COLOR.r(),
-                CHIP_FILL_COLOR.g(),
-                CHIP_FILL_COLOR.b(),
+                chip_fill_color.r(),
+                chip_fill_color.g(),
+                chip_fill_color.b(),
                 0.0,
             ),
             Color32F::new(
-                CHIP_FILL_COLOR.r(),
-                CHIP_FILL_COLOR.g(),
-                CHIP_FILL_COLOR.b(),
+                chip_fill_color.r(),
+                chip_fill_color.g(),
+                chip_fill_color.b(),
                 0.92 * layout.alpha,
             ),
             damage,
@@ -339,15 +354,15 @@ pub(crate) fn draw_bearings(
                 0.0,
                 layout.alpha,
                 Color32F::new(
-                    CHIP_FILL_COLOR.r(),
-                    CHIP_FILL_COLOR.g(),
-                    CHIP_FILL_COLOR.b(),
+                    chip_fill_color.r(),
+                    chip_fill_color.g(),
+                    chip_fill_color.b(),
                     0.0,
                 ),
                 Color32F::new(
-                    CHIP_FILL_COLOR.r(),
-                    CHIP_FILL_COLOR.g(),
-                    CHIP_FILL_COLOR.b(),
+                    chip_fill_color.r(),
+                    chip_fill_color.g(),
+                    chip_fill_color.b(),
                     0.88 * layout.alpha,
                 ),
                 damage,
@@ -360,9 +375,9 @@ pub(crate) fn draw_bearings(
                 distance_text,
                 META_SCALE,
                 Color32F::new(
-                    CHIP_TEXT_COLOR.r(),
-                    CHIP_TEXT_COLOR.g(),
-                    CHIP_TEXT_COLOR.b(),
+                    chip_text_color.r(),
+                    chip_text_color.g(),
+                    chip_text_color.b(),
                     layout.alpha * 0.96,
                 ),
                 damage,
@@ -386,16 +401,24 @@ pub(crate) fn draw_bearings(
             layout.label.as_str(),
             LABEL_SCALE,
             Color32F::new(
-                CHIP_TEXT_COLOR.r(),
-                CHIP_TEXT_COLOR.g(),
-                CHIP_TEXT_COLOR.b(),
+                chip_text_color.r(),
+                chip_text_color.g(),
+                chip_text_color.b(),
                 layout.alpha,
             ),
             damage,
         )?;
 
         if let Some(icon_rect) = layout.icon_rect {
-            draw_bearing_icon(frame, st, layout.node_id, icon_rect, damage, layout.alpha)?;
+            draw_bearing_icon(
+                frame,
+                st,
+                layout.node_id,
+                icon_rect,
+                damage,
+                layout.alpha,
+                chip_text_color,
+            )?;
         }
     }
 
@@ -462,12 +485,7 @@ fn finalize_group(st: &Halley, members: Vec<BearingCandidate>, ui_mix: f32) -> B
         member_count == 1 && st.runtime.tuning.bearings.show_icons,
         distance_text.as_deref(),
     );
-    let distance_fade = if st.runtime.tuning.bearings.fade_distance <= f32::EPSILON {
-        1.0
-    } else {
-        let t = (distance / st.runtime.tuning.bearings.fade_distance).clamp(0.0, 1.0);
-        MIN_DISTANCE_ALPHA + (1.0 - t) * (1.0 - MIN_DISTANCE_ALPHA)
-    };
+    let distance_fade = bearing_distance_alpha(st.runtime.tuning.bearings.fade_distance, distance);
 
     BearingGroup {
         lane,
@@ -478,6 +496,24 @@ fn finalize_group(st: &Halley, members: Vec<BearingCandidate>, ui_mix: f32) -> B
         size,
         alpha: (ui_mix * distance_fade).clamp(0.0, 1.0),
     }
+}
+
+fn bearing_distance_alpha(fade_distance: f32, distance: f32) -> f32 {
+    if fade_distance <= f32::EPSILON {
+        return 1.0;
+    }
+
+    let fade_end = fade_distance * DISTANCE_HIDE_MULTIPLIER;
+    if distance <= fade_distance {
+        let t = (distance / fade_distance).clamp(0.0, 1.0);
+        return MIN_DISTANCE_ALPHA + (1.0 - t) * (1.0 - MIN_DISTANCE_ALPHA);
+    }
+    if distance >= fade_end {
+        return 0.0;
+    }
+
+    let tail_t = ((distance - fade_distance) / (fade_end - fade_distance)).clamp(0.0, 1.0);
+    (MIN_DISTANCE_ALPHA * (1.0 - tail_t)).clamp(0.0, 1.0)
 }
 
 fn layout_lane_groups(
@@ -875,6 +911,26 @@ mod tests {
         assert_eq!(upper, 250.0);
         assert_eq!(lower, 750.0);
     }
+
+    #[test]
+    fn distance_alpha_reaches_zero_at_hide_multiplier() {
+        let fade_distance = 1200.0;
+
+        assert_eq!(bearing_distance_alpha(fade_distance, 0.0), 1.0);
+        assert!(
+            (bearing_distance_alpha(fade_distance, fade_distance) - MIN_DISTANCE_ALPHA).abs()
+                < 1e-6
+        );
+        assert!(bearing_distance_alpha(fade_distance, fade_distance * 1.25) > 0.0);
+        assert_eq!(
+            bearing_distance_alpha(fade_distance, fade_distance * DISTANCE_HIDE_MULTIPLIER),
+            0.0
+        );
+        assert_eq!(
+            bearing_distance_alpha(fade_distance, fade_distance * 2.0),
+            0.0
+        );
+    }
 }
 
 fn draw_bearing_icon(
@@ -884,6 +940,7 @@ fn draw_bearing_icon(
     rect: Rectangle<i32, Physical>,
     damage: Rectangle<i32, Physical>,
     alpha: f32,
+    chip_text_color: Color32F,
 ) -> Result<(), Box<dyn Error>> {
     if node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, false)
         && let Some(NodeAppIconCacheEntry::Ready(icon)) = node_app_icon_entry(st, node_id)
@@ -931,9 +988,9 @@ fn draw_bearing_icon(
             &glyph,
             2,
             Color32F::new(
-                CHIP_TEXT_COLOR.r(),
-                CHIP_TEXT_COLOR.g(),
-                CHIP_TEXT_COLOR.b(),
+                chip_text_color.r(),
+                chip_text_color.g(),
+                chip_text_color.b(),
                 alpha,
             ),
             damage,
