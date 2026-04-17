@@ -231,9 +231,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return false;
         };
         let old_visible =
-            crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
-                self, monitor,
-            );
+            crate::compositor::surface::active_stacking_visible_members_for_monitor(self, monitor);
         let Some(front) = self
             .model
             .field
@@ -247,9 +245,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         let now_ms = self.now_ms(now);
         self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
         let new_visible =
-            crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
-                self, monitor,
-            );
+            crate::compositor::surface::active_stacking_visible_members_for_monitor(self, monitor);
         let duration_ms = self.runtime.tuning.stack_animation_duration_ms();
         if self.runtime.tuning.stack_animation_enabled() {
             self.ui.render_state.start_stack_cycle_transition(
@@ -395,7 +391,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             }
             ClusterWorkspaceLayoutKind::Stacking => {
                 let visible =
-                    crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                    crate::compositor::surface::active_stacking_visible_members_for_monitor(
                         self, monitor,
                     );
                 if let Some((old_visible, source_rects)) = tile_to_stack_transition {
@@ -413,7 +409,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     self.request_maintenance();
                 }
                 if let Some(target) =
-                    crate::compositor::surface_ops::active_stacking_front_member_for_monitor(
+                    crate::compositor::surface::active_stacking_front_member_for_monitor(
                         self, monitor,
                     )
                     .or_else(|| visible.first().copied())

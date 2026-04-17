@@ -298,7 +298,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
                 continue;
             }
             let (min_w, min_h) =
-                crate::compositor::surface_ops::toplevel_min_size_for_node(self, node_id);
+                crate::compositor::surface::toplevel_min_size_for_node(self, node_id);
             let monitor = self
                 .model
                 .monitor_state
@@ -399,7 +399,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             .copied()
         {
             let (min_w, min_h) =
-                crate::compositor::surface_ops::toplevel_min_size_for_node(self, node_id);
+                crate::compositor::surface::toplevel_min_size_for_node(self, node_id);
             self.request_toplevel_fullscreen_state(
                 node_id,
                 false,
@@ -500,9 +500,8 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             return;
         };
 
-        let saved_size =
-            crate::compositor::surface_ops::current_surface_size_for_node(self, node_id)
-                .unwrap_or(node.intrinsic_size);
+        let saved_size = crate::compositor::surface::current_surface_size_for_node(self, node_id)
+            .unwrap_or(node.intrinsic_size);
         let saved_bbox_loc = self.ui.render_state.cache.bbox_loc.get(&node_id).copied();
         let saved_window_geometry = self
             .ui
@@ -568,7 +567,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
                 continue;
             };
             let other_size =
-                crate::compositor::surface_ops::current_surface_size_for_node(self, other_id)
+                crate::compositor::surface::current_surface_size_for_node(self, other_id)
                     .unwrap_or(other.intrinsic_size);
             let other_bbox_loc = self.ui.render_state.cache.bbox_loc.get(&other_id).copied();
             let other_window_geometry = self

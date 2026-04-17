@@ -25,7 +25,7 @@ use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::monitor::layer_shell::layer_output_size_for_monitor;
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::state::is_persistent_rule_top;
-use crate::compositor::surface_ops::{
+use crate::compositor::surface::{
     active_stacking_visible_members_for_monitor, is_active_cluster_workspace_member,
     window_geometry_for_node,
 };
@@ -67,11 +67,11 @@ fn sync_node_size_from_surface(
 ) -> Rectangle<i32, Logical> {
     let bbox = snapshot_surface_geometry(st, node_id, wl);
 
-    if crate::compositor::surface_ops::is_active_cluster_workspace_member(st, node_id) {
+    if crate::compositor::surface::is_active_cluster_workspace_member(st, node_id) {
         return bbox;
     }
 
-    let (bw, bh) = crate::compositor::surface_ops::window_geometry_for_node(st, node_id)
+    let (bw, bh) = crate::compositor::surface::window_geometry_for_node(st, node_id)
         .map(|(_, _, w, h)| (w.max(1.0), h.max(1.0)))
         .unwrap_or((bbox.size.w.max(1) as f32, bbox.size.h.max(1) as f32));
 
@@ -1642,7 +1642,7 @@ mod tests {
     use super::{
         should_draw_resize_overlap_overlay, window_decoration_metrics, world_to_screen_for_view,
     };
-    use crate::compositor::surface_ops::stacking_render_order_map;
+    use crate::compositor::surface::stacking_render_order_map;
     use halley_core::field::NodeId;
     use halley_core::field::Vec2;
 

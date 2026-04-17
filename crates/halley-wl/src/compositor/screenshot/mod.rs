@@ -1,347 +1,24 @@
+mod region;
+pub(crate) mod state;
+
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::Instant;
 
-use halley_capit::{CaptureCrop, capture_crop_to_png, default_output_path_in};
-use halley_core::field::NodeId;
+use halley_capit::{capture_crop_to_png, default_output_path_in};
 use halley_ipc::CaptureMode;
 
 use super::root::Halley;
-use super::surface_ops::active_stacking_visible_members_for_monitor;
-
-const SCREENSHOT_HANDLE_SIZE: i32 = 12;
-const SCREENSHOT_HANDLE_HIT: i32 = 14;
-const SCREENSHOT_MIN_W: i32 = 8;
-const SCREENSHOT_MIN_H: i32 = 8;
-
-fn screenshot_desktop_bounds(st: &Halley) -> (i32, i32, i32, i32) {
-    st.model.monitor_state.monitors.values().fold(
-        (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
-        |(min_x, min_y, max_x, max_y), space| {
-            (
-                min_x.min(space.offset_x),
-                min_y.min(space.offset_y),
-                max_x.max(space.offset_x + space.width),
-                max_y.max(space.offset_y + space.height),
-            )
-        },
-    )
-}
-
-fn screenshot_window_matches_monitor(st: &Halley, node_id: NodeId, monitor: &str) -> bool {
-    st.model.field.node(node_id).is_some_and(|node| {
-        node.state == halley_core::field::NodeState::Active
-            && st.model.field.is_visible(node_id)
-            && st
-                .model
-                .monitor_state
-                .node_monitor
-                .get(&node_id)
-                .map(|owner| owner.as_str())
-                .unwrap_or(st.model.monitor_state.current_monitor.as_str())
-                == monitor
-    })
-}
-
-fn screenshot_window_crop_for_node(
-    st: &mut Halley,
-    node_id: NodeId,
-    monitor: &str,
-) -> Option<CaptureCrop> {
-    if !screenshot_window_matches_monitor(st, node_id, monitor) {
-        return None;
-    }
-    let (offset_x, offset_y, width, height) = {
-        let space = st.model.monitor_state.monitors.get(monitor)?;
-        (space.offset_x, space.offset_y, space.width, space.height)
-    };
-    let previous_monitor = st.begin_temporary_render_monitor(monitor);
-    let rect =
-        crate::input::active_node_screen_rect(st, width, height, node_id, Instant::now(), None);
-    st.end_temporary_render_monitor(previous_monitor);
-    let (left, top, right, bottom) = rect?;
-    Some(CaptureCrop {
-        x: offset_x + left.min(right).round() as i32,
-        y: offset_y + top.min(bottom).round() as i32,
-        w: (right - left).abs().round().max(1.0) as i32,
-        h: (bottom - top).abs().round().max(1.0) as i32,
-    })
-}
-
-fn screenshot_window_target_for_monitor(st: &Halley, monitor: &str) -> Option<NodeId> {
-    [
-        st.last_input_surface_node_for_monitor(monitor),
-        st.last_focused_surface_node_for_monitor(monitor),
-        st.model.focus_state.primary_interaction_focus,
-    ]
-    .into_iter()
-    .flatten()
-    .find(|&node_id| screenshot_window_matches_monitor(st, node_id, monitor))
-    .or_else(|| {
-        active_stacking_visible_members_for_monitor(st, monitor)
-            .into_iter()
-            .find(|&node_id| screenshot_window_matches_monitor(st, node_id, monitor))
-    })
-}
-
-fn initial_screenshot_selection(
-    st: &mut Halley,
-    mode: CaptureMode,
-    monitor: &str,
-) -> (Option<NodeId>, Option<CaptureCrop>) {
-    match mode {
-        CaptureMode::Region => {
-            let Some(space) = st.model.monitor_state.monitors.get(monitor) else {
-                return (None, None);
-            };
-            (
-                None,
-                Some(CaptureCrop {
-                    x: space.offset_x
-                        + (space.width - (space.width / 2).clamp(260, space.width.max(1))) / 2,
-                    y: space.offset_y
-                        + (space.height - (space.height / 2).clamp(180, space.height.max(1))) / 2,
-                    w: (space.width / 2)
-                        .clamp(260, space.width.max(1))
-                        .max(SCREENSHOT_MIN_W),
-                    h: (space.height / 2)
-                        .clamp(180, space.height.max(1))
-                        .max(SCREENSHOT_MIN_H),
-                }),
-            )
-        }
-        CaptureMode::Window => {
-            let selected_window = screenshot_window_target_for_monitor(st, monitor);
-            let selection_rect = selected_window
-                .and_then(|node_id| screenshot_window_crop_for_node(st, node_id, monitor));
-            (selected_window, selection_rect)
-        }
-        CaptureMode::Menu | CaptureMode::Screen => (None, None),
-    }
-}
-
-fn screenshot_menu_modes() -> [CaptureMode; 3] {
-    [
-        CaptureMode::Region,
-        CaptureMode::Screen,
-        CaptureMode::Window,
-    ]
-}
-
-fn screenshot_menu_index(mode: CaptureMode) -> Option<usize> {
-    screenshot_menu_modes()
-        .iter()
-        .position(|candidate| *candidate == mode)
-}
-
-fn screenshot_session_monitor(st: &Halley, output: Option<&str>) -> String {
-    output
-        .and_then(|name| {
-            st.model
-                .monitor_state
-                .monitors
-                .contains_key(name)
-                .then_some(name.to_string())
-        })
-        .or_else(|| {
-            st.input
-                .interaction_state
-                .last_pointer_screen_global
-                .and_then(|(sx, sy)| st.monitor_for_screen(sx, sy))
-        })
-        .or_else(|| {
-            st.model
-                .monitor_state
-                .monitors
-                .contains_key(st.interaction_monitor())
-                .then(|| st.interaction_monitor().to_string())
-        })
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
-}
-
-fn screenshot_contains(rect: CaptureCrop, px: i32, py: i32) -> bool {
-    px >= rect.x && py >= rect.y && px < rect.x + rect.w && py < rect.y + rect.h
-}
-
-fn screenshot_dist2(ax: i32, ay: i32, bx: i32, by: i32) -> i64 {
-    let dx = i64::from(ax - bx);
-    let dy = i64::from(ay - by);
-    dx * dx + dy * dy
-}
-
-fn screenshot_corner_hit(
-    selection: CaptureCrop,
-    px: i32,
-    py: i32,
-) -> Option<crate::compositor::interaction::state::ScreenshotRegionResizeDir> {
-    let rad = SCREENSHOT_HANDLE_HIT.max(SCREENSHOT_HANDLE_SIZE / 2);
-    let rad2 = (rad as i64) * (rad as i64);
-    let tl = screenshot_dist2(px, py, selection.x, selection.y);
-    let tr = screenshot_dist2(px, py, selection.x + selection.w, selection.y);
-    let bl = screenshot_dist2(px, py, selection.x, selection.y + selection.h);
-    let br = screenshot_dist2(px, py, selection.x + selection.w, selection.y + selection.h);
-    let mut best = (i64::MAX, 0);
-    for (d, idx) in [(tl, 0), (tr, 1), (bl, 2), (br, 3)] {
-        if d < best.0 {
-            best = (d, idx);
-        }
-    }
-    if best.0 > rad2 {
-        return None;
-    }
-    Some(match best.1 {
-        0 => crate::compositor::interaction::state::ScreenshotRegionResizeDir {
-            left: true,
-            right: false,
-            top: true,
-            bottom: false,
-        },
-        1 => crate::compositor::interaction::state::ScreenshotRegionResizeDir {
-            left: false,
-            right: true,
-            top: true,
-            bottom: false,
-        },
-        2 => crate::compositor::interaction::state::ScreenshotRegionResizeDir {
-            left: true,
-            right: false,
-            top: false,
-            bottom: true,
-        },
-        _ => crate::compositor::interaction::state::ScreenshotRegionResizeDir {
-            left: false,
-            right: true,
-            top: false,
-            bottom: true,
-        },
-    })
-}
-
-fn screenshot_region_hit_test(
-    selection: CaptureCrop,
-    px: i32,
-    py: i32,
-) -> crate::compositor::interaction::state::ScreenshotRegionDragMode {
-    use crate::compositor::interaction::state::{
-        ScreenshotRegionDragMode, ScreenshotRegionResizeDir,
-    };
-
-    if let Some(dir) = screenshot_corner_hit(selection, px, py) {
-        return ScreenshotRegionDragMode::Resize(dir);
-    }
-
-    let left = (px - selection.x).abs() <= SCREENSHOT_HANDLE_HIT
-        && py >= selection.y - SCREENSHOT_HANDLE_HIT
-        && py <= selection.y + selection.h + SCREENSHOT_HANDLE_HIT;
-    let right = (px - (selection.x + selection.w)).abs() <= SCREENSHOT_HANDLE_HIT
-        && py >= selection.y - SCREENSHOT_HANDLE_HIT
-        && py <= selection.y + selection.h + SCREENSHOT_HANDLE_HIT;
-    let top = (py - selection.y).abs() <= SCREENSHOT_HANDLE_HIT
-        && px >= selection.x - SCREENSHOT_HANDLE_HIT
-        && px <= selection.x + selection.w + SCREENSHOT_HANDLE_HIT;
-    let bottom = (py - (selection.y + selection.h)).abs() <= SCREENSHOT_HANDLE_HIT
-        && px >= selection.x - SCREENSHOT_HANDLE_HIT
-        && px <= selection.x + selection.w + SCREENSHOT_HANDLE_HIT;
-
-    let dir = ScreenshotRegionResizeDir {
-        left,
-        right,
-        top,
-        bottom,
-    };
-    if left || right || top || bottom {
-        return ScreenshotRegionDragMode::Resize(dir);
-    }
-    if screenshot_contains(selection, px, py) {
-        ScreenshotRegionDragMode::Move
-    } else {
-        ScreenshotRegionDragMode::Resize(screenshot_corner_hit(selection, px, py).unwrap_or(
-            ScreenshotRegionResizeDir {
-                left: px < selection.x + selection.w / 2,
-                right: px >= selection.x + selection.w / 2,
-                top: py < selection.y + selection.h / 2,
-                bottom: py >= selection.y + selection.h / 2,
-            },
-        ))
-    }
-}
-
-fn screenshot_crop_clamp_to(rect: &mut CaptureCrop, bounds: (i32, i32, i32, i32)) {
-    let (min_x, min_y, max_x, max_y) = bounds;
-    rect.w = rect.w.max(SCREENSHOT_MIN_W);
-    rect.h = rect.h.max(SCREENSHOT_MIN_H);
-    if rect.x < min_x {
-        rect.x = min_x;
-    }
-    if rect.y < min_y {
-        rect.y = min_y;
-    }
-    if rect.x + rect.w > max_x {
-        rect.x = (max_x - rect.w).max(min_x);
-    }
-    if rect.y + rect.h > max_y {
-        rect.y = (max_y - rect.h).max(min_y);
-    }
-}
-
-fn screenshot_region_apply_drag(
-    drag_mode: crate::compositor::interaction::state::ScreenshotRegionDragMode,
-    cursor: (i32, i32),
-    grab_cursor: (i32, i32),
-    grab_rect: CaptureCrop,
-    bounds: (i32, i32, i32, i32),
-) -> CaptureCrop {
-    use crate::compositor::interaction::state::ScreenshotRegionDragMode;
-
-    let (cx, cy) = cursor;
-    let (gx, gy) = grab_cursor;
-    match drag_mode {
-        ScreenshotRegionDragMode::None => grab_rect,
-        ScreenshotRegionDragMode::Move => {
-            let mut r = CaptureCrop {
-                x: grab_rect.x + (cx - gx),
-                y: grab_rect.y + (cy - gy),
-                w: grab_rect.w.max(SCREENSHOT_MIN_W),
-                h: grab_rect.h.max(SCREENSHOT_MIN_H),
-            };
-            screenshot_crop_clamp_to(&mut r, bounds);
-            r
-        }
-        ScreenshotRegionDragMode::Resize(dir) => {
-            let mut left = grab_rect.x;
-            let mut top = grab_rect.y;
-            let mut right = grab_rect.x + grab_rect.w;
-            let mut bottom = grab_rect.y + grab_rect.h;
-            if dir.left {
-                left = cx;
-            }
-            if dir.right {
-                right = cx;
-            }
-            if dir.top {
-                top = cy;
-            }
-            if dir.bottom {
-                bottom = cy;
-            }
-            if left > right {
-                std::mem::swap(&mut left, &mut right);
-            }
-            if top > bottom {
-                std::mem::swap(&mut top, &mut bottom);
-            }
-            let mut r = CaptureCrop {
-                x: left,
-                y: top,
-                w: (right - left).max(SCREENSHOT_MIN_W),
-                h: (bottom - top).max(SCREENSHOT_MIN_H),
-            };
-            screenshot_crop_clamp_to(&mut r, bounds);
-            r
-        }
-    }
-}
+use region::{
+    initial_screenshot_selection, screenshot_desktop_bounds, screenshot_menu_index,
+    screenshot_menu_modes, screenshot_region_apply_drag, screenshot_region_hit_test,
+    screenshot_session_monitor, screenshot_window_crop_for_node,
+};
+use state::{
+    InflightScreenshotCapture, PendingScreenshotCapture, ScreenshotCaptureResult,
+    ScreenshotRegionDragMode, ScreenshotSessionState,
+};
 
 pub(crate) struct ScreenshotController<T> {
     st: T,
@@ -392,23 +69,20 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
         if let Some(enter) = halley_config::keybinds::key_name_to_evdev("return") {
             crate::compositor::interaction::state::trap_modal_key_release(self, enter + 8);
         }
-        self.input.interaction_state.screenshot_session = Some(
-            crate::compositor::interaction::state::ScreenshotSessionState {
-                mode,
-                monitor: monitor.clone(),
-                selected_window,
-                keyboard_captured,
-                menu_selected: 0,
-                menu_hovered: None,
-                drag_anchor: None,
-                drag_current: None,
-                selection_rect: initial_selection,
-                region_drag_mode:
-                    crate::compositor::interaction::state::ScreenshotRegionDragMode::None,
-                region_grab_cursor: (0, 0),
-                region_grab_rect: initial_selection,
-            },
-        );
+        self.input.interaction_state.screenshot_session = Some(ScreenshotSessionState {
+            mode,
+            monitor: monitor.clone(),
+            selected_window,
+            keyboard_captured,
+            menu_selected: 0,
+            menu_hovered: None,
+            drag_anchor: None,
+            drag_current: None,
+            selection_rect: initial_selection,
+            region_drag_mode: ScreenshotRegionDragMode::None,
+            region_grab_cursor: (0, 0),
+            region_grab_rect: initial_selection,
+        });
         self.request_maintenance();
         true
     }
@@ -468,8 +142,7 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
         session.menu_selected = index;
         session.menu_hovered = Some(index);
         session.selection_rect = initial_selection;
-        session.region_drag_mode =
-            crate::compositor::interaction::state::ScreenshotRegionDragMode::None;
+        session.region_drag_mode = ScreenshotRegionDragMode::None;
         session.region_grab_rect = session.selection_rect;
         session.drag_anchor = None;
         session.drag_current = None;
@@ -504,8 +177,7 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
         session.menu_selected = menu_selected;
         session.menu_hovered = Some(menu_selected);
         session.selection_rect = selection_rect;
-        session.region_drag_mode =
-            crate::compositor::interaction::state::ScreenshotRegionDragMode::None;
+        session.region_drag_mode = ScreenshotRegionDragMode::None;
         session.region_grab_rect = selection_rect;
         session.drag_anchor = None;
         session.drag_current = None;
@@ -535,17 +207,15 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
         if !self.clear_screenshot_session_state() {
             return false;
         }
-        self.input.interaction_state.last_screenshot_result = Some(
-            crate::compositor::interaction::state::ScreenshotCaptureResult {
-                serial: self
-                    .input
-                    .interaction_state
-                    .screenshot_next_serial
-                    .saturating_sub(1),
-                saved_path: None,
-                error: Some("cancelled".to_string()),
-            },
-        );
+        self.input.interaction_state.last_screenshot_result = Some(ScreenshotCaptureResult {
+            serial: self
+                .input
+                .interaction_state
+                .screenshot_next_serial
+                .saturating_sub(1),
+            saved_path: None,
+            error: Some("cancelled".to_string()),
+        });
         true
     }
 
@@ -569,7 +239,7 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
             self, screen_w, screen_h, sx, sy, now, None,
         )
         .and_then(|hit| {
-            screenshot_window_matches_monitor(self, hit.node_id, monitor).then_some(hit.node_id)
+            screenshot_window_crop_for_node(self, hit.node_id, monitor).map(|_| hit.node_id)
         });
         self.end_temporary_render_monitor(previous_monitor);
         let selection_rect = selected_window
@@ -594,7 +264,7 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
         if session.mode != CaptureMode::Region {
             return false;
         }
-        let selection = session.selection_rect.unwrap_or(CaptureCrop {
+        let selection = session.selection_rect.unwrap_or(halley_capit::CaptureCrop {
             x,
             y,
             w: 320,
@@ -621,12 +291,14 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
             return;
         };
         session.drag_current = Some((x, y));
-        let grab_rect = session.region_grab_rect.unwrap_or(CaptureCrop {
-            x: ax,
-            y: ay,
-            w: 1,
-            h: 1,
-        });
+        let grab_rect = session
+            .region_grab_rect
+            .unwrap_or(halley_capit::CaptureCrop {
+                x: ax,
+                y: ay,
+                w: 1,
+                h: 1,
+            });
         session.selection_rect = Some(screenshot_region_apply_drag(
             session.region_drag_mode,
             (x, y),
@@ -642,8 +314,7 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
             && session.mode == CaptureMode::Region
         {
             session.drag_anchor = None;
-            session.region_drag_mode =
-                crate::compositor::interaction::state::ScreenshotRegionDragMode::None;
+            session.region_drag_mode = ScreenshotRegionDragMode::None;
         }
         self.request_maintenance();
     }
@@ -669,7 +340,7 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
                 else {
                     return false;
                 };
-                CaptureCrop {
+                halley_capit::CaptureCrop {
                     x: space.offset_x,
                     y: space.offset_y,
                     w: space.width.max(1),
@@ -697,17 +368,15 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
             },
         );
         if let Err(err) = ensure_screenshot_output_directory(output_path.as_path()) {
-            self.input.interaction_state.last_screenshot_result = Some(
-                crate::compositor::interaction::state::ScreenshotCaptureResult {
-                    serial: self
-                        .input
-                        .interaction_state
-                        .screenshot_next_serial
-                        .saturating_sub(1),
-                    saved_path: None,
-                    error: Some(err),
-                },
-            );
+            self.input.interaction_state.last_screenshot_result = Some(ScreenshotCaptureResult {
+                serial: self
+                    .input
+                    .interaction_state
+                    .screenshot_next_serial
+                    .saturating_sub(1),
+                saved_path: None,
+                error: Some(err),
+            });
             return false;
         }
         let monitor = session.monitor.clone();
@@ -717,15 +386,13 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
             .screenshot_next_serial
             .saturating_sub(1);
         let _ = self.clear_screenshot_session_state();
-        self.input.interaction_state.pending_screenshot_capture = Some(
-            crate::compositor::interaction::state::PendingScreenshotCapture {
-                monitor,
-                serial,
-                crop,
-                output_path,
-                execute_at_ms: self.now_ms(now).saturating_add(24),
-            },
-        );
+        self.input.interaction_state.pending_screenshot_capture = Some(PendingScreenshotCapture {
+            monitor,
+            serial,
+            crop,
+            output_path,
+            execute_at_ms: self.now_ms(now).saturating_add(24),
+        });
         self.request_maintenance();
         true
     }
@@ -747,13 +414,12 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
                     capture_crop_to_png(output_path.as_path(), crop).map(|_| output_path.clone());
                 let _ = tx.send(result);
             });
-            self.input.interaction_state.inflight_screenshot_capture = Some(
-                crate::compositor::interaction::state::InflightScreenshotCapture {
+            self.input.interaction_state.inflight_screenshot_capture =
+                Some(InflightScreenshotCapture {
                     monitor: pending.monitor,
                     serial: pending.serial,
                     rx,
-                },
-            );
+                });
             self.request_maintenance();
         }
 
@@ -765,13 +431,12 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
         {
             match inflight.rx.try_recv() {
                 Ok(Ok(path)) => {
-                    self.input.interaction_state.last_screenshot_result = Some(
-                        crate::compositor::interaction::state::ScreenshotCaptureResult {
+                    self.input.interaction_state.last_screenshot_result =
+                        Some(ScreenshotCaptureResult {
                             serial: inflight.serial,
                             saved_path: Some(path.clone()),
                             error: None,
-                        },
-                    );
+                        });
                     let message = format!("Saved screenshot\n{}", path.display());
                     self.ui.render_state.show_overlay_toast(
                         inflight.monitor.as_str(),
@@ -781,13 +446,12 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
                     );
                 }
                 Ok(Err(err)) => {
-                    self.input.interaction_state.last_screenshot_result = Some(
-                        crate::compositor::interaction::state::ScreenshotCaptureResult {
+                    self.input.interaction_state.last_screenshot_result =
+                        Some(ScreenshotCaptureResult {
                             serial: inflight.serial,
                             saved_path: None,
                             error: Some(err.clone()),
-                        },
-                    );
+                        });
                     let message = format!("Capture failed\n{err}");
                     self.ui.render_state.show_overlay_toast(
                         inflight.monitor.as_str(),
@@ -801,13 +465,12 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
                     self.request_maintenance();
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    self.input.interaction_state.last_screenshot_result = Some(
-                        crate::compositor::interaction::state::ScreenshotCaptureResult {
+                    self.input.interaction_state.last_screenshot_result =
+                        Some(ScreenshotCaptureResult {
                             serial: inflight.serial,
                             saved_path: None,
                             error: Some("capture worker disconnected".to_string()),
-                        },
-                    );
+                        });
                 }
             }
         }

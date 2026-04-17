@@ -1,7 +1,9 @@
 pub mod actions;
+pub mod activity;
 pub mod carry;
 pub mod clusters;
 pub mod ctx;
+pub mod debug_scene;
 pub mod exit_confirm;
 pub mod focus;
 pub mod fullscreen;
@@ -13,5 +15,5 @@ pub mod root;
 pub mod runtime;
 pub mod screenshot;
 pub mod spawn;
-pub mod surface_ops;
+pub mod surface;
 pub mod workspace;

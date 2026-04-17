@@ -1,18 +1,18 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use halley_capit::CaptureCrop;
 use halley_config::CompositorBindingAction;
 use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
 use halley_core::viewport::Viewport;
-use halley_ipc::CaptureMode;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 
 use crate::compositor::interaction::drag::DragAxisMode;
 use crate::compositor::root::Halley;
+use crate::compositor::screenshot::state::{
+    InflightScreenshotCapture, PendingScreenshotCapture, ScreenshotCaptureResult,
+    ScreenshotSessionState,
+};
 use smithay::input::pointer::CursorIcon;
 
 const BLOOM_PULL_SLOP_PX: f32 = 12.0;
@@ -175,59 +175,6 @@ pub(crate) struct ClusterNamePromptRepeatState {
     pub(crate) action: ClusterNamePromptRepeatAction,
     pub(crate) next_repeat_ms: u64,
     pub(crate) interval_ms: u64,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ScreenshotSessionState {
-    pub(crate) mode: CaptureMode,
-    pub(crate) monitor: String,
-    pub(crate) selected_window: Option<NodeId>,
-    pub(crate) keyboard_captured: bool,
-    pub(crate) menu_selected: usize,
-    pub(crate) menu_hovered: Option<usize>,
-    pub(crate) drag_anchor: Option<(i32, i32)>,
-    pub(crate) drag_current: Option<(i32, i32)>,
-    pub(crate) selection_rect: Option<CaptureCrop>,
-    pub(crate) region_drag_mode: ScreenshotRegionDragMode,
-    pub(crate) region_grab_cursor: (i32, i32),
-    pub(crate) region_grab_rect: Option<CaptureCrop>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ScreenshotRegionDragMode {
-    None,
-    Move,
-    Resize(ScreenshotRegionResizeDir),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ScreenshotRegionResizeDir {
-    pub(crate) left: bool,
-    pub(crate) right: bool,
-    pub(crate) top: bool,
-    pub(crate) bottom: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct PendingScreenshotCapture {
-    pub(crate) monitor: String,
-    pub(crate) serial: u64,
-    pub(crate) crop: CaptureCrop,
-    pub(crate) output_path: std::path::PathBuf,
-    pub(crate) execute_at_ms: u64,
-}
-
-pub(crate) struct InflightScreenshotCapture {
-    pub(crate) monitor: String,
-    pub(crate) serial: u64,
-    pub(crate) rx: Receiver<Result<PathBuf, String>>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ScreenshotCaptureResult {
-    pub(crate) serial: u64,
-    pub(crate) saved_path: Option<PathBuf>,
-    pub(crate) error: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -468,7 +415,6 @@ fn field_viewport_for_monitor(st: &Halley, monitor_name: &str) -> Option<Viewpor
         .map(|space| Viewport::new(space.viewport.center, space.zoom_ref_size))
 }
 
-#[cfg(test)]
 pub(crate) fn node_fully_visible_on_monitor(
     st: &Halley,
     monitor_name: &str,

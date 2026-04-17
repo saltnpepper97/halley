@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::compositor::interaction::{HitNode, ResizeCtx};
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::active_stacking_visible_members_for_monitor;
+use crate::compositor::surface::active_stacking_visible_members_for_monitor;
 use crate::frame_loop::anim_style_for;
 use crate::input::active_node_screen_rect;
 use crate::presentation::{node_marker_metrics, world_to_screen};

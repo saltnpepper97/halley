@@ -1,7 +1,7 @@
 use super::*;
 use crate::compositor::focus::read;
 use crate::compositor::interaction::state::ViewportPanAnim;
-use crate::compositor::surface_ops::stack_focus_target_for_node;
+use crate::compositor::surface::stack_focus_target_for_node;
 use eventline::debug;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};

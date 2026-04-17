@@ -3,7 +3,7 @@ use std::time::Instant;
 use crate::backend::interface::BackendView;
 use crate::compositor::interaction::{HitNode, PointerState, ResizeCtx};
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::{
+use crate::compositor::surface::{
     current_surface_size_for_node, node_allows_interactive_resize, request_toplevel_resize_mode,
     toplevel_min_size_for_node, window_geometry_for_node,
 };

@@ -1,10 +1,8 @@
-pub mod activity;
 pub mod animation;
 pub(crate) mod aperture;
 pub(crate) mod backend;
 pub mod bootstrap;
 pub(crate) mod compositor;
-pub(crate) mod debug_scene;
 pub(crate) mod frame_loop;
 pub(crate) mod input;
 pub(crate) mod ipc;

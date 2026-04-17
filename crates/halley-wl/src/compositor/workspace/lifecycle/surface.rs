@@ -1,5 +1,5 @@
 use super::*;
-use crate::compositor::surface_ops::is_active_cluster_workspace_member;
+use crate::compositor::surface::is_active_cluster_workspace_member;
 
 pub(super) fn exit_monitor_fullscreen_for_new_toplevel(
     st: &mut Halley,
@@ -422,7 +422,7 @@ pub(super) fn ensure_node_for_surface_impl(
                 )
         })
         .map(|_| {
-            crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+            crate::compositor::surface::active_stacking_visible_members_for_monitor(
                 st,
                 predicted_monitor.as_str(),
             )
@@ -519,7 +519,7 @@ pub(super) fn ensure_node_for_surface_impl(
             )
         {
             let new_visible =
-                crate::compositor::surface_ops::active_stacking_visible_members_for_monitor(
+                crate::compositor::surface::active_stacking_visible_members_for_monitor(
                     st,
                     monitor.as_str(),
                 );

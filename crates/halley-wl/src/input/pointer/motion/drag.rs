@@ -5,7 +5,7 @@ use crate::backend::interface::BackendView;
 use crate::compositor::interaction::state::ActiveDragState;
 use crate::compositor::interaction::{DragAxisMode, DragCtx, HitNode, ModState, PointerState};
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::is_active_stacking_workspace_member;
+use crate::compositor::surface::is_active_stacking_workspace_member;
 
 pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
     if st.is_fullscreen_active(node_id) {
@@ -33,7 +33,17 @@ pub(crate) fn begin_drag(
     st.input.interaction_state.pending_core_press = None;
     st.input.interaction_state.pending_core_click = None;
     let drag_monitor = st.monitor_for_node_or_current(hit.node_id);
-    let edge_pan_eligible = false;
+    let edge_pan_eligible = st.model.field.node(hit.node_id).is_some_and(|n| {
+        n.kind == halley_core::field::NodeKind::Surface
+            && n.state == halley_core::field::NodeState::Active
+            && st.model.field.is_visible(hit.node_id)
+    })
+        && crate::compositor::interaction::state::node_fully_visible_on_monitor(
+            st,
+            drag_monitor.as_str(),
+            hit.node_id,
+        )
+        .unwrap_or(false);
     let mut drag_ctx = DragCtx {
         node_id: hit.node_id,
         allow_monitor_transfer,
@@ -98,6 +108,121 @@ pub(crate) fn begin_drag(
     };
     let _ = st.carry_surface_non_overlap(hit.node_id, to, false);
     backend.request_redraw();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::interface::BackendView;
+    use crate::compositor::interaction::PointerState;
+    use crate::compositor::root::Halley;
+    use smithay::reexports::wayland_server::Display;
+
+    struct TestBackend;
+
+    impl BackendView for TestBackend {
+        fn window_size_i32(&self) -> (i32, i32) {
+            (1600, 1200)
+        }
+
+        fn request_redraw(&self) {}
+    }
+
+    #[test]
+    fn active_surface_drag_enables_edge_pan() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = st.model.field.spawn_surface(
+            "dragged",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        let hit = HitNode {
+            node_id: id,
+            move_surface: false,
+            is_core: false,
+        };
+        let world_now = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+        let frame = ButtonFrame {
+            global_sx: 200.0,
+            global_sy: 120.0,
+            sx: 200.0,
+            sy: 120.0,
+            ws_w: 1600,
+            ws_h: 1200,
+            world_now,
+            workspace_active: true,
+        };
+        let mut ps = PointerState::default();
+
+        begin_drag(
+            &mut st,
+            &mut ps,
+            &TestBackend,
+            hit,
+            frame,
+            world_now,
+            false,
+            false,
+        );
+
+        assert!(ps.drag.is_some_and(|drag| drag.edge_pan_eligible));
+        assert!(
+            st.input
+                .interaction_state
+                .active_drag
+                .as_ref()
+                .is_some_and(|drag| drag.edge_pan_eligible)
+        );
+    }
+
+    #[test]
+    fn partially_offscreen_active_surface_drag_disables_edge_pan() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = st.model.field.spawn_surface(
+            "dragged",
+            halley_core::field::Vec2 { x: 930.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        let hit = HitNode {
+            node_id: id,
+            move_surface: false,
+            is_core: false,
+        };
+        let world_now = halley_core::field::Vec2 { x: 930.0, y: 0.0 };
+        let frame = ButtonFrame {
+            global_sx: 200.0,
+            global_sy: 120.0,
+            sx: 200.0,
+            sy: 120.0,
+            ws_w: 1600,
+            ws_h: 1200,
+            world_now,
+            workspace_active: true,
+        };
+        let mut ps = PointerState::default();
+
+        begin_drag(
+            &mut st,
+            &mut ps,
+            &TestBackend,
+            hit,
+            frame,
+            world_now,
+            false,
+            false,
+        );
+
+        assert!(ps.drag.is_some_and(|drag| !drag.edge_pan_eligible));
+        assert!(
+            st.input
+                .interaction_state
+                .active_drag
+                .as_ref()
+                .is_some_and(|drag| !drag.edge_pan_eligible)
+        );
+    }
 }
 
 pub(crate) fn finish_pointer_drag(

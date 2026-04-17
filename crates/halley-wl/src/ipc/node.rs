@@ -13,7 +13,7 @@ use smithay::wayland::shell::xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData};
 
 use crate::compositor::actions::window::promote_node_level;
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::{current_surface_size_for_node, request_close_node_toplevel};
+use crate::compositor::surface::{current_surface_size_for_node, request_close_node_toplevel};
 
 use super::{focus_output_if_needed, sorted_outputs, validate_output};
 

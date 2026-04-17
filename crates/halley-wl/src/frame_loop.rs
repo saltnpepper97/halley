@@ -350,7 +350,7 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
                 .saturating_duration_since(st.ui.render_state.render_last_tick)
                 .as_secs_f32()
                 .clamp(1.0 / 240.0, 1.0 / 30.0);
-            const DRAG_EDGE_PAN_SPEED: f32 = 720.0;
+            const DRAG_EDGE_PAN_SPEED: f32 = 60.0;
             let pan_delta = Vec2 {
                 x: direction.x * DRAG_EDGE_PAN_SPEED * dt,
                 y: direction.y * DRAG_EDGE_PAN_SPEED * dt,

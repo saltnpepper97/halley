@@ -1,5 +1,5 @@
 use super::*;
-use crate::compositor::{actions, fullscreen, monitor, spawn, surface_ops, workspace};
+use crate::compositor::{actions, fullscreen, monitor, spawn, surface, workspace};
 use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -123,8 +123,7 @@ impl XdgShellHandler for Halley {
             return;
         };
         let now = Instant::now();
-        let focus_target =
-            surface_ops::stack_focus_target_for_node(self, node_id).unwrap_or(node_id);
+        let focus_target = surface::stack_focus_target_for_node(self, node_id).unwrap_or(node_id);
         self.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
         self.set_interaction_focus(Some(focus_target), 700, now);
         if let Some((press_global_sx, press_global_sy)) =

@@ -8,7 +8,7 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 use crate::animation::active_surface_render_scale;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::active_stacking_render_order_for_monitor;
+use crate::compositor::surface::active_stacking_render_order_for_monitor;
 use crate::frame_loop::anim_style_for;
 use crate::presentation::world_to_screen;
 use crate::window::active_window_frame_pad_px;

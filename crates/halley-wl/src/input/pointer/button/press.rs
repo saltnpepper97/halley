@@ -5,7 +5,7 @@ use crate::compositor::actions::window::activate_collapsed_node_from_click;
 use crate::compositor::interaction::state::PendingMovePress;
 use crate::compositor::interaction::{HitNode, PointerState};
 use crate::compositor::root::Halley;
-use crate::compositor::surface_ops::node_allows_interactive_resize;
+use crate::compositor::surface::node_allows_interactive_resize;
 
 use super::frame::ButtonFrame;
 use super::release::{
