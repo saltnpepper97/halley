@@ -35,8 +35,13 @@ pub(crate) use bearings::bearing_hit_test;
 pub(crate) use cluster_icon::cluster_core_icon_texture;
 pub(crate) use cursor::cursor_surface_hotspot;
 pub(crate) use cursor_theme::themed_cursor_sprite_with_fallback;
-pub(crate) use frame::{draw_debug_frame, draw_debug_frame_to_target};
-pub(crate) use node::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
+pub(crate) use frame::{
+    draw_debug_frame, draw_debug_frame_to_target, draw_offscreen_textures, draw_window_borders,
+    ensure_window_texture_program,
+};
+pub(crate) use node::{
+    ensure_node_circle_resources, node_app_icon_fallback_glyph, node_app_icon_texture_allowed,
+};
 pub(crate) use screenshot_icon::{
     screenshot_menu_background_color, screenshot_menu_highlight_color,
     screenshot_menu_icon_texture, screenshot_menu_inactive_highlight_color,

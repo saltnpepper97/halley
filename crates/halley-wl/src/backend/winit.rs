@@ -116,6 +116,25 @@ impl portal::OutputCaptureBackend for WinitOutputCaptureBackend {
             dmabuf,
         )
     }
+
+    fn capture_window_png(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        node_id: halley_core::field::NodeId,
+        output_path: &std::path::Path,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut backend = self.backend.try_borrow_mut().map_err(|_| {
+            io::Error::other("winit renderer already borrowed during window capture")
+        })?;
+        crate::window::capture_window_to_png_via_renderer(
+            backend.renderer(),
+            st,
+            output_name,
+            node_id,
+            output_path,
+        )
+    }
 }
 
 fn apply_host_cursor(

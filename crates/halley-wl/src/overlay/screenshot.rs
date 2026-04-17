@@ -28,8 +28,6 @@ const DIM_COLOR: Color32F = Color32F::new(0.0, 0.0, 0.0, 0.40);
 const SCREEN_DIM_COLOR: Color32F = Color32F::new(0.0, 0.0, 0.0, 0.28);
 const WINDOW_CAPTURE_FILL: Color32F = Color32F::new(0.45, 0.45, 0.45, 0.34);
 const WINDOW_CAPTURE_OUTLINE: Color32F = Color32F::new(0.72, 0.72, 0.72, 0.78);
-const SHADOW_COLOR_1: Color32F = Color32F::new(0.0, 0.0, 0.0, 0.16);
-const SHADOW_COLOR_2: Color32F = Color32F::new(0.0, 0.0, 0.0, 0.10);
 const DASH_LEN: i32 = 10;
 const GAP_LEN: i32 = 6;
 const MENU_BAR_W: i32 = 420;
@@ -290,36 +288,6 @@ fn draw_screenshot_menu(
     let item_fill = screenshot_menu_item_fill_color(overlay.tuning);
     let style = resolve_screenshot_menu_style(overlay.tuning);
     let bar_rect = screenshot_menu_bar_rect(screen_w, screen_h);
-    let shadow_rect_1 = Rectangle::<i32, Physical>::new(
-        (bar_rect.loc.x + 4, bar_rect.loc.y + 5).into(),
-        bar_rect.size,
-    );
-    let shadow_rect_2 = Rectangle::<i32, Physical>::new(
-        (bar_rect.loc.x + 2, bar_rect.loc.y + 2).into(),
-        bar_rect.size,
-    );
-    draw_screenshot_menu_chip(
-        frame,
-        overlay.render_state,
-        shadow_rect_1,
-        style.rounded,
-        style.bar_corner_radius,
-        0.0,
-        SHADOW_COLOR_1,
-        Color32F::new(0.0, 0.0, 0.0, 0.0),
-        damage,
-    )?;
-    draw_screenshot_menu_chip(
-        frame,
-        overlay.render_state,
-        shadow_rect_2,
-        style.rounded,
-        style.bar_corner_radius,
-        0.0,
-        SHADOW_COLOR_2,
-        Color32F::new(0.0, 0.0, 0.0, 0.0),
-        damage,
-    )?;
     draw_screenshot_menu_chip(
         frame,
         overlay.render_state,

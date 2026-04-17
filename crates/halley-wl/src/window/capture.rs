@@ -1,5 +1,19 @@
 use super::*;
 
+use std::io;
+use std::path::Path;
+
+use image::RgbaImage;
+use smithay::backend::allocator::Fourcc;
+use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::{Bind, Color32F, ExportMem, Frame, Offscreen, Renderer};
+use smithay::utils::{Buffer, Rectangle, Transform};
+
+use crate::render::{
+    draw_offscreen_textures, draw_window_borders, ensure_node_circle_resources,
+    ensure_window_texture_program,
+};
+
 pub(super) fn render_view_for_monitor(st: &Halley, monitor: &str) -> (Vec2, Vec2, Vec2) {
     if st.model.monitor_state.current_monitor == monitor {
         return (
@@ -194,6 +208,144 @@ pub(crate) fn capture_closing_window_animation(
     );
 
     Some((border_rects, vec![offscreen]))
+}
+
+pub(crate) fn capture_window_to_png_via_renderer(
+    renderer: &mut GlesRenderer,
+    st: &mut Halley,
+    monitor: &str,
+    node_id: NodeId,
+    output_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let previous_monitor = st.begin_temporary_render_monitor(monitor);
+    let result = (|| {
+        let now = Instant::now();
+        ensure_node_circle_resources(renderer, st)?;
+        ensure_window_texture_program(renderer, st);
+        prewarm_visible_active_window_offscreen_caches(renderer, st, now);
+
+        let (mut border_rects, mut offscreen_textures) =
+            capture_closing_window_animation(st, monitor, node_id).ok_or_else(|| {
+                io::Error::other(format!(
+                    "unable to prepare window capture for node {} on {monitor}",
+                    node_id.as_u64()
+                ))
+            })?;
+        let bounds = window_capture_bounds(&border_rects, &offscreen_textures)
+            .ok_or_else(|| io::Error::other("window capture bounds are empty"))?;
+
+        translate_window_capture_primitives(
+            &mut border_rects,
+            &mut offscreen_textures,
+            bounds.loc.x,
+            bounds.loc.y,
+            bounds.size.w,
+            bounds.size.h,
+        );
+        let buffer_size: smithay::utils::Size<i32, Buffer> =
+            (bounds.size.w.max(1), bounds.size.h.max(1)).into();
+
+        let mut texture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
+            renderer,
+            Fourcc::Abgr8888,
+            buffer_size,
+        )?;
+        let damage = Rectangle::from_size(bounds.size);
+        {
+            let mut target = renderer.bind(&mut texture)?;
+            let mut frame = renderer.render(&mut target, bounds.size, Transform::Normal)?;
+            frame.clear(Color32F::TRANSPARENT, &[damage])?;
+            draw_offscreen_textures(
+                &mut frame,
+                damage,
+                &offscreen_textures,
+                st.ui.render_state.gpu.window_texture_program.as_ref(),
+            )?;
+            draw_window_borders(&mut frame, bounds.size, damage, &border_rects, st)?;
+            let _ = frame.finish()?;
+        }
+
+        let capture_region = Rectangle::<i32, Buffer>::from_size(buffer_size);
+        let mapping = renderer.copy_texture(&texture, capture_region, Fourcc::Abgr8888)?;
+        let bytes = renderer.map_texture(&mapping)?.to_vec();
+        save_window_capture_png(
+            output_path,
+            bounds.size.w as u32,
+            bounds.size.h as u32,
+            bytes,
+        )?;
+        Ok(())
+    })();
+    st.end_temporary_render_monitor(previous_monitor);
+    result
+}
+
+fn window_capture_bounds(
+    border_rects: &[ActiveBorderRect],
+    offscreen_textures: &[OffscreenNodeTexture],
+) -> Option<Rectangle<i32, Physical>> {
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+
+    for rect in border_rects {
+        let border_px = rect.border_px.max(0.0).round() as i32;
+        min_x = min_x.min(rect.x - border_px);
+        min_y = min_y.min(rect.y - border_px);
+        max_x = max_x.max(rect.x + rect.w + border_px);
+        max_y = max_y.max(rect.y + rect.h + border_px);
+    }
+    for tex in offscreen_textures {
+        min_x = min_x.min(tex.dst_x);
+        min_y = min_y.min(tex.dst_y);
+        max_x = max_x.max(tex.dst_x + tex.dst_w.max(1));
+        max_y = max_y.max(tex.dst_y + tex.dst_h.max(1));
+    }
+
+    (min_x < max_x && min_y < max_y).then(|| {
+        Rectangle::<i32, Physical>::new(
+            (min_x, min_y).into(),
+            ((max_x - min_x).max(1), (max_y - min_y).max(1)).into(),
+        )
+    })
+}
+
+fn translate_window_capture_primitives(
+    border_rects: &mut [ActiveBorderRect],
+    offscreen_textures: &mut [OffscreenNodeTexture],
+    offset_x: i32,
+    offset_y: i32,
+    clip_w: i32,
+    clip_h: i32,
+) {
+    for rect in border_rects {
+        rect.x -= offset_x;
+        rect.y -= offset_y;
+    }
+    for tex in offscreen_textures {
+        tex.dst_x -= offset_x;
+        tex.dst_y -= offset_y;
+        tex.clip_x = 0;
+        tex.clip_y = 0;
+        tex.clip_w = clip_w.max(1);
+        tex.clip_h = clip_h.max(1);
+    }
+}
+
+fn save_window_capture_png(
+    output_path: &Path,
+    width: u32,
+    height: u32,
+    bytes: Vec<u8>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let image = RgbaImage::from_vec(width.max(1), height.max(1), bytes)
+        .ok_or_else(|| io::Error::other("failed to build RGBA image for window capture"))?;
+    image.save(output_path)?;
+    Ok(())
 }
 
 pub(crate) fn prewarm_visible_active_window_offscreen_caches(

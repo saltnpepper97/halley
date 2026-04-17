@@ -283,7 +283,7 @@ pub(super) fn draw_debug_frame_scene(
     Ok(())
 }
 
-fn draw_offscreen_textures(
+pub(crate) fn draw_offscreen_textures(
     frame: &mut GlesFrame<'_, '_>,
     damage: Rectangle<i32, Physical>,
     offscreen_textures: &[OffscreenNodeTexture],
@@ -487,7 +487,7 @@ fn draw_stack_window_units(
     Ok(())
 }
 
-fn draw_window_borders(
+pub(crate) fn draw_window_borders(
     frame: &mut GlesFrame<'_, '_>,
     size: smithay::utils::Size<i32, Physical>,
     damage: Rectangle<i32, Physical>,

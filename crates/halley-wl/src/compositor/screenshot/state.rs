@@ -37,10 +37,16 @@ pub(crate) struct ScreenshotRegionResizeDir {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) enum PendingScreenshotKind {
+    Crop(CaptureCrop),
+    Window { node_id: NodeId },
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct PendingScreenshotCapture {
     pub(crate) monitor: String,
     pub(crate) serial: u64,
-    pub(crate) crop: CaptureCrop,
+    pub(crate) kind: PendingScreenshotKind,
     pub(crate) output_path: PathBuf,
     pub(crate) execute_at_ms: u64,
 }

@@ -184,6 +184,26 @@ impl portal::OutputCaptureBackend for TtyOutputCaptureBackend {
             dmabuf,
         )
     }
+
+    fn capture_window_png(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        node_id: halley_core::field::NodeId,
+        output_path: &std::path::Path,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut renderer = self
+            .renderer
+            .try_borrow_mut()
+            .map_err(|_| io::Error::other("tty renderer already borrowed during window capture"))?;
+        crate::window::capture_window_to_png_via_renderer(
+            &mut renderer,
+            st,
+            output_name,
+            node_id,
+            output_path,
+        )
+    }
 }
 
 pub(crate) fn probe_tty_drm_device_via_session(

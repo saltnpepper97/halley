@@ -31,10 +31,12 @@ use crate::window::prewarm_visible_active_window_offscreen_caches;
 use draw::{draw_cursor_layer, draw_debug_frame_scene};
 use scene::{collect_cursor_scene, collect_debug_frame_scene, prepare_debug_frame_state};
 
+pub(crate) use draw::{draw_offscreen_textures, draw_window_borders};
+
 const WINDOW_TEXTURE_SHADER: &str = include_str!("../shaders/window_rounded_texture.frag");
 const SURFACE_CLIP_SHADER: &str = include_str!("../shaders/surface_clipped_texture.frag");
 
-fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mut Halley) {
+pub(crate) fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mut Halley) {
     if st.ui.render_state.gpu.window_texture_program.is_some()
         || st.ui.render_state.gpu.window_texture_program_failed
     {

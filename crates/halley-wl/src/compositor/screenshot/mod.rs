@@ -16,8 +16,8 @@ use region::{
     screenshot_session_monitor, screenshot_window_crop_for_node,
 };
 use state::{
-    InflightScreenshotCapture, PendingScreenshotCapture, ScreenshotCaptureResult,
-    ScreenshotRegionDragMode, ScreenshotSessionState,
+    InflightScreenshotCapture, PendingScreenshotCapture, PendingScreenshotKind,
+    ScreenshotCaptureResult, ScreenshotRegionDragMode, ScreenshotSessionState,
 };
 
 pub(crate) struct ScreenshotController<T> {
@@ -323,12 +323,12 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
         let Some(session) = self.input.interaction_state.screenshot_session.clone() else {
             return false;
         };
-        let crop = match session.mode {
+        let kind = match session.mode {
             CaptureMode::Menu => {
                 return self.activate_screenshot_menu_item(session.menu_selected);
             }
             CaptureMode::Region => match session.selection_rect {
-                Some(rect) if rect.w > 0 && rect.h > 0 => rect,
+                Some(rect) if rect.w > 0 && rect.h > 0 => PendingScreenshotKind::Crop(rect),
                 _ => return false,
             },
             CaptureMode::Screen => {
@@ -340,22 +340,16 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
                 else {
                     return false;
                 };
-                halley_capit::CaptureCrop {
+                PendingScreenshotKind::Crop(halley_capit::CaptureCrop {
                     x: space.offset_x,
                     y: space.offset_y,
                     w: space.width.max(1),
                     h: space.height.max(1),
-                }
-            }
-            CaptureMode::Window => match session
-                .selected_window
-                .and_then(|node_id| {
-                    screenshot_window_crop_for_node(self, node_id, session.monitor.as_str())
                 })
-                .or(session.selection_rect)
-            {
-                Some(rect) if rect.w > 0 && rect.h > 0 => rect,
-                _ => return false,
+            }
+            CaptureMode::Window => match session.selected_window {
+                Some(node_id) => PendingScreenshotKind::Window { node_id },
+                None => return false,
             },
         };
         let output_path = default_output_path_in(
@@ -389,7 +383,7 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
         self.input.interaction_state.pending_screenshot_capture = Some(PendingScreenshotCapture {
             monitor,
             serial,
-            crop,
+            kind,
             output_path,
             execute_at_ms: self.now_ms(now).saturating_add(24),
         });
@@ -406,20 +400,46 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
             && now_ms >= pending.execute_at_ms
         {
             self.input.interaction_state.pending_screenshot_capture = None;
-            let (tx, rx) = mpsc::channel();
-            let output_path = pending.output_path.clone();
-            let crop = pending.crop;
-            std::thread::spawn(move || {
-                let result =
-                    capture_crop_to_png(output_path.as_path(), crop).map(|_| output_path.clone());
-                let _ = tx.send(result);
-            });
-            self.input.interaction_state.inflight_screenshot_capture =
-                Some(InflightScreenshotCapture {
-                    monitor: pending.monitor,
-                    serial: pending.serial,
-                    rx,
-                });
+            match pending.kind {
+                PendingScreenshotKind::Crop(crop) => {
+                    let (tx, rx) = mpsc::channel();
+                    let output_path = pending.output_path.clone();
+                    std::thread::spawn(move || {
+                        let result = capture_crop_to_png(output_path.as_path(), crop)
+                            .map(|_| output_path.clone());
+                        let _ = tx.send(result);
+                    });
+                    self.input.interaction_state.inflight_screenshot_capture =
+                        Some(InflightScreenshotCapture {
+                            monitor: pending.monitor,
+                            serial: pending.serial,
+                            rx,
+                        });
+                }
+                PendingScreenshotKind::Window { node_id } => {
+                    let result = self
+                        .portal
+                        .capture_backend
+                        .clone()
+                        .ok_or_else(|| "no capture backend configured".to_string())
+                        .and_then(|backend| {
+                            backend
+                                .capture_window_png(
+                                    self,
+                                    pending.monitor.as_str(),
+                                    node_id,
+                                    pending.output_path.as_path(),
+                                )
+                                .map_err(|err| err.to_string())
+                        });
+                    self.input.interaction_state.last_screenshot_result =
+                        Some(ScreenshotCaptureResult {
+                            serial: pending.serial,
+                            saved_path: result.as_ref().ok().map(|_| pending.output_path.clone()),
+                            error: result.err(),
+                        });
+                }
+            }
             self.request_maintenance();
         }
 

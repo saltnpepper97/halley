@@ -7,6 +7,8 @@ use halley_ipc::CaptureMode;
 use crate::compositor::root::Halley;
 use crate::compositor::screenshot::state::{ScreenshotRegionDragMode, ScreenshotRegionResizeDir};
 use crate::compositor::surface::active_stacking_visible_members_for_monitor;
+use crate::input::{active_node_screen_rect, active_node_surface_transform_screen_details};
+use crate::window::active_window_frame_pad_px;
 
 pub(super) const SCREENSHOT_HANDLE_SIZE: i32 = 12;
 pub(super) const SCREENSHOT_HANDLE_HIT: i32 = 14;
@@ -55,8 +57,8 @@ pub(super) fn screenshot_window_crop_for_node(
         (space.offset_x, space.offset_y, space.width, space.height)
     };
     let previous_monitor = st.begin_temporary_render_monitor(monitor);
-    let rect =
-        crate::input::active_node_screen_rect(st, width, height, node_id, Instant::now(), None);
+    let now = Instant::now();
+    let rect = screenshot_window_capture_screen_rect(st, node_id, monitor, width, height, now);
     st.end_temporary_render_monitor(previous_monitor);
     let (left, top, right, bottom) = rect?;
     Some(CaptureCrop {
@@ -65,6 +67,48 @@ pub(super) fn screenshot_window_crop_for_node(
         w: (right - left).abs().round().max(1.0) as i32,
         h: (bottom - top).abs().round().max(1.0) as i32,
     })
+}
+
+fn screenshot_window_capture_screen_rect(
+    st: &Halley,
+    node_id: NodeId,
+    monitor: &str,
+    width: i32,
+    height: i32,
+    now: Instant,
+) -> Option<(f32, f32, f32, f32)> {
+    let (mut left, mut top, mut right, mut bottom) =
+        active_node_screen_rect(st, width, height, node_id, now, None)?;
+    let fullscreen_on_monitor = st.fullscreen_monitor_for_node(node_id) == Some(monitor);
+    let stacked_on_monitor = active_stacking_visible_members_for_monitor(st, monitor)
+        .iter()
+        .any(|&visible_id| visible_id == node_id);
+    if fullscreen_on_monitor || stacked_on_monitor {
+        return Some((left, top, right, bottom));
+    }
+
+    let scale =
+        active_node_surface_transform_screen_details(st, width, height, node_id, now, None)?.scale;
+    (left, top, right, bottom) = inflate_window_capture_rect_by_frame_pad(
+        (left, top, right, bottom),
+        active_window_frame_pad_px(&st.runtime.tuning) as f32,
+        scale,
+    );
+    Some((left, top, right, bottom))
+}
+
+fn inflate_window_capture_rect_by_frame_pad(
+    rect: (f32, f32, f32, f32),
+    frame_pad_px: f32,
+    scale: f32,
+) -> (f32, f32, f32, f32) {
+    let scaled_pad = frame_pad_px.max(0.0) * scale.max(0.0);
+    (
+        rect.0 - scaled_pad,
+        rect.1 - scaled_pad,
+        rect.2 + scaled_pad,
+        rect.3 + scaled_pad,
+    )
 }
 
 fn screenshot_window_target_for_monitor(st: &Halley, monitor: &str) -> Option<NodeId> {
@@ -332,5 +376,18 @@ pub(super) fn screenshot_region_apply_drag(
             screenshot_crop_clamp_to(&mut r, bounds);
             r
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inflate_window_capture_rect_by_frame_pad;
+
+    #[test]
+    fn window_capture_rect_includes_scaled_frame_pad() {
+        let inflated =
+            inflate_window_capture_rect_by_frame_pad((100.0, 200.0, 300.0, 500.0), 10.0, 1.5);
+
+        assert_eq!(inflated, (85.0, 185.0, 315.0, 515.0));
     }
 }

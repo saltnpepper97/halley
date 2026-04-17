@@ -1,4 +1,5 @@
 use std::io;
+use std::path::Path;
 use std::ptr;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -46,6 +47,14 @@ pub(crate) trait OutputCaptureBackend {
         logical_region: Option<Rectangle<i32, Logical>>,
         dmabuf: &mut Dmabuf,
     ) -> Result<crate::backend::interface::CaptureDmabufResult, Box<dyn std::error::Error>>;
+
+    fn capture_window_png(
+        &self,
+        st: &mut Halley,
+        output_name: &str,
+        node_id: halley_core::field::NodeId,
+        output_path: &Path,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
