@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cosmic_text::{
-    Attrs, Buffer, Color, Family, FontSystem, Hinting, Metrics, Shaping, SwashCache,
+    Attrs, Buffer, Color, Family, FontSystem, Hinting, Metrics, Shaping, Style, SwashCache, Weight,
 };
 use halley_config::FontConfig;
 use smithay::{
@@ -388,9 +388,11 @@ pub(crate) fn draw_ui_text_in(
 }
 
 fn attrs_for_key<'a>(key: &'a UiTextCacheKey, resolved_family: Option<&'a str>) -> Attrs<'a> {
-    Attrs::new().family(resolve_family(
-        resolved_family.unwrap_or(key.family.as_str()),
-    ))
+    let request = parse_font_request(key.family.as_str());
+    Attrs::new()
+        .family(resolve_family(resolved_family.unwrap_or(request.family)))
+        .style(request.style)
+        .weight(request.weight)
 }
 
 fn rasterized_pixels(
@@ -498,7 +500,8 @@ fn resolve_family(family: &str) -> Family<'_> {
 }
 
 fn resolve_named_family(font_system: &FontSystem, requested_family: &str) -> Option<String> {
-    let requested = requested_family.trim();
+    let request = parse_font_request(requested_family);
+    let requested = request.family.trim();
     if requested.is_empty() {
         return None;
     }
@@ -521,6 +524,115 @@ fn resolve_named_family(font_system: &FontSystem, requested_family: &str) -> Opt
                     .then(|| face.families.first().map(|(family, _)| family.clone()))
                     .flatten()
             })
+    })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ParsedFontRequest<'a> {
+    family: &'a str,
+    style: Style,
+    weight: Weight,
+}
+
+fn parse_font_request(requested: &str) -> ParsedFontRequest<'_> {
+    let trimmed = requested.trim();
+    let mut family = trimmed;
+    let mut style = Style::Normal;
+    let mut weight = Weight::NORMAL;
+
+    loop {
+        if matches!(style, Style::Normal) {
+            if let Some(stripped) = strip_font_suffix(family, &[" italic"]) {
+                family = stripped;
+                style = Style::Italic;
+                continue;
+            }
+            if let Some(stripped) = strip_font_suffix(family, &[" oblique"]) {
+                family = stripped;
+                style = Style::Oblique;
+                continue;
+            }
+        }
+
+        if matches!(weight, Weight::NORMAL) {
+            let weight_suffixes = [
+                (
+                    &[
+                        " extra bold",
+                        " extra-bold",
+                        " extrabold",
+                        " ultra bold",
+                        " ultra-bold",
+                        " ultrabold",
+                    ][..],
+                    Weight::EXTRA_BOLD,
+                ),
+                (
+                    &[
+                        " semi bold",
+                        " semi-bold",
+                        " semibold",
+                        " demi bold",
+                        " demi-bold",
+                        " demibold",
+                    ][..],
+                    Weight::SEMIBOLD,
+                ),
+                (
+                    &[
+                        " extra light",
+                        " extra-light",
+                        " extralight",
+                        " ultra light",
+                        " ultra-light",
+                        " ultralight",
+                    ][..],
+                    Weight::EXTRA_LIGHT,
+                ),
+                (&[" bold"][..], Weight::BOLD),
+                (&[" medium"][..], Weight::MEDIUM),
+                (&[" light"][..], Weight::LIGHT),
+                (&[" thin"][..], Weight::THIN),
+                (&[" black", " heavy"][..], Weight::BLACK),
+                (
+                    &[" regular", " normal", " book", " roman"][..],
+                    Weight::NORMAL,
+                ),
+            ];
+            if let Some((stripped, parsed_weight)) =
+                weight_suffixes
+                    .iter()
+                    .find_map(|(suffixes, parsed_weight)| {
+                        strip_font_suffix(family, suffixes)
+                            .map(|stripped| (stripped, *parsed_weight))
+                    })
+            {
+                family = stripped;
+                weight = parsed_weight;
+                continue;
+            }
+        }
+
+        break;
+    }
+
+    ParsedFontRequest {
+        family: if family.trim().is_empty() {
+            trimmed
+        } else {
+            family.trim()
+        },
+        style,
+        weight,
+    }
+}
+
+fn strip_font_suffix<'a>(value: &'a str, suffixes: &[&str]) -> Option<&'a str> {
+    let folded = value.to_ascii_lowercase();
+    suffixes.iter().find_map(|suffix| {
+        folded
+            .ends_with(suffix)
+            .then(|| value[..value.len().saturating_sub(suffix.len())].trim_end())
     })
 }
 
@@ -581,5 +693,23 @@ mod tests {
             resolve_named_family(&font_system, folded.as_str()),
             Some(family)
         );
+    }
+
+    #[test]
+    fn parses_weight_and_style_suffixes_from_font_request() {
+        let parsed = parse_font_request("CommitMono Nerd Font Bold Italic");
+
+        assert_eq!(parsed.family, "CommitMono Nerd Font");
+        assert_eq!(parsed.weight, Weight::BOLD);
+        assert_eq!(parsed.style, Style::Italic);
+    }
+
+    #[test]
+    fn leaves_plain_family_unchanged() {
+        let parsed = parse_font_request("CommitMono Nerd Font");
+
+        assert_eq!(parsed.family, "CommitMono Nerd Font");
+        assert_eq!(parsed.weight, Weight::NORMAL);
+        assert_eq!(parsed.style, Style::Normal);
     }
 }
