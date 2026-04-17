@@ -12,6 +12,6 @@ categories.workspace = true
 exclude.workspace = true
 
 [dependencies]
-halley-core = { path = "../halley-core", version = "0.1.0" }
+halley-core.workspace = true
 regex = "1.12.3"
-rune-cfg = "0.4.4"
+rune-cfg.workspace = true

@@ -12,9 +12,9 @@ categories.workspace = true
 exclude.workspace = true
 
 [dependencies]
-image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+image.workspace = true
 memmap2 = "0.9.10"
-smithay-client-toolkit = "0.20.0"
+smithay-client-toolkit.workspace = true
 tempfile = "3.27.0"
-wayland-client = "0.31.14"
+wayland-client.workspace = true
 wayland-protocols-wlr = { version = "0.3.12", features = ["client"] }

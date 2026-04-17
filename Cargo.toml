@@ -3,9 +3,11 @@ members = [
   "crates/halley-aperture",
   "crates/halley",
   "crates/halley-capit",
-  "crates/halley-cli", "crates/halley-config",
-  "crates/halley-core", "crates/halley-ipc", 
-  "crates/halley-wl"
+  "crates/halley-cli",
+  "crates/halley-config",
+  "crates/halley-core",
+  "crates/halley-ipc",
+  "crates/halley-wl",
 ]
 resolver = "2"
 
@@ -20,6 +22,21 @@ homepage = "https://github.com/saltnpepper97/halley"
 keywords = ["wayland", "compositor", "rust", "linux"]
 categories = ["os::linux-apis", "gui"]
 exclude = ["/.github", "/target", "/.idea", "/.vscode", "Cargo.lock"]
+
+[workspace.dependencies]
+halley-aperture = { path = "crates/halley-aperture", version = "0.1.0" }
+halley-capit = { path = "crates/halley-capit", version = "0.1.0" }
+halley-config = { path = "crates/halley-config", version = "0.1.0" }
+halley-core = { path = "crates/halley-core", version = "0.1.0" }
+halley-ipc = { path = "crates/halley-ipc", version = "0.1.0" }
+halley-wl = { path = "crates/halley-wl", version = "0.1.0" }
+
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+postcard = { version = "1.1.3", features = ["use-std"] }
+rune-cfg = "0.4.4"
+serde = { version = "1.0.228", features = ["derive"] }
+smithay-client-toolkit = "0.20.0"
+wayland-client = "0.31.14"
 
 [profile.dev]
 opt-level = 2

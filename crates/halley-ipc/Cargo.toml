@@ -12,5 +12,5 @@ categories.workspace = true
 exclude.workspace = true
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-postcard = { version = "1.0", features = ["use-std"] }
+postcard.workspace = true
+serde.workspace = true

@@ -13,12 +13,12 @@ exclude.workspace = true
 
 [dependencies]
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
-halley-ipc = { path = "../halley-ipc", version = "0.1.0" }
-rusttype = "0.9.3"
-smithay-client-toolkit = "0.20.0"
-rune-cfg = "0.4.4"
 fontdb = "0.23.0"
-wayland-client = "0.31.14"
+halley-ipc.workspace = true
+rusttype = "0.9.3"
+rune-cfg.workspace = true
+smithay-client-toolkit.workspace = true
+wayland-client.workspace = true
 
 [[bin]]
 name = "halley-aperture"
