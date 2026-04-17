@@ -19,6 +19,7 @@ Halley is a Wayland compositor built from the ground up for multi-monitor setups
 ## Demo
 
 ![Halley demo](demo/demo.png)
+![Halley demo-1](demo/demo-1.png)
 
 ---
 
