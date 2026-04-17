@@ -3,6 +3,7 @@ name = "halley-aperture"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 description = "A status bar and utility for the Halley Wayland compositor."
 license.workspace = true
 readme.workspace = true
@@ -12,7 +13,7 @@ categories.workspace = true
 exclude.workspace = true
 
 [dependencies]
-chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
+chrono.workspace = true
 fontdb = "0.23.0"
 halley-ipc.workspace = true
 rusttype = "0.9.3"

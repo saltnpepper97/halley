@@ -104,7 +104,7 @@ impl Halley {
         tuning: RuntimeTuning,
     ) -> Self {
         let now = Instant::now();
-        let initial_aperture_config = halley_aperture::ApertureConfig::default();
+        let initial_aperture_config = crate::aperture::core::ApertureConfig::default();
         let mut monitors = HashMap::new();
         for viewport in tuning
             .tty_viewports
@@ -424,24 +424,24 @@ impl Halley {
         Self::new(dh, event_loop.handle(), tuning)
     }
 
-    pub(crate) fn apply_aperture_config(&mut self, config: halley_aperture::ApertureConfig) {
+    pub(crate) fn apply_aperture_config(&mut self, config: crate::aperture::core::ApertureConfig) {
         self.aperture.apply_config(config);
     }
 
-    pub(crate) fn aperture_config(&self) -> &halley_aperture::ApertureConfig {
+    pub(crate) fn aperture_config(&self) -> &crate::aperture::core::ApertureConfig {
         self.aperture.config()
     }
 
     pub(crate) fn aperture_snapshot_for_mode<F>(
         &self,
-        mode: halley_aperture::ApertureMode,
-        output_rect: halley_aperture::Rect,
-        work_area_rect: halley_aperture::Rect,
+        mode: crate::aperture::core::ApertureMode,
+        output_rect: crate::aperture::core::Rect,
+        work_area_rect: crate::aperture::core::Rect,
         scale: f64,
         measure_text: F,
-    ) -> Option<halley_aperture::ClockSnapshot>
+    ) -> Option<crate::aperture::core::ClockSnapshot>
     where
-        F: FnMut(u32, &str) -> halley_aperture::Size,
+        F: FnMut(u32, &str) -> crate::aperture::core::Size,
     {
         self.aperture
             .snapshot_for_mode(mode, output_rect, work_area_rect, scale, measure_text)

@@ -24,6 +24,7 @@ categories = ["os::linux-apis", "gui"]
 exclude = ["/.github", "/target", "/.idea", "/.vscode", "Cargo.lock"]
 
 [workspace.dependencies]
+chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 halley-aperture = { path = "crates/halley-aperture", version = "0.1.0" }
 halley-capit = { path = "crates/halley-capit", version = "0.1.0" }
 halley-config = { path = "crates/halley-config", version = "0.1.0" }
