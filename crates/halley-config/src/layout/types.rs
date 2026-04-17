@@ -6,6 +6,8 @@ use regex::Regex;
 pub enum NodeBorderColorMode {
     UseWindowActive,
     UseWindowInactive,
+    UseWindowSecondaryActive,
+    UseWindowSecondaryInactive,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -44,12 +46,19 @@ pub enum OverlayShape {
     Rounded,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OverlayBorderSource {
+    Primary,
+    Secondary,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OverlayStyleConfig {
     pub background_color: OverlayColorMode,
     pub text_color: OverlayColorMode,
     pub shape: OverlayShape,
     pub borders: bool,
+    pub border_source: OverlayBorderSource,
 }
 
 impl Default for OverlayStyleConfig {
@@ -59,6 +68,7 @@ impl Default for OverlayStyleConfig {
             text_color: OverlayColorMode::Auto,
             shape: OverlayShape::Square,
             borders: true,
+            border_source: OverlayBorderSource::Primary,
         }
     }
 }

@@ -16,14 +16,15 @@ use smithay::{
 };
 
 use crate::compositor::root::Halley;
-use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, ShapeStyle};
+use halley_config::{NodeBackgroundColorMode, NodeDisplayPolicy, ShapeStyle};
 
 use super::log_rounded_shader_failure;
 use crate::animation::ease_in_out_cubic;
 use crate::frame_loop::anim_style_for;
 use crate::presentation::{
     node_marker_bounds, node_marker_metrics, node_render_diameter_px, themed_node_fill_color,
-    themed_node_label_fill_color, themed_node_label_text_color, world_to_screen,
+    themed_node_label_fill_color, themed_node_label_text_color, themed_node_ring_color,
+    world_to_screen,
 };
 use crate::render::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
 use crate::text::{draw_ui_text, ui_text_size};
@@ -325,27 +326,8 @@ fn draw_shader_label(
     Ok(())
 }
 
-fn window_active_border_color(st: &Halley) -> Color32F {
-    let color = st.runtime.tuning.decorations.border.color_focused;
-    Color32F::new(color.r, color.g, color.b, 1.0)
-}
-
-fn window_inactive_border_color(st: &Halley) -> Color32F {
-    let color = st.runtime.tuning.decorations.border.color_unfocused;
-    Color32F::new(color.r, color.g, color.b, 1.0)
-}
-
 fn node_ring_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
-    let mode = if hovered {
-        st.runtime.tuning.node_border_color_hover
-    } else {
-        st.runtime.tuning.node_border_color_inactive
-    };
-    let base = match mode {
-        NodeBorderColorMode::UseWindowActive => window_active_border_color(st),
-        NodeBorderColorMode::UseWindowInactive => window_inactive_border_color(st),
-    };
-    Color32F::new(base.r(), base.g(), base.b(), alpha)
+    themed_node_ring_color(&st.runtime.tuning, hovered, alpha)
 }
 
 fn node_fill_color(st: &Halley, hovered: bool) -> Color32F {

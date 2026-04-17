@@ -9,8 +9,7 @@ use halley_config::{RuntimeTuning, ViewportOutputConfig};
 
 use eventline::{
     FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, enable_console_color,
-    enable_console_duration, info, scope,
-    warn,
+    enable_console_duration, info, scope, warn,
 };
 use once_cell::sync::OnceCell;
 use rustix::process::Signal;

@@ -195,3 +195,37 @@ pub(crate) fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         out.click_collapsed_pan,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use rune_cfg::RuneConfig;
+
+    use crate::layout::{NodeBorderColorMode, RuntimeTuning};
+
+    use super::load_nodes_section;
+
+    #[test]
+    fn nodes_section_parses_secondary_border_color_modes() {
+        let cfg = RuneConfig::from_str(
+            r##"
+node:
+  border-colour-hover "use-window-secondary-active"
+  border-colour-inactive "use-window-secondary-inactive"
+end
+"##,
+        )
+        .expect("node config should parse");
+
+        let mut out = RuntimeTuning::default();
+        load_nodes_section(&cfg, &mut out);
+
+        assert_eq!(
+            out.node_border_color_hover,
+            NodeBorderColorMode::UseWindowSecondaryActive
+        );
+        assert_eq!(
+            out.node_border_color_inactive,
+            NodeBorderColorMode::UseWindowSecondaryInactive
+        );
+    }
+}

@@ -442,6 +442,9 @@ node:
   # Auto tints the node fill from its border colour.
   background-colour "auto"
 
+  # Border colour source for hovered/inactive nodes.
+  # Allowed values: "use-window-active", "use-window-inactive",
+  # "use-window-secondary-active", "use-window-secondary-inactive".
   border-colour-hover "use-window-active"
   border-colour-inactive "use-window-inactive"
 
@@ -559,6 +562,7 @@ overlays:
   text-colour "auto"
   shape "square"
   borders "true"
+  border-source "primary"
 end
 
 # Main input bindings.
