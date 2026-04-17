@@ -256,18 +256,6 @@ pub(crate) fn draw_debug_frame_to_target(
     let prepared = prepare_debug_frame_state(st, size);
     prewarm_visible_active_window_offscreen_caches(renderer, st, prepared.now);
 
-    if node_markers_need_app_icon_resources(st.runtime.tuning.node_show_app_icons) {
-        let mut prewarm_icons = Vec::new();
-        for (node_id, app_id) in &st.model.node_app_ids {
-            if !st.ui.render_state.node_app_icon_cache.contains_key(app_id) {
-                prewarm_icons.push(*node_id);
-            }
-        }
-        if !prewarm_icons.is_empty() {
-            let _ = ensure_app_icon_resources_for_node_ids(renderer, st, prewarm_icons.into_iter());
-        }
-    }
-
     let scene = collect_debug_frame_scene(
         renderer,
         st,

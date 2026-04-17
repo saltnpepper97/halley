@@ -864,8 +864,28 @@ pub(crate) fn collect_active_surfaces(
         let use_offscreen_zoom = !fullscreen_on_current_monitor;
 
         if use_offscreen_zoom {
-            let defer_offscreen_rebuild =
-                tiling_tile_transition.is_some() || stack_transition_pose.is_some();
+            let spawn_pan_pending = st
+                .model
+                .spawn_state
+                .active_spawn_pan
+                .is_some_and(|active| active.node_id == node_id)
+                || st
+                    .model
+                    .spawn_state
+                    .pending_spawn_pan_queue
+                    .iter()
+                    .any(|pending| pending.node_id == node_id)
+                || st
+                    .model
+                    .spawn_state
+                    .pending_spawn_activate_at_ms
+                    .contains_key(&node_id)
+                || st.model.spawn_state.pending_initial_reveal.contains(&node_id);
+            let open_anim_active = anim.scale < 0.999 || anim.alpha < 0.999;
+            let defer_offscreen_rebuild = tiling_tile_transition.is_some()
+                || stack_transition_pose.is_some()
+                || spawn_pan_pending
+                || open_anim_active;
             let stale_cache_available = st
                 .ui
                 .render_state

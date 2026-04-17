@@ -78,6 +78,10 @@ impl XdgShellHandler for Halley {
             .is_some_and(|(cid, monitor)| {
                 self.active_cluster_workspace_for_monitor(monitor) == Some(cid)
             });
+        if !is_transient && !handled_by_active_cluster {
+            self.model.spawn_state.pending_initial_reveal.insert(id);
+            let _ = self.model.field.set_detached(id, true);
+        }
         if !handled_by_active_cluster {
             let _ = self.model.field.touch(id, self.now_ms(now));
         }
