@@ -8,3 +8,25 @@ members = [
   "crates/halley-wl"
 ]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Dustin Pilgrim <dustin.pilgrim1997@gmail.com>"]
+license = "GPL-3.0-only"
+readme = "README.md"
+repository = "https://github.com/saltnpepper97/halley"
+homepage = "https://github.com/saltnpepper97/halley"
+keywords = ["wayland", "compositor", "rust", "linux"]
+categories = ["os::linux-apis", "gui"]
+exclude = ["/.github", "/target", "/.idea", "/.vscode", "Cargo.lock"]
+
+[profile.dev]
+opt-level = 2
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

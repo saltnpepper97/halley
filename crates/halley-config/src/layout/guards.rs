@@ -51,6 +51,7 @@ impl RuntimeTuning {
         self.docked_offscreen_delay_ms = self.docked_offscreen_delay_ms.clamp(0, 7_200_000);
 
         self.non_overlap_gap_px = self.non_overlap_gap_px.clamp(0.0, 256.0);
+        self.field_active_windows_allowed = self.field_active_windows_allowed.clamp(0, 64);
         self.zoom_step = self.zoom_step.clamp(1.001, 4.0);
         self.zoom_min = self.zoom_min.clamp(0.05, 1.0);
         self.zoom_max = self.zoom_max.clamp(1.0, 16.0);

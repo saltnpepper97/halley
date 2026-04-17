@@ -63,6 +63,7 @@ pub struct RuntimeTuning {
     pub docked_offscreen_delay_ms: u64,
 
     pub non_overlap_gap_px: f32,
+    pub field_active_windows_allowed: usize,
     pub pan_to_new: PanToNewMode,
     pub close_restore_focus: bool,
     pub close_restore_pan: CloseRestorePanMode,
@@ -404,7 +405,8 @@ const INTERNAL_CONFIG_SUFFIX: &str = r##"
 field:
   # Gap in pixels between windows and layout elements.
   gap 20.0
-  # Maximum number of fully active windows before decay takes over.
+  # Maximum number of non-node windows allowed on the Field before decay takes over.
+  # Set to 0 to disable decay entirely.
   active-windows-allowed 5
   # How aggressively the camera pans to newly opened windows.
   pan-to-new "if-needed"
@@ -765,6 +767,7 @@ mod tests {
         assert_eq!(tuning.node_label_shape, ShapeStyle::Square);
         assert_eq!(tuning.cursor.hide_after_ms, 2000);
         assert_eq!(tuning.cluster_dwell_ms, 2000);
+        assert_eq!(tuning.field_active_windows_allowed, 5);
         assert_eq!(tuning.input.repeat_rate, 30);
         assert_eq!(tuning.input.repeat_delay, 500);
     }

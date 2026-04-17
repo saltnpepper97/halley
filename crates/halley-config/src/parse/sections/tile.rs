@@ -42,13 +42,7 @@ pub(crate) fn load_tile_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     );
     out.tile_max_stack = pick_u64(
         cfg,
-        &[
-            "tile.max-stack",
-            "tile.max_stack",
-            "tile.stack-limit",
-            "field.active-windows-allowed",
-            "field.active_windows_allowed",
-        ],
+        &["tile.max-stack", "tile.max_stack", "tile.stack-limit"],
         out.tile_max_stack as u64,
     ) as usize;
 }

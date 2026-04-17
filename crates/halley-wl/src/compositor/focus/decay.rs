@@ -112,17 +112,10 @@ impl<T: Deref<Target = Halley>> FocusDecayController<T> {
 impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
     pub(crate) fn enforce_single_primary_active_unit(&mut self) {
         let now_ms = self.now_ms(Instant::now());
-        let visible_limit = self.runtime.tuning.active_cluster_visible_limit();
-        let active_windows_allowed = if visible_limit == 0 {
-            usize::MAX
-        } else {
-            match self.runtime.tuning.cluster_layout_kind() {
-                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling => {
-                    visible_limit + 1
-                }
-                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking => visible_limit,
-            }
-        };
+        let active_windows_allowed = self.runtime.tuning.field_active_windows_allowed;
+        if active_windows_allowed == 0 {
+            return;
+        }
         let companion = self.companion_surface_node(now_ms);
         let preferred_surface = self.last_input_surface_node();
 
@@ -245,6 +238,12 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
             || !self.model.field.is_visible(id)
             || n.kind != halley_core::field::NodeKind::Surface
         {
+            return;
+        }
+
+        if self.runtime.tuning.field_active_windows_allowed == 0 {
+            self.model.focus_state.outside_focus_ring_since_ms.remove(&id);
+            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
             return;
         }
 
@@ -419,5 +418,21 @@ mod tests {
             state.model.field.node(id).map(|n| n.decay),
             Some(DecayLevel::Cold)
         );
+    }
+
+    #[test]
+    fn zero_active_window_limit_disables_decay() {
+        let (mut state, id) = outside_ring_test_state();
+        state.runtime.tuning.field_active_windows_allowed = 0;
+        state.model.focus_state.outside_focus_ring_since_ms.insert(id, 5);
+        let _ = state.model.field.set_decay_level(id, DecayLevel::Cold);
+
+        state.apply_single_surface_decay_policy(id, 100_000, 120_000, 30_000);
+
+        assert_eq!(
+            state.model.field.node(id).map(|n| n.decay),
+            Some(DecayLevel::Hot)
+        );
+        assert!(!state.model.focus_state.outside_focus_ring_since_ms.contains_key(&id));
     }
 }

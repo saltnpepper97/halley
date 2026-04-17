@@ -263,8 +263,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 routing.local_sy,
                 now_ms,
             );
+            let mut over_reveal = false;
             if routing.local_sx >= routing.ws_w as f32 - Halley::CLUSTER_OVERFLOW_REVEAL_EDGE_PX {
                 st.reveal_cluster_overflow_for_monitor(monitor.as_str(), now_ms);
+                over_reveal = true;
             } else if let Some(rect) = st.cluster_overflow_rect_for_monitor(monitor.as_str()) {
                 let inside = routing.local_sx >= rect.x
                     && routing.local_sx <= rect.x + rect.w
@@ -272,40 +274,42 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                     && routing.local_sy <= rect.y + rect.h;
                 if inside {
                     st.reveal_cluster_overflow_for_monitor(monitor.as_str(), now_ms);
+                    over_reveal = true;
                 }
             }
-            crate::compositor::interaction::pointer::set_cursor_override_icon(
-                st,
-                queue_hover
-                    .map(|_| smithay::input::pointer::CursorIcon::Pointer)
-                    .or(None),
-            );
-            let next_hover = queue_hover.map(|hit| hit.member_id);
-            if next_hover != ps.hover_node {
-                ps.hover_started_at = next_hover.map(|_| now);
-            } else if next_hover.is_none() {
-                ps.hover_started_at = None;
-            }
-            ps.hover_node = next_hover;
-            st.input.interaction_state.pending_core_hover = None;
-            st.input.interaction_state.overlay_hover_target = next_hover.map(|node_id| {
-                crate::compositor::interaction::state::OverlayHoverTarget {
-                    node_id,
-                    monitor: monitor.clone(),
-                    screen_anchor: (
-                        routing.local_sx.round() as i32,
-                        routing.local_sy.round() as i32,
-                    ),
-                    prefer_left: true,
+
+            if queue_hover.is_some() || over_reveal {
+                crate::compositor::interaction::pointer::set_cursor_override_icon(
+                    st,
+                    queue_hover
+                        .map(|_| smithay::input::pointer::CursorIcon::Pointer)
+                        .or(None),
+                );
+                let next_hover = queue_hover.map(|hit| hit.member_id);
+                if next_hover != ps.hover_node {
+                    ps.hover_started_at = next_hover.map(|_| now);
+                } else if next_hover.is_none() {
+                    ps.hover_started_at = None;
                 }
-            });
-            crate::compositor::carry::system::set_drag_authority_node(st, None);
-            ps.drag = None;
-            ps.resize = None;
-            if queue_hover.is_some() {
+                ps.hover_node = next_hover;
+                st.input.interaction_state.pending_core_hover = None;
+                st.input.interaction_state.overlay_hover_target = next_hover.map(|node_id| {
+                    crate::compositor::interaction::state::OverlayHoverTarget {
+                        node_id,
+                        monitor: monitor.clone(),
+                        screen_anchor: (
+                            routing.local_sx.round() as i32,
+                            routing.local_sy.round() as i32,
+                        ),
+                        prefer_left: true,
+                    }
+                });
+                crate::compositor::carry::system::set_drag_authority_node(st, None);
+                ps.drag = None;
+                ps.resize = None;
                 ctx.backend.request_redraw();
+                return;
             }
-            return;
         }
     }
     st.input.interaction_state.cluster_overflow_drag_preview = None;

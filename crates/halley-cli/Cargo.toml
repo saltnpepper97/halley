@@ -1,13 +1,21 @@
 [package]
 name = "halley-cli"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Command-line interface for interacting with and controlling the Halley Wayland compositor."
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
 
 [[bin]]
 name = "halleyctl"
 path = "src/main.rs"
 
 [dependencies]
-halley-ipc = { path = "../halley-ipc" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+halley-ipc = { path = "../halley-ipc", version = "0.1.0" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

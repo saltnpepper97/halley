@@ -9,7 +9,7 @@ use halley_config::{RuntimeTuning, ViewportOutputConfig};
 
 use eventline::{
     FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, enable_console_color,
-    enable_console_duration, enable_console_scope_exits, enable_console_scope_labels, info, scope,
+    enable_console_duration, info, scope,
     warn,
 };
 use once_cell::sync::OnceCell;
@@ -304,26 +304,9 @@ pub(crate) fn init_logging() -> Result<(), Box<dyn Error>> {
             }),
         };
 
-        let console_level = env::var("HALLEY_WL_LOG_CONSOLE_LEVEL")
-            .ok()
-            .and_then(|v| parse_log_level(v.as_str()))
-            .unwrap_or(shared_level);
-        let file_level = env::var("HALLEY_WL_LOG_FILE_LEVEL")
-            .ok()
-            .and_then(|v| parse_log_level(v.as_str()))
-            .unwrap_or_else(|| {
-                if env::var("HALLEY_WL_LOG").is_ok() {
-                    shared_level
-                } else {
-                    LogLevel::Debug
-                }
-            });
-
         if let Err(err) = pollster::block_on(eventline::setup(Setup {
             verbose: true,
             level: Some(shared_level),
-            console_level: Some(console_level),
-            file_level: Some(file_level),
             file,
         })) {
             warn!("failed to configure logging: {}", err);
@@ -331,8 +314,6 @@ pub(crate) fn init_logging() -> Result<(), Box<dyn Error>> {
 
         enable_console_color(true);
         enable_console_duration(false);
-        enable_console_scope_labels(false);
-        enable_console_scope_exits(false);
 
         match log_file {
             Some(None) => info!("file logging disabled via HALLEY_WL_LOG_FILE"),

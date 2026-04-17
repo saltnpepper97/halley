@@ -69,6 +69,7 @@ impl Default for RuntimeTuning {
             docked_offscreen_delay_ms: 300_000,
 
             non_overlap_gap_px: 20.0,
+            field_active_windows_allowed: 5,
             pan_to_new: PanToNewMode::IfNeeded,
             close_restore_focus: true,
             close_restore_pan: CloseRestorePanMode::IfOffscreen,

@@ -16,6 +16,12 @@ Halley is a Wayland compositor built from the ground up for multi-monitor setups
 
 ---
 
+## Demo
+
+![Halley demo](demo/demo.png)
+
+---
+
 ## Concepts
 
 A quick orientation before diving in.
@@ -144,6 +150,19 @@ View the [contributing](CONTRIBUTING.md) guidelines before making any pull reque
 
 ---
 
+## Portals To Use
+
+- `xdg-desktop-portal-wlr`
+- `xdg-desktop-portal-gtk`
+
+---
+
+## Website
+
+Coming soon. This section will hold the project website link once it is live.
+
+---
+
 ## Inspirations
 
 - [niri](https://github.com/niri-wm/niri) — for how to do Wayland compositor things in Rust
@@ -157,4 +176,3 @@ View the [contributing](CONTRIBUTING.md) guidelines before making any pull reque
 ## License
 
 Released under the [**GPL-3.0**](LICENSE) license.
-
