@@ -18,8 +18,8 @@
 autostart:
   # Common examples you may want later:
   #once "waybar"
-
   #once "mako"
+  
   #once "gessod"
   #once "stasis"
 
@@ -54,7 +54,7 @@ end
 # Use an absolute path or an env-expanded path like `$env.HOME/...`.
 screenshot:
   directory "$env.HOME/Pictures/Screenshots/"
-  highlight-color "auto"
+  highlight-color "#d65d26"
   background-color "auto"
 end
 
