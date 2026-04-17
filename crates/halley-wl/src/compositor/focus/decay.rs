@@ -248,17 +248,29 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
             return;
         }
 
-        if self.preserve_collapsed_surface(id) {
+        if crate::compositor::workspace::state::preserve_collapsed_surface(&**self, id) {
+            self.model
+                .focus_state
+                .outside_focus_ring_since_ms
+                .remove(&id);
             return;
         }
 
         if self.is_hard_decay_protected(id, now_ms) {
+            self.model
+                .focus_state
+                .outside_focus_ring_since_ms
+                .remove(&id);
             let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
             return;
         }
 
         let outside_ring = self.surface_is_definitively_outside_focus_ring(id);
         if !outside_ring {
+            self.model
+                .focus_state
+                .outside_focus_ring_since_ms
+                .remove(&id);
             let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
             return;
         }
@@ -270,15 +282,14 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
             inactive_delay_ms
         };
 
-        let last_focus_ms = self
+        let outside_since_ms = *self
             .model
             .focus_state
-            .last_surface_focus_ms
-            .get(&id)
-            .copied()
-            .unwrap_or(0);
+            .outside_focus_ring_since_ms
+            .entry(id)
+            .or_insert(now_ms);
 
-        if now_ms.saturating_sub(last_focus_ms) >= delay_ms {
+        if now_ms.saturating_sub(outside_since_ms) >= delay_ms {
             crate::compositor::workspace::state::start_active_to_node_close_animation(
                 self,
                 id,
@@ -306,6 +317,35 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn outside_ring_test_state() -> (Halley, NodeId) {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.focus_ring_rx = 100.0;
+        tuning.focus_ring_ry = 100.0;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let id = state.model.field.spawn_surface(
+            "outside",
+            Vec2 { x: 260.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 100.0 },
+        );
+        state
+            .model
+            .workspace_state
+            .last_active_size
+            .insert(id, Vec2 { x: 100.0, y: 100.0 });
+        state
+            .ui
+            .render_state
+            .window_geometry
+            .insert(id, (-50.0, -50.0, 100.0, 100.0));
+        state.ui.render_state.bbox_loc.insert(id, (0.0, 0.0));
+
+        (state, id)
+    }
 
     #[test]
     fn active_surface_with_small_ring_overlap_is_not_treated_as_outside() {
@@ -339,31 +379,43 @@ mod tests {
 
     #[test]
     fn active_surface_fully_clear_of_ring_is_treated_as_outside() {
-        let mut tuning = halley_config::RuntimeTuning::default();
-        tuning.focus_ring_rx = 100.0;
-        tuning.focus_ring_ry = 100.0;
-        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
-            .expect("display")
-            .handle();
-        let mut state = Halley::new_for_test(&dh, tuning);
-
-        let id = state.model.field.spawn_surface(
-            "outside",
-            Vec2 { x: 260.0, y: 0.0 },
-            Vec2 { x: 100.0, y: 100.0 },
-        );
-        state
-            .model
-            .workspace_state
-            .last_active_size
-            .insert(id, Vec2 { x: 100.0, y: 100.0 });
-        state
-            .ui
-            .render_state
-            .window_geometry
-            .insert(id, (-50.0, -50.0, 100.0, 100.0));
-        state.ui.render_state.bbox_loc.insert(id, (0.0, 0.0));
+        let (state, id) = outside_ring_test_state();
 
         assert!(state.surface_is_definitively_outside_focus_ring(id));
+    }
+
+    #[test]
+    fn outside_ring_decay_waits_for_exit_delay_not_last_focus_time() {
+        let (mut state, id) = outside_ring_test_state();
+        state.model.focus_state.last_surface_focus_ms.insert(id, 0);
+
+        state.apply_single_surface_decay_policy(id, 100_000, 120_000, 30_000);
+
+        assert_eq!(
+            state.model.field.node(id).map(|n| n.decay),
+            Some(DecayLevel::Hot)
+        );
+        assert_eq!(
+            state.model.focus_state.outside_focus_ring_since_ms.get(&id),
+            Some(&100_000)
+        );
+    }
+
+    #[test]
+    fn outside_ring_decay_turns_cold_after_delay_from_exit() {
+        let (mut state, id) = outside_ring_test_state();
+
+        state.apply_single_surface_decay_policy(id, 100_000, 120_000, 30_000);
+        state.apply_single_surface_decay_policy(id, 129_999, 120_000, 30_000);
+        assert_eq!(
+            state.model.field.node(id).map(|n| n.decay),
+            Some(DecayLevel::Hot)
+        );
+
+        state.apply_single_surface_decay_policy(id, 130_000, 120_000, 30_000);
+        assert_eq!(
+            state.model.field.node(id).map(|n| n.decay),
+            Some(DecayLevel::Cold)
+        );
     }
 }

@@ -11,15 +11,15 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use crate::compositor::root::Halley;
 use crate::render::state::{NodeAppIconCacheEntry, NodeAppIconTexture};
 
-use super::node::NodeSnapshot;
+use super::node::{NodeSnapshot, node_markers_need_app_icon_resources};
 
 const NODE_ICON_RASTER_PX: u32 = 64;
 const ICON_WALK_MAX_DEPTH: usize = 6;
 
-struct AppIconRaster {
-    width: i32,
-    height: i32,
-    pixels_rgba: Vec<u8>,
+pub(crate) struct AppIconRaster {
+    pub(crate) width: i32,
+    pub(crate) height: i32,
+    pub(crate) pixels_rgba: Vec<u8>,
 }
 
 pub(crate) fn ensure_node_app_icon_resources(
@@ -27,6 +27,10 @@ pub(crate) fn ensure_node_app_icon_resources(
     st: &mut Halley,
     render_nodes: &[NodeSnapshot],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if !node_markers_need_app_icon_resources(st.runtime.tuning.node_show_app_icons) {
+        return Ok(());
+    }
+
     let node_ids = render_nodes
         .iter()
         .filter(|node| {
@@ -34,6 +38,7 @@ pub(crate) fn ensure_node_app_icon_resources(
                 node.state,
                 halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
             )
+                && !st.ui.render_state.closing_window_animations.contains_key(&node.id)
         })
         .map(|node| node.id)
         .collect::<Vec<_>>();
@@ -74,33 +79,29 @@ fn ensure_app_icon_resource(
         return Ok(());
     };
 
-    let Some(raster) = load_icon_raster(&icon_path) else {
-        st.ui
-            .render_state
-            .node_app_icon_cache
-            .insert(app_id.to_string(), NodeAppIconCacheEntry::Missing);
-        return Ok(());
+    let entry = if let Some(raster) = load_icon_raster(&icon_path) {
+        match renderer.import_memory(
+            &raster.pixels_rgba,
+            Fourcc::Abgr8888,
+            (raster.width, raster.height).into(),
+            false,
+        ) {
+            Ok(texture) => NodeAppIconCacheEntry::Ready(NodeAppIconTexture {
+                texture,
+                width: raster.width,
+                height: raster.height,
+            }),
+            Err(_) => NodeAppIconCacheEntry::Missing,
+        }
+    } else {
+        NodeAppIconCacheEntry::Missing
     };
 
-    let texture = renderer.import_memory(
-        &raster.pixels_rgba,
-        Fourcc::Abgr8888,
-        (raster.width, raster.height).into(),
-        false,
-    );
-
-    let entry = match texture {
-        Ok(texture) => NodeAppIconCacheEntry::Ready(NodeAppIconTexture {
-            texture,
-            width: raster.width,
-            height: raster.height,
-        }),
-        Err(_) => NodeAppIconCacheEntry::Missing,
-    };
     st.ui
         .render_state
         .node_app_icon_cache
         .insert(app_id.to_string(), entry);
+
     Ok(())
 }
 

@@ -320,7 +320,7 @@ pub(crate) fn collision_extents_for_node(
                 .copied()
                 .unwrap_or(n.intrinsic_size);
             let s = OverlapReadContext::active_collision_scale(anim.scale, basis.x, basis.y);
-            let ext = overlap_read_context(st).active_surface_overlap_extents(n);
+            let ext = overlap_read_context(st).surface_window_collision_extents(n);
 
             CollisionExtents {
                 left: ext.left * s,
@@ -333,7 +333,7 @@ pub(crate) fn collision_extents_for_node(
             overlap_read_context(st).node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
         }
         halley_core::field::NodeState::Core => {
-            overlap_read_context(st).node_collision_extents(n.intrinsic_size, &n.label, anim.scale)
+            overlap_read_context(st).core_node_collision_extents()
         }
         halley_core::field::NodeState::Drifting => CollisionExtents::symmetric(n.footprint),
     }
@@ -699,8 +699,20 @@ pub(crate) fn request_toplevel_resize(st: &mut Halley, node_id: NodeId, width: i
             continue;
         }
 
+        let monitor = st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&node_id)
+            .cloned()
+            .unwrap_or_else(|| st.focused_monitor().to_string());
+        let view = st.usable_viewport_for_monitor(&monitor);
+        let bounds_w = view.size.x as i32;
+        let bounds_h = view.size.y as i32;
+
         top.with_pending_state(|s| {
             s.size = Some((width, height).into());
+            s.bounds = Some((bounds_w, bounds_h).into());
             if focused_node == Some(node_id) {
                 s.states.set(xdg_toplevel::State::Activated);
             } else {
@@ -1329,7 +1341,7 @@ mod tests {
     }
 
     #[test]
-    fn active_overlap_extents_preserve_asymmetric_bbox_offsets() {
+    fn active_overlap_extents_stay_symmetric_with_asymmetric_bbox_offsets() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
@@ -1354,14 +1366,35 @@ mod tests {
         let node = state.model.field.node(id).expect("surface node");
         let ext = state.collision_extents_for_node(node);
 
-        assert!(
-            ext.left > ext.right,
-            "expected asymmetric x extents: {ext:?}"
+        assert_eq!(ext.left, ext.right, "expected symmetric x extents: {ext:?}");
+        assert_eq!(ext.top, ext.bottom, "expected symmetric y extents: {ext:?}");
+    }
+
+    #[test]
+    fn core_node_collision_extents_match_rendered_core_size() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let id = state.model.field.spawn_surface(
+            "core",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 400.0, y: 260.0 },
         );
-        assert!(
-            ext.top > ext.bottom,
-            "expected asymmetric y extents: {ext:?}"
-        );
+        let _ = state
+            .model
+            .field
+            .set_state(id, halley_core::field::NodeState::Core);
+
+        let node = state.model.field.node(id).expect("core node");
+        let ext = state.collision_extents_for_node(node);
+
+        assert_eq!(ext.left, 34.0);
+        assert_eq!(ext.right, 34.0);
+        assert_eq!(ext.top, 34.0);
+        assert_eq!(ext.bottom, 34.0);
     }
 
     #[test]

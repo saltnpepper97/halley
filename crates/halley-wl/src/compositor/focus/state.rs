@@ -18,6 +18,7 @@ pub(crate) struct FocusState {
     pub(crate) blocked_monitor_focus_restore: HashSet<String>,
     pub(crate) interaction_focus_until_ms: u64,
     pub(crate) last_surface_focus_ms: HashMap<NodeId, u64>,
+    pub(crate) outside_focus_ring_since_ms: HashMap<NodeId, u64>,
     pub(crate) focus_trail: HashMap<String, Trail>,
     pub(crate) suppress_trail_record_once: bool,
     pub(crate) pan_restore_active_focus: Option<NodeId>,
@@ -270,7 +271,7 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
             return;
         }
 
-        if self.preserve_collapsed_surface(id) {
+        if crate::compositor::workspace::state::preserve_collapsed_surface(&**self, id) {
             self.model.focus_state.pan_restore_active_focus = None;
             return;
         }
@@ -289,7 +290,7 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
         }
 
         let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
-        self.mark_active_transition(id, now, 280);
+        crate::compositor::workspace::state::mark_active_transition(&mut **self, id, now, 280);
 
         self.set_interaction_focus(Some(id), 12_000, now);
         self.model.focus_state.pan_restore_active_focus = None;

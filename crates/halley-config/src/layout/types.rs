@@ -141,6 +141,8 @@ impl Default for AnimationsConfig {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScreenshotConfig {
     pub directory: String,
+    pub highlight_color: OverlayColorMode,
+    pub background_color: OverlayColorMode,
 }
 
 impl Default for ScreenshotConfig {
@@ -148,6 +150,8 @@ impl Default for ScreenshotConfig {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         Self {
             directory: format!("{home}/Pictures/Screenshots"),
+            highlight_color: OverlayColorMode::Auto,
+            background_color: OverlayColorMode::Auto,
         }
     }
 }
@@ -157,6 +161,79 @@ pub struct DecorationBorderColor {
     pub r: f32,
     pub g: f32,
     pub b: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PrimaryBorderConfig {
+    pub size_px: i32,
+    pub radius_px: i32,
+    pub color_focused: DecorationBorderColor,
+    pub color_unfocused: DecorationBorderColor,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SecondaryBorderConfig {
+    pub enabled: bool,
+    pub size_px: i32,
+    pub gap_px: i32,
+    pub color_focused: DecorationBorderColor,
+    pub color_unfocused: DecorationBorderColor,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DecorationsConfig {
+    pub border: PrimaryBorderConfig,
+    pub secondary_border: SecondaryBorderConfig,
+    pub resize_using_border: bool,
+}
+
+impl Default for PrimaryBorderConfig {
+    fn default() -> Self {
+        Self {
+            size_px: 3,
+            radius_px: 0,
+            color_focused: DecorationBorderColor {
+                r: 0.22,
+                g: 0.82,
+                b: 0.92,
+            },
+            color_unfocused: DecorationBorderColor {
+                r: 0.28,
+                g: 0.30,
+                b: 0.35,
+            },
+        }
+    }
+}
+
+impl Default for SecondaryBorderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            size_px: 1,
+            gap_px: 2,
+            color_focused: DecorationBorderColor {
+                r: 0.98,
+                g: 0.74,
+                b: 0.15,
+            },
+            color_unfocused: DecorationBorderColor {
+                r: 0.12,
+                g: 0.12,
+                b: 0.12,
+            },
+        }
+    }
+}
+
+impl Default for DecorationsConfig {
+    fn default() -> Self {
+        Self {
+            border: PrimaryBorderConfig::default(),
+            secondary_border: SecondaryBorderConfig::default(),
+            resize_using_border: false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -184,6 +261,29 @@ pub enum ClickCollapsedPanMode {
     Never,
     IfOffscreen,
     Always,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputFocusMode {
+    Click,
+    Hover,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InputConfig {
+    pub repeat_rate: i32,
+    pub repeat_delay: i32,
+    pub focus_mode: InputFocusMode,
+}
+
+impl Default for InputConfig {
+    fn default() -> Self {
+        Self {
+            repeat_rate: 30,
+            repeat_delay: 500,
+            focus_mode: InputFocusMode::Click,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

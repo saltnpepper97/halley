@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/halley-aperture",
   "crates/halley",
   "crates/halley-capit",
   "crates/halley-cli", "crates/halley-config",

@@ -34,7 +34,7 @@ pub(crate) struct OverflowDragCtx {
 #[derive(Clone, Copy)]
 pub(crate) struct HitNode {
     pub(crate) node_id: NodeId,
-    pub(crate) on_titlebar: bool,
+    pub(crate) move_surface: bool,
     pub(crate) is_core: bool,
 }
 

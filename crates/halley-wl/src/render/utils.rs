@@ -10,6 +10,7 @@ use smithay::{
     utils::{Logical, Physical, Rectangle},
 };
 
+use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 
 /// Draw an elliptical ring at a fixed screen-space position and radius.
@@ -58,7 +59,7 @@ pub(crate) fn draw_ring<F: Frame>(
 }
 
 pub(crate) fn world_to_screen(st: &Halley, w: i32, h: i32, x: f32, y: f32) -> (i32, i32) {
-    let view = st.camera_view_size();
+    let view = camera_controller(st).view_size();
     let vw = view.x.max(1.0);
     let vh = view.y.max(1.0);
 

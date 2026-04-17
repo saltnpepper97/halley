@@ -75,7 +75,7 @@ pub fn temp_output_path(final_out_path: &Path) -> PathBuf {
     p
 }
 
-fn ensure_parent_dir(path: &Path) -> Result<(), String> {
+pub(crate) fn ensure_parent_dir(path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create dir {parent:?}: {e}"))?;
     }

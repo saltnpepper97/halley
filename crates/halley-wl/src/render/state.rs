@@ -136,21 +136,31 @@ pub(crate) struct StackCycleTransitionSnapshot {
 }
 
 #[derive(Clone)]
+pub(crate) enum ClosingWindowAnimationKind {
+    Window {
+        style: WindowCloseAnimationStyle,
+        border_rects: Vec<ActiveBorderRect>,
+        offscreen_textures: Vec<OffscreenNodeTexture>,
+    },
+    Node {
+        pos: Vec2,
+        label: String,
+        state: halley_core::field::NodeState,
+    },
+}
+
+#[derive(Clone)]
 pub(crate) struct ClosingWindowAnimationState {
     pub(crate) monitor: String,
     pub(crate) started_at: Instant,
     pub(crate) duration_ms: u64,
-    pub(crate) style: WindowCloseAnimationStyle,
-    pub(crate) border_rect: Option<ActiveBorderRect>,
-    pub(crate) offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) kind: ClosingWindowAnimationKind,
 }
 
 #[derive(Clone)]
 pub(crate) struct ClosingWindowAnimationSnapshot {
     pub(crate) progress: f32,
-    pub(crate) style: WindowCloseAnimationStyle,
-    pub(crate) border_rect: Option<ActiveBorderRect>,
-    pub(crate) offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) kind: ClosingWindowAnimationKind,
 }
 
 pub(crate) struct RenderState {
@@ -207,10 +217,10 @@ impl RenderState {
         now: Instant,
         duration_ms: u64,
         style: WindowCloseAnimationStyle,
-        border_rect: Option<ActiveBorderRect>,
+        border_rects: Vec<ActiveBorderRect>,
         offscreen_textures: Vec<OffscreenNodeTexture>,
     ) {
-        if border_rect.is_none() && offscreen_textures.is_empty() {
+        if border_rects.is_empty() && offscreen_textures.is_empty() {
             return;
         }
         self.closing_window_animations.insert(
@@ -219,9 +229,32 @@ impl RenderState {
                 monitor: monitor.to_string(),
                 started_at: now,
                 duration_ms: duration_ms.max(1),
-                style,
-                border_rect,
-                offscreen_textures,
+                kind: ClosingWindowAnimationKind::Window {
+                    style,
+                    border_rects,
+                    offscreen_textures,
+                },
+            },
+        );
+    }
+
+    pub(crate) fn start_closing_node_animation(
+        &mut self,
+        node_id: NodeId,
+        monitor: &str,
+        now: Instant,
+        duration_ms: u64,
+        pos: Vec2,
+        label: String,
+        state: halley_core::field::NodeState,
+    ) {
+        self.closing_window_animations.insert(
+            node_id,
+            ClosingWindowAnimationState {
+                monitor: monitor.to_string(),
+                started_at: now,
+                duration_ms: duration_ms.max(1),
+                kind: ClosingWindowAnimationKind::Node { pos, label, state },
             },
         );
     }
@@ -253,9 +286,7 @@ impl RenderState {
                 let elapsed_ms = now.saturating_duration_since(state.started_at).as_millis() as u64;
                 ClosingWindowAnimationSnapshot {
                     progress: (elapsed_ms as f32 / state.duration_ms.max(1) as f32).clamp(0.0, 1.0),
-                    style: state.style,
-                    border_rect: state.border_rect.clone(),
-                    offscreen_textures: state.offscreen_textures.clone(),
+                    kind: state.kind.clone(),
                 }
             })
             .collect()
@@ -628,6 +659,10 @@ impl RenderState {
 
     pub(crate) fn clear_window_offscreen_cache_for(&mut self, node_id: NodeId) {
         self.window_offscreen_cache.remove(&node_id);
+    }
+
+    pub(crate) fn clear_window_offscreen_caches(&mut self) {
+        self.window_offscreen_cache.clear();
     }
 
     pub(crate) fn prune_window_offscreen_cache(&mut self, alive: &HashSet<NodeId>, now: Instant) {

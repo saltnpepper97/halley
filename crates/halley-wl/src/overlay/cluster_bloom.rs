@@ -13,7 +13,10 @@ use crate::compositor::root::Halley;
 use crate::overlay::{ClusterBloomAnimSnapshot, OverlayView};
 use crate::render::app_icon::ensure_app_icon_resources_for_node_ids;
 use crate::render::text::{draw_ui_text_in, ui_text_size_in};
-use crate::render::{themed_node_fill_color, themed_node_label_text_color};
+use crate::render::{
+    node_app_icon_fallback_glyph, node_app_icon_texture_allowed, themed_node_fill_color,
+    themed_node_label_text_color,
+};
 
 #[derive(Clone, Copy)]
 pub(crate) struct BloomTokenLayout {
@@ -31,6 +34,12 @@ pub(crate) fn ensure_cluster_bloom_icon_resources(
     st: &mut Halley,
     monitor: &str,
 ) -> Result<(), Box<dyn Error>> {
+    if !st.runtime.tuning.cluster_show_icons
+        || !node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, false)
+    {
+        return Ok(());
+    }
+
     let overlay = OverlayView::from_halley(st);
     let ids = cluster_bloom_layouts(&overlay, 1, 1, monitor)
         .into_iter()
@@ -281,6 +290,7 @@ fn draw_bloom_token(
     )?;
 
     if overlay.tuning.cluster_show_icons
+        && node_app_icon_texture_allowed(overlay.tuning.node_show_app_icons, false)
         && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
             overlay.node_app_icon_entry(layout.member_id)
     {
@@ -307,23 +317,18 @@ fn draw_bloom_token(
         return Ok(());
     }
 
-    let fallback = overlay
-        .node_app_ids
-        .get(&layout.member_id)
-        .map(String::as_str)
-        .or_else(|| {
-            overlay
-                .field
-                .node(layout.member_id)
-                .map(|n| n.label.as_str())
-        })
-        .unwrap_or("?");
-    let glyph = fallback
-        .chars()
-        .find(|ch| ch.is_ascii_alphanumeric())
-        .unwrap_or('?')
-        .to_ascii_uppercase()
-        .to_string();
+    let glyph = node_app_icon_fallback_glyph(
+        overlay
+            .node_app_ids
+            .get(&layout.member_id)
+            .map(String::as_str),
+        overlay
+            .field
+            .node(layout.member_id)
+            .map(|n| n.label.as_str())
+            .unwrap_or("?"),
+    )
+    .to_string();
     let scale = 2;
     let (text_w, text_h) =
         ui_text_size_in(overlay.render_state, &overlay.tuning.font, &glyph, scale);

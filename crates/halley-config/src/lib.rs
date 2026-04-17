@@ -12,10 +12,11 @@ pub use keybinds::{
 pub use layout::{
     AnimationToggleConfig, AnimationsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
-    DecorationBorderColor, FontConfig, InitialWindowClusterParticipation,
-    InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, NodeBackgroundColorMode,
-    NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode, OverlayShape, OverlayStyleConfig,
-    PanToNewMode, RuntimeTuning, ScreenshotConfig, ShapeStyle, TimedAnimationConfig,
-    ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle,
-    WindowRule, WindowRulePattern,
+    DecorationBorderColor, DecorationsConfig, FontConfig, InitialWindowClusterParticipation,
+    InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, InputConfig, InputFocusMode,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode,
+    OverlayShape, OverlayStyleConfig, PanToNewMode, PrimaryBorderConfig, RuntimeTuning,
+    ScreenshotConfig, SecondaryBorderConfig, ShapeStyle, TimedAnimationConfig,
+    ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig,
+    WindowCloseAnimationStyle, WindowRule, WindowRulePattern,
 };

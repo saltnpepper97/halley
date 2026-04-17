@@ -12,7 +12,7 @@ use crate::compositor::root::Halley;
 use crate::compositor::spawn::state::is_persistent_rule_top;
 use crate::spatial::pick_hit_node_at;
 
-use super::resize::active_node_surface_transform_screen_details;
+use super::super::resize::active_node_surface_transform_screen_details;
 
 fn clamp_layer_popup_origin(
     popup: &smithay::desktop::PopupKind,
@@ -159,20 +159,11 @@ fn fullscreen_hit_blocks_non_overlay_layers(
         return false;
     }
 
-    let pointer_monitor = st
-        .monitor_for_screen(sx, sy)
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let pointer_monitor = st.monitor_for_screen_or_current(sx, sy);
     let node_monitor = st
         .fullscreen_monitor_for_node(hit.node_id)
         .map(str::to_owned)
-        .or_else(|| {
-            st.model
-                .monitor_state
-                .node_monitor
-                .get(&hit.node_id)
-                .cloned()
-        })
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        .unwrap_or_else(|| st.monitor_for_node_or_current(hit.node_id));
 
     pointer_monitor == node_monitor
 }
@@ -285,25 +276,6 @@ pub(crate) fn grabbed_layer_surface_focus(
     ))
 }
 
-/// Resolve the Wayland surface and compositor-space surface origin for a
-/// given screen-space pointer position.
-///
-/// `resize_preview` must be the same value passed to the current render frame
-/// so that during interactive resize the transform mirrors the render path
-/// (preview edges, scale=1.0) rather than the smoothed-position path.
-///
-/// # What Smithay expects for `focus.1`
-///
-/// `PointerHandle::motion` delivers the surface-local cursor position to the
-/// client as:
-///
-/// ```text
-/// surface_local = event.location − focus.1
-/// ```
-///
-/// `event.location` is the raw screen-pixel coordinate `(sx, sy)`.  Therefore
-/// `focus.1` **must** be the screen-space position of the found surface's
-/// `(0, 0)` origin, not a pre-computed local cursor offset.
 pub(crate) fn pointer_focus_for_screen(
     st: &mut Halley,
     ws_w: i32,
@@ -316,6 +288,9 @@ pub(crate) fn pointer_focus_for_screen(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
 )> {
+    if let Some(focus) = crate::protocol::wayland::session_lock::focus_for_screen(st, sx, sy) {
+        return Some(focus);
+    }
     if let Some(focus) = layer_surface_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)
     {
         return Some(focus);
@@ -336,8 +311,6 @@ pub(crate) fn pointer_focus_for_screen(
     )?;
     let scale = xform.scale.max(0.001);
 
-    // Convert screen → surface-tree-root-local so `under_from_surface_tree`
-    // can locate the exact (sub)surface under the pointer.
     let local = Point::<f64, Logical>::from((
         ((sx - xform.origin_x) / scale) as f64,
         ((sy - xform.origin_y) / scale) as f64,
@@ -356,20 +329,6 @@ pub(crate) fn pointer_focus_for_screen(
             continue;
         };
 
-        // `surface_loc` is the sub-surface's position relative to the
-        // tree root in surface-local (logical) pixels.  Its screen-space
-        // position is `origin + surface_loc * scale`.
-        //
-        // Smithay will deliver:
-        //   client_local = event.location − focus.1
-        //                = (sx, sy) − (origin_x + surface_loc.x * scale,
-        //                                origin_y + surface_loc.y * scale)
-        //
-        // At scale = 1.0 this is exactly `(sx − origin_x − surface_loc.x,
-        // sy − origin_y − surface_loc.y)` — the correct surface-local
-        // cursor position.
-        // location is sx/cam_scale (logical). focus_origin must match.
-        // origin_x is screen px → divide by cam_scale. surface_loc is already logical.
         let cam_scale_f = st.camera_render_scale() as f64;
         let focus_origin = Point::<f64, Logical>::from((
             xform.origin_x as f64 / cam_scale_f + surface_loc.x as f64,

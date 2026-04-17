@@ -51,7 +51,7 @@ use crate::compositor::surface_ops::current_surface_size_for_node;
 use crate::input::pointer::resize::advance_resize_anim;
 use crate::input::{BackendInputEventData, handle_backend_input_event};
 use crate::protocol::wayland::ClientState;
-use crate::spatial::{node_in_active_area, node_in_active_area_for_monitor};
+use crate::spatial::node_in_active_area;
 
 pub(crate) mod interface;
 pub(crate) mod tty;
@@ -73,33 +73,7 @@ pub(crate) fn resolve_hover_targets(
     Option<halley_core::field::NodeId>,
     Option<halley_core::field::NodeId>,
 ) {
-    let bloom_pluck_active =
-        ps.bloom_drag.is_some() || st.input.interaction_state.bloom_pull_preview.is_some();
-    if bloom_pluck_active {
-        return (None, None);
-    }
-    let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
-    let overlay_hover = st
-        .input
-        .interaction_state
-        .overlay_hover_target
-        .as_ref()
-        .map(|target| target.node_id);
-    let hovered = if hover_blocked {
-        None
-    } else {
-        overlay_hover.or(ps.hover_node)
-    };
-    let preview_ready = hovered.is_some_and(|id| {
-        ps.hover_started_at
-            .is_some_and(|at| now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS)
-            && (overlay_hover == Some(id) || node_in_active_area(st, id))
-    });
-    if preview_ready {
-        (None, hovered)
-    } else {
-        (hovered, None)
-    }
+    resolve_hover_targets_with_scope(st, ps, now, None)
 }
 
 pub(crate) fn resolve_hover_targets_for_monitor(
@@ -111,45 +85,98 @@ pub(crate) fn resolve_hover_targets_for_monitor(
     Option<halley_core::field::NodeId>,
     Option<halley_core::field::NodeId>,
 ) {
-    let bloom_pluck_active = ps.bloom_drag.is_some()
-        || st
-            .input
-            .interaction_state
-            .bloom_pull_preview
-            .as_ref()
-            .is_some_and(|preview| preview.monitor == monitor);
-    if bloom_pluck_active {
+    resolve_hover_targets_with_scope(st, ps, now, Some(monitor))
+}
+
+fn resolve_hover_targets_with_scope(
+    st: &Halley,
+    ps: &PointerState,
+    now: Instant,
+    monitor: Option<&str>,
+) -> (
+    Option<halley_core::field::NodeId>,
+    Option<halley_core::field::NodeId>,
+) {
+    if bloom_pull_preview_active_for_scope(st, ps, monitor) {
         return (None, None);
     }
+
     let hover_blocked = ps.preview_block_until.is_some_and(|t| now < t);
-    let overlay_hover = st
-        .input
-        .interaction_state
-        .overlay_hover_target
-        .as_ref()
-        .filter(|target| target.monitor == monitor)
-        .map(|target| target.node_id);
+    let overlay_hover = overlay_hover_target_for_scope(st, monitor);
     let hovered = if hover_blocked {
         None
     } else {
-        overlay_hover.or_else(|| {
-            ps.hover_node.filter(|id| {
-                st.model
-                    .monitor_state
-                    .node_monitor
-                    .get(id)
-                    .is_none_or(|node_monitor| node_monitor == monitor)
-            })
-        })
+        overlay_hover.or_else(|| fallback_hover_node_for_scope(st, ps, monitor))
     };
     let preview_ready = hovered.is_some_and(|id| {
         ps.hover_started_at
             .is_some_and(|at| now.duration_since(at).as_millis() as u64 >= HOVER_PREVIEW_DWELL_MS)
-            && (overlay_hover == Some(id) || node_in_active_area_for_monitor(st, id, monitor))
+            && (overlay_hover == Some(id) || hover_preview_node_is_eligible(st, id, monitor))
     });
     if preview_ready {
         (None, hovered)
     } else {
         (hovered, None)
     }
+}
+
+fn bloom_pull_preview_active_for_scope(
+    st: &Halley,
+    ps: &PointerState,
+    monitor: Option<&str>,
+) -> bool {
+    ps.bloom_drag.is_some()
+        || match monitor {
+            Some(monitor) => st
+                .input
+                .interaction_state
+                .bloom_pull_preview
+                .as_ref()
+                .is_some_and(|preview| preview.monitor == monitor),
+            None => st.input.interaction_state.bloom_pull_preview.is_some(),
+        }
+}
+
+fn overlay_hover_target_for_scope(
+    st: &Halley,
+    monitor: Option<&str>,
+) -> Option<halley_core::field::NodeId> {
+    st.input
+        .interaction_state
+        .overlay_hover_target
+        .as_ref()
+        .filter(|target| monitor.is_none_or(|monitor| target.monitor == monitor))
+        .map(|target| target.node_id)
+}
+
+fn fallback_hover_node_for_scope(
+    st: &Halley,
+    ps: &PointerState,
+    monitor: Option<&str>,
+) -> Option<halley_core::field::NodeId> {
+    match monitor {
+        Some(monitor) => ps
+            .hover_node
+            .filter(|id| hover_node_matches_monitor(st, *id, monitor)),
+        None => ps.hover_node,
+    }
+}
+
+fn hover_preview_node_is_eligible(
+    st: &Halley,
+    id: halley_core::field::NodeId,
+    monitor: Option<&str>,
+) -> bool {
+    match monitor {
+        Some(monitor) => hover_node_matches_monitor(st, id, monitor),
+        None => node_in_active_area(st, id),
+    }
+}
+
+fn hover_node_matches_monitor(st: &Halley, id: halley_core::field::NodeId, monitor: &str) -> bool {
+    st.model
+        .monitor_state
+        .node_monitor
+        .get(&id)
+        .is_none_or(|node_monitor| node_monitor == monitor)
 }

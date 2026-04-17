@@ -4,7 +4,9 @@ use super::modkeys::{key_matches, modifier_exact};
 use crate::compositor::actions::window::{
     move_latest_node_direction, toggle_focused_active_node_state,
 };
+use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ModState;
+use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
@@ -25,6 +27,22 @@ fn spawn_launch_binding(st: &mut Halley, command: &str, wayland_display: &str) -
         &st.runtime.tuning.cursor,
         Some(activation_token.as_str()),
         "command",
+    ) {
+        Some(child) => {
+            st.runtime.spawned_children.push(child);
+            true
+        }
+        None => false,
+    }
+}
+
+fn spawn_open_terminal_binding(st: &mut Halley, wayland_display: &str) -> bool {
+    let activation_token =
+        crate::protocol::wayland::activation::issue_external_token(st, st.now_ms(Instant::now()));
+    match super::spawn::spawn_wayland_terminal(
+        wayland_display,
+        &st.runtime.tuning.cursor,
+        Some(activation_token.as_str()),
     ) {
         Some(child) => {
             st.runtime.spawned_children.push(child);
@@ -130,11 +148,13 @@ pub(crate) fn apply_compositor_action_press(
 ) -> bool {
     match action {
         CompositorBindingAction::Quit { .. } => {
-            st.show_exit_confirm_overlay();
+            exit_confirm_controller(st).show();
             info!("quit requested via keybind");
             true
         }
         CompositorBindingAction::Reload => {
+            let aperture_path = crate::aperture::default_aperture_config_path();
+            let _ = crate::aperture::reload_aperture_config(st, aperture_path.as_path(), "manual");
             if let Some(next) = RuntimeTuning::try_load_from_path(config_path) {
                 crate::bootstrap::apply_reloaded_tuning(
                     st,
@@ -160,6 +180,7 @@ pub(crate) fn apply_compositor_action_press(
             }
             true
         }
+        CompositorBindingAction::OpenTerminal => spawn_open_terminal_binding(st, wayland_display),
         CompositorBindingAction::ToggleState => {
             if st.has_active_cluster_workspace() {
                 st.collapse_active_cluster_workspace(std::time::Instant::now())
@@ -256,24 +277,24 @@ pub(crate) fn apply_compositor_action_press(
             true
         }
         CompositorBindingAction::ZoomIn => {
-            if st.zoom_blocked_by_interaction() {
+            if camera_controller(&*st).zoom_blocked_by_interaction() {
                 return false;
             }
-            st.zoom_by_steps(1.0);
+            camera_controller(st).zoom_by_steps(1.0);
             true
         }
         CompositorBindingAction::ZoomOut => {
-            if st.zoom_blocked_by_interaction() {
+            if camera_controller(&*st).zoom_blocked_by_interaction() {
                 return false;
             }
-            st.zoom_by_steps(-1.0);
+            camera_controller(st).zoom_by_steps(-1.0);
             true
         }
         CompositorBindingAction::ZoomReset => {
-            if st.zoom_blocked_by_interaction() {
+            if camera_controller(&*st).zoom_blocked_by_interaction() {
                 return false;
             }
-            st.reset_zoom();
+            camera_controller(st).reset_zoom();
             true
         }
     }
@@ -302,6 +323,7 @@ pub(crate) fn apply_bound_key(
         return match action {
             CompositorBindingAction::Node(NodeBindingAction::Move(_))
             | CompositorBindingAction::Reload
+            | CompositorBindingAction::OpenTerminal
             | CompositorBindingAction::ToggleState
             | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::ClusterMode
@@ -385,6 +407,9 @@ mod tests {
         ));
         assert!(!compositor_action_allows_repeat(
             CompositorBindingAction::ToggleState
+        ));
+        assert!(!compositor_action_allows_repeat(
+            CompositorBindingAction::OpenTerminal
         ));
     }
 }

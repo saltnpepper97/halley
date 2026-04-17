@@ -7,7 +7,9 @@ use calloop::ping::Ping;
 use halley_config::RuntimeTuning;
 use smithay::reexports::wayland_server::backend::ObjectId;
 
+use super::monitor::camera::camera_controller;
 use super::root::Halley;
+use super::screenshot::screenshot_controller;
 use crate::activity::CommitActivity;
 use crate::animation::AnimSpec;
 use crate::protocol::wayland::activation::ActivationRuntimeState;
@@ -67,145 +69,14 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
         }
 
         let now_ms = self.now_ms(now);
-        let mut next_ms: Option<u64> = None;
-        let mut consider = |at_ms: u64| {
-            next_ms = Some(next_ms.map_or(at_ms, |cur| cur.min(at_ms)));
-        };
-
-        if self.model.focus_state.primary_interaction_focus.is_some()
-            && self.model.focus_state.interaction_focus_until_ms > now_ms
-        {
-            consider(self.model.focus_state.interaction_focus_until_ms);
-        }
-        if self.input.interaction_state.resize_static_node.is_some()
-            && self.input.interaction_state.resize_static_until_ms > now_ms
-        {
-            consider(self.input.interaction_state.resize_static_until_ms);
-        }
-        if let Some(at_ms) = self
-            .model
-            .spawn_state
-            .pending_spawn_activate_at_ms
-            .values()
-            .copied()
-            .min()
-            && at_ms > now_ms
-        {
-            consider(at_ms);
-        }
-        if let Some(at_ms) = self
-            .model
-            .spawn_state
-            .pending_tiled_insert_reveal_at_ms
-            .values()
-            .copied()
-            .min()
-        {
-            consider(at_ms);
-        }
-        if let Some(at_ms) = self
-            .model
-            .workspace_state
-            .active_transition_until_ms
-            .values()
-            .copied()
-            .min()
-            && at_ms > now_ms
-        {
-            consider(at_ms);
-        }
-        if let Some(at_ms) = self
-            .model
-            .workspace_state
-            .primary_promote_cooldown_until_ms
-            .values()
-            .copied()
-            .min()
-            && at_ms > now_ms
-        {
-            consider(at_ms);
-        }
-        if let Some(deadline_ms) = self
-            .input
-            .interaction_state
-            .pending_core_click
-            .as_ref()
-            .map(|pending| pending.deadline_ms)
-            && deadline_ms > now_ms
-        {
-            consider(deadline_ms);
-        }
-        if let Some(repeat_at_ms) = self
-            .input
-            .interaction_state
-            .cluster_name_prompt_repeat
-            .as_ref()
-            .map(|repeat| repeat.next_repeat_ms)
-        {
-            consider(repeat_at_ms);
-        }
-        if let Some(capture_at_ms) = self
-            .input
-            .interaction_state
-            .pending_screenshot_capture
-            .as_ref()
-            .map(|pending| pending.execute_at_ms)
-        {
-            consider(capture_at_ms);
-        }
-        if let Some(restore_at_ms) = self
-            .input
-            .interaction_state
-            .pending_modal_focus_restore
-            .as_ref()
-            .map(|pending| pending.restore_at_ms)
-        {
-            consider(restore_at_ms);
-        }
-        if let Some(until_ms) = self.input.interaction_state.cursor_override_until_ms {
-            consider(until_ms);
-        }
-        if self
-            .input
-            .interaction_state
-            .inflight_screenshot_capture
-            .is_some()
-        {
-            consider(now_ms.saturating_add(33));
-        }
-        if crate::compositor::interaction::state::bloom_pull_preview_needs_animation(self) {
-            consider(now_ms.saturating_add(16));
-        }
-        if self
-            .model
-            .cluster_state
-            .cluster_overflow_reveal_started_at_ms
-            .iter()
-            .any(|(monitor, started_at_ms)| {
-                let visible_until_ms = self
-                    .model
-                    .cluster_state
-                    .cluster_overflow_visible_until_ms
-                    .get(monitor)
-                    .copied();
-                visible_until_ms.is_some_and(|visible_until_ms| {
-                    visible_until_ms > now_ms
-                        && (now_ms.saturating_sub(*started_at_ms) < 220
-                            || visible_until_ms.saturating_sub(now_ms) < 220)
-                })
-            })
-        {
-            consider(now_ms.saturating_add(16));
-        }
-        if self
-            .model
-            .cluster_state
-            .cluster_overflow_promotion_anim
-            .values()
-            .any(|anim| now_ms < anim.reveal_at_ms)
-        {
-            consider(now_ms.saturating_add(16));
-        }
+        let next_ms = min_optional_deadlines([
+            focus_deadline_ms(self, now_ms),
+            resize_deadline_ms(self, now_ms),
+            spawn_deadline_ms(self, now_ms),
+            workspace_deadline_ms(self, now_ms),
+            interaction_deadline_ms(self, now_ms),
+            animation_deadline_ms(self, now_ms),
+        ]);
         next_ms.map(|at_ms| {
             now.checked_add(std::time::Duration::from_millis(
                 at_ms.saturating_sub(now_ms),
@@ -215,12 +86,153 @@ impl<T: Deref<Target = Halley>> RuntimeController<T> {
     }
 }
 
+fn min_optional_deadlines<const N: usize>(deadlines: [Option<u64>; N]) -> Option<u64> {
+    deadlines.into_iter().flatten().min()
+}
+
+fn focus_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
+    min_optional_deadlines([
+        (st.model.focus_state.primary_interaction_focus.is_some()
+            && st.model.focus_state.interaction_focus_until_ms > now_ms)
+            .then_some(st.model.focus_state.interaction_focus_until_ms),
+        st.input
+            .interaction_state
+            .pending_modal_focus_restore
+            .as_ref()
+            .map(|pending| pending.restore_at_ms),
+    ])
+}
+
+fn resize_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
+    (st.input.interaction_state.resize_static_node.is_some()
+        && st.input.interaction_state.resize_static_until_ms > now_ms)
+        .then_some(st.input.interaction_state.resize_static_until_ms)
+}
+
+fn spawn_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
+    let pending_spawn_activate_at_ms = st
+        .model
+        .spawn_state
+        .pending_spawn_activate_at_ms
+        .values()
+        .copied()
+        .min()
+        .filter(|&at_ms| at_ms > now_ms);
+    let pending_tiled_insert_reveal_at_ms = st
+        .model
+        .spawn_state
+        .pending_tiled_insert_reveal_at_ms
+        .values()
+        .copied()
+        .min();
+    min_optional_deadlines([
+        pending_spawn_activate_at_ms,
+        pending_tiled_insert_reveal_at_ms,
+    ])
+}
+
+fn workspace_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
+    let active_transition_until_ms = st
+        .model
+        .workspace_state
+        .active_transition_until_ms
+        .values()
+        .copied()
+        .min()
+        .filter(|&at_ms| at_ms > now_ms);
+    let primary_promote_cooldown_until_ms = st
+        .model
+        .workspace_state
+        .primary_promote_cooldown_until_ms
+        .values()
+        .copied()
+        .min()
+        .filter(|&at_ms| at_ms > now_ms);
+    min_optional_deadlines([
+        active_transition_until_ms,
+        primary_promote_cooldown_until_ms,
+    ])
+}
+
+fn interaction_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
+    let pending_core_click_deadline_ms = st
+        .input
+        .interaction_state
+        .pending_core_click
+        .as_ref()
+        .map(|pending| pending.deadline_ms)
+        .filter(|&deadline_ms| deadline_ms > now_ms);
+    let cluster_name_prompt_repeat_at_ms = st
+        .input
+        .interaction_state
+        .cluster_name_prompt_repeat
+        .as_ref()
+        .map(|repeat| repeat.next_repeat_ms);
+    let pending_screenshot_capture_at_ms = st
+        .input
+        .interaction_state
+        .pending_screenshot_capture
+        .as_ref()
+        .map(|pending| pending.execute_at_ms);
+    let inflight_screenshot_capture_at_ms = st
+        .input
+        .interaction_state
+        .inflight_screenshot_capture
+        .is_some()
+        .then_some(now_ms.saturating_add(33));
+    min_optional_deadlines([
+        pending_core_click_deadline_ms,
+        cluster_name_prompt_repeat_at_ms,
+        pending_screenshot_capture_at_ms,
+        st.input.interaction_state.cursor_override_until_ms,
+        inflight_screenshot_capture_at_ms,
+    ])
+}
+
+fn animation_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
+    let bloom_pull_preview_at_ms =
+        crate::compositor::interaction::state::bloom_pull_preview_needs_animation(st)
+            .then_some(now_ms.saturating_add(16));
+    let cluster_overflow_reveal_at_ms = st
+        .model
+        .cluster_state
+        .cluster_overflow_reveal_started_at_ms
+        .iter()
+        .any(|(monitor, started_at_ms)| {
+            let visible_until_ms = st
+                .model
+                .cluster_state
+                .cluster_overflow_visible_until_ms
+                .get(monitor)
+                .copied();
+            visible_until_ms.is_some_and(|visible_until_ms| {
+                visible_until_ms > now_ms
+                    && (now_ms.saturating_sub(*started_at_ms) < 220
+                        || visible_until_ms.saturating_sub(now_ms) < 220)
+            })
+        })
+        .then_some(now_ms.saturating_add(16));
+    let cluster_overflow_promotion_at_ms = st
+        .model
+        .cluster_state
+        .cluster_overflow_promotion_anim
+        .values()
+        .any(|anim| now_ms < anim.reveal_at_ms)
+        .then_some(now_ms.saturating_add(16));
+    min_optional_deadlines([
+        bloom_pull_preview_at_ms,
+        cluster_overflow_reveal_at_ms,
+        cluster_overflow_promotion_at_ms,
+    ])
+}
+
 impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
     pub fn apply_tuning(&mut self, mut tuning: RuntimeTuning) {
         let prev_runtime_viewport = self.model.viewport;
         let prev_config_viewport = self.runtime.tuning.viewport();
-        let prev_effective_no_csd = self.runtime.tuning.effective_no_csd();
+        let prev_decorations = self.runtime.tuning.decorations;
         let prev_font = self.runtime.tuning.font.clone();
+        let prev_input = self.runtime.tuning.input;
         let prev_physics_enabled = self.runtime.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
         let previous_output_names: std::collections::HashSet<String> = self
@@ -291,15 +303,24 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
 
         self.runtime.tuning = tuning;
+        if self.runtime.tuning.input != prev_input
+            && let Some(keyboard) = self.platform.seat.get_keyboard()
+        {
+            keyboard.change_repeat_info(
+                self.runtime.tuning.input.repeat_rate,
+                self.runtime.tuning.input.repeat_delay,
+            );
+        }
         if self.runtime.tuning.font != prev_font {
             self.ui.render_state.invalidate_ui_text_cache();
+        }
+        if self.runtime.tuning.decorations != prev_decorations {
+            self.ui.render_state.clear_window_offscreen_caches();
         }
         if !self.runtime.tuning.cursor.hide_while_typing {
             self.input.interaction_state.cursor_hidden_by_typing = false;
         }
-        if prev_effective_no_csd != self.runtime.tuning.effective_no_csd() {
-            self.refresh_xdg_decoration_mode();
-        }
+        self.refresh_xdg_decoration_mode();
         self.request_maintenance();
 
         if let Some(id) = prev_focus {
@@ -346,7 +367,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
         let _ = crate::compositor::clusters::system::cluster_system_controller(&mut **self)
             .repeat_cluster_name_prompt_input_if_due(now_ms);
-        self.run_pending_screenshot_capture_if_due(now_ms);
+        screenshot_controller(&mut **self).run_pending_screenshot_capture_if_due(now_ms);
         if let Some(pending) = self
             .input
             .interaction_state
@@ -390,7 +411,9 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
                 self.set_interaction_focus(None, 0, now);
             }
         }
-        if self.model.focus_state.primary_interaction_focus.is_none()
+        if crate::protocol::wayland::session_lock::session_lock_active(self) {
+            crate::protocol::wayland::session_lock::reassert_keyboard_focus_if_drifted(self);
+        } else if self.model.focus_state.primary_interaction_focus.is_none()
             && self.model.monitor_state.layer_keyboard_focus.is_some()
         {
             crate::compositor::monitor::layer_shell::reassert_layer_surface_keyboard_focus_if_drifted(self);
@@ -491,7 +514,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             && !(self.input.interaction_state.resize_static_node.is_some()
                 && now_ms < self.input.interaction_state.resize_static_until_ms)
         {
-            self.update_zoom_live_surface_sizes();
+            camera_controller(&mut **self).update_zoom_live_surface_sizes();
         }
         let cluster_policy = halley_core::cluster_policy::ClusterPolicy {
             enabled: false,

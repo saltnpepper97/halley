@@ -4,10 +4,13 @@ use smithay::input::pointer::{AxisFrame, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::interface::BackendView;
+use crate::compositor::exit_confirm::exit_confirm_controller;
+use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
+use crate::compositor::screenshot::screenshot_controller;
 use crate::input::ctx::InputCtx;
-use crate::spatial::screen_to_world;
 
+use super::context::pointer_screen_context_for_monitor;
 use super::focus::pointer_focus_for_screen;
 use crate::input::keyboard::bindings::{
     apply_bound_pointer_input, apply_compositor_action_press, compositor_binding_action_active,
@@ -36,14 +39,76 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     relative_direction_horizontal: AxisRelativeDirection,
     relative_direction_vertical: AxisRelativeDirection,
 ) {
-    if st.exit_confirm_active() {
+    if exit_confirm_controller(&*st).active() {
         return;
     }
-    if st.screenshot_session_active() {
+    if screenshot_controller(&mut *st).screenshot_session_active() {
         return;
     }
     if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
         ctx.backend.request_redraw();
+    }
+
+    if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        let (sx, sy) = {
+            let ps = ctx.pointer_state.borrow();
+            (ps.screen.0, ps.screen.1)
+        };
+        let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
+        let context = pointer_screen_context_for_monitor(st, target_monitor, (sx, sy), true, true);
+        {
+            let mut ps = ctx.pointer_state.borrow_mut();
+            ps.workspace_size = (context.ws_w, context.ws_h);
+            ps.world = context.world;
+        }
+        if let Some(pointer) = st.platform.seat.get_pointer() {
+            if pointer.current_focus().is_none()
+                && let Some(focus) = pointer_focus_for_screen(
+                    st,
+                    context.ws_w,
+                    context.ws_h,
+                    context.local_sx,
+                    context.local_sy,
+                    Instant::now(),
+                    None,
+                )
+            {
+                pointer.motion(
+                    st,
+                    Some(focus),
+                    &MotionEvent {
+                        location: (context.local_sx as f64, context.local_sy as f64).into(),
+                        serial: SERIAL_COUNTER.next_serial(),
+                        time: now_millis_u32(),
+                    },
+                );
+            }
+            if pointer.current_focus().is_some() {
+                let mut frame = AxisFrame::new(now_millis_u32())
+                    .source(source)
+                    .relative_direction(Axis::Horizontal, relative_direction_horizontal)
+                    .relative_direction(Axis::Vertical, relative_direction_vertical);
+                if let Some(v120) = amount_v120_horizontal {
+                    frame = frame.v120(Axis::Horizontal, v120.round() as i32);
+                }
+                if let Some(v120) = amount_v120_vertical {
+                    frame = frame.v120(Axis::Vertical, v120.round() as i32);
+                }
+                let horizontal_value =
+                    amount_horizontal.or_else(|| amount_v120_horizontal.map(|v| v / 8.0));
+                let vertical_value =
+                    amount_vertical.or_else(|| amount_v120_vertical.map(|v| v / 8.0));
+                if let Some(v) = horizontal_value {
+                    frame = frame.value(Axis::Horizontal, v);
+                }
+                if let Some(v) = vertical_value {
+                    frame = frame.value(Axis::Vertical, v);
+                }
+                pointer.axis(st, frame);
+                pointer.frame(st);
+            }
+        }
+        return;
     }
 
     let mut steps = (amount_v120_vertical.unwrap_or(0.0) as f32) / 120.0;
@@ -94,40 +159,36 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         let ps = ctx.pointer_state.borrow();
         (ps.screen.0, ps.screen.1)
     };
-    let target_monitor = st
-        .monitor_for_screen(sx, sy)
-        .unwrap_or_else(|| st.interaction_monitor().to_string());
-    st.set_interaction_monitor(target_monitor.as_str());
-    let _ = st.activate_monitor(target_monitor.as_str());
-    let (ws_w, ws_h, sx, sy) = st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
+    let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
+    let context = pointer_screen_context_for_monitor(st, target_monitor, (sx, sy), true, true);
     {
         let mut ps = ctx.pointer_state.borrow_mut();
-        ps.workspace_size = (ws_w, ws_h);
+        ps.workspace_size = (context.ws_w, context.ws_h);
     }
-    let world_now = screen_to_world(st, ws_w, ws_h, sx, sy);
+    let world_now = context.world;
     ctx.pointer_state.borrow_mut().world = world_now;
     let now = Instant::now();
     let now_ms = st.now_ms(now);
     if steps.abs() >= f32::EPSILON {
         let overlay = crate::overlay::OverlayView::from_halley(st);
         let overflow_scrollable = overlay
-            .cluster_overflow_member_ids_for_monitor(target_monitor.as_str())
+            .cluster_overflow_member_ids_for_monitor(context.monitor.as_str())
             .len()
             > 15;
         let over_overflow_strip = overflow_scrollable
             && crate::overlay::cluster_overflow_strip_slot_at(
                 &overlay,
-                target_monitor.as_str(),
-                sx,
-                sy,
+                context.monitor.as_str(),
+                context.local_sx,
+                context.local_sy,
                 now_ms,
             )
             .is_some();
         if over_overflow_strip {
             let delta = if steps > 0.0 { 1 } else { -1 };
             let changed =
-                st.adjust_cluster_overflow_scroll_for_monitor(target_monitor.as_str(), delta);
-            st.reveal_cluster_overflow_for_monitor(target_monitor.as_str(), now_ms);
+                st.adjust_cluster_overflow_scroll_for_monitor(context.monitor.as_str(), delta);
+            st.reveal_cluster_overflow_for_monitor(context.monitor.as_str(), now_ms);
             if changed {
                 ctx.backend.request_redraw();
             }
@@ -137,15 +198,28 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     let resize_preview = ctx.pointer_state.borrow().resize;
     if let Some(pointer) = st.platform.seat.get_pointer() {
         if pointer.current_focus().is_none()
-            && let Some(focus) =
-                pointer_focus_for_screen(st, ws_w, ws_h, sx, sy, now, resize_preview)
+            && let Some(focus) = pointer_focus_for_screen(
+                st,
+                context.ws_w,
+                context.ws_h,
+                context.local_sx,
+                context.local_sy,
+                now,
+                resize_preview,
+            )
         {
             let location =
-                if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0) {
-                    (sx as f64, sy as f64).into()
+                if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0)
+                    || crate::protocol::wayland::session_lock::is_session_lock_surface(st, &focus.0)
+                {
+                    (context.local_sx as f64, context.local_sy as f64).into()
                 } else {
                     let cam_scale = st.camera_render_scale() as f64;
-                    (sx as f64 / cam_scale, sy as f64 / cam_scale).into()
+                    (
+                        context.local_sx as f64 / cam_scale,
+                        context.local_sy as f64 / cam_scale,
+                    )
+                        .into()
                 };
             pointer.motion(
                 st,
@@ -208,14 +282,14 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
     }
 
     let steps = steps.clamp(-4.0, 4.0);
-    let camera = st.camera_view_size();
+    let camera = camera_controller(&*st).view_size();
     let pan_y = -camera.y * (steps / 18.0);
     {
         let mut ps = ctx.pointer_state.borrow_mut();
         ps.panning = false;
     }
     st.note_pan_activity(now);
-    st.pan_camera_target(halley_core::field::Vec2 { x: 0.0, y: pan_y });
+    camera_controller(&mut *st).pan_target(halley_core::field::Vec2 { x: 0.0, y: pan_y });
     st.note_pan_viewport_change(now);
     ctx.backend.request_redraw();
 }

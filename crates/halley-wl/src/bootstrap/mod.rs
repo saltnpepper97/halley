@@ -1,10 +1,11 @@
 use std::env;
 use std::error::Error;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
-use halley_config::RuntimeTuning;
+use halley_config::{RuntimeTuning, ViewportOutputConfig};
 
 use eventline::{
     FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, enable_console_color,
@@ -196,6 +197,48 @@ pub(crate) fn preserve_viewport_section(
         })
         .collect();
     next
+}
+
+pub(crate) fn ensure_default_user_config(tty_viewports: Option<&[ViewportOutputConfig]>) {
+    if env::var("HALLEY_WL_CONFIG").is_ok() {
+        return;
+    }
+
+    let home_path = PathBuf::from(RuntimeTuning::default_home_config_path());
+    if home_path.exists() {
+        return;
+    }
+
+    let Some(parent) = home_path.parent() else {
+        warn!(
+            "bootstrap: unable to determine config directory for {}",
+            home_path.display()
+        );
+        return;
+    };
+    if let Err(err) = fs::create_dir_all(parent) {
+        warn!(
+            "bootstrap: failed to create config directory {}: {}",
+            parent.display(),
+            err
+        );
+        return;
+    }
+
+    let rendered = RuntimeTuning::render_fresh_config(tty_viewports.unwrap_or(&[]));
+    if let Err(err) = fs::write(&home_path, rendered) {
+        warn!(
+            "bootstrap: failed to write {} from internal template: {}",
+            home_path.display(),
+            err
+        );
+        return;
+    }
+
+    info!(
+        "bootstrap: wrote {} using internal template",
+        home_path.display()
+    );
 }
 
 pub fn run() -> Result<(), Box<dyn Error>> {

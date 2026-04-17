@@ -13,6 +13,7 @@ use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface};
 
 use crate::compositor::ctx::SpawnCtx;
 use crate::compositor::focus::state::FocusState;
+use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::monitor::state::MonitorState;
 use crate::compositor::overlap::system::CollisionExtents;
 use crate::compositor::root::Halley;
@@ -273,7 +274,7 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         if self.model.monitor_state.current_monitor == monitor {
             return Some(Viewport::new(
                 self.model.viewport.center,
-                self.camera_view_size(),
+                camera_controller(&**self).view_size(),
             ));
         }
         self.model
@@ -738,7 +739,12 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         }
         let duration_ms = self.runtime.tuning.window_open_duration_ms();
         if self.runtime.tuning.window_open_animation_enabled() {
-            self.mark_active_transition(active.node_id, now, duration_ms);
+            crate::compositor::workspace::state::mark_active_transition(
+                &mut **self,
+                active.node_id,
+                now,
+                duration_ms,
+            );
         }
         self.record_focus_trail_visit(active.node_id);
         self.model.focus_state.suppress_trail_record_once = true;
@@ -785,7 +791,12 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 .remove(&id);
             let duration_ms = self.runtime.tuning.window_open_duration_ms();
             if self.runtime.tuning.window_open_animation_enabled() {
-                self.mark_active_transition(id, now, duration_ms);
+                crate::compositor::workspace::state::mark_active_transition(
+                    &mut **self,
+                    id,
+                    now,
+                    duration_ms,
+                );
             }
             return;
         }
@@ -810,7 +821,12 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 .remove(&id);
             let duration_ms = self.runtime.tuning.window_open_duration_ms();
             if self.runtime.tuning.window_open_animation_enabled() {
-                self.mark_active_transition(id, now, duration_ms);
+                crate::compositor::workspace::state::mark_active_transition(
+                    &mut **self,
+                    id,
+                    now,
+                    duration_ms,
+                );
             }
             return;
         }
@@ -827,7 +843,12 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                     .remove(&id);
                 let duration_ms = self.runtime.tuning.window_open_duration_ms();
                 if self.runtime.tuning.window_open_animation_enabled() {
-                    self.mark_active_transition(id, now, duration_ms);
+                    crate::compositor::workspace::state::mark_active_transition(
+                        &mut **self,
+                        id,
+                        now,
+                        duration_ms,
+                    );
                 }
             }
             RevealNewToplevelPlan::QueuePan { target_center } => {

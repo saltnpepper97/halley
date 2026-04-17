@@ -14,7 +14,12 @@ pub(crate) fn load_clusters_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     );
     out.cluster_dwell_ms = pick_u64(
         cfg,
-        &["clusters.dwell-ms", "clusters.dwell_ms"],
+        &[
+            "clusters.cluster-dwell-ms",
+            "clusters.cluster_dwell_ms",
+            "clusters.dwell-ms",
+            "clusters.dwell_ms",
+        ],
         out.cluster_dwell_ms,
     );
     out.cluster_show_icons = pick_bool(

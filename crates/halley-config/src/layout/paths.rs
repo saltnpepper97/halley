@@ -19,6 +19,10 @@ pub(crate) fn default_config_path() -> PathBuf {
     PathBuf::from("halley.rune")
 }
 
+pub(crate) fn global_config_path() -> PathBuf {
+    PathBuf::from("/etc/halley/halley.rune")
+}
+
 pub(crate) fn absolutize_path(path: &str) -> PathBuf {
     let p = PathBuf::from(path);
     if p.is_absolute() {

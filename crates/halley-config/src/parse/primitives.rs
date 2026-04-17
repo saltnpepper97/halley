@@ -5,8 +5,8 @@ use rune_cfg::RuneConfig;
 use crate::layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, FocusRingConfig,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode,
-    OverlayShape, PanToNewMode, ShapeStyle, WindowCloseAnimationStyle,
+    InputFocusMode, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
+    OverlayColorMode, OverlayShape, PanToNewMode, ShapeStyle, WindowCloseAnimationStyle,
 };
 
 pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -93,6 +93,21 @@ pub(crate) fn pick_click_collapsed_pan_mode(
         "never" => ClickCollapsedPanMode::Never,
         "if-offscreen" | "if_offscreen" => ClickCollapsedPanMode::IfOffscreen,
         "always" => ClickCollapsedPanMode::Always,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_input_focus_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: InputFocusMode,
+) -> InputFocusMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "click" => InputFocusMode::Click,
+        "hover" => InputFocusMode::Hover,
         _ => default,
     }
 }
@@ -225,15 +240,6 @@ pub(crate) fn pick_bool(cfg: &RuneConfig, paths: &[&str], default: bool) -> bool
         }
     }
     default
-}
-
-pub(crate) fn pick_optional_bool(cfg: &RuneConfig, paths: &[&str]) -> Option<bool> {
-    for path in paths {
-        if let Ok(Some(v)) = cfg.get_optional::<bool>(path) {
-            return Some(v);
-        }
-    }
-    None
 }
 
 pub(crate) fn pick_string(cfg: &RuneConfig, paths: &[&str]) -> Option<String> {

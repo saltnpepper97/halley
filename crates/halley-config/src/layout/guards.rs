@@ -19,8 +19,12 @@ impl RuntimeTuning {
         self.primary_hot_inner_frac = self.primary_hot_inner_frac.clamp(0.1, 1.0);
         self.primary_to_node_ms = self.primary_to_node_ms.clamp(250, 7_200_000);
         self.node_icon_size = self.node_icon_size.clamp(0.35, 0.95);
-        self.border_size_px = self.border_size_px.clamp(0, 64);
-        self.border_radius_px = self.border_radius_px.clamp(0, 256);
+        self.decorations.border.size_px = self.decorations.border.size_px.clamp(0, 64);
+        self.decorations.border.radius_px = self.decorations.border.radius_px.clamp(0, 256);
+        self.decorations.secondary_border.size_px =
+            self.decorations.secondary_border.size_px.clamp(0, 64);
+        self.decorations.secondary_border.gap_px =
+            self.decorations.secondary_border.gap_px.clamp(0, 8);
         self.bearings.fade_distance = self.bearings.fade_distance.clamp(120.0, 100_000.0);
 
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);
@@ -30,6 +34,8 @@ impl RuntimeTuning {
         self.tile_max_stack = self.tile_max_stack.clamp(0, 64);
         self.stacking_max_visible = self.stacking_max_visible.clamp(0, 64);
         self.trail_history_length = self.trail_history_length.clamp(1, 512);
+        self.input.repeat_rate = self.input.repeat_rate.clamp(0, 1000);
+        self.input.repeat_delay = self.input.repeat_delay.clamp(0, 10_000);
         self.cursor.size = self.cursor.size.clamp(8, 128);
         if self.cursor.theme.trim().is_empty() {
             self.cursor.theme = CursorConfig::default().theme;
@@ -63,5 +69,20 @@ impl RuntimeTuning {
             self.animations.window_open.duration_ms.clamp(1, 10_000);
         self.animations.tile.duration_ms = self.animations.tile.duration_ms.clamp(1, 10_000);
         self.animations.stack.duration_ms = self.animations.stack.duration_ms.clamp(1, 10_000);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secondary_border_gap_is_clamped_to_small_range() {
+        let mut tuning = RuntimeTuning::default();
+        tuning.decorations.secondary_border.gap_px = 99;
+
+        tuning.enforce_guards();
+
+        assert_eq!(tuning.decorations.secondary_border.gap_px, 8);
     }
 }

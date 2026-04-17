@@ -57,10 +57,9 @@ pub(crate) fn pick_hit_node_at(
                         && sy >= y as f32
                         && sy <= (y + hh) as f32
                     {
-                        let title_h = ((hh as f32) * 0.20).round().clamp(28.0, 56.0) as i32;
                         Some(HitNode {
                             node_id: id,
-                            on_titlebar: sy <= (y + title_h) as f32,
+                            move_surface: false,
                             is_core: false,
                         })
                     } else {
@@ -73,13 +72,17 @@ pub(crate) fn pick_hit_node_at(
             halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
                 let (cx, cy) = world_to_screen(st, w, h, n.pos.x, n.pos.y);
                 let (dot_half, _, _, _) = node_marker_metrics(st, n.label.len(), anim.scale);
-                let radius = (dot_half + 10).max(1) as f32;
+                let radius = if n.state == halley_core::field::NodeState::Core {
+                    34.0
+                } else {
+                    (dot_half as f32 * 1.5).round().max(1.0)
+                };
                 let dx = sx - cx as f32;
                 let dy = sy - cy as f32;
                 if dx * dx + dy * dy <= radius * radius {
                     Some(HitNode {
                         node_id: id,
-                        on_titlebar: false,
+                        move_surface: false,
                         is_core: n.state == halley_core::field::NodeState::Core,
                     })
                 } else {
@@ -142,4 +145,61 @@ pub(crate) fn node_in_active_area_for_monitor(
     let focus_ring = st.focus_ring_for_monitor(monitor);
     let focus_center = st.view_center_for_monitor(monitor);
     matches!(focus_ring.zone(focus_center, n.pos), FocusZone::Inside)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::input::active_node_screen_rect;
+    use smithay::reexports::wayland_server::Display;
+
+    fn single_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        tuning
+    }
+
+    fn active_surface_hit_with_tuning(
+        tuning: halley_config::RuntimeTuning,
+    ) -> crate::compositor::interaction::HitNode {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let node_id = st.model.field.spawn_surface(
+            "test",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(node_id, "monitor_a");
+        let _ = st
+            .model
+            .field
+            .set_state(node_id, halley_core::field::NodeState::Active);
+
+        let now = Instant::now();
+        let (left, top, right, _) =
+            active_node_screen_rect(&st, 800, 600, node_id, now, None).expect("active rect");
+        let sx = (left + right) * 0.5;
+        let sy = top + 4.0;
+
+        pick_hit_node_at(&st, 800, 600, sx, sy, now, None).expect("surface hit")
+    }
+
+    #[test]
+    fn active_surface_hits_do_not_synthesize_move_zones() {
+        let hit = active_surface_hit_with_tuning(single_monitor_tuning());
+        assert!(!hit.move_surface);
+        assert!(!hit.is_core);
+    }
 }

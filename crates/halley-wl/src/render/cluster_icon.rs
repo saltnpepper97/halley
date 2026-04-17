@@ -1,10 +1,11 @@
 use image::RgbaImage;
 use resvg::{tiny_skia, usvg};
 use smithay::backend::allocator::Fourcc;
-use smithay::backend::renderer::ImportMem;
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::ImportMem;
 
 use crate::compositor::root::Halley;
+use crate::render::icon_tint::tint_alpha_mask_image;
 use crate::render::state::{ClusterCoreIconCache, NodeAppIconTexture};
 
 const CLUSTER_ICON_RASTER_PX: u32 = 64;
@@ -14,8 +15,9 @@ pub(crate) fn ensure_cluster_core_icon_resources(
     renderer: &mut GlesRenderer,
     st: &mut Halley,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let focused = rgba_bytes_from_border_color(st.runtime.tuning.border_color_focused);
-    let unfocused = rgba_bytes_from_border_color(st.runtime.tuning.border_color_unfocused);
+    let focused = rgba_bytes_from_border_color(st.runtime.tuning.decorations.border.color_focused);
+    let unfocused =
+        rgba_bytes_from_border_color(st.runtime.tuning.decorations.border.color_unfocused);
     if st.ui.render_state.cluster_core_icon_cache.focused_color == focused
         && st.ui.render_state.cluster_core_icon_cache.unfocused_color == unfocused
         && st.ui.render_state.cluster_core_icon_cache.focused.is_some()
@@ -107,13 +109,5 @@ fn load_cluster_icon_raster(rgba: [u8; 4]) -> Option<RgbaImage> {
 }
 
 fn tint_cluster_icon(image: &mut RgbaImage, rgba: [u8; 4]) {
-    for pixel in image.pixels_mut() {
-        if pixel[3] == 0 {
-            continue;
-        }
-        pixel[0] = rgba[0];
-        pixel[1] = rgba[1];
-        pixel[2] = rgba[2];
-        pixel[3] = ((pixel[3] as u16 * rgba[3] as u16) / 255) as u8;
-    }
+    tint_alpha_mask_image(image, rgba);
 }

@@ -4,6 +4,7 @@ mod drm;
 use super::*;
 
 use crate::input::ctx::InputCtx;
+use halley_config::{ViewportOutputConfig, ViewportVrrMode};
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -20,6 +21,7 @@ use crate::backend::tty::drm::{
     selected_tty_scanout_signature,
 };
 use crate::backend::vblank_throttle::VBlankThrottle;
+use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ResizeCtx;
 use calloop::{Interest, Mode, PostAction, generic::Generic, ping::make_ping};
 
@@ -30,8 +32,15 @@ use smithay::backend::input::{
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 const OUTPUT_RESCAN_POLL_MS: u64 = 750;
+const VBLANK_MISMATCH_LOG_AFTER_MS: u64 = 1_000;
 
 const HALLEY_X11_DISPLAY_NUM: u32 = 0;
+
+#[derive(Clone, Debug, Default)]
+struct VBlankMismatchState {
+    first_seen_at: Option<Instant>,
+    reported_active: bool,
+}
 
 fn queue_ready_tty_outputs(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
@@ -384,21 +393,148 @@ fn outputs_match(a: &[TtyDrmOutput], b: &[TtyDrmOutput]) -> bool {
     })
 }
 
+fn bootstrap_tty_viewports(outputs: &[TtyDrmOutput]) -> Vec<ViewportOutputConfig> {
+    let mut ordered: Vec<_> = outputs
+        .iter()
+        .map(|output| {
+            let (width, height) = output.mode.size();
+            (
+                output.connector_name.clone(),
+                width as u32,
+                height as u32,
+                output.mode.vrefresh() as f64,
+            )
+        })
+        .collect();
+    ordered.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut offset_x = 0;
+    ordered
+        .into_iter()
+        .map(|(connector, width, height, refresh_rate)| {
+            let viewport = ViewportOutputConfig {
+                connector,
+                enabled: true,
+                offset_x,
+                offset_y: 0,
+                width,
+                height,
+                refresh_rate: Some(refresh_rate),
+                transform_degrees: 0,
+                vrr: ViewportVrrMode::Off,
+                focus_ring: None,
+            };
+            offset_x += width as i32;
+            viewport
+        })
+        .collect()
+}
+
+fn effective_tty_viewports_for_outputs(
+    tuning: &RuntimeTuning,
+    outputs: &[TtyDrmOutput],
+) -> Vec<ViewportOutputConfig> {
+    let active_names = active_output_names(outputs);
+    let configured: Vec<_> = tuning
+        .tty_viewports
+        .iter()
+        .filter(|viewport| viewport.enabled)
+        .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
+        .cloned()
+        .collect();
+    if !configured.is_empty() {
+        return configured;
+    }
+
+    bootstrap_tty_viewports(outputs)
+}
+
+fn effective_tty_viewport_fallback_reason(
+    tuning: &RuntimeTuning,
+    outputs: &[TtyDrmOutput],
+) -> Option<&'static str> {
+    let active_names = active_output_names(outputs);
+    let enabled_configured = tuning
+        .tty_viewports
+        .iter()
+        .filter(|viewport| viewport.enabled);
+    let matched = enabled_configured
+        .clone()
+        .any(|viewport| active_names.iter().any(|name| name == &viewport.connector));
+    if matched {
+        return None;
+    }
+
+    if tuning.tty_viewports.is_empty() {
+        Some("no viewport outputs configured")
+    } else if tuning
+        .tty_viewports
+        .iter()
+        .all(|viewport| !viewport.enabled)
+    {
+        Some("viewport outputs configured but none are enabled")
+    } else {
+        Some("no enabled viewport outputs matched detected outputs")
+    }
+}
+
+fn log_effective_tty_viewport_fallback(
+    tuning: &RuntimeTuning,
+    outputs: &[TtyDrmOutput],
+    source: &str,
+) {
+    let Some(reason) = effective_tty_viewport_fallback_reason(tuning, outputs) else {
+        return;
+    };
+    let layout = effective_tty_viewports_for_outputs(tuning, outputs)
+        .into_iter()
+        .map(|viewport| {
+            let refresh = viewport
+                .refresh_rate
+                .map(|hz| format!("@{hz:.3}Hz"))
+                .unwrap_or_default();
+            format!(
+                "{}={}x{}{}+{}+{}",
+                viewport.connector,
+                viewport.width,
+                viewport.height,
+                refresh,
+                viewport.offset_x,
+                viewport.offset_y,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    warn!(
+        "{}: tty monitor fallback active: {}; derived layout [{}]",
+        source, reason, layout
+    );
+}
+
+fn effective_tty_viewport_for_output<'a>(
+    tuning: &RuntimeTuning,
+    outputs: &'a [TtyDrmOutput],
+    output_name: &str,
+) -> Option<ViewportOutputConfig> {
+    effective_tty_viewports_for_outputs(tuning, outputs)
+        .into_iter()
+        .find(|viewport| viewport.connector == output_name)
+}
+
 fn canonical_tty_main_output_name(
     outputs: &[TtyDrmOutput],
     tuning: &RuntimeTuning,
 ) -> Option<String> {
+    let effective_viewports = effective_tty_viewports_for_outputs(tuning, outputs);
     outputs
         .iter()
         .min_by(|a, b| {
-            let a_viewport = tuning
-                .tty_viewports
+            let a_viewport = effective_viewports
                 .iter()
-                .find(|viewport| viewport.enabled && viewport.connector == a.connector_name);
-            let b_viewport = tuning
-                .tty_viewports
+                .find(|viewport| viewport.connector == a.connector_name);
+            let b_viewport = effective_viewports
                 .iter()
-                .find(|viewport| viewport.enabled && viewport.connector == b.connector_name);
+                .find(|viewport| viewport.connector == b.connector_name);
 
             let a_offset_x = a_viewport.map(|viewport| viewport.offset_x).unwrap_or(0);
             let b_offset_x = b_viewport.map(|viewport| viewport.offset_x).unwrap_or(0);
@@ -415,13 +551,13 @@ fn canonical_tty_main_output_name(
 
 fn output_advertise_order(outputs: &[TtyDrmOutput], tuning: &RuntimeTuning) -> Vec<String> {
     let main_output = canonical_tty_main_output_name(outputs, tuning);
+    let effective_viewports = effective_tty_viewports_for_outputs(tuning, outputs);
     let mut ordered: Vec<(String, i32, i32, bool)> = outputs
         .iter()
         .map(|output| {
-            let (offset_x, offset_y) = tuning
-                .tty_viewports
+            let (offset_x, offset_y) = effective_viewports
                 .iter()
-                .find(|viewport| viewport.enabled && viewport.connector == output.connector_name)
+                .find(|viewport| viewport.connector == output.connector_name)
                 .map(|viewport| (viewport.offset_x, viewport.offset_y))
                 .unwrap_or((0, 0));
             let is_main = main_output
@@ -446,13 +582,7 @@ fn output_advertise_order(outputs: &[TtyDrmOutput], tuning: &RuntimeTuning) -> V
 }
 
 fn layout_size_for_outputs(tuning: &RuntimeTuning, outputs: &[TtyDrmOutput]) -> (i32, i32) {
-    let active_names = active_output_names(outputs);
-    let active_viewports: Vec<_> = tuning
-        .tty_viewports
-        .iter()
-        .filter(|viewport| viewport.enabled)
-        .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
-        .collect();
+    let active_viewports = effective_tty_viewports_for_outputs(tuning, outputs);
 
     if active_viewports.is_empty() {
         return (
@@ -526,6 +656,7 @@ fn apply_tty_reload(
     let next_modes = active_mode_map(&rebuilt);
     let (layout_w, layout_h) = layout_size_for_outputs(&next, &rebuilt);
     backend_handle.set_size(layout_w, layout_h);
+    log_effective_tty_viewport_fallback(&next, &rebuilt, reason);
 
     {
         let mut ps = pointer_state.borrow_mut();
@@ -544,7 +675,8 @@ fn apply_tty_reload(
     let live_camera = crate::bootstrap::capture_live_camera_state(st);
     st.apply_tuning(next);
     if reason != "rescan" {
-        st.reconfigure_active_tty_monitors(&active_output_names(&rebuilt));
+        let effective_viewports = effective_tty_viewports_for_outputs(&st.runtime.tuning, &rebuilt);
+        st.reconfigure_active_tty_monitors(&effective_viewports);
         let target_monitor = [
             st.focused_monitor().to_string(),
             st.interaction_monitor().to_string(),
@@ -635,19 +767,14 @@ fn primary_tty_monitor_dims(
     };
 
     preferred_name
-        .and_then(|name| {
-            tuning
-                .tty_viewports
-                .iter()
-                .find(|viewport| viewport.enabled && viewport.connector == name)
-                .map(|viewport| {
-                    (
-                        viewport.width as i32,
-                        viewport.height as i32,
-                        viewport.offset_x,
-                        viewport.offset_y,
-                    )
-                })
+        .and_then(|name| effective_tty_viewport_for_output(tuning, outputs, name))
+        .map(|viewport| {
+            (
+                viewport.width as i32,
+                viewport.height as i32,
+                viewport.offset_x,
+                viewport.offset_y,
+            )
         })
         .or_else(|| {
             outputs.iter().find_map(|output| {
@@ -659,19 +786,13 @@ fn primary_tty_monitor_dims(
         })
         .or_else(|| {
             canonical_tty_main_output_name(outputs, tuning).and_then(|name| {
-                outputs.iter().find_map(|output| {
-                    (output.connector_name == name).then(|| {
-                        let (w, h) = output.mode.size();
-                        let (offset_x, offset_y) = tuning
-                            .tty_viewports
-                            .iter()
-                            .find(|viewport| {
-                                viewport.enabled && viewport.connector == output.connector_name
-                            })
-                            .map(|viewport| (viewport.offset_x, viewport.offset_y))
-                            .unwrap_or((0, 0));
-                        (w as i32, h as i32, offset_x, offset_y)
-                    })
+                effective_tty_viewport_for_output(tuning, outputs, name.as_str()).map(|viewport| {
+                    (
+                        viewport.width as i32,
+                        viewport.height as i32,
+                        viewport.offset_x,
+                        viewport.offset_y,
+                    )
                 })
             })
         })
@@ -729,8 +850,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let mut display: Display<Halley> = Display::new()?;
             let dh = display.handle();
 
+            crate::bootstrap::ensure_default_user_config(Some(&bootstrap_tty_viewports(
+                drm_probe.outputs.as_slice(),
+            )));
             let config_path = Rc::new(RuntimeTuning::config_path());
+            let aperture_config_path = Rc::new(crate::aperture::default_aperture_config_path());
             let tuning = RuntimeTuning::load_from_path(config_path.as_str());
+            let aperture_config =
+                crate::aperture::load_aperture_config_from_path(aperture_config_path.as_path());
             tuning.apply_process_env();
             if !Path::new(config_path.as_str()).exists() {
                 warn!(
@@ -739,6 +866,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 );
             }
             info!("config path: {}", config_path.as_str());
+            if !aperture_config_path.as_path().exists() {
+                warn!(
+                    "aperture config file not found at {}; using built-in defaults",
+                    aperture_config_path.display()
+                );
+            }
+            crate::aperture::log_aperture_config_startup(aperture_config_path.as_ref());
             debug!("keybind modifier: {}", tuning.keybinds.modifier_name());
             debug!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
             debug!("resolved zoom: {}", tuning.zoom_resolved_summary());
@@ -746,9 +880,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
                 let config_watch_target = PathBuf::from(config_path.as_str());
-                let config_watch_name = config_watch_target
-                    .file_name()
-                    .map(std::ffi::OsStr::to_os_string);
+                let aperture_watch_target = aperture_config_path.as_ref().clone();
                 let mut watcher: RecommendedWatcher = notify::recommended_watcher(
                     move |result: Result<notify::Event, notify::Error>| {
                         if let Ok(event) = result {
@@ -756,10 +888,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 true
                             } else {
                                 event.paths.iter().any(|path| {
-                                    path == &config_watch_target
-                                        || config_watch_name
-                                            .as_ref()
-                                            .is_some_and(|name| path.file_name() == Some(name))
+                                    crate::aperture::aperture_config_matches_event_path(
+                                        path,
+                                        config_watch_target.as_path(),
+                                        aperture_watch_target.as_path(),
+                                    )
                                 })
                             };
                             if touches_config {
@@ -775,17 +908,19 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         }
                     },
                 )?;
-                let watch_root = Path::new(config_path.as_str())
-                    .parent()
-                    .map(Path::to_path_buf)
-                    .unwrap_or_else(|| PathBuf::from(config_path.as_str()));
-                if let Err(err) = watcher.watch(watch_root.as_path(), RecursiveMode::NonRecursive) {
-                    warn!(
-                        "config watch disabled for {} (watch root {}): {}",
-                        config_path.as_str(),
-                        watch_root.display(),
-                        err
-                    );
+                for watch_root in crate::aperture::config_watch_roots(
+                    Path::new(config_path.as_str()),
+                    aperture_config_path.as_path(),
+                ) {
+                    if let Err(err) =
+                        watcher.watch(watch_root.as_path(), RecursiveMode::NonRecursive)
+                    {
+                        warn!(
+                            "config watch disabled for {}: {}",
+                            watch_root.display(),
+                            err
+                        );
+                    }
                 }
                 (Some(watch_rx), Some(watcher))
             };
@@ -812,6 +947,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let mut ev: EventLoop<Halley> = EventLoop::try_new()?;
             let _signal = ev.get_signal();
             let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
+            state.apply_aperture_config(aperture_config);
             let capture_dmabuf_formats = {
                 let renderer = drm_probe.renderer.borrow();
                 <GlesRenderer as smithay::backend::renderer::Bind<
@@ -821,6 +957,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 .unwrap_or_default()
             };
             let outputs = Rc::new(RefCell::new(drm_probe.outputs));
+            log_effective_tty_viewport_fallback(&tuning, outputs.borrow().as_slice(), "startup");
+            let effective_viewports =
+                effective_tty_viewports_for_outputs(&tuning, outputs.borrow().as_slice());
+            state.reconfigure_active_tty_monitors(&effective_viewports);
             let dmabuf_importer: Rc<dyn DmabufImportBackend> =
                 Rc::new(TtyDmabufImportBackend::new(drm_probe.renderer.clone()));
             state.configure_dmabuf_importer_for_fd(dmabuf_importer, drm_probe.dev.device_fd());
@@ -837,7 +977,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             if state
                 .platform
                 .seat
-                .add_keyboard(Default::default(), 200, 30)
+                .add_keyboard(
+                    Default::default(),
+                    tuning.input.repeat_delay,
+                    tuning.input.repeat_rate,
+                )
                 .is_err()
             {
                 warn!("failed to initialize wl_seat keyboard");
@@ -926,8 +1070,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let pending_watch_reload_at_for_timer = pending_watch_reload_at.clone();
             let pending_output_rescan_at_for_timer = pending_output_rescan_at.clone();
             let config_path_for_timer = config_path.clone();
+            let aperture_config_path_for_timer = aperture_config_path.clone();
             let wayland_display_for_timer = sock_name.clone();
-            state.reconfigure_active_tty_monitors(&active_output_names(&outputs.borrow()));
             let target_monitor = [
                 state.focused_monitor().to_string(),
                 state.interaction_monitor().to_string(),
@@ -1008,8 +1152,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let scanout_signature = Rc::new(RefCell::new(current_tty_output_signature(
                 &outputs.borrow(),
             )));
-            let warned_vblank_mismatch = Rc::new(RefCell::new(false));
-            let warned_vblank_mismatch_for_notifier = warned_vblank_mismatch.clone();
+            let vblank_mismatch_state = Rc::new(RefCell::new(VBlankMismatchState::default()));
+            let vblank_mismatch_state_for_notifier = vblank_mismatch_state.clone();
             let output_frame_pending_for_notifier = output_frame_pending.clone();
             let output_frame_pending_for_dpms_input = output_frame_pending.clone();
             let output_frame_pending_for_dpms_timer = output_frame_pending.clone();
@@ -1138,35 +1282,44 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 .cloned()
                                 .collect();
 
-                            if !recoverable_outputs.is_empty() {
-                                if !*warned_vblank_mismatch_for_notifier.borrow() {
+                            let mut mismatch_state =
+                                vblank_mismatch_state_for_notifier.borrow_mut();
+                            let active_for = mismatch_state
+                                .first_seen_at
+                                .get_or_insert(timestamp)
+                                .elapsed();
+                            if active_for
+                                >= Duration::from_millis(VBLANK_MISMATCH_LOG_AFTER_MS)
+                                && !mismatch_state.reported_active
+                            {
+                                if !recoverable_outputs.is_empty() {
                                     debug!(
                                         "drm vblank crtc mismatch (got={:?}); releasing pending outputs {:?} to keep scanout advancing",
                                         crtc, recoverable_outputs
                                     );
-                                    *warned_vblank_mismatch_for_notifier.borrow_mut() = true;
-                                }
-                            } else if !pending_outputs.is_empty() {
-                                if !*warned_vblank_mismatch_for_notifier.borrow() {
+                                } else if !pending_outputs.is_empty() {
                                     debug!(
                                         "drm vblank crtc mismatch (got={:?}); keeping pending outputs {:?} blocked until they receive a real matched vblank",
                                         crtc, pending_outputs
                                     );
-                                    *warned_vblank_mismatch_for_notifier.borrow_mut() = true;
+                                } else {
+                                    debug!(
+                                        "drm vblank crtc mismatch (got={:?}); no configured output matched",
+                                        crtc
+                                    );
                                 }
-                            } else if !*warned_vblank_mismatch_for_notifier.borrow() {
-                                debug!(
-                                    "drm vblank crtc mismatch (got={:?}); no configured output matched",
-                                    crtc
-                                );
-                                *warned_vblank_mismatch_for_notifier.borrow_mut() = true;
+                                mismatch_state.reported_active = true;
                             }
-                        } else if *warned_vblank_mismatch_for_notifier.borrow() {
-                            debug!(
-                                "drm vblank crtc routing recovered on {:?} for {:?}",
-                                crtc, matched_outputs
-                            );
-                            *warned_vblank_mismatch_for_notifier.borrow_mut() = false;
+                        } else {
+                            let mut mismatch_state = vblank_mismatch_state_for_notifier.borrow_mut();
+                            if mismatch_state.reported_active {
+                                debug!(
+                                    "drm vblank crtc routing recovered on {:?} for {:?}",
+                                    crtc, matched_outputs
+                                );
+                            }
+                            mismatch_state.first_seen_at = None;
+                            mismatch_state.reported_active = false;
                         }
                     }
                     DrmEvent::Error(err) => warn!("drm event error: {}", err),
@@ -1508,10 +1661,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 drain_ipc_commands(|request| match request {
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
-                        st.show_exit_confirm_overlay();
+                        exit_confirm_controller(&mut *st).show();
                         halley_ipc::Response::Ok
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Reload) => {
+                        let _ = crate::aperture::reload_aperture_config(
+                            st,
+                            aperture_config_path_for_timer.as_path(),
+                            "ipc",
+                        );
                         if let Some(next) =
                             RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                         {
@@ -1606,6 +1764,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     .is_some_and(|deadline| now >= deadline)
                 {
                     *pending_watch_reload_at_for_timer.borrow_mut() = None;
+                    reloaded |= crate::aperture::reload_aperture_config(
+                        st,
+                        aperture_config_path_for_timer.as_path(),
+                        "watch",
+                    );
                     if let Some(next) =
                         RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                     {
@@ -1752,48 +1915,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
 
-                    if tty_animation_redraw_active(
-                        st,
-                        &outputs_for_timer,
-                        &pointer_state_for_timer,
-                        now,
-                    ) {
-                        let due_animation_outputs: HashSet<String> = due_outputs
-                            .iter()
-                            .filter(|output_name| {
-                                tty_output_animation_redraw_active(
-                                    st,
-                                    &pointer_state_for_timer,
-                                    output_name.as_str(),
-                                    now,
-                                )
-                            })
-                            .cloned()
-                            .collect();
-                        if !due_animation_outputs.is_empty()
-                            && !output_frame_pending_for_dpms_timer
-                                .borrow()
-                                .values()
-                                .copied()
-                                .any(|pending| pending)
-                        {
-                            advance_tty_redraw_frame(st, &pointer_state_for_timer, now, false);
-                            queue_ready_tty_outputs(
-                                &outputs_for_timer,
-                                &dpms_enabled_for_timer,
-                                &output_frame_pending,
-                                &output_animation_redraw_active,
-                                &pointer_state_for_timer,
-                                &renderer_for_timer,
-                                &first_frame_queued_for_timer,
-                                st,
-                                now,
-                                resize_preview,
-                                Some(&due_animation_outputs),
-                                "timer",
-                            );
-                        }
-                    } else if !due_outputs.is_empty() {
+                    if !due_outputs.is_empty() {
+                        // Keep the redraw-ping path biased toward animation-active outputs, but
+                        // let the timer continue servicing every due output. Otherwise local
+                        // zoom/pan on one monitor can starve unrelated outputs that still need
+                        // regular scanout, such as fullscreen video playback.
                         advance_tty_redraw_frame(st, &pointer_state_for_timer, now, false);
                         queue_ready_tty_outputs(
                             &outputs_for_timer,

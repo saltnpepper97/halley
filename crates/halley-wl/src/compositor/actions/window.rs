@@ -21,13 +21,7 @@ pub(crate) fn promote_node_level(
         return false;
     }
     let target_pos = n.pos;
-    let target_monitor = st
-        .model
-        .monitor_state
-        .node_monitor
-        .get(&node_id)
-        .cloned()
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let target_monitor = st.monitor_for_node_or_current(node_id);
     let focus_center = st.view_center_for_monitor(target_monitor.as_str());
     let focus_ring = st.focus_ring_for_monitor(target_monitor.as_str());
 
@@ -41,7 +35,7 @@ pub(crate) fn promote_node_level(
             .remove(&node_id);
 
         let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
-        st.mark_active_transition(node_id, now, 360);
+        crate::compositor::workspace::state::mark_active_transition(st, node_id, now, 360);
 
         st.set_interaction_focus(Some(node_id), 30_000, now);
         return true;
@@ -67,13 +61,7 @@ pub(crate) fn activate_collapsed_node_from_click(
         return false;
     }
 
-    let target_monitor = st
-        .model
-        .monitor_state
-        .node_monitor
-        .get(&node_id)
-        .cloned()
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let target_monitor = st.monitor_for_node_or_current(node_id);
     let focus_center = st.view_center_for_monitor(target_monitor.as_str());
     let focus_ring = st.focus_ring_for_monitor(target_monitor.as_str());
     let in_focus_ring = focus_ring.zone(focus_center, n.pos) == FocusZone::Inside;
@@ -89,7 +77,7 @@ pub(crate) fn activate_collapsed_node_from_click(
         .manual_collapsed_nodes
         .remove(&node_id);
     let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
-    st.mark_active_transition(node_id, now, 360);
+    crate::compositor::workspace::state::mark_active_transition(st, node_id, now, 360);
     st.set_interaction_focus(Some(node_id), 30_000, now);
 
     match st.runtime.tuning.click_collapsed_pan {
@@ -122,13 +110,7 @@ pub(crate) fn focus_or_reveal_surface_node(
         return false;
     }
 
-    let target_monitor = st
-        .model
-        .monitor_state
-        .node_monitor
-        .get(&node_id)
-        .cloned()
-        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let target_monitor = st.monitor_for_node_or_current(node_id);
     if st.focused_monitor() != target_monitor {
         st.focus_monitor_view(target_monitor.as_str(), now);
     }
@@ -269,28 +251,22 @@ pub(crate) fn toggle_node_state(
 
     match n.state {
         halley_core::field::NodeState::Active => {
-            crate::compositor::workspace::state::start_active_to_node_close_animation(st, id, now);
-            let _ = st
-                .model
-                .field
-                .set_state(id, halley_core::field::NodeState::Node);
-            let _ = st
-                .model
-                .field
-                .set_decay_level(id, halley_core::decay::DecayLevel::Cold);
-            st.model
-                .spawn_state
-                .pending_spawn_activate_at_ms
-                .remove(&id);
-            st.model.workspace_state.manual_collapsed_nodes.insert(id);
-
-            st.set_interaction_focus(None, 0, now);
-            st.model.focus_state.pan_restore_active_focus = None;
+            if crate::compositor::workspace::state::start_active_to_node_close_animation(
+                st, id, now,
+            ) {
+                let _ = crate::compositor::workspace::state::finish_manual_collapse(st, id, now);
+            } else {
+                crate::compositor::workspace::state::queue_pending_manual_collapse(st, id, now);
+            }
             true
         }
 
         halley_core::field::NodeState::Node => {
             st.model.workspace_state.manual_collapsed_nodes.remove(&id);
+            st.model
+                .workspace_state
+                .pending_manual_collapses
+                .remove(&id);
             let _ = st
                 .model
                 .field
@@ -299,7 +275,7 @@ pub(crate) fn toggle_node_state(
                 .spawn_state
                 .pending_spawn_activate_at_ms
                 .remove(&id);
-            st.mark_active_transition(id, now, 360);
+            crate::compositor::workspace::state::mark_active_transition(st, id, now, 360);
 
             st.set_interaction_focus(Some(id), 30_000, now);
             true

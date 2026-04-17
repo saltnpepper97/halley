@@ -1,13 +1,17 @@
+use halley_config::{DecorationBorderColor, OverlayColorMode, RuntimeTuning};
 use image::RgbaImage;
 use resvg::{tiny_skia, usvg};
 use smithay::backend::allocator::Fourcc;
-use smithay::backend::renderer::ImportMem;
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::ImportMem;
 
 use crate::compositor::root::Halley;
+use crate::render::icon_tint::tint_alpha_mask_image;
 use crate::render::state::{NodeAppIconTexture, ScreenshotMenuIconCache};
 
 const ICON_RASTER_PX: u32 = 48;
+const ACTIVE_ICON_ALPHA: u8 = 255;
+const INACTIVE_ICON_ALPHA: u8 = 184;
 const REGION_SVG: &[u8] = include_bytes!("../overlay/assets/region.svg");
 const SCREEN_SVG: &[u8] = include_bytes!("../overlay/assets/screen.svg");
 const WINDOW_SVG: &[u8] = include_bytes!("../overlay/assets/window.svg");
@@ -16,8 +20,8 @@ pub(crate) fn ensure_screenshot_menu_icon_resources(
     renderer: &mut GlesRenderer,
     st: &mut Halley,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let active = rgba_bytes_from_overlay_color(resolve_active_color(st));
-    let inactive = rgba_bytes_from_overlay_color(resolve_inactive_color(st));
+    let active = screenshot_menu_active_rgba(&st.runtime.tuning);
+    let inactive = screenshot_menu_inactive_rgba(&st.runtime.tuning);
     let cache = &st.ui.render_state.screenshot_menu_icon_cache;
     if cache.active_color == active
         && cache.inactive_color == inactive
@@ -61,82 +65,190 @@ pub(crate) fn screenshot_menu_icon_texture(
     }
 }
 
-fn resolve_active_color(st: &Halley) -> halley_config::DecorationBorderColor {
-    st.runtime.tuning.border_color_focused
-}
+const LIGHT_OVERLAY_FILL: DecorationBorderColor = DecorationBorderColor {
+    r: 0.92,
+    g: 0.95,
+    b: 0.98,
+};
+const DARK_OVERLAY_FILL: DecorationBorderColor = DecorationBorderColor {
+    r: 0.15,
+    g: 0.18,
+    b: 0.22,
+};
+const LIGHT_OVERLAY_TEXT: DecorationBorderColor = DecorationBorderColor {
+    r: 0.08,
+    g: 0.10,
+    b: 0.12,
+};
+const DARK_OVERLAY_TEXT: DecorationBorderColor = DecorationBorderColor {
+    r: 0.94,
+    g: 0.96,
+    b: 0.98,
+};
 
-fn resolve_inactive_color(st: &Halley) -> halley_config::DecorationBorderColor {
-    let text = resolve_overlay_text_color(st);
-    let bg = resolve_overlay_background_color(st);
-    halley_config::DecorationBorderColor {
-        r: text.r + (bg.r - text.r) * 0.20,
-        g: text.g + (bg.g - text.g) * 0.20,
-        b: text.b + (bg.b - text.b) * 0.20,
+pub(crate) fn screenshot_menu_background_color(tuning: &RuntimeTuning) -> DecorationBorderColor {
+    match tuning.screenshot.background_color {
+        OverlayColorMode::Auto | OverlayColorMode::Light => LIGHT_OVERLAY_FILL,
+        OverlayColorMode::Dark => DARK_OVERLAY_FILL,
+        OverlayColorMode::Fixed { r, g, b } => DecorationBorderColor { r, g, b },
     }
 }
 
-fn resolve_overlay_background_color(st: &Halley) -> halley_config::DecorationBorderColor {
-    match st.runtime.tuning.overlay_style.background_color {
-        halley_config::OverlayColorMode::Auto | halley_config::OverlayColorMode::Light => {
-            halley_config::DecorationBorderColor {
-                r: 0.92,
-                g: 0.95,
-                b: 0.98,
-            }
-        }
-        halley_config::OverlayColorMode::Dark => halley_config::DecorationBorderColor {
-            r: 0.15,
-            g: 0.18,
-            b: 0.22,
-        },
-        halley_config::OverlayColorMode::Fixed { r, g, b } => {
-            halley_config::DecorationBorderColor { r, g, b }
-        }
-    }
-}
-
-fn resolve_overlay_text_color(st: &Halley) -> halley_config::DecorationBorderColor {
-    let bg = resolve_overlay_background_color(st);
-    match st.runtime.tuning.overlay_style.text_color {
-        halley_config::OverlayColorMode::Auto => {
+pub(crate) fn screenshot_menu_highlight_color(tuning: &RuntimeTuning) -> DecorationBorderColor {
+    let bg = screenshot_menu_background_color(tuning);
+    match tuning.screenshot.highlight_color {
+        OverlayColorMode::Auto => {
             let luminance = bg.r * 0.2126 + bg.g * 0.7152 + bg.b * 0.0722;
             if luminance < 0.45 {
-                halley_config::DecorationBorderColor {
-                    r: 0.94,
-                    g: 0.96,
-                    b: 0.98,
-                }
+                DARK_OVERLAY_TEXT
             } else {
-                halley_config::DecorationBorderColor {
-                    r: 0.08,
-                    g: 0.10,
-                    b: 0.12,
-                }
+                LIGHT_OVERLAY_TEXT
             }
         }
-        halley_config::OverlayColorMode::Light => halley_config::DecorationBorderColor {
-            r: 0.08,
-            g: 0.10,
-            b: 0.12,
-        },
-        halley_config::OverlayColorMode::Dark => halley_config::DecorationBorderColor {
-            r: 0.94,
-            g: 0.96,
-            b: 0.98,
-        },
-        halley_config::OverlayColorMode::Fixed { r, g, b } => {
-            halley_config::DecorationBorderColor { r, g, b }
-        }
+        OverlayColorMode::Light => LIGHT_OVERLAY_TEXT,
+        OverlayColorMode::Dark => DARK_OVERLAY_TEXT,
+        OverlayColorMode::Fixed { r, g, b } => DecorationBorderColor { r, g, b },
     }
 }
 
-fn rgba_bytes_from_overlay_color(color: halley_config::DecorationBorderColor) -> [u8; 4] {
+pub(crate) fn screenshot_menu_inactive_highlight_color(
+    tuning: &RuntimeTuning,
+) -> DecorationBorderColor {
+    match tuning.screenshot.highlight_color {
+        OverlayColorMode::Fixed { .. } => mix_color(
+            screenshot_menu_background_color(tuning),
+            screenshot_menu_highlight_color(tuning),
+            0.58,
+        ),
+        _ => screenshot_menu_highlight_color(tuning),
+    }
+}
+
+pub(crate) fn screenshot_menu_item_fill_color(tuning: &RuntimeTuning) -> DecorationBorderColor {
+    mix_color(
+        screenshot_menu_background_color(tuning),
+        screenshot_menu_highlight_color(tuning),
+        0.10,
+    )
+}
+
+fn mix_color(
+    a: DecorationBorderColor,
+    b: DecorationBorderColor,
+    amount: f32,
+) -> DecorationBorderColor {
+    let t = amount.clamp(0.0, 1.0);
+    DecorationBorderColor {
+        r: a.r + (b.r - a.r) * t,
+        g: a.g + (b.g - a.g) * t,
+        b: a.b + (b.b - a.b) * t,
+    }
+}
+
+fn screenshot_menu_active_rgba(tuning: &RuntimeTuning) -> [u8; 4] {
+    rgba_bytes_from_overlay_color(screenshot_menu_highlight_color(tuning), ACTIVE_ICON_ALPHA)
+}
+
+fn screenshot_menu_inactive_rgba(tuning: &RuntimeTuning) -> [u8; 4] {
+    rgba_bytes_from_overlay_color(
+        screenshot_menu_inactive_highlight_color(tuning),
+        INACTIVE_ICON_ALPHA,
+    )
+}
+
+fn rgba_bytes_from_overlay_color(
+    color: halley_config::DecorationBorderColor,
+    alpha: u8,
+) -> [u8; 4] {
     [
         (color.r.clamp(0.0, 1.0) * 255.0).round() as u8,
         (color.g.clamp(0.0, 1.0) * 255.0).round() as u8,
         (color.b.clamp(0.0, 1.0) * 255.0).round() as u8,
-        255,
+        alpha,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use halley_config::{OverlayColorMode, RuntimeTuning};
+
+    use super::{
+        screenshot_menu_active_rgba, screenshot_menu_background_color,
+        screenshot_menu_highlight_color, screenshot_menu_inactive_highlight_color,
+        screenshot_menu_inactive_rgba,
+    };
+
+    #[test]
+    fn screenshot_auto_palette_uses_light_overlay_background_and_dark_highlight() {
+        let tuning = RuntimeTuning::default();
+
+        let bg = screenshot_menu_background_color(&tuning);
+        let highlight = screenshot_menu_highlight_color(&tuning);
+
+        assert_eq!((bg.r, bg.g, bg.b), (0.92, 0.95, 0.98));
+        assert_eq!((highlight.r, highlight.g, highlight.b), (0.08, 0.10, 0.12));
+    }
+
+    #[test]
+    fn screenshot_active_rgba_matches_exact_configured_highlight() {
+        let mut tuning = RuntimeTuning::default();
+        tuning.screenshot.highlight_color = OverlayColorMode::Fixed {
+            r: 0.90,
+            g: 0.80,
+            b: 0.10,
+        };
+
+        assert_eq!(screenshot_menu_active_rgba(&tuning), [230, 204, 26, 255]);
+    }
+
+    #[test]
+    fn screenshot_inactive_rgba_softens_fixed_highlight_toward_background() {
+        let mut tuning_a = RuntimeTuning::default();
+        tuning_a.screenshot.background_color = OverlayColorMode::Fixed {
+            r: 0.20,
+            g: 0.30,
+            b: 0.40,
+        };
+        tuning_a.screenshot.highlight_color = OverlayColorMode::Fixed {
+            r: 0.90,
+            g: 0.80,
+            b: 0.10,
+        };
+
+        let mut tuning_b = tuning_a.clone();
+        tuning_b.screenshot.background_color = OverlayColorMode::Fixed {
+            r: 0.02,
+            g: 0.04,
+            b: 0.90,
+        };
+
+        let inactive_a = screenshot_menu_inactive_highlight_color(&tuning_a);
+        let inactive_b = screenshot_menu_inactive_highlight_color(&tuning_b);
+
+        assert_ne!(
+            (inactive_a.r, inactive_a.g, inactive_a.b),
+            (0.90, 0.80, 0.10)
+        );
+        assert_ne!(
+            (inactive_b.r, inactive_b.g, inactive_b.b),
+            (0.90, 0.80, 0.10)
+        );
+        assert_eq!(
+            screenshot_menu_inactive_rgba(&tuning_a),
+            [155, 150, 58, 184]
+        );
+        assert_eq!(
+            screenshot_menu_inactive_rgba(&tuning_b),
+            [135, 123, 111, 184]
+        );
+    }
+
+    #[test]
+    fn screenshot_inactive_rgba_keeps_builtin_palette_rgb() {
+        let tuning = RuntimeTuning::default();
+
+        assert_eq!(screenshot_menu_inactive_rgba(&tuning), [20, 26, 31, 184]);
+    }
 }
 
 fn load_svg_icon_texture(
@@ -174,14 +286,6 @@ fn load_svg_raster(svg: &[u8], rgba: [u8; 4]) -> Option<RgbaImage> {
     let transform = tiny_skia::Transform::from_scale(scale, scale).post_translate(dx, dy);
     resvg::render(&tree, transform, &mut pixmap.as_mut());
     let mut image = RgbaImage::from_vec(ICON_RASTER_PX, ICON_RASTER_PX, pixmap.data().to_vec())?;
-    for pixel in image.pixels_mut() {
-        if pixel[3] == 0 {
-            continue;
-        }
-        pixel[0] = rgba[0];
-        pixel[1] = rgba[1];
-        pixel[2] = rgba[2];
-        pixel[3] = ((pixel[3] as u16 * rgba[3] as u16) / 255) as u8;
-    }
+    tint_alpha_mask_image(&mut image, rgba);
     Some(image)
 }

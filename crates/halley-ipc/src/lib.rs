@@ -8,15 +8,17 @@ pub use codec::{
 };
 pub use error::{CodecError, IpcError};
 pub use protocol::{
-    BearingsRequest, CaptureMode, CaptureRequest, ClusterRequest, CompositorRequest, DpmsCommand,
-    MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, NodeMoveDirection, NodeRequest,
-    NodeSelector, Request, Response, StackCycleDirection, StackRequest, TileRequest,
+    BearingsRequest, CaptureMode, CaptureRequest, ClusterRequest, ClusterTarget, CompositorRequest,
+    DpmsCommand, MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, NodeMoveDirection,
+    NodeRequest, NodeSelector, Request, Response, StackCycleDirection, StackRequest, TileRequest,
     TrailDirection, TrailRequest, TrailTarget,
 };
 pub use types::{
-    BearingsStatusResponse, CaptureStatusResponse, LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind,
-    NodeListResponse, NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo, NodeRole, NodeState,
-    OutputInfo, OutputStatus, OutputsResponse, TrailEntryInfo, TrailListResponse,
+    ApertureMode, ApertureStatusResponse, BearingsStatusResponse, CaptureStatusResponse,
+    ClusterInfo, ClusterLayoutKind, ClusterListResponse, ClusterOutputGroup, ClusterSummary,
+    LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup,
+    NodeProtocolFamily, NodeRelationInfo, NodeRole, NodeState, OutputInfo, OutputStatus,
+    OutputsResponse, TrailEntryInfo, TrailListResponse,
 };
 
 use std::env;
@@ -27,7 +29,9 @@ use std::path::PathBuf;
 pub fn default_socket_path() -> io::Result<PathBuf> {
     let runtime_dir = env::var_os("XDG_RUNTIME_DIR")
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR is not set"))?;
-    Ok(PathBuf::from(runtime_dir).join("halley").join("socket"))
+    Ok(PathBuf::from(runtime_dir)
+        .join("halley")
+        .join("halley.sock"))
 }
 
 pub fn send_request(req: &Request) -> Result<Response, CodecError> {

@@ -33,6 +33,17 @@ use super::clipped_surface::ClippedSurfaceRenderElement;
 use super::offscreen::render_surface_tree_to_texture;
 use super::utils::{sync_node_size_from_surface, world_to_screen};
 
+mod offscreen;
+mod stack;
+
+pub(crate) use offscreen::{
+    capture_closing_window_animation, prewarm_visible_active_window_offscreen_caches,
+};
+use stack::{build_stack_transition_plan, clone_stack_window_unit_for_pose, stack_draw_order_map};
+
+#[cfg(test)]
+use offscreen::world_to_screen_for_view;
+
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
 render_elements! {
@@ -42,8 +53,6 @@ render_elements! {
 }
 pub(crate) type CroppedClippedSurfaceElement = CropRenderElement<DirectSurfaceElement>;
 type CroppedSurfaceElement = CropRenderElement<SurfaceElement>;
-
-const CSD_SOFT_CLIP_MARGIN_PX: f32 = 1.5;
 
 fn should_draw_resize_overlap_overlay(
     resize_rect_px: Option<(i32, i32, i32, i32, NodeId)>,
@@ -117,7 +126,7 @@ pub(crate) struct OffscreenNodeTexture {
     pub clip_h: i32,
     /// Geometry rect within the dst rect (in dst-local pixels).
     /// Used by the shader to clip content to the window geometry rather than
-    /// the full bbox, so CSD-shadow pixels don't poke past the rounded border.
+    /// the full bbox, so visual margin pixels do not poke past the rounded border.
     pub geo_offset_x: f32,
     pub geo_offset_y: f32,
     pub geo_w: f32,
@@ -127,7 +136,7 @@ pub(crate) struct OffscreenNodeTexture {
 pub(crate) struct StackWindowDrawUnit {
     pub node_id: NodeId,
     pub draw_order: i32,
-    pub border_rect: Option<ActiveBorderRect>,
+    pub border_rects: Vec<ActiveBorderRect>,
     pub active_elements: Vec<CroppedClippedSurfaceElement>,
     pub offscreen_textures: Vec<OffscreenNodeTexture>,
 }
@@ -137,321 +146,11 @@ impl StackWindowDrawUnit {
         Self {
             node_id,
             draw_order,
-            border_rect: None,
+            border_rects: Vec::new(),
             active_elements: Vec::new(),
             offscreen_textures: Vec::new(),
         }
     }
-}
-
-#[derive(Clone, Copy)]
-struct StackTransitionPose {
-    center: Vec2,
-    size: Vec2,
-    alpha: f32,
-    draw_order: i32,
-}
-
-struct StackTransitionExtraInstance {
-    node_id: NodeId,
-    pose: StackTransitionPose,
-}
-
-struct StackTransitionPlan {
-    poses: HashMap<NodeId, StackTransitionPose>,
-    extra_instances: Vec<StackTransitionExtraInstance>,
-}
-
-fn lerp_f32(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
-}
-
-fn lerp_vec2(a: Vec2, b: Vec2, t: f32) -> Vec2 {
-    Vec2 {
-        x: lerp_f32(a.x, b.x, t),
-        y: lerp_f32(a.y, b.y, t),
-    }
-}
-
-fn rect_center(rect: Rect) -> Vec2 {
-    Vec2 {
-        x: rect.x + rect.w * 0.5,
-        y: rect.y + rect.h * 0.5,
-    }
-}
-
-fn rect_size(rect: Rect) -> Vec2 {
-    Vec2 {
-        x: rect.w.max(1.0),
-        y: rect.h.max(1.0),
-    }
-}
-
-fn stack_draw_order_map(front_to_back: &[NodeId]) -> HashMap<NodeId, i32> {
-    let len = front_to_back.len() as i32;
-    front_to_back
-        .iter()
-        .enumerate()
-        .map(|(index, &node_id)| (node_id, len - index as i32 - 1))
-        .collect()
-}
-
-fn build_stack_transition_plan(
-    st: &Halley,
-    monitor: &str,
-    transition: &crate::render::state::StackCycleTransitionSnapshot,
-) -> Option<StackTransitionPlan> {
-    let custom_source_rects = transition.source_rects.is_some();
-    let old_rects = transition
-        .source_rects
-        .clone()
-        .or_else(|| st.stack_layout_rects_for_members(monitor, &transition.old_visible))?;
-    let new_rects = st.stack_layout_rects_for_members(monitor, &transition.new_visible)?;
-    let t = ease_in_out_cubic(transition.progress);
-    let draw_orders = stack_draw_order_map(&transition.new_visible);
-    let topmost_order = transition.new_visible.len() as i32 + 1;
-    let old_top = transition.old_visible.first().copied();
-    let old_bottom = transition.old_visible.last().copied();
-    let new_top = transition.new_visible.first().copied();
-    let wrapped_same_set = !custom_source_rects
-        && transition.old_visible.len() == transition.new_visible.len()
-        && transition
-            .old_visible
-            .iter()
-            .all(|id| transition.new_visible.contains(id));
-    let wrapped_node = match transition.direction {
-        ClusterCycleDirection::Next
-            if wrapped_same_set && old_top == transition.new_visible.last().copied() =>
-        {
-            old_top
-        }
-        ClusterCycleDirection::Prev if wrapped_same_set && old_bottom == new_top => old_bottom,
-        _ => None,
-    };
-
-    let mut ids = transition.old_visible.clone();
-    for &node_id in &transition.new_visible {
-        if !ids.contains(&node_id) {
-            ids.push(node_id);
-        }
-    }
-
-    let mut poses = HashMap::new();
-    let mut extra_instances = Vec::new();
-    for node_id in ids {
-        if wrapped_node == Some(node_id)
-            && let (Some(old_rect), Some(new_rect)) = (
-                old_rects.get(&node_id).copied(),
-                new_rects.get(&node_id).copied(),
-            )
-        {
-            let canonical_pose = match transition.direction {
-                ClusterCycleDirection::Next => StackTransitionPose {
-                    center: rect_center(new_rect),
-                    size: rect_size(new_rect),
-                    alpha: t,
-                    draw_order: draw_orders.get(&node_id).copied().unwrap_or_default(),
-                },
-                ClusterCycleDirection::Prev => {
-                    let end_center = rect_center(new_rect);
-                    let mut start_center = end_center;
-                    start_center.x -= new_rect.w * 0.55;
-                    StackTransitionPose {
-                        center: lerp_vec2(start_center, end_center, t),
-                        size: rect_size(new_rect),
-                        alpha: t,
-                        draw_order: topmost_order,
-                    }
-                }
-            };
-            poses.insert(node_id, canonical_pose);
-
-            if matches!(transition.direction, ClusterCycleDirection::Next) {
-                let mut end_center = rect_center(old_rect);
-                end_center.x -= old_rect.w * 0.55;
-                extra_instances.push(StackTransitionExtraInstance {
-                    node_id,
-                    pose: StackTransitionPose {
-                        center: lerp_vec2(rect_center(old_rect), end_center, t),
-                        size: rect_size(old_rect),
-                        alpha: 1.0 - t,
-                        draw_order: topmost_order,
-                    },
-                });
-            }
-            continue;
-        }
-
-        let pose = match (
-            old_rects.get(&node_id).copied(),
-            new_rects.get(&node_id).copied(),
-        ) {
-            (Some(old_rect), Some(new_rect)) => StackTransitionPose {
-                center: lerp_vec2(rect_center(old_rect), rect_center(new_rect), t),
-                size: lerp_vec2(rect_size(old_rect), rect_size(new_rect), t),
-                alpha: 1.0,
-                draw_order: draw_orders.get(&node_id).copied().unwrap_or_default(),
-            },
-            (Some(old_rect), None) => {
-                let mut end_center = rect_center(old_rect);
-                let draw_order = match transition.direction {
-                    ClusterCycleDirection::Next if Some(node_id) == old_top => {
-                        end_center.x -= old_rect.w * 0.55;
-                        topmost_order
-                    }
-                    ClusterCycleDirection::Prev if Some(node_id) == old_bottom => {
-                        end_center.x += old_rect.w * 0.08;
-                        end_center.y += old_rect.h * 0.04;
-                        0
-                    }
-                    _ => 0,
-                };
-                StackTransitionPose {
-                    center: lerp_vec2(rect_center(old_rect), end_center, t),
-                    size: rect_size(old_rect),
-                    alpha: 1.0 - t,
-                    draw_order,
-                }
-            }
-            (None, Some(new_rect)) => {
-                let end_center = rect_center(new_rect);
-                let mut start_center = end_center;
-                let draw_order = match transition.direction {
-                    ClusterCycleDirection::Prev if Some(node_id) == new_top => {
-                        start_center.x -= new_rect.w * 0.55;
-                        topmost_order
-                    }
-                    _ => draw_orders.get(&node_id).copied().unwrap_or_default(),
-                };
-                StackTransitionPose {
-                    center: lerp_vec2(start_center, end_center, t),
-                    size: rect_size(new_rect),
-                    alpha: t,
-                    draw_order,
-                }
-            }
-            (None, None) => continue,
-        };
-        poses.insert(node_id, pose);
-    }
-
-    Some(StackTransitionPlan {
-        poses,
-        extra_instances,
-    })
-}
-
-fn transform_rect_about_center(
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-    from_center: (f32, f32),
-    to_center: (f32, f32),
-    scale_x: f32,
-    scale_y: f32,
-) -> (i32, i32, i32, i32) {
-    let rect_center_x = x as f32 + w as f32 * 0.5;
-    let rect_center_y = y as f32 + h as f32 * 0.5;
-    let new_center_x = to_center.0 + (rect_center_x - from_center.0) * scale_x;
-    let new_center_y = to_center.1 + (rect_center_y - from_center.1) * scale_y;
-    let new_w = (w as f32 * scale_x).round().max(1.0) as i32;
-    let new_h = (h as f32 * scale_y).round().max(1.0) as i32;
-    (
-        (new_center_x - new_w as f32 * 0.5).round() as i32,
-        (new_center_y - new_h as f32 * 0.5).round() as i32,
-        new_w,
-        new_h,
-    )
-}
-
-fn clone_stack_window_unit_for_pose(
-    st: &Halley,
-    size: Size<i32, Physical>,
-    unit: &StackWindowDrawUnit,
-    from_pose: StackTransitionPose,
-    to_pose: StackTransitionPose,
-) -> Option<StackWindowDrawUnit> {
-    let (from_cx, from_cy) =
-        world_to_screen(st, size.w, size.h, from_pose.center.x, from_pose.center.y);
-    let (to_cx, to_cy) = world_to_screen(st, size.w, size.h, to_pose.center.x, to_pose.center.y);
-    let scale_x = (to_pose.size.x / from_pose.size.x.max(1.0)).max(0.01);
-    let scale_y = (to_pose.size.y / from_pose.size.y.max(1.0)).max(0.01);
-
-    let border_rect = unit.border_rect.as_ref().cloned().map(|mut rect| {
-        let (x, y, w, h) = transform_rect_about_center(
-            rect.x,
-            rect.y,
-            rect.w,
-            rect.h,
-            (from_cx as f32, from_cy as f32),
-            (to_cx as f32, to_cy as f32),
-            scale_x,
-            scale_y,
-        );
-        rect.x = x;
-        rect.y = y;
-        rect.w = w;
-        rect.h = h;
-        rect.inner_w = w as f32;
-        rect.inner_h = h as f32;
-        rect.alpha *= to_pose.alpha.clamp(0.0, 1.0);
-        rect
-    });
-
-    let offscreen_textures = unit
-        .offscreen_textures
-        .iter()
-        .cloned()
-        .map(|mut tex| {
-            let (dst_x, dst_y, dst_w, dst_h) = transform_rect_about_center(
-                tex.dst_x,
-                tex.dst_y,
-                tex.dst_w,
-                tex.dst_h,
-                (from_cx as f32, from_cy as f32),
-                (to_cx as f32, to_cy as f32),
-                scale_x,
-                scale_y,
-            );
-            let (clip_x, clip_y, clip_w, clip_h) = transform_rect_about_center(
-                tex.clip_x,
-                tex.clip_y,
-                tex.clip_w,
-                tex.clip_h,
-                (from_cx as f32, from_cy as f32),
-                (to_cx as f32, to_cy as f32),
-                scale_x,
-                scale_y,
-            );
-            tex.dst_x = dst_x;
-            tex.dst_y = dst_y;
-            tex.dst_w = dst_w;
-            tex.dst_h = dst_h;
-            tex.clip_x = clip_x;
-            tex.clip_y = clip_y;
-            tex.clip_w = clip_w;
-            tex.clip_h = clip_h;
-            tex.geo_offset_x *= scale_x;
-            tex.geo_offset_y *= scale_y;
-            tex.geo_w *= scale_x;
-            tex.geo_h *= scale_y;
-            tex.alpha *= to_pose.alpha.clamp(0.0, 1.0);
-            tex
-        })
-        .collect::<Vec<_>>();
-
-    if border_rect.is_none() && offscreen_textures.is_empty() {
-        return None;
-    }
-
-    Some(StackWindowDrawUnit {
-        node_id: unit.node_id,
-        draw_order: to_pose.draw_order,
-        border_rect,
-        active_elements: Vec::new(),
-        offscreen_textures,
-    })
 }
 
 fn rect_from_local_geometry(
@@ -469,30 +168,191 @@ fn rect_from_local_geometry(
     )
 }
 
-fn expanded_csd_clip_rect(
-    local_bbox: (f32, f32, f32, f32),
-    local_geo: (f32, f32, f32, f32),
-    margin: f32,
-) -> (f32, f32, f32, f32) {
-    let bbox_left = local_bbox.0;
-    let bbox_top = local_bbox.1;
-    let bbox_right = local_bbox.0 + local_bbox.2.max(1.0);
-    let bbox_bottom = local_bbox.1 + local_bbox.3.max(1.0);
-
-    let left = (local_geo.0 - margin).max(bbox_left);
-    let top = (local_geo.1 - margin).max(bbox_top);
-    let right = (local_geo.0 + local_geo.2 + margin).min(bbox_right);
-    let bottom = (local_geo.1 + local_geo.3 + margin).min(bbox_bottom);
-
-    (left, top, (right - left).max(1.0), (bottom - top).max(1.0))
+fn scaled_window_border_px(base: i32, render_scale: f32) -> i32 {
+    let base = base.max(0) as f32;
+    let scaled = (base * render_scale).round();
+    if base > 0.0 {
+        scaled.max(1.0) as i32
+    } else {
+        0
+    }
 }
 
-fn strict_square_csd_transition_mode(
-    no_csd: bool,
-    effective_corner_radius_px: i32,
-    transition_active: bool,
-) -> bool {
-    !no_csd && effective_corner_radius_px == 0 && transition_active
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct WindowDecorationMetrics {
+    content_corner_radius_px: i32,
+    primary_border_px: i32,
+    primary_outer_corner_radius_px: i32,
+    secondary_gap_px: i32,
+    secondary_border_px: i32,
+    secondary_inner_corner_radius_px: i32,
+    secondary_outer_corner_radius_px: i32,
+}
+
+const DECORATION_JOIN_OVERLAP_PX: f32 = 0.75;
+
+fn window_decoration_metrics(
+    content_corner_radius_px: i32,
+    primary_border_px: i32,
+    secondary_gap_px: i32,
+    secondary_border_px: i32,
+) -> WindowDecorationMetrics {
+    let content_corner_radius_px = content_corner_radius_px.max(0);
+    let primary_border_px = primary_border_px.max(0);
+    let secondary_gap_px = secondary_gap_px.max(0);
+    let secondary_border_px = secondary_border_px.max(0);
+    let (primary_outer_corner_radius_px, secondary_inner_corner_radius_px, secondary_outer_corner_radius_px) =
+        if content_corner_radius_px > 0 {
+            let primary_outer_corner_radius_px = content_corner_radius_px + primary_border_px;
+            let secondary_inner_corner_radius_px =
+                primary_outer_corner_radius_px + secondary_gap_px;
+            let secondary_outer_corner_radius_px =
+                secondary_inner_corner_radius_px + secondary_border_px;
+            (
+                primary_outer_corner_radius_px,
+                secondary_inner_corner_radius_px,
+                secondary_outer_corner_radius_px,
+            )
+        } else {
+            (0, 0, 0)
+        };
+
+    WindowDecorationMetrics {
+        content_corner_radius_px,
+        primary_border_px,
+        primary_outer_corner_radius_px,
+        secondary_gap_px,
+        secondary_border_px,
+        secondary_inner_corner_radius_px,
+        secondary_outer_corner_radius_px,
+    }
+}
+
+fn overlap_joined_inner_boundary(
+    inner_offset_px: f32,
+    inner_w_px: f32,
+    inner_h_px: f32,
+    inner_corner_radius_px: f32,
+    overlap_px: f32,
+) -> (f32, f32, f32, f32) {
+    let overlap_px = overlap_px.max(0.0);
+    if overlap_px <= 0.0 {
+        return (
+            inner_offset_px,
+            inner_w_px.max(1.0),
+            inner_h_px.max(1.0),
+            inner_corner_radius_px.max(0.0),
+        );
+    }
+
+    (
+        inner_offset_px + overlap_px,
+        (inner_w_px - overlap_px * 2.0).max(1.0),
+        (inner_h_px - overlap_px * 2.0).max(1.0),
+        (inner_corner_radius_px - overlap_px).max(0.0),
+    )
+}
+
+fn border_color(color: halley_config::DecorationBorderColor) -> Color32F {
+    Color32F::new(color.r, color.g, color.b, 1.0)
+}
+
+fn build_window_border_rects(
+    st: &Halley,
+    node_id: NodeId,
+    gx: i32,
+    gy: i32,
+    gw: i32,
+    gh: i32,
+    alpha: f32,
+    render_scale: f32,
+    fullscreen_on_current_monitor: bool,
+) -> Vec<ActiveBorderRect> {
+    if fullscreen_on_current_monitor {
+        return Vec::new();
+    }
+
+    let metrics = window_decoration_metrics(
+        scaled_window_border_px(st.runtime.tuning.window_border_radius_px(), render_scale),
+        scaled_window_border_px(st.runtime.tuning.window_primary_border_size_px(), render_scale),
+        scaled_window_border_px(st.runtime.tuning.window_secondary_border_gap_px(), render_scale),
+        scaled_window_border_px(
+            st.runtime.tuning.window_secondary_border_size_px(),
+            render_scale,
+        ),
+    );
+    let focused = st.model.focus_state.primary_interaction_focus == Some(node_id);
+    let mut rects = Vec::with_capacity(2);
+
+    if metrics.primary_border_px > 0 {
+        let (inner_offset_x, inner_w, inner_h, inner_corner_radius) =
+            overlap_joined_inner_boundary(
+                metrics.primary_border_px as f32,
+                gw.max(1) as f32,
+                gh.max(1) as f32,
+                metrics.content_corner_radius_px as f32,
+                DECORATION_JOIN_OVERLAP_PX,
+            );
+        let border_color = if focused {
+            border_color(st.runtime.tuning.decorations.border.color_focused)
+        } else {
+            border_color(st.runtime.tuning.decorations.border.color_unfocused)
+        };
+        rects.push(ActiveBorderRect {
+            x: gx,
+            y: gy,
+            w: gw.max(1),
+            h: gh.max(1),
+            inner_offset_x,
+            inner_offset_y: inner_offset_x,
+            inner_w,
+            inner_h,
+            alpha,
+            border_px: metrics.primary_border_px as f32,
+            corner_radius: metrics.primary_outer_corner_radius_px as f32,
+            inner_corner_radius,
+            border_color,
+        });
+    }
+
+    if metrics.secondary_border_px > 0 {
+        let secondary_inset_px = metrics.primary_border_px + metrics.secondary_gap_px;
+        let secondary_overlap_px = if metrics.secondary_gap_px == 0 {
+            DECORATION_JOIN_OVERLAP_PX
+        } else {
+            0.0
+        };
+        let (inner_offset_x, inner_w, inner_h, inner_corner_radius) =
+            overlap_joined_inner_boundary(
+                metrics.secondary_border_px as f32,
+                (gw + secondary_inset_px * 2).max(1) as f32,
+                (gh + secondary_inset_px * 2).max(1) as f32,
+                metrics.secondary_inner_corner_radius_px as f32,
+                secondary_overlap_px,
+            );
+        let border_color = if focused {
+            border_color(st.runtime.tuning.decorations.secondary_border.color_focused)
+        } else {
+            border_color(st.runtime.tuning.decorations.secondary_border.color_unfocused)
+        };
+        rects.push(ActiveBorderRect {
+            x: gx - secondary_inset_px,
+            y: gy - secondary_inset_px,
+            w: (gw + secondary_inset_px * 2).max(1),
+            h: (gh + secondary_inset_px * 2).max(1),
+            inner_offset_x,
+            inner_offset_y: inner_offset_x,
+            inner_w,
+            inner_h,
+            alpha,
+            border_px: metrics.secondary_border_px as f32,
+            corner_radius: metrics.secondary_outer_corner_radius_px as f32,
+            inner_corner_radius,
+            border_color,
+        });
+    }
+
+    rects
 }
 
 fn wrap_direct_surface_elements(
@@ -595,235 +455,6 @@ fn offscreen_visual_crop_and_dst(
         clip.size.w,
         clip.size.h,
     )
-}
-
-fn render_view_for_monitor(st: &Halley, monitor: &str) -> (Vec2, Vec2, Vec2) {
-    if st.model.monitor_state.current_monitor == monitor {
-        return (
-            st.model.viewport.center,
-            st.model.viewport.size,
-            st.model.zoom_ref_size,
-        );
-    }
-
-    st.model
-        .monitor_state
-        .monitors
-        .get(monitor)
-        .map(|space| {
-            (
-                space.viewport.center,
-                space.viewport.size,
-                space.zoom_ref_size,
-            )
-        })
-        .unwrap_or((
-            st.model.viewport.center,
-            st.model.viewport.size,
-            st.model.zoom_ref_size,
-        ))
-}
-
-fn world_to_screen_for_view(
-    view_center: Vec2,
-    view_size: Vec2,
-    output_w: i32,
-    output_h: i32,
-    x: f32,
-    y: f32,
-) -> (i32, i32) {
-    let vw = view_size.x.max(1.0);
-    let vh = view_size.y.max(1.0);
-    let nx = ((x - view_center.x) / vw) + 0.5;
-    let ny = ((y - view_center.y) / vh) + 0.5;
-
-    (
-        (nx * output_w as f32).round() as i32,
-        (ny * output_h as f32).round() as i32,
-    )
-}
-
-pub(crate) fn capture_closing_window_animation(
-    st: &Halley,
-    monitor: &str,
-    node_id: NodeId,
-) -> Option<(Option<ActiveBorderRect>, Vec<OffscreenNodeTexture>)> {
-    let node = st.model.field.node(node_id)?;
-    let cache = st.ui.render_state.window_offscreen_cache.get(&node_id)?;
-    let texture = cache.texture.clone()?;
-    let ob = cache.bbox?;
-    if !cache.has_content {
-        return None;
-    }
-
-    let output_size = layer_output_size_for_monitor(st, monitor);
-    if output_size.w <= 0 || output_size.h <= 0 {
-        return None;
-    }
-    let output_clip = Rectangle::<i32, Physical>::new(
-        (0, 0).into(),
-        (output_size.w.max(1), output_size.h.max(1)).into(),
-    );
-
-    let (view_center, viewport_size, view_size) = render_view_for_monitor(st, monitor);
-    let render_scale = (viewport_size.x.max(1.0) / view_size.x.max(1.0)).max(0.01);
-    let local_geo = window_geometry_for_node(st, node_id).unwrap_or((
-        ob.loc.x as f32,
-        ob.loc.y as f32,
-        ob.size.w.max(1) as f32,
-        ob.size.h.max(1) as f32,
-    ));
-    let (cx, cy) = world_to_screen_for_view(
-        view_center,
-        view_size,
-        output_size.w,
-        output_size.h,
-        node.pos.x,
-        node.pos.y,
-    );
-    let gw = (local_geo.2 * render_scale).round().max(1.0) as i32;
-    let gh = (local_geo.3 * render_scale).round().max(1.0) as i32;
-    let gx = cx - (gw / 2);
-    let gy = cy - (gh / 2);
-    let fullscreen_on_monitor = st
-        .fullscreen_monitor_for_node(node_id)
-        .is_some_and(|fullscreen_monitor| fullscreen_monitor == monitor);
-    let effective_border_px = if fullscreen_on_monitor {
-        0
-    } else {
-        let base = st.runtime.tuning.border_size_px.max(0) as f32;
-        let scaled = (base * render_scale).round();
-        if base > 0.0 {
-            scaled.max(1.0) as i32
-        } else {
-            0
-        }
-    };
-    let effective_corner_radius_px = if fullscreen_on_monitor {
-        0
-    } else {
-        let base = st.runtime.tuning.border_radius_px.max(0) as f32;
-        let scaled = (base * render_scale).round();
-        if base > 0.0 {
-            scaled.max(1.0) as i32
-        } else {
-            0
-        }
-    };
-    let strict_square_csd_transition = strict_square_csd_transition_mode(
-        st.runtime.tuning.no_csd,
-        effective_corner_radius_px,
-        false,
-    );
-    let preserve_visual_margin = !strict_square_csd_transition
-        && !st.runtime.tuning.no_csd
-        && effective_corner_radius_px == 0;
-    let lock_dst_to_geometry = effective_corner_radius_px > 0;
-    let (src_x, src_y, src_w, src_h, dst_x, dst_y, dst_w, dst_h, clip_x, clip_y, clip_w, clip_h) =
-        offscreen_visual_crop_and_dst(
-            ob.loc.x,
-            ob.loc.y,
-            ob.size.w.max(1),
-            ob.size.h.max(1),
-            local_geo.0,
-            local_geo.1,
-            local_geo.2,
-            local_geo.3,
-            gx,
-            gy,
-            gw.max(1),
-            gh.max(1),
-            render_scale,
-            output_clip,
-            preserve_visual_margin,
-            lock_dst_to_geometry,
-        );
-    let src_scale_x = if src_w > 0.0 {
-        dst_w as f32 / src_w as f32
-    } else {
-        1.0
-    };
-    let src_scale_y = if src_h > 0.0 {
-        dst_h as f32 / src_h as f32
-    } else {
-        1.0
-    };
-    let disable_geo_clip = !strict_square_csd_transition
-        && !st.runtime.tuning.no_csd
-        && effective_corner_radius_px == 0;
-    let geo_local_x = local_geo.0 - ob.loc.x as f32;
-    let geo_local_y = local_geo.1 - ob.loc.y as f32;
-    let geo_src_x = (geo_local_x - src_x as f32).max(0.0);
-    let geo_src_y = (geo_local_y - src_y as f32).max(0.0);
-    let geo_offset_x = if disable_geo_clip {
-        0.0
-    } else {
-        (geo_src_x * src_scale_x).max(0.0)
-    };
-    let geo_offset_y = if disable_geo_clip {
-        0.0
-    } else {
-        (geo_src_y * src_scale_y).max(0.0)
-    };
-    let geo_w_px = if disable_geo_clip {
-        0.0
-    } else {
-        (local_geo.2 * src_scale_x).min(dst_w as f32).max(1.0)
-    };
-    let geo_h_px = if disable_geo_clip {
-        0.0
-    } else {
-        (local_geo.3 * src_scale_y).min(dst_h as f32).max(1.0)
-    };
-    let offscreen = OffscreenNodeTexture {
-        texture,
-        alpha: 1.0,
-        corner_radius: (effective_corner_radius_px - effective_border_px).max(0) as f32,
-        src_x,
-        src_y,
-        src_w,
-        src_h,
-        dst_x,
-        dst_y,
-        dst_w,
-        dst_h,
-        clip_x,
-        clip_y,
-        clip_w,
-        clip_h,
-        geo_offset_x,
-        geo_offset_y,
-        geo_w: geo_w_px,
-        geo_h: geo_h_px,
-    };
-    let border_rect = if effective_border_px > 0 {
-        let border_color = if st.model.focus_state.primary_interaction_focus == Some(node_id) {
-            let color = st.runtime.tuning.border_color_focused;
-            Color32F::new(color.r, color.g, color.b, 1.0)
-        } else {
-            let color = st.runtime.tuning.border_color_unfocused;
-            Color32F::new(color.r, color.g, color.b, 1.0)
-        };
-        Some(ActiveBorderRect {
-            x: gx,
-            y: gy,
-            w: gw.max(1),
-            h: gh.max(1),
-            inner_offset_x: effective_border_px as f32,
-            inner_offset_y: effective_border_px as f32,
-            inner_w: gw.max(1) as f32,
-            inner_h: gh.max(1) as f32,
-            alpha: 1.0,
-            border_px: effective_border_px as f32,
-            corner_radius: effective_corner_radius_px as f32,
-            inner_corner_radius: (effective_corner_radius_px - effective_border_px).max(0) as f32,
-            border_color,
-        })
-    } else {
-        None
-    };
-
-    Some((border_rect, vec![offscreen]))
 }
 
 #[allow(clippy::type_complexity)]
@@ -1014,7 +645,8 @@ pub(crate) fn collect_active_surfaces(
                 .get(&node_id)
                 .copied()
         });
-        let transition_alpha = st.active_transition_alpha(node_id, now);
+        let transition_alpha =
+            crate::compositor::workspace::state::active_transition_alpha(st, node_id, now);
         let anim = crate::render::anim_style_for(st, node_id, node_state.clone(), now);
         let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
         let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
@@ -1155,98 +787,64 @@ pub(crate) fn collect_active_surfaces(
             * stack_transition_pose.map(|pose| pose.alpha).unwrap_or(1.0)
             * tiling_tile_transition.map(|rect| rect.alpha).unwrap_or(1.0))
         .clamp(0.0, 1.0);
-        let effective_border_px = if fullscreen_on_current_monitor {
+        let decoration_metrics = if fullscreen_on_current_monitor {
+            window_decoration_metrics(0, 0, 0, 0)
+        } else {
+            window_decoration_metrics(
+                scaled_window_border_px(st.runtime.tuning.window_border_radius_px(), render_scale),
+                scaled_window_border_px(
+                    st.runtime.tuning.window_primary_border_size_px(),
+                    render_scale,
+                ),
+                scaled_window_border_px(
+                    st.runtime.tuning.window_secondary_border_gap_px(),
+                    render_scale,
+                ),
+                scaled_window_border_px(
+                    st.runtime.tuning.window_secondary_border_size_px(),
+                    render_scale,
+                ),
+            )
+        };
+        let logical_content_corner_radius_px = if fullscreen_on_current_monitor {
             0
         } else {
-            let base = st.runtime.tuning.border_size_px.max(0) as f32;
-            let scaled = (base * render_scale).round();
-            if base > 0.0 {
-                scaled.max(1.0) as i32
-            } else {
-                0
-            }
+            st.runtime.tuning.window_border_radius_px()
         };
-        let effective_corner_radius_px = if fullscreen_on_current_monitor {
-            0
-        } else {
-            let base = st.runtime.tuning.border_radius_px.max(0) as f32;
-            let scaled = (base * render_scale).round();
-            if base > 0.0 {
-                scaled.max(1.0) as i32
-            } else {
-                0
-            }
-        };
-        let transition_surface_active = stack_transition_pose.is_some()
-            || tiling_tile_transition.is_some()
-            || active_resize.is_some();
-        let strict_square_csd_transition = strict_square_csd_transition_mode(
-            st.runtime.tuning.no_csd,
-            effective_corner_radius_px,
-            transition_surface_active,
-        );
-        let lock_dst_to_geometry = effective_corner_radius_px > 0;
-        let csd_soft_clip_margin = if !strict_square_csd_transition
-            && !st.runtime.tuning.no_csd
-            && effective_corner_radius_px == 0
-        {
-            CSD_SOFT_CLIP_MARGIN_PX
-        } else {
-            0.0
-        };
-        let clip_geo = if csd_soft_clip_margin > 0.0 {
-            expanded_csd_clip_rect(local_bbox, local_geo, csd_soft_clip_margin)
-        } else {
-            local_geo
-        };
-        let offscreen_clip = if !st.runtime.tuning.no_csd {
-            st.ui
-                .render_state
-                .surface_clip_program
-                .as_ref()
-                .map(|program| {
-                    let geo_rect = Rectangle::<i32, Logical>::new(
-                        (clip_geo.0.round() as i32, clip_geo.1.round() as i32).into(),
-                        (
-                            clip_geo.2.round().max(1.0) as i32,
-                            clip_geo.3.round().max(1.0) as i32,
-                        )
-                            .into(),
-                    );
+        let lock_dst_to_geometry = decoration_metrics.content_corner_radius_px > 0;
+        let clip_geo = local_geo;
+        let offscreen_clip = st
+            .ui
+            .render_state
+            .surface_clip_program
+            .as_ref()
+            .map(|program| {
+                let geo_rect = Rectangle::<i32, Logical>::new(
+                    (local_geo.0.round() as i32, local_geo.1.round() as i32).into(),
                     (
-                        geo_rect,
-                        (effective_corner_radius_px - effective_border_px).max(0) as f32,
-                        program.clone(),
+                        local_geo.2.round().max(1.0) as i32,
+                        local_geo.3.round().max(1.0) as i32,
                     )
-                })
-        } else {
-            None
-        };
-        let preserve_visual_margin = !strict_square_csd_transition
-            && !st.runtime.tuning.no_csd
-            && effective_corner_radius_px == 0;
-        let border_color = if st.model.focus_state.primary_interaction_focus == Some(node_id) {
-            let color = st.runtime.tuning.border_color_focused;
-            Color32F::new(color.r, color.g, color.b, 1.0)
-        } else {
-            let color = st.runtime.tuning.border_color_unfocused;
-            Color32F::new(color.r, color.g, color.b, 1.0)
-        };
-        let border_rect = ActiveBorderRect {
-            x: gx,
-            y: gy,
-            w: gw.max(1),
-            h: gh.max(1),
-            inner_offset_x: effective_border_px as f32,
-            inner_offset_y: effective_border_px as f32,
-            inner_w: gw.max(1) as f32,
-            inner_h: gh.max(1) as f32,
+                        .into(),
+                );
+                (
+                    geo_rect,
+                    logical_content_corner_radius_px as f32,
+                    program.clone(),
+                )
+            });
+        let preserve_visual_margin = false;
+        let window_border_rects = build_window_border_rects(
+            st,
+            node_id,
+            gx,
+            gy,
+            gw.max(1),
+            gh.max(1),
             alpha,
-            border_px: effective_border_px as f32,
-            corner_radius: effective_corner_radius_px as f32,
-            inner_corner_radius: (effective_corner_radius_px - effective_border_px).max(0) as f32,
-            border_color,
-        };
+            render_scale,
+            fullscreen_on_current_monitor,
+        );
         if stack_render_set.contains(&node_id) {
             stack_window_units
                 .entry(node_id)
@@ -1256,18 +854,38 @@ pub(crate) fn collect_active_surfaces(
                         stack_draw_orders.get(&node_id).copied().unwrap_or_default(),
                     )
                 })
-                .border_rect = Some(border_rect);
+                .border_rects = window_border_rects;
         } else if draw_top_this_node {
-            resized_border_rects.push(border_rect);
+            resized_border_rects.extend(window_border_rects);
         } else {
-            border_rects.push(border_rect);
+            border_rects.extend(window_border_rects);
         }
         // Games/fullscreen processes bypass offscreen zoom for performance and compatibility.
         let use_offscreen_zoom = !fullscreen_on_current_monitor;
 
         if use_offscreen_zoom {
-            let defer_offscreen_rebuild =
-                tiling_tile_transition.is_some() || stack_transition_pose.is_some();
+            let spawn_pan_pending = st
+                .model
+                .spawn_state
+                .active_spawn_pan
+                .is_some_and(|active| active.node_id == node_id)
+                || st
+                    .model
+                    .spawn_state
+                    .pending_spawn_pan_queue
+                    .iter()
+                    .any(|pending| pending.node_id == node_id)
+                || st
+                    .model
+                    .spawn_state
+                    .pending_spawn_activate_at_ms
+                    .contains_key(&node_id)
+                || st.model.spawn_state.pending_initial_reveal.contains(&node_id);
+            let open_anim_active = anim.scale < 0.999 || anim.alpha < 0.999;
+            let defer_offscreen_rebuild = tiling_tile_transition.is_some()
+                || stack_transition_pose.is_some()
+                || spawn_pan_pending
+                || open_anim_active;
             let stale_cache_available = st
                 .ui
                 .render_state
@@ -1338,7 +956,7 @@ pub(crate) fn collect_active_surfaces(
                         display_clip,
                         st.ui.render_state.surface_clip_program.as_ref(),
                         geo_clip_rect,
-                        (effective_corner_radius_px - effective_border_px).max(0) as f32,
+                        decoration_metrics.content_corner_radius_px as f32,
                     );
 
                     if stack_render_set.contains(&node_id) {
@@ -1451,7 +1069,7 @@ pub(crate) fn collect_active_surfaces(
                                 display_clip,
                                 st.ui.render_state.surface_clip_program.as_ref(),
                                 geo_clip_rect,
-                                (effective_corner_radius_px - effective_border_px).max(0) as f32,
+                                decoration_metrics.content_corner_radius_px as f32,
                             );
 
                             if stack_render_set.contains(&node_id) {
@@ -1500,7 +1118,7 @@ pub(crate) fn collect_active_surfaces(
                         continue;
                     };
                     // src = full bbox, dst = bbox scaled to screen positioned so geo
-                    // lands on frame, clip = frame rect to discard CSD shadow bleed.
+                    // lands on frame, clip = frame rect to discard cached visual bleed.
                     let (
                         src_x,
                         src_y,
@@ -1606,63 +1224,51 @@ pub(crate) fn collect_active_surfaces(
                             lock_dst_to_geometry,
                             texture.size().w,
                             texture.size().h,
-                            effective_corner_radius_px,
-                            effective_border_px,
+                            decoration_metrics.content_corner_radius_px,
+                            decoration_metrics.primary_border_px,
                         ),
                     );
 
                     // Compute the geometry rect in dst-local pixel space so the
-                    // shader can clip window content to it (fixes Firefox / CSD
-                    // apps whose bbox is larger than their geometry rect).
+                    // shader can clip window content to it when the bbox is
+                    // larger than the true geometry rect.
                     // ob = cached bbox in logical surface space (origin at (0,0)).
                     // geo_lx/ly are the geometry origin inside that bbox.
                     // dst maps the bbox to screen: dst_x..dst_x+dst_w covers ob.
-                    let src_scale_x = if src_w > 0.0 {
-                        dst_w as f32 / src_w as f32
+                    let (geo_offset_x, geo_offset_y, geo_w_px, geo_h_px) = if lock_dst_to_geometry {
+                        // The destination already matches the exact window geometry rect,
+                        // so a second geometry clip inside that dst only introduces rounding
+                        // drift at zoomed scales.
+                        (0.0, 0.0, dst_w.max(1) as f32, dst_h.max(1) as f32)
                     } else {
-                        1.0
-                    };
-                    let src_scale_y = if src_h > 0.0 {
-                        dst_h as f32 / src_h as f32
-                    } else {
-                        1.0
-                    };
-                    let disable_geo_clip = !strict_square_csd_transition
-                        && !st.runtime.tuning.no_csd
-                        && effective_corner_radius_px == 0;
-                    // local_geo is (geo_lx, geo_ly, geo_w, geo_h) in surface-local logical px.
-                    // In bbox-local space the geo origin is (geo_lx - ob.loc.x, geo_ly - ob.loc.y).
-                    let geo_local_x = local_geo.0 - ob.loc.x as f32;
-                    let geo_local_y = local_geo.1 - ob.loc.y as f32;
-                    let geo_src_x = (geo_local_x - src_x as f32).max(0.0);
-                    let geo_src_y = (geo_local_y - src_y as f32).max(0.0);
-                    // Scale into dst-pixel space (relative to dst top-left).
-                    let geo_offset_x = if disable_geo_clip {
-                        0.0
-                    } else {
-                        (geo_src_x * src_scale_x).max(0.0)
-                    };
-                    let geo_offset_y = if disable_geo_clip {
-                        0.0
-                    } else {
-                        (geo_src_y * src_scale_y).max(0.0)
-                    };
-                    let geo_w_px = if disable_geo_clip {
-                        0.0
-                    } else {
-                        (local_geo.2 * src_scale_x).min(dst_w as f32).max(1.0)
-                    };
-                    let geo_h_px = if disable_geo_clip {
-                        0.0
-                    } else {
-                        (local_geo.3 * src_scale_y).min(dst_h as f32).max(1.0)
+                        let src_scale_x = if src_w > 0.0 {
+                            dst_w as f32 / src_w as f32
+                        } else {
+                            1.0
+                        };
+                        let src_scale_y = if src_h > 0.0 {
+                            dst_h as f32 / src_h as f32
+                        } else {
+                            1.0
+                        };
+                        // local_geo is (geo_lx, geo_ly, geo_w, geo_h) in surface-local logical px.
+                        // In bbox-local space the geo origin is (geo_lx - ob.loc.x, geo_ly - ob.loc.y).
+                        let geo_local_x = local_geo.0 - ob.loc.x as f32;
+                        let geo_local_y = local_geo.1 - ob.loc.y as f32;
+                        let geo_src_x = (geo_local_x - src_x as f32).max(0.0);
+                        let geo_src_y = (geo_local_y - src_y as f32).max(0.0);
+                        (
+                            (geo_src_x * src_scale_x).max(0.0),
+                            (geo_src_y * src_scale_y).max(0.0),
+                            (local_geo.2 * src_scale_x).min(dst_w as f32).max(1.0),
+                            (local_geo.3 * src_scale_y).min(dst_h as f32).max(1.0),
+                        )
                     };
 
                     let offscreen = OffscreenNodeTexture {
                         texture,
                         alpha,
-                        corner_radius: (effective_corner_radius_px - effective_border_px).max(0)
-                            as f32,
+                        corner_radius: decoration_metrics.content_corner_radius_px as f32,
                         src_x,
                         src_y,
                         src_w,
@@ -1751,7 +1357,7 @@ pub(crate) fn collect_active_surfaces(
                 display_clip,
                 st.ui.render_state.surface_clip_program.as_ref(),
                 geo_clip_rect,
-                (effective_corner_radius_px - effective_border_px).max(0) as f32,
+                decoration_metrics.content_corner_radius_px as f32,
             );
 
             if stack_render_set.contains(&node_id) {
@@ -1920,8 +1526,7 @@ pub(crate) fn collect_active_surfaces(
 #[cfg(test)]
 mod tests {
     use super::{
-        should_draw_resize_overlap_overlay, strict_square_csd_transition_mode,
-        world_to_screen_for_view,
+        should_draw_resize_overlap_overlay, window_decoration_metrics, world_to_screen_for_view,
     };
     use crate::compositor::surface_ops::stacking_render_order_map;
     use halley_core::field::NodeId;
@@ -1964,15 +1569,23 @@ mod tests {
     }
 
     #[test]
-    fn square_csd_steady_state_keeps_legacy_visual_path() {
-        assert!(!strict_square_csd_transition_mode(false, 0, false));
+    fn window_decoration_metrics_treat_radius_as_content_edge_radius() {
+        let metrics = window_decoration_metrics(20, 3, 2, 1);
+
+        assert_eq!(metrics.content_corner_radius_px, 20);
+        assert_eq!(metrics.primary_outer_corner_radius_px, 23);
+        assert_eq!(metrics.secondary_inner_corner_radius_px, 25);
+        assert_eq!(metrics.secondary_outer_corner_radius_px, 26);
     }
 
     #[test]
-    fn square_csd_transition_uses_strict_clip_path() {
-        assert!(strict_square_csd_transition_mode(false, 0, true));
-        assert!(!strict_square_csd_transition_mode(true, 0, true));
-        assert!(!strict_square_csd_transition_mode(false, 8, true));
+    fn zero_radius_keeps_all_decoration_corners_square() {
+        let metrics = window_decoration_metrics(0, 3, 0, 3);
+
+        assert_eq!(metrics.content_corner_radius_px, 0);
+        assert_eq!(metrics.primary_outer_corner_radius_px, 0);
+        assert_eq!(metrics.secondary_inner_corner_radius_px, 0);
+        assert_eq!(metrics.secondary_outer_corner_radius_px, 0);
     }
 
     #[test]

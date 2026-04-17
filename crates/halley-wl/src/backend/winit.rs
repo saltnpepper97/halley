@@ -6,7 +6,9 @@ use crate::protocol::wayland::portal;
 use crate::backend::interface::{
     BackendView, DmabufImportBackend, RenderBackend, WinitBackendHandle,
 };
+use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::PointerState;
+use crate::compositor::monitor::camera::camera_controller;
 use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
@@ -228,8 +230,12 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mut display: Display<Halley> = Display::new()?;
             let dh = display.handle();
 
+            crate::bootstrap::ensure_default_user_config(None);
             let config_path = Rc::new(RuntimeTuning::config_path());
+            let aperture_config_path = Rc::new(crate::aperture::default_aperture_config_path());
             let tuning = RuntimeTuning::load_from_path(config_path.as_str());
+            let aperture_config =
+                crate::aperture::load_aperture_config_from_path(aperture_config_path.as_path());
             tuning.apply_process_env();
             if !Path::new(config_path.as_str()).exists() {
                 warn!(
@@ -238,6 +244,13 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 );
             }
             info!("config path: {}", config_path.as_str());
+            if !aperture_config_path.as_path().exists() {
+                warn!(
+                    "aperture config file not found at {}; using built-in defaults",
+                    aperture_config_path.display()
+                );
+            }
+            crate::aperture::log_aperture_config_startup(aperture_config_path.as_ref());
             debug!("keybind modifier: {}", tuning.keybinds.modifier_name());
             debug!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
             debug!("resolved zoom: {}", tuning.zoom_resolved_summary());
@@ -245,9 +258,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
                 let config_watch_target = PathBuf::from(config_path.as_str());
-                let config_watch_name = config_watch_target
-                    .file_name()
-                    .map(std::ffi::OsStr::to_os_string);
+                let aperture_watch_target = aperture_config_path.as_ref().clone();
                 let mut watcher: RecommendedWatcher = notify::recommended_watcher(
                     move |result: Result<notify::Event, notify::Error>| {
                         if let Ok(event) = result {
@@ -255,10 +266,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 true
                             } else {
                                 event.paths.iter().any(|path| {
-                                    path == &config_watch_target
-                                        || config_watch_name
-                                            .as_ref()
-                                            .is_some_and(|name| path.file_name() == Some(name))
+                                    crate::aperture::aperture_config_matches_event_path(
+                                        path,
+                                        config_watch_target.as_path(),
+                                        aperture_watch_target.as_path(),
+                                    )
                                 })
                             };
                             if touches_config {
@@ -274,17 +286,19 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         }
                     },
                 )?;
-                let watch_root = Path::new(config_path.as_str())
-                    .parent()
-                    .map(Path::to_path_buf)
-                    .unwrap_or_else(|| PathBuf::from(config_path.as_str()));
-                if let Err(err) = watcher.watch(watch_root.as_path(), RecursiveMode::NonRecursive) {
-                    warn!(
-                        "config watch disabled for {} (watch root {}): {}",
-                        config_path.as_str(),
-                        watch_root.display(),
-                        err
-                    );
+                for watch_root in crate::aperture::config_watch_roots(
+                    Path::new(config_path.as_str()),
+                    aperture_config_path.as_path(),
+                ) {
+                    if let Err(err) =
+                        watcher.watch(watch_root.as_path(), RecursiveMode::NonRecursive)
+                    {
+                        warn!(
+                            "config watch disabled for {}: {}",
+                            watch_root.display(),
+                            err
+                        );
+                    }
                 }
                 (Some(watch_rx), Some(watcher))
             };
@@ -314,11 +328,16 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mut ev: EventLoop<Halley> = EventLoop::try_new()?;
             let _signal = ev.get_signal();
             let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
+            state.apply_aperture_config(aperture_config);
             state.platform.seat.add_pointer();
             if state
                 .platform
                 .seat
-                .add_keyboard(Default::default(), 200, 30)
+                .add_keyboard(
+                    Default::default(),
+                    tuning.input.repeat_delay,
+                    tuning.input.repeat_rate,
+                )
                 .is_err()
             {
                 warn!("failed to initialize wl_seat keyboard");
@@ -343,7 +362,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     x: ws.w.max(1) as f32,
                     y: ws.h.max(1) as f32,
                 };
-                state.snap_camera_targets_to_live();
+                camera_controller(&mut state).snap_targets_to_live();
                 state.advertise_output(
                     "winit-0",
                     smithay::output::Mode {
@@ -397,6 +416,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let pending_watch_reload_at = Rc::new(RefCell::new(None::<Instant>));
             let pending_watch_reload_at_for_timer = pending_watch_reload_at.clone();
             let config_path_for_timer = config_path.clone();
+            let aperture_config_path_for_timer = aperture_config_path.clone();
             {
                 let ws = backend.borrow().window_size();
                 publish_winit_output_snapshot(ws.w, ws.h, true, 0, 0);
@@ -454,7 +474,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             x: size.w.max(1) as f32,
                             y: size.h.max(1) as f32,
                         };
-                        st.snap_camera_targets_to_live();
+                        camera_controller(&mut *st).snap_targets_to_live();
                         st.advertise_output(
                             "winit-0",
                             smithay::output::Mode {
@@ -699,10 +719,15 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 drain_ipc_commands(|request| match request {
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
-                        st.show_exit_confirm_overlay();
+                        exit_confirm_controller(&mut *st).show();
                         halley_ipc::Response::Ok
                     }
                     halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Reload) => {
+                        let _ = crate::aperture::reload_aperture_config(
+                            st,
+                            aperture_config_path_for_timer.as_path(),
+                            "ipc",
+                        );
                         if let Some(next) =
                             RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                         {
@@ -794,6 +819,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     .is_some_and(|deadline| now >= deadline)
                 {
                     *pending_watch_reload_at_for_timer.borrow_mut() = None;
+                    reloaded |= crate::aperture::reload_aperture_config(
+                        st,
+                        aperture_config_path_for_timer.as_path(),
+                        "watch",
+                    );
                     if let Some(next) =
                         RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
                     {

@@ -1,5 +1,6 @@
 use halley_ipc::{
-    CaptureStatusResponse, IpcError, LogicalOutputInfo, NodeInfo, NodeListResponse,
+    ApertureStatusResponse, CaptureStatusResponse, ClusterInfo, ClusterLayoutKind,
+    ClusterListResponse, ClusterSummary, IpcError, LogicalOutputInfo, NodeInfo, NodeListResponse,
     NodeProtocolFamily, NodeRelationInfo, NodeRole, OutputInfo, OutputStatus, OutputsResponse,
     Response, TrailEntryInfo, TrailListResponse,
 };
@@ -17,6 +18,14 @@ pub(crate) fn print_response(response: Response) -> Result<(), String> {
         Response::Outputs(outputs) => {
             print_outputs(outputs);
             Ok(())
+        }
+        Response::ApertureStatus(status) => {
+            if wants_json() {
+                print_json(&status)
+            } else {
+                print_aperture_status(&status);
+                Ok(())
+            }
         }
         Response::CaptureStatus(status) => {
             print_capture_status(&status);
@@ -38,6 +47,22 @@ pub(crate) fn print_response(response: Response) -> Result<(), String> {
                 Ok(())
             }
         }
+        Response::ClusterList(list) => {
+            if wants_json() {
+                print_json(&list)
+            } else {
+                print_cluster_list(&list);
+                Ok(())
+            }
+        }
+        Response::ClusterInfo(cluster) => {
+            if wants_json() {
+                print_json(&cluster)
+            } else {
+                print_cluster_info(&cluster);
+                Ok(())
+            }
+        }
         Response::TrailList(list) => {
             if wants_json() {
                 print_json(&list)
@@ -52,6 +77,12 @@ pub(crate) fn print_response(response: Response) -> Result<(), String> {
         }
         Response::Error(err) => Err(format_ipc_error(&err)),
     }
+}
+
+fn print_aperture_status(status: &ApertureStatusResponse) {
+    let output = status.output.as_deref().unwrap_or("(default)");
+    println!("output: {output}");
+    println!("mode: {:?}", status.mode);
 }
 
 fn wants_json() -> bool {
@@ -237,6 +268,99 @@ fn print_trail_list(list: &TrailListResponse) {
     println!("  entries:");
     for entry in &list.entries {
         print_trail_entry(entry);
+    }
+}
+
+fn print_cluster_list(list: &ClusterListResponse) {
+    if list.outputs.iter().all(|group| group.clusters.is_empty()) {
+        println!("No clusters.");
+        return;
+    }
+    for group in &list.outputs {
+        println!("{}", group.output);
+        println!("  clusters: {}", group.clusters.len());
+        if group.clusters.is_empty() {
+            println!("  entries: (none)");
+            continue;
+        }
+        println!("  entries:");
+        for cluster in &group.clusters {
+            print_cluster_brief(cluster);
+        }
+    }
+}
+
+fn print_cluster_info(cluster: &ClusterInfo) {
+    println!(
+        "{}  {}",
+        cluster.id,
+        cluster_display_name(cluster.name.as_deref())
+    );
+    if let Some(output) = &cluster.output {
+        println!("  output: {output}");
+    }
+    println!("  layout: {}", format_cluster_layout(cluster.layout));
+    println!("  active: {}", cluster.active);
+    println!("  focused: {}", cluster.focused);
+    println!("  members: {}", cluster.member_count);
+    println!(
+        "  focused-member-index: {}",
+        cluster
+            .focused_member_index
+            .map(|index| index.to_string())
+            .unwrap_or_else(|| "(none)".to_string())
+    );
+    println!(
+        "  focused-member-id: {}",
+        cluster
+            .focused_member_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "(none)".to_string())
+    );
+    if cluster.members.is_empty() {
+        println!("  entries: (none)");
+        return;
+    }
+    println!("  entries:");
+    for node in &cluster.members {
+        print_cluster_member(node);
+    }
+}
+
+fn print_cluster_brief(cluster: &ClusterSummary) {
+    let marker = if cluster.focused {
+        "*"
+    } else if cluster.active {
+        "+"
+    } else {
+        "-"
+    };
+    println!(
+        "    {marker} {}  {}",
+        cluster.id,
+        cluster_display_name(cluster.name.as_deref())
+    );
+    println!("      layout: {}", format_cluster_layout(cluster.layout));
+    println!("      members: {}", cluster.member_count);
+}
+
+fn print_cluster_member(node: &NodeInfo) {
+    let marker = if node.focused { "*" } else { "-" };
+    println!("    {marker} {}  {}", node.id, node.title);
+    if let Some(app_id) = &node.app_id {
+        println!("      app: {app_id}");
+    }
+    println!("      state: {}", format_node_state(node));
+}
+
+fn cluster_display_name(name: Option<&str>) -> &str {
+    name.unwrap_or("(unnamed)")
+}
+
+fn format_cluster_layout(layout: ClusterLayoutKind) -> &'static str {
+    match layout {
+        ClusterLayoutKind::Tiling => "tiling",
+        ClusterLayoutKind::Stacking => "stacking",
     }
 }
 

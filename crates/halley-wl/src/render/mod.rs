@@ -11,6 +11,8 @@ mod cluster_icon;
 mod cursor;
 mod cursor_theme;
 mod frame;
+mod frame_runtime;
+mod icon_tint;
 pub mod layer_shell;
 mod node;
 mod offscreen;
@@ -21,7 +23,7 @@ pub(crate) mod utils;
 mod window;
 
 pub(crate) fn active_window_frame_pad_px(tuning: &RuntimeTuning) -> i32 {
-    tuning.border_size_px.max(0)
+    tuning.total_window_border_footprint_px()
 }
 
 pub(crate) fn log_rounded_shader_failure(
@@ -46,23 +48,29 @@ pub(crate) use bearings::bearing_hit_test;
 pub(crate) use cluster_icon::cluster_core_icon_texture;
 pub(crate) use cursor::cursor_surface_hotspot;
 pub(crate) use cursor_theme::themed_cursor_sprite_with_fallback;
-pub(crate) use frame::{
-    anim_style_for, begin_render_frame, draw_debug_frame, draw_debug_frame_to_target,
-    monitor_overlay_requires_full_repaint, send_frame_callbacks, send_frame_callbacks_for_output,
-    tick_animator_frame, tick_frame_effects, tick_live_overlap, tty_output_animation_redraw_state,
+pub(crate) use frame::{draw_debug_frame, draw_debug_frame_to_target};
+pub(crate) use frame_runtime::{
+    anim_style_for, begin_render_frame, monitor_overlay_requires_full_repaint,
+    send_frame_callbacks, send_frame_callbacks_for_output, tick_animator_frame, tick_frame_effects,
+    tick_live_overlap, tty_output_animation_redraw_state,
 };
-pub(crate) use screenshot_icon::screenshot_menu_icon_texture;
+pub(crate) use node::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
+pub(crate) use screenshot_icon::{
+    screenshot_menu_background_color, screenshot_menu_highlight_color,
+    screenshot_menu_inactive_highlight_color,
+    screenshot_menu_icon_texture, screenshot_menu_item_fill_color,
+};
 pub(crate) use utils::preview_proxy_size;
 pub(crate) use utils::{node_marker_metrics, world_to_screen};
 pub(crate) use window::capture_closing_window_animation;
 
 fn window_active_border_color_for_tuning(tuning: &RuntimeTuning) -> Color32F {
-    let color = tuning.border_color_focused;
+    let color = tuning.decorations.border.color_focused;
     Color32F::new(color.r, color.g, color.b, 1.0)
 }
 
 fn window_inactive_border_color_for_tuning(tuning: &RuntimeTuning) -> Color32F {
-    let color = tuning.border_color_unfocused;
+    let color = tuning.decorations.border.color_unfocused;
     Color32F::new(color.r, color.g, color.b, 1.0)
 }
 
@@ -104,6 +112,26 @@ pub(crate) fn themed_node_label_text_color(fill_color: Color32F, alpha: f32) -> 
     } else {
         Color32F::new(0.08, 0.10, 0.12, alpha)
     }
+}
+
+pub(crate) fn themed_node_label_fill_color(
+    tuning: &RuntimeTuning,
+    hovered: bool,
+    alpha: f32,
+) -> Color32F {
+    let fill = themed_node_fill_color(tuning, hovered);
+    Color32F::new(fill.r(), fill.g(), fill.b(), alpha)
+}
+
+pub(crate) fn themed_node_label_colors(
+    tuning: &RuntimeTuning,
+    hovered: bool,
+    fill_alpha: f32,
+    text_alpha: f32,
+) -> (Color32F, Color32F) {
+    let fill = themed_node_label_fill_color(tuning, hovered, fill_alpha);
+    let text = themed_node_label_text_color(fill, text_alpha);
+    (fill, text)
 }
 
 #[derive(Clone, Copy, Debug)]

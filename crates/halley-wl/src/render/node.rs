@@ -24,6 +24,7 @@ use super::utils::{
     node_marker_bounds, node_marker_metrics, node_render_diameter_px, world_to_screen,
 };
 use crate::animation::ease_in_out_cubic;
+use crate::render::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
 
 const NODE_SQUARE_SHADER: &str = include_str!("shaders/node_square_shader.frag");
 const NODE_SQUIRCLE_SHADER: &str = include_str!("shaders/node_squircle_shader.frag");
@@ -322,12 +323,12 @@ fn draw_shader_label(
 }
 
 fn window_active_border_color(st: &Halley) -> Color32F {
-    let color = st.runtime.tuning.border_color_focused;
+    let color = st.runtime.tuning.decorations.border.color_focused;
     Color32F::new(color.r, color.g, color.b, 1.0)
 }
 
 fn window_inactive_border_color(st: &Halley) -> Color32F {
-    let color = st.runtime.tuning.border_color_unfocused;
+    let color = st.runtime.tuning.decorations.border.color_unfocused;
     Color32F::new(color.r, color.g, color.b, 1.0)
 }
 
@@ -359,15 +360,40 @@ fn node_label_text_color(fill_color: Color32F, alpha: f32) -> Color32F {
     super::themed_node_label_text_color(fill_color, alpha)
 }
 
+fn node_label_fill_color(st: &Halley, hovered: bool, alpha: f32) -> Color32F {
+    super::themed_node_label_fill_color(&st.runtime.tuning, hovered, alpha)
+}
+
 fn node_icon_glyph(st: &Halley, id: halley_core::field::NodeId, fallback: &str) -> Option<char> {
-    st.model
-        .node_app_ids
-        .get(&id)
-        .map(String::as_str)
+    Some(node_app_icon_fallback_glyph(
+        st.model.node_app_ids.get(&id).map(String::as_str),
+        fallback,
+    ))
+}
+
+#[inline]
+pub(crate) fn node_markers_need_app_icon_resources(policy: NodeDisplayPolicy) -> bool {
+    !matches!(policy, NodeDisplayPolicy::Off)
+}
+
+#[inline]
+pub(crate) fn node_app_icon_texture_allowed(policy: NodeDisplayPolicy, highlighted: bool) -> bool {
+    match policy {
+        NodeDisplayPolicy::Off => false,
+        NodeDisplayPolicy::Hover => highlighted,
+        NodeDisplayPolicy::Always => true,
+    }
+}
+
+#[inline]
+pub(crate) fn node_app_icon_fallback_glyph(app_id: Option<&str>, fallback: &str) -> char {
+    app_id
+        .filter(|app_id| !app_id.trim().is_empty())
         .unwrap_or(fallback)
         .chars()
         .find(|ch| ch.is_ascii_alphanumeric())
-        .map(|ch| ch.to_ascii_uppercase())
+        .unwrap_or('?')
+        .to_ascii_uppercase()
 }
 
 // ---------------------------------------------------------------------------
@@ -628,11 +654,8 @@ pub(crate) fn draw_node_markers(
             continue;
         }
 
-        let show_icon = match st.runtime.tuning.node_show_app_icons {
-            NodeDisplayPolicy::Off => false,
-            NodeDisplayPolicy::Hover => highlighted,
-            NodeDisplayPolicy::Always => true,
-        };
+        let allow_app_icon =
+            node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, highlighted);
         let icon_alpha = (dot_alpha * icon_mix).clamp(0.0, 1.0);
 
         let ring_mix = if is_core {
@@ -663,13 +686,14 @@ pub(crate) fn draw_node_markers(
                 node_color,
                 fill_color,
                 fill_flat,
-                show_icon && icon_alpha > 0.01,
+                icon_alpha > 0.01,
                 damage,
             )?;
         }
-        if show_icon {
+        if icon_alpha > 0.01 {
             let mut drew_real_icon = false;
             if icon_alpha > 0.01
+                && allow_app_icon
                 && is_core
                 && let Some(icon) = crate::render::cluster_core_icon_texture(st, focused)
             {
@@ -699,6 +723,7 @@ pub(crate) fn draw_node_markers(
             }
             if !drew_real_icon
                 && icon_alpha > 0.01
+                && allow_app_icon
                 && let Some(app_id) = st.model.node_app_ids.get(&id)
                 && let Some(crate::render::state::NodeAppIconCacheEntry::Ready(icon)) =
                     st.ui.render_state.node_app_icon_cache.get(app_id)
@@ -728,10 +753,7 @@ pub(crate) fn draw_node_markers(
                 drew_real_icon = true;
             }
 
-            if !drew_real_icon
-                && icon_alpha > 0.01
-                && let Some(icon) = node_icon_glyph(st, id, node_label)
-            {
+            if !drew_real_icon && let Some(icon) = node_icon_glyph(st, id, node_label) {
                 let scale = if render_radius >= 24 { 3 } else { 2 };
                 let icon_text = icon.to_string();
                 let (tw, th) = ui_text_size(st, &icon_text, scale);
@@ -750,6 +772,125 @@ pub(crate) fn draw_node_markers(
             }
         }
     }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        node_app_icon_fallback_glyph, node_app_icon_texture_allowed,
+        node_markers_need_app_icon_resources,
+    };
+    use halley_config::NodeDisplayPolicy;
+
+    #[test]
+    fn node_marker_icon_texture_policy_honors_off_hover_and_always() {
+        assert!(!node_markers_need_app_icon_resources(
+            NodeDisplayPolicy::Off
+        ));
+        assert!(!node_app_icon_texture_allowed(
+            NodeDisplayPolicy::Off,
+            false
+        ));
+        assert!(!node_app_icon_texture_allowed(NodeDisplayPolicy::Off, true));
+
+        assert!(node_markers_need_app_icon_resources(
+            NodeDisplayPolicy::Hover
+        ));
+        assert!(!node_app_icon_texture_allowed(
+            NodeDisplayPolicy::Hover,
+            false
+        ));
+        assert!(node_app_icon_texture_allowed(
+            NodeDisplayPolicy::Hover,
+            true
+        ));
+
+        assert!(node_markers_need_app_icon_resources(
+            NodeDisplayPolicy::Always
+        ));
+        assert!(node_app_icon_texture_allowed(
+            NodeDisplayPolicy::Always,
+            false
+        ));
+        assert!(node_app_icon_texture_allowed(
+            NodeDisplayPolicy::Always,
+            true
+        ));
+    }
+
+    #[test]
+    fn node_icon_fallback_glyph_prefers_app_id_initial() {
+        assert_eq!(node_app_icon_fallback_glyph(Some("firefox"), "Window"), 'F');
+        assert_eq!(
+            node_app_icon_fallback_glyph(Some("org.wezfurlong.wezterm"), "Window"),
+            'O'
+        );
+        assert_eq!(node_app_icon_fallback_glyph(None, "Window"), 'W');
+    }
+}
+
+pub(crate) fn draw_closing_node_markers(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &mut Halley,
+    size: Size<i32, Physical>,
+    animations: &[ClosingWindowAnimationSnapshot],
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    for animation in animations {
+        let ClosingWindowAnimationKind::Node { pos, label, state } = &animation.kind else {
+            continue;
+        };
+
+        let alpha = (1.0 - animation.progress).clamp(0.0, 1.0);
+        if alpha <= 0.01 {
+            continue;
+        }
+
+        let (sx, sy) = world_to_screen(st, size.w, size.h, pos.x, pos.y);
+        let is_core = *state == halley_core::field::NodeState::Core;
+        let anim_scale = 0.30;
+        let (dot_half, _, _, _) = node_marker_metrics(st, label.len(), anim_scale);
+        let core_border_px = 5.0f32;
+        let render_radius = if is_core {
+            ((dot_half as f32 * 1.68) + core_border_px).round() as i32
+        } else {
+            (dot_half as f32 * 1.5).round() as i32
+        };
+        let round_shape = if is_core {
+            NodeRoundShape::Circle
+        } else {
+            match st.runtime.tuning.node_shape {
+                ShapeStyle::Square => NodeRoundShape::Square,
+                ShapeStyle::Squircle => NodeRoundShape::Squircle,
+            }
+        };
+        let border_frac = if is_core {
+            (core_border_px / render_radius as f32).clamp(0.04, 0.5)
+        } else {
+            (3.0 / render_radius as f32).clamp(0.01, 0.5)
+        };
+        let nc = node_ring_color(st, false, 1.0);
+        let node_color = Color32F::new(nc.r(), nc.g(), nc.b(), border_frac);
+        let fill_color = node_fill_color(st, false);
+        let fill_flat = node_fill_uses_flat_mode(st);
+
+        draw_shader_circle(
+            frame,
+            st,
+            sx,
+            sy,
+            render_radius,
+            round_shape,
+            alpha,
+            node_color,
+            fill_color,
+            fill_flat,
+            false,
+            damage,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -835,7 +976,8 @@ pub(crate) fn draw_node_hover_labels(
         let final_x = label_x.clamp(margin, (size.w - label_w - margin).max(margin));
         let final_y = label_y.clamp(margin, (size.h - label_h - margin).max(margin));
 
-        let fill_color = node_fill_color(st, hover_node == Some(node.id));
+        let hovered = hover_node == Some(node.id);
+        let fill_color = node_label_fill_color(st, hovered, 1.0);
         draw_shader_label(
             frame,
             st,

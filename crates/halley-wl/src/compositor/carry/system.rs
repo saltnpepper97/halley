@@ -234,10 +234,10 @@ pub(crate) fn update_carry_state_preview_at(
                 .insert(id, nn.intrinsic_size);
         }
         if !was_active
-            && st.active_transition_alpha(id, now) <= 0.01
+            && crate::compositor::workspace::state::active_transition_alpha(&*st, id, now) <= 0.01
             && st.model.carry_state.carry_activation_anim_armed.remove(&id)
         {
-            st.mark_active_transition(id, now, 360);
+            crate::compositor::workspace::state::mark_active_transition(st, id, now, 360);
         }
     }
     st.request_maintenance();

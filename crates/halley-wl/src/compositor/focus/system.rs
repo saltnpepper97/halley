@@ -1,6 +1,7 @@
 use super::*;
 use crate::compositor::focus::read;
 use crate::compositor::interaction::state::ViewportPanAnim;
+use crate::compositor::surface_ops::stack_focus_target_for_node;
 use eventline::debug;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
@@ -11,6 +12,7 @@ use smithay::wayland::selection::primary_selection::set_primary_focus;
 use crate::compositor::ctx::FocusCtx;
 use smithay::input::Seat;
 use std::ops::{Deref, DerefMut};
+use std::time::{Duration, Instant};
 
 pub(crate) fn on_seat_focus_changed(
     ctx: &mut FocusCtx<'_>,
@@ -70,6 +72,18 @@ pub(crate) fn update_selection_focus_from_surface(st: &Halley, surface: Option<&
     set_primary_focus(&st.platform.display_handle, &st.platform.seat, client);
 }
 
+pub(crate) fn focus_pointer_target(
+    st: &mut Halley,
+    node_id: NodeId,
+    hold_ms: u64,
+    now: Instant,
+) -> NodeId {
+    let focus_target = stack_focus_target_for_node(st, node_id).unwrap_or(node_id);
+    st.set_recent_top_node(focus_target, now + Duration::from_millis(1200));
+    st.set_interaction_focus(Some(focus_target), hold_ms, now);
+    focus_target
+}
+
 pub(crate) fn surface_is_fully_visible_on_monitor(st: &Halley, monitor: &str, id: NodeId) -> bool {
     read::surface_is_fully_visible_on_monitor(st, monitor, id)
 }
@@ -127,6 +141,10 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
     }
 
     pub fn apply_wayland_focus_state(&mut self, id: Option<NodeId>) {
+        if crate::protocol::wayland::session_lock::session_lock_active(self) {
+            crate::protocol::wayland::session_lock::reassert_keyboard_focus_if_drifted(self);
+            return;
+        }
         let focus_id = self.fullscreen_focus_override(id).or(id);
         if let Some(fid) = focus_id
             && self
@@ -143,13 +161,7 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
                 .get(&fid)
                 .copied()
             {
-                let target_monitor = self
-                    .model
-                    .monitor_state
-                    .node_monitor
-                    .get(&fid)
-                    .cloned()
-                    .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
+                let target_monitor = self.monitor_for_node_or_current(fid);
                 if let Some(space) = self.model.monitor_state.monitors.get_mut(&target_monitor) {
                     space.viewport.center = entry.viewport_center;
                     space.camera_target_center = entry.viewport_center;
@@ -244,6 +256,10 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
             .focus_state
             .last_surface_focus_ms
             .insert(fid, now_ms);
+        self.model
+            .focus_state
+            .outside_focus_ring_since_ms
+            .remove(&fid);
         if self.model.focus_state.suppress_trail_record_once {
             self.model.focus_state.suppress_trail_record_once = false;
         } else {

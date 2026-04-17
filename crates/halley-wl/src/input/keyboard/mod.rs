@@ -2,7 +2,9 @@ pub(crate) mod bindings;
 pub(crate) mod modkeys;
 pub(crate) mod spawn;
 
+use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::root::Halley;
+use crate::compositor::screenshot::screenshot_controller;
 use crate::input::ctx::InputCtx;
 
 use std::time::Instant;
@@ -28,6 +30,25 @@ fn now_millis_u32() -> u32 {
         .duration_since(UNIX_EPOCH)
         .map(|d| (d.as_millis() & 0xffff_ffff) as u32)
         .unwrap_or(0)
+}
+
+fn flush_trapped_modal_release(st: &mut Halley, code: u32) {
+    let Some(keyboard) = st.platform.seat.get_keyboard() else {
+        st.input.interaction_state.modal_release_keys.remove(&code);
+        return;
+    };
+
+    let (_, mods_changed) =
+        keyboard.input_intercept::<(), _>(st, code.into(), KeyState::Released, |_, _, _| ());
+    keyboard.input_forward(
+        st,
+        code.into(),
+        KeyState::Released,
+        SERIAL_COUNTER.next_serial(),
+        now_millis_u32(),
+        mods_changed,
+    );
+    st.input.interaction_state.modal_release_keys.remove(&code);
 }
 
 #[inline]
@@ -103,7 +124,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     code: u32,
     pressed: bool,
 ) {
-    let exit_confirm_active = st.exit_confirm_active();
+    let exit_confirm_active = exit_confirm_controller(&*st).active();
     update_mod_state(&mut ctx.mod_state.borrow_mut(), code, pressed);
     if !pressed
         && st
@@ -112,22 +133,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
             .modal_release_keys
             .contains(&code)
     {
-        if let Some(keyboard) = st.platform.seat.get_keyboard() {
-            let serial = SERIAL_COUNTER.next_serial();
-            keyboard.input::<(), _>(
-                st,
-                code.into(),
-                if pressed {
-                    KeyState::Pressed
-                } else {
-                    KeyState::Released
-                },
-                serial,
-                now_millis_u32(),
-                |_, _, _| FilterResult::Intercept(()),
-            );
-        }
-        st.input.interaction_state.modal_release_keys.remove(&code);
+        flush_trapped_modal_release(st, code);
         return;
     }
     let exit_escape = key_name_to_evdev("escape").map(|code| code + 8);
@@ -151,11 +157,11 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         if pressed {
             if Some(code) == exit_escape {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                st.clear_exit_confirm_overlay();
+                exit_confirm_controller(&mut *st).clear();
                 ctx.backend.request_redraw();
             } else if Some(code) == exit_return {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                st.clear_exit_confirm_overlay();
+                exit_confirm_controller(&mut *st).clear();
                 st.request_exit();
                 ctx.backend.request_redraw();
             }
@@ -170,7 +176,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         }
     }
 
-    if st.screenshot_session_active() {
+    if screenshot_controller(&mut *st).screenshot_session_active() {
         if let Some(keyboard) = st.platform.seat.get_keyboard() {
             let serial = SERIAL_COUNTER.next_serial();
             keyboard.input::<(), _>(
@@ -198,28 +204,28 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
                 .as_ref()
                 .is_some_and(|session| session.mode == halley_ipc::CaptureMode::Menu);
             if Some(code) == escape {
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 if menu_mode {
-                    crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                    let _ = screenshot_controller(&mut *st).cancel_screenshot_session();
+                } else {
+                    let _ = screenshot_controller(&mut *st).return_screenshot_session_to_menu();
                 }
-                let _ = st.cancel_screenshot_session();
                 ctx.backend.request_redraw();
             } else if Some(code) == enter {
-                if menu_mode {
-                    crate::compositor::interaction::state::trap_modal_key_release(st, code);
-                }
-                let _ = st.confirm_screenshot_session(Instant::now());
+                crate::compositor::interaction::state::trap_modal_key_release(st, code);
+                let _ = screenshot_controller(&mut *st).confirm_screenshot_session(Instant::now());
                 ctx.backend.request_redraw();
             } else if Some(code) == left {
                 if menu_mode {
                     crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 }
-                let _ = st.move_screenshot_menu_selection(-1);
+                let _ = screenshot_controller(&mut *st).move_screenshot_menu_selection(-1);
                 ctx.backend.request_redraw();
             } else if Some(code) == right {
                 if menu_mode {
                     crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 }
-                let _ = st.move_screenshot_menu_selection(1);
+                let _ = screenshot_controller(&mut *st).move_screenshot_menu_selection(1);
                 ctx.backend.request_redraw();
             }
         }
@@ -354,12 +360,14 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     let is_mod_key = is_modifier_keycode(code);
     let layer_shell_keyboard_focus =
         crate::compositor::monitor::layer_shell::keyboard_focus_is_layer_surface(st);
-    let matched_action = if pressed && !is_mod_key && !layer_shell_keyboard_focus {
+    let session_lock_active = crate::protocol::wayland::session_lock::session_lock_active(st);
+    let compositor_shortcuts_blocked = layer_shell_keyboard_focus || session_lock_active;
+    let matched_action = if pressed && !is_mod_key && !compositor_shortcuts_blocked {
         compositor_binding_action(st, code, &mods)
     } else {
         None
     };
-    let matched_launch = if pressed && !is_mod_key && !layer_shell_keyboard_focus {
+    let matched_launch = if pressed && !is_mod_key && !compositor_shortcuts_blocked {
         st.runtime
             .tuning
             .launch_bindings
@@ -384,7 +392,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         && !is_mod_key
         && !matched_binding
         && !cluster_blocks_key
-        && !layer_shell_keyboard_focus
+        && !compositor_shortcuts_blocked
         && let Some(fid) = st.last_input_surface_node_for_monitor(st.focused_monitor())
     {
         let open_monitors = st

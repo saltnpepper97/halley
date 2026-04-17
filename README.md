@@ -1,6 +1,6 @@
 <h1 align="center">Halley</h1>
 
-*Named after Halley's comet — periodic, precise, returning.*
+<p align="center"><em>Named after Halley's comet — periodic, precise, returning.</em></p>
 
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blueviolet?style=for-the-badge)
 ![Status](https://img.shields.io/badge/status-active-brightgreen?style=for-the-badge)
@@ -84,14 +84,14 @@ Once inside, you leave the Field entirely. The cluster is its own contained spac
 | **Trail** | Recent-focus navigation — back and forward |
 | **Bearings** | Directional overlays and navigation cues |
 | **Jump / Field Jump** | Fast cross-monitor grabbed-window movement |
-| **IPC** | Unix socket control at `$XDG_RUNTIME_DIR/halley/hally.sock` |
+| **IPC** | Unix socket control at `$XDG_RUNTIME_DIR/halley/halley.sock` |
 | **Xwayland** | On-demand support via `xwayland-satellite` |
 
 ---
 
 ## Default Keybinds
 
-Defaults follow `examples/halley.rune`.
+Defaults follow Halley's shipped fresh-config template.
 
 | Category | Keybind | Action |
 |---|---|---|
@@ -102,22 +102,30 @@ Defaults follow `examples/halley.rune`.
 | Zoom | `Super+MouseWheelUp` | Zoom in |
 | Zoom | `Super+MouseWheelDown` | Zoom out |
 | Zoom | `Super+MiddleMouse` | Reset zoom |
-| Move | `Super+h` | Move node left |
-| Move | `Super+l` | Move node right |
-| Move | `Super+k` | Move node up |
-| Move | `Super+j` | Move node down |
-| Monitor | `Super+Shift+h` | Focus monitor left |
-| Monitor | `Super+Shift+l` | Focus monitor right |
+| Move | `Super+Left` | Move node left |
+| Move | `Super+Right` | Move node right |
+| Move | `Super+Up` | Move node up |
+| Move | `Super+Down` | Move node down |
+| Monitor | `Super+Shift+Left` | Focus monitor left |
+| Monitor | `Super+Shift+Right` | Focus monitor right |
+| Monitor | `Super+Shift+Up` | Focus monitor up |
+| Monitor | `Super+Shift+Down` | Focus monitor down |
 | Clusters | `Super+Shift+c` | Enter cluster mode |
+| Clusters | `Super+l` | Cycle cluster layout |
 | Bearings | `Super+z` | Show bearings |
 | Bearings | `Super+Shift+z` | Toggle bearings |
-| Trail | `Super+Shift+,` | Trail previous |
-| Trail | `Super+Shift+.` | Trail next |
-| Launch | `Super+Return` | Launch `kitty` |
+| Trail | `Super+,` | Trail previous |
+| Trail | `Super+.` | Trail next |
+| Launch | `Super+Return` | Open terminal |
 | Launch | `Super+d` | Launch `fuzzel` |
 | Pointer | `Super+LeftMouse` | Move window |
 | Pointer | `Super+RightMouse` | Resize window |
 | Pointer | `Super+Shift+LeftMouse` | Field jump |
+| Screenshot | `Super+Shift+s` | Open capture menu |
+| Tile | `Super+Left/Right/Up/Down` | Focus tile in that direction |
+| Tile | `Super+Ctrl+Left/Right/Up/Down` | Swap tile in that direction |
+| Stacking | `Super+Left` | Cycle stack forward |
+| Stacking | `Super+Right` | Cycle stack backward |
 | Media | `XF86AudioRaiseVolume` | Raise volume |
 | Media | `XF86AudioLowerVolume` | Lower volume |
 | Media | `XF86AudioMute` | Toggle mute |
@@ -126,7 +134,9 @@ Defaults follow `examples/halley.rune`.
 
 ## Configuration
 
-Handled by `crates/hally-config`. Covers keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
+On first launch Halley bootstraps `~/.config/halley/halley.rune` for you from an internal fully documented template, inserting detected tty monitors into the `viewport` section. Normal config precedence is `~/.config/halley/halley.rune`, then `/etc/halley/halley.rune`, then bundled internal defaults.
+
+Handled by `crates/halley-config`. Covers input settings like repeat/focus mode, keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
 
 ## Contributing
 
@@ -134,7 +144,16 @@ View the [contributing](CONTRIBUTING.md) guidelines before making any pull reque
 
 ---
 
+## Inspirations
+
+- [niri](https://github.com/niri-wm/niri) — for how to do Wayland compositor things in Rust
+- [vxwm](https://codeberg.org/wh1tepearl/vxwm) — for studying some of its eyecandy
+- [hevel](https://sr.ht/~dlm/hevel/) — for zoooooooom
+- [Hyprland](https://github.com/hyprwm/hyprland) — for some config organization and eyecandy
+- [newm](https://github.com/jbuchermn/newm) - Godfather of spatial compositing
+
+---
+
 ## License
 
 **GPL-3.0-only**
-

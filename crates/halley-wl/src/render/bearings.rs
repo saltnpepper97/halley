@@ -16,6 +16,7 @@ use smithay::{
 use crate::compositor::root::Halley;
 use crate::render::app_icon::{ensure_app_icon_resources_for_node_ids, node_app_icon_entry};
 use crate::render::state::NodeAppIconCacheEntry;
+use crate::render::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
 
 use super::text::{draw_ui_text, ui_text_size};
 use super::utils::draw_rect;
@@ -142,6 +143,12 @@ pub(crate) fn ensure_bearing_icon_resources(
     st: &mut Halley,
     monitor: &str,
 ) -> Result<(), Box<dyn Error>> {
+    if !st.runtime.tuning.bearings.show_icons
+        || !node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, false)
+    {
+        return Ok(());
+    }
+
     let viewport = bearings_viewport_for_monitor(st, monitor);
     let node_ids = bearings_for_visible_nodes(&st.model.field, &viewport)
         .into_iter()
@@ -285,7 +292,7 @@ pub(crate) fn draw_bearings(
     damage: Rectangle<i32, Physical>,
     layouts: &[BearingChipLayout],
 ) -> Result<(), Box<dyn Error>> {
-    let rounded = st.runtime.tuning.border_radius_px > 0;
+    let rounded = st.runtime.tuning.window_border_radius_px() > 0;
     for layout in layouts {
         if layout.alpha <= 0.002 {
             continue;
@@ -879,35 +886,59 @@ fn draw_bearing_icon(
     damage: Rectangle<i32, Physical>,
     alpha: f32,
 ) -> Result<(), Box<dyn Error>> {
-    match node_app_icon_entry(st, node_id) {
-        Some(NodeAppIconCacheEntry::Ready(icon)) => {
-            let src = Rectangle::<f64, Buffer>::new(
-                (0.0, 0.0).into(),
-                (icon.width as f64, icon.height as f64).into(),
-            );
-            frame.render_texture_from_to(
-                &icon.texture,
-                src,
-                rect,
-                &[damage],
-                &[],
-                Transform::Normal,
+    if node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, false)
+        && let Some(NodeAppIconCacheEntry::Ready(icon)) = node_app_icon_entry(st, node_id)
+    {
+        let src = Rectangle::<f64, Buffer>::new(
+            (0.0, 0.0).into(),
+            (icon.width as f64, icon.height as f64).into(),
+        );
+        frame.render_texture_from_to(
+            &icon.texture,
+            src,
+            rect,
+            &[damage],
+            &[],
+            Transform::Normal,
+            alpha,
+            None,
+            &[],
+        )?;
+    } else {
+        draw_rect(
+            frame,
+            rect.loc.x,
+            rect.loc.y,
+            rect.size.w,
+            rect.size.h,
+            Color32F::new(0.22, 0.82, 0.92, alpha * 0.30),
+            damage,
+        )?;
+        let glyph = node_app_icon_fallback_glyph(
+            st.model.node_app_ids.get(&node_id).map(String::as_str),
+            st.model
+                .field
+                .node(node_id)
+                .map(|node| node.label.as_str())
+                .unwrap_or("?"),
+        )
+        .to_string();
+        let (text_w, text_h) = ui_text_size(st, &glyph, 2);
+        draw_ui_text(
+            frame,
+            st,
+            rect.loc.x + (rect.size.w - text_w) / 2,
+            rect.loc.y + (rect.size.h - text_h) / 2,
+            &glyph,
+            2,
+            Color32F::new(
+                CHIP_TEXT_COLOR.r(),
+                CHIP_TEXT_COLOR.g(),
+                CHIP_TEXT_COLOR.b(),
                 alpha,
-                None,
-                &[],
-            )?;
-        }
-        _ => {
-            draw_rect(
-                frame,
-                rect.loc.x,
-                rect.loc.y,
-                rect.size.w,
-                rect.size.h,
-                Color32F::new(0.22, 0.82, 0.92, alpha * 0.30),
-                damage,
-            )?;
-        }
+            ),
+            damage,
+        )?;
     }
     Ok(())
 }

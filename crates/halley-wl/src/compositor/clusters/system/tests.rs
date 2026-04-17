@@ -8,7 +8,7 @@ fn single_monitor_tuning() -> halley_config::RuntimeTuning {
     tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
     tuning.tile_gaps_outer_px = 20.0;
     tuning.tile_gaps_inner_px = 20.0;
-    tuning.border_size_px = 0;
+    tuning.decorations.border.size_px = 0;
     tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
         connector: "monitor_a".to_string(),
         enabled: true,
@@ -184,27 +184,24 @@ fn cluster_mode_confirm_opens_name_prompt_before_creating() {
     assert!(st.toggle_cluster_mode_selection(first));
     assert!(st.toggle_cluster_mode_selection(second));
     assert!(st.confirm_cluster_mode(now));
-    assert!(
-        st.model
-            .cluster_state
-            .cluster_name_prompt
-            .contains_key("monitor_a")
-    );
+    assert!(st
+        .model
+        .cluster_state
+        .cluster_name_prompt
+        .contains_key("monitor_a"));
     assert!(st.model.field.cluster_id_for_member_public(first).is_none());
-    assert!(
-        st.model
-            .field
-            .cluster_id_for_member_public(second)
-            .is_none()
-    );
+    assert!(st
+        .model
+        .field
+        .cluster_id_for_member_public(second)
+        .is_none());
 
     assert!(cluster_system_controller(&mut st).cancel_cluster_name_prompt_for_monitor("monitor_a"));
-    assert!(
-        !st.model
-            .cluster_state
-            .cluster_name_prompt
-            .contains_key("monitor_a")
-    );
+    assert!(!st
+        .model
+        .cluster_state
+        .cluster_name_prompt
+        .contains_key("monitor_a"));
     assert!(st.cluster_mode_active_for_monitor("monitor_a"));
     assert_eq!(
         st.model

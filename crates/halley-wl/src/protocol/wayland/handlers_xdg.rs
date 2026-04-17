@@ -44,9 +44,14 @@ impl XdgShellHandler for Halley {
     fn new_toplevel(&mut self, toplevel: ToplevelSurface) {
         let intent = spawn::rules::resolve_initial_window_intent(self, &toplevel);
         let initial_size = super::handlers::initial_toplevel_size(self, &toplevel, &intent);
+        let monitor = self.focused_monitor().to_string();
+        let view = self.usable_viewport_for_monitor(&monitor);
+        let bounds_w = view.size.x as i32;
+        let bounds_h = view.size.y as i32;
         toplevel.with_pending_state(|s| {
             if let Some((w, h)) = initial_size.configure_size {
                 s.size = Some((w, h).into());
+                s.bounds = Some((bounds_w, bounds_h).into());
             }
             s.decoration_mode = Some(self.preferred_xdg_decoration_mode());
             self.apply_toplevel_tiled_hint(s);
@@ -73,6 +78,10 @@ impl XdgShellHandler for Halley {
             .is_some_and(|(cid, monitor)| {
                 self.active_cluster_workspace_for_monitor(monitor) == Some(cid)
             });
+        if !is_transient && !handled_by_active_cluster {
+            self.model.spawn_state.pending_initial_reveal.insert(id);
+            let _ = self.model.field.set_detached(id, true);
+        }
         if !handled_by_active_cluster {
             let _ = self.model.field.touch(id, self.now_ms(now));
         }
@@ -121,14 +130,13 @@ impl XdgShellHandler for Halley {
         if let Some((press_global_sx, press_global_sy)) =
             self.input.interaction_state.last_pointer_screen_global
         {
-            self.input.interaction_state.pending_titlebar_press = Some(
-                crate::compositor::interaction::state::PendingTitlebarPress {
+            self.input.interaction_state.pending_move_press =
+                Some(crate::compositor::interaction::state::PendingMovePress {
                     node_id,
                     press_global_sx,
                     press_global_sy,
                     workspace_active: self.has_active_cluster_workspace(),
-                },
-            );
+                });
         }
         self.request_maintenance();
     }

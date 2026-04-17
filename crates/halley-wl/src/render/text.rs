@@ -254,6 +254,19 @@ pub(crate) fn ui_text_size_in(
     render_state.ui_text.borrow_mut().size(font, text, scale)
 }
 
+pub(crate) fn ui_text_size_px_in(
+    render_state: &RenderState,
+    family: &str,
+    size_px: u32,
+    text: &str,
+) -> (i32, i32) {
+    let font = FontConfig {
+        family: family.to_string(),
+        size: size_px.max(1),
+    };
+    ui_text_size_in(render_state, &font, text, 2)
+}
+
 pub(crate) fn draw_ui_text(
     frame: &mut GlesFrame<'_, '_>,
     st: &Halley,

@@ -35,7 +35,7 @@ pub fn init_ipc() -> io::Result<()> {
         return Ok(());
     }
 
-    let socket_path = halley_runtime_dir()?.join("socket");
+    let socket_path = halley_runtime_dir()?.join("halley.sock");
     if let Some(parent) = socket_path.parent() {
         fs::create_dir_all(parent)?;
     }

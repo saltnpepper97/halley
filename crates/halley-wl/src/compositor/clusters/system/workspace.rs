@@ -3,6 +3,7 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::*;
+use crate::compositor::monitor::camera::camera_controller;
 
 impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
     fn restore_cluster_workspace_monitor(&mut self, monitor: &str) {
@@ -17,7 +18,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         if self.model.monitor_state.current_monitor == monitor {
             self.model.viewport = vp;
             self.model.zoom_ref_size = self.model.viewport.size;
-            self.snap_camera_targets_to_live();
+            camera_controller(&mut **self).snap_targets_to_live();
             self.runtime.tuning.viewport_center = self.model.viewport.center;
             self.runtime.tuning.viewport_size = self.model.viewport.size;
         }

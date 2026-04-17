@@ -618,6 +618,12 @@ impl Field {
         self.clusters.get(&id)
     }
 
+    pub fn cluster_ids(&self) -> Vec<ClusterId> {
+        let mut ids: Vec<_> = self.clusters.keys().copied().collect();
+        ids.sort_by_key(|id| id.as_u64());
+        ids
+    }
+
     pub fn cluster_mut(&mut self, id: ClusterId) -> Option<&mut Cluster> {
         self.clusters.get_mut(&id)
     }
