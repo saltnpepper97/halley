@@ -242,7 +242,10 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
         }
 
         if self.runtime.tuning.field_active_windows_allowed == 0 {
-            self.model.focus_state.outside_focus_ring_since_ms.remove(&id);
+            self.model
+                .focus_state
+                .outside_focus_ring_since_ms
+                .remove(&id);
             let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
             return;
         }
@@ -424,7 +427,11 @@ mod tests {
     fn zero_active_window_limit_disables_decay() {
         let (mut state, id) = outside_ring_test_state();
         state.runtime.tuning.field_active_windows_allowed = 0;
-        state.model.focus_state.outside_focus_ring_since_ms.insert(id, 5);
+        state
+            .model
+            .focus_state
+            .outside_focus_ring_since_ms
+            .insert(id, 5);
         let _ = state.model.field.set_decay_level(id, DecayLevel::Cold);
 
         state.apply_single_surface_decay_policy(id, 100_000, 120_000, 30_000);
@@ -433,6 +440,12 @@ mod tests {
             state.model.field.node(id).map(|n| n.decay),
             Some(DecayLevel::Hot)
         );
-        assert!(!state.model.focus_state.outside_focus_ring_since_ms.contains_key(&id));
+        assert!(
+            !state
+                .model
+                .focus_state
+                .outside_focus_ring_since_ms
+                .contains_key(&id)
+        );
     }
 }

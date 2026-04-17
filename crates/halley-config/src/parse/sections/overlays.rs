@@ -2,7 +2,9 @@ use rune_cfg::RuneConfig;
 
 use crate::layout::RuntimeTuning;
 
-use super::super::primitives::{pick_bool, pick_overlay_color_mode, pick_overlay_shape};
+use super::super::primitives::{
+    pick_bool, pick_overlay_border_source, pick_overlay_color_mode, pick_overlay_shape,
+};
 
 pub(crate) fn load_overlays_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.overlay_style.background_color = pick_overlay_color_mode(
@@ -43,13 +45,23 @@ pub(crate) fn load_overlays_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["overlay.borders", "overlays.borders"],
         out.overlay_style.borders,
     );
+    out.overlay_style.border_source = pick_overlay_border_source(
+        cfg,
+        &[
+            "overlay.border-source",
+            "overlay.border_source",
+            "overlays.border-source",
+            "overlays.border_source",
+        ],
+        out.overlay_style.border_source,
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use rune_cfg::RuneConfig;
 
-    use crate::layout::{OverlayColorMode, OverlayShape, RuntimeTuning};
+    use crate::layout::{OverlayBorderSource, OverlayColorMode, OverlayShape, RuntimeTuning};
 
     use super::load_overlays_section;
 
@@ -62,6 +74,7 @@ overlays:
   text-colour "dark"
   shape "rounded"
   borders false
+  border-source "secondary"
 end
 "##,
         )
@@ -81,6 +94,10 @@ end
         assert_eq!(out.overlay_style.text_color, OverlayColorMode::Dark);
         assert_eq!(out.overlay_style.shape, OverlayShape::Rounded);
         assert!(!out.overlay_style.borders);
+        assert_eq!(
+            out.overlay_style.border_source,
+            OverlayBorderSource::Secondary
+        );
     }
 
     #[test]
@@ -93,5 +110,9 @@ end
         assert_eq!(defaults.overlay_style.text_color, OverlayColorMode::Auto);
         assert_eq!(defaults.overlay_style.shape, OverlayShape::Square);
         assert!(defaults.overlay_style.borders);
+        assert_eq!(
+            defaults.overlay_style.border_source,
+            OverlayBorderSource::Primary
+        );
     }
 }

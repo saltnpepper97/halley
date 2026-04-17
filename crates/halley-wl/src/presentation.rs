@@ -91,7 +91,29 @@ fn window_inactive_border_color_for_tuning(tuning: &RuntimeTuning) -> Color32F {
     Color32F::new(color.r, color.g, color.b, 1.0)
 }
 
-fn node_ring_color_for_tuning(tuning: &RuntimeTuning, hovered: bool, alpha: f32) -> Color32F {
+fn window_secondary_active_border_color_for_tuning(tuning: &RuntimeTuning) -> Color32F {
+    let color = if tuning.window_secondary_border_enabled() {
+        tuning.decorations.secondary_border.color_focused
+    } else {
+        tuning.decorations.border.color_focused
+    };
+    Color32F::new(color.r, color.g, color.b, 1.0)
+}
+
+fn window_secondary_inactive_border_color_for_tuning(tuning: &RuntimeTuning) -> Color32F {
+    let color = if tuning.window_secondary_border_enabled() {
+        tuning.decorations.secondary_border.color_unfocused
+    } else {
+        tuning.decorations.border.color_unfocused
+    };
+    Color32F::new(color.r, color.g, color.b, 1.0)
+}
+
+pub(crate) fn themed_node_ring_color(
+    tuning: &RuntimeTuning,
+    hovered: bool,
+    alpha: f32,
+) -> Color32F {
     let mode = if hovered {
         tuning.node_border_color_hover
     } else {
@@ -100,6 +122,12 @@ fn node_ring_color_for_tuning(tuning: &RuntimeTuning, hovered: bool, alpha: f32)
     let base = match mode {
         NodeBorderColorMode::UseWindowActive => window_active_border_color_for_tuning(tuning),
         NodeBorderColorMode::UseWindowInactive => window_inactive_border_color_for_tuning(tuning),
+        NodeBorderColorMode::UseWindowSecondaryActive => {
+            window_secondary_active_border_color_for_tuning(tuning)
+        }
+        NodeBorderColorMode::UseWindowSecondaryInactive => {
+            window_secondary_inactive_border_color_for_tuning(tuning)
+        }
     };
     Color32F::new(base.r(), base.g(), base.b(), alpha)
 }
@@ -107,7 +135,7 @@ fn node_ring_color_for_tuning(tuning: &RuntimeTuning, hovered: bool, alpha: f32)
 pub(crate) fn themed_node_fill_color(tuning: &RuntimeTuning, hovered: bool) -> Color32F {
     match tuning.node_background_color {
         NodeBackgroundColorMode::Auto | NodeBackgroundColorMode::Theme => {
-            let ring = node_ring_color_for_tuning(tuning, hovered, 1.0);
+            let ring = themed_node_ring_color(tuning, hovered, 1.0);
             let base = (0.94, 0.96, 0.985);
             Color32F::new(
                 base.0 * 0.86 + ring.r() * 0.14,
@@ -149,4 +177,48 @@ pub(crate) fn themed_node_label_colors(
     let fill = themed_node_label_fill_color(tuning, hovered, fill_alpha);
     let text = themed_node_label_text_color(fill, text_alpha);
     (fill, text)
+}
+
+#[cfg(test)]
+mod tests {
+    use halley_config::{DecorationBorderColor, NodeBorderColorMode, RuntimeTuning};
+
+    use super::themed_node_ring_color;
+
+    #[test]
+    fn themed_node_ring_color_uses_secondary_border_when_enabled() {
+        let mut tuning = RuntimeTuning::default();
+        tuning.decorations.secondary_border.enabled = true;
+        tuning.decorations.secondary_border.color_focused = DecorationBorderColor {
+            r: 0.9,
+            g: 0.8,
+            b: 0.1,
+        };
+        tuning.node_border_color_hover = NodeBorderColorMode::UseWindowSecondaryActive;
+
+        let color = themed_node_ring_color(&tuning, true, 0.75);
+
+        assert_eq!(
+            (color.r(), color.g(), color.b(), color.a()),
+            (0.9, 0.8, 0.1, 0.75)
+        );
+    }
+
+    #[test]
+    fn themed_node_ring_color_falls_back_to_primary_when_secondary_disabled() {
+        let mut tuning = RuntimeTuning::default();
+        tuning.decorations.border.color_unfocused = DecorationBorderColor {
+            r: 0.2,
+            g: 0.3,
+            b: 0.4,
+        };
+        tuning.node_border_color_inactive = NodeBorderColorMode::UseWindowSecondaryInactive;
+
+        let color = themed_node_ring_color(&tuning, false, 0.6);
+
+        assert_eq!(
+            (color.r(), color.g(), color.b(), color.a()),
+            (0.2, 0.3, 0.4, 0.6)
+        );
+    }
 }

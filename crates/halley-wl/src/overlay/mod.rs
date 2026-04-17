@@ -6,7 +6,7 @@ mod view;
 
 use std::error::Error;
 
-use halley_config::{OverlayColorMode, OverlayShape, RuntimeTuning};
+use halley_config::{OverlayBorderSource, OverlayColorMode, OverlayShape, RuntimeTuning};
 use smithay::{
     backend::renderer::{
         Color32F, Texture,
@@ -160,11 +160,36 @@ fn resolve_overlay_base_text(mode: OverlayColorMode, background: OverlayRgb) -> 
 }
 
 fn resolve_overlay_border_color(tuning: &RuntimeTuning) -> OverlayRgb {
-    let color = tuning.decorations.border.color_focused;
+    let color = match tuning.overlay_style.border_source {
+        OverlayBorderSource::Primary => tuning.decorations.border.color_focused,
+        OverlayBorderSource::Secondary => {
+            if tuning.window_secondary_border_enabled() {
+                tuning.decorations.secondary_border.color_focused
+            } else {
+                tuning.decorations.border.color_focused
+            }
+        }
+    };
     OverlayRgb {
         r: color.r,
         g: color.g,
         b: color.b,
+    }
+}
+
+fn resolve_overlay_border_width(tuning: &RuntimeTuning) -> f32 {
+    if !tuning.overlay_style.borders {
+        return 0.0;
+    }
+    match tuning.overlay_style.border_source {
+        OverlayBorderSource::Primary => tuning.window_primary_border_size_px() as f32,
+        OverlayBorderSource::Secondary => {
+            if tuning.window_secondary_border_enabled() {
+                tuning.window_secondary_border_size_px() as f32
+            } else {
+                tuning.window_primary_border_size_px() as f32
+            }
+        }
     }
 }
 
@@ -174,11 +199,7 @@ fn resolve_overlay_visuals(tuning: &RuntimeTuning) -> OverlayVisuals {
     let border = resolve_overlay_border_color(tuning);
     OverlayVisuals {
         rounded: matches!(tuning.overlay_style.shape, OverlayShape::Rounded),
-        border_px: if tuning.overlay_style.borders {
-            tuning.window_primary_border_size_px() as f32
-        } else {
-            0.0
-        },
+        border_px: resolve_overlay_border_width(tuning),
         palette: OverlayPalette {
             fill,
             text,
@@ -1311,7 +1332,9 @@ fn draw_overlay_chip(
 
 #[cfg(test)]
 mod tests {
-    use halley_config::{OverlayColorMode, OverlayShape};
+    use halley_config::{
+        DecorationBorderColor, OverlayBorderSource, OverlayColorMode, OverlayShape,
+    };
 
     use super::{overlay_accent_fill, overlay_text_color_for_fill, resolve_overlay_visuals};
 
@@ -1340,6 +1363,55 @@ mod tests {
         tuning.overlay_style.borders = false;
         let visuals = resolve_overlay_visuals(&tuning);
         assert_eq!(visuals.border_px, 0.0);
+    }
+
+    #[test]
+    fn overlay_secondary_border_source_uses_secondary_style_when_enabled() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.decorations.secondary_border.enabled = true;
+        tuning.decorations.secondary_border.size_px = 2;
+        tuning.decorations.secondary_border.color_focused = DecorationBorderColor {
+            r: 0.9,
+            g: 0.8,
+            b: 0.1,
+        };
+        tuning.overlay_style.border_source = OverlayBorderSource::Secondary;
+
+        let visuals = resolve_overlay_visuals(&tuning);
+
+        assert_eq!(visuals.border_px, 2.0);
+        assert_eq!(
+            (
+                visuals.palette.border.r,
+                visuals.palette.border.g,
+                visuals.palette.border.b
+            ),
+            (0.9, 0.8, 0.1)
+        );
+    }
+
+    #[test]
+    fn overlay_secondary_border_source_falls_back_to_primary_when_disabled() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.decorations.border.size_px = 4;
+        tuning.decorations.border.color_focused = DecorationBorderColor {
+            r: 0.1,
+            g: 0.2,
+            b: 0.3,
+        };
+        tuning.overlay_style.border_source = OverlayBorderSource::Secondary;
+
+        let visuals = resolve_overlay_visuals(&tuning);
+
+        assert_eq!(visuals.border_px, 4.0);
+        assert_eq!(
+            (
+                visuals.palette.border.r,
+                visuals.palette.border.g,
+                visuals.palette.border.b
+            ),
+            (0.1, 0.2, 0.3)
+        );
     }
 
     #[test]

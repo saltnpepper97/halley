@@ -14,9 +14,9 @@ pub use layout::{
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
     DecorationBorderColor, DecorationsConfig, FontConfig, InitialWindowClusterParticipation,
     InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, InputConfig, InputFocusMode,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode,
-    OverlayShape, OverlayStyleConfig, PanToNewMode, PrimaryBorderConfig, RuntimeTuning,
-    ScreenshotConfig, SecondaryBorderConfig, ShapeStyle, TimedAnimationConfig,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayBorderSource,
+    OverlayColorMode, OverlayShape, OverlayStyleConfig, PanToNewMode, PrimaryBorderConfig,
+    RuntimeTuning, ScreenshotConfig, SecondaryBorderConfig, ShapeStyle, TimedAnimationConfig,
     ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle,
     WindowRule, WindowRulePattern,
 };

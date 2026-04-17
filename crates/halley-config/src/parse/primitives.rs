@@ -6,7 +6,8 @@ use crate::layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, FocusRingConfig,
     InputFocusMode, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    OverlayColorMode, OverlayShape, PanToNewMode, ShapeStyle, WindowCloseAnimationStyle,
+    OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode, ShapeStyle,
+    WindowCloseAnimationStyle,
 };
 
 pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -262,6 +263,23 @@ pub(crate) fn pick_node_border_color_mode(
     match raw.trim().trim_matches('"') {
         "use-window-active" => NodeBorderColorMode::UseWindowActive,
         "use-window-inactive" => NodeBorderColorMode::UseWindowInactive,
+        "use-window-secondary-active" => NodeBorderColorMode::UseWindowSecondaryActive,
+        "use-window-secondary-inactive" => NodeBorderColorMode::UseWindowSecondaryInactive,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_overlay_border_source(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: OverlayBorderSource,
+) -> OverlayBorderSource {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"') {
+        "primary" => OverlayBorderSource::Primary,
+        "secondary" => OverlayBorderSource::Secondary,
         _ => default,
     }
 }
