@@ -432,6 +432,27 @@ impl<T: DerefMut<Target = Halley>> ScreenshotController<T> {
                                 )
                                 .map_err(|err| err.to_string())
                         });
+                    match &result {
+                        Ok(_) => {
+                            let message =
+                                format!("Saved screenshot\n{}", pending.output_path.display());
+                            self.ui.render_state.show_overlay_toast(
+                                pending.monitor.as_str(),
+                                message.as_str(),
+                                4200,
+                                now_ms,
+                            );
+                        }
+                        Err(err) => {
+                            let message = format!("Capture failed\n{err}");
+                            self.ui.render_state.show_overlay_toast(
+                                pending.monitor.as_str(),
+                                message.as_str(),
+                                5000,
+                                now_ms,
+                            );
+                        }
+                    }
                     self.input.interaction_state.last_screenshot_result =
                         Some(ScreenshotCaptureResult {
                             serial: pending.serial,
