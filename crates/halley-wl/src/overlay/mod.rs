@@ -16,12 +16,11 @@ use smithay::{
 };
 
 use crate::compositor::root::Halley;
+use crate::presentation::themed_node_label_colors;
+use crate::render::draw_primitives::draw_rect;
 use crate::render::state::RenderState;
-use crate::render::themed_node_label_colors;
-use crate::render::utils::draw_rect;
 use crate::render::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
-
-use crate::render::text::{draw_ui_text, draw_ui_text_in, ui_text_size, ui_text_size_in};
+use crate::text::{draw_ui_text, draw_ui_text_in, ui_text_size, ui_text_size_in};
 
 pub(crate) use cluster_bloom::{
     bloom_token_hit_test, draw_cluster_bloom, ensure_cluster_bloom_icon_resources,
@@ -1240,7 +1239,7 @@ fn draw_overlay_chip(
     damage: Rectangle<i32, Physical>,
     alpha: f32,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = render_state.gpu.node_circle_texture.as_ref() else {
         return Ok(());
     };
     let Some(program) = render_state.ui_rect_program(visuals.rounded) else {

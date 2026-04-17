@@ -230,7 +230,7 @@ pub(crate) fn current_surface_size_for_node(
     st: &Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<halley_core::field::Vec2> {
-    if let Some(&(_, _, w, h)) = st.ui.render_state.window_geometry.get(&node_id) {
+    if let Some(&(_, _, w, h)) = st.ui.render_state.cache.window_geometry.get(&node_id) {
         return Some(halley_core::field::Vec2 {
             x: w.max(1.0),
             y: h.max(1.0),
@@ -280,7 +280,7 @@ pub(crate) fn window_geometry_for_node(
     st: &Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<(f32, f32, f32, f32)> {
-    if let Some(&geo) = st.ui.render_state.window_geometry.get(&node_id) {
+    if let Some(&geo) = st.ui.render_state.cache.window_geometry.get(&node_id) {
         return Some(geo);
     }
     for top in st.platform.xdg_shell_state.toplevel_surfaces() {
@@ -319,6 +319,7 @@ pub(crate) fn window_geometry_for_node(
         let (bbox_lx, bbox_ly) = st
             .ui
             .render_state
+            .cache
             .bbox_loc
             .get(&node_id)
             .copied()

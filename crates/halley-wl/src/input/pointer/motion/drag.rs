@@ -1,11 +1,11 @@
 use std::time::{Duration, Instant};
 
+use super::super::button::ButtonFrame;
 use crate::backend::interface::BackendView;
 use crate::compositor::interaction::state::ActiveDragState;
 use crate::compositor::interaction::{DragAxisMode, DragCtx, HitNode, ModState, PointerState};
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::is_active_stacking_workspace_member;
-use super::super::button::ButtonFrame;
 
 pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
     if st.is_fullscreen_active(node_id) {
@@ -243,7 +243,13 @@ pub(super) fn handle_drag_motion(
         st,
         Some(smithay::input::pointer::CursorIcon::Grabbing),
     );
-    let _ = super::cluster::update_cluster_join_candidate(st, drag.node_id, target_monitor, desired_to, now);
+    let _ = super::cluster::update_cluster_join_candidate(
+        st,
+        drag.node_id,
+        target_monitor,
+        desired_to,
+        now,
+    );
     backend.request_redraw();
     true
 }

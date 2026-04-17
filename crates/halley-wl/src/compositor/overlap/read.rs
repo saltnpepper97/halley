@@ -4,8 +4,9 @@ use crate::compositor::interaction::state::InteractionState;
 use crate::compositor::monitor::state::MonitorState;
 use crate::compositor::spawn::state::SpawnState;
 use crate::compositor::workspace::state::WorkspaceState;
+use crate::presentation::preview_proxy_size;
 use crate::render::state::RenderState;
-use crate::render::{active_window_frame_pad_px, preview_proxy_size};
+use crate::window::active_window_frame_pad_px;
 use halley_core::viewport::Viewport;
 
 const CORE_NODE_RENDER_RADIUS_PX: f32 = 34.0;
@@ -298,6 +299,7 @@ impl<'a> OverlapReadContext<'a> {
             .copied()
             .or_else(|| {
                 self.render_state
+                    .cache
                     .window_geometry
                     .get(&n.id)
                     .map(|(_, _, w, h)| Vec2 { x: *w, y: *h })

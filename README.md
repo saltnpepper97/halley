@@ -156,4 +156,5 @@ View the [contributing](CONTRIBUTING.md) guidelines before making any pull reque
 
 ## License
 
-**GPL-3.0-only**
+Released under the [**GPL-3.0**](LICENSE) license.
+

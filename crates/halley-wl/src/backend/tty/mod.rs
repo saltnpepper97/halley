@@ -129,7 +129,7 @@ fn queue_ready_tty_outputs(
                     .borrow_mut()
                     .insert(output.connector_name.clone(), true);
                 if source != "timer" {
-                    crate::render::send_frame_callbacks_for_output(st, output_name, now);
+                    crate::frame_loop::send_frame_callbacks_for_output(st, output_name, now);
                 }
             }
         }
@@ -180,7 +180,7 @@ fn tty_output_animation_redraw_active(
         return true;
     }
 
-    crate::render::tty_output_animation_redraw_state(st, output_name, now).active
+    crate::frame_loop::tty_output_animation_redraw_state(st, output_name, now).active
 }
 
 fn tty_animation_output_ready_for_redraw(
@@ -274,16 +274,16 @@ fn advance_tty_redraw_frame(
         ps.resize.is_some()
     };
 
-    crate::render::tick_frame_effects(st, now);
-    crate::render::tick_animator_frame(st, now);
+    crate::frame_loop::tick_frame_effects(st, now);
+    crate::frame_loop::tick_animator_frame(st, now);
     st.tick_fullscreen_motion(now);
-    crate::render::begin_render_frame(st, now);
+    crate::frame_loop::begin_render_frame(st, now);
     {
         let mut ps = pointer_state.borrow_mut();
         let _ = advance_node_move_anim(st, &mut ps, now);
         let _ = advance_resize_anim(st, &mut ps, now);
     }
-    crate::render::tick_live_overlap(st);
+    crate::frame_loop::tick_live_overlap(st);
     if include_maintenance && !resize_active {
         st.run_maintenance_if_needed(now);
     }
@@ -1899,7 +1899,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             (1, 1).into(),
                         );
                         for output_name in woke_outputs {
-                            crate::render::send_frame_callbacks_for_output(
+                            crate::frame_loop::send_frame_callbacks_for_output(
                                 st,
                                 output_name.as_str(),
                                 now,
@@ -1908,7 +1908,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
 
                     for output_name in &due_outputs {
-                        crate::render::send_frame_callbacks_for_output(
+                        crate::frame_loop::send_frame_callbacks_for_output(
                             st,
                             output_name.as_str(),
                             now,

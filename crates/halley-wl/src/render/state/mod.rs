@@ -1,4 +1,6 @@
-use std::cell::RefCell;
+mod cache;
+mod gpu;
+
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -8,106 +10,19 @@ use halley_core::cluster_layout::ClusterCycleDirection;
 use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::tiling::Rect;
 
-use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
-use smithay::utils::{Logical, Rectangle};
-
 use crate::animation::{Animator, ClusterTileTracks};
 use crate::overlay::{
     ClusterBloomAnimSnapshot, ClusterBloomAnimState, ExitConfirmOverlaySnapshot,
     ExitConfirmOverlayState, OverlayActionHint, OverlayBannerSnapshot, OverlayBannerState,
     OverlayToastSnapshot, OverlayToastState,
 };
-use crate::render::text::UiTextRenderer;
+use crate::window::{ActiveBorderRect, OffscreenNodeTexture};
 
-use super::window::{ActiveBorderRect, OffscreenNodeTexture};
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct WindowOffscreenKey {
-    pub width: i32,
-    pub height: i32,
-}
-
-#[derive(Default)]
-pub(crate) struct WindowOffscreenCache {
-    /// Native 1.0x surface-tree bbox size used to build the offscreen image.
-    pub key: WindowOffscreenKey,
-
-    /// Set when the cached offscreen image should be rebuilt before use.
-    pub dirty: bool,
-
-    /// Last frame this cache entry was touched.
-    pub last_used_at: Option<Instant>,
-
-    /// Cached 1.0x surface-tree render target for zoomed compositing.
-    pub texture: Option<GlesTexture>,
-
-    /// Logical bbox paired with the cached texture.
-    pub bbox: Option<Rectangle<i32, Logical>>,
-
-    /// True once the cached offscreen image contains actual surface content.
-    pub has_content: bool,
-}
-
-impl WindowOffscreenCache {
-    #[inline]
-    pub(crate) fn matches_size(&self, width: i32, height: i32) -> bool {
-        self.key.width == width && self.key.height == height
-    }
-
-    #[inline]
-    pub(crate) fn set_size(&mut self, width: i32, height: i32) {
-        self.key = WindowOffscreenKey { width, height };
-    }
-
-    #[inline]
-    pub(crate) fn mark_dirty(&mut self) {
-        self.dirty = true;
-    }
-
-    #[inline]
-    pub(crate) fn mark_clean(&mut self, now: Instant) {
-        self.dirty = false;
-        self.last_used_at = Some(now);
-    }
-
-    #[inline]
-    pub(crate) fn touch(&mut self, now: Instant) {
-        self.last_used_at = Some(now);
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct NodeAppIconTexture {
-    pub texture: GlesTexture,
-    pub width: i32,
-    pub height: i32,
-}
-
-#[derive(Clone)]
-pub(crate) enum NodeAppIconCacheEntry {
-    Ready(NodeAppIconTexture),
-    Missing,
-}
-
-#[derive(Default)]
-pub(crate) struct ClusterCoreIconCache {
-    pub(crate) focused_color: [u8; 4],
-    pub(crate) unfocused_color: [u8; 4],
-    pub(crate) focused: Option<NodeAppIconTexture>,
-    pub(crate) unfocused: Option<NodeAppIconTexture>,
-}
-
-#[derive(Default)]
-pub(crate) struct ScreenshotMenuIconCache {
-    pub(crate) active_color: [u8; 4],
-    pub(crate) inactive_color: [u8; 4],
-    pub(crate) region_active: Option<NodeAppIconTexture>,
-    pub(crate) region_inactive: Option<NodeAppIconTexture>,
-    pub(crate) screen_active: Option<NodeAppIconTexture>,
-    pub(crate) screen_inactive: Option<NodeAppIconTexture>,
-    pub(crate) window_active: Option<NodeAppIconTexture>,
-    pub(crate) window_inactive: Option<NodeAppIconTexture>,
-}
+pub(crate) use cache::{
+    ClusterCoreIconCache, NodeAppIconCacheEntry, NodeAppIconTexture, RenderCacheState,
+    ScreenshotMenuIconCache,
+};
+pub(crate) use gpu::RenderGpuState;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct PreviewHoverState {
@@ -166,9 +81,7 @@ pub(crate) struct ClosingWindowAnimationSnapshot {
 pub(crate) struct RenderState {
     pub animator: Animator,
 
-    pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
-    pub(crate) cluster_core_icon_cache: ClusterCoreIconCache,
-    pub(crate) screenshot_menu_icon_cache: ScreenshotMenuIconCache,
+    pub(crate) cache: RenderCacheState,
     pub(crate) node_hover_mix: HashMap<NodeId, f32>,
     pub(crate) node_preview_hover: HashMap<String, PreviewHoverState>,
     pub(crate) bearings_visible: bool,
@@ -182,31 +95,9 @@ pub(crate) struct RenderState {
     pub(crate) overlay_exit_confirm: HashMap<String, ExitConfirmOverlayState>,
     pub(crate) closing_window_animations: HashMap<NodeId, ClosingWindowAnimationState>,
     pub(crate) stack_cycle_transition: HashMap<String, StackCycleTransitionState>,
-    pub(crate) ui_text: RefCell<UiTextRenderer>,
-    pub(crate) node_circle_texture: Option<GlesTexture>,
-    pub(crate) node_circle_program: Option<GlesTexProgram>,
-    pub(crate) node_square_program: Option<GlesTexProgram>,
-    pub(crate) node_squircle_program: Option<GlesTexProgram>,
-    pub(crate) ui_rect_rounded_program: Option<GlesTexProgram>,
-    pub(crate) ui_rect_rounded_program_failed: bool,
-    pub(crate) ui_rect_square_program: Option<GlesTexProgram>,
-    pub(crate) ui_rect_square_program_failed: bool,
-    pub(crate) window_texture_program: Option<GlesTexProgram>,
-    pub(crate) window_texture_program_failed: bool,
-    pub(crate) surface_clip_program: Option<GlesTexProgram>,
-    pub(crate) surface_clip_program_failed: bool,
-
-    pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
-    pub(crate) zoom_resize_fallback: HashSet<NodeId>,
-    pub(crate) zoom_resize_reject_streak: HashMap<NodeId, u8>,
-    pub(crate) zoom_last_observed_size: HashMap<NodeId, Vec2>,
-    pub(crate) zoom_resize_static_streak: HashMap<NodeId, u8>,
+    pub(crate) gpu: RenderGpuState,
 
     pub(crate) render_last_tick: Instant,
-
-    pub(crate) bbox_loc: HashMap<NodeId, (f32, f32)>,
-    pub(crate) window_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
-    pub(crate) window_offscreen_cache: HashMap<NodeId, WindowOffscreenCache>,
 }
 
 impl RenderState {
@@ -357,14 +248,6 @@ impl RenderState {
             new_visible: state.new_visible,
             source_rects: state.source_rects,
         })
-    }
-
-    pub(crate) fn ui_rect_program(&self, rounded: bool) -> Option<&GlesTexProgram> {
-        if rounded {
-            self.ui_rect_rounded_program.as_ref()
-        } else {
-            self.ui_rect_square_program.as_ref()
-        }
     }
 
     pub(crate) fn anim_track_elapsed_for(
@@ -625,60 +508,5 @@ impl RenderState {
 
     pub(crate) fn tick_animator_frame(&mut self, field: &Field, now: Instant) {
         self.animator.observe_field(field, now);
-    }
-
-    pub(crate) fn ensure_window_offscreen_cache(
-        &mut self,
-        node_id: NodeId,
-        width: i32,
-        height: i32,
-        now: Instant,
-    ) -> &mut WindowOffscreenCache {
-        let width = width.max(1);
-        let height = height.max(1);
-        let cache = self.window_offscreen_cache.entry(node_id).or_default();
-        if !cache.matches_size(width, height) {
-            cache.set_size(width, height);
-            cache.texture = None;
-            cache.bbox = None;
-            cache.has_content = false;
-            cache.mark_dirty();
-        }
-
-        cache.touch(now);
-        self.window_offscreen_cache
-            .get_mut(&node_id)
-            .expect("offscreen cache should exist after ensure")
-    }
-
-    pub(crate) fn mark_window_offscreen_dirty(&mut self, node_id: NodeId) {
-        if let Some(cache) = self.window_offscreen_cache.get_mut(&node_id) {
-            cache.mark_dirty();
-        }
-    }
-
-    pub(crate) fn clear_window_offscreen_cache_for(&mut self, node_id: NodeId) {
-        self.window_offscreen_cache.remove(&node_id);
-    }
-
-    pub(crate) fn clear_window_offscreen_caches(&mut self) {
-        self.window_offscreen_cache.clear();
-    }
-
-    pub(crate) fn prune_window_offscreen_cache(&mut self, alive: &HashSet<NodeId>, now: Instant) {
-        self.window_offscreen_cache.retain(|id, cache| {
-            alive.contains(id)
-                && cache
-                    .last_used_at
-                    .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5)
-        });
-    }
-
-    pub(crate) fn invalidate_ui_text_cache(&mut self) {
-        self.ui_text.get_mut().clear();
-    }
-
-    pub(crate) fn prune_ui_text_cache(&mut self, now: Instant) {
-        self.ui_text.get_mut().prune(now);
     }
 }

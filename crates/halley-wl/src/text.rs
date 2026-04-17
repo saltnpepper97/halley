@@ -19,9 +19,8 @@ use smithay::{
 };
 
 use crate::compositor::root::Halley;
-
-use super::state::RenderState;
-use super::utils::draw_rect;
+use crate::render::draw_primitives::draw_rect;
+use crate::render::state::RenderState;
 
 const UI_TEXT_CACHE_TTL_SECS: u64 = 30;
 const UI_TEXT_HINTING_MAX_SIZE_PX: u32 = 16;
@@ -235,6 +234,7 @@ pub(crate) fn ensure_ui_text_resources(
 ) -> Result<(), Box<dyn Error>> {
     st.ui
         .render_state
+        .cache
         .ui_text
         .borrow_mut()
         .ensure_textures(renderer)?;
@@ -251,7 +251,11 @@ pub(crate) fn ui_text_size_in(
     text: &str,
     scale: i32,
 ) -> (i32, i32) {
-    render_state.ui_text.borrow_mut().size(font, text, scale)
+    render_state
+        .cache
+        .ui_text
+        .borrow_mut()
+        .size(font, text, scale)
 }
 
 pub(crate) fn ui_text_size_px_in(
@@ -306,6 +310,7 @@ pub(crate) fn draw_ui_text_in(
     }
 
     let prepared = render_state
+        .cache
         .ui_text
         .borrow_mut()
         .prepared(font, text, scale, color);

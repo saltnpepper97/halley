@@ -437,14 +437,14 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             node.intrinsic_size = entry.intrinsic_size;
         }
         if let Some(loc) = entry.bbox_loc {
-            self.ui.render_state.bbox_loc.insert(id, loc);
+            self.ui.render_state.cache.bbox_loc.insert(id, loc);
         } else {
-            self.ui.render_state.bbox_loc.remove(&id);
+            self.ui.render_state.cache.bbox_loc.remove(&id);
         }
         if let Some(geo) = entry.window_geometry {
-            self.ui.render_state.window_geometry.insert(id, geo);
+            self.ui.render_state.cache.window_geometry.insert(id, geo);
         } else {
-            self.ui.render_state.window_geometry.remove(&id);
+            self.ui.render_state.cache.window_geometry.remove(&id);
         }
         self.set_last_active_size_now(id, entry.intrinsic_size);
     }
@@ -503,8 +503,14 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         let saved_size =
             crate::compositor::surface_ops::current_surface_size_for_node(self, node_id)
                 .unwrap_or(node.intrinsic_size);
-        let saved_bbox_loc = self.ui.render_state.bbox_loc.get(&node_id).copied();
-        let saved_window_geometry = self.ui.render_state.window_geometry.get(&node_id).copied();
+        let saved_bbox_loc = self.ui.render_state.cache.bbox_loc.get(&node_id).copied();
+        let saved_window_geometry = self
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .get(&node_id)
+            .copied();
 
         self.model.fullscreen_state.fullscreen_restore.insert(
             node_id,
@@ -564,9 +570,14 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             let other_size =
                 crate::compositor::surface_ops::current_surface_size_for_node(self, other_id)
                     .unwrap_or(other.intrinsic_size);
-            let other_bbox_loc = self.ui.render_state.bbox_loc.get(&other_id).copied();
-            let other_window_geometry =
-                self.ui.render_state.window_geometry.get(&other_id).copied();
+            let other_bbox_loc = self.ui.render_state.cache.bbox_loc.get(&other_id).copied();
+            let other_window_geometry = self
+                .ui
+                .render_state
+                .cache
+                .window_geometry
+                .get(&other_id)
+                .copied();
             self.model.fullscreen_state.fullscreen_restore.insert(
                 other_id,
                 crate::compositor::fullscreen::state::FullscreenSessionEntry {

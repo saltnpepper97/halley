@@ -16,7 +16,7 @@ use crate::activity::{CommitActivity, VisualState};
 use crate::animation::{AnimSpec, AnimStyle};
 use crate::compositor::ctx::ClusterCtx;
 use crate::compositor::root::Halley;
-use crate::render::{DebugScene, build_debug_scene};
+use crate::debug_scene::{DebugScene, build_debug_scene};
 
 pub mod read;
 pub mod state;

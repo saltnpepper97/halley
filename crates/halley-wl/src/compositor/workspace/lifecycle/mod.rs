@@ -384,6 +384,7 @@ mod tests {
             state
                 .ui
                 .render_state
+                .cache
                 .window_geometry
                 .insert(id, (0.0, 0.0, 320.0, 240.0));
         }

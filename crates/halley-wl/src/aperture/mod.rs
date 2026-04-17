@@ -8,7 +8,7 @@ use halley_aperture::{ApertureConfig, ApertureMode, ApertureRuntime, ClockSnapsh
 use halley_ipc::{ApertureMode as IpcApertureMode, ApertureStatusResponse};
 
 use crate::compositor::root::Halley;
-use crate::render::text::ui_text_size_px_in;
+use crate::text::ui_text_size_px_in;
 
 use halley_core::field::NodeId;
 

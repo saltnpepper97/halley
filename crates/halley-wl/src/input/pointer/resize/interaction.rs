@@ -7,8 +7,8 @@ use crate::compositor::surface_ops::{
     current_surface_size_for_node, node_allows_interactive_resize, request_toplevel_resize_mode,
     toplevel_min_size_for_node, window_geometry_for_node,
 };
-use crate::render::active_window_frame_pad_px;
-use crate::render::world_to_screen;
+use crate::presentation::world_to_screen;
+use crate::window::active_window_frame_pad_px;
 
 use super::anim::{
     advance_resize_preview_toward_target, apply_resize_now, finish_resize_now, refresh_resize_now,
@@ -105,6 +105,7 @@ pub(crate) fn begin_resize(
     let (start_bbox_lx, start_bbox_ly) = st
         .ui
         .render_state
+        .cache
         .bbox_loc
         .get(&hit.node_id)
         .copied()

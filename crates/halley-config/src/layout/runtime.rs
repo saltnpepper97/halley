@@ -15,8 +15,8 @@ use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
     DecorationsConfig, FocusRingConfig, FontConfig, InputConfig, NodeBackgroundColorMode,
-    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode,
-    ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, ScreenshotConfig,
+    ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Debug)]

@@ -21,7 +21,7 @@ use crate::compositor::spawn::read;
 use crate::compositor::spawn::read::RevealNewToplevelPlan;
 use crate::compositor::spawn::rules::{InitialWindowIntent, ResolvedInitialWindowRule};
 use crate::compositor::spawn::state::{MonitorSpawnState, SpawnState};
-use crate::render::active_window_frame_pad_px;
+use crate::window::active_window_frame_pad_px;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct InitialToplevelSize {

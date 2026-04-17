@@ -94,6 +94,7 @@ fn popup_focus_for_screen(
         let parent_geo = st
             .ui
             .render_state
+            .cache
             .window_geometry
             .get(&node_id)
             .map(|&(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))

@@ -9,7 +9,9 @@ use crate::animation::active_surface_render_scale;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::compositor::surface_ops::active_stacking_render_order_for_monitor;
-use crate::render::{active_window_frame_pad_px, world_to_screen};
+use crate::frame_loop::anim_style_for;
+use crate::presentation::world_to_screen;
+use crate::window::active_window_frame_pad_px;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ActiveNodeSurfaceTransformScreen {
@@ -119,7 +121,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
         return None;
     }
 
-    let anim = crate::render::anim_style_for(st, node_id, n.state.clone(), now);
+    let anim = anim_style_for(st, node_id, n.state.clone(), now);
     let transition_alpha =
         crate::compositor::workspace::state::active_transition_alpha(st, node_id, now);
     let cam_scale = st.camera_render_scale();
@@ -162,6 +164,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let bbox_lx = st
                 .ui
                 .render_state
+                .cache
                 .bbox_loc
                 .get(&node_id)
                 .copied()
@@ -170,6 +173,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let bbox_ly = st
                 .ui
                 .render_state
+                .cache
                 .bbox_loc
                 .get(&node_id)
                 .copied()
@@ -181,6 +185,7 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let (gx, gy, gw, gh) = st
                 .ui
                 .render_state
+                .cache
                 .window_geometry
                 .get(&node_id)
                 .copied()
@@ -226,6 +231,7 @@ pub(crate) fn active_resize_geometry_screen(
     let (_, _, live_geo_w, live_geo_h) = st
         .ui
         .render_state
+        .cache
         .window_geometry
         .get(&node_id)
         .copied()
@@ -249,7 +255,7 @@ fn active_node_visual_local_rect(
     st: &Halley,
     node_id: halley_core::field::NodeId,
 ) -> Option<(f32, f32, f32, f32)> {
-    if let Some(&(x, y, w, h)) = st.ui.render_state.window_geometry.get(&node_id) {
+    if let Some(&(x, y, w, h)) = st.ui.render_state.cache.window_geometry.get(&node_id) {
         return Some((x, y, w.max(1.0), h.max(1.0)));
     }
 

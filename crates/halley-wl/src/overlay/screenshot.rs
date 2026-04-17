@@ -5,15 +5,15 @@ use halley_config::RuntimeTuning;
 use halley_ipc::CaptureMode;
 use smithay::{
     backend::renderer::{
-        gles::{GlesFrame, Uniform},
         Color32F, Texture,
+        gles::{GlesFrame, Uniform},
     },
     utils::{Buffer, Physical, Rectangle, Transform},
 };
 
 use crate::compositor::root::Halley;
+use crate::render::draw_primitives::{draw_outline_rect, draw_rect, draw_ring};
 use crate::render::state::RenderState;
-use crate::render::utils::{draw_outline_rect, draw_rect, draw_ring};
 use crate::render::{
     screenshot_menu_background_color, screenshot_menu_highlight_color,
     screenshot_menu_icon_texture, screenshot_menu_inactive_highlight_color,
@@ -149,7 +149,7 @@ fn draw_screenshot_menu_chip(
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
     if let (Some(texture), Some(program)) = (
-        render_state.node_circle_texture.as_ref(),
+        render_state.gpu.node_circle_texture.as_ref(),
         render_state.ui_rect_program(rounded),
     ) {
         let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
@@ -396,8 +396,8 @@ mod tests {
     use halley_config::{OverlayShape, RuntimeTuning};
 
     use super::{
-        resolve_screenshot_menu_style, MENU_BAR_CORNER_RADIUS, MENU_ITEM_BORDER_PX,
-        MENU_ITEM_CORNER_RADIUS,
+        MENU_BAR_CORNER_RADIUS, MENU_ITEM_BORDER_PX, MENU_ITEM_CORNER_RADIUS,
+        resolve_screenshot_menu_style,
     };
 
     #[test]

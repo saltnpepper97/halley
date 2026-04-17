@@ -52,7 +52,12 @@ pub(crate) fn capture_closing_window_animation(
     node_id: NodeId,
 ) -> Option<(Vec<ActiveBorderRect>, Vec<OffscreenNodeTexture>)> {
     let node = st.model.field.node(node_id)?;
-    let cache = st.ui.render_state.window_offscreen_cache.get(&node_id)?;
+    let cache = st
+        .ui
+        .render_state
+        .cache
+        .window_offscreen_cache
+        .get(&node_id)?;
     let texture = cache.texture.clone()?;
     let ob = cache.bbox?;
     if !cache.has_content {
@@ -225,6 +230,7 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
         let cache_missing = st
             .ui
             .render_state
+            .cache
             .window_offscreen_cache
             .get(&node_id)
             .is_none_or(|cache| {
@@ -251,6 +257,7 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
             let cache = st
                 .ui
                 .render_state
+                .cache
                 .window_offscreen_cache
                 .get_mut(&node_id)
                 .expect("offscreen cache should exist after prewarm ensure");

@@ -3,13 +3,11 @@ use std::time::Instant;
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
+use super::super::button::{active_pointer_binding, now_millis_u32};
+use super::super::context::{clamp_screen_to_monitor, pointer_screen_context_for_monitor};
+use super::super::focus::{grabbed_layer_surface_focus, pointer_focus_for_screen};
 use crate::compositor::interaction::{ModState, PointerState};
 use crate::compositor::root::Halley;
-use super::super::button::{active_pointer_binding, now_millis_u32};
-use super::super::context::{
-    clamp_screen_to_monitor, pointer_screen_context_for_monitor,
-};
-use super::super::focus::{grabbed_layer_surface_focus, pointer_focus_for_screen};
 use halley_config::PointerBindingAction;
 
 pub(crate) struct MotionRoutingContext {
@@ -42,7 +40,7 @@ pub(super) fn compute_motion_routing(
         .and_then(|pointer| pointer.is_grabbed().then_some(()))
         .and_then(|_| st.input.interaction_state.grabbed_layer_surface.clone())
         .filter(|surface| crate::compositor::monitor::layer_shell::is_layer_surface(st, surface));
-    
+
     let drag_state = ps.drag.map(|drag| {
         let owner = st.monitor_for_node_or_current(drag.node_id);
         let allow_monitor_transfer =
@@ -61,8 +59,9 @@ pub(super) fn compute_motion_routing(
         .and_then(|(_, owner, allow_monitor_transfer)| {
             (!*allow_monitor_transfer).then(|| owner.clone())
         });
-    let locked_resize_monitor = ps.resize
-            .map(|resize| st.monitor_for_node_or_current(resize.node_id));
+    let locked_resize_monitor = ps
+        .resize
+        .map(|resize| st.monitor_for_node_or_current(resize.node_id));
     let locked_pan_monitor = ps.panning.then(|| ps.pan_monitor.clone()).flatten();
     let locked_bloom_monitor = ps.bloom_drag.as_ref().map(|drag| drag.monitor.clone());
     let locked_overflow_monitor = ps.overflow_drag.as_ref().map(|drag| drag.monitor.clone());
@@ -157,7 +156,9 @@ pub(super) fn dispatch_pointer_motion(
             .get_pointer()
             .and_then(|pointer| pointer.is_grabbed().then_some(()))
             .and_then(|_| st.input.interaction_state.grabbed_layer_surface.clone())
-            .filter(|surface| crate::compositor::monitor::layer_shell::is_layer_surface(st, surface));
+            .filter(|surface| {
+                crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+            });
 
         let resize_preview = ps.resize;
         let focus = if let Some(surface) = grabbed_layer_surface.clone() {
@@ -201,7 +202,11 @@ pub(super) fn dispatch_pointer_motion(
                 (routing.local_sx as f64, routing.local_sy as f64).into()
             } else {
                 let cam_scale = st.camera_render_scale() as f64;
-                (routing.local_sx as f64 / cam_scale, routing.local_sy as f64 / cam_scale).into()
+                (
+                    routing.local_sx as f64 / cam_scale,
+                    routing.local_sy as f64 / cam_scale,
+                )
+                    .into()
             };
             pointer.motion(
                 st,

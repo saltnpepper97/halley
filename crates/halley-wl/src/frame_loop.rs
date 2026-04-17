@@ -14,7 +14,7 @@ use crate::compositor::root::Halley;
 use crate::compositor::screenshot::screenshot_controller;
 
 #[cfg(test)]
-use super::window::ActiveBorderRect;
+use crate::window::ActiveBorderRect;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct TtyOutputAnimationRedrawState {

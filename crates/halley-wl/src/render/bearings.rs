@@ -15,11 +15,10 @@ use smithay::{
 
 use crate::compositor::root::Halley;
 use crate::render::app_icon::{ensure_app_icon_resources_for_node_ids, node_app_icon_entry};
+use crate::render::draw_primitives::draw_rect;
 use crate::render::state::NodeAppIconCacheEntry;
 use crate::render::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
-
-use super::text::{draw_ui_text, ui_text_size};
-use super::utils::draw_rect;
+use crate::text::{draw_ui_text, ui_text_size};
 
 #[derive(Clone, Debug)]
 pub(crate) struct BearingChipLayout {
@@ -958,7 +957,7 @@ fn draw_shader_label(
     fill_color: Color32F,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    let Some(texture) = st.ui.render_state.node_circle_texture.as_ref() else {
+    let Some(texture) = st.ui.render_state.gpu.node_circle_texture.as_ref() else {
         return Ok(());
     };
     let Some(program) = st.ui.render_state.ui_rect_program(rounded) else {

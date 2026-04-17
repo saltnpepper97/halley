@@ -340,9 +340,10 @@ mod tests {
         state
             .ui
             .render_state
+            .cache
             .window_geometry
             .insert(id, (-50.0, -50.0, 100.0, 100.0));
-        state.ui.render_state.bbox_loc.insert(id, (0.0, 0.0));
+        state.ui.render_state.cache.bbox_loc.insert(id, (0.0, 0.0));
 
         (state, id)
     }
@@ -370,9 +371,10 @@ mod tests {
         state
             .ui
             .render_state
+            .cache
             .window_geometry
             .insert(id, (-50.0, -50.0, 100.0, 100.0));
-        state.ui.render_state.bbox_loc.insert(id, (0.0, 0.0));
+        state.ui.render_state.cache.bbox_loc.insert(id, (0.0, 0.0));
 
         assert!(!state.surface_is_definitively_outside_focus_ring(id));
     }

@@ -799,7 +799,7 @@ pub(crate) fn queue_tty_drm_frame(
         let buffer_size = Size::from((w as i32, h as i32));
         let physical_size: Size<i32, Physical> = (w as i32, h as i32).into();
         let animation_redraw =
-            crate::render::tty_output_animation_redraw_state(st, output_name, Instant::now());
+            crate::frame_loop::tty_output_animation_redraw_state(st, output_name, Instant::now());
 
         let local_cursor = cursor_screen.and_then(|(sx, sy)| {
             let (target_monitor, sx, sy) = st.monitor_for_screen_clamped(sx, sy)?;
@@ -900,7 +900,7 @@ pub(crate) fn queue_tty_drm_frame(
         }
 
         let force_overlay_full_repaint =
-            crate::render::monitor_overlay_requires_full_repaint(st, output_name);
+            crate::frame_loop::monitor_overlay_requires_full_repaint(st, output_name);
         let force_full_repaint = force_overlay_full_repaint || animation_redraw.force_full_repaint;
         let mut texture: GlesTexture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
             &mut *renderer_ref,
@@ -1126,7 +1126,7 @@ fn fullscreen_direct_scanout_candidate(
     {
         return Some(blocked("interactive move or resize is active"));
     }
-    if crate::render::monitor_overlay_requires_full_repaint(st, output_name) {
+    if crate::frame_loop::monitor_overlay_requires_full_repaint(st, output_name) {
         return Some(blocked("monitor overlays are active"));
     }
     if hover_node.is_some() || preview_hover_node.is_some() {

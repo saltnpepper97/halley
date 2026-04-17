@@ -17,6 +17,6 @@ pub use layout::{
     NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayColorMode,
     OverlayShape, OverlayStyleConfig, PanToNewMode, PrimaryBorderConfig, RuntimeTuning,
     ScreenshotConfig, SecondaryBorderConfig, ShapeStyle, TimedAnimationConfig,
-    ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig,
-    WindowCloseAnimationStyle, WindowRule, WindowRulePattern,
+    ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle,
+    WindowRule, WindowRulePattern,
 };

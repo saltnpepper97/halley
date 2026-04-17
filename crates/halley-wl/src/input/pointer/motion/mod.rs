@@ -23,9 +23,7 @@ pub(crate) mod tests;
 pub(crate) use drag::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
 
 use super::button::now_millis_u32;
-use super::context::{
-    clamp_screen_to_workspace, pointer_screen_context_for_monitor,
-};
+use super::context::{clamp_screen_to_workspace, pointer_screen_context_for_monitor};
 use super::focus::pointer_focus_for_screen;
 use super::resize::handle_resize_motion;
 use super::screenshot::handle_screenshot_pointer_motion;
@@ -105,7 +103,16 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     let mods = ctx.mod_state.borrow().clone();
     let routing = {
         let ps = ctx.pointer_state.borrow();
-        routing::compute_motion_routing(st, &ps, &mods, raw_sx, raw_sy, sx, sy, allow_unbounded_screen)
+        routing::compute_motion_routing(
+            st,
+            &ps,
+            &mods,
+            raw_sx,
+            raw_sy,
+            sx,
+            sy,
+            allow_unbounded_screen,
+        )
     };
 
     let (desktop_hover, hover_focus_blocked) = {
@@ -117,14 +124,18 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     let drag_mod_ok = modifier_active(&mods, st.runtime.tuning.keybinds.modifier)
         || matches!(
             super::button::active_pointer_binding(st, &mods, 0x110),
-            Some(halley_config::PointerBindingAction::MoveWindow | halley_config::PointerBindingAction::FieldJump)
+            Some(
+                halley_config::PointerBindingAction::MoveWindow
+                    | halley_config::PointerBindingAction::FieldJump
+            )
         );
 
     let mut ps = ctx.pointer_state.borrow_mut();
     ps.world = p;
     ps.screen = (routing.global_sx, routing.global_sy);
     ps.workspace_size = (routing.ws_w, routing.ws_h);
-    st.input.interaction_state.last_pointer_screen_global = Some((routing.global_sx, routing.global_sy));
+    st.input.interaction_state.last_pointer_screen_global =
+        Some((routing.global_sx, routing.global_sy));
 
     if handle_screenshot_pointer_motion(
         st,
@@ -146,7 +157,13 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         .cluster_name_prompt_active_for_monitor(prompt_monitor.as_str())
     {
         let prompt_hit = if routing.monitor == prompt_monitor {
-            crate::overlay::cluster_naming_dialog_hit_test(st, routing.ws_w, routing.ws_h, routing.local_sx, routing.local_sy)
+            crate::overlay::cluster_naming_dialog_hit_test(
+                st,
+                routing.ws_w,
+                routing.ws_h,
+                routing.local_sx,
+                routing.local_sy,
+            )
         } else {
             None
         };
@@ -275,7 +292,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 crate::compositor::interaction::state::OverlayHoverTarget {
                     node_id,
                     monitor: monitor.clone(),
-                    screen_anchor: (routing.local_sx.round() as i32, routing.local_sy.round() as i32),
+                    screen_anchor: (
+                        routing.local_sx.round() as i32,
+                        routing.local_sy.round() as i32,
+                    ),
                     prefer_left: true,
                 }
             });
@@ -367,7 +387,15 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
 
     let hover_hit =
         if bloom_hover.is_none() && ps.drag.is_none() && ps.resize.is_none() && !ps.panning {
-            pick_hit_node_at(st, routing.ws_w, routing.ws_h, routing.local_sx, routing.local_sy, now, ps.resize)
+            pick_hit_node_at(
+                st,
+                routing.ws_w,
+                routing.ws_h,
+                routing.local_sx,
+                routing.local_sy,
+                now,
+                ps.resize,
+            )
         } else {
             None
         };

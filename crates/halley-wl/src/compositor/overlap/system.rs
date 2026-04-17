@@ -5,7 +5,8 @@ use crate::compositor::overlap::physics::{
 };
 pub(crate) use crate::compositor::overlap::read::CollisionExtents;
 use crate::compositor::overlap::read::OverlapReadContext;
-use crate::render::active_window_frame_pad_px;
+use crate::frame_loop::anim_style_for;
+use crate::window::active_window_frame_pad_px;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 
@@ -309,7 +310,7 @@ pub(crate) fn collision_extents_for_node(
     st: &Halley,
     n: &halley_core::field::Node,
 ) -> CollisionExtents {
-    let anim = crate::render::anim_style_for(st, n.id, n.state.clone(), Instant::now());
+    let anim = anim_style_for(st, n.id, n.state.clone(), Instant::now());
     match n.state {
         halley_core::field::NodeState::Active => {
             let basis = st
@@ -728,7 +729,7 @@ pub(crate) fn request_toplevel_resize(st: &mut Halley, node_id: NodeId, width: i
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::utils::node_render_diameter_px;
+    use crate::presentation::node_render_diameter_px;
 
     fn overlap_metrics(state: &Halley, a: NodeId, b: NodeId) -> (f32, f32, f32, f32) {
         let na = state.model.field.node(a).expect("node a");
@@ -865,7 +866,7 @@ mod tests {
 
         let node = state.model.field.node(id).expect("node");
         let ext = state.collision_extents_for_node(node);
-        let anim = crate::render::anim_style_for(&state, id, node.state.clone(), Instant::now());
+        let anim = anim_style_for(&state, id, node.state.clone(), Instant::now());
         let expected =
             node_render_diameter_px(&state, node.intrinsic_size, node.label.len(), anim.scale);
 
@@ -1322,10 +1323,11 @@ mod tests {
                 y: 920.0,
             },
         );
-        state.ui.render_state.bbox_loc.insert(id, (4.0, 6.0));
+        state.ui.render_state.cache.bbox_loc.insert(id, (4.0, 6.0));
         state
             .ui
             .render_state
+            .cache
             .window_geometry
             .insert(id, (12.0, 18.0, 840.0, 620.0));
 
@@ -1356,10 +1358,11 @@ mod tests {
                 y: 920.0,
             },
         );
-        state.ui.render_state.bbox_loc.insert(id, (4.0, 6.0));
+        state.ui.render_state.cache.bbox_loc.insert(id, (4.0, 6.0));
         state
             .ui
             .render_state
+            .cache
             .window_geometry
             .insert(id, (12.0, 18.0, 840.0, 620.0));
 

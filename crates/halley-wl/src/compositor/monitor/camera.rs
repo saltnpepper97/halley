@@ -146,10 +146,10 @@ pub(crate) fn zoom_blocked_by_interaction(st: &Halley) -> bool {
 }
 
 pub(crate) fn update_zoom_live_surface_sizes(st: &mut Halley) {
-    st.ui.render_state.zoom_resize_fallback.clear();
-    st.ui.render_state.zoom_resize_reject_streak.clear();
-    st.ui.render_state.zoom_resize_static_streak.clear();
-    st.ui.render_state.zoom_last_observed_size.clear();
+    st.ui.render_state.cache.zoom_resize_fallback.clear();
+    st.ui.render_state.cache.zoom_resize_reject_streak.clear();
+    st.ui.render_state.cache.zoom_resize_static_streak.clear();
+    st.ui.render_state.cache.zoom_last_observed_size.clear();
 }
 
 pub(crate) fn zoom_by_steps(st: &mut Halley, steps: f32) {

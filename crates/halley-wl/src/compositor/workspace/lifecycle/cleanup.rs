@@ -82,7 +82,7 @@ pub(super) fn arm_queued_overflow_promotion(
         x: target_rect.x + target_rect.w * 0.5,
         y: target_rect.y + target_rect.h * 0.5,
     };
-    let (target_sx, target_sy) = crate::render::utils::world_to_screen(
+    let (target_sx, target_sy) = crate::presentation::world_to_screen(
         st,
         screen_w,
         screen_h,
@@ -174,15 +174,23 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
                 st.model.focus_state.pan_restore_active_focus = None;
             }
             st.model.workspace_state.manual_collapsed_nodes.remove(&id);
-            st.ui.render_state.zoom_nominal_size.remove(&id);
-            st.ui.render_state.zoom_resize_fallback.remove(&id);
-            st.ui.render_state.zoom_resize_reject_streak.remove(&id);
-            st.ui.render_state.zoom_last_observed_size.remove(&id);
-            st.ui.render_state.zoom_resize_static_streak.remove(&id);
+            st.ui.render_state.cache.zoom_nominal_size.remove(&id);
+            st.ui.render_state.cache.zoom_resize_fallback.remove(&id);
+            st.ui
+                .render_state
+                .cache
+                .zoom_resize_reject_streak
+                .remove(&id);
+            st.ui.render_state.cache.zoom_last_observed_size.remove(&id);
+            st.ui
+                .render_state
+                .cache
+                .zoom_resize_static_streak
+                .remove(&id);
             st.model.node_app_ids.remove(&id);
             st.model.workspace_state.last_active_size.remove(&id);
-            st.ui.render_state.bbox_loc.remove(&id);
-            st.ui.render_state.window_geometry.remove(&id);
+            st.ui.render_state.cache.bbox_loc.remove(&id);
+            st.ui.render_state.cache.window_geometry.remove(&id);
             st.model
                 .spawn_state
                 .pending_spawn_activate_at_ms
@@ -303,7 +311,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
                     state,
                 );
             } else if let Some((border_rects, offscreen_textures)) =
-                crate::render::capture_closing_window_animation(st, monitor, id)
+                crate::window::capture_closing_window_animation(st, monitor, id)
             {
                 st.ui.render_state.start_closing_window_animation(
                     id,
@@ -346,18 +354,26 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         if st.model.focus_state.pan_restore_active_focus == Some(id) {
             st.model.focus_state.pan_restore_active_focus = None;
         }
-        st.ui.render_state.zoom_nominal_size.remove(&id);
-        st.ui.render_state.zoom_resize_fallback.remove(&id);
-        st.ui.render_state.zoom_resize_reject_streak.remove(&id);
-        st.ui.render_state.zoom_last_observed_size.remove(&id);
-        st.ui.render_state.zoom_resize_static_streak.remove(&id);
+        st.ui.render_state.cache.zoom_nominal_size.remove(&id);
+        st.ui.render_state.cache.zoom_resize_fallback.remove(&id);
+        st.ui
+            .render_state
+            .cache
+            .zoom_resize_reject_streak
+            .remove(&id);
+        st.ui.render_state.cache.zoom_last_observed_size.remove(&id);
+        st.ui
+            .render_state
+            .cache
+            .zoom_resize_static_streak
+            .remove(&id);
         st.model.node_app_ids.remove(&id);
         for trail in st.model.focus_state.focus_trail.values_mut() {
             trail.forget_node(id);
         }
         st.model.workspace_state.last_active_size.remove(&id);
-        st.ui.render_state.bbox_loc.remove(&id);
-        st.ui.render_state.window_geometry.remove(&id);
+        st.ui.render_state.cache.bbox_loc.remove(&id);
+        st.ui.render_state.cache.window_geometry.remove(&id);
         st.model
             .spawn_state
             .pending_spawn_activate_at_ms

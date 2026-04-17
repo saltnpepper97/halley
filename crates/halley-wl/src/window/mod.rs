@@ -16,6 +16,8 @@ use smithay::{
     desktop::{PopupManager, utils::bbox_from_surface_tree},
     reexports::wayland_server::Resource,
     utils::{Logical, Physical, Rectangle, Size},
+    wayland::compositor::with_states,
+    wayland::shell::xdg::SurfaceCachedState,
 };
 
 use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_back};
@@ -28,21 +30,21 @@ use crate::compositor::surface_ops::{
     window_geometry_for_node,
 };
 use crate::input::active_resize_geometry_screen;
+use crate::presentation::world_to_screen;
 
-use super::clipped_surface::ClippedSurfaceRenderElement;
-use super::offscreen::render_surface_tree_to_texture;
-use super::utils::{sync_node_size_from_surface, world_to_screen};
+use crate::render::clipped_surface::ClippedSurfaceRenderElement;
+use crate::render::surface_capture::render_surface_tree_to_texture;
 
-mod offscreen;
+mod capture;
 mod stack;
 
-pub(crate) use offscreen::{
+pub(crate) use capture::{
     capture_closing_window_animation, prewarm_visible_active_window_offscreen_caches,
 };
 use stack::{build_stack_transition_plan, clone_stack_window_unit_for_pose, stack_draw_order_map};
 
 #[cfg(test)]
-use offscreen::world_to_screen_for_view;
+use capture::world_to_screen_for_view;
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
@@ -53,6 +55,91 @@ render_elements! {
 }
 pub(crate) type CroppedClippedSurfaceElement = CropRenderElement<DirectSurfaceElement>;
 type CroppedSurfaceElement = CropRenderElement<SurfaceElement>;
+
+pub(crate) fn active_window_frame_pad_px(tuning: &halley_config::RuntimeTuning) -> i32 {
+    tuning.total_window_border_footprint_px()
+}
+
+fn sync_node_size_from_surface(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    wl: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+) -> Rectangle<i32, Logical> {
+    let bbox = snapshot_surface_geometry(st, node_id, wl);
+
+    if crate::compositor::surface_ops::is_active_cluster_workspace_member(st, node_id) {
+        return bbox;
+    }
+
+    let (bw, bh) = crate::compositor::surface_ops::window_geometry_for_node(st, node_id)
+        .map(|(_, _, w, h)| (w.max(1.0), h.max(1.0)))
+        .unwrap_or((bbox.size.w.max(1) as f32, bbox.size.h.max(1) as f32));
+
+    let now_ms = st.now_ms(Instant::now());
+    let resize_static_active =
+        crate::compositor::interaction::state::resize_static_active_for(st, node_id, now_ms);
+
+    let Some(node) = st.model.field.node_mut(node_id) else {
+        return bbox;
+    };
+
+    let changed =
+        (node.intrinsic_size.x - bw).abs() > 0.5 || (node.intrinsic_size.y - bh).abs() > 0.5;
+    if !changed || resize_static_active {
+        return bbox;
+    }
+
+    node.intrinsic_size = halley_core::field::Vec2 { x: bw, y: bh };
+    if matches!(node.state, halley_core::field::NodeState::Active) {
+        node.footprint = node.intrinsic_size;
+    }
+
+    bbox
+}
+
+fn snapshot_surface_geometry(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    wl: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+) -> Rectangle<i32, Logical> {
+    let bbox = bbox_from_surface_tree(wl, (0, 0));
+
+    st.ui
+        .render_state
+        .cache
+        .bbox_loc
+        .insert(node_id, (bbox.loc.x as f32, bbox.loc.y as f32));
+    let geometry = with_states(wl, |states| {
+        states
+            .cached_state
+            .get::<SurfaceCachedState>()
+            .current()
+            .geometry
+    });
+    if let Some(g) = geometry {
+        st.ui.render_state.cache.window_geometry.insert(
+            node_id,
+            (
+                g.loc.x as f32,
+                g.loc.y as f32,
+                g.size.w as f32,
+                g.size.h as f32,
+            ),
+        );
+    } else {
+        st.ui.render_state.cache.window_geometry.insert(
+            node_id,
+            (
+                bbox.loc.x as f32,
+                bbox.loc.y as f32,
+                bbox.size.w.max(1) as f32,
+                bbox.size.h.max(1) as f32,
+            ),
+        );
+    }
+
+    bbox
+}
 
 fn should_draw_resize_overlap_overlay(
     resize_rect_px: Option<(i32, i32, i32, i32, NodeId)>,
@@ -201,21 +288,23 @@ fn window_decoration_metrics(
     let primary_border_px = primary_border_px.max(0);
     let secondary_gap_px = secondary_gap_px.max(0);
     let secondary_border_px = secondary_border_px.max(0);
-    let (primary_outer_corner_radius_px, secondary_inner_corner_radius_px, secondary_outer_corner_radius_px) =
-        if content_corner_radius_px > 0 {
-            let primary_outer_corner_radius_px = content_corner_radius_px + primary_border_px;
-            let secondary_inner_corner_radius_px =
-                primary_outer_corner_radius_px + secondary_gap_px;
-            let secondary_outer_corner_radius_px =
-                secondary_inner_corner_radius_px + secondary_border_px;
-            (
-                primary_outer_corner_radius_px,
-                secondary_inner_corner_radius_px,
-                secondary_outer_corner_radius_px,
-            )
-        } else {
-            (0, 0, 0)
-        };
+    let (
+        primary_outer_corner_radius_px,
+        secondary_inner_corner_radius_px,
+        secondary_outer_corner_radius_px,
+    ) = if content_corner_radius_px > 0 {
+        let primary_outer_corner_radius_px = content_corner_radius_px + primary_border_px;
+        let secondary_inner_corner_radius_px = primary_outer_corner_radius_px + secondary_gap_px;
+        let secondary_outer_corner_radius_px =
+            secondary_inner_corner_radius_px + secondary_border_px;
+        (
+            primary_outer_corner_radius_px,
+            secondary_inner_corner_radius_px,
+            secondary_outer_corner_radius_px,
+        )
+    } else {
+        (0, 0, 0)
+    };
 
     WindowDecorationMetrics {
         content_corner_radius_px,
@@ -274,8 +363,14 @@ fn build_window_border_rects(
 
     let metrics = window_decoration_metrics(
         scaled_window_border_px(st.runtime.tuning.window_border_radius_px(), render_scale),
-        scaled_window_border_px(st.runtime.tuning.window_primary_border_size_px(), render_scale),
-        scaled_window_border_px(st.runtime.tuning.window_secondary_border_gap_px(), render_scale),
+        scaled_window_border_px(
+            st.runtime.tuning.window_primary_border_size_px(),
+            render_scale,
+        ),
+        scaled_window_border_px(
+            st.runtime.tuning.window_secondary_border_gap_px(),
+            render_scale,
+        ),
         scaled_window_border_px(
             st.runtime.tuning.window_secondary_border_size_px(),
             render_scale,
@@ -285,14 +380,13 @@ fn build_window_border_rects(
     let mut rects = Vec::with_capacity(2);
 
     if metrics.primary_border_px > 0 {
-        let (inner_offset_x, inner_w, inner_h, inner_corner_radius) =
-            overlap_joined_inner_boundary(
-                metrics.primary_border_px as f32,
-                gw.max(1) as f32,
-                gh.max(1) as f32,
-                metrics.content_corner_radius_px as f32,
-                DECORATION_JOIN_OVERLAP_PX,
-            );
+        let (inner_offset_x, inner_w, inner_h, inner_corner_radius) = overlap_joined_inner_boundary(
+            metrics.primary_border_px as f32,
+            gw.max(1) as f32,
+            gh.max(1) as f32,
+            metrics.content_corner_radius_px as f32,
+            DECORATION_JOIN_OVERLAP_PX,
+        );
         let border_color = if focused {
             border_color(st.runtime.tuning.decorations.border.color_focused)
         } else {
@@ -322,18 +416,23 @@ fn build_window_border_rects(
         } else {
             0.0
         };
-        let (inner_offset_x, inner_w, inner_h, inner_corner_radius) =
-            overlap_joined_inner_boundary(
-                metrics.secondary_border_px as f32,
-                (gw + secondary_inset_px * 2).max(1) as f32,
-                (gh + secondary_inset_px * 2).max(1) as f32,
-                metrics.secondary_inner_corner_radius_px as f32,
-                secondary_overlap_px,
-            );
+        let (inner_offset_x, inner_w, inner_h, inner_corner_radius) = overlap_joined_inner_boundary(
+            metrics.secondary_border_px as f32,
+            (gw + secondary_inset_px * 2).max(1) as f32,
+            (gh + secondary_inset_px * 2).max(1) as f32,
+            metrics.secondary_inner_corner_radius_px as f32,
+            secondary_overlap_px,
+        );
         let border_color = if focused {
             border_color(st.runtime.tuning.decorations.secondary_border.color_focused)
         } else {
-            border_color(st.runtime.tuning.decorations.secondary_border.color_unfocused)
+            border_color(
+                st.runtime
+                    .tuning
+                    .decorations
+                    .secondary_border
+                    .color_unfocused,
+            )
         };
         rects.push(ActiveBorderRect {
             x: gx - secondary_inset_px,
@@ -647,7 +746,7 @@ pub(crate) fn collect_active_surfaces(
         });
         let transition_alpha =
             crate::compositor::workspace::state::active_transition_alpha(st, node_id, now);
-        let anim = crate::render::anim_style_for(st, node_id, node_state.clone(), now);
+        let anim = crate::frame_loop::anim_style_for(st, node_id, node_state.clone(), now);
         let fullscreen_entry_scale = st.fullscreen_entry_scale(node_id, st.now_ms(now));
         let active_resize = active_resize_geometry_screen(st, node_id, resize_preview);
         let resizing_this_node = active_resize.is_some();
@@ -816,6 +915,7 @@ pub(crate) fn collect_active_surfaces(
         let offscreen_clip = st
             .ui
             .render_state
+            .gpu
             .surface_clip_program
             .as_ref()
             .map(|program| {
@@ -880,7 +980,11 @@ pub(crate) fn collect_active_surfaces(
                     .spawn_state
                     .pending_spawn_activate_at_ms
                     .contains_key(&node_id)
-                || st.model.spawn_state.pending_initial_reveal.contains(&node_id);
+                || st
+                    .model
+                    .spawn_state
+                    .pending_initial_reveal
+                    .contains(&node_id);
             let open_anim_active = anim.scale < 0.999 || anim.alpha < 0.999;
             let defer_offscreen_rebuild = tiling_tile_transition.is_some()
                 || stack_transition_pose.is_some()
@@ -889,6 +993,7 @@ pub(crate) fn collect_active_surfaces(
             let stale_cache_available = st
                 .ui
                 .render_state
+                .cache
                 .window_offscreen_cache
                 .get(&node_id)
                 .is_some_and(|cache| cache.texture.is_some() && cache.bbox.is_some());
@@ -954,7 +1059,7 @@ pub(crate) fn collect_active_surfaces(
                     let cropped = wrap_direct_surface_elements(
                         elems,
                         display_clip,
-                        st.ui.render_state.surface_clip_program.as_ref(),
+                        st.ui.render_state.gpu.surface_clip_program.as_ref(),
                         geo_clip_rect,
                         decoration_metrics.content_corner_radius_px as f32,
                     );
@@ -997,6 +1102,7 @@ pub(crate) fn collect_active_surfaces(
                         let cache = st
                             .ui
                             .render_state
+                            .cache
                             .window_offscreen_cache
                             .get_mut(&node_id)
                             .expect("offscreen cache should exist after ensure");
@@ -1009,6 +1115,7 @@ pub(crate) fn collect_active_surfaces(
                         let can_use_stale_cache = st
                             .ui
                             .render_state
+                            .cache
                             .window_offscreen_cache
                             .get(&node_id)
                             .is_some_and(|cache| cache.texture.is_some() && cache.bbox.is_some());
@@ -1067,7 +1174,7 @@ pub(crate) fn collect_active_surfaces(
                             let cropped = wrap_direct_surface_elements(
                                 elems,
                                 display_clip,
-                                st.ui.render_state.surface_clip_program.as_ref(),
+                                st.ui.render_state.gpu.surface_clip_program.as_ref(),
                                 geo_clip_rect,
                                 decoration_metrics.content_corner_radius_px as f32,
                             );
@@ -1099,13 +1206,20 @@ pub(crate) fn collect_active_surfaces(
                 }
             }
 
-            if let Some(cache) = st.ui.render_state.window_offscreen_cache.get_mut(&node_id) {
+            if let Some(cache) = st
+                .ui
+                .render_state
+                .cache
+                .window_offscreen_cache
+                .get_mut(&node_id)
+            {
                 cache.touch(now);
             }
 
             match st
                 .ui
                 .render_state
+                .cache
                 .window_offscreen_cache
                 .get(&node_id)
                 .map(|cache| (cache.texture.clone(), cache.bbox, cache.has_content))
@@ -1355,7 +1469,7 @@ pub(crate) fn collect_active_surfaces(
             let cropped = wrap_direct_surface_elements(
                 elems,
                 display_clip,
-                st.ui.render_state.surface_clip_program.as_ref(),
+                st.ui.render_state.gpu.surface_clip_program.as_ref(),
                 geo_clip_rect,
                 decoration_metrics.content_corner_radius_px as f32,
             );

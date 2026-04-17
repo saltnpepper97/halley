@@ -15,7 +15,7 @@ use crate::activity::{CommitActivity, VisualState};
 use crate::animation::{AnimSpec, AnimStyle};
 use crate::compositor::ctx::InteractionCtx;
 use crate::compositor::root::Halley;
-use crate::render::{DebugScene, build_debug_scene};
+use crate::debug_scene::{DebugScene, build_debug_scene};
 
 pub mod physics;
 pub mod read;

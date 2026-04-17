@@ -4,7 +4,12 @@ use crate::compositor::interaction::HitNode;
 use crate::compositor::root::Halley;
 use halley_config::InputFocusMode;
 
-pub(crate) fn apply_hover_focus_mode(st: &mut Halley, hit: Option<HitNode>, blocked: bool, now: Instant) {
+pub(crate) fn apply_hover_focus_mode(
+    st: &mut Halley,
+    hit: Option<HitNode>,
+    blocked: bool,
+    now: Instant,
+) {
     if !hover_focus_enabled(
         st.runtime.tuning.input.focus_mode,
         blocked,
