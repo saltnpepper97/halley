@@ -23,8 +23,9 @@ use cleanup::{
 };
 use surface::{
     committed_window_geometry, ensure_node_for_surface_impl,
-    exit_monitor_fullscreen_for_new_toplevel, note_commit, refresh_node_identity_for_surface,
-    should_join_active_cluster_layout, surface_tree_root,
+    exit_monitor_fullscreen_for_new_toplevel, exit_monitor_fullscreen_for_overlap_intent,
+    note_commit, refresh_node_identity_for_surface, should_join_active_cluster_layout,
+    surface_tree_root,
 };
 
 const CLUSTER_OVERFLOW_PROMOTION_ANIM_MS: u64 = 360;
@@ -294,6 +295,104 @@ mod tests {
             .insert("right".to_string(), fullscreen_right);
 
         exit_monitor_fullscreen_for_new_toplevel(&mut state, "left", Instant::now());
+
+        assert!(
+            !state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .contains_key("left")
+        );
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .get("right"),
+            Some(&fullscreen_right)
+        );
+    }
+
+    #[test]
+    fn overlap_rule_recheck_exits_only_that_monitor_fullscreen() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let fullscreen_left = state.model.field.spawn_surface(
+            "fullscreen-left",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        let fullscreen_right = state.model.field.spawn_surface(
+            "fullscreen-right",
+            Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        state.assign_node_to_monitor(fullscreen_left, "left");
+        state.assign_node_to_monitor(fullscreen_right, "right");
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert("left".to_string(), fullscreen_left);
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert("right".to_string(), fullscreen_right);
+
+        let overlap_intent = InitialWindowIntent {
+            app_id: Some("dialog".to_string()),
+            title: None,
+            parent_node: None,
+            rule: ResolvedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
+            },
+            matched_rule: true,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+
+        exit_monitor_fullscreen_for_overlap_intent(
+            &mut state,
+            "left",
+            &overlap_intent,
+            Instant::now(),
+        );
 
         assert!(
             !state
