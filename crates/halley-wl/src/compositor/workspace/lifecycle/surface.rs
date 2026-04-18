@@ -17,6 +17,17 @@ pub(super) fn exit_monitor_fullscreen_for_new_toplevel(
     }
 }
 
+pub(super) fn exit_monitor_fullscreen_for_overlap_intent(
+    st: &mut Halley,
+    monitor: &str,
+    intent: &InitialWindowIntent,
+    now: Instant,
+) {
+    if intent.effective_overlap_policy() != halley_config::InitialWindowOverlapPolicy::None {
+        exit_monitor_fullscreen_for_new_toplevel(st, monitor, now);
+    }
+}
+
 pub(super) fn should_join_active_cluster_layout(
     active_cluster: bool,
     stack_mode_open: bool,
@@ -165,6 +176,8 @@ fn maybe_apply_pending_initial_window_rule(
         st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
         return;
     }
+
+    exit_monitor_fullscreen_for_overlap_intent(st, monitor.as_str(), &intent, now);
 
     let is_stacking = matches!(
         st.runtime.tuning.cluster_layout_kind(),
