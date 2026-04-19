@@ -4,8 +4,8 @@ pub mod parse;
 
 pub use keybinds::{
     BearingsBindingAction, ClusterBindingAction, CompositorBinding, CompositorBindingAction,
-    CompositorBindingScope, DirectionalAction, KeyModifiers, Keybinds, LaunchBinding,
-    MonitorBindingAction, MonitorBindingTarget, NodeBindingAction, PointerBinding,
+    CompositorBindingScope, DirectionalAction, FocusCycleBindingAction, KeyModifiers, Keybinds,
+    LaunchBinding, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction, PointerBinding,
     PointerBindingAction, StackBindingAction, StackCycleDirection, TileBindingAction,
     TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
 };

@@ -651,6 +651,58 @@ mod tests {
     }
 
     #[test]
+    fn fullscreen_focus_override_allows_same_monitor_overlap_policy_window() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        let overlap = state.model.field.spawn_surface(
+            "overlap",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 240.0, y: 180.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, monitor.as_str());
+        state.assign_node_to_monitor(overlap, monitor.as_str());
+        let _ = state
+            .model
+            .field
+            .set_state(fullscreen, halley_core::field::NodeState::Active);
+        let _ = state
+            .model
+            .field
+            .set_state(overlap, halley_core::field::NodeState::Active);
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor, fullscreen);
+        state.model.spawn_state.applied_window_rules.insert(
+            overlap,
+            crate::compositor::spawn::state::AppliedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+            },
+        );
+
+        assert_eq!(
+            state.fullscreen_focus_override(Some(overlap)),
+            Some(overlap)
+        );
+    }
+
+    #[test]
     fn setting_interaction_focus_switches_current_monitor_to_focused_node_monitor() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![

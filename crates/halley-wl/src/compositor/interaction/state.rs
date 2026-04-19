@@ -78,6 +78,7 @@ pub(crate) struct ActiveDragState {
     pub(crate) pointer_screen_local: (f32, f32),
     pub(crate) edge_pan_x: DragAxisMode,
     pub(crate) edge_pan_y: DragAxisMode,
+    pub(crate) last_edge_pan_at: Instant,
 }
 
 #[derive(Clone)]
@@ -183,6 +184,23 @@ pub(crate) struct PendingModalFocusRestore {
     pub(crate) restore_at_ms: u64,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct FocusCycleImmersiveOrigin {
+    pub(crate) node_id: NodeId,
+    pub(crate) monitor: String,
+    pub(crate) saved_camera_center: Vec2,
+    pub(crate) saved_zoom_view_size: Vec2,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct FocusCycleSession {
+    pub(crate) candidates: Vec<NodeId>,
+    pub(crate) preview_index: usize,
+    pub(crate) origin_focus: Option<NodeId>,
+    pub(crate) immersive_origin: Option<FocusCycleImmersiveOrigin>,
+    pub(crate) immersive_lock_released: bool,
+}
+
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
@@ -216,6 +234,7 @@ pub(crate) struct InteractionState {
     pub(crate) last_screenshot_result: Option<ScreenshotCaptureResult>,
     pub(crate) modal_release_keys: HashSet<u32>,
     pub(crate) pending_modal_focus_restore: Option<PendingModalFocusRestore>,
+    pub(crate) focus_cycle_session: Option<FocusCycleSession>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
     pub(crate) cursor_override_until_ms: Option<u64>,
     pub(crate) pending_core_hover: Option<PendingCoreHover>,

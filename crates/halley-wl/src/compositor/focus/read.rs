@@ -52,7 +52,7 @@ impl<'a> FocusReadContext<'a> {
         })
     }
 
-    fn fullscreen_focus_override(&self, requested: Option<NodeId>) -> Option<NodeId> {
+    fn fullscreen_focus_override(&self, st: &Halley, requested: Option<NodeId>) -> Option<NodeId> {
         match requested {
             None => self
                 .fullscreen_state
@@ -90,7 +90,11 @@ impl<'a> FocusReadContext<'a> {
                     .map(String::as_str)
                     .or(fullscreen_monitor);
                 if requested_monitor == fullscreen_monitor {
-                    fullscreen_id
+                    if st.node_has_overlap_policy(requested_id) {
+                        requested
+                    } else {
+                        fullscreen_id
+                    }
                 } else {
                     requested
                 }
@@ -348,7 +352,7 @@ pub(crate) fn focus_read_context(st: &Halley) -> FocusReadContext<'_> {
 }
 
 pub(crate) fn fullscreen_focus_override(st: &Halley, requested: Option<NodeId>) -> Option<NodeId> {
-    focus_read_context(st).fullscreen_focus_override(requested)
+    focus_read_context(st).fullscreen_focus_override(st, requested)
 }
 
 pub(crate) fn surface_is_fully_visible_on_monitor(st: &Halley, monitor: &str, id: NodeId) -> bool {

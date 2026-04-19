@@ -268,6 +268,17 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         parent_node.and_then(|id| self.model.monitor_state.node_monitor.get(&id).cloned())
     }
 
+    fn fullscreen_anchor_for_monitor(&self, monitor: &str) -> Option<(NodeId, Vec2)> {
+        let fullscreen_id = self
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .get(monitor)
+            .copied()?;
+        let pos = self.model.field.node(fullscreen_id).map(|node| node.pos)?;
+        Some((fullscreen_id, pos))
+    }
+
     pub(crate) fn spawn_target_monitor_for_intent(&self, intent: &InitialWindowIntent) -> String {
         let default_monitor = read::spawn_read_context(self).resolve_spawn_target_monitor();
         match intent.effective_spawn_placement() {
@@ -354,6 +365,11 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             read::spawn_read_context(self).viewport_center_for_monitor(target_monitor.as_str());
         let (focus_id, focus_pos) =
             read::spawn_read_context(self).current_spawn_focus(target_monitor.as_str());
+        let fullscreen_anchor = if overlap_policy != InitialWindowOverlapPolicy::None {
+            self.fullscreen_anchor_for_monitor(target_monitor.as_str())
+        } else {
+            None
+        };
         let parent_anchor = intent
             .parent_node
             .and_then(|id| self.model.field.node(id).map(|node| node.pos));
@@ -366,6 +382,16 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         let chosen = match placement {
             InitialWindowSpawnPlacement::Adjacent => {
                 if let Some(parent_id) = intent.parent_node {
+                    if overlap_policy != InitialWindowOverlapPolicy::None
+                        && fullscreen_anchor
+                            .is_some_and(|(fullscreen_id, _)| fullscreen_id == parent_id)
+                    {
+                        return (
+                            target_monitor,
+                            parent_anchor.unwrap_or(viewport_center),
+                            false,
+                        );
+                    }
                     for dir in spawn_cardinal_dirs() {
                         if let Some(pos) = self.spawn_candidate_for_focus_dir(parent_id, size, dir)
                             && self.spawn_candidate_fits_with_policy(
@@ -383,6 +409,9 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                     return self.default_pick_spawn_position(size);
                 }
                 if overlap_policy == InitialWindowOverlapPolicy::All {
+                    if let Some((_, pos)) = fullscreen_anchor {
+                        return (target_monitor, pos, false);
+                    }
                     if let Some(id) = focus_id {
                         for dir in spawn_cardinal_dirs() {
                             if let Some(pos) = self.spawn_candidate_for_focus_dir(id, size, dir) {
@@ -394,10 +423,14 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 }
                 return self.default_pick_spawn_position(size);
             }
-            InitialWindowSpawnPlacement::Center => parent_anchor.unwrap_or(viewport_center),
+            InitialWindowSpawnPlacement::Center => parent_anchor
+                .or_else(|| fullscreen_anchor.map(|(_, pos)| pos))
+                .unwrap_or(viewport_center),
             InitialWindowSpawnPlacement::ViewportCenter => viewport_center,
             InitialWindowSpawnPlacement::Cursor => cursor_anchor.unwrap_or(viewport_center),
-            InitialWindowSpawnPlacement::App => parent_anchor.unwrap_or(viewport_center),
+            InitialWindowSpawnPlacement::App => parent_anchor
+                .or_else(|| fullscreen_anchor.map(|(_, pos)| pos))
+                .unwrap_or(viewport_center),
         };
 
         let pos = if overlap_policy == InitialWindowOverlapPolicy::All {

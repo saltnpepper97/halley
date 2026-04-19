@@ -281,6 +281,12 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         return;
     }
 
+    if camera_controller(&*st)
+        .pan_blocked_on_monitor(st.model.monitor_state.current_monitor.as_str())
+    {
+        return;
+    }
+
     let steps = steps.clamp(-4.0, 4.0);
     let camera = camera_controller(&*st).view_size();
     let pan_y = -camera.y * (steps / 18.0);

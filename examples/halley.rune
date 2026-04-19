@@ -311,6 +311,10 @@ keybinds:
   "$var.mod+," "trail-prev"
   "$var.mod+." "trail-next"
 
+  # Focus cycling.
+  "alt+tab" "cycle-focus"
+  "alt+shift+tab" "cycle-focus-backward"
+
   # Applications.
   # `open-terminal` picks the first supported Wayland terminal in PATH.
   "$var.mod+return" "open-terminal"

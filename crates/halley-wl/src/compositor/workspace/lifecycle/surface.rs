@@ -21,11 +21,9 @@ pub(super) fn exit_monitor_fullscreen_for_overlap_intent(
     st: &mut Halley,
     monitor: &str,
     intent: &InitialWindowIntent,
-    now: Instant,
+    _now: Instant,
 ) {
-    if intent.effective_overlap_policy() != halley_config::InitialWindowOverlapPolicy::None {
-        exit_monitor_fullscreen_for_new_toplevel(st, monitor, now);
-    }
+    let _ = (st, monitor, intent);
 }
 
 pub(super) fn should_join_active_cluster_layout(
@@ -386,7 +384,6 @@ pub(super) fn ensure_node_for_surface_impl(
     };
     let predicted_monitor = st.spawn_target_monitor_for_intent(intent);
     let now = Instant::now();
-    exit_monitor_fullscreen_for_new_toplevel(st, predicted_monitor.as_str(), now);
     let stack_mode_open = st
         .cluster_bloom_for_monitor(predicted_monitor.as_str())
         .is_some();
@@ -414,6 +411,12 @@ pub(super) fn ensure_node_for_surface_impl(
         .unwrap_or(0);
     let defer_rule_resolution =
         crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &effective_intent);
+    if effective_intent.effective_overlap_policy()
+        == halley_config::InitialWindowOverlapPolicy::None
+        && !defer_rule_resolution
+    {
+        exit_monitor_fullscreen_for_new_toplevel(st, predicted_monitor.as_str(), now);
+    }
     let defer_active_tiled_cluster_join = defer_rule_resolution
         && active_cluster.is_some()
         && !stack_mode_open

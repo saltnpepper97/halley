@@ -12,8 +12,9 @@ use crate::compositor::surface::request_close_focused_toplevel;
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{
     BearingsBindingAction, ClusterBindingAction, CompositorBindingAction, CompositorBindingScope,
-    DirectionalAction, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction,
-    RuntimeTuning, StackBindingAction, StackCycleDirection, TileBindingAction, TrailBindingAction,
+    DirectionalAction, FocusCycleBindingAction, MonitorBindingAction, MonitorBindingTarget,
+    NodeBindingAction, RuntimeTuning, StackBindingAction, StackCycleDirection, TileBindingAction,
+    TrailBindingAction,
 };
 use halley_ipc::NodeMoveDirection;
 use std::time::Instant;
@@ -119,6 +120,13 @@ pub(crate) fn compositor_binding_action_active(
     compositor_binding_action(st, key_code, mods)
 }
 
+pub(crate) fn modifiers_keep_focus_cycle_session_active(st: &Halley, mods: &ModState) -> bool {
+    st.runtime.tuning.compositor_bindings.iter().any(|binding| {
+        matches!(binding.action, CompositorBindingAction::FocusCycle(_))
+            && modifier_exact(mods, binding.modifiers)
+    })
+}
+
 pub(crate) fn key_is_compositor_binding(st: &Halley, key_code: u32, mods: &ModState) -> bool {
     compositor_binding_action(st, key_code, mods).is_some()
         || st.runtime.tuning.launch_bindings.iter().any(|binding| {
@@ -130,6 +138,8 @@ pub(crate) fn compositor_action_allows_repeat(action: CompositorBindingAction) -
     matches!(
         action,
         CompositorBindingAction::Node(NodeBindingAction::Move(_))
+            | CompositorBindingAction::FocusCycle(FocusCycleBindingAction::Forward)
+            | CompositorBindingAction::FocusCycle(FocusCycleBindingAction::Backward)
             | CompositorBindingAction::Stack(StackBindingAction::Cycle(_))
             | CompositorBindingAction::Tile(TileBindingAction::Focus(_))
             | CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle)
@@ -190,6 +200,9 @@ pub(crate) fn apply_compositor_action_press(
         }
         CompositorBindingAction::CloseFocusedWindow => request_close_focused_toplevel(st),
         CompositorBindingAction::ClusterMode => st.enter_cluster_mode(),
+        CompositorBindingAction::FocusCycle(direction) => {
+            st.start_or_step_focus_cycle(direction, Instant::now())
+        }
         CompositorBindingAction::Node(NodeBindingAction::Move(direction)) => {
             move_latest_node_direction(st, from_directional_action(direction))
         }
@@ -327,6 +340,7 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::ToggleState
             | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::ClusterMode
+            | CompositorBindingAction::FocusCycle(_)
             | CompositorBindingAction::Stack(_)
             | CompositorBindingAction::Tile(_)
             | CompositorBindingAction::Cluster(_)

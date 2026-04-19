@@ -99,6 +99,60 @@ pub(crate) fn is_persistent_rule_top(st: &Halley, node_id: NodeId) -> bool {
         .contains_key(&node_id)
 }
 
+pub(crate) fn node_has_overlap_policy(st: &Halley, node_id: NodeId) -> bool {
+    if matches!(
+        st.runtime.tuning.cluster_layout_kind(),
+        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
+    ) {
+        return false;
+    }
+    st.model
+        .spawn_state
+        .applied_window_rules
+        .get(&node_id)
+        .is_some_and(|rule| rule.overlap_policy != InitialWindowOverlapPolicy::None)
+}
+
+pub(crate) fn node_draws_above_fullscreen_on_monitor(
+    st: &Halley,
+    node_id: NodeId,
+    monitor: &str,
+) -> bool {
+    let Some(fullscreen_id) = st
+        .model
+        .fullscreen_state
+        .fullscreen_active_node
+        .get(monitor)
+        .copied()
+    else {
+        return false;
+    };
+    if fullscreen_id == node_id || !node_has_overlap_policy(st, node_id) {
+        return false;
+    }
+    let Some(node) = st.model.field.node(node_id) else {
+        return false;
+    };
+    if node.state != halley_core::field::NodeState::Active || !st.model.field.is_visible(node_id) {
+        return false;
+    }
+    st.model
+        .monitor_state
+        .node_monitor
+        .get(&node_id)
+        .map(String::as_str)
+        .unwrap_or(st.model.monitor_state.current_monitor.as_str())
+        == monitor
+}
+
+pub(crate) fn monitor_has_visible_overlap_policy_window(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .field
+        .node_ids_all()
+        .into_iter()
+        .any(|node_id| node_draws_above_fullscreen_on_monitor(st, node_id, monitor))
+}
+
 pub(crate) fn default_spawn_view_anchor_for_monitor(st: &Halley, monitor: &str) -> Vec2 {
     st.model
         .monitor_state
@@ -224,5 +278,66 @@ pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, n
             st.model.focus_state.suppress_trail_record_once = true;
         }
         st.set_interaction_focus(Some(id), 30_000, now);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use smithay::reexports::wayland_server::Display;
+
+    #[test]
+    fn visible_overlap_policy_window_blocks_same_monitor_scanout_eligibility() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let fullscreen = st.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        let overlap = st.model.field.spawn_surface(
+            "overlap",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 240.0, y: 180.0 },
+        );
+        st.assign_node_to_monitor(fullscreen, monitor.as_str());
+        st.assign_node_to_monitor(overlap, monitor.as_str());
+        let _ = st
+            .model
+            .field
+            .set_state(fullscreen, halley_core::field::NodeState::Active);
+        let _ = st
+            .model
+            .field
+            .set_state(overlap, halley_core::field::NodeState::Active);
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor.clone(), fullscreen);
+
+        assert!(!monitor_has_visible_overlap_policy_window(
+            &st,
+            monitor.as_str()
+        ));
+
+        st.model.spawn_state.applied_window_rules.insert(
+            overlap,
+            AppliedInitialWindowRule {
+                overlap_policy: InitialWindowOverlapPolicy::All,
+                spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+            },
+        );
+
+        assert!(monitor_has_visible_overlap_policy_window(
+            &st,
+            monitor.as_str()
+        ));
     }
 }

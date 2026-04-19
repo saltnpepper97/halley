@@ -55,6 +55,11 @@ impl<T: Deref<Target = Halley>> CameraController<T> {
     pub(crate) fn zoom_blocked_by_interaction(&self) -> bool {
         zoom_blocked_by_interaction(self)
     }
+
+    #[inline]
+    pub(crate) fn pan_blocked_on_monitor(&self, monitor: &str) -> bool {
+        pan_blocked_on_monitor(self, monitor)
+    }
 }
 
 impl<T: DerefMut<Target = Halley>> CameraController<T> {
@@ -127,13 +132,25 @@ pub(crate) fn clamp_camera_view_size(st: &Halley, size: Vec2) -> Vec2 {
 }
 
 #[inline]
+fn fullscreen_lock_active_on_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .fullscreen_state
+        .fullscreen_active_node
+        .contains_key(monitor)
+        && !crate::compositor::focus::cycle::focus_cycle_releases_fullscreen_lock_for_monitor(
+            st, monitor,
+        )
+}
+
+#[inline]
+pub(crate) fn pan_blocked_on_monitor(st: &Halley, monitor: &str) -> bool {
+    fullscreen_lock_active_on_monitor(st, monitor)
+}
+
+#[inline]
 pub(crate) fn zoom_blocked_by_interaction(st: &Halley) -> bool {
     st.has_active_cluster_workspace()
-        || st
-            .model
-            .fullscreen_state
-            .fullscreen_active_node
-            .contains_key(st.model.monitor_state.current_monitor.as_str())
+        || fullscreen_lock_active_on_monitor(st, st.model.monitor_state.current_monitor.as_str())
         || st.cluster_mode_active()
         || st.input.interaction_state.grabbed_edge_pan_active
         || st
@@ -187,15 +204,6 @@ pub(crate) fn reset_zoom(st: &mut Halley) {
 pub(crate) fn tick_camera_smoothing(st: &mut Halley, now: Instant) {
     if st.input.interaction_state.viewport_pan_anim.is_some() {
         snap_camera_targets_to_live(st);
-        return;
-    }
-
-    if st.input.interaction_state.grabbed_edge_pan_active {
-        st.model.viewport.center = st.model.camera_target_center;
-        st.model.zoom_ref_size = st.model.camera_target_view_size;
-        st.runtime.tuning.viewport_center = st.model.viewport.center;
-        st.runtime.tuning.viewport_size = st.model.zoom_ref_size;
-        crate::compositor::monitor::state::sync_current_monitor_state(st);
         return;
     }
 
@@ -270,6 +278,9 @@ pub(crate) fn tick_camera_smoothing(st: &mut Halley, now: Instant) {
     st.runtime.tuning.viewport_center = st.model.viewport.center;
     st.runtime.tuning.viewport_size = st.model.zoom_ref_size;
     if changed {
+        if st.input.interaction_state.grabbed_edge_pan_active {
+            st.note_pan_viewport_change(now);
+        }
         st.request_maintenance();
     }
 }
@@ -295,6 +306,7 @@ pub fn camera_render_scale(st: &Halley) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn fullscreen_on_current_monitor_blocks_zoom_changes() {
@@ -427,5 +439,24 @@ mod tests {
         });
         assert_eq!(state.model.camera_target_view_size.x, base.x / 1.5);
         assert_eq!(state.model.camera_target_view_size.y, base.y / 1.5);
+    }
+
+    #[test]
+    fn edge_pan_uses_camera_smoothing_instead_of_snapping() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let now = Instant::now();
+
+        state.input.interaction_state.grabbed_edge_pan_active = true;
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.camera_target_center = Vec2 { x: 120.0, y: 0.0 };
+        state.ui.render_state.render_last_tick = now - Duration::from_millis(16);
+
+        tick_camera_smoothing(&mut state, now);
+
+        assert!(state.model.viewport.center.x > 0.0);
+        assert!(state.model.viewport.center.x < state.model.camera_target_center.x);
     }
 }

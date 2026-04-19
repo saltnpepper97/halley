@@ -4,10 +4,10 @@ use rune_cfg::RuneConfig;
 
 use crate::keybinds::{
     BearingsBindingAction, ClusterBindingAction, CompositorBinding, CompositorBindingAction,
-    CompositorBindingScope, DirectionalAction, KeyModifiers, LaunchBinding, MonitorBindingAction,
-    MonitorBindingTarget, NodeBindingAction, PointerBinding, PointerBindingAction,
-    StackBindingAction, StackCycleDirection, TileBindingAction, TrailBindingAction,
-    is_pointer_button_code, parse_chord, parse_modifiers,
+    CompositorBindingScope, DirectionalAction, FocusCycleBindingAction, KeyModifiers,
+    LaunchBinding, MonitorBindingAction, MonitorBindingTarget, NodeBindingAction, PointerBinding,
+    PointerBindingAction, StackBindingAction, StackCycleDirection, TileBindingAction,
+    TrailBindingAction, is_pointer_button_code, parse_chord, parse_modifiers,
 };
 use crate::layout::RuntimeTuning;
 
@@ -255,6 +255,27 @@ fn apply_explicit_binding(
                 mods,
                 key,
                 CompositorBindingAction::ClusterMode,
+            );
+        }
+        "cycle_focus" | "cycle-focus" | "focus_cycle" | "focus-cycle" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::FocusCycle(FocusCycleBindingAction::Forward),
+            );
+        }
+        "cycle_focus_backward"
+        | "cycle-focus-backward"
+        | "focus_cycle_backward"
+        | "focus-cycle-backward" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::FocusCycle(FocusCycleBindingAction::Backward),
             );
         }
         "bearings_show" | "bearings-show" => {
