@@ -207,15 +207,6 @@ pub(crate) fn tick_camera_smoothing(st: &mut Halley, now: Instant) {
         return;
     }
 
-    if st.input.interaction_state.grabbed_edge_pan_active {
-        st.model.viewport.center = st.model.camera_target_center;
-        st.model.zoom_ref_size = st.model.camera_target_view_size;
-        st.runtime.tuning.viewport_center = st.model.viewport.center;
-        st.runtime.tuning.viewport_size = st.model.zoom_ref_size;
-        crate::compositor::monitor::state::sync_current_monitor_state(st);
-        return;
-    }
-
     if !st.runtime.tuning.physics_enabled {
         st.model.viewport.center = st.model.camera_target_center;
         st.model.zoom_ref_size = st.model.camera_target_view_size;
@@ -287,6 +278,9 @@ pub(crate) fn tick_camera_smoothing(st: &mut Halley, now: Instant) {
     st.runtime.tuning.viewport_center = st.model.viewport.center;
     st.runtime.tuning.viewport_size = st.model.zoom_ref_size;
     if changed {
+        if st.input.interaction_state.grabbed_edge_pan_active {
+            st.note_pan_viewport_change(now);
+        }
         st.request_maintenance();
     }
 }
@@ -312,6 +306,7 @@ pub fn camera_render_scale(st: &Halley) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn fullscreen_on_current_monitor_blocks_zoom_changes() {
@@ -444,5 +439,24 @@ mod tests {
         });
         assert_eq!(state.model.camera_target_view_size.x, base.x / 1.5);
         assert_eq!(state.model.camera_target_view_size.y, base.y / 1.5);
+    }
+
+    #[test]
+    fn edge_pan_uses_camera_smoothing_instead_of_snapping() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let now = Instant::now();
+
+        state.input.interaction_state.grabbed_edge_pan_active = true;
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.camera_target_center = Vec2 { x: 120.0, y: 0.0 };
+        state.ui.render_state.render_last_tick = now - Duration::from_millis(16);
+
+        tick_camera_smoothing(&mut state, now);
+
+        assert!(state.model.viewport.center.x > 0.0);
+        assert!(state.model.viewport.center.x < state.model.camera_target_center.x);
     }
 }

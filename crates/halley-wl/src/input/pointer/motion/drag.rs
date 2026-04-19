@@ -30,6 +30,7 @@ pub(crate) fn begin_drag(
     allow_monitor_transfer: bool,
     requires_drag_modifier: bool,
 ) {
+    let now = Instant::now();
     st.input.interaction_state.pending_core_press = None;
     st.input.interaction_state.pending_core_click = None;
     let drag_monitor = st.monitor_for_node_or_current(hit.node_id);
@@ -92,6 +93,7 @@ pub(crate) fn begin_drag(
         pointer_screen_local: (frame.sx, frame.sy),
         edge_pan_x: DragAxisMode::Free,
         edge_pan_y: DragAxisMode::Free,
+        last_edge_pan_at: now,
     });
     crate::compositor::carry::system::set_drag_authority_node(st, Some(hit.node_id));
     crate::compositor::carry::system::begin_carry_state_tracking(st, hit.node_id);
@@ -100,7 +102,7 @@ pub(crate) fn begin_drag(
         Some(smithay::input::pointer::CursorIcon::Grabbing),
     );
     if !hit.is_core {
-        st.focus_pointer_target(hit.node_id, 30_000, Instant::now());
+        st.focus_pointer_target(hit.node_id, 30_000, now);
     }
     let to = halley_core::field::Vec2 {
         x: world_now.x - drag_ctx.current_offset.x,
@@ -362,6 +364,13 @@ pub(super) fn handle_drag_motion(
         pointer_screen_local: (local_sx, local_sy),
         edge_pan_x: next_drag.edge_pan_x,
         edge_pan_y: next_drag.edge_pan_y,
+        last_edge_pan_at: st
+            .input
+            .interaction_state
+            .active_drag
+            .as_ref()
+            .map(|drag| drag.last_edge_pan_at)
+            .unwrap_or(now),
     });
     ps.drag = Some(next_drag);
     crate::compositor::interaction::pointer::set_cursor_override_icon(

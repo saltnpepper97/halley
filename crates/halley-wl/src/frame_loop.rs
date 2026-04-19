@@ -235,6 +235,28 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     camera_controller(&mut *st).tick_smoothing(now);
 }
 
+#[inline]
+fn drag_edge_pan_screen_speed_pxps(cam_scale: f32) -> f32 {
+    const DRAG_EDGE_PAN_BASE_SPEED_PXPS: f32 = 250.0;
+
+    // Keep zoomed-out edge pan at the same feel, but slow it down further as
+    // the camera zooms in so tighter views don't move as aggressively.
+    DRAG_EDGE_PAN_BASE_SPEED_PXPS * cam_scale.recip().clamp(0.0, 1.0)
+}
+
+#[inline]
+fn drag_edge_pan_pressure_multiplier(pressure: f32) -> f32 {
+    const EDGE_PAN_PRESSURE_THRESHOLD: f32 = 56.0;
+    const EDGE_PAN_PRESSURE_FULL_SPEED: f32 = EDGE_PAN_PRESSURE_THRESHOLD + 120.0;
+    const EDGE_PAN_MAX_BOOST: f32 = 0.24;
+
+    let t = ((pressure - EDGE_PAN_PRESSURE_THRESHOLD)
+        / (EDGE_PAN_PRESSURE_FULL_SPEED - EDGE_PAN_PRESSURE_THRESHOLD))
+        .clamp(0.0, 1.0);
+    let eased = t * t * (3.0 - 2.0 * t);
+    1.0 + eased * EDGE_PAN_MAX_BOOST
+}
+
 fn tick_pending_core_hover_bloom(st: &mut Halley, now_ms: u64) {
     let Some(pending_hover) = st.input.interaction_state.pending_core_hover.clone() else {
         return;
@@ -345,45 +367,33 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
         st.input.interaction_state.grabbed_edge_pan_monitor =
             edge_pan_active.then(|| active_drag.pointer_monitor.clone());
 
-        let mut to = clamped_center;
+        let to = clamped_center;
         if edge_pan_active {
             let dt = now
-                .saturating_duration_since(st.ui.render_state.render_last_tick)
+                .saturating_duration_since(active_drag.last_edge_pan_at)
                 .as_secs_f32()
                 .clamp(1.0 / 240.0, 1.0 / 30.0);
-            const DRAG_EDGE_PAN_SPEED: f32 = 60.0;
+            let cam_scale = st.camera_render_scale().max(0.001);
+            let edge_pan_speed_pxps = drag_edge_pan_screen_speed_pxps(cam_scale);
             let pan_delta = Vec2 {
-                x: direction.x * DRAG_EDGE_PAN_SPEED * dt,
-                y: direction.y * DRAG_EDGE_PAN_SPEED * dt,
+                x: direction.x
+                    * (edge_pan_speed_pxps / cam_scale)
+                    * drag_edge_pan_pressure_multiplier(
+                        st.input.interaction_state.grabbed_edge_pan_pressure.x,
+                    )
+                    * dt,
+                y: direction.y
+                    * (edge_pan_speed_pxps / cam_scale)
+                    * drag_edge_pan_pressure_multiplier(
+                        st.input.interaction_state.grabbed_edge_pan_pressure.y,
+                    )
+                    * dt,
             };
             st.note_pan_activity(now);
             camera_controller(&mut *st).pan_target(pan_delta);
-            st.model.viewport.center = st.model.camera_target_center;
-            st.runtime.tuning.viewport_center = st.model.viewport.center;
-            st.sync_current_monitor_state();
             st.note_pan_viewport_change(now);
-
-            let post_pan_pointer_world = crate::spatial::screen_to_world(
-                st,
-                active_drag.pointer_workspace_size.0,
-                active_drag.pointer_workspace_size.1,
-                active_drag.pointer_screen_local.0,
-                active_drag.pointer_screen_local.1,
-            );
-            let post_pan_desired_to = Vec2 {
-                x: post_pan_pointer_world.x - active_drag.current_offset.x,
-                y: post_pan_pointer_world.y - active_drag.current_offset.y,
-            };
-            to = crate::compositor::interaction::state::dragged_node_edge_pan_clamp(
-                st,
-                active_drag.pointer_monitor.as_str(),
-                node_id,
-                post_pan_desired_to,
-                direction,
-            )
-            .map(|(clamped, _)| clamped)
-            .unwrap_or(post_pan_desired_to);
         }
+        active_drag.last_edge_pan_at = now;
         let drag_monitor = active_drag.pointer_monitor.clone();
         st.input.interaction_state.active_drag = Some(active_drag.clone());
         let to = crate::compositor::interaction::state::dragged_node_cluster_core_clamp(
@@ -730,5 +740,21 @@ mod tests {
             ) > 0.0,
             "active transition alpha should still be tracked when physics is disabled"
         );
+    }
+
+    #[test]
+    fn edge_pan_screen_speed_slows_down_when_zoomed_in() {
+        assert!((drag_edge_pan_screen_speed_pxps(0.5) - 132.0).abs() < 0.01);
+        assert!((drag_edge_pan_screen_speed_pxps(1.0) - 132.0).abs() < 0.01);
+        assert!((drag_edge_pan_screen_speed_pxps(1.25) - 105.6).abs() < 0.01);
+    }
+
+    #[test]
+    fn edge_pan_pressure_multiplier_is_smooth_and_low_ceiling() {
+        assert!((drag_edge_pan_pressure_multiplier(0.0) - 1.0).abs() < 0.01);
+        assert!((drag_edge_pan_pressure_multiplier(56.0) - 1.0).abs() < 0.01);
+        assert!(drag_edge_pan_pressure_multiplier(96.0) > 1.05);
+        assert!(drag_edge_pan_pressure_multiplier(96.0) < 1.07);
+        assert!(drag_edge_pan_pressure_multiplier(196.0) <= 1.24);
     }
 }

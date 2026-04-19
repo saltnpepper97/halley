@@ -78,6 +78,7 @@ pub(crate) struct ActiveDragState {
     pub(crate) pointer_screen_local: (f32, f32),
     pub(crate) edge_pan_x: DragAxisMode,
     pub(crate) edge_pan_y: DragAxisMode,
+    pub(crate) last_edge_pan_at: Instant,
 }
 
 #[derive(Clone)]

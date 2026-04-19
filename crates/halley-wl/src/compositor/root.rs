@@ -540,10 +540,6 @@ impl Halley {
         super::monitor::state::load_monitor_state(self, name)
     }
 
-    pub(crate) fn sync_current_monitor_state(&mut self) {
-        super::monitor::state::sync_current_monitor_state(self)
-    }
-
     pub(crate) fn activate_monitor(&mut self, name: &str) -> bool {
         super::monitor::state::activate_monitor(self, name)
     }
