@@ -1397,6 +1397,42 @@ mod tests {
     }
 
     #[test]
+    fn adjacent_overlap_on_fullscreen_monitor_anchors_over_fullscreen() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 320.0, y: 240.0 },
+            Vec2 { x: 640.0, y: 480.0 },
+        );
+        state.assign_node_to_current_monitor(fullscreen);
+        let _ = state
+            .model
+            .field
+            .set_state(fullscreen, halley_core::field::NodeState::Active);
+        state.model.fullscreen_state.fullscreen_active_node.insert(
+            state.model.monitor_state.current_monitor.clone(),
+            fullscreen,
+        );
+        state.set_interaction_focus(Some(fullscreen), 30_000, std::time::Instant::now());
+
+        let intent = test_intent(
+            InitialWindowOverlapPolicy::All,
+            InitialWindowSpawnPlacement::Adjacent,
+            None,
+        );
+        let (_, pos, _) =
+            state.pick_spawn_position_with_intent(Vec2 { x: 220.0, y: 160.0 }, &intent);
+
+        assert_eq!(pos, Vec2 { x: 320.0, y: 240.0 });
+    }
+
+    #[test]
     fn cursor_placement_uses_pointer_monitor() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![

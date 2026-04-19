@@ -206,9 +206,13 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                 let now = Instant::now();
                 let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
                 st.focus_monitor_view(monitor.as_str(), now);
-                ps.panning = true;
-                ps.pan_monitor = Some(monitor);
-                ps.pan_last_screen = (frame.global_sx, frame.global_sy);
+                if !crate::compositor::monitor::camera::camera_controller(&*st)
+                    .pan_blocked_on_monitor(monitor.as_str())
+                {
+                    ps.panning = true;
+                    ps.pan_monitor = Some(monitor);
+                    ps.pan_last_screen = (frame.global_sx, frame.global_sy);
+                }
                 ctx.backend.request_redraw();
                 return;
             }

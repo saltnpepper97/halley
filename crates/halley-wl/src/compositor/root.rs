@@ -358,6 +358,7 @@ impl Halley {
                     last_screenshot_result: None,
                     modal_release_keys: HashSet::new(),
                     pending_modal_focus_restore: None,
+                    focus_cycle_session: None,
                     overlay_hover_target: None,
                     cursor_override_until_ms: None,
                     pending_core_hover: None,
@@ -802,19 +803,22 @@ impl Halley {
     }
 
     pub(crate) fn node_has_overlap_policy(&self, id: NodeId) -> bool {
-        if matches!(
-            self.runtime.tuning.cluster_layout_kind(),
-            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
-        ) {
-            return false;
-        }
-        self.model
-            .spawn_state
-            .applied_window_rules
-            .get(&id)
-            .is_some_and(|rule| {
-                rule.overlap_policy != halley_config::InitialWindowOverlapPolicy::None
-            })
+        super::spawn::state::node_has_overlap_policy(self, id)
+    }
+
+    pub(crate) fn node_draws_above_fullscreen_on_monitor(&self, id: NodeId, monitor: &str) -> bool {
+        super::spawn::state::node_draws_above_fullscreen_on_monitor(self, id, monitor)
+    }
+
+    pub(crate) fn node_draws_above_fullscreen_on_current_monitor(&self, id: NodeId) -> bool {
+        self.node_draws_above_fullscreen_on_monitor(
+            id,
+            self.model.monitor_state.current_monitor.as_str(),
+        )
+    }
+
+    pub(crate) fn monitor_has_visible_overlap_policy_window(&self, monitor: &str) -> bool {
+        super::spawn::state::monitor_has_visible_overlap_policy_window(self, monitor)
     }
 
     pub fn now_ms(&self, now: Instant) -> u64 {
@@ -989,6 +993,31 @@ impl Halley {
 
     pub fn recent_top_node_active(&mut self, now: Instant) -> Option<NodeId> {
         super::focus::state::focus_state_controller(self).recent_top_node_active(now)
+    }
+
+    pub(crate) fn focus_cycle_session_active(&self) -> bool {
+        super::focus::cycle::focus_cycle_session_active(self)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn focus_cycle_preview_node(&self) -> Option<NodeId> {
+        super::focus::cycle::focus_cycle_preview_node(self)
+    }
+
+    pub(crate) fn start_or_step_focus_cycle(
+        &mut self,
+        direction: halley_config::FocusCycleBindingAction,
+        now: Instant,
+    ) -> bool {
+        super::focus::cycle::focus_cycle_controller(self).start_or_step_focus_cycle(direction, now)
+    }
+
+    pub(crate) fn cancel_focus_cycle(&mut self) -> bool {
+        super::focus::cycle::focus_cycle_controller(self).cancel_focus_cycle()
+    }
+
+    pub(crate) fn commit_focus_cycle(&mut self, now: Instant) -> bool {
+        super::focus::cycle::focus_cycle_controller(self).commit_focus_cycle(now)
     }
 
     pub fn set_app_focused(&mut self, focused: bool) {

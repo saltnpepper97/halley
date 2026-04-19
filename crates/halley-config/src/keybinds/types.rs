@@ -48,6 +48,12 @@ pub enum TrailBindingAction {
     Next,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FocusCycleBindingAction {
+    Forward,
+    Backward,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MonitorBindingTarget {
     Direction(DirectionalAction),
@@ -103,6 +109,7 @@ pub enum CompositorBindingAction {
     ToggleState,
     CloseFocusedWindow,
     ClusterMode,
+    FocusCycle(FocusCycleBindingAction),
     Quit { requires_shift: bool },
     ZoomIn,
     ZoomOut,

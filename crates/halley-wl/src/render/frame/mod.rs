@@ -189,6 +189,16 @@ pub(crate) fn draw_debug_frame_to_target(
             .collect::<Vec<_>>();
         ensure_app_icon_resources_for_node_ids(renderer, st, overflow_ids.into_iter())?;
     }
+    if node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, false)
+        && let Some(candidate_ids) = st
+            .input
+            .interaction_state
+            .focus_cycle_session
+            .as_ref()
+            .map(|session| session.candidates.clone())
+    {
+        ensure_app_icon_resources_for_node_ids(renderer, st, candidate_ids.into_iter())?;
+    }
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_ui_text_resources(renderer, st)?;

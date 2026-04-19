@@ -1,6 +1,7 @@
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
+use smithay::wayland::compositor::get_parent;
 use std::ops::{Deref, DerefMut};
 
 use super::*;
@@ -32,14 +33,17 @@ pub(crate) fn on_seat_focus_changed(
         return;
     }
 
-    let focused_id = focused.map(|wl| wl.id());
-    let focused_monitor: Option<String> = focused_id.as_ref().and_then(|fid| {
-        let node_id = st.model.surface_to_node.get(fid).copied()?;
+    let focused_root = focused.map(surface_tree_root);
+    let focused_id = focused_root.as_ref().map(|wl| wl.id());
+    let focused_node_id = focused_id
+        .as_ref()
+        .and_then(|fid| st.model.surface_to_node.get(fid).copied());
+    let focused_monitor: Option<String> = focused_node_id.as_ref().and_then(|node_id| {
         Some(
             st.model
                 .monitor_state
                 .node_monitor
-                .get(&node_id)
+                .get(node_id)
                 .cloned()
                 .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone()),
         )
@@ -55,6 +59,9 @@ pub(crate) fn on_seat_focus_changed(
                 .as_deref()
                 .is_some_and(|fm| fm == monitor.as_str());
             if !same_monitor {
+                return None;
+            }
+            if focused_node_preserves_fullscreen_lock(st, focused_node_id, monitor.as_str()) {
                 return None;
             }
             let fullscreen_surface_id = st
@@ -77,6 +84,133 @@ pub(crate) fn on_seat_focus_changed(
 
     for fullscreen_id in to_suspend {
         st.suspend_xdg_fullscreen(fullscreen_id, now);
+    }
+}
+
+fn surface_tree_root(surface: &WlSurface) -> WlSurface {
+    let mut root = surface.clone();
+    while let Some(parent) = get_parent(&root) {
+        root = parent;
+    }
+    root
+}
+
+fn focused_node_preserves_fullscreen_lock(
+    st: &Halley,
+    focused_node_id: Option<NodeId>,
+    monitor: &str,
+) -> bool {
+    focused_node_id.is_some_and(|focused_node| {
+        st.node_draws_above_fullscreen_on_monitor(focused_node, monitor)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compositor::spawn::state::AppliedInitialWindowRule;
+    use halley_core::field::Vec2;
+    use smithay::reexports::wayland_server::Display;
+
+    #[test]
+    fn overlap_policy_focus_preserves_same_monitor_fullscreen_lock() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        let overlap = state.model.field.spawn_surface(
+            "overlap",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 240.0, y: 160.0 },
+        );
+        for id in [fullscreen, overlap] {
+            state.assign_node_to_monitor(id, monitor.as_str());
+            let _ = state
+                .model
+                .field
+                .set_state(id, halley_core::field::NodeState::Active);
+        }
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor.clone(), fullscreen);
+        state.model.spawn_state.applied_window_rules.insert(
+            overlap,
+            AppliedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+            },
+        );
+
+        assert!(focused_node_preserves_fullscreen_lock(
+            &state,
+            Some(overlap),
+            monitor.as_str()
+        ));
+        assert!(!focused_node_preserves_fullscreen_lock(
+            &state,
+            Some(fullscreen),
+            monitor.as_str()
+        ));
+    }
+
+    #[test]
+    fn overlap_policy_focus_does_not_preserve_fullscreen_lock_in_stacking_layout() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Stacking;
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        let overlap = state.model.field.spawn_surface(
+            "overlap",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 240.0, y: 160.0 },
+        );
+        for id in [fullscreen, overlap] {
+            state.assign_node_to_monitor(id, monitor.as_str());
+            let _ = state
+                .model
+                .field
+                .set_state(id, halley_core::field::NodeState::Active);
+        }
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor.clone(), fullscreen);
+        state.model.spawn_state.applied_window_rules.insert(
+            overlap,
+            AppliedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+            },
+        );
+
+        assert!(!focused_node_preserves_fullscreen_lock(
+            &state,
+            Some(overlap),
+            monitor.as_str()
+        ));
     }
 }
 

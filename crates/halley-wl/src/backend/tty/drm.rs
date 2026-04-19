@@ -1165,6 +1165,11 @@ fn fullscreen_direct_scanout_candidate(
             "top/overlay layer-shell surfaces are present on the output",
         ));
     }
+    if st.monitor_has_visible_overlap_policy_window(output_name) {
+        return Some(blocked(
+            "overlap-policy window is visible above fullscreen on the output",
+        ));
+    }
     let Some(surface) = fullscreen_root_surface_for_node(st, node_id) else {
         return Some(blocked("fullscreen node has no live toplevel surface"));
     };

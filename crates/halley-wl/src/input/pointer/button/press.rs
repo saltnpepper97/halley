@@ -14,6 +14,30 @@ use super::release::{
 use crate::input::pointer::motion::{begin_drag, node_is_pointer_draggable};
 use crate::input::pointer::resize::begin_resize;
 
+fn begin_pan_if_allowed(
+    st: &mut Halley,
+    ps: &mut PointerState,
+    backend: &dyn BackendView,
+    monitor: String,
+    global_sx: f32,
+    global_sy: f32,
+) {
+    if crate::compositor::monitor::camera::camera_controller(&*st)
+        .pan_blocked_on_monitor(monitor.as_str())
+    {
+        backend.request_redraw();
+        return;
+    }
+    ps.panning = true;
+    ps.pan_monitor = Some(monitor);
+    ps.pan_last_screen = (global_sx, global_sy);
+    crate::compositor::interaction::pointer::set_cursor_override_icon(
+        st,
+        Some(smithay::input::pointer::CursorIcon::Grabbing),
+    );
+    backend.request_redraw();
+}
+
 pub(super) fn begin_bloom_pull_preview(
     st: &mut Halley,
     cluster_id: halley_core::cluster::ClusterId,
@@ -61,14 +85,7 @@ pub(super) fn handle_left_press(
         let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
         let _ = st.close_cluster_bloom_for_monitor(monitor.as_str());
         st.focus_monitor_view(monitor.as_str(), now);
-        ps.panning = true;
-        ps.pan_monitor = Some(monitor);
-        ps.pan_last_screen = (frame.global_sx, frame.global_sy);
-        crate::compositor::interaction::pointer::set_cursor_override_icon(
-            st,
-            Some(smithay::input::pointer::CursorIcon::Grabbing),
-        );
-        backend.request_redraw();
+        begin_pan_if_allowed(st, ps, backend, monitor, frame.global_sx, frame.global_sy);
         return;
     };
     if frame.workspace_active {
@@ -191,14 +208,7 @@ pub(super) fn handle_right_press(
         let now = Instant::now();
         let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
         st.focus_monitor_view(monitor.as_str(), now);
-        ps.panning = true;
-        ps.pan_monitor = Some(monitor);
-        ps.pan_last_screen = (frame.global_sx, frame.global_sy);
-        crate::compositor::interaction::pointer::set_cursor_override_icon(
-            st,
-            Some(smithay::input::pointer::CursorIcon::Grabbing),
-        );
-        backend.request_redraw();
+        begin_pan_if_allowed(st, ps, backend, monitor, frame.global_sx, frame.global_sy);
         return;
     };
     let can_resize = node_allows_interactive_resize(st, hit.node_id);
@@ -223,14 +233,7 @@ pub(super) fn handle_move_binding_press(
         let now = Instant::now();
         let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
         st.focus_monitor_view(monitor.as_str(), now);
-        ps.panning = true;
-        ps.pan_monitor = Some(monitor);
-        ps.pan_last_screen = (frame.global_sx, frame.global_sy);
-        crate::compositor::interaction::pointer::set_cursor_override_icon(
-            st,
-            Some(smithay::input::pointer::CursorIcon::Grabbing),
-        );
-        backend.request_redraw();
+        begin_pan_if_allowed(st, ps, backend, monitor, frame.global_sx, frame.global_sy);
         return;
     };
     let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);
@@ -267,14 +270,7 @@ pub(super) fn handle_resize_binding_press(
         let now = Instant::now();
         let monitor = st.monitor_for_screen_or_current(frame.global_sx, frame.global_sy);
         st.focus_monitor_view(monitor.as_str(), now);
-        ps.panning = true;
-        ps.pan_monitor = Some(monitor);
-        ps.pan_last_screen = (frame.global_sx, frame.global_sy);
-        crate::compositor::interaction::pointer::set_cursor_override_icon(
-            st,
-            Some(smithay::input::pointer::CursorIcon::Grabbing),
-        );
-        backend.request_redraw();
+        begin_pan_if_allowed(st, ps, backend, monitor, frame.global_sx, frame.global_sy);
         return;
     };
     let can_resize = node_allows_interactive_resize(st, hit.node_id);

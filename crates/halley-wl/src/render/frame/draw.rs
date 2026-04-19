@@ -251,6 +251,41 @@ pub(super) fn draw_debug_frame_scene(
             &[prepared.damage],
         );
     }
+    if !scene.above_fullscreen_active_elements.is_empty() {
+        let _ = draw_render_elements(
+            frame,
+            1.0,
+            &scene.above_fullscreen_active_elements,
+            &[prepared.damage],
+        );
+    }
+    draw_offscreen_textures(
+        frame,
+        prepared.damage,
+        &scene.above_fullscreen_offscreen_textures,
+        st.ui.render_state.gpu.window_texture_program.as_ref(),
+    )?;
+    draw_window_borders(
+        frame,
+        size,
+        prepared.damage,
+        &scene.above_fullscreen_border_rects,
+        st,
+    )?;
+    draw_offscreen_textures(
+        frame,
+        prepared.damage,
+        &scene.above_fullscreen_popup_offscreen_textures,
+        st.ui.render_state.gpu.window_texture_program.as_ref(),
+    )?;
+    if !scene.above_fullscreen_popup_elements.is_empty() {
+        let _ = draw_render_elements(
+            frame,
+            1.0,
+            &scene.above_fullscreen_popup_elements,
+            &[prepared.damage],
+        );
+    }
 
     if !scene.layer_overlay_elements.is_empty() {
         let _ = draw_render_elements(

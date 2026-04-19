@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use crate::compositor::interaction::{HitNode, ResizeCtx};
 use crate::compositor::root::Halley;
+use crate::compositor::spawn::state::is_persistent_rule_top;
 use crate::compositor::surface::active_stacking_visible_members_for_monitor;
 use crate::frame_loop::anim_style_for;
 use crate::input::active_node_screen_rect;
@@ -23,6 +24,12 @@ pub(crate) fn pick_hit_node_at(
         st,
         st.model.monitor_state.current_monitor.as_str(),
     );
+    let recent_top_node = st
+        .model
+        .focus_state
+        .recent_top_until
+        .filter(|&until| now < until)
+        .and(st.model.focus_state.recent_top_node);
     let stack_ranks = stack_visible_front_to_back
         .iter()
         .enumerate()
@@ -104,13 +111,45 @@ pub(crate) fn pick_hit_node_at(
 
     active.sort_by(
         |a, b| match (stack_ranks.get(&a.node_id), stack_ranks.get(&b.node_id)) {
-            (Some(a_rank), Some(b_rank)) => a_rank.cmp(b_rank).then_with(|| {
-                std::cmp::Reverse(a.node_id.as_u64()).cmp(&std::cmp::Reverse(b.node_id.as_u64()))
-            }),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => {
-                std::cmp::Reverse(a.node_id.as_u64()).cmp(&std::cmp::Reverse(b.node_id.as_u64()))
+            _ => {
+                let current_monitor = st.model.monitor_state.current_monitor.as_str();
+                let compare_bool = |lhs: bool, rhs: bool| rhs.cmp(&lhs);
+                compare_bool(
+                    st.node_draws_above_fullscreen_on_current_monitor(a.node_id),
+                    st.node_draws_above_fullscreen_on_current_monitor(b.node_id),
+                )
+                .then_with(|| {
+                    compare_bool(
+                        st.fullscreen_monitor_for_node(a.node_id)
+                            .is_some_and(|monitor| monitor == current_monitor),
+                        st.fullscreen_monitor_for_node(b.node_id)
+                            .is_some_and(|monitor| monitor == current_monitor),
+                    )
+                })
+                .then_with(|| {
+                    compare_bool(
+                        is_persistent_rule_top(st, a.node_id),
+                        is_persistent_rule_top(st, b.node_id),
+                    )
+                })
+                .then_with(|| {
+                    compare_bool(
+                        Some(a.node_id) == recent_top_node,
+                        Some(b.node_id) == recent_top_node,
+                    )
+                })
+                .then_with(
+                    || match (stack_ranks.get(&a.node_id), stack_ranks.get(&b.node_id)) {
+                        (Some(a_rank), Some(b_rank)) => a_rank.cmp(b_rank),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
+                    },
+                )
+                .then_with(|| {
+                    std::cmp::Reverse(a.node_id.as_u64())
+                        .cmp(&std::cmp::Reverse(b.node_id.as_u64()))
+                })
             }
         },
     );
@@ -202,5 +241,51 @@ mod tests {
         let hit = active_surface_hit_with_tuning(single_monitor_tuning());
         assert!(!hit.move_surface);
         assert!(!hit.is_core);
+    }
+
+    #[test]
+    fn overlap_policy_window_hits_above_same_monitor_fullscreen() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let overlap = st.model.field.spawn_surface(
+            "overlap",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 220.0, y: 160.0 },
+        );
+        let fullscreen = st.model.field.spawn_surface(
+            "fullscreen",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 800.0, y: 600.0 },
+        );
+        st.assign_node_to_monitor(overlap, "monitor_a");
+        st.assign_node_to_monitor(fullscreen, "monitor_a");
+        let _ = st
+            .model
+            .field
+            .set_state(overlap, halley_core::field::NodeState::Active);
+        let _ = st
+            .model
+            .field
+            .set_state(fullscreen, halley_core::field::NodeState::Active);
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert("monitor_a".to_string(), fullscreen);
+        st.model.spawn_state.applied_window_rules.insert(
+            overlap,
+            crate::compositor::spawn::state::AppliedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+            },
+        );
+
+        let hit = pick_hit_node_at(&st, 800, 600, 400.0, 300.0, Instant::now(), None)
+            .expect("surface hit");
+
+        assert_eq!(hit.node_id, overlap);
     }
 }

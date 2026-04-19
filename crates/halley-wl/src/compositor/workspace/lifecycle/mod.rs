@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn overlap_rule_recheck_exits_only_that_monitor_fullscreen() {
+    fn overlap_rule_recheck_keeps_monitor_fullscreen_active() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![
             halley_config::ViewportOutputConfig {
@@ -394,12 +394,13 @@ mod tests {
             Instant::now(),
         );
 
-        assert!(
-            !state
+        assert_eq!(
+            state
                 .model
                 .fullscreen_state
                 .fullscreen_active_node
-                .contains_key("left")
+                .get("left"),
+            Some(&fullscreen_left)
         );
         assert_eq!(
             state

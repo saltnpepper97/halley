@@ -4,9 +4,9 @@ use halley_core::field::Vec2;
 
 use crate::keybinds::{
     BearingsBindingAction, ClusterBindingAction, CompositorBinding, CompositorBindingAction,
-    CompositorBindingScope, DirectionalAction, KeyModifiers, Keybinds, NodeBindingAction,
-    PointerBinding, PointerBindingAction, TileBindingAction, TrailBindingAction, WHEEL_DOWN_CODE,
-    WHEEL_UP_CODE, key_name_to_evdev,
+    CompositorBindingScope, DirectionalAction, FocusCycleBindingAction, KeyModifiers, Keybinds,
+    NodeBindingAction, PointerBinding, PointerBindingAction, TileBindingAction, TrailBindingAction,
+    WHEEL_DOWN_CODE, WHEEL_UP_CODE, key_name_to_evdev,
 };
 
 use super::{
@@ -174,6 +174,21 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             },
             key: key("z"),
             action: CompositorBindingAction::Bearings(BearingsBindingAction::Toggle),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("tab"),
+            action: CompositorBindingAction::FocusCycle(FocusCycleBindingAction::Forward),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: KeyModifiers {
+                shift: true,
+                ..modifier
+            },
+            key: key("tab"),
+            action: CompositorBindingAction::FocusCycle(FocusCycleBindingAction::Backward),
         },
         CompositorBinding {
             scope: CompositorBindingScope::Global,

@@ -55,6 +55,11 @@ impl<T: Deref<Target = Halley>> CameraController<T> {
     pub(crate) fn zoom_blocked_by_interaction(&self) -> bool {
         zoom_blocked_by_interaction(self)
     }
+
+    #[inline]
+    pub(crate) fn pan_blocked_on_monitor(&self, monitor: &str) -> bool {
+        pan_blocked_on_monitor(self, monitor)
+    }
 }
 
 impl<T: DerefMut<Target = Halley>> CameraController<T> {
@@ -127,13 +132,25 @@ pub(crate) fn clamp_camera_view_size(st: &Halley, size: Vec2) -> Vec2 {
 }
 
 #[inline]
+fn fullscreen_lock_active_on_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .fullscreen_state
+        .fullscreen_active_node
+        .contains_key(monitor)
+        && !crate::compositor::focus::cycle::focus_cycle_releases_fullscreen_lock_for_monitor(
+            st, monitor,
+        )
+}
+
+#[inline]
+pub(crate) fn pan_blocked_on_monitor(st: &Halley, monitor: &str) -> bool {
+    fullscreen_lock_active_on_monitor(st, monitor)
+}
+
+#[inline]
 pub(crate) fn zoom_blocked_by_interaction(st: &Halley) -> bool {
     st.has_active_cluster_workspace()
-        || st
-            .model
-            .fullscreen_state
-            .fullscreen_active_node
-            .contains_key(st.model.monitor_state.current_monitor.as_str())
+        || fullscreen_lock_active_on_monitor(st, st.model.monitor_state.current_monitor.as_str())
         || st.cluster_mode_active()
         || st.input.interaction_state.grabbed_edge_pan_active
         || st

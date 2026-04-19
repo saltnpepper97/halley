@@ -151,6 +151,68 @@ pub(crate) fn clear_pointer_focus(st: &mut Halley) {
     pointer.frame(st);
 }
 
+pub(crate) fn center_pointer_on_node(st: &mut Halley, node_id: NodeId, now: Instant) -> bool {
+    let Some(pointer) = st.platform.seat.get_pointer() else {
+        return false;
+    };
+    let Some(node_pos) = st.model.field.node(node_id).map(|node| node.pos) else {
+        return false;
+    };
+
+    let monitor = st
+        .model
+        .monitor_state
+        .node_monitor
+        .get(&node_id)
+        .cloned()
+        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let Some(space) = st.model.monitor_state.monitors.get(monitor.as_str()) else {
+        return false;
+    };
+    let monitor_width = space.width;
+    let monitor_height = space.height;
+    let monitor_offset_x = space.offset_x;
+    let monitor_offset_y = space.offset_y;
+
+    let previous_monitor = st.begin_temporary_render_monitor(monitor.as_str());
+    let (local_sx, local_sy) = crate::presentation::world_to_screen(
+        st,
+        monitor_width,
+        monitor_height,
+        node_pos.x,
+        node_pos.y,
+    );
+    let local_sx_f = local_sx.clamp(0, monitor_width.saturating_sub(1).max(0)) as f32;
+    let local_sy_f = local_sy.clamp(0, monitor_height.saturating_sub(1).max(0)) as f32;
+    let global_sx = monitor_offset_x as f32 + local_sx_f;
+    let global_sy = monitor_offset_y as f32 + local_sy_f;
+    st.input.interaction_state.pending_pointer_screen_hint = Some((global_sx, global_sy));
+
+    let focus = crate::input::pointer::focus::pointer_focus_for_screen(
+        st,
+        monitor_width,
+        monitor_height,
+        local_sx_f,
+        local_sy_f,
+        now,
+        None,
+    );
+    let cam_scale = st.camera_render_scale().max(0.001) as f64;
+    pointer.motion(
+        st,
+        focus,
+        &MotionEvent {
+            location: (local_sx_f as f64 / cam_scale, local_sy_f as f64 / cam_scale).into(),
+            serial: SERIAL_COUNTER.next_serial(),
+            time: 0,
+        },
+    );
+    pointer.frame(st);
+    st.end_temporary_render_monitor(previous_monitor);
+    st.request_maintenance();
+    true
+}
+
 pub(crate) fn apply_cursor_position_hint(
     st: &mut Halley,
     surface: &WlSurface,

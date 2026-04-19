@@ -15,6 +15,7 @@ use smithay::utils::SERIAL_COUNTER;
 use self::bindings::{
     apply_bound_key, apply_compositor_action_release, compositor_action_allows_repeat,
     compositor_binding_action, key_is_compositor_binding,
+    modifiers_keep_focus_cycle_session_active,
 };
 use self::modkeys::{is_modifier_keycode, update_mod_state};
 use halley_config::CompositorBindingAction;
@@ -59,6 +60,60 @@ fn cluster_mode_allows_keyboard_action(action: &CompositorBindingAction) -> bool
             | CompositorBindingAction::ZoomOut
             | CompositorBindingAction::ZoomReset
     )
+}
+
+fn handle_focus_cycle_session_input<B: crate::backend::interface::BackendView>(
+    st: &mut Halley,
+    ctx: &InputCtx<'_, B>,
+    code: u32,
+    pressed: bool,
+) {
+    let mods = ctx.mod_state.borrow().clone();
+    let matched_action = if pressed && !is_modifier_keycode(code) {
+        compositor_binding_action(st, code, &mods)
+    } else {
+        None
+    };
+
+    if let Some(keyboard) = st.platform.seat.get_keyboard() {
+        let serial = SERIAL_COUNTER.next_serial();
+        keyboard.input::<(), _>(
+            st,
+            code.into(),
+            if pressed {
+                KeyState::Pressed
+            } else {
+                KeyState::Released
+            },
+            serial,
+            now_millis_u32(),
+            |_, _, _| FilterResult::Intercept(()),
+        );
+    }
+
+    if pressed {
+        let escape = key_name_to_evdev("escape").map(|value| value + 8);
+        if Some(code) == escape {
+            crate::compositor::interaction::state::trap_modal_key_release(st, code);
+            if st.cancel_focus_cycle() {
+                ctx.backend.request_redraw();
+            }
+            return;
+        }
+
+        if let Some(CompositorBindingAction::FocusCycle(direction)) = matched_action
+            && st.start_or_step_focus_cycle(direction, Instant::now())
+        {
+            ctx.backend.request_redraw();
+        }
+        return;
+    }
+
+    if !modifiers_keep_focus_cycle_session_active(st, &mods)
+        && st.commit_focus_cycle(Instant::now())
+    {
+        ctx.backend.request_redraw();
+    }
 }
 
 fn cluster_prompt_input_char(
@@ -320,6 +375,11 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
             crate::compositor::clusters::system::cluster_system_controller(&mut *st)
                 .stop_cluster_name_prompt_repeat_for_code(code);
         }
+        return;
+    }
+
+    if st.focus_cycle_session_active() {
+        handle_focus_cycle_session_input(st, ctx, code, pressed);
         return;
     }
 

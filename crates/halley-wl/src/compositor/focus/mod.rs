@@ -17,6 +17,7 @@ use crate::compositor::ctx::FocusCtx;
 use crate::compositor::debug_scene::{DebugScene, build_debug_scene};
 use crate::compositor::root::Halley;
 
+pub mod cycle;
 pub mod decay;
 pub mod read;
 pub mod state;

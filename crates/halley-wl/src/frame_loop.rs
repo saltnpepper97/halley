@@ -48,6 +48,7 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
         || crate::compositor::interaction::state::bloom_pull_preview_active_for_monitor(st, monitor)
         || st.ui.render_state.overlay_banner.contains_key(monitor)
         || st.ui.render_state.overlay_toast.contains_key(monitor)
+        || st.input.interaction_state.focus_cycle_session.is_some()
         || st
             .model
             .cluster_state
