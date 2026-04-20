@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use halley_config::PanToNewMode;
+use halley_config::{InputFocusMode, PanToNewMode};
 use halley_core::field::{NodeId, Vec2};
 
 use crate::compositor::focus::state::FocusState;
@@ -17,6 +17,8 @@ pub(crate) struct SpawnReadContext<'a> {
     usable_viewports: HashMap<String, halley_core::viewport::Viewport>,
     focused_monitor: &'a str,
     interaction_monitor: &'a str,
+    pointer_monitor: Option<String>,
+    input_focus_mode: InputFocusMode,
     pan_to_new: PanToNewMode,
 }
 
@@ -42,11 +44,32 @@ impl<'a> SpawnReadContext<'a> {
     }
 
     pub(crate) fn resolve_spawn_target_monitor(&self) -> String {
+        if self.input_focus_mode == InputFocusMode::Hover
+            && let Some(pointer_monitor) = self.pointer_monitor.as_deref()
+            && self.monitor_state.monitors.contains_key(pointer_monitor)
+            && !self.monitor_has_visible_surface(pointer_monitor)
+        {
+            return pointer_monitor.to_string();
+        }
+
         let focused = self.focused_monitor.to_string();
         if self.monitor_state.monitors.contains_key(focused.as_str()) {
             return focused;
         }
         self.interaction_monitor.to_string()
+    }
+
+    fn monitor_has_visible_surface(&self, monitor: &str) -> bool {
+        self.monitor_state
+            .node_monitor
+            .iter()
+            .any(|(id, node_monitor)| {
+                node_monitor == monitor
+                    && self.field.node(*id).is_some_and(|node| {
+                        node.kind == halley_core::field::NodeKind::Surface
+                            && self.field.is_visible(*id)
+                    })
+            })
     }
 
     fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {
@@ -206,6 +229,12 @@ pub(crate) fn spawn_read_context(st: &Halley) -> SpawnReadContext<'_> {
             .collect(),
         focused_monitor: st.focused_monitor(),
         interaction_monitor: st.interaction_monitor(),
+        pointer_monitor: st
+            .input
+            .interaction_state
+            .last_pointer_screen_global
+            .and_then(|(sx, sy)| st.monitor_for_screen(sx, sy)),
+        input_focus_mode: st.runtime.tuning.input.focus_mode,
         pan_to_new: st.runtime.tuning.pan_to_new,
     }
 }

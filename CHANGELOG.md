@@ -21,3 +21,4 @@ All notable changes to this project will be documented in this file.
 - Block direct scanout only while a visible overlap-policy window is actually being drawn above the fullscreen app on that monitor.
 - Keep zoom and pointer panning locked while a fullscreen lock is still active underneath overlap-policy windows, and only release those locks when the user explicitly switches away from fullscreen interaction.
 - Base drag edge-pan timing on the active drag state instead of the last render tick, preventing inconsistent pan jumps when render timing varies.
+- Make `input.focus-mode "hover"` treat the empty monitor under the pointer as the default spawn target for new windows, while keeping existing hover-to-focus behavior for windows under the cursor.
