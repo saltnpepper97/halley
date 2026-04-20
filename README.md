@@ -96,6 +96,53 @@ Once inside, you leave the Field entirely. The cluster is its own contained spac
 
 ---
 
+## Requirements
+
+Halley targets a native Linux Wayland session and expects:
+
+- A DRM/KMS-capable graphics stack with GBM/EGL/OpenGL support
+- A seat/session backend through `libseat` such as `seatd` or logind
+- `libinput` and `udev` access on a real TTY for the native backend
+- Rust and Cargo if you are building from source
+
+Optional but commonly needed:
+
+- `xwayland-satellite` for X11 app support
+- `xdg-desktop-portal-wlr` for portal-driven screenshot and screencast flows and `xdg-desktop-portal-gtk`
+- `fuzzel` plus a Wayland terminal such as `ghostty`, `kitty`, `foot`, `wezterm`, `alacritty`, `rio`, or `contour` if you use the default launch bindings
+
+---
+
+## Install
+
+### AUR
+
+    yay -S halley    
+
+or
+
+    paru -S halley
+
+Or for the latest commit:
+
+    yay -S halley-dev
+
+or
+
+    paru -S halley-dev
+
+### From Source
+
+```bash
+git clone https://github.com/saltnpepper97/halley
+cd halley
+cargo build --release
+```
+
+The compositor binary will be available at `target/release/halley`.
+
+---
+
 ## Default Keybinds
 
 Defaults follow Halley's shipped fresh-config template.
