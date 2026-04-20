@@ -152,6 +152,12 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             action: CompositorBindingAction::ToggleState,
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Field,
+            modifiers: modifier,
+            key: key("m"),
+            action: CompositorBindingAction::MaximizeFocusedWindow,
+        },
+        CompositorBinding {
             scope: CompositorBindingScope::Global,
             modifiers: KeyModifiers {
                 shift: true,

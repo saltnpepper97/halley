@@ -218,6 +218,11 @@ animations:
     duration-ms 90  # lower = tighter, higher = softer
   end
 
+  maximize:
+    enabled true
+    duration-ms 240
+  end
+
   window-open:
     enabled true
     duration-ms 620
@@ -278,6 +283,7 @@ keybinds:
   # Basic compositor controls.
   "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
+  "$var.mod+m" "maximize-focused"
   "$var.mod+q" "close-focused"
 
   # Zoom controls for the field camera.

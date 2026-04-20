@@ -218,6 +218,7 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
                 .workspace_state
                 .primary_promote_cooldown_until_ms
                 .remove(&id);
+            crate::compositor::workspace::state::abort_maximize_session_for_node(st, id);
             st.model.focus_state.last_surface_focus_ms.remove(&id);
             st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
             st.model.carry_state.carry_zone_hint.remove(&id);

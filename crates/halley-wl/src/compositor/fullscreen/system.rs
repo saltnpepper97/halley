@@ -634,6 +634,8 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             return;
         };
 
+        crate::compositor::workspace::state::abort_maximize_session_for_node(self, node_id);
+
         let saved_size = crate::compositor::surface::current_surface_size_for_node(self, node_id)
             .unwrap_or(node.intrinsic_size);
         let saved_bbox_loc = self.ui.render_state.cache.bbox_loc.get(&node_id).copied();

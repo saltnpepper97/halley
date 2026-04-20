@@ -239,6 +239,15 @@ fn apply_explicit_binding(
                 CompositorBindingAction::ToggleState,
             );
         }
+        "maximize_focused" | "maximize-focused" | "toggle_maximize" | "toggle-maximize" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Field,
+                mods,
+                key,
+                CompositorBindingAction::MaximizeFocusedWindow,
+            );
+        }
         "close_focused" | "close-focused" | "close_window" | "close-window" => {
             upsert_compositor_binding(
                 out,
@@ -751,6 +760,20 @@ end
         assert!(out.compositor_bindings.iter().any(|binding| {
             binding.scope == CompositorBindingScope::Global
                 && binding.action == CompositorBindingAction::OpenTerminal
+        }));
+    }
+
+    #[test]
+    fn maximize_keyword_parses_as_field_action() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+
+        let bindings = vec![("mod+m".to_string(), "maximize-focused".to_string())];
+        assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+
+        assert!(out.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Field
+                && binding.action == CompositorBindingAction::MaximizeFocusedWindow
         }));
     }
 }

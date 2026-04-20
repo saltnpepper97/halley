@@ -273,6 +273,8 @@ impl Halley {
                     pending_manual_collapses: HashMap::new(),
                     active_transition_until_ms: HashMap::new(),
                     primary_promote_cooldown_until_ms: HashMap::new(),
+                    maximize_sessions: HashMap::new(),
+                    maximize_animation: HashMap::new(),
                 },
                 fullscreen_state: FullscreenState {
                     fullscreen_active_node: HashMap::new(),

@@ -191,6 +191,14 @@ impl RuntimeTuning {
         self.animations.smooth_resize.duration_ms.max(1)
     }
 
+    pub fn maximize_animation_enabled(&self) -> bool {
+        self.animations_enabled() && self.animations.maximize.enabled
+    }
+
+    pub fn maximize_animation_duration_ms(&self) -> u64 {
+        self.animations.maximize.duration_ms.max(1)
+    }
+
     pub fn window_close_animation_enabled(&self) -> bool {
         self.animations_enabled() && self.animations.window_close.enabled
     }
@@ -514,6 +522,11 @@ animations:
     duration-ms 90  # lower = tighter, higher = softer
   end
 
+  maximize:
+    enabled true
+    duration-ms 240
+  end
+
   window-open:
     enabled true
     duration-ms 620
@@ -574,6 +587,7 @@ keybinds:
   # Basic compositor controls.
   "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
+  "$var.mod+m" "maximize-focused"
   "$var.mod+q" "close-focused"
 
   # Zoom controls for the field camera.
@@ -774,6 +788,7 @@ mod tests {
         assert_eq!(tuning.field_active_windows_allowed, 5);
         assert_eq!(tuning.input.repeat_rate, 30);
         assert_eq!(tuning.input.repeat_delay, 500);
+        assert_eq!(tuning.animations.maximize.duration_ms, 240);
     }
 
     #[test]
@@ -796,6 +811,7 @@ mod tests {
         assert!(rendered.contains("# Example second monitor configuration."));
         assert!(rendered.contains("    focus-ring:"));
         assert!(rendered.contains("# Cursor settings apply to the compositor itself"));
+        assert!(rendered.contains("  maximize:\n    enabled true\n    duration-ms 240"));
         assert!(
             rendered.contains(
                 "input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"\nend"
