@@ -96,6 +96,23 @@ Once inside, you leave the Field entirely. The cluster is its own contained spac
 
 ---
 
+## Requirements
+
+Halley targets a native Linux Wayland session and expects:
+
+- A DRM/KMS-capable graphics stack with GBM/EGL/OpenGL support
+- A seat/session backend through `libseat` such as `seatd` or logind
+- `libinput` and `udev` access on a real TTY for the native backend
+- Rust and Cargo if you are building from source
+
+Optional but commonly needed:
+
+- `xwayland-satellite` for X11 app support
+- `xdg-desktop-portal-wlr` for portal-driven screenshot and screencast flows and `xdg-desktop-portal-gtk`
+- `fuzzel` plus a Wayland terminal such as `ghostty`, `kitty`, `foot`, `wezterm`, `alacritty`, `rio`, or `contour` if you use the default launch bindings
+
+---
+
 ## Install
 
 ### AUR
