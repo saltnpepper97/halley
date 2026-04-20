@@ -12,4 +12,4 @@ categories.workspace = true
 exclude.workspace = true
 
 [dependencies]
-halley-wl = { path = "../halley-wl", version = "0.1.0" }
+halley-wl.workspace = true

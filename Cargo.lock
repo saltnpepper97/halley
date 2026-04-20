@@ -1058,10 +1058,10 @@ name = "halley-wl"
 version = "0.1.0"
 dependencies = [
  "calloop 0.14.4",
+ "chrono",
  "cosmic-text",
  "eventline",
  "glam",
- "halley-aperture",
  "halley-capit",
  "halley-config",
  "halley-core",
@@ -1073,6 +1073,7 @@ dependencies = [
  "postcard",
  "regex",
  "resvg",
+ "rune-cfg",
  "rustix 1.1.4",
  "serde",
  "smallvec",

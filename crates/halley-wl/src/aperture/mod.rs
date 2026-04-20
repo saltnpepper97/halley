@@ -1,16 +1,18 @@
+pub(crate) mod core;
 mod config;
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use eventline::{debug, warn};
-use halley_aperture::{ApertureConfig, ApertureMode, ApertureRuntime, ClockSnapshot, Rect, Size};
 use halley_ipc::{ApertureMode as IpcApertureMode, ApertureStatusResponse};
 
 use crate::compositor::root::Halley;
 use crate::text::ui_text_size_px_in;
 
 use halley_core::field::NodeId;
+
+use self::core::{ApertureConfig, ApertureMode, ApertureRuntime, ClockSnapshot, Rect, Size};
 
 pub(crate) use config::{
     aperture_config_matches_event_path, config_watch_roots, default_aperture_config_path,

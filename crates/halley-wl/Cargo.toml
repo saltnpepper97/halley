@@ -12,11 +12,10 @@ categories.workspace = true
 exclude.workspace = true
 
 [dependencies]
-halley-aperture = { path = "../halley-aperture", version = "0.1.0" }
-halley-capit = { path = "../halley-capit", version = "0.1.0" }
-halley-core = { path = "../halley-core", version = "0.1.0" }
-halley-config = { path = "../halley-config", version = "0.1.0" }
-halley-ipc = { path = "../halley-ipc", version = "0.1.0" }
+halley-capit.workspace = true
+halley-config.workspace = true
+halley-core.workspace = true
+halley-ipc.workspace = true
 
 # Wayland compositor toolkit
 smithay = { version = "0.7.0", default-features = false, features = [
@@ -45,7 +44,9 @@ rustix = { version = "1.1.4", features = ["runtime"] }
 eventline = "0.8.0"
 
 # Useful
+chrono.workspace = true
 once_cell = "1.21.4"
+rune-cfg.workspace = true
 
 # IPC
 pollster = "0.4.0"
@@ -53,11 +54,11 @@ pollster = "0.4.0"
 # Rendering/math + serialization (phase 1 alignment with crates.txt)
 glam = "0.32.1"
 wgpu = "29.0.1"
-serde = { version = "1.0.228", features = ["derive"] }
-postcard = { version = "1.1.3", features = ["use-std"] }
+postcard.workspace = true
+serde.workspace = true
 notify = "8.2.0"
 xcursor = "0.3.10"
-image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+image.workspace = true
 resvg = "0.47.0"
 regex = "1.12.3"
 cosmic-text = { version = "0.18.2", features = ["swash"] }

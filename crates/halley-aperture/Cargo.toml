@@ -3,6 +3,7 @@ name = "halley-aperture"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 description = "A status bar and utility for the Halley Wayland compositor."
 license.workspace = true
 readme.workspace = true
@@ -12,13 +13,13 @@ categories.workspace = true
 exclude.workspace = true
 
 [dependencies]
-chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
-halley-ipc = { path = "../halley-ipc", version = "0.1.0" }
-rusttype = "0.9.3"
-smithay-client-toolkit = "0.20.0"
-rune-cfg = "0.4.4"
+chrono.workspace = true
 fontdb = "0.23.0"
-wayland-client = "0.31.14"
+halley-ipc.workspace = true
+rusttype = "0.9.3"
+rune-cfg.workspace = true
+smithay-client-toolkit.workspace = true
+wayland-client.workspace = true
 
 [[bin]]
 name = "halley-aperture"
