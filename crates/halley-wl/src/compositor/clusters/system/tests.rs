@@ -102,6 +102,10 @@ fn create_named_test_cluster(
     (cid, core)
 }
 
+fn core_pos(st: &Halley, core: NodeId) -> Vec2 {
+    st.model.field.node(core).expect("core").pos
+}
+
 #[test]
 fn generic_cluster_names_are_monitor_local_reclaimable_and_moveable() {
     let dh = Display::<Halley>::new().expect("display").handle();
@@ -159,6 +163,108 @@ fn generic_cluster_names_are_monitor_local_reclaimable_and_moveable() {
             .label,
         "Cluster 3"
     );
+}
+
+#[test]
+fn cluster_slot_order_is_creation_order_per_monitor() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, dual_monitor_tuning());
+
+    let (cid_a1, _core_a1) = create_named_test_cluster(&mut st, "monitor_a", ["a1", "a2"], 120.0);
+    let (cid_a2, _core_a2) = create_named_test_cluster(&mut st, "monitor_a", ["a3", "a4"], 520.0);
+    let (cid_b1, _core_b1) = create_named_test_cluster(&mut st, "monitor_b", ["b1", "b2"], 920.0);
+
+    assert_eq!(
+        cluster_system_controller(&st).cluster_slot_order_for_monitor("monitor_a"),
+        vec![cid_a1, cid_a2]
+    );
+    assert_eq!(
+        cluster_system_controller(&st).cluster_slot_order_for_monitor("monitor_b"),
+        vec![cid_b1]
+    );
+}
+
+#[test]
+fn cluster_slot_action_pans_then_opens_target_cluster() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+    let (cid, core) = create_named_test_cluster(&mut st, "monitor_a", ["a1", "a2"], 120.0);
+    st.model.viewport.center = Vec2 { x: 700.0, y: 300.0 };
+    st.model.camera_target_center = st.model.viewport.center;
+
+    assert!(st.activate_cluster_slot_on_current_monitor(1, Instant::now()));
+    assert_eq!(st.active_cluster_workspace_for_monitor("monitor_a"), None);
+    assert!(
+        st.model
+            .cluster_state
+            .pending_cluster_slot_transition
+            .contains_key("monitor_a")
+    );
+
+    st.input.interaction_state.viewport_pan_anim = None;
+    st.model.viewport.center = core_pos(&st, core);
+    st.model.camera_target_center = st.model.viewport.center;
+    assert!(st.process_pending_cluster_slot_transition_for_current_monitor(Instant::now()));
+    assert_eq!(
+        st.active_cluster_workspace_for_monitor("monitor_a"),
+        Some(cid)
+    );
+}
+
+#[test]
+fn cluster_slot_action_switches_between_clusters_with_collapse_then_open() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+    let (_cid_a, core_a) = create_named_test_cluster(&mut st, "monitor_a", ["a1", "a2"], 120.0);
+    let (cid_b, core_b) = create_named_test_cluster(&mut st, "monitor_a", ["b1", "b2"], 820.0);
+
+    st.model.viewport.center = core_pos(&st, core_a);
+    st.model.camera_target_center = st.model.viewport.center;
+    assert!(st.activate_cluster_slot_on_current_monitor(1, Instant::now()));
+    assert_eq!(
+        st.active_cluster_workspace_for_monitor("monitor_a")
+            .is_some(),
+        true
+    );
+
+    assert!(st.activate_cluster_slot_on_current_monitor(2, Instant::now()));
+    assert_eq!(st.active_cluster_workspace_for_monitor("monitor_a"), None);
+    assert!(
+        st.model
+            .cluster_state
+            .pending_cluster_slot_transition
+            .contains_key("monitor_a")
+    );
+
+    st.input.interaction_state.viewport_pan_anim = None;
+    st.model.viewport.center = core_pos(&st, core_b);
+    st.model.camera_target_center = st.model.viewport.center;
+    assert!(st.process_pending_cluster_slot_transition_for_current_monitor(Instant::now()));
+    assert_eq!(
+        st.active_cluster_workspace_for_monitor("monitor_a"),
+        Some(cid_b)
+    );
+}
+
+#[test]
+fn cluster_slot_action_toggles_same_cluster_back_to_core() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+    let (_cid, core) = create_named_test_cluster(&mut st, "monitor_a", ["a1", "a2"], 120.0);
+    st.model.viewport.center = core_pos(&st, core);
+    st.model.camera_target_center = st.model.viewport.center;
+
+    assert!(st.activate_cluster_slot_on_current_monitor(1, Instant::now()));
+    assert!(
+        st.active_cluster_workspace_for_monitor("monitor_a")
+            .is_some()
+    );
+    assert!(st.activate_cluster_slot_on_current_monitor(1, Instant::now()));
+    assert_eq!(st.active_cluster_workspace_for_monitor("monitor_a"), None);
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(core));
 }
 
 #[test]

@@ -85,6 +85,7 @@ pub enum TileBindingAction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClusterBindingAction {
     LayoutCycle,
+    Slot(u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

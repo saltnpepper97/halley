@@ -612,6 +612,16 @@ keybinds:
   # Cluster controls.
   "$var.mod+shift+c" "cluster-mode"
   "$var.mod+l" "cluster-layout cycle"
+  "$var.mod+1" "cluster slot 1"
+  "$var.mod+2" "cluster slot 2"
+  "$var.mod+3" "cluster slot 3"
+  "$var.mod+4" "cluster slot 4"
+  "$var.mod+5" "cluster slot 5"
+  "$var.mod+6" "cluster slot 6"
+  "$var.mod+7" "cluster slot 7"
+  "$var.mod+8" "cluster slot 8"
+  "$var.mod+9" "cluster slot 9"
+  "$var.mod+0" "cluster slot 10"
 
   # Bearings controls.
   "$var.mod+z" "bearings-show"
@@ -812,6 +822,7 @@ mod tests {
         assert!(rendered.contains("    focus-ring:"));
         assert!(rendered.contains("# Cursor settings apply to the compositor itself"));
         assert!(rendered.contains("  maximize:\n    enabled true\n    duration-ms 240"));
+        assert!(rendered.contains("\"$var.mod+1\" \"cluster slot 1\""));
         assert!(
             rendered.contains(
                 "input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"\nend"

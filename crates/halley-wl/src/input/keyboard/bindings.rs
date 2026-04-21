@@ -240,6 +240,9 @@ pub(crate) fn apply_compositor_action_press(
             let monitor = st.focused_monitor().to_string();
             st.cycle_active_cluster_layout_for_monitor(monitor.as_str(), Instant::now())
         }
+        CompositorBindingAction::Cluster(ClusterBindingAction::Slot(slot)) => {
+            st.activate_cluster_slot_on_current_monitor(slot, Instant::now())
+        }
         CompositorBindingAction::Trail(TrailBindingAction::Prev) => {
             crate::compositor::actions::window::step_window_trail(
                 st,

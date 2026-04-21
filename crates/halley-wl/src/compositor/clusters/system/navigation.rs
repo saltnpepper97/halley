@@ -1,6 +1,80 @@
 use super::*;
+use crate::compositor::clusters::state::PendingClusterSlotTransition;
 
 impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
+    pub(crate) fn activate_cluster_slot_on_current_monitor(
+        &mut self,
+        slot: u8,
+        now: Instant,
+    ) -> bool {
+        let monitor = self.model.monitor_state.current_monitor.clone();
+        self.model
+            .cluster_state
+            .pending_cluster_slot_transition
+            .remove(monitor.as_str());
+        let Some(cid) = self.cluster_slot_cluster_for_monitor(monitor.as_str(), slot) else {
+            return false;
+        };
+
+        if self.active_cluster_workspace_for_monitor(monitor.as_str()) == Some(cid) {
+            return self.exit_cluster_workspace_for_monitor(monitor.as_str(), now);
+        }
+
+        if self
+            .active_cluster_workspace_for_monitor(monitor.as_str())
+            .is_some()
+        {
+            let _ = self.exit_cluster_workspace_for_monitor(monitor.as_str(), now);
+        }
+
+        let Some(core_id) = self
+            .model
+            .field
+            .cluster(cid)
+            .and_then(|cluster| cluster.core)
+        else {
+            return false;
+        };
+        let Some(target_center) = self.model.field.node(core_id).map(|node| node.pos) else {
+            return false;
+        };
+
+        if self.animate_viewport_center_to(target_center, now) {
+            self.model
+                .cluster_state
+                .pending_cluster_slot_transition
+                .insert(monitor, PendingClusterSlotTransition { slot, cid, core_id });
+            self.request_maintenance();
+            true
+        } else {
+            self.enter_cluster_workspace_by_core(core_id, monitor.as_str(), now)
+        }
+    }
+
+    pub(crate) fn process_pending_cluster_slot_transition_for_current_monitor(
+        &mut self,
+        now: Instant,
+    ) -> bool {
+        if self.input.interaction_state.viewport_pan_anim.is_some() {
+            return false;
+        }
+        let monitor = self.model.monitor_state.current_monitor.clone();
+        let Some(pending) = self
+            .model
+            .cluster_state
+            .pending_cluster_slot_transition
+            .remove(monitor.as_str())
+        else {
+            return false;
+        };
+        if self.cluster_slot_cluster_for_monitor(monitor.as_str(), pending.slot)
+            != Some(pending.cid)
+        {
+            return false;
+        }
+        self.enter_cluster_workspace_by_core(pending.core_id, monitor.as_str(), now)
+    }
+
     fn visible_tiled_cluster_tiles_for_monitor(
         &self,
         monitor: &str,

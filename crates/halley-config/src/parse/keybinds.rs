@@ -462,7 +462,7 @@ fn parse_parameterized_compositor_action(
             )
         }),
         "tile" => parse_tile_action(arg),
-        "cluster" | "cluster-layout" | "cluster_layout" => {
+        "cluster" | "cluster-layout" | "cluster_layout" | "cluster-slot" | "cluster_slot" => {
             parse_cluster_action(command.as_str(), arg)
         }
         _ => None,
@@ -490,6 +490,16 @@ fn parse_cluster_action(
             Some((
                 CompositorBindingScope::Cluster,
                 CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle),
+            ))
+        }
+        ("cluster", arg) | ("cluster-slot", arg) | ("cluster_slot", arg)
+            if arg.starts_with("slot ") || command != "cluster" =>
+        {
+            let slot = arg.strip_prefix("slot ").unwrap_or(arg).trim();
+            let slot = slot.parse::<u8>().ok()?;
+            ((1..=10).contains(&slot)).then_some((
+                CompositorBindingScope::Global,
+                CompositorBindingAction::Cluster(ClusterBindingAction::Slot(slot)),
             ))
         }
         _ => None,
@@ -641,6 +651,25 @@ mod tests {
         assert_eq!(
             parsed.1,
             CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle)
+        );
+    }
+
+    #[test]
+    fn cluster_slot_keyword_parses() {
+        let parsed = parse_parameterized_compositor_action("cluster slot 10")
+            .expect("cluster slot should parse");
+        assert_eq!(parsed.0, CompositorBindingScope::Global);
+        assert_eq!(
+            parsed.1,
+            CompositorBindingAction::Cluster(ClusterBindingAction::Slot(10))
+        );
+
+        let parsed = parse_parameterized_compositor_action("cluster-slot 2")
+            .expect("cluster-slot should parse");
+        assert_eq!(parsed.0, CompositorBindingScope::Global);
+        assert_eq!(
+            parsed.1,
+            CompositorBindingAction::Cluster(ClusterBindingAction::Slot(2))
         );
     }
 

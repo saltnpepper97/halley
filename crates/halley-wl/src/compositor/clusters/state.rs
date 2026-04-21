@@ -33,6 +33,13 @@ pub(crate) struct ClusterNamingPromptState {
     pub(crate) confirm_hover_mix: f32,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PendingClusterSlotTransition {
+    pub(crate) slot: u8,
+    pub(crate) cid: ClusterId,
+    pub(crate) core_id: NodeId,
+}
+
 pub(crate) struct ClusterState {
     pub(crate) cluster_form_state: ClusterFormationState,
     pub(crate) cluster_names: HashMap<ClusterId, ClusterNameRecord>,
@@ -49,4 +56,6 @@ pub(crate) struct ClusterState {
     pub(crate) cluster_overflow_reveal_started_at_ms: HashMap<String, u64>,
     pub(crate) cluster_overflow_visible_until_ms: HashMap<String, u64>,
     pub(crate) cluster_overflow_promotion_anim: HashMap<String, ClusterOverflowPromotionAnim>,
+    pub(crate) cluster_slot_order: HashMap<String, Vec<ClusterId>>,
+    pub(crate) pending_cluster_slot_transition: HashMap<String, PendingClusterSlotTransition>,
 }
