@@ -112,6 +112,7 @@ pub(crate) fn tty_output_animation_redraw_state(
             });
     let fullscreen_motion_active = !st.model.fullscreen_state.fullscreen_motion.is_empty()
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
+    let maximize_motion_active = crate::compositor::workspace::state::maximize_animation_active(st);
     let current_monitor = st.model.monitor_state.current_monitor.as_str();
     let viewport_pan_active = monitor == current_monitor
         && (st.input.interaction_state.viewport_pan_anim.is_some()
@@ -138,7 +139,8 @@ pub(crate) fn tty_output_animation_redraw_state(
         || active_transition_active
         || tiled_insert_reveal_active
         || spawn_activation_active
-        || fullscreen_motion_active;
+        || fullscreen_motion_active
+        || maximize_motion_active;
     let active = fade_related
         || cluster_tile_active
         || close_window_active
@@ -227,7 +229,9 @@ pub(crate) fn tick_animator_frame(st: &mut Halley, now: Instant) {
 pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     let now_ms = st.now_ms(now);
     st.tick_viewport_pan_animation(now_ms);
+    let _ = st.process_pending_cluster_slot_transition_for_current_monitor(now);
     st.tick_pending_spawn_pan(now, now_ms);
+    crate::compositor::workspace::state::tick_maximize_animation(st, now);
     tick_active_drag(st, now);
     crate::compositor::interaction::state::tick_cluster_join_candidate_ready(st, now_ms);
     crate::compositor::interaction::state::tick_bloom_pull_preview(st, now_ms);
@@ -237,7 +241,7 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
 
 #[inline]
 fn drag_edge_pan_screen_speed_pxps(cam_scale: f32) -> f32 {
-    const DRAG_EDGE_PAN_BASE_SPEED_PXPS: f32 = 250.0;
+    const DRAG_EDGE_PAN_BASE_SPEED_PXPS: f32 = 132.0;
 
     // Keep zoomed-out edge pan at the same feel, but slow it down further as
     // the camera zooms in so tighter views don't move as aggressively.
@@ -430,6 +434,7 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
 pub(crate) fn tick_live_overlap(st: &mut Halley) {
     if st.input.interaction_state.suspend_state_checks
         || st.input.interaction_state.resize_active.is_some()
+        || crate::compositor::workspace::state::maximize_animation_active(st)
     {
         return;
     }

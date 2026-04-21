@@ -152,6 +152,12 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             action: CompositorBindingAction::ToggleState,
         },
         CompositorBinding {
+            scope: CompositorBindingScope::Field,
+            modifiers: modifier,
+            key: key("m"),
+            action: CompositorBindingAction::MaximizeFocusedWindow,
+        },
+        CompositorBinding {
             scope: CompositorBindingScope::Global,
             modifiers: KeyModifiers {
                 shift: true,
@@ -268,6 +274,66 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             modifiers: modifier,
             key: key("l"),
             action: CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("1"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::Slot(1)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("2"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::Slot(2)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("3"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::Slot(3)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("4"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::Slot(4)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("5"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::Slot(5)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("6"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::Slot(6)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("7"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::Slot(7)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("8"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::Slot(8)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("9"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::Slot(9)),
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Global,
+            modifiers: modifier,
+            key: key("0"),
+            action: CompositorBindingAction::Cluster(ClusterBindingAction::Slot(10)),
         },
         CompositorBinding {
             scope: CompositorBindingScope::Tile,

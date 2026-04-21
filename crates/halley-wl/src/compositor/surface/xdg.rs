@@ -21,6 +21,14 @@ pub(crate) fn request_close_node_toplevel(
     st: &mut Halley,
     node_id: halley_core::field::NodeId,
 ) -> bool {
+    if crate::compositor::workspace::state::node_in_maximize_session(st, node_id)
+        && let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id).cloned()
+    {
+        let _ = crate::compositor::workspace::state::abort_maximize_session_for_monitor(
+            st,
+            monitor.as_str(),
+        );
+    }
     for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface();
         let key = wl.id();
@@ -32,6 +40,65 @@ pub(crate) fn request_close_node_toplevel(
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::request_close_node_toplevel;
+    use crate::compositor::root::Halley;
+    use halley_core::field::Vec2;
+    use smithay::reexports::wayland_server::Display;
+
+    #[test]
+    fn close_request_immediately_aborts_maximize_session() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.maximize.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        st.model.zoom_ref_size = Vec2 { x: 500.0, y: 375.0 };
+        st.model.camera_target_view_size = st.model.zoom_ref_size;
+        st.model.viewport.center = Vec2 { x: 430.0, y: 280.0 };
+        st.model.camera_target_center = st.model.viewport.center;
+
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let target = st.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 120.0, y: 140.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let bystander = st.model.field.spawn_surface(
+            "bystander",
+            Vec2 { x: 460.0, y: 260.0 },
+            Vec2 { x: 240.0, y: 180.0 },
+        );
+        st.assign_node_to_monitor(target, monitor.as_str());
+        st.assign_node_to_monitor(bystander, monitor.as_str());
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                target,
+                std::time::Instant::now(),
+                monitor.as_str(),
+            )
+        );
+
+        let _ = request_close_node_toplevel(&mut st, target);
+
+        assert!(
+            !st.model
+                .workspace_state
+                .maximize_sessions
+                .contains_key(monitor.as_str())
+        );
+        assert_eq!(
+            st.model.field.node(bystander).expect("bystander").pos,
+            Vec2 { x: 460.0, y: 260.0 }
+        );
+        assert_eq!(st.model.zoom_ref_size, Vec2 { x: 500.0, y: 375.0 });
+        assert_eq!(st.model.viewport.center, Vec2 { x: 430.0, y: 280.0 });
+    }
 }
 
 pub(crate) fn toplevel_min_size_for_node(

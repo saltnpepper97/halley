@@ -1,5 +1,5 @@
-pub(crate) mod core;
 mod config;
+pub(crate) mod core;
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;

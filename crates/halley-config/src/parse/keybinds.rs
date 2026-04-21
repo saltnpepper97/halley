@@ -239,6 +239,15 @@ fn apply_explicit_binding(
                 CompositorBindingAction::ToggleState,
             );
         }
+        "maximize_focused" | "maximize-focused" | "toggle_maximize" | "toggle-maximize" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Field,
+                mods,
+                key,
+                CompositorBindingAction::MaximizeFocusedWindow,
+            );
+        }
         "close_focused" | "close-focused" | "close_window" | "close-window" => {
             upsert_compositor_binding(
                 out,
@@ -453,7 +462,7 @@ fn parse_parameterized_compositor_action(
             )
         }),
         "tile" => parse_tile_action(arg),
-        "cluster" | "cluster-layout" | "cluster_layout" => {
+        "cluster" | "cluster-layout" | "cluster_layout" | "cluster-slot" | "cluster_slot" => {
             parse_cluster_action(command.as_str(), arg)
         }
         _ => None,
@@ -481,6 +490,16 @@ fn parse_cluster_action(
             Some((
                 CompositorBindingScope::Cluster,
                 CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle),
+            ))
+        }
+        ("cluster", arg) | ("cluster-slot", arg) | ("cluster_slot", arg)
+            if arg.starts_with("slot ") || command != "cluster" =>
+        {
+            let slot = arg.strip_prefix("slot ").unwrap_or(arg).trim();
+            let slot = slot.parse::<u8>().ok()?;
+            ((1..=10).contains(&slot)).then_some((
+                CompositorBindingScope::Global,
+                CompositorBindingAction::Cluster(ClusterBindingAction::Slot(slot)),
             ))
         }
         _ => None,
@@ -636,6 +655,25 @@ mod tests {
     }
 
     #[test]
+    fn cluster_slot_keyword_parses() {
+        let parsed = parse_parameterized_compositor_action("cluster slot 10")
+            .expect("cluster slot should parse");
+        assert_eq!(parsed.0, CompositorBindingScope::Global);
+        assert_eq!(
+            parsed.1,
+            CompositorBindingAction::Cluster(ClusterBindingAction::Slot(10))
+        );
+
+        let parsed = parse_parameterized_compositor_action("cluster-slot 2")
+            .expect("cluster-slot should parse");
+        assert_eq!(parsed.0, CompositorBindingScope::Global);
+        assert_eq!(
+            parsed.1,
+            CompositorBindingAction::Cluster(ClusterBindingAction::Slot(2))
+        );
+    }
+
+    #[test]
     fn malformed_inline_keybind_line_fails() {
         let raw = r#"
 keybinds:
@@ -751,6 +789,20 @@ end
         assert!(out.compositor_bindings.iter().any(|binding| {
             binding.scope == CompositorBindingScope::Global
                 && binding.action == CompositorBindingAction::OpenTerminal
+        }));
+    }
+
+    #[test]
+    fn maximize_keyword_parses_as_field_action() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+
+        let bindings = vec![("mod+m".to_string(), "maximize-focused".to_string())];
+        assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+
+        assert!(out.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Field
+                && binding.action == CompositorBindingAction::MaximizeFocusedWindow
         }));
     }
 }

@@ -84,8 +84,9 @@ impl ApertureConfig {
             return Ok(Self::default());
         }
 
-        let cfg = RuneConfig::from_str(raw)
-            .map_err(|err| ApertureConfigError::new(format!("aperture config parse error: {err}")))?;
+        let cfg = RuneConfig::from_str(raw).map_err(|err| {
+            ApertureConfigError::new(format!("aperture config parse error: {err}"))
+        })?;
 
         let mut out = Self::default();
         out.clock.font_family = pick_string(

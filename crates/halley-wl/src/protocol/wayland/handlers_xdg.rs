@@ -122,6 +122,9 @@ impl XdgShellHandler for Halley {
         let Some(node_id) = self.model.surface_to_node.get(&key).copied() else {
             return;
         };
+        if crate::compositor::workspace::state::node_in_maximize_session(self, node_id) {
+            return;
+        }
         let now = Instant::now();
         let focus_target = surface::stack_focus_target_for_node(self, node_id).unwrap_or(node_id);
         self.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));

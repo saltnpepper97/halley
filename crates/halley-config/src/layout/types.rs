@@ -125,6 +125,7 @@ impl WindowCloseAnimationConfig {
 pub struct AnimationsConfig {
     pub enabled: bool,
     pub smooth_resize: TimedAnimationConfig,
+    pub maximize: TimedAnimationConfig,
     pub window_close: WindowCloseAnimationConfig,
     pub window_open: TimedAnimationConfig,
     pub tile: TimedAnimationConfig,
@@ -136,6 +137,7 @@ impl Default for AnimationsConfig {
         Self {
             enabled: true,
             smooth_resize: TimedAnimationConfig::new(true, 90),
+            maximize: TimedAnimationConfig::new(true, 240),
             window_close: WindowCloseAnimationConfig::new(
                 true,
                 250,

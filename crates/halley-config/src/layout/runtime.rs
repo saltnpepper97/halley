@@ -191,6 +191,14 @@ impl RuntimeTuning {
         self.animations.smooth_resize.duration_ms.max(1)
     }
 
+    pub fn maximize_animation_enabled(&self) -> bool {
+        self.animations_enabled() && self.animations.maximize.enabled
+    }
+
+    pub fn maximize_animation_duration_ms(&self) -> u64 {
+        self.animations.maximize.duration_ms.max(1)
+    }
+
     pub fn window_close_animation_enabled(&self) -> bool {
         self.animations_enabled() && self.animations.window_close.enabled
     }
@@ -514,6 +522,11 @@ animations:
     duration-ms 90  # lower = tighter, higher = softer
   end
 
+  maximize:
+    enabled true
+    duration-ms 240
+  end
+
   window-open:
     enabled true
     duration-ms 620
@@ -574,6 +587,7 @@ keybinds:
   # Basic compositor controls.
   "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
+  "$var.mod+m" "maximize-focused"
   "$var.mod+q" "close-focused"
 
   # Zoom controls for the field camera.
@@ -598,6 +612,16 @@ keybinds:
   # Cluster controls.
   "$var.mod+shift+c" "cluster-mode"
   "$var.mod+l" "cluster-layout cycle"
+  "$var.mod+1" "cluster slot 1"
+  "$var.mod+2" "cluster slot 2"
+  "$var.mod+3" "cluster slot 3"
+  "$var.mod+4" "cluster slot 4"
+  "$var.mod+5" "cluster slot 5"
+  "$var.mod+6" "cluster slot 6"
+  "$var.mod+7" "cluster slot 7"
+  "$var.mod+8" "cluster slot 8"
+  "$var.mod+9" "cluster slot 9"
+  "$var.mod+0" "cluster slot 10"
 
   # Bearings controls.
   "$var.mod+z" "bearings-show"
@@ -774,6 +798,7 @@ mod tests {
         assert_eq!(tuning.field_active_windows_allowed, 5);
         assert_eq!(tuning.input.repeat_rate, 30);
         assert_eq!(tuning.input.repeat_delay, 500);
+        assert_eq!(tuning.animations.maximize.duration_ms, 240);
     }
 
     #[test]
@@ -796,6 +821,8 @@ mod tests {
         assert!(rendered.contains("# Example second monitor configuration."));
         assert!(rendered.contains("    focus-ring:"));
         assert!(rendered.contains("# Cursor settings apply to the compositor itself"));
+        assert!(rendered.contains("  maximize:\n    enabled true\n    duration-ms 240"));
+        assert!(rendered.contains("\"$var.mod+1\" \"cluster slot 1\""));
         assert!(
             rendered.contains(
                 "input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"\nend"

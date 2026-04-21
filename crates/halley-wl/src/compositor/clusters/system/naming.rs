@@ -133,6 +133,32 @@ fn parse_reserved_generic_cluster_name(value: &str) -> Option<u32> {
 }
 
 impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
+    pub(crate) fn cluster_slot_order_for_monitor(&self, monitor: &str) -> Vec<ClusterId> {
+        self.model
+            .cluster_state
+            .cluster_slot_order
+            .get(monitor)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|&cid| {
+                self.model.field.cluster(cid).is_some()
+                    && self.preferred_monitor_for_cluster(cid, None).as_deref() == Some(monitor)
+            })
+            .collect()
+    }
+
+    pub(crate) fn cluster_slot_cluster_for_monitor(
+        &self,
+        monitor: &str,
+        slot: u8,
+    ) -> Option<ClusterId> {
+        let slot_index = usize::from(slot.saturating_sub(1));
+        self.cluster_slot_order_for_monitor(monitor)
+            .get(slot_index)
+            .copied()
+    }
+
     pub(crate) fn cluster_name_prompt_active_for_monitor(&self, monitor: &str) -> bool {
         self.model
             .cluster_state
@@ -206,6 +232,43 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
 }
 
 impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
+    fn record_cluster_slot_for_monitor(&mut self, cid: ClusterId, monitor: &str) {
+        let target_monitor = monitor.to_string();
+        let already_on_target = self
+            .model
+            .cluster_state
+            .cluster_slot_order
+            .get(target_monitor.as_str())
+            .is_some_and(|order| order.contains(&cid));
+        for (name, order) in &mut self.model.cluster_state.cluster_slot_order {
+            if name != &target_monitor {
+                order.retain(|existing| *existing != cid);
+            }
+        }
+        if !already_on_target {
+            self.model
+                .cluster_state
+                .cluster_slot_order
+                .entry(target_monitor)
+                .or_default()
+                .push(cid);
+        }
+    }
+
+    fn remove_cluster_slot_record(&mut self, cid: ClusterId) {
+        self.model
+            .cluster_state
+            .cluster_slot_order
+            .retain(|_, order| {
+                order.retain(|existing| *existing != cid);
+                !order.is_empty()
+            });
+        self.model
+            .cluster_state
+            .pending_cluster_slot_transition
+            .retain(|_, pending| pending.cid != cid);
+    }
+
     pub(crate) fn relabel_cluster_core(&mut self, cid: ClusterId) -> bool {
         let Some(label) = self.cluster_display_name(cid) else {
             return false;
@@ -231,6 +294,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         monitor: &str,
     ) -> bool {
         if self.model.cluster_state.cluster_names.contains_key(&cid) {
+            self.record_cluster_slot_for_monitor(cid, monitor);
             return self.relabel_cluster_core(cid);
         }
         let slot = self.next_generic_cluster_slot_for_monitor(monitor, Some(cid));
@@ -238,6 +302,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .cluster_state
             .cluster_names
             .insert(cid, ClusterNameRecord::Generic { slot });
+        self.record_cluster_slot_for_monitor(cid, monitor);
         self.relabel_cluster_core(cid)
     }
 
@@ -255,11 +320,13 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .cluster_state
             .cluster_names
             .insert(cid, next_record);
+        self.record_cluster_slot_for_monitor(cid, monitor);
         self.relabel_cluster_core(cid)
     }
 
     pub(crate) fn remove_cluster_name_record(&mut self, cid: ClusterId) {
         self.model.cluster_state.cluster_names.remove(&cid);
+        self.remove_cluster_slot_record(cid);
     }
 
     pub(crate) fn sync_cluster_name_for_node_monitor(&mut self, node_id: NodeId, monitor: &str) {

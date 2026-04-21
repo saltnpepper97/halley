@@ -266,6 +266,8 @@ impl Halley {
                     cluster_overflow_reveal_started_at_ms: HashMap::new(),
                     cluster_overflow_visible_until_ms: HashMap::new(),
                     cluster_overflow_promotion_anim: HashMap::new(),
+                    cluster_slot_order: HashMap::new(),
+                    pending_cluster_slot_transition: HashMap::new(),
                 },
                 workspace_state: WorkspaceState {
                     last_active_size: HashMap::new(),
@@ -273,6 +275,9 @@ impl Halley {
                     pending_manual_collapses: HashMap::new(),
                     active_transition_until_ms: HashMap::new(),
                     primary_promote_cooldown_until_ms: HashMap::new(),
+                    maximize_sessions: HashMap::new(),
+                    maximize_animation: HashMap::new(),
+                    maximize_resume: HashMap::new(),
                 },
                 fullscreen_state: FullscreenState {
                     fullscreen_active_node: HashMap::new(),
@@ -1569,6 +1574,23 @@ impl Halley {
     pub fn toggle_cluster_workspace_by_core(&mut self, core_id: NodeId, now: Instant) -> bool {
         super::clusters::system::cluster_system_controller(self)
             .toggle_cluster_workspace_by_core(core_id, now)
+    }
+
+    pub(crate) fn activate_cluster_slot_on_current_monitor(
+        &mut self,
+        slot: u8,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .activate_cluster_slot_on_current_monitor(slot, now)
+    }
+
+    pub(crate) fn process_pending_cluster_slot_transition_for_current_monitor(
+        &mut self,
+        now: Instant,
+    ) -> bool {
+        super::clusters::system::cluster_system_controller(self)
+            .process_pending_cluster_slot_transition_for_current_monitor(now)
     }
 
     pub fn has_active_cluster_workspace(&self) -> bool {

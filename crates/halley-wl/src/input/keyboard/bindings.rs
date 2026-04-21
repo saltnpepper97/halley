@@ -3,6 +3,7 @@ use eventline::{debug, info, warn};
 use super::modkeys::{key_matches, modifier_exact};
 use crate::compositor::actions::window::{
     move_latest_node_direction, toggle_focused_active_node_state,
+    toggle_focused_maximize_node_state,
 };
 use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ModState;
@@ -198,6 +199,7 @@ pub(crate) fn apply_compositor_action_press(
                 toggle_focused_active_node_state(st)
             }
         }
+        CompositorBindingAction::MaximizeFocusedWindow => toggle_focused_maximize_node_state(st),
         CompositorBindingAction::CloseFocusedWindow => request_close_focused_toplevel(st),
         CompositorBindingAction::ClusterMode => st.enter_cluster_mode(),
         CompositorBindingAction::FocusCycle(direction) => {
@@ -237,6 +239,9 @@ pub(crate) fn apply_compositor_action_press(
         CompositorBindingAction::Cluster(ClusterBindingAction::LayoutCycle) => {
             let monitor = st.focused_monitor().to_string();
             st.cycle_active_cluster_layout_for_monitor(monitor.as_str(), Instant::now())
+        }
+        CompositorBindingAction::Cluster(ClusterBindingAction::Slot(slot)) => {
+            st.activate_cluster_slot_on_current_monitor(slot, Instant::now())
         }
         CompositorBindingAction::Trail(TrailBindingAction::Prev) => {
             crate::compositor::actions::window::step_window_trail(
@@ -338,6 +343,7 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::Reload
             | CompositorBindingAction::OpenTerminal
             | CompositorBindingAction::ToggleState
+            | CompositorBindingAction::MaximizeFocusedWindow
             | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::ClusterMode
             | CompositorBindingAction::FocusCycle(_)
@@ -421,6 +427,9 @@ mod tests {
         ));
         assert!(!compositor_action_allows_repeat(
             CompositorBindingAction::ToggleState
+        ));
+        assert!(!compositor_action_allows_repeat(
+            CompositorBindingAction::MaximizeFocusedWindow
         ));
         assert!(!compositor_action_allows_repeat(
             CompositorBindingAction::OpenTerminal

@@ -36,6 +36,22 @@ pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning)
         out.animations.smooth_resize.duration_ms,
     );
 
+    out.animations.maximize.enabled = pick_bool(
+        cfg,
+        &["animation.maximize.enabled", "animations.maximize.enabled"],
+        out.animations.maximize.enabled,
+    );
+    out.animations.maximize.duration_ms = pick_u64(
+        cfg,
+        &[
+            "animation.maximize.duration-ms",
+            "animation.maximize.duration_ms",
+            "animations.maximize.duration-ms",
+            "animations.maximize.duration_ms",
+        ],
+        out.animations.maximize.duration_ms,
+    );
+
     out.animations.window_close.enabled = pick_bool(
         cfg,
         &[
@@ -147,6 +163,10 @@ animations:
     enabled false
     duration-ms 120
   end
+  maximize:
+    enabled true
+    duration-ms 345
+  end
   window-close:
     enabled true
     duration-ms 250
@@ -175,6 +195,8 @@ end
         assert!(out.animations.enabled);
         assert!(!out.animations.smooth_resize.enabled);
         assert_eq!(out.animations.smooth_resize.duration_ms, 120);
+        assert!(out.animations.maximize.enabled);
+        assert_eq!(out.animations.maximize.duration_ms, 345);
         assert!(out.animations.window_close.enabled);
         assert_eq!(out.animations.window_close.duration_ms, 250);
         assert_eq!(

@@ -145,12 +145,17 @@ fn fullscreen_lock_active_on_monitor(st: &Halley, monitor: &str) -> bool {
 #[inline]
 pub(crate) fn pan_blocked_on_monitor(st: &Halley, monitor: &str) -> bool {
     fullscreen_lock_active_on_monitor(st, monitor)
+        || crate::compositor::workspace::state::maximize_session_active_on_monitor(st, monitor)
 }
 
 #[inline]
 pub(crate) fn zoom_blocked_by_interaction(st: &Halley) -> bool {
     st.has_active_cluster_workspace()
         || fullscreen_lock_active_on_monitor(st, st.model.monitor_state.current_monitor.as_str())
+        || crate::compositor::workspace::state::maximize_session_active_on_monitor(
+            st,
+            st.model.monitor_state.current_monitor.as_str(),
+        )
         || st.cluster_mode_active()
         || st.input.interaction_state.grabbed_edge_pan_active
         || st
@@ -306,6 +311,7 @@ pub fn camera_render_scale(st: &Halley) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::time::Duration;
 
     #[test]
@@ -340,6 +346,47 @@ mod tests {
         state.model.camera_target_view_size = base;
         camera_controller(&mut state).zoom_by_steps(-1.0);
         assert_eq!(state.model.camera_target_view_size, base);
+    }
+
+    #[test]
+    fn maximize_session_on_current_monitor_blocks_pan_and_zoom() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+
+        let maximized = state.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 200.0, y: 140.0 },
+        );
+        state.assign_node_to_current_monitor(maximized);
+        let current_monitor = state.model.monitor_state.current_monitor.clone();
+        state.model.workspace_state.maximize_sessions.insert(
+            current_monitor.clone(),
+            crate::compositor::workspace::state::MaximizeSession {
+                target_id: maximized,
+                node_snapshots: HashMap::from([(
+                    maximized,
+                    crate::compositor::workspace::state::MaximizeNodeSnapshot {
+                        pos: Vec2 { x: 0.0, y: 0.0 },
+                        size: Vec2 { x: 200.0, y: 140.0 },
+                        pinned: false,
+                    },
+                )]),
+                camera: crate::compositor::workspace::state::MaximizeCameraSnapshot {
+                    center: state.model.viewport.center,
+                    view_size: state.model.zoom_ref_size,
+                },
+                state: crate::compositor::workspace::state::MaximizeSessionState::Active,
+            },
+        );
+
+        assert!(pan_blocked_on_monitor(&state, current_monitor.as_str()));
+
+        let before = state.model.camera_target_view_size;
+        camera_controller(&mut state).zoom_by_steps(-1.0);
+        assert_eq!(state.model.camera_target_view_size, before);
     }
 
     #[test]
