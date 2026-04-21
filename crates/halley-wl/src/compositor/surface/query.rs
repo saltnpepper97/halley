@@ -76,6 +76,7 @@ pub(crate) fn node_allows_interactive_resize(
         .field
         .node(node_id)
         .is_some_and(|node| node.state == halley_core::field::NodeState::Active)
+        && !crate::compositor::workspace::state::node_in_maximize_session(st, node_id)
         && !is_active_stacking_workspace_member(st, node_id)
         && !(matches!(
             st.runtime.tuning.cluster_layout_kind(),
@@ -223,5 +224,32 @@ mod tests {
         assert_eq!(ranks.get(&c), Some(&0));
         assert_eq!(ranks.get(&d), None);
         assert_eq!(stack_focus_target_for_node(&st, c), Some(a));
+    }
+
+    #[test]
+    fn maximize_session_blocks_interactive_resize() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.maximize.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let window = st.model.field.spawn_surface(
+            "window",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(window, monitor.as_str());
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                window,
+                Instant::now(),
+                monitor.as_str(),
+            )
+        );
+
+        assert!(!node_allows_interactive_resize(&st, window));
     }
 }

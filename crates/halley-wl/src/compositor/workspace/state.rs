@@ -13,6 +13,7 @@ pub(crate) struct WorkspaceState {
     pub(crate) pending_manual_collapses: HashMap<NodeId, u64>,
     pub(crate) maximize_sessions: HashMap<String, MaximizeSession>,
     pub(crate) maximize_animation: HashMap<NodeId, MaximizeAnimation>,
+    pub(crate) maximize_resume: HashMap<NodeId, String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -32,6 +33,7 @@ pub(crate) struct MaximizeCameraSnapshot {
 pub(crate) enum MaximizeSessionState {
     Active,
     Restoring,
+    SpawnRestoring,
 }
 
 #[derive(Clone, Debug)]
@@ -244,14 +246,58 @@ pub(crate) fn maximize_animation_active(st: &Halley) -> bool {
             .workspace_state
             .maximize_sessions
             .values()
-            .any(|session| session.state == MaximizeSessionState::Restoring)
+            .any(|session| {
+                matches!(
+                    session.state,
+                    MaximizeSessionState::Restoring | MaximizeSessionState::SpawnRestoring
+                )
+            })
 }
 
 pub(crate) fn maximize_session_active_on_monitor(st: &Halley, monitor: &str) -> bool {
     st.model
         .workspace_state
         .maximize_sessions
-        .contains_key(monitor)
+        .get(monitor)
+        .is_some_and(|session| session.state == MaximizeSessionState::Active)
+}
+
+pub(crate) fn maximize_session_target_for_monitor(st: &Halley, monitor: &str) -> Option<NodeId> {
+    st.model
+        .workspace_state
+        .maximize_sessions
+        .get(monitor)
+        .map(|session| session.target_id)
+}
+
+pub(crate) fn maximize_session_for_monitor<'a>(
+    st: &'a Halley,
+    monitor: &str,
+) -> Option<&'a MaximizeSession> {
+    st.model.workspace_state.maximize_sessions.get(monitor)
+}
+
+pub(crate) fn node_in_maximize_session(st: &Halley, node_id: NodeId) -> bool {
+    st.model
+        .workspace_state
+        .maximize_sessions
+        .values()
+        .any(|session| session.node_snapshots.contains_key(&node_id))
+}
+
+pub(crate) fn set_maximize_resume_for_node(st: &mut Halley, node_id: NodeId, monitor: &str) {
+    st.model
+        .workspace_state
+        .maximize_resume
+        .insert(node_id, monitor.to_string());
+}
+
+pub(crate) fn take_maximize_resume_for_node(st: &mut Halley, node_id: NodeId) -> Option<String> {
+    st.model.workspace_state.maximize_resume.remove(&node_id)
+}
+
+pub(crate) fn clear_maximize_resume_for_node(st: &mut Halley, node_id: NodeId) {
+    st.model.workspace_state.maximize_resume.remove(&node_id);
 }
 
 pub(crate) fn snapshot_monitor_camera(st: &Halley, monitor: &str) -> MaximizeCameraSnapshot {
@@ -471,27 +517,33 @@ pub(crate) fn tick_maximize_animation(st: &mut Halley, now: Instant) {
         {
             let pinned = match session.state {
                 MaximizeSessionState::Active => true,
-                MaximizeSessionState::Restoring => snapshot.pinned,
+                MaximizeSessionState::Restoring | MaximizeSessionState::SpawnRestoring => {
+                    snapshot.pinned
+                }
             };
             let _ = st.model.field.set_pinned(id, pinned);
         }
     }
 
-    let sessions_to_remove = st
-        .model
-        .workspace_state
-        .maximize_sessions
-        .iter()
-        .filter_map(|(monitor, session)| {
-            (session.state == MaximizeSessionState::Restoring
-                && session
-                    .node_snapshots
-                    .keys()
-                    .all(|id| !st.model.workspace_state.maximize_animation.contains_key(id))
-                && monitor_camera_matches_snapshot(st, monitor, session.camera))
-            .then(|| monitor.clone())
-        })
-        .collect::<Vec<_>>();
+    let sessions_to_remove =
+        st.model
+            .workspace_state
+            .maximize_sessions
+            .iter()
+            .filter_map(|(monitor, session)| {
+                ((session.state == MaximizeSessionState::Restoring
+                    && session
+                        .node_snapshots
+                        .keys()
+                        .all(|id| !st.model.workspace_state.maximize_animation.contains_key(id))
+                    && monitor_camera_matches_snapshot(st, monitor, session.camera))
+                    || (session.state == MaximizeSessionState::SpawnRestoring
+                        && session.node_snapshots.keys().all(|id| {
+                            !st.model.workspace_state.maximize_animation.contains_key(id)
+                        })))
+                .then(|| monitor.clone())
+            })
+            .collect::<Vec<_>>();
     for monitor in sessions_to_remove {
         st.model.workspace_state.maximize_sessions.remove(&monitor);
     }

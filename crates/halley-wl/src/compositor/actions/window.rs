@@ -26,8 +26,21 @@ pub(crate) fn promote_node_level(
     let target_monitor = st.monitor_for_node_or_current(node_id);
     let focus_center = st.view_center_for_monitor(target_monitor.as_str());
     let focus_ring = st.focus_ring_for_monitor(target_monitor.as_str());
+    let maximize_resume_monitor =
+        crate::compositor::workspace::state::take_maximize_resume_for_node(st, node_id);
 
     let in_focus_ring = focus_ring.zone(focus_center, target_pos) == FocusZone::Inside;
+
+    if let Some(maximize_monitor) = maximize_resume_monitor.as_deref() {
+        st.model
+            .workspace_state
+            .manual_collapsed_nodes
+            .remove(&node_id);
+        let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
+        crate::compositor::workspace::state::mark_active_transition(st, node_id, now, 360);
+        st.set_interaction_focus(Some(node_id), 30_000, now);
+        return start_maximize_session(st, node_id, maximize_monitor, now);
+    }
 
     if in_focus_ring {
         // This is a deliberate promote, not a stale auto-resurrect.
@@ -81,6 +94,12 @@ pub(crate) fn activate_collapsed_node_from_click(
     let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
     crate::compositor::workspace::state::mark_active_transition(st, node_id, now, 360);
     st.set_interaction_focus(Some(node_id), 30_000, now);
+
+    if let Some(maximize_monitor) =
+        crate::compositor::workspace::state::take_maximize_resume_for_node(st, node_id)
+    {
+        return start_maximize_session(st, node_id, maximize_monitor.as_str(), now);
+    }
 
     match st.runtime.tuning.click_collapsed_pan {
         ClickCollapsedPanMode::Never => false,
@@ -350,16 +369,25 @@ fn set_session_nodes_pinned(
     }
 }
 
-fn start_restore_maximize_session(st: &mut Halley, monitor: &str, now: Instant) -> bool {
+fn start_restore_maximize_session(
+    st: &mut Halley,
+    monitor: &str,
+    now: Instant,
+    state: crate::compositor::workspace::state::MaximizeSessionState,
+) -> bool {
     let (node_snapshots, camera) = {
         let Some(session) = st.model.workspace_state.maximize_sessions.get_mut(monitor) else {
             return false;
         };
-        session.state = crate::compositor::workspace::state::MaximizeSessionState::Restoring;
+        session.state = state;
         (session.node_snapshots.clone(), session.camera)
     };
 
-    crate::compositor::workspace::state::set_monitor_camera_target_snapshot(st, monitor, camera);
+    if state == crate::compositor::workspace::state::MaximizeSessionState::Restoring {
+        crate::compositor::workspace::state::set_monitor_camera_target_snapshot(
+            st, monitor, camera,
+        );
+    }
     if !st.runtime.tuning.maximize_animation_enabled() {
         for (node_id, snapshot) in &node_snapshots {
             let _ = st.model.field.set_pinned(*node_id, false);
@@ -390,6 +418,26 @@ fn start_restore_maximize_session(st: &mut Halley, monitor: &str, now: Instant) 
         );
     }
     true
+}
+
+pub(crate) fn restore_maximize_session_for_spawn(
+    st: &mut Halley,
+    monitor: &str,
+    now: Instant,
+) -> bool {
+    let Some(target_id) =
+        crate::compositor::workspace::state::maximize_session_target_for_monitor(st, monitor)
+    else {
+        return false;
+    };
+    st.set_recent_top_node(target_id, now + std::time::Duration::from_millis(1200));
+    st.set_interaction_focus(Some(target_id), 30_000, now);
+    start_restore_maximize_session(
+        st,
+        monitor,
+        now,
+        crate::compositor::workspace::state::MaximizeSessionState::SpawnRestoring,
+    )
 }
 
 fn start_active_maximize_session(
@@ -496,9 +544,23 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
         if existing.target_id == id {
             return match existing.state {
                 crate::compositor::workspace::state::MaximizeSessionState::Active => {
-                    start_restore_maximize_session(st, monitor, now)
+                    start_restore_maximize_session(
+                        st,
+                        monitor,
+                        now,
+                        crate::compositor::workspace::state::MaximizeSessionState::Restoring,
+                    )
                 }
                 crate::compositor::workspace::state::MaximizeSessionState::Restoring => {
+                    if let Some(session) =
+                        st.model.workspace_state.maximize_sessions.get_mut(monitor)
+                    {
+                        session.state =
+                            crate::compositor::workspace::state::MaximizeSessionState::Active;
+                    }
+                    start_active_maximize_session(st, id, monitor, &existing.node_snapshots, now)
+                }
+                crate::compositor::workspace::state::MaximizeSessionState::SpawnRestoring => {
                     if let Some(session) =
                         st.model.workspace_state.maximize_sessions.get_mut(monitor)
                     {
@@ -605,6 +667,9 @@ pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
     let Some(id) = latest_surface_node(st) else {
         return false;
     };
+    if crate::compositor::workspace::state::node_in_maximize_session(st, id) {
+        return false;
+    }
     if crate::compositor::surface::is_active_stacking_workspace_member(st, id) {
         return false;
     }
@@ -648,6 +713,12 @@ pub(crate) fn move_latest_node_direction(st: &mut Halley, direction: NodeMoveDir
 }
 
 pub(crate) fn step_window_trail(st: &mut Halley, direction: TrailDirection) -> bool {
+    if crate::compositor::workspace::state::maximize_session_active_on_monitor(
+        st,
+        st.focused_monitor(),
+    ) {
+        return false;
+    }
     st.navigate_window_trail(direction, Instant::now())
 }
 
@@ -668,7 +739,7 @@ pub(crate) fn toggle_node_state(
     now: Instant,
     focused_monitor: &str,
 ) -> bool {
-    let Some(n) = st.model.field.node(id) else {
+    let Some(n) = st.model.field.node(id).cloned() else {
         return false;
     };
 
@@ -680,6 +751,21 @@ pub(crate) fn toggle_node_state(
 
     if n.kind != halley_core::field::NodeKind::Surface {
         return false;
+    }
+
+    let maximize_monitor = st.model.monitor_state.node_monitor.get(&id).cloned();
+    let should_resume_maximize = maximize_monitor.as_deref().is_some_and(|monitor| {
+        crate::compositor::workspace::state::maximize_session_target_for_monitor(st, monitor)
+            == Some(id)
+    });
+    if crate::compositor::workspace::state::node_in_maximize_session(st, id)
+        && let Some(monitor) = maximize_monitor.as_deref()
+    {
+        let _ =
+            crate::compositor::workspace::state::abort_maximize_session_for_monitor(st, monitor);
+        if should_resume_maximize {
+            crate::compositor::workspace::state::set_maximize_resume_for_node(st, id, monitor);
+        }
     }
 
     if let Some(cid) = st.model.field.cluster_id_for_member_public(id) {
@@ -717,6 +803,11 @@ pub(crate) fn toggle_node_state(
             crate::compositor::workspace::state::mark_active_transition(st, id, now, 360);
 
             st.set_interaction_focus(Some(id), 30_000, now);
+            if let Some(maximize_monitor) =
+                crate::compositor::workspace::state::take_maximize_resume_for_node(st, id)
+            {
+                let _ = start_maximize_session(st, id, maximize_monitor.as_str(), now);
+            }
             true
         }
 
@@ -726,7 +817,7 @@ pub(crate) fn toggle_node_state(
 
 #[cfg(test)]
 mod tests {
-    use super::{maximize_target_for_monitor, toggle_node_maximize_state};
+    use super::{maximize_target_for_monitor, toggle_node_maximize_state, toggle_node_state};
     use crate::compositor::root::Halley;
     use crate::window::active_window_frame_pad_px;
     use smithay::reexports::wayland_server::Display;
@@ -1047,6 +1138,113 @@ mod tests {
             crate::compositor::workspace::state::MaximizeSessionState::Active
         );
         assert_eq!(st.model.camera_target_view_size, st.model.viewport.size);
+    }
+
+    #[test]
+    fn collapsing_maximized_window_restores_session_immediately() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let target = st.model.field.spawn_surface(
+            "target",
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        let bystander = st.model.field.spawn_surface(
+            "bystander",
+            halley_core::field::Vec2 { x: 460.0, y: 260.0 },
+            halley_core::field::Vec2 { x: 240.0, y: 180.0 },
+        );
+        st.assign_node_to_monitor(target, monitor.as_str());
+        st.assign_node_to_monitor(bystander, monitor.as_str());
+
+        assert!(toggle_node_maximize_state(
+            &mut st,
+            target,
+            Instant::now(),
+            monitor.as_str(),
+        ));
+        assert!(toggle_node_state(
+            &mut st,
+            target,
+            Instant::now(),
+            monitor.as_str(),
+        ));
+
+        assert!(
+            !st.model
+                .workspace_state
+                .maximize_sessions
+                .contains_key(monitor.as_str())
+        );
+        assert_eq!(
+            st.model.field.node(bystander).expect("bystander").pos,
+            halley_core::field::Vec2 { x: 460.0, y: 260.0 }
+        );
+    }
+
+    #[test]
+    fn reopening_collapsed_maximized_window_reenters_maximize() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let target = st.model.field.spawn_surface(
+            "target",
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(target, monitor.as_str());
+
+        assert!(toggle_node_maximize_state(
+            &mut st,
+            target,
+            Instant::now(),
+            monitor.as_str(),
+        ));
+        assert!(toggle_node_state(
+            &mut st,
+            target,
+            Instant::now(),
+            monitor.as_str(),
+        ));
+        if st
+            .model
+            .field
+            .node(target)
+            .is_some_and(|node| node.state != halley_core::field::NodeState::Node)
+        {
+            assert!(crate::compositor::workspace::state::finish_manual_collapse(
+                &mut st,
+                target,
+                Instant::now(),
+            ));
+        }
+
+        assert!(toggle_node_state(
+            &mut st,
+            target,
+            Instant::now(),
+            monitor.as_str(),
+        ));
+
+        assert!(
+            st.model
+                .workspace_state
+                .maximize_sessions
+                .contains_key(monitor.as_str())
+        );
+        let (target_pos, target_size) = maximize_target_for_monitor(&st, monitor.as_str());
+        assert_eq!(st.model.field.node(target).expect("target").pos, target_pos);
+        assert_eq!(
+            st.model.field.node(target).expect("target").intrinsic_size,
+            target_size
+        );
     }
 
     #[test]

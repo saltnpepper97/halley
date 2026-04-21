@@ -24,7 +24,8 @@ use cleanup::{
 use surface::{
     committed_window_geometry, ensure_node_for_surface_impl,
     exit_monitor_fullscreen_for_new_toplevel, exit_monitor_fullscreen_for_overlap_intent,
-    note_commit, refresh_node_identity_for_surface, should_join_active_cluster_layout,
+    exit_monitor_maximize_for_new_toplevel, note_commit, refresh_node_identity_for_surface,
+    should_exit_monitor_maximize_for_new_toplevel, should_join_active_cluster_layout,
     surface_tree_root,
 };
 
@@ -410,6 +411,83 @@ mod tests {
                 .get("right"),
             Some(&fullscreen_right)
         );
+    }
+
+    #[test]
+    fn maximize_exit_for_new_toplevel_restores_focus_anchor() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let monitor = state.model.monitor_state.current_monitor.clone();
+
+        let target = state.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(target, monitor.as_str());
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state,
+                target,
+                Instant::now(),
+                monitor.as_str(),
+            )
+        );
+
+        exit_monitor_maximize_for_new_toplevel(&mut state, monitor.as_str(), Instant::now());
+
+        assert!(
+            !state
+                .model
+                .workspace_state
+                .maximize_sessions
+                .contains_key(monitor.as_str())
+        );
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(target)
+        );
+        assert_eq!(state.current_spawn_focus(monitor.as_str()).0, Some(target));
+        assert_eq!(
+            state.current_spawn_focus(monitor.as_str()).1,
+            Vec2 { x: 100.0, y: 100.0 }
+        );
+    }
+
+    #[test]
+    fn maximize_exit_rule_matches_only_non_overlap_toplevels() {
+        let normal_intent = InitialWindowIntent {
+            app_id: None,
+            title: None,
+            parent_node: None,
+            rule: ResolvedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
+            },
+            matched_rule: false,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+        let overlap_intent = InitialWindowIntent {
+            rule: ResolvedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
+                ..normal_intent.rule
+            },
+            matched_rule: true,
+            ..normal_intent.clone()
+        };
+
+        assert!(should_exit_monitor_maximize_for_new_toplevel(
+            &normal_intent
+        ));
+        assert!(!should_exit_monitor_maximize_for_new_toplevel(
+            &overlap_intent
+        ));
     }
 
     #[test]

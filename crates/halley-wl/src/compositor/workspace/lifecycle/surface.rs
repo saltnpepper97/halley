@@ -17,6 +17,32 @@ pub(super) fn exit_monitor_fullscreen_for_new_toplevel(
     }
 }
 
+pub(super) fn exit_monitor_maximize_for_new_toplevel(st: &mut Halley, monitor: &str, now: Instant) {
+    let Some(target_id) =
+        crate::compositor::workspace::state::maximize_session_target_for_monitor(st, monitor)
+    else {
+        return;
+    };
+    let target_anchor = st
+        .model
+        .workspace_state
+        .maximize_sessions
+        .get(monitor)
+        .and_then(|session| session.node_snapshots.get(&target_id))
+        .map(|snapshot| snapshot.pos);
+    if let Some(anchor) = target_anchor {
+        st.spawn_monitor_state_mut(monitor).spawn_focus_override = Some(anchor);
+    }
+    if crate::compositor::actions::window::restore_maximize_session_for_spawn(st, monitor, now) {
+        st.request_maintenance();
+    }
+}
+
+#[inline]
+pub(super) fn should_exit_monitor_maximize_for_new_toplevel(intent: &InitialWindowIntent) -> bool {
+    intent.effective_overlap_policy() == halley_config::InitialWindowOverlapPolicy::None
+}
+
 pub(super) fn exit_monitor_fullscreen_for_overlap_intent(
     st: &mut Halley,
     monitor: &str,
@@ -173,6 +199,10 @@ fn maybe_apply_pending_initial_window_rule(
         st.model.spawn_state.pending_initial_reveal.remove(&node_id);
         st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
         return;
+    }
+
+    if should_exit_monitor_maximize_for_new_toplevel(&intent) {
+        exit_monitor_maximize_for_new_toplevel(st, monitor.as_str(), now);
     }
 
     exit_monitor_fullscreen_for_overlap_intent(st, monitor.as_str(), &intent, now);
@@ -416,6 +446,9 @@ pub(super) fn ensure_node_for_surface_impl(
         && !defer_rule_resolution
     {
         exit_monitor_fullscreen_for_new_toplevel(st, predicted_monitor.as_str(), now);
+    }
+    if should_exit_monitor_maximize_for_new_toplevel(&effective_intent) && !defer_rule_resolution {
+        exit_monitor_maximize_for_new_toplevel(st, predicted_monitor.as_str(), now);
     }
     let defer_active_tiled_cluster_join = defer_rule_resolution
         && active_cluster.is_some()

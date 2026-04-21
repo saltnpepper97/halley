@@ -220,10 +220,33 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
             {
                 return false;
             }
-            let other_ext = self.spawn_obstacle_extents_for_node(other);
-            let req_x = self.required_sep_x(pos.x, candidate, other.pos.x, other_ext, pair_gap);
-            let req_y = self.required_sep_y(pos.y, candidate, other.pos.y, other_ext, pair_gap);
-            (pos.x - other.pos.x).abs() < req_x && (pos.y - other.pos.y).abs() < req_y
+            let (other_pos, other_ext) = if let Some(session) =
+                crate::compositor::workspace::state::maximize_session_for_monitor(self, monitor)
+                    .filter(|session| {
+                        session.state
+                            == crate::compositor::workspace::state::MaximizeSessionState::SpawnRestoring
+                    })
+                && let Some(snapshot) = session.node_snapshots.get(&other.id)
+            {
+                let half_w = snapshot.size.x.max(1.0) * 0.5
+                    + active_window_frame_pad_px(&self.runtime.tuning) as f32;
+                let half_h = snapshot.size.y.max(1.0) * 0.5
+                    + active_window_frame_pad_px(&self.runtime.tuning) as f32;
+                (
+                    snapshot.pos,
+                    CollisionExtents {
+                        left: half_w,
+                        right: half_w,
+                        top: half_h,
+                        bottom: half_h,
+                    },
+                )
+            } else {
+                (other.pos, self.spawn_obstacle_extents_for_node(other))
+            };
+            let req_x = self.required_sep_x(pos.x, candidate, other_pos.x, other_ext, pair_gap);
+            let req_y = self.required_sep_y(pos.y, candidate, other_pos.y, other_ext, pair_gap);
+            (pos.x - other_pos.x).abs() < req_x && (pos.y - other_pos.y).abs() < req_y
         })
     }
 
@@ -466,6 +489,10 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             .take()
             .filter(|monitor| self.model.monitor_state.monitors.contains_key(monitor))
             .unwrap_or_else(|| read::spawn_read_context(self).resolve_spawn_target_monitor());
+        let focus_override = self
+            .spawn_monitor_state_mut(target_monitor.as_str())
+            .spawn_focus_override
+            .take();
         self.spawn_monitor_state_mut(target_monitor.as_str())
             .spawn_cursor += 1;
         let monitor_spawn = self.spawn_monitor_state(target_monitor.as_str());
@@ -481,6 +508,19 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             monitor_spawn.spawn_anchor_mode,
             focus_id.map(|id| id.as_u64())
         );
+        if let Some(anchor) = focus_override
+            && let Some(pos) = self.try_spawn_star(target_monitor.as_str(), anchor, size)
+        {
+            let growth_dir = self.pick_cluster_growth_dir(target_monitor.as_str(), anchor);
+            self.update_spawn_patch(target_monitor.as_str(), anchor, None, anchor, growth_dir);
+            self.spawn_monitor_state_mut(target_monitor.as_str())
+                .spawn_view_anchor = anchor;
+            debug!(
+                "spawn position picked from override: target_monitor={} anchor=({:.1},{:.1}) chosen=({:.1},{:.1}) size=({:.1},{:.1})",
+                target_monitor, anchor.x, anchor.y, pos.x, pos.y, size.x, size.y
+            );
+            return (target_monitor, pos, false);
+        }
         let focus_visible = focus_id.is_some_and(|id| {
             self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), id)
         });

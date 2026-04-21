@@ -132,6 +132,12 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
         now: Instant,
     ) -> bool {
         let monitor = self.focused_monitor().to_string();
+        if crate::compositor::workspace::state::maximize_session_active_on_monitor(
+            self,
+            monitor.as_str(),
+        ) {
+            return false;
+        }
         if self
             .active_cluster_workspace_for_monitor(monitor.as_str())
             .is_some()
@@ -477,5 +483,43 @@ mod tests {
             Some(first)
         );
         assert!(state.input.interaction_state.viewport_pan_anim.is_some());
+    }
+
+    #[test]
+    fn trail_navigation_is_disabled_while_maximized() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.maximize.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let first = state.model.field.spawn_surface(
+            "first",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let second = state.model.field.spawn_surface(
+            "second",
+            Vec2 { x: 640.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(first);
+        state.assign_node_to_current_monitor(second);
+
+        state.set_interaction_focus(Some(first), 30_000, now);
+        state.set_interaction_focus(Some(second), 30_000, now);
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state, second, now, "default",
+            )
+        );
+
+        assert!(!state.navigate_window_trail(TrailDirection::Prev, now));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(second)
+        );
     }
 }

@@ -11,6 +11,9 @@ pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field
     if st.is_fullscreen_active(node_id) {
         return false;
     }
+    if crate::compositor::workspace::state::node_in_maximize_session(st, node_id) {
+        return false;
+    }
     if is_active_stacking_workspace_member(st, node_id) {
         return false;
     }
@@ -224,6 +227,32 @@ mod tests {
                 .as_ref()
                 .is_some_and(|drag| !drag.edge_pan_eligible)
         );
+    }
+
+    #[test]
+    fn maximized_session_surface_is_not_pointer_draggable() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.maximize.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let id = st.model.field.spawn_surface(
+            "dragged",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        st.assign_node_to_current_monitor(id);
+        let monitor = st.focused_monitor().to_string();
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                id,
+                Instant::now(),
+                monitor.as_str(),
+            )
+        );
+
+        assert!(!node_is_pointer_draggable(&st, id));
     }
 }
 
