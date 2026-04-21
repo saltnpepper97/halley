@@ -25,6 +25,44 @@ fn spawn_cardinal_dirs() -> [Vec2; 4] {
     ]
 }
 
+fn spawn_candidate_for_snapshot_dir(
+    focus_pos: Vec2,
+    focus_size: Vec2,
+    size: Vec2,
+    dir: Vec2,
+    gap: f32,
+    frame_pad: f32,
+) -> Vec2 {
+    let focus_ext = CollisionExtents {
+        left: focus_size.x * 0.5 + frame_pad,
+        right: focus_size.x * 0.5 + frame_pad,
+        top: focus_size.y * 0.5 + frame_pad,
+        bottom: focus_size.y * 0.5 + frame_pad,
+    };
+    let candidate_ext = CollisionExtents::symmetric(size);
+    if dir.x > 0.0 {
+        Vec2 {
+            x: focus_pos.x + focus_ext.right + candidate_ext.left + gap,
+            y: focus_pos.y,
+        }
+    } else if dir.x < 0.0 {
+        Vec2 {
+            x: focus_pos.x - focus_ext.left - candidate_ext.right - gap,
+            y: focus_pos.y,
+        }
+    } else if dir.y > 0.0 {
+        Vec2 {
+            x: focus_pos.x,
+            y: focus_pos.y + focus_ext.bottom + candidate_ext.top + gap,
+        }
+    } else {
+        Vec2 {
+            x: focus_pos.x,
+            y: focus_pos.y - focus_ext.top - candidate_ext.bottom - gap,
+        }
+    }
+}
+
 impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
     const SPAWN_STAR_RINGS: usize = 24;
 
@@ -508,18 +546,67 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             monitor_spawn.spawn_anchor_mode,
             focus_id.map(|id| id.as_u64())
         );
-        if let Some(anchor) = focus_override
-            && let Some(pos) = self.try_spawn_star(target_monitor.as_str(), anchor, size)
-        {
-            let growth_dir = self.pick_cluster_growth_dir(target_monitor.as_str(), anchor);
-            self.update_spawn_patch(target_monitor.as_str(), anchor, None, anchor, growth_dir);
-            self.spawn_monitor_state_mut(target_monitor.as_str())
-                .spawn_view_anchor = anchor;
-            debug!(
-                "spawn position picked from override: target_monitor={} anchor=({:.1},{:.1}) chosen=({:.1},{:.1}) size=({:.1},{:.1})",
-                target_monitor, anchor.x, anchor.y, pos.x, pos.y, size.x, size.y
-            );
-            return (target_monitor, pos, false);
+        if let Some(override_focus) = focus_override {
+            let gap = self.non_overlap_gap_world();
+            let frame_pad = active_window_frame_pad_px(&self.runtime.tuning) as f32;
+            for dir in spawn_cardinal_dirs() {
+                let pos = spawn_candidate_for_snapshot_dir(
+                    override_focus.pos,
+                    override_focus.size,
+                    size,
+                    dir,
+                    gap,
+                    frame_pad,
+                );
+                if self.spawn_candidate_fits(target_monitor.as_str(), pos, size, None) {
+                    self.update_spawn_patch(
+                        target_monitor.as_str(),
+                        override_focus.pos,
+                        None,
+                        override_focus.pos,
+                        dir,
+                    );
+                    self.spawn_monitor_state_mut(target_monitor.as_str())
+                        .spawn_view_anchor = override_focus.pos;
+                    debug!(
+                        "spawn position picked from override: target_monitor={} anchor=({:.1},{:.1}) chosen=({:.1},{:.1}) size=({:.1},{:.1})",
+                        target_monitor,
+                        override_focus.pos.x,
+                        override_focus.pos.y,
+                        pos.x,
+                        pos.y,
+                        size.x,
+                        size.y
+                    );
+                    return (target_monitor, pos, false);
+                }
+            }
+            if let Some(pos) =
+                self.try_spawn_star(target_monitor.as_str(), override_focus.pos, size)
+            {
+                let growth_dir =
+                    self.pick_cluster_growth_dir(target_monitor.as_str(), override_focus.pos);
+                self.update_spawn_patch(
+                    target_monitor.as_str(),
+                    override_focus.pos,
+                    None,
+                    override_focus.pos,
+                    growth_dir,
+                );
+                self.spawn_monitor_state_mut(target_monitor.as_str())
+                    .spawn_view_anchor = override_focus.pos;
+                debug!(
+                    "spawn position picked from override fallback: target_monitor={} anchor=({:.1},{:.1}) chosen=({:.1},{:.1}) size=({:.1},{:.1})",
+                    target_monitor,
+                    override_focus.pos.x,
+                    override_focus.pos.y,
+                    pos.x,
+                    pos.y,
+                    size.x,
+                    size.y
+                );
+                return (target_monitor, pos, false);
+            }
         }
         let focus_visible = focus_id.is_some_and(|id| {
             self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), id)

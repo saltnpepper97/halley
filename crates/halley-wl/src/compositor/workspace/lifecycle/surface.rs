@@ -29,9 +29,13 @@ pub(super) fn exit_monitor_maximize_for_new_toplevel(st: &mut Halley, monitor: &
         .maximize_sessions
         .get(monitor)
         .and_then(|session| session.node_snapshots.get(&target_id))
-        .map(|snapshot| snapshot.pos);
-    if let Some(anchor) = target_anchor {
-        st.spawn_monitor_state_mut(monitor).spawn_focus_override = Some(anchor);
+        .copied();
+    if let Some(snapshot) = target_anchor {
+        st.spawn_monitor_state_mut(monitor).spawn_focus_override =
+            Some(crate::compositor::spawn::state::SpawnFocusOverride {
+                pos: snapshot.pos,
+                size: snapshot.size,
+            });
     }
     if crate::compositor::actions::window::restore_maximize_session_for_spawn(st, monitor, now) {
         st.request_maintenance();

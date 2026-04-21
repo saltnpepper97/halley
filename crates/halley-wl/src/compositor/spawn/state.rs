@@ -56,13 +56,19 @@ pub(crate) enum SpawnAnchorMode {
     View,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SpawnFocusOverride {
+    pub(crate) pos: Vec2,
+    pub(crate) size: Vec2,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct MonitorSpawnState {
     pub(crate) spawn_cursor: u32,
     pub(crate) spawn_patch: Option<SpawnPatch>,
     pub(crate) spawn_anchor_mode: SpawnAnchorMode,
     pub(crate) spawn_view_anchor: Vec2,
-    pub(crate) spawn_focus_override: Option<Vec2>,
+    pub(crate) spawn_focus_override: Option<SpawnFocusOverride>,
     pub(crate) spawn_pan_start_center: Option<Vec2>,
     pub(crate) spawn_last_pan_ms: u64,
 }
