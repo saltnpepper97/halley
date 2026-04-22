@@ -36,6 +36,8 @@ pub(crate) fn begin_drag(
     let now = Instant::now();
     st.input.interaction_state.pending_core_press = None;
     st.input.interaction_state.pending_core_click = None;
+    st.input.interaction_state.pending_collapsed_node_press = None;
+    st.input.interaction_state.pending_collapsed_node_click = None;
     let drag_monitor = st.monitor_for_node_or_current(hit.node_id);
     let edge_pan_eligible = st.model.field.node(hit.node_id).is_some_and(|n| {
         n.kind == halley_core::field::NodeKind::Surface

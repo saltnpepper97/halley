@@ -4,7 +4,7 @@ use eventline::debug;
 use halley_config::PointerBindingAction;
 
 use crate::backend::interface::BackendView;
-use crate::compositor::interaction::state::PendingCoreClick;
+use crate::compositor::interaction::state::{PendingCollapsedNodeClick, PendingCoreClick};
 use crate::compositor::interaction::{BloomDragCtx, OverflowDragCtx};
 use crate::compositor::root::Halley;
 use crate::input::ctx::InputCtx;
@@ -432,6 +432,23 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
                     monitor: pending_press.monitor,
                     deadline_ms: st.now_ms(now).saturating_add(180),
                 });
+                st.request_maintenance();
+                ctx.backend.request_redraw();
+                return;
+            }
+            if left
+                && let Some(pending_press) = st
+                    .input
+                    .interaction_state
+                    .pending_collapsed_node_press
+                    .take()
+            {
+                let now = Instant::now();
+                st.input.interaction_state.pending_collapsed_node_click =
+                    Some(PendingCollapsedNodeClick {
+                        node_id: pending_press.node_id,
+                        deadline_ms: st.now_ms(now).saturating_add(180),
+                    });
                 st.request_maintenance();
                 ctx.backend.request_redraw();
                 return;
