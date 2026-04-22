@@ -1,0 +1,10 @@
+#!/bin/sh
+
+export HALLEY_WL_BACKEND=tty
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=Halley
+export XDG_SESSION_DESKTOP=Halley
+export DESKTOP_SESSION=Halley
+
+HALLEY_BIN=${HALLEY_BIN:-halley}
+exec "$HALLEY_BIN" "$@"
