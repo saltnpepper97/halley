@@ -631,6 +631,10 @@ keybinds:
   "$var.mod+," "trail-prev"
   "$var.mod+." "trail-next"
 
+  # Focus cycling.
+  "alt+tab" "cycle-focus"
+  "alt+shift+tab" "cycle-focus-backward"
+
   # Applications.
   # `open-terminal` picks the first supported Wayland terminal in PATH.
   "$var.mod+return" "open-terminal"
@@ -823,6 +827,7 @@ mod tests {
         assert!(rendered.contains("# Cursor settings apply to the compositor itself"));
         assert!(rendered.contains("  maximize:\n    enabled true\n    duration-ms 240"));
         assert!(rendered.contains("\"$var.mod+1\" \"cluster slot 1\""));
+        assert!(rendered.contains("\"alt+tab\" \"cycle-focus\""));
         assert!(
             rendered.contains(
                 "input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"\nend"

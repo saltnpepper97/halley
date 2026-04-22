@@ -205,6 +205,42 @@ pub(crate) fn ensure_default_user_config(tty_viewports: Option<&[ViewportOutputC
 
     let home_path = PathBuf::from(RuntimeTuning::default_home_config_path());
     if home_path.exists() {
+        let raw = match fs::read_to_string(&home_path) {
+            Ok(raw) => raw,
+            Err(err) => {
+                warn!(
+                    "bootstrap: failed to read existing config {}: {}",
+                    home_path.display(),
+                    err
+                );
+                return;
+            }
+        };
+
+        match RuntimeTuning::update_user_config_text(&raw, tty_viewports.unwrap_or(&[])) {
+            Ok(Some(updated)) => {
+                if let Err(err) = fs::write(&home_path, updated) {
+                    warn!(
+                        "bootstrap: failed to update existing config {}: {}",
+                        home_path.display(),
+                        err
+                    );
+                } else {
+                    info!(
+                        "bootstrap: updated existing config {} with missing template entries",
+                        home_path.display()
+                    );
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                warn!(
+                    "bootstrap: skipped config update for {}: {}",
+                    home_path.display(),
+                    err
+                );
+            }
+        }
         return;
     }
 

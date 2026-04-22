@@ -1,4 +1,4 @@
-mod keybinds;
+pub(crate) mod keybinds;
 mod loader;
 mod primitives;
 mod rules;
