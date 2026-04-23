@@ -309,6 +309,21 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     result
 }
 
+pub fn run_session() -> Result<(), Box<dyn Error>> {
+    unsafe {
+        env::set_var("HALLEY_WL_BACKEND", "tty");
+        env::set_var("XDG_SESSION_TYPE", "wayland");
+        env::set_var("XDG_CURRENT_DESKTOP", "Halley");
+        env::set_var("XDG_SESSION_DESKTOP", "Halley");
+        env::set_var("DESKTOP_SESSION", "Halley");
+        env::remove_var("DISPLAY");
+        env::remove_var("WAYLAND_DISPLAY");
+        env::remove_var("WAYLAND_SOCKET");
+    }
+
+    run()
+}
+
 pub fn run_winit() -> Result<(), Box<dyn Error>> {
     crate::backend::winit::run_winit_backend()
 }

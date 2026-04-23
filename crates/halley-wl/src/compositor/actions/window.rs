@@ -61,7 +61,7 @@ pub(crate) fn promote_node_level(
     st.animate_viewport_center_to(target_pos, now)
 }
 
-pub(crate) fn activate_collapsed_node_from_click(
+pub(crate) fn focus_or_reveal_collapsed_node_from_click(
     st: &mut Halley,
     node_id: halley_core::field::NodeId,
     now: Instant,
@@ -81,41 +81,32 @@ pub(crate) fn activate_collapsed_node_from_click(
     let focus_ring = st.focus_ring_for_monitor(target_monitor.as_str());
     let in_focus_ring = focus_ring.zone(focus_center, n.pos) == FocusZone::Inside;
 
+    st.set_interaction_focus(Some(node_id), 30_000, now);
+
     if in_focus_ring
         || st.runtime.tuning.click_collapsed_outside_focus == ClickCollapsedOutsideFocusMode::Ignore
     {
-        return promote_node_level(st, node_id, now);
-    }
-
-    st.model
-        .workspace_state
-        .manual_collapsed_nodes
-        .remove(&node_id);
-    let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
-    crate::compositor::workspace::state::mark_active_transition(st, node_id, now, 360);
-    st.set_interaction_focus(Some(node_id), 30_000, now);
-
-    if let Some(maximize_monitor) =
-        crate::compositor::workspace::state::take_maximize_resume_for_node(st, node_id)
-    {
-        return start_maximize_session(st, node_id, maximize_monitor.as_str(), now);
+        return true;
     }
 
     match st.runtime.tuning.click_collapsed_pan {
-        ClickCollapsedPanMode::Never => false,
+        ClickCollapsedPanMode::Never => true,
         ClickCollapsedPanMode::IfOffscreen => {
             if st.surface_is_fully_visible_on_monitor(target_monitor.as_str(), node_id) {
-                false
+                true
             } else {
+                st.set_pan_restore_focus_target(node_id);
                 st.minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
                     .map(|target| st.animate_viewport_center_to(target, now))
-                    .unwrap_or(false)
+                    .unwrap_or(true)
             }
         }
-        ClickCollapsedPanMode::Always => st
-            .minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
-            .map(|target| st.animate_viewport_center_to(target, now))
-            .unwrap_or(false),
+        ClickCollapsedPanMode::Always => {
+            st.set_pan_restore_focus_target(node_id);
+            st.minimal_reveal_center_for_surface_on_monitor(target_monitor.as_str(), node_id)
+                .map(|target| st.animate_viewport_center_to(target, now))
+                .unwrap_or(true)
+        }
     }
 }
 

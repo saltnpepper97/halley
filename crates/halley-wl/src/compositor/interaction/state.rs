@@ -145,6 +145,11 @@ pub(crate) struct PendingCorePress {
     pub(crate) press_global_sy: f32,
 }
 
+#[derive(Clone)]
+pub(crate) struct PendingCollapsedNodePress {
+    pub(crate) node_id: NodeId,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct PendingMovePress {
     pub(crate) node_id: NodeId,
@@ -157,6 +162,12 @@ pub(crate) struct PendingMovePress {
 pub(crate) struct PendingCoreClick {
     pub(crate) node_id: NodeId,
     pub(crate) monitor: String,
+    pub(crate) deadline_ms: u64,
+}
+
+#[derive(Clone)]
+pub(crate) struct PendingCollapsedNodeClick {
+    pub(crate) node_id: NodeId,
     pub(crate) deadline_ms: u64,
 }
 
@@ -239,8 +250,10 @@ pub(crate) struct InteractionState {
     pub(crate) cursor_override_until_ms: Option<u64>,
     pub(crate) pending_core_hover: Option<PendingCoreHover>,
     pub(crate) pending_core_press: Option<PendingCorePress>,
+    pub(crate) pending_collapsed_node_press: Option<PendingCollapsedNodePress>,
     pub(crate) pending_move_press: Option<PendingMovePress>,
     pub(crate) pending_core_click: Option<PendingCoreClick>,
+    pub(crate) pending_collapsed_node_click: Option<PendingCollapsedNodeClick>,
     pub(crate) grabbed_edge_pan_active: bool,
     pub(crate) grabbed_edge_pan_direction: Vec2,
     pub(crate) grabbed_edge_pan_pressure: Vec2,

@@ -162,6 +162,13 @@ fn interaction_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
         .as_ref()
         .map(|pending| pending.deadline_ms)
         .filter(|&deadline_ms| deadline_ms > now_ms);
+    let pending_collapsed_node_click_deadline_ms = st
+        .input
+        .interaction_state
+        .pending_collapsed_node_click
+        .as_ref()
+        .map(|pending| pending.deadline_ms)
+        .filter(|&deadline_ms| deadline_ms > now_ms);
     let cluster_name_prompt_repeat_at_ms = st
         .input
         .interaction_state
@@ -182,6 +189,7 @@ fn interaction_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
         .then_some(now_ms.saturating_add(33));
     min_optional_deadlines([
         pending_core_click_deadline_ms,
+        pending_collapsed_node_click_deadline_ms,
         cluster_name_prompt_repeat_at_ms,
         pending_screenshot_capture_at_ms,
         st.input.interaction_state.cursor_override_until_ms,
@@ -364,6 +372,15 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             && now_ms >= pending.deadline_ms
         {
             self.input.interaction_state.pending_core_click = None;
+        }
+        if let Some(pending) = self
+            .input
+            .interaction_state
+            .pending_collapsed_node_click
+            .clone()
+            && now_ms >= pending.deadline_ms
+        {
+            self.input.interaction_state.pending_collapsed_node_click = None;
         }
         let _ = crate::compositor::clusters::system::cluster_system_controller(&mut **self)
             .repeat_cluster_name_prompt_input_if_due(now_ms);

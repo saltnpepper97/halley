@@ -141,6 +141,27 @@ cargo build --release
 
 The compositor binary will be available at `target/release/halley`.
 
+### Display Manager Session
+
+Halley's native session needs to start the tty backend rather than the nested `winit` backend. This repo now ships the assets needed for display managers such as SDDM and LightDM:
+
+- `packaging/wayland-sessions/halley-session`
+- `packaging/wayland-sessions/halley.desktop`
+
+Install them to the standard system locations alongside the compositor binary:
+
+```bash
+sudo install -Dm755 target/release/halley /usr/bin/halley
+sudo install -Dm755 packaging/wayland-sessions/halley-session /usr/bin/halley-session
+sudo install -Dm644 packaging/wayland-sessions/halley.desktop /usr/share/wayland-sessions/halley.desktop
+sudo install -Dm644 packaging/systemd-user/halley.service /usr/lib/systemd/user/halley.service
+sudo install -Dm644 packaging/systemd-user/halley-shutdown.target /usr/lib/systemd/user/halley-shutdown.target
+```
+
+`halley-session` will start `halley.service` when a user systemd instance is available, which makes `graphical-session.target`, `xdg-desktop-autostart.target`, and related user-session units behave correctly under display managers like SDDM. If those units are not installed, the launcher falls back to executing `halley` directly.
+
+After that, `Halley` should appear in Wayland-capable display managers.
+
 ---
 
 ## Default Keybinds

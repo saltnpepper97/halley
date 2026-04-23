@@ -1,7 +1,9 @@
 use std::time::Instant;
 
 use crate::backend::interface::BackendView;
-use crate::compositor::actions::window::activate_collapsed_node_from_click;
+use crate::compositor::actions::window::{
+    focus_or_reveal_collapsed_node_from_click, promote_node_level,
+};
 use crate::compositor::interaction::state::PendingMovePress;
 use crate::compositor::interaction::{HitNode, PointerState};
 use crate::compositor::root::Halley;
@@ -161,7 +163,7 @@ pub(super) fn handle_left_press(
             .is_some_and(|n| n.state == halley_core::field::NodeState::Node);
         if is_node {
             let now = Instant::now();
-            if activate_collapsed_node_from_click(st, hit.node_id, now) {
+            if handle_collapsed_node_left_press(st, hit.node_id, now) {
                 backend.request_redraw();
             }
             handled_node_click = true;
@@ -279,6 +281,32 @@ pub(super) fn handle_resize_binding_press(
     }
 }
 
+fn handle_collapsed_node_left_press(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+) -> bool {
+    let now_ms = st.now_ms(now);
+    if st
+        .input
+        .interaction_state
+        .pending_collapsed_node_click
+        .as_ref()
+        .is_some_and(|pending| pending.node_id == node_id && pending.deadline_ms > now_ms)
+    {
+        st.input.interaction_state.pending_collapsed_node_click = None;
+        st.input.interaction_state.pending_collapsed_node_press = None;
+        st.input.interaction_state.pending_core_click = None;
+        return promote_node_level(st, node_id, now);
+    }
+
+    st.input.interaction_state.pending_core_click = None;
+    st.input.interaction_state.pending_collapsed_node_click = None;
+    st.input.interaction_state.pending_collapsed_node_press =
+        Some(crate::compositor::interaction::state::PendingCollapsedNodePress { node_id });
+    focus_or_reveal_collapsed_node_from_click(st, node_id, now)
+}
+
 pub(crate) fn handle_core_left_press(
     st: &mut Halley,
     _ps: &mut PointerState,
@@ -289,6 +317,8 @@ pub(crate) fn handle_core_left_press(
     let now = Instant::now();
     let now_ms = st.now_ms(now);
     st.input.interaction_state.pending_core_hover = None;
+    st.input.interaction_state.pending_collapsed_node_press = None;
+    st.input.interaction_state.pending_collapsed_node_click = None;
     st.set_interaction_focus(Some(hit.node_id), 700, now);
     if st
         .input
