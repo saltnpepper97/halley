@@ -759,16 +759,26 @@ pub(crate) fn ensure_xwayland_satellite(
         }
     }
 
-    let display = env::var("HALLEY_DEV_WL_XWAYLAND_DISPLAY")
+    let requested_display = env::var("HALLEY_DEV_WL_XWAYLAND_DISPLAY")
         .ok()
-        .filter(|v| !v.trim().is_empty())
-        .unwrap_or_else(|| ":0".to_string());
-    let x11_sockets = reserve_default_x11_display(display.as_str()).map_err(|err| {
-        io::Error::other(format!(
-            "failed to reserve X11 display {} for xwayland-satellite: {}",
-            display, err
-        ))
-    })?;
+        .filter(|v| !v.trim().is_empty());
+    let (display, x11_sockets) = match requested_display.as_deref() {
+        Some(display) => (
+            display.to_string(),
+            reserve_default_x11_display(display).map_err(|err| {
+                io::Error::other(format!(
+                    "failed to reserve X11 display {} for xwayland-satellite: {}",
+                    display, err
+                ))
+            })?,
+        ),
+        None => reserve_first_free_x11_display().map_err(|err| {
+            io::Error::other(format!(
+                "failed to reserve a free X11 display for xwayland-satellite: {}",
+                err
+            ))
+        })?,
+    };
     let restart_delay_ms = env::var("HALLEY_DEV_WL_XWAYLAND_RESTART_MS")
         .ok()
         .and_then(|v| v.trim().parse::<u64>().ok())
@@ -846,6 +856,28 @@ fn reserve_default_x11_display(display: &str) -> io::Result<X11SocketReservation
             Err(err) => return Err(err),
         }
     }
+}
+
+fn reserve_first_free_x11_display() -> io::Result<(String, X11SocketReservation)> {
+    let mut last_addr_in_use = None;
+
+    for display_num in 0..50 {
+        let display = format!(":{display_num}");
+        match X11SocketReservation::try_new(display.as_str()) {
+            Ok(reservation) => return Ok((display, reservation)),
+            Err(err) if err.kind() == ErrorKind::AddrInUse => {
+                last_addr_in_use = Some(err);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err(last_addr_in_use.unwrap_or_else(|| {
+        io::Error::new(
+            ErrorKind::AddrInUse,
+            "no free X11 display found after 50 attempts",
+        )
+    }))
 }
 
 fn reclaim_stale_x11_display(

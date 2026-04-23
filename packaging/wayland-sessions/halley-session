@@ -6,5 +6,17 @@ export XDG_CURRENT_DESKTOP=Halley
 export XDG_SESSION_DESKTOP=Halley
 export DESKTOP_SESSION=Halley
 
-HALLEY_BIN=${HALLEY_BIN:-halley}
-exec "$HALLEY_BIN" "$@"
+if [ -n "${HOME:-}" ]; then
+    for dir in "$HOME/.npm-global/bin" "$HOME/.local/bin" "$HOME/.cargo/bin"; do
+        if [ -d "$dir" ]; then
+            case ":$PATH:" in
+                *":$dir:"*) ;;
+                *) PATH="$dir${PATH:+:$PATH}" ;;
+            esac
+        fi
+    done
+    export PATH
+fi
+
+HALLEY_BIN=${HALLEY_BIN:-/usr/bin/halley}
+exec "$HALLEY_BIN" --session "$@"

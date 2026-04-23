@@ -14,4 +14,4 @@ pub(crate) mod spatial;
 pub(crate) mod text;
 pub(crate) mod window;
 
-pub use bootstrap::{run, run_winit};
+pub use bootstrap::{run, run_session, run_winit};

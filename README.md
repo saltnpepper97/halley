@@ -154,7 +154,11 @@ Install them to the standard system locations alongside the compositor binary:
 sudo install -Dm755 target/release/halley /usr/bin/halley
 sudo install -Dm755 packaging/wayland-sessions/halley-session /usr/bin/halley-session
 sudo install -Dm644 packaging/wayland-sessions/halley.desktop /usr/share/wayland-sessions/halley.desktop
+sudo install -Dm644 packaging/systemd-user/halley.service /usr/lib/systemd/user/halley.service
+sudo install -Dm644 packaging/systemd-user/halley-shutdown.target /usr/lib/systemd/user/halley-shutdown.target
 ```
+
+`halley-session` will start `halley.service` when a user systemd instance is available, which makes `graphical-session.target`, `xdg-desktop-autostart.target`, and related user-session units behave correctly under display managers like SDDM. If those units are not installed, the launcher falls back to executing `halley` directly.
 
 After that, `Halley` should appear in Wayland-capable display managers.
 

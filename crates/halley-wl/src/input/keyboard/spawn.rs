@@ -1,7 +1,9 @@
 use std::env;
 use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
 
@@ -27,6 +29,7 @@ fn apply_spawn_environment(
     cursor: &CursorConfig,
     activation_token: Option<&str>,
 ) {
+    let path = augmented_spawn_path();
     cmd.env("WAYLAND_DISPLAY", wayland_display)
         .env("XDG_SESSION_TYPE", "wayland")
         .env("GDK_BACKEND", "wayland,x11")
@@ -35,11 +38,45 @@ fn apply_spawn_environment(
         .env("CLUTTER_BACKEND", "wayland")
         .env("MOZ_ENABLE_WAYLAND", "1")
         .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
+        .env("PATH", path)
         .env("XCURSOR_THEME", cursor.theme.trim())
         .env("XCURSOR_SIZE", cursor.size.to_string());
     if let Some(token) = activation_token {
         cmd.env("XDG_ACTIVATION_TOKEN", token);
     }
+}
+
+fn augmented_spawn_path() -> OsString {
+    let mut entries: Vec<PathBuf> = env::var_os("PATH")
+        .as_deref()
+        .map(env::split_paths)
+        .into_iter()
+        .flatten()
+        .collect();
+
+    if let Some(home) = env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        let preferred = [
+            home.join(".npm-global/bin"),
+            home.join(".local/bin"),
+            home.join(".cargo/bin"),
+        ];
+
+        for dir in preferred.into_iter().rev() {
+            if dir.is_dir() && !entries.iter().any(|entry| entry == &dir) {
+                entries.insert(0, dir);
+            }
+        }
+    }
+
+    env::join_paths(entries).unwrap_or_else(|_| env::var_os("PATH").unwrap_or_default())
+}
+
+fn shell_single_quote(raw: &str) -> String {
+    raw.replace('"', "\"")
+        .replace('`', "\\`")
+        .replace('$', "\\$")
+        .replace('\\', "\\\\")
 }
 
 fn command_exists_in_path(command: &str, path: Option<&OsStr>) -> bool {
@@ -70,9 +107,16 @@ pub(crate) fn spawn_command(
     label: &str,
 ) -> Option<Child> {
     request_xwayland_start();
+    let path = augmented_spawn_path();
+    let path = path.to_string_lossy().into_owned();
+    let shell_command = format!(
+        "PATH=\"{}\"; export PATH; {}",
+        shell_single_quote(path.as_str()),
+        command
+    );
     let mut cmd = Command::new("sh");
-    cmd.arg("-lc")
-        .arg(command)
+    cmd.arg("-c")
+        .arg(shell_command)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
