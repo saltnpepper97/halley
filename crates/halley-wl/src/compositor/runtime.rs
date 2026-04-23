@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use calloop::ping::Ping;
+use eventline::warn;
 use halley_config::RuntimeTuning;
 use smithay::reexports::wayland_server::backend::ObjectId;
 
@@ -240,7 +241,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         let prev_config_viewport = self.runtime.tuning.viewport();
         let prev_decorations = self.runtime.tuning.decorations;
         let prev_font = self.runtime.tuning.font.clone();
-        let prev_input = self.runtime.tuning.input;
+        let prev_input = self.runtime.tuning.input.clone();
         let prev_physics_enabled = self.runtime.tuning.physics_enabled;
         let prev_focus = self.last_input_surface_node();
         let previous_output_names: std::collections::HashSet<String> = self
@@ -311,13 +312,29 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
 
         self.runtime.tuning = tuning;
-        if self.runtime.tuning.input != prev_input
-            && let Some(keyboard) = self.platform.seat.get_keyboard()
-        {
-            keyboard.change_repeat_info(
-                self.runtime.tuning.input.repeat_rate,
-                self.runtime.tuning.input.repeat_delay,
-            );
+        let repeat_changed = self.runtime.tuning.input.repeat_rate != prev_input.repeat_rate
+            || self.runtime.tuning.input.repeat_delay != prev_input.repeat_delay;
+        let keyboard_config_changed = self.runtime.tuning.input.keyboard != prev_input.keyboard;
+        if let Some(keyboard) = self.platform.seat.get_keyboard() {
+            if repeat_changed {
+                keyboard.change_repeat_info(
+                    self.runtime.tuning.input.repeat_rate,
+                    self.runtime.tuning.input.repeat_delay,
+                );
+            }
+            if keyboard_config_changed {
+                let xkb_config =
+                    crate::backend::ResolvedXkbConfig::from_input(&self.runtime.tuning.input);
+                if let Err(err) = keyboard.set_xkb_config(self, xkb_config.as_smithay()) {
+                    warn!(
+                        "failed to apply keyboard layout='{}' variant='{}' options='{}' on reload: {}",
+                        self.runtime.tuning.input.keyboard.layout,
+                        self.runtime.tuning.input.keyboard.variant,
+                        self.runtime.tuning.input.keyboard.options,
+                        err
+                    );
+                }
+            }
         }
         if self.runtime.tuning.font != prev_font {
             self.ui.render_state.invalidate_ui_text_cache();

@@ -349,18 +349,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
             state.apply_aperture_config(aperture_config);
             state.platform.seat.add_pointer();
-            if state
-                .platform
-                .seat
-                .add_keyboard(
-                    Default::default(),
-                    tuning.input.repeat_delay,
-                    tuning.input.repeat_rate,
-                )
-                .is_err()
-            {
-                warn!("failed to initialize wl_seat keyboard");
-            }
+            super::initialize_seat_keyboard(&mut state);
             let dmabuf_importer: Rc<dyn DmabufImportBackend> = Rc::new(backend_handle.clone());
             state.configure_dmabuf_importer(dmabuf_importer, None);
             let xwayland = Rc::new(RefCell::new(ensure_xwayland_satellite(sock_name.as_str())?));

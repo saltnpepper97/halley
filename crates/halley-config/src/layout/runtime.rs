@@ -391,6 +391,11 @@ input:
   repeat-rate 30
   repeat-delay 500
   focus-mode "click"
+  keyboard:
+    layout "us"
+    variant ""
+    options ""
+  end
 end
 
 # Default font used for compositor UI like labels and overlays.
@@ -802,6 +807,10 @@ mod tests {
         assert_eq!(tuning.field_active_windows_allowed, 5);
         assert_eq!(tuning.input.repeat_rate, 30);
         assert_eq!(tuning.input.repeat_delay, 500);
+        assert_eq!(
+            tuning.input.keyboard,
+            crate::layout::KeyboardConfig::default()
+        );
         assert_eq!(tuning.animations.maximize.duration_ms, 240);
     }
 
@@ -830,7 +839,7 @@ mod tests {
         assert!(rendered.contains("\"alt+tab\" \"cycle-focus\""));
         assert!(
             rendered.contains(
-                "input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"\nend"
+                "input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"\n  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end\nend"
             )
         );
     }

@@ -281,11 +281,29 @@ pub enum InputFocusMode {
     Hover,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KeyboardConfig {
+    pub layout: String,
+    pub variant: String,
+    pub options: String,
+}
+
+impl Default for KeyboardConfig {
+    fn default() -> Self {
+        Self {
+            layout: "us".to_string(),
+            variant: String::new(),
+            options: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputConfig {
     pub repeat_rate: i32,
     pub repeat_delay: i32,
     pub focus_mode: InputFocusMode,
+    pub keyboard: KeyboardConfig,
 }
 
 impl Default for InputConfig {
@@ -294,6 +312,7 @@ impl Default for InputConfig {
             repeat_rate: 30,
             repeat_delay: 500,
             focus_mode: InputFocusMode::Click,
+            keyboard: KeyboardConfig::default(),
         }
     }
 }

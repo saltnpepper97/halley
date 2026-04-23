@@ -2,7 +2,7 @@ use rune_cfg::RuneConfig;
 
 use crate::layout::RuntimeTuning;
 
-use super::super::primitives::{pick_i32, pick_input_focus_mode};
+use super::super::primitives::{pick_i32, pick_input_focus_mode, pick_string};
 
 pub(crate) fn load_input_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.input.repeat_rate = pick_i32(
@@ -20,6 +20,16 @@ pub(crate) fn load_input_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["input.focus-mode", "input.focus_mode"],
         out.input.focus_mode,
     );
+
+    if let Some(layout) = pick_string(cfg, &["input.keyboard.layout"]) {
+        out.input.keyboard.layout = layout;
+    }
+    if let Some(variant) = pick_string(cfg, &["input.keyboard.variant"]) {
+        out.input.keyboard.variant = variant;
+    }
+    if let Some(options) = pick_string(cfg, &["input.keyboard.options"]) {
+        out.input.keyboard.options = options;
+    }
 }
 
 #[cfg(test)]
@@ -38,6 +48,11 @@ input:
   repeat-rate 45
   repeat-delay 650
   focus-mode "hover"
+  keyboard:
+    layout "de"
+    variant "nodeadkeys"
+    options "compose:ralt"
+  end
 end
 "#,
         )
@@ -49,6 +64,9 @@ end
         assert_eq!(out.input.repeat_rate, 45);
         assert_eq!(out.input.repeat_delay, 650);
         assert_eq!(out.input.focus_mode, InputFocusMode::Hover);
+        assert_eq!(out.input.keyboard.layout, "de");
+        assert_eq!(out.input.keyboard.variant, "nodeadkeys");
+        assert_eq!(out.input.keyboard.options, "compose:ralt");
     }
 
     #[test]
@@ -58,6 +76,9 @@ end
         assert_eq!(tuning.input.repeat_rate, 30);
         assert_eq!(tuning.input.repeat_delay, 500);
         assert_eq!(tuning.input.focus_mode, InputFocusMode::Click);
+        assert_eq!(tuning.input.keyboard.layout, "us");
+        assert_eq!(tuning.input.keyboard.variant, "");
+        assert_eq!(tuning.input.keyboard.options, "");
     }
 
     #[test]
@@ -68,6 +89,11 @@ input:
   repeat-rate 55
   repeat-delay 700
   focus-mode "hover"
+  keyboard:
+    layout "fr"
+    variant "oss"
+    options "caps:escape"
+  end
 end
 "#,
         )
@@ -76,5 +102,8 @@ end
         assert_eq!(tuning.input.repeat_rate, 55);
         assert_eq!(tuning.input.repeat_delay, 700);
         assert_eq!(tuning.input.focus_mode, InputFocusMode::Hover);
+        assert_eq!(tuning.input.keyboard.layout, "fr");
+        assert_eq!(tuning.input.keyboard.variant, "oss");
+        assert_eq!(tuning.input.keyboard.options, "caps:escape");
     }
 }

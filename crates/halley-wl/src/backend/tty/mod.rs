@@ -974,18 +974,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             }
             state.set_app_focused(true);
             state.platform.seat.add_pointer();
-            if state
-                .platform
-                .seat
-                .add_keyboard(
-                    Default::default(),
-                    tuning.input.repeat_delay,
-                    tuning.input.repeat_rate,
-                )
-                .is_err()
-            {
-                warn!("failed to initialize wl_seat keyboard");
-            }
+            super::initialize_seat_keyboard(&mut state);
             let autostart_once = state.runtime.tuning.autostart_once.clone();
             run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
 
