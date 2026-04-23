@@ -1,4 +1,4 @@
-use super::{CursorConfig, FontConfig, RuntimeTuning};
+use super::{CursorConfig, FontConfig, KeyboardConfig, RuntimeTuning};
 
 impl RuntimeTuning {
     pub fn enforce_guards(&mut self) {
@@ -36,6 +36,12 @@ impl RuntimeTuning {
         self.trail_history_length = self.trail_history_length.clamp(1, 512);
         self.input.repeat_rate = self.input.repeat_rate.clamp(0, 1000);
         self.input.repeat_delay = self.input.repeat_delay.clamp(0, 10_000);
+        self.input.keyboard.layout = self.input.keyboard.layout.trim().to_string();
+        if self.input.keyboard.layout.is_empty() {
+            self.input.keyboard.layout = KeyboardConfig::default().layout;
+        }
+        self.input.keyboard.variant = self.input.keyboard.variant.trim().to_string();
+        self.input.keyboard.options = self.input.keyboard.options.trim().to_string();
         self.cursor.size = self.cursor.size.clamp(8, 128);
         if self.cursor.theme.trim().is_empty() {
             self.cursor.theme = CursorConfig::default().theme;

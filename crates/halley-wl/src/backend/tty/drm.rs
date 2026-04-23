@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::HashMap;
+use std::ffi::CStr;
 
 use crate::compositor::interaction::ResizeCtx;
 use crate::protocol::wayland::portal;
@@ -19,7 +20,7 @@ use smithay::backend::renderer::element::{
     surface::render_elements_from_surface_tree,
 };
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
-use smithay::backend::renderer::{Bind, Offscreen};
+use smithay::backend::renderer::{Bind, Offscreen, Texture};
 use smithay::desktop::{PopupManager, utils::bbox_from_surface_tree};
 use smithay::input::pointer::CursorImageStatus;
 use smithay::output::OutputModeSource;
@@ -295,13 +296,14 @@ pub(crate) fn probe_tty_drm_device_path_via_session(
             err
         ))
     })?;
-    let renderer = unsafe { GlesRenderer::new(context) }.map_err(|err| {
+    let mut renderer = unsafe { GlesRenderer::new(context) }.map_err(|err| {
         io::Error::other(format!(
             "failed to create gles renderer for {}: {}",
             card_path.display(),
             err
         ))
     })?;
+    log_tty_renderer_info(card_path, &mut renderer);
     let outputs = build_tty_outputs(
         &mut dev,
         &gbm,
@@ -799,6 +801,7 @@ pub(crate) fn queue_tty_drm_frame(
     output_name: &str,
     compositor: &Rc<RefCell<HalleyDrmCompositor>>,
     renderer: &Rc<RefCell<GlesRenderer>>,
+    composed_frame_cache: &Rc<RefCell<HashMap<String, GlesTexture>>>,
     st: &mut Halley,
     resize_preview: Option<ResizeCtx>,
     hover_node: Option<halley_core::field::NodeId>,
@@ -816,7 +819,6 @@ pub(crate) fn queue_tty_drm_frame(
 
         let mode = compositor.pending_mode();
         let (w, h) = mode.size();
-        let buffer_size = Size::from((w as i32, h as i32));
         let physical_size: Size<i32, Physical> = (w as i32, h as i32).into();
         let animation_redraw =
             crate::frame_loop::tty_output_animation_redraw_state(st, output_name, Instant::now());
@@ -892,6 +894,16 @@ pub(crate) fn queue_tty_drm_frame(
                             ),
                         );
                         let queued = if !render_res.is_empty {
+                            if render_res.needs_sync()
+                                && let PrimaryPlaneElement::Swapchain(element) =
+                                    &render_res.primary_element
+                                && let Err(err) = element.sync.wait()
+                            {
+                                warn!(
+                                    "failed to wait for tty drm direct-scanout frame completion on {}: {:?}",
+                                    output_name, err
+                                );
+                            }
                             compositor.queue_frame(()).map_err(|err| {
                                 io::Error::other(format!(
                                     "queue_frame failed for {}: {}",
@@ -922,17 +934,13 @@ pub(crate) fn queue_tty_drm_frame(
         let force_overlay_full_repaint =
             crate::frame_loop::monitor_overlay_requires_full_repaint(st, output_name);
         let force_full_repaint = force_overlay_full_repaint || animation_redraw.force_full_repaint;
-        let mut texture: GlesTexture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
-            &mut *renderer_ref,
-            Fourcc::Abgr8888,
-            buffer_size,
-        )
-        .map_err(|err| {
-            io::Error::other(format!(
-                "failed to create tty drm intermediate texture for {}: {}",
-                output_name, err
-            ))
-        })?;
+        let mut texture = composed_frame_texture_for_output(
+            output_name,
+            &mut renderer_ref,
+            composed_frame_cache,
+            w as i32,
+            h as i32,
+        )?;
 
         {
             let mut target = renderer_ref.bind(&mut texture).map_err(|err| {
@@ -986,6 +994,15 @@ pub(crate) fn queue_tty_drm_frame(
             })?;
 
         let queued = if !render_res.is_empty {
+            if render_res.needs_sync()
+                && let PrimaryPlaneElement::Swapchain(element) = &render_res.primary_element
+                && let Err(err) = element.sync.wait()
+            {
+                warn!(
+                    "failed to wait for tty drm composed frame completion on {}: {:?}",
+                    output_name, err
+                );
+            }
             compositor.queue_frame(()).map_err(|err| {
                 io::Error::other(format!("queue_frame failed for {}: {}", output_name, err))
             })?;
@@ -1003,6 +1020,75 @@ pub(crate) fn queue_tty_drm_frame(
     st.input.interaction_state.suppress_layer_shell_configure = previous_layer_configure;
     st.end_temporary_render_monitor(previous_monitor);
     result
+}
+
+fn composed_frame_texture_for_output(
+    output_name: &str,
+    renderer: &mut GlesRenderer,
+    composed_frame_cache: &Rc<RefCell<HashMap<String, GlesTexture>>>,
+    width: i32,
+    height: i32,
+) -> Result<GlesTexture, Box<dyn Error>> {
+    let buffer_size = Size::from((width, height));
+    if let Some(texture) = composed_frame_cache
+        .borrow()
+        .get(output_name)
+        .filter(|texture| texture.size() == buffer_size)
+        .cloned()
+    {
+        return Ok(texture);
+    }
+
+    let texture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
+        renderer,
+        Fourcc::Abgr8888,
+        buffer_size,
+    )
+    .map_err(|err| {
+        io::Error::other(format!(
+            "failed to create tty drm intermediate texture for {}: {}",
+            output_name, err
+        ))
+    })?;
+    composed_frame_cache
+        .borrow_mut()
+        .insert(output_name.to_string(), texture.clone());
+    Ok(texture)
+}
+
+fn log_tty_renderer_info(card_path: &Path, renderer: &mut GlesRenderer) {
+    let egl_version = renderer.egl_context().display().get_egl_version();
+    let gl_strings = renderer.with_context(|gl| unsafe {
+        let gl_string = |name| {
+            let ptr = gl.GetString(name);
+            if ptr.is_null() {
+                return "<unavailable>".to_string();
+            }
+            CStr::from_ptr(ptr.cast()).to_string_lossy().into_owned()
+        };
+        (
+            gl_string(smithay::backend::renderer::gles::ffi::VENDOR),
+            gl_string(smithay::backend::renderer::gles::ffi::RENDERER),
+            gl_string(smithay::backend::renderer::gles::ffi::VERSION),
+        )
+    });
+
+    match gl_strings {
+        Ok((gl_vendor, gl_renderer, gl_version)) => info!(
+            "tty renderer ready: card={} egl={}.{} gl_vendor={} gl_renderer={} gl_version={}",
+            card_path.display(),
+            egl_version.0,
+            egl_version.1,
+            gl_vendor,
+            gl_renderer,
+            gl_version,
+        ),
+        Err(err) => warn!(
+            "tty renderer info unavailable for {}: {}",
+            card_path.display(),
+            err
+        ),
+    }
 }
 
 struct FullscreenDirectScanoutCandidate {

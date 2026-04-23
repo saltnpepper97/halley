@@ -12,7 +12,7 @@ use calloop::EventLoop;
 use calloop::timer::{TimeoutAction, Timer};
 
 use eventline::{debug, info, scope, warn};
-use halley_config::RuntimeTuning;
+use halley_config::{InputConfig, RuntimeTuning};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use smithay::reexports::drm::control::{self as drm_control, Device as DrmControlDevice};
@@ -59,6 +59,58 @@ pub(crate) mod vblank_throttle;
 pub(crate) mod winit;
 
 pub(crate) const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
+
+pub(crate) struct ResolvedXkbConfig {
+    layout: String,
+    variant: String,
+    options: Option<String>,
+}
+
+impl ResolvedXkbConfig {
+    pub(crate) fn from_input(input: &InputConfig) -> Self {
+        Self {
+            layout: input.keyboard.layout.clone(),
+            variant: input.keyboard.variant.clone(),
+            options: (!input.keyboard.options.is_empty()).then(|| input.keyboard.options.clone()),
+        }
+    }
+
+    pub(crate) fn as_smithay(&self) -> smithay::input::keyboard::XkbConfig<'_> {
+        smithay::input::keyboard::XkbConfig {
+            rules: "",
+            model: "",
+            layout: self.layout.as_str(),
+            variant: self.variant.as_str(),
+            options: self.options.clone(),
+        }
+    }
+}
+
+pub(crate) fn initialize_seat_keyboard(st: &mut Halley) {
+    let input = &st.runtime.tuning.input;
+    let repeat_delay = input.repeat_delay;
+    let repeat_rate = input.repeat_rate;
+    let configured = ResolvedXkbConfig::from_input(input);
+
+    if let Err(err) =
+        st.platform
+            .seat
+            .add_keyboard(configured.as_smithay(), repeat_delay, repeat_rate)
+    {
+        warn!(
+            "failed to initialize wl_seat keyboard with layout='{}' variant='{}' options='{}': {}; falling back to Smithay defaults",
+            input.keyboard.layout, input.keyboard.variant, input.keyboard.options, err
+        );
+        if st
+            .platform
+            .seat
+            .add_keyboard(Default::default(), repeat_delay, repeat_rate)
+            .is_err()
+        {
+            warn!("failed to initialize wl_seat keyboard");
+        }
+    }
+}
 
 pub(crate) fn frame_interval_for_refresh_hz(refresh_hz: Option<f64>) -> Duration {
     let hz = refresh_hz.unwrap_or(60.0).clamp(30.0, 360.0);

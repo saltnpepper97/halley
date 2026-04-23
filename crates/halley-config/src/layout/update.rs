@@ -415,6 +415,31 @@ end
     }
 
     #[test]
+    fn updater_adds_missing_input_keyboard_block() {
+        let raw = r#"
+input:
+  repeat-rate 30
+  repeat-delay 500
+  focus-mode "click"
+end
+"#;
+
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        assert!(
+            updated
+                .contains("input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"")
+        );
+        assert!(
+            updated.contains(
+                "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end"
+            )
+        );
+    }
+
+    #[test]
     fn updater_respects_node_section_aliases() {
         let raw = r#"
 node:
