@@ -12,11 +12,12 @@ use crate::backend::interface::{
     BackendView, DmabufImportBackend, TtyBackendHandle, TtyDmabufImportBackend,
 };
 use crate::backend::tty::dpms::{
-    any_tty_output_dpms_enabled, apply_tty_dpms_command, publish_tty_outputs_snapshot,
+    any_tty_output_dpms_enabled, apply_tty_dpms_command, publish_tty_outputs_snapshot_for_devices,
     sync_tty_dpms_state, tty_output_dpms_enabled, wake_tty_dpms_on_input,
 };
 use crate::backend::tty::drm::{
-    TtyDrmOutput, TtyOutputCaptureBackend, current_tty_output_signature,
+    TtyDrmDevice, TtyDrmOutput, TtyGpuManager, TtyOutputCaptureBackend,
+    build_tty_dmabuf_output_feedbacks, current_tty_output_signature,
     probe_tty_drm_device_via_session, queue_tty_drm_frame, rebuild_tty_outputs,
     selected_tty_scanout_signature,
 };
@@ -24,6 +25,7 @@ use crate::backend::vblank_throttle::VBlankThrottle;
 use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ResizeCtx;
 use calloop::{Interest, Mode, PostAction, generic::Generic, ping::make_ping};
+use smithay::backend::drm::DrmNode;
 use smithay::backend::renderer::gles::GlesTexture;
 
 use smithay::backend::input::{
@@ -52,7 +54,8 @@ fn queue_ready_tty_outputs(
     output_animation_redraw_active: &Rc<RefCell<HashMap<String, bool>>>,
     composed_frame_cache: &Rc<RefCell<HashMap<String, GlesTexture>>>,
     pointer_state: &Rc<RefCell<crate::compositor::interaction::PointerState>>,
-    renderer: &Rc<RefCell<GlesRenderer>>,
+    gpu_manager: &Rc<RefCell<TtyGpuManager>>,
+    primary_render_node: DrmNode,
     first_frame_queued: &Rc<RefCell<HashSet<String>>>,
     st: &mut Halley,
     now: Instant,
@@ -104,7 +107,9 @@ fn queue_ready_tty_outputs(
         match queue_tty_drm_frame(
             output_name,
             &output.compositor,
-            renderer,
+            gpu_manager,
+            primary_render_node,
+            output.render_node,
             composed_frame_cache,
             st,
             resize_preview,
@@ -674,10 +679,9 @@ fn layout_size_for_outputs(tuning: &RuntimeTuning, outputs: &[TtyDrmOutput]) -> 
 }
 
 fn apply_tty_reload(
-    dev: &Rc<RefCell<DrmDevice>>,
-    gbm: &Rc<GbmDevice<DrmDeviceFd>>,
-    dev_fd: &DrmDeviceFd,
-    renderer: &Rc<RefCell<GlesRenderer>>,
+    drm_devices: &Rc<RefCell<Vec<TtyDrmDevice>>>,
+    gpu_manager: &Rc<RefCell<TtyGpuManager>>,
+    primary_render_node: DrmNode,
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     backend_handle: &TtyBackendHandle,
     pointer_state: &Rc<RefCell<PointerState>>,
@@ -692,28 +696,38 @@ fn apply_tty_reload(
     output_frame_pending_since: &Rc<RefCell<HashMap<String, Instant>>>,
     output_animation_redraw_active: &Rc<RefCell<HashMap<String, bool>>>,
     scanout_signature: &Rc<RefCell<Vec<String>>>,
-    card_path: &Path,
 ) -> bool {
-    let rebuilt = {
-        let mut dev_ref = dev.borrow_mut();
+    let mut rebuilt = Vec::new();
+    for device in drm_devices.borrow_mut().iter_mut() {
+        let mut dev_ref = device.dev.borrow_mut();
         match rebuild_tty_outputs(
             &mut dev_ref,
-            gbm.as_ref(),
-            dev_fd.clone(),
-            renderer,
+            device.gbm.as_ref(),
+            device.dev_fd.clone(),
+            gpu_manager,
+            device.render_node,
             &next,
-            card_path,
+            device.card_path.as_path(),
         ) {
-            Ok(target) => target,
+            Ok(mut target) => rebuilt.append(&mut target),
             Err(err) => {
                 warn!(
-                    "{}: viewport reload rejected for {}: {}; keeping last working tty mode",
-                    reason, config_path, err
+                    "{}: viewport reload skipped for {} on {}: {}",
+                    reason,
+                    config_path,
+                    device.card_path.display(),
+                    err
                 );
-                return false;
             }
         }
-    };
+    }
+    if rebuilt.is_empty() {
+        warn!(
+            "{}: viewport reload rejected for {}: no usable tty outputs across DRM devices",
+            reason, config_path
+        );
+        return false;
+    }
 
     if reason == "rescan" && outputs_match(&outputs.borrow(), &rebuilt) {
         *scanout_signature.borrow_mut() = current_tty_output_signature(&rebuilt);
@@ -761,6 +775,11 @@ fn apply_tty_reload(
     crate::bootstrap::restore_live_camera_state(st, live_camera);
 
     *scanout_signature.borrow_mut() = current_tty_output_signature(&rebuilt);
+    st.configure_dmabuf_output_feedbacks(build_tty_dmabuf_output_feedbacks(
+        rebuilt.as_slice(),
+        gpu_manager,
+        primary_render_node,
+    ));
     sync_tty_dpms_state(&rebuilt, dpms_enabled);
     *outputs.borrow_mut() = rebuilt;
 
@@ -793,8 +812,8 @@ fn apply_tty_reload(
         }
     }
 
-    publish_tty_outputs_snapshot(
-        &dev.borrow(),
+    publish_tty_outputs_snapshot_for_devices(
+        &drm_devices.borrow(),
         &active_modes.borrow(),
         &dpms_enabled.borrow(),
         &st.runtime.tuning,
@@ -1018,10 +1037,18 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
             state.apply_aperture_config(aperture_config);
             let capture_dmabuf_formats = {
-                let renderer = drm_probe.renderer.borrow();
+                let mut gpu_manager = drm_probe.gpu_manager.borrow_mut();
+                let renderer = gpu_manager
+                    .single_renderer(&drm_probe.primary_render_node)
+                    .map_err(|err| {
+                        io::Error::other(format!(
+                            "failed to query tty primary renderer formats: {:?}",
+                            err
+                        ))
+                    })?;
                 <GlesRenderer as smithay::backend::renderer::Bind<
                     smithay::backend::allocator::dmabuf::Dmabuf,
-                >>::supported_formats(&renderer)
+                >>::supported_formats(renderer.as_ref())
                 .map(|formats| formats.iter().copied().collect())
                 .unwrap_or_default()
             };
@@ -1031,13 +1058,24 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 effective_tty_viewports_for_outputs(&tuning, outputs.borrow().as_slice());
             state.reconfigure_active_tty_monitors(&effective_viewports);
             let dmabuf_importer: Rc<dyn DmabufImportBackend> =
-                Rc::new(TtyDmabufImportBackend::new(drm_probe.renderer.clone()));
-            state.configure_dmabuf_importer_for_fd(dmabuf_importer, drm_probe.dev.device_fd());
-            if smithay::wayland::drm_syncobj::supports_syncobj_eventfd(drm_probe.dev.device_fd()) {
+                Rc::new(TtyDmabufImportBackend::new(
+                    drm_probe.gpu_manager.clone(),
+                    drm_probe.primary_render_node,
+                ));
+            state.configure_dmabuf_importer_for_fd(
+                dmabuf_importer,
+                drm_probe.primary_dev_fd.clone(),
+            );
+            state.configure_dmabuf_output_feedbacks(build_tty_dmabuf_output_feedbacks(
+                outputs.borrow().as_slice(),
+                &drm_probe.gpu_manager,
+                drm_probe.primary_render_node,
+            ));
+            if smithay::wayland::drm_syncobj::supports_syncobj_eventfd(&drm_probe.primary_dev_fd) {
                 state.platform.drm_syncobj_state = Some(
                     smithay::wayland::drm_syncobj::DrmSyncobjState::new::<Halley>(
                         &dh,
-                        drm_probe.dev.device_fd().clone(),
+                        drm_probe.primary_dev_fd.clone(),
                     ),
                 );
             }
@@ -1102,7 +1140,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             crate::protocol::wayland::portal::configure_output_capture_backend(
                 &mut state,
                 Rc::new(TtyOutputCaptureBackend {
-                    renderer: drm_probe.renderer.clone(),
+                    gpu_manager: drm_probe.gpu_manager.clone(),
+                    primary_render_node: drm_probe.primary_render_node,
                     outputs: outputs.clone(),
                     pointer_state: pointer_state.clone(),
                     dmabuf_formats: capture_dmabuf_formats,
@@ -1182,15 +1221,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 ps.workspace_size = (layout_w, layout_h);
             }
 
-            let dev = Rc::new(RefCell::new(drm_probe.dev));
-            let gbm = Rc::new(drm_probe.gbm);
-            let drm_probe_dev_fd = drm_probe.dev_fd; // kept alive so GBM refs stay valid
-            let card_path = drm_probe.card_path.clone();
+            let gpu_manager = drm_probe.gpu_manager.clone();
+            let primary_render_node = drm_probe.primary_render_node;
+            let drm_devices = Rc::new(RefCell::new(drm_probe.devices));
             let active_modes = Rc::new(RefCell::new(active_mode_map(&outputs.borrow())));
             let dpms_enabled = Rc::new(RefCell::new(HashMap::new()));
             sync_tty_dpms_state(outputs.borrow().as_slice(), &dpms_enabled);
-            publish_tty_outputs_snapshot(
-                &dev.borrow(),
+            publish_tty_outputs_snapshot_for_devices(
+                &drm_devices.borrow(),
                 &active_modes.borrow(),
                 &dpms_enabled.borrow(),
                 &tuning,
@@ -1225,11 +1263,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let first_vblank_logged =
                 Rc::new(RefCell::new(std::collections::HashSet::<String>::new()));
             let first_vblank_logged_for_notifier = first_vblank_logged.clone();
-            let dev_for_timer = dev.clone();
-            let dev_for_input = dev.clone();
-            let gbm_for_timer = gbm.clone();
-            let dev_fd = drm_probe_dev_fd;
-            let dev_fd_for_timer = dev_fd.clone();
             let active_modes_for_timer = active_modes.clone();
             let active_modes_for_input = active_modes.clone();
             let active_modes_for_notifier = active_modes.clone();
@@ -1244,6 +1277,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let first_frame_queued_for_timer = first_frame_queued.clone();
             let outputs_for_input = outputs.clone();
             let outputs_for_timer = outputs.clone();
+            let drm_devices_for_input = drm_devices.clone();
             let outputs_for_redraw = outputs.clone();
             let composed_frame_cache_for_redraw = composed_frame_cache.clone();
             let composed_frame_cache_for_timer = composed_frame_cache.clone();
@@ -1259,8 +1293,24 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let redraw_ping = Rc::new(redraw_ping);
             backend_handle.set_redraw_ping(redraw_ping.clone());
             let redraw_ping_for_vblank = redraw_ping.clone();
-            ev.handle().insert_source(
-                drm_probe.notifier,
+            let drm_notifiers = drm_devices
+                .borrow_mut()
+                .iter_mut()
+                .filter_map(|device| device.notifier.take())
+                .collect::<Vec<_>>();
+            for notifier in drm_notifiers {
+                let outputs_for_vblank = outputs_for_vblank.clone();
+                let active_modes_for_notifier = active_modes_for_notifier.clone();
+                let output_frame_pending_for_notifier = output_frame_pending_for_notifier.clone();
+                let output_frame_pending_since_for_notifier =
+                    output_frame_pending_since_for_notifier.clone();
+                let vblank_throttles_for_notifier = vblank_throttles_for_notifier.clone();
+                let event_loop_handle_for_vblank = event_loop_handle_for_vblank.clone();
+                let redraw_ping_for_vblank = redraw_ping_for_vblank.clone();
+                let first_vblank_logged_for_notifier = first_vblank_logged_for_notifier.clone();
+                let vblank_mismatch_state_for_notifier = vblank_mismatch_state_for_notifier.clone();
+                ev.handle().insert_source(
+                notifier,
                 move |event, _metadata, _st| match event {
                     DrmEvent::VBlank(crtc) => {
                         let timestamp = Instant::now();
@@ -1405,12 +1455,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     DrmEvent::Error(err) => warn!("drm event error: {}", err),
                 },
             )?;
+            }
 
             let dpms_enabled_for_redraw = dpms_enabled.clone();
             let output_frame_pending_for_redraw = output_frame_pending.clone();
             let output_animation_redraw_active_for_redraw = output_animation_redraw_active.clone();
             let pointer_state_for_redraw = pointer_state.clone();
-            let renderer_for_redraw = drm_probe.renderer.clone();
+            let gpu_manager_for_redraw = gpu_manager.clone();
+            let primary_render_node_for_redraw = primary_render_node;
             let first_frame_queued_for_redraw = first_frame_queued.clone();
             ev.handle()
                 .insert_source(redraw_source, move |_event, _metadata, st| {
@@ -1451,7 +1503,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         &output_animation_redraw_active_for_redraw,
                         &composed_frame_cache_for_redraw,
                         &pointer_state_for_redraw,
-                        &renderer_for_redraw,
+                        &gpu_manager_for_redraw,
+                        primary_render_node_for_redraw,
                         &first_frame_queued_for_redraw,
                         st,
                         now,
@@ -1470,14 +1523,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     redraw_ping_for_maintenance.ping();
                 })?;
 
-            let _renderer_for_input = drm_probe.renderer.clone();
             ev.handle()
                 .insert_source(libinput_backend, move |event, _, st| match event {
                     InputEvent::Keyboard { event } => {
                         let tuning = st.runtime.tuning.clone();
                         let wake_output = st.focused_monitor().to_string();
                         wake_tty_dpms_on_input(
-                            &dev_for_input,
+                            &drm_devices_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
                             &outputs_for_input,
@@ -1527,7 +1579,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let tuning = st.runtime.tuning.clone();
                         let wake_output = st.monitor_for_screen(sx, sy);
                         wake_tty_dpms_on_input(
-                            &dev_for_input,
+                            &drm_devices_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
                             &outputs_for_input,
@@ -1571,7 +1623,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let sy = last_sy + event.delta_y() as f32;
                         let wake_output = st.monitor_for_screen(sx, sy);
                         wake_tty_dpms_on_input(
-                            &dev_for_input,
+                            &drm_devices_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
                             &outputs_for_input,
@@ -1614,7 +1666,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let (sx, sy) = pointer_state_for_input.borrow().screen;
                         let wake_output = st.monitor_for_screen(sx, sy);
                         wake_tty_dpms_on_input(
-                            &dev_for_input,
+                            &drm_devices_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
                             &outputs_for_input,
@@ -1649,7 +1701,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         let (sx, sy) = pointer_state_for_input.borrow().screen;
                         let wake_output = st.monitor_for_screen(sx, sy);
                         wake_tty_dpms_on_input(
-                            &dev_for_input,
+                            &drm_devices_for_input,
                             &active_modes_for_input,
                             &dpms_enabled_for_input,
                             &outputs_for_input,
@@ -1704,7 +1756,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     TimeoutAction::Drop
                 })?;
             let timer = Timer::from_duration(initial_frame_interval);
-            let renderer_for_timer = drm_probe.renderer.clone();
+            let gpu_manager_for_timer = gpu_manager.clone();
+            let primary_render_node_for_timer = primary_render_node;
+            let drm_devices_for_timer = drm_devices.clone();
 
             ev.handle().insert_source(timer, move |_tick, _, st| {
                 if crate::compositor::interaction::state::take_input_state_reset_request(st) {
@@ -1757,10 +1811,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         {
                             if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
                                 apply_tty_reload(
-                                    &dev_for_timer,
-                                    &gbm_for_timer,
-                                    &dev_fd_for_timer,
-                                    &renderer_for_timer,
+                                    &drm_devices_for_timer,
+                                    &gpu_manager_for_timer,
+                                    primary_render_node_for_timer,
                                     &outputs_for_timer,
                                     &backend_handle_for_timer,
                                     &pointer_state_for_timer,
@@ -1775,7 +1828,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     &output_frame_pending_since_for_timer,
                                     &output_animation_redraw_active,
                                     &scanout_signature_for_timer,
-                                    card_path.as_path(),
                                 );
                             } else {
                                 let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
@@ -1803,7 +1855,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }) => {
                         let tuning = st.runtime.tuning.clone();
                         let changed = apply_tty_dpms_command(
-                            &dev_for_timer,
+                            &drm_devices_for_timer,
                             &active_modes_for_timer,
                             &dpms_enabled_for_timer,
                             command,
@@ -1857,10 +1909,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     {
                         if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
                             apply_tty_reload(
-                                &dev_for_timer,
-                                &gbm_for_timer,
-                                &dev_fd_for_timer,
-                                &renderer_for_timer,
+                                &drm_devices_for_timer,
+                                &gpu_manager_for_timer,
+                                primary_render_node_for_timer,
                                 &outputs_for_timer,
                                 &backend_handle_for_timer,
                                 &pointer_state_for_timer,
@@ -1875,7 +1926,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     &output_frame_pending_since_for_timer,
                                     &output_animation_redraw_active,
                                     &scanout_signature_for_timer,
-                                    card_path.as_path(),
                             );
                             } else {
                                 let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
@@ -1901,9 +1951,25 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 {
                     *pending_scanout_probe_at_for_timer.borrow_mut() =
                         Some(now + Duration::from_millis(OUTPUT_RESCAN_POLL_MS));
-                    let maybe_signature = {
-                        let mut dev = dev_for_timer.borrow_mut();
-                        selected_tty_scanout_signature(&mut dev, &st.runtime.tuning)
+                    let maybe_signature: Result<Vec<String>, Box<dyn Error>> = {
+                        let mut signature = Vec::new();
+                        for device in drm_devices_for_timer.borrow_mut().iter_mut() {
+                            let mut dev = device.dev.borrow_mut();
+                            match selected_tty_scanout_signature(&mut dev, &st.runtime.tuning) {
+                                Ok(mut device_signature) => signature.append(&mut device_signature),
+                                Err(err) => debug!(
+                                    "tty drm topology probe skipped for {}: {}",
+                                    device.card_path.display(),
+                                    err
+                                ),
+                            }
+                        }
+                        if signature.is_empty() {
+                            Err(io::Error::other("no usable tty scanouts across DRM devices").into())
+                        } else {
+                            signature.sort();
+                            Ok(signature)
+                        }
                     };
                     match maybe_signature {
                         Ok(next_signature) => {
@@ -1926,11 +1992,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 if any_tty_output_dpms_enabled(&dpms_enabled_for_timer.borrow()) {
                     let next = st.runtime.tuning.clone();
                         apply_tty_reload(
-                            &dev_for_timer,
-                            &gbm_for_timer,
-                            &dev_fd_for_timer,
-                            &renderer_for_timer,
-                        &outputs_for_timer,
+                            &drm_devices_for_timer,
+                            &gpu_manager_for_timer,
+                            primary_render_node_for_timer,
+                            &outputs_for_timer,
                         &backend_handle_for_timer,
                         &pointer_state_for_timer,
                         st,
@@ -1944,7 +2009,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             &output_frame_pending_since_for_timer,
                             &output_animation_redraw_active,
                             &scanout_signature_for_timer,
-                            card_path.as_path(),
                         );
                 } else {
                     // Reschedule for after wake — just leave pending cleared,
@@ -2037,7 +2101,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             &output_animation_redraw_active,
                             &composed_frame_cache_for_timer,
                             &pointer_state_for_timer,
-                            &renderer_for_timer,
+                            &gpu_manager_for_timer,
+                            primary_render_node_for_timer,
                             &first_frame_queued_for_timer,
                             st,
                             now,

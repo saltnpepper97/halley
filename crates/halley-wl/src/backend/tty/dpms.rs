@@ -2,8 +2,8 @@ use super::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::backend::tty::drm::TtyDrmOutput;
 use crate::backend::tty::drm::collect_outputs_for_ipc;
+use crate::backend::tty::drm::{TtyDrmDevice, TtyDrmOutput};
 
 pub(crate) fn sync_tty_dpms_state(
     outputs: &[TtyDrmOutput],
@@ -35,21 +35,24 @@ pub(crate) fn any_tty_output_dpms_enabled(dpms_enabled: &HashMap<String, bool>) 
     dpms_enabled.values().copied().any(|enabled| enabled)
 }
 
-pub(crate) fn publish_tty_outputs_snapshot(
-    dev: &DrmDevice,
+pub(crate) fn publish_tty_outputs_snapshot_for_devices(
+    devices: &[TtyDrmDevice],
     active_modes: &HashMap<String, drm_control::Mode>,
     dpms_enabled: &HashMap<String, bool>,
     tuning: &RuntimeTuning,
     st: &Halley,
 ) {
     let vrr_support: HashMap<String, String> = HashMap::new();
-    let mut outputs = collect_outputs_for_ipc(
-        dev,
-        active_modes,
-        tuning,
-        &vrr_support,
-        &st.model.fullscreen_state.direct_scanout,
-    );
+    let mut outputs = Vec::new();
+    for device in devices {
+        outputs.extend(collect_outputs_for_ipc(
+            &device.dev.borrow(),
+            active_modes,
+            tuning,
+            &vrr_support,
+            &st.model.fullscreen_state.direct_scanout,
+        ));
+    }
     for output in &mut outputs {
         if active_modes.contains_key(&output.name)
             && !tty_output_dpms_enabled(dpms_enabled, output.name.as_str())
@@ -65,7 +68,7 @@ pub(crate) fn publish_tty_outputs_snapshot(
 }
 
 pub(crate) fn apply_tty_dpms_command(
-    dev: &Rc<RefCell<DrmDevice>>,
+    drm_devices: &Rc<RefCell<Vec<TtyDrmDevice>>>,
     active_modes: &Rc<RefCell<HashMap<String, drm_control::Mode>>>,
     dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
     command: halley_ipc::DpmsCommand,
@@ -165,8 +168,8 @@ pub(crate) fn apply_tty_dpms_command(
         );
     }
 
-    publish_tty_outputs_snapshot(
-        &dev.borrow(),
+    publish_tty_outputs_snapshot_for_devices(
+        &drm_devices.borrow(),
         &active_modes.borrow(),
         &dpms_enabled.borrow(),
         tuning,
@@ -177,7 +180,7 @@ pub(crate) fn apply_tty_dpms_command(
 }
 
 pub(crate) fn wake_tty_dpms_on_input(
-    dev: &Rc<RefCell<DrmDevice>>,
+    drm_devices: &Rc<RefCell<Vec<TtyDrmDevice>>>,
     active_modes: &Rc<RefCell<HashMap<String, drm_control::Mode>>>,
     dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
@@ -201,7 +204,7 @@ pub(crate) fn wake_tty_dpms_on_input(
     drop(current);
 
     apply_tty_dpms_command(
-        dev,
+        drm_devices,
         active_modes,
         dpms_enabled,
         halley_ipc::DpmsCommand::On,

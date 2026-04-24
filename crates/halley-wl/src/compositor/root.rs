@@ -212,6 +212,7 @@ impl Halley {
                     smithay::input::pointer::CursorIcon::Default,
                 ),
                 dmabuf_importer: None,
+                dmabuf_output_feedbacks: HashMap::new(),
             },
             model: ModelState {
                 carry_state: CarryState {
@@ -731,6 +732,16 @@ impl Halley {
         device_fd: Fd,
     ) {
         super::platform::configure_dmabuf_importer_for_fd(self, importer, device_fd)
+    }
+
+    pub(crate) fn configure_dmabuf_output_feedbacks(
+        &mut self,
+        output_feedbacks: std::collections::HashMap<
+            String,
+            smithay::wayland::dmabuf::DmabufFeedback,
+        >,
+    ) {
+        super::platform::configure_dmabuf_output_feedbacks(self, output_feedbacks)
     }
 
     pub fn note_input_activity(&mut self) {

@@ -3,8 +3,11 @@ use std::error::Error;
 use std::rc::Rc;
 
 use calloop::ping::Ping;
+use smithay::backend::drm::{DrmDeviceFd, DrmNode};
 use smithay::backend::renderer::ImportDma;
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::multigpu::GpuManager;
+use smithay::backend::renderer::multigpu::gbm::GbmGlesBackend;
 use smithay::backend::winit::WinitGraphicsBackend;
 use smithay::backend::{allocator::Format, allocator::dmabuf::Dmabuf};
 
@@ -73,27 +76,34 @@ impl BackendView for TtyBackendHandle {
 }
 
 pub(crate) struct TtyDmabufImportBackend {
-    inner: Rc<RefCell<GlesRenderer>>,
+    gpu_manager: Rc<RefCell<GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>>>,
+    primary_render_node: DrmNode,
 }
 
 impl TtyDmabufImportBackend {
-    pub(crate) fn new(inner: Rc<RefCell<GlesRenderer>>) -> Self {
-        Self { inner }
+    pub(crate) fn new(
+        gpu_manager: Rc<RefCell<GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>>>,
+        primary_render_node: DrmNode,
+    ) -> Self {
+        Self {
+            gpu_manager,
+            primary_render_node,
+        }
     }
 }
 
 impl DmabufImportBackend for TtyDmabufImportBackend {
     fn dmabuf_formats(&self) -> Vec<Format> {
-        self.inner
-            .borrow()
-            .dmabuf_formats()
-            .iter()
-            .copied()
-            .collect()
+        let mut gpu_manager = self.gpu_manager.borrow_mut();
+        gpu_manager
+            .single_renderer(&self.primary_render_node)
+            .map(|renderer| renderer.dmabuf_formats().iter().copied().collect())
+            .unwrap_or_default()
     }
 
     fn import_dmabuf(&self, dmabuf: &Dmabuf) -> Result<(), Box<dyn Error>> {
-        let mut renderer = self.inner.borrow_mut();
+        let mut gpu_manager = self.gpu_manager.borrow_mut();
+        let mut renderer = gpu_manager.single_renderer(&self.primary_render_node)?;
         renderer.import_dmabuf(dmabuf, None)?;
         Ok(())
     }

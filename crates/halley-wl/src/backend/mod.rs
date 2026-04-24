@@ -17,9 +17,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use smithay::reexports::drm::control::{self as drm_control, Device as DrmControlDevice};
 use smithay::{
-    backend::allocator::gbm::GbmDevice,
     backend::drm::DrmEvent,
-    backend::drm::{DrmDevice, DrmDeviceFd},
     backend::input::{
         AbsolutePositionEvent, Axis, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
         PointerButtonEvent,

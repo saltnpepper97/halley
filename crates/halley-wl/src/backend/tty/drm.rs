@@ -6,27 +6,31 @@ use crate::compositor::interaction::ResizeCtx;
 use crate::protocol::wayland::portal;
 use halley_ipc::{ModeInfo, OutputInfo, OutputStatus};
 
-use smithay::backend::allocator::Fourcc;
+use smithay::backend::allocator::{Format, Fourcc, Modifier};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags, PrimaryPlaneElement};
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
-use smithay::backend::drm::{DrmDevice, DrmDeviceFd};
-use smithay::backend::egl::{EGLContext, EGLDisplay};
+use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmNode, NodeType};
+use smithay::backend::egl::{EGLDevice, EGLDisplay};
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::element::{
-    Kind,
+    Element, Kind, RenderElement, UnderlyingStorage,
     memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
     render_elements,
     surface::render_elements_from_surface_tree,
 };
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
+use smithay::backend::renderer::multigpu::gbm::GbmGlesBackend;
+use smithay::backend::renderer::multigpu::{GpuManager, MultiFrame, MultiRenderer};
 use smithay::backend::renderer::{Bind, Offscreen, Texture};
 use smithay::desktop::{PopupManager, utils::bbox_from_surface_tree};
 use smithay::input::pointer::CursorImageStatus;
 use smithay::output::OutputModeSource;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::reexports::wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags;
 use smithay::utils::{Physical, Scale, Size, Transform};
+use smithay::wayland::dmabuf::{DmabufFeedback, DmabufFeedbackBuilder};
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
@@ -35,6 +39,128 @@ render_elements! {
     HalleyDirectScanoutElement<=GlesRenderer>;
     Surface=SurfaceElement,
     Memory=MemoryRenderBufferRenderElement<GlesRenderer>,
+}
+
+trait AsGlesFrame<'frame, 'buffer>
+where
+    Self: 'frame,
+{
+    fn as_gles_frame(
+        &mut self,
+    ) -> &mut smithay::backend::renderer::gles::GlesFrame<'frame, 'buffer>;
+}
+
+impl<'frame, 'buffer> AsGlesFrame<'frame, 'buffer>
+    for smithay::backend::renderer::gles::GlesFrame<'frame, 'buffer>
+{
+    fn as_gles_frame(
+        &mut self,
+    ) -> &mut smithay::backend::renderer::gles::GlesFrame<'frame, 'buffer> {
+        self
+    }
+}
+
+impl<'render, 'frame, 'buffer> AsGlesFrame<'frame, 'buffer>
+    for TtyMultiFrame<'render, 'frame, 'buffer>
+{
+    fn as_gles_frame(
+        &mut self,
+    ) -> &mut smithay::backend::renderer::gles::GlesFrame<'frame, 'buffer> {
+        self.as_mut()
+    }
+}
+
+struct PrimaryGpuTextureElement(TextureRenderElement<GlesTexture>);
+
+impl Element for PrimaryGpuTextureElement {
+    fn id(&self) -> &smithay::backend::renderer::element::Id {
+        self.0.id()
+    }
+
+    fn current_commit(&self) -> smithay::backend::renderer::utils::CommitCounter {
+        self.0.current_commit()
+    }
+
+    fn geometry(&self, scale: Scale<f64>) -> smithay::utils::Rectangle<i32, Physical> {
+        self.0.geometry(scale)
+    }
+
+    fn transform(&self) -> Transform {
+        self.0.transform()
+    }
+
+    fn src(&self) -> smithay::utils::Rectangle<f64, smithay::utils::Buffer> {
+        self.0.src()
+    }
+
+    fn damage_since(
+        &self,
+        scale: Scale<f64>,
+        commit: Option<smithay::backend::renderer::utils::CommitCounter>,
+    ) -> smithay::backend::renderer::utils::DamageSet<i32, Physical> {
+        self.0.damage_since(scale, commit)
+    }
+
+    fn opaque_regions(
+        &self,
+        scale: Scale<f64>,
+    ) -> smithay::backend::renderer::utils::OpaqueRegions<i32, Physical> {
+        self.0.opaque_regions(scale)
+    }
+
+    fn alpha(&self) -> f32 {
+        self.0.alpha()
+    }
+
+    fn kind(&self) -> Kind {
+        self.0.kind()
+    }
+}
+
+impl RenderElement<GlesRenderer> for PrimaryGpuTextureElement {
+    fn draw(
+        &self,
+        frame: &mut smithay::backend::renderer::gles::GlesFrame<'_, '_>,
+        src: smithay::utils::Rectangle<f64, smithay::utils::Buffer>,
+        dst: smithay::utils::Rectangle<i32, Physical>,
+        damage: &[smithay::utils::Rectangle<i32, Physical>],
+        opaque_regions: &[smithay::utils::Rectangle<i32, Physical>],
+    ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+        RenderElement::<GlesRenderer>::draw(&self.0, frame, src, dst, damage, opaque_regions)
+    }
+
+    fn underlying_storage(&self, _renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
+        None
+    }
+}
+
+impl<'render> RenderElement<TtyMultiRenderer<'render>> for PrimaryGpuTextureElement {
+    fn draw(
+        &self,
+        frame: &mut TtyMultiFrame<'render, '_, '_>,
+        src: smithay::utils::Rectangle<f64, smithay::utils::Buffer>,
+        dst: smithay::utils::Rectangle<i32, Physical>,
+        damage: &[smithay::utils::Rectangle<i32, Physical>],
+        opaque_regions: &[smithay::utils::Rectangle<i32, Physical>],
+    ) -> Result<(), <TtyMultiRenderer<'render> as smithay::backend::renderer::RendererSuper>::Error>
+    {
+        RenderElement::<GlesRenderer>::draw(
+            &self.0,
+            frame.as_gles_frame(),
+            src,
+            dst,
+            damage,
+            opaque_regions,
+        )?;
+        Ok(())
+    }
+
+    fn underlying_storage(
+        &self,
+        _renderer: &mut TtyMultiRenderer<'render>,
+    ) -> Option<UnderlyingStorage<'_>> {
+        None
+    }
 }
 
 /// The DrmCompositor type for a single output in halley.
@@ -52,6 +178,13 @@ pub(crate) type HalleyDrmCompositor = DrmCompositor<
     DrmDeviceFd,                         // raw DRM fd
 >;
 
+pub(crate) type TtyGpuBackend = GbmGlesBackend<GlesRenderer, DrmDeviceFd>;
+pub(crate) type TtyGpuManager = GpuManager<TtyGpuBackend>;
+pub(crate) type TtyMultiRenderer<'render> =
+    MultiRenderer<'render, 'render, TtyGpuBackend, TtyGpuBackend>;
+pub(crate) type TtyMultiFrame<'render, 'frame, 'buffer> =
+    MultiFrame<'render, 'render, 'frame, 'buffer, TtyGpuBackend, TtyGpuBackend>;
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct TtyFrameQueueReport {
     pub(crate) queued: bool,
@@ -59,12 +192,21 @@ pub(crate) struct TtyFrameQueueReport {
 }
 
 pub(crate) struct TtyDrmProbe {
-    pub(crate) card_path: std::path::PathBuf,
-    pub(crate) dev: DrmDevice,
-    pub(crate) gbm: GbmDevice<DrmDeviceFd>,
-    pub(crate) notifier: smithay::backend::drm::DrmDeviceNotifier,
-    pub(crate) renderer: Rc<RefCell<GlesRenderer>>,
+    pub(crate) devices: Vec<TtyDrmDevice>,
+    pub(crate) gpu_manager: Rc<RefCell<TtyGpuManager>>,
+    pub(crate) primary_render_node: DrmNode,
+    pub(crate) primary_dev_fd: DrmDeviceFd,
     pub(crate) outputs: Vec<TtyDrmOutput>,
+}
+
+pub(crate) struct TtyDrmDevice {
+    pub(crate) card_path: std::path::PathBuf,
+    #[allow(dead_code)]
+    pub(crate) node: DrmNode,
+    pub(crate) render_node: DrmNode,
+    pub(crate) dev: Rc<RefCell<DrmDevice>>,
+    pub(crate) gbm: Rc<GbmDevice<DrmDeviceFd>>,
+    pub(crate) notifier: Option<smithay::backend::drm::DrmDeviceNotifier>,
     /// The DrmDeviceFd kept alive so GbmDevice references stay valid.
     pub(crate) dev_fd: DrmDeviceFd,
 }
@@ -75,12 +217,16 @@ pub(crate) struct TtyDrmOutput {
     pub(crate) crtc: drm_control::crtc::Handle,
     pub(crate) connector_name: String,
     pub(crate) mode: drm_control::Mode,
+    #[allow(dead_code)]
+    pub(crate) device_node: DrmNode,
+    pub(crate) render_node: DrmNode,
     /// Atomic DRM compositor — replaces GbmBufferedSurface.
     pub(crate) compositor: Rc<RefCell<HalleyDrmCompositor>>,
 }
 
 pub(crate) struct TtyOutputCaptureBackend {
-    pub(crate) renderer: Rc<RefCell<GlesRenderer>>,
+    pub(crate) gpu_manager: Rc<RefCell<TtyGpuManager>>,
+    pub(crate) primary_render_node: DrmNode,
     pub(crate) outputs: Rc<RefCell<Vec<TtyDrmOutput>>>,
     pub(crate) pointer_state: Rc<RefCell<PointerState>>,
     pub(crate) dmabuf_formats: Vec<smithay::backend::allocator::Format>,
@@ -120,12 +266,13 @@ impl portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         let cursor_screen = overlay_cursor.then_some(ps.screen);
         drop(ps);
 
-        let mut renderer = self
-            .renderer
+        let mut gpu_manager = self
+            .gpu_manager
             .try_borrow_mut()
-            .map_err(|_| io::Error::other("tty renderer already borrowed during screencopy"))?;
+            .map_err(|_| io::Error::other("tty gpu manager already borrowed during screencopy"))?;
+        let mut renderer = gpu_manager.single_renderer(&self.primary_render_node)?;
         portal::capture_output_via_renderer(
-            &mut renderer,
+            renderer.as_mut(),
             st,
             output_name,
             physical_size,
@@ -167,11 +314,12 @@ impl portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         let cursor_screen = overlay_cursor.then_some(ps.screen);
         drop(ps);
 
-        let mut renderer = self.renderer.try_borrow_mut().map_err(|_| {
-            io::Error::other("tty renderer already borrowed during dma-buf screencopy")
+        let mut gpu_manager = self.gpu_manager.try_borrow_mut().map_err(|_| {
+            io::Error::other("tty gpu manager already borrowed during dma-buf screencopy")
         })?;
+        let mut renderer = gpu_manager.single_renderer(&self.primary_render_node)?;
         portal::capture_output_into_dmabuf_via_renderer(
-            &mut renderer,
+            renderer.as_mut(),
             st,
             output_name,
             physical_size,
@@ -193,12 +341,12 @@ impl portal::OutputCaptureBackend for TtyOutputCaptureBackend {
         node_id: halley_core::field::NodeId,
         output_path: &std::path::Path,
     ) -> Result<(), Box<dyn Error>> {
-        let mut renderer = self
-            .renderer
-            .try_borrow_mut()
-            .map_err(|_| io::Error::other("tty renderer already borrowed during window capture"))?;
+        let mut gpu_manager = self.gpu_manager.try_borrow_mut().map_err(|_| {
+            io::Error::other("tty gpu manager already borrowed during window capture")
+        })?;
+        let mut renderer = gpu_manager.single_renderer(&self.primary_render_node)?;
         crate::window::capture_window_to_png_via_renderer(
-            &mut renderer,
+            renderer.as_mut(),
             st,
             output_name,
             node_id,
@@ -227,6 +375,11 @@ pub(crate) fn probe_tty_drm_device_via_session(
         );
     }
 
+    let gpu_manager = Rc::new(RefCell::new(GpuManager::new(GbmGlesBackend::default())?));
+    let mut devices = Vec::new();
+    let mut outputs = Vec::new();
+    let mut primary_render_node = None;
+    let mut primary_dev_fd = None;
     let mut last_err: Option<String> = None;
     let tried_paths = candidates
         .iter()
@@ -234,13 +387,50 @@ pub(crate) fn probe_tty_drm_device_via_session(
         .collect::<Vec<_>>()
         .join(", ");
     for card in candidates {
-        match probe_tty_drm_device_path_via_session(card.as_path(), session.clone(), tuning) {
-            Ok(probe) => return Ok(probe),
+        match probe_tty_drm_device_path_into_manager(
+            card.as_path(),
+            session.clone(),
+            tuning,
+            gpu_manager.clone(),
+        ) {
+            Ok((device, mut device_outputs)) => {
+                if primary_render_node.is_none() {
+                    primary_render_node = Some(device.render_node);
+                    primary_dev_fd = Some(device.dev_fd.clone());
+                }
+                outputs.append(&mut device_outputs);
+                devices.push(device);
+            }
             Err(err) => {
                 warn!("tty drm probe failed for {}: {}", card.display(), err);
                 last_err = Some(err.to_string());
             }
         }
+    }
+
+    if let (Some(primary_render_node), Some(primary_dev_fd)) = (primary_render_node, primary_dev_fd)
+        && !outputs.is_empty()
+    {
+        info!(
+            "tty drm multi-gpu ready: primary_render_node={} devices={} outputs={}",
+            primary_render_node,
+            devices.len(),
+            outputs
+                .iter()
+                .map(|output| {
+                    let (w, h) = output.mode.size();
+                    format!("{}:{}x{}", output.connector_name, w, h)
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        return Ok(TtyDrmProbe {
+            devices,
+            gpu_manager,
+            primary_render_node,
+            primary_dev_fd,
+            outputs,
+        });
     }
 
     Err(io::Error::other(format!(
@@ -252,11 +442,12 @@ pub(crate) fn probe_tty_drm_device_via_session(
     .into())
 }
 
-pub(crate) fn probe_tty_drm_device_path_via_session(
+fn probe_tty_drm_device_path_into_manager(
     card_path: &Path,
     mut session: Rc<RefCell<LibSeatSession>>,
     tuning: &RuntimeTuning,
-) -> Result<TtyDrmProbe, Box<dyn Error>> {
+    gpu_manager: Rc<RefCell<TtyGpuManager>>,
+) -> Result<(TtyDrmDevice, Vec<TtyDrmOutput>), Box<dyn Error>> {
     use rustix::fs::OFlags;
     let raw_fd = session
         .open(card_path, OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY)
@@ -282,6 +473,13 @@ pub(crate) fn probe_tty_drm_device_path_via_session(
             err
         ))
     })?;
+    let node = DrmNode::from_path(card_path).map_err(|err| {
+        io::Error::other(format!(
+            "failed to identify drm node for {}: {}",
+            card_path.display(),
+            err
+        ))
+    })?;
     let display = unsafe { EGLDisplay::new(gbm.clone()) }.map_err(|err| {
         io::Error::other(format!(
             "failed to create egl display for {}: {}",
@@ -289,32 +487,71 @@ pub(crate) fn probe_tty_drm_device_path_via_session(
             err
         ))
     })?;
-    let context = EGLContext::new(&display).map_err(|err| {
+    let egl_device = EGLDevice::device_for_display(&display).map_err(|err| {
         io::Error::other(format!(
-            "failed to create egl context for {}: {}",
+            "failed to get egl device for {}: {}",
             card_path.display(),
             err
         ))
     })?;
-    let mut renderer = unsafe { GlesRenderer::new(context) }.map_err(|err| {
-        io::Error::other(format!(
-            "failed to create gles renderer for {}: {}",
-            card_path.display(),
-            err
+    if egl_device.is_software() {
+        return Err(io::Error::other(format!(
+            "skipping software egl renderer for {}",
+            card_path.display()
         ))
-    })?;
-    log_tty_renderer_info(card_path, &mut renderer);
+        .into());
+    }
+    let render_node = egl_device
+        .try_get_render_node()
+        .ok()
+        .flatten()
+        .or_else(|| node.node_with_type(NodeType::Render).and_then(Result::ok))
+        .unwrap_or(node);
+    gpu_manager
+        .borrow_mut()
+        .as_mut()
+        .add_node(render_node, gbm.clone())
+        .map_err(|err| {
+            io::Error::other(format!(
+                "failed to add gpu node {} for {}: {}",
+                render_node,
+                card_path.display(),
+                err
+            ))
+        })?;
+    {
+        let mut gpu_manager = gpu_manager.borrow_mut();
+        let mut renderer = gpu_manager.single_renderer(&render_node).map_err(|err| {
+            io::Error::other(format!(
+                "failed to create gles renderer for {}: {:?}",
+                card_path.display(),
+                err
+            ))
+        })?;
+        log_tty_renderer_info(card_path, renderer.as_mut());
+    }
     let outputs = build_tty_outputs(
         &mut dev,
         &gbm,
         dev_fd.clone(),
-        &renderer,
+        &gpu_manager,
+        render_node,
         tuning,
         card_path.display(),
-    )?;
+    )
+    .unwrap_or_else(|err| {
+        debug!(
+            "tty drm output probe found no usable outputs on {}: {}",
+            card_path.display(),
+            err
+        );
+        Vec::new()
+    });
     info!(
-        "tty drm device ready: card={} atomic={} crtcs={} outputs={}",
+        "tty drm device ready: card={} node={} render_node={} atomic={} crtcs={} outputs={}",
         card_path.display(),
+        node,
+        render_node,
         dev.is_atomic(),
         dev.crtcs().len(),
         outputs
@@ -326,15 +563,18 @@ pub(crate) fn probe_tty_drm_device_path_via_session(
             .collect::<Vec<_>>()
             .join(", ")
     );
-    Ok(TtyDrmProbe {
-        card_path: card_path.to_path_buf(),
-        dev,
-        gbm,
-        notifier,
-        renderer: Rc::new(RefCell::new(renderer)),
+    Ok((
+        TtyDrmDevice {
+            card_path: card_path.to_path_buf(),
+            node,
+            render_node,
+            dev: Rc::new(RefCell::new(dev)),
+            gbm: Rc::new(gbm),
+            notifier: Some(notifier),
+            dev_fd,
+        },
         outputs,
-        dev_fd,
-    })
+    ))
 }
 
 pub(crate) fn current_tty_output_signature(outputs: &[TtyDrmOutput]) -> Vec<String> {
@@ -382,19 +622,107 @@ pub(crate) fn rebuild_tty_outputs(
     dev: &mut DrmDevice,
     gbm: &GbmDevice<DrmDeviceFd>,
     dev_fd: DrmDeviceFd,
-    renderer: &Rc<RefCell<GlesRenderer>>,
+    gpu_manager: &Rc<RefCell<TtyGpuManager>>,
+    render_node: DrmNode,
     tuning: &RuntimeTuning,
     card_path: &Path,
 ) -> Result<Vec<TtyDrmOutput>, Box<dyn Error>> {
-    let renderer = renderer.borrow();
-    build_tty_outputs(dev, gbm, dev_fd, &renderer, tuning, card_path.display())
+    build_tty_outputs(
+        dev,
+        gbm,
+        dev_fd,
+        gpu_manager,
+        render_node,
+        tuning,
+        card_path.display(),
+    )
+}
+
+pub(crate) fn build_tty_dmabuf_output_feedbacks(
+    outputs: &[TtyDrmOutput],
+    gpu_manager: &Rc<RefCell<TtyGpuManager>>,
+    primary_render_node: DrmNode,
+) -> HashMap<String, DmabufFeedback> {
+    let primary_formats: Vec<Format> = match gpu_manager
+        .borrow_mut()
+        .single_renderer(&primary_render_node)
+    {
+        Ok(renderer) => renderer.dmabuf_formats().iter().copied().collect(),
+        Err(err) => {
+            warn!(
+                "failed to query primary renderer dma-buf formats for feedback: {:?}",
+                err
+            );
+            return HashMap::new();
+        }
+    };
+
+    let primary_format_set: smithay::backend::allocator::format::FormatSet =
+        primary_formats.iter().copied().collect();
+    let mut feedbacks = HashMap::new();
+
+    for output in outputs {
+        let compositor = output.compositor.borrow();
+        let surface = compositor.surface();
+        let primary_plane_formats = surface.plane_info().formats.clone();
+        let primary_or_overlay_plane_formats = primary_plane_formats
+            .iter()
+            .chain(
+                surface
+                    .planes()
+                    .overlay
+                    .iter()
+                    .flat_map(|plane| plane.formats.iter()),
+            )
+            .copied()
+            .collect::<smithay::backend::allocator::format::FormatSet>();
+
+        let mut primary_scanout_formats = primary_plane_formats
+            .intersection(&primary_format_set)
+            .copied()
+            .collect::<Vec<_>>();
+        let mut primary_or_overlay_scanout_formats = primary_or_overlay_plane_formats
+            .intersection(&primary_format_set)
+            .copied()
+            .collect::<Vec<_>>();
+
+        if output.render_node != primary_render_node {
+            primary_scanout_formats.retain(|format| format.modifier == Modifier::Linear);
+            primary_or_overlay_scanout_formats.retain(|format| format.modifier == Modifier::Linear);
+        }
+
+        match DmabufFeedbackBuilder::new(primary_render_node.dev_id(), primary_formats.clone())
+            .add_preference_tranche(
+                output.render_node.dev_id(),
+                Some(TrancheFlags::Scanout),
+                primary_scanout_formats,
+            )
+            .add_preference_tranche(
+                output.render_node.dev_id(),
+                Some(TrancheFlags::Scanout),
+                primary_or_overlay_scanout_formats,
+            )
+            .build()
+        {
+            Ok(feedback) => {
+                feedbacks.insert(output.connector_name.clone(), feedback);
+            }
+            Err(err) => warn!(
+                "failed to build dma-buf feedback for {}: {}",
+                output.connector_name, err
+            ),
+        }
+    }
+
+    feedbacks
 }
 
 fn build_tty_outputs(
     dev: &mut DrmDevice,
     gbm: &GbmDevice<DrmDeviceFd>,
     _dev_fd: DrmDeviceFd,
-    renderer: &GlesRenderer,
+    gpu_manager: &Rc<RefCell<TtyGpuManager>>,
+    render_node: DrmNode,
     tuning: &RuntimeTuning,
     card_label: impl std::fmt::Display,
 ) -> Result<Vec<TtyDrmOutput>, Box<dyn Error>> {
@@ -402,7 +730,11 @@ fn build_tty_outputs(
 
     // Formats the renderer supports — DrmCompositor uses these to choose
     // an internal buffer format and verify scanout compatibility.
-    let render_formats: Vec<_> = renderer.dmabuf_formats().iter().copied().collect();
+    let render_formats: Vec<_> = gpu_manager
+        .borrow_mut()
+        .single_renderer(&render_node)
+        .map(|renderer| renderer.dmabuf_formats().iter().copied().collect())
+        .unwrap_or_default();
 
     let mut outputs = Vec::new();
 
@@ -455,6 +787,8 @@ fn build_tty_outputs(
             crtc,
             connector_name,
             mode,
+            device_node: DrmNode::from_file(dev.device_fd()).unwrap_or(render_node),
+            render_node,
             compositor: Rc::new(RefCell::new(compositor)),
         });
     }
@@ -800,7 +1134,9 @@ fn mode_info_from_drm_mode(mode: drm_control::Mode, current: bool, preferred: bo
 pub(crate) fn queue_tty_drm_frame(
     output_name: &str,
     compositor: &Rc<RefCell<HalleyDrmCompositor>>,
-    renderer: &Rc<RefCell<GlesRenderer>>,
+    gpu_manager: &Rc<RefCell<TtyGpuManager>>,
+    primary_render_node: DrmNode,
+    output_render_node: DrmNode,
     composed_frame_cache: &Rc<RefCell<HashMap<String, GlesTexture>>>,
     st: &mut Halley,
     resize_preview: Option<ResizeCtx>,
@@ -815,7 +1151,6 @@ pub(crate) fn queue_tty_drm_frame(
 
     let result = (|| {
         let mut compositor = compositor.borrow_mut();
-        let mut renderer_ref = renderer.borrow_mut();
 
         let mode = compositor.pending_mode();
         let (w, h) = mode.size();
@@ -835,37 +1170,53 @@ pub(crate) fn queue_tty_drm_frame(
 
         st.input.interaction_state.suppress_layer_shell_configure = previous_monitor.is_some();
 
-        match fullscreen_direct_scanout_candidate(
-            st,
-            output_name,
-            w as i32,
-            h as i32,
-            resize_preview,
-            hover_node,
-            preview_hover_node,
-            local_cursor,
-            cursor_image,
-        ) {
+        let allow_direct_scanout = primary_render_node == output_render_node;
+        match allow_direct_scanout.then(|| {
+            fullscreen_direct_scanout_candidate(
+                st,
+                output_name,
+                w as i32,
+                h as i32,
+                resize_preview,
+                hover_node,
+                preview_hover_node,
+                local_cursor,
+                cursor_image,
+            )
+        }) {
             None => st
                 .model
                 .fullscreen_state
                 .clear_direct_scanout_for_monitor(output_name),
-            Some(Err((node_id, reason))) => st.model.fullscreen_state.set_direct_scanout_status(
-                output_name,
-                Some(node_id),
-                None,
-                Some(reason),
-            ),
-            Some(Ok(candidate)) => {
+            Some(None) => st
+                .model
+                .fullscreen_state
+                .clear_direct_scanout_for_monitor(output_name),
+            Some(Some(Err((node_id, reason)))) => st
+                .model
+                .fullscreen_state
+                .set_direct_scanout_status(output_name, Some(node_id), None, Some(reason)),
+            Some(Some(Ok(candidate))) => {
+                let mut gpu_manager = gpu_manager.borrow_mut();
+                let mut renderer =
+                    gpu_manager
+                        .single_renderer(&primary_render_node)
+                        .map_err(|err| {
+                            io::Error::other(format!(
+                                "failed to create primary renderer for {} direct scanout: {:?}",
+                                output_name, err
+                            ))
+                        })?;
+                let renderer_ref = renderer.as_mut();
                 let mut elements = direct_scanout_cursor_elements(
-                    &mut *renderer_ref,
+                    renderer_ref,
                     local_cursor,
                     cursor_image,
                     &st.runtime.tuning.cursor,
                 )?;
                 elements.extend(
                     render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
-                        &mut *renderer_ref,
+                        renderer_ref,
                         &candidate.surface,
                         (0, 0),
                         1.0,
@@ -876,7 +1227,7 @@ pub(crate) fn queue_tty_drm_frame(
                     .map(Into::into),
                 );
                 match compositor.render_frame(
-                    &mut *renderer_ref,
+                    renderer_ref,
                     &elements,
                     [0.0, 0.0, 0.0, 1.0],
                     FrameFlags::DEFAULT,
@@ -934,57 +1285,83 @@ pub(crate) fn queue_tty_drm_frame(
         let force_overlay_full_repaint =
             crate::frame_loop::monitor_overlay_requires_full_repaint(st, output_name);
         let force_full_repaint = force_overlay_full_repaint || animation_redraw.force_full_repaint;
-        let mut texture = composed_frame_texture_for_output(
-            output_name,
-            &mut renderer_ref,
-            composed_frame_cache,
-            w as i32,
-            h as i32,
-        )?;
-
-        {
-            let mut target = renderer_ref.bind(&mut texture).map_err(|err| {
-                io::Error::other(format!("bind failed for {}: {}", output_name, err))
-            })?;
-
-            draw_debug_frame_to_target(
-                &mut renderer_ref,
-                &mut target,
-                physical_size,
-                st,
-                resize_preview,
-                hover_node,
-                preview_hover_node,
-                local_cursor,
-                cursor_image,
-                st.output_transform_for(output_name),
+        let texture_buffer = {
+            let mut gpu_manager = gpu_manager.borrow_mut();
+            let mut renderer =
+                gpu_manager
+                    .single_renderer(&primary_render_node)
+                    .map_err(|err| {
+                        io::Error::other(format!(
+                            "failed to create primary renderer for {} composition: {:?}",
+                            output_name, err
+                        ))
+                    })?;
+            let renderer_ref = renderer.as_mut();
+            let mut texture = composed_frame_texture_for_output(
+                output_name,
+                renderer_ref,
+                composed_frame_cache,
+                w as i32,
+                h as i32,
             )?;
-        }
 
-        let texture_buffer = TextureBuffer::from_texture(
-            &mut *renderer_ref,
-            texture,
-            1,
-            Transform::Normal,
-            Some(Vec::new()),
-        );
+            {
+                let mut target = renderer_ref.bind(&mut texture).map_err(|err| {
+                    io::Error::other(format!("bind failed for {}: {}", output_name, err))
+                })?;
 
-        let element = TextureRenderElement::from_texture_buffer(
+                draw_debug_frame_to_target(
+                    renderer_ref,
+                    &mut target,
+                    physical_size,
+                    st,
+                    resize_preview,
+                    hover_node,
+                    preview_hover_node,
+                    local_cursor,
+                    cursor_image,
+                    st.output_transform_for(output_name),
+                )?;
+            }
+
+            TextureBuffer::from_texture(
+                renderer_ref,
+                texture,
+                1,
+                Transform::Normal,
+                Some(Vec::new()),
+            )
+        };
+
+        let element = PrimaryGpuTextureElement(TextureRenderElement::from_texture_buffer(
             (0.0, 0.0),
             &texture_buffer,
             Some(1.0),
             None,
             None,
             Kind::Unspecified,
-        );
+        ));
 
         let elements = [element];
         if force_full_repaint {
             compositor.reset_buffers();
         }
+        let mut gpu_manager = gpu_manager.borrow_mut();
+        let mut renderer = gpu_manager
+            .renderer(
+                &primary_render_node,
+                &output_render_node,
+                compositor.format(),
+            )
+            .map_err(|err| {
+                io::Error::other(format!(
+                    "failed to create multi-gpu renderer for {}: {:?}",
+                    output_name, err
+                ))
+            })?;
         let render_res = compositor
             .render_frame(
-                &mut *renderer_ref,
+                &mut renderer,
                 &elements,
                 [0.0, 0.0, 0.0, 1.0],
                 FrameFlags::empty(),

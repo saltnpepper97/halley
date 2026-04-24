@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::os::unix::io::AsFd;
 use std::rc::Rc;
 
@@ -13,7 +14,7 @@ use smithay::{
     wayland::{
         compositor::{CompositorState, add_blocker, with_states},
         cursor_shape::CursorShapeManagerState,
-        dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
+        dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjState},
         idle_notify::IdleNotifierState,
         output::OutputManagerState,
@@ -70,6 +71,7 @@ pub(crate) struct PlatformState {
     pub(crate) seat: Seat<Halley>,
     pub(crate) cursor_image_status: CursorImageStatus,
     pub(crate) dmabuf_importer: Option<Rc<dyn DmabufImportBackend>>,
+    pub(crate) dmabuf_output_feedbacks: HashMap<String, DmabufFeedback>,
 }
 
 pub(crate) fn preferred_xdg_decoration_mode(st: &Halley) -> XdgDecorationMode {
@@ -285,6 +287,13 @@ pub(crate) fn configure_dmabuf_importer(
 
     st.platform.dmabuf_importer = Some(importer);
     st.platform.dmabuf_global = Some(global);
+}
+
+pub(crate) fn configure_dmabuf_output_feedbacks(
+    st: &mut Halley,
+    output_feedbacks: HashMap<String, DmabufFeedback>,
+) {
+    st.platform.dmabuf_output_feedbacks = output_feedbacks;
 }
 
 pub(crate) fn configure_dmabuf_importer_for_fd<Fd: AsFd>(

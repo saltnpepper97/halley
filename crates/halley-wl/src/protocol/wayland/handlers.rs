@@ -168,10 +168,18 @@ impl DmabufHandler for Halley {
 
     fn new_surface_feedback(
         &mut self,
-        _surface: &WlSurface,
-        _global: &DmabufGlobal,
+        surface: &WlSurface,
+        global: &DmabufGlobal,
     ) -> Option<DmabufFeedback> {
-        None
+        if self.platform.dmabuf_global != Some(*global) {
+            return None;
+        }
+
+        let monitor = monitor::state::monitor_for_surface_or_current(self, surface);
+        self.platform
+            .dmabuf_output_feedbacks
+            .get(monitor.as_str())
+            .cloned()
     }
 }
 
