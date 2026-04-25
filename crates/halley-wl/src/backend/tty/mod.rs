@@ -16,7 +16,7 @@ use crate::backend::tty::dpms::{
     sync_tty_dpms_state, tty_output_dpms_enabled, wake_tty_dpms_on_input,
 };
 use crate::backend::tty::drm::{
-    TtyDrmDevice, TtyDrmOutput, TtyGpuManager, TtyOutputCaptureBackend,
+    TtyDrmDevice, TtyDrmOutput, TtyFrameQueueReport, TtyGpuManager, TtyOutputCaptureBackend,
     build_tty_dmabuf_output_feedbacks, current_tty_output_signature,
     probe_tty_drm_device_via_session, queue_tty_drm_frame, rebuild_tty_outputs,
     selected_tty_scanout_signature,
@@ -37,6 +37,7 @@ const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 const OUTPUT_RESCAN_POLL_MS: u64 = 750;
 const VBLANK_MISMATCH_LOG_AFTER_MS: u64 = 1_000;
 const PENDING_FRAME_TIMEOUT_MS: u64 = 1_500;
+const FRAME_STATS_LOG_INTERVAL_SECS: u64 = 10;
 
 const HALLEY_X11_DISPLAY_NUM: u32 = 0;
 
@@ -44,6 +45,121 @@ const HALLEY_X11_DISPLAY_NUM: u32 = 0;
 struct VBlankMismatchState {
     first_seen_at: Option<Instant>,
     reported_active: bool,
+}
+
+#[derive(Debug)]
+struct TtyFrameStats {
+    last_report_at: Instant,
+    queued_frames: u64,
+    completed_vblanks: u64,
+    page_flip_timeouts: u64,
+    page_flip_recoveries: u64,
+    vblank_mismatches: u64,
+    direct_scanout_frames: u64,
+    composed_frames: u64,
+    sync_wait_count: u64,
+    sync_wait_total_ns: u128,
+    max_sync_wait: Duration,
+}
+
+impl TtyFrameStats {
+    fn new(now: Instant) -> Self {
+        Self {
+            last_report_at: now,
+            queued_frames: 0,
+            completed_vblanks: 0,
+            page_flip_timeouts: 0,
+            page_flip_recoveries: 0,
+            vblank_mismatches: 0,
+            direct_scanout_frames: 0,
+            composed_frames: 0,
+            sync_wait_count: 0,
+            sync_wait_total_ns: 0,
+            max_sync_wait: Duration::ZERO,
+        }
+    }
+}
+
+fn tty_env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+fn record_tty_frame_queue(
+    frame_stats: Option<&Rc<RefCell<TtyFrameStats>>>,
+    report: &TtyFrameQueueReport,
+) {
+    let Some(frame_stats) = frame_stats else {
+        return;
+    };
+    if !report.queued {
+        return;
+    }
+
+    let mut stats = frame_stats.borrow_mut();
+    stats.queued_frames += 1;
+    if report.direct_scanout_active {
+        stats.direct_scanout_frames += 1;
+    }
+    if report.composed {
+        stats.composed_frames += 1;
+    }
+    if let Some(wait) = report.sync_wait {
+        stats.sync_wait_count += 1;
+        stats.sync_wait_total_ns += wait.as_nanos();
+        stats.max_sync_wait = stats.max_sync_wait.max(wait);
+    }
+}
+
+fn maybe_log_tty_frame_stats(
+    frame_stats: Option<&Rc<RefCell<TtyFrameStats>>>,
+    output_frame_pending_since: &Rc<RefCell<HashMap<String, Instant>>>,
+    now: Instant,
+) {
+    let Some(frame_stats) = frame_stats else {
+        return;
+    };
+
+    let mut stats = frame_stats.borrow_mut();
+    if now.saturating_duration_since(stats.last_report_at)
+        < Duration::from_secs(FRAME_STATS_LOG_INTERVAL_SECS)
+    {
+        return;
+    }
+
+    let pending_since = output_frame_pending_since.borrow();
+    let pending_frames = pending_since.len();
+    let max_pending_age = pending_since
+        .values()
+        .map(|queued_at| now.saturating_duration_since(*queued_at))
+        .max()
+        .unwrap_or(Duration::ZERO);
+    let avg_sync_wait = if stats.sync_wait_count == 0 {
+        Duration::ZERO
+    } else {
+        Duration::from_nanos((stats.sync_wait_total_ns / stats.sync_wait_count as u128) as u64)
+    };
+
+    debug!(
+        "tty frame stats: queued={} completed_vblanks={} page_flip_timeouts={} page_flip_recoveries={} vblank_mismatches={} direct_scanout={} composed={} sync_waits={} avg_sync_wait={:?} max_sync_wait={:?} pending_frames={} max_pending_age={:?}",
+        stats.queued_frames,
+        stats.completed_vblanks,
+        stats.page_flip_timeouts,
+        stats.page_flip_recoveries,
+        stats.vblank_mismatches,
+        stats.direct_scanout_frames,
+        stats.composed_frames,
+        stats.sync_wait_count,
+        avg_sync_wait,
+        stats.max_sync_wait,
+        pending_frames,
+        max_pending_age
+    );
+    stats.last_report_at = now;
 }
 
 fn queue_ready_tty_outputs(
@@ -57,11 +173,12 @@ fn queue_ready_tty_outputs(
     gpu_manager: &Rc<RefCell<TtyGpuManager>>,
     primary_render_node: DrmNode,
     first_frame_queued: &Rc<RefCell<HashSet<String>>>,
+    frame_stats: Option<&Rc<RefCell<TtyFrameStats>>>,
     st: &mut Halley,
     now: Instant,
     resize_preview: Option<ResizeCtx>,
     eligible_outputs: Option<&HashSet<String>>,
-    source: &str,
+    _source: &str,
 ) {
     if !any_tty_output_dpms_enabled(&dpms_enabled.borrow()) {
         return;
@@ -106,6 +223,7 @@ fn queue_ready_tty_outputs(
 
         match queue_tty_drm_frame(
             output_name,
+            output.device_node,
             &output.compositor,
             gpu_manager,
             primary_render_node,
@@ -125,6 +243,7 @@ fn queue_ready_tty_outputs(
                 warn!("tty drm frame queue skipped for {}: {}", output_name, err)
             }
             Ok(report) => {
+                record_tty_frame_queue(frame_stats, &report);
                 let previous_active = output_animation_redraw_active
                     .borrow_mut()
                     .insert(
@@ -152,9 +271,7 @@ fn queue_ready_tty_outputs(
                 output_frame_pending_since
                     .borrow_mut()
                     .insert(output.connector_name.clone(), now);
-                if source != "timer" {
-                    crate::frame_loop::send_frame_callbacks_for_output(st, output_name, now);
-                }
+                crate::frame_loop::send_frame_callbacks_for_output(st, output_name, now);
             }
         }
     }
@@ -1238,6 +1355,15 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let output_frame_pending = Rc::new(RefCell::new(HashMap::new()));
             let output_frame_pending_since =
                 Rc::new(RefCell::new(HashMap::<String, Instant>::new()));
+            let frame_stats = tty_env_flag("HALLEY_FRAME_STATS")
+                .then(|| Rc::new(RefCell::new(TtyFrameStats::new(Instant::now()))));
+            if frame_stats.is_some() {
+                debug!(
+                    "tty frame stats enabled; disable_direct_scanout={} force_composed={}",
+                    tty_env_flag("HALLEY_DISABLE_DIRECT_SCANOUT"),
+                    tty_env_flag("HALLEY_FORCE_COMPOSED")
+                );
+            }
             let output_animation_redraw_active = Rc::new(RefCell::new(HashMap::new()));
             let composed_frame_cache = Rc::new(RefCell::new(HashMap::<String, GlesTexture>::new()));
             {
@@ -1296,9 +1422,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let drm_notifiers = drm_devices
                 .borrow_mut()
                 .iter_mut()
-                .filter_map(|device| device.notifier.take())
+                .filter_map(|device| {
+                    device
+                        .notifier
+                        .take()
+                        .map(|notifier| (device.node, notifier))
+                })
                 .collect::<Vec<_>>();
-            for notifier in drm_notifiers {
+            for (notifier_device_node, notifier) in drm_notifiers {
                 let outputs_for_vblank = outputs_for_vblank.clone();
                 let active_modes_for_notifier = active_modes_for_notifier.clone();
                 let output_frame_pending_for_notifier = output_frame_pending_for_notifier.clone();
@@ -1309,6 +1440,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 let redraw_ping_for_vblank = redraw_ping_for_vblank.clone();
                 let first_vblank_logged_for_notifier = first_vblank_logged_for_notifier.clone();
                 let vblank_mismatch_state_for_notifier = vblank_mismatch_state_for_notifier.clone();
+                let frame_stats_for_notifier = frame_stats.clone();
                 ev.handle().insert_source(
                 notifier,
                 move |event, _metadata, _st| match event {
@@ -1319,7 +1451,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             let initial_crtc = output.crtc;
                             let output_name = output.connector_name.clone();
                             let compositor = output.compositor.clone();
-                            if crtc != initial_crtc {
+                            if output.device_node != notifier_device_node || crtc != initial_crtc {
                                 continue;
                             }
                             let refresh_interval = active_modes_for_notifier
@@ -1343,9 +1475,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                         output_frame_pending_for_notifier.clone();
                                     let output_frame_pending_since_for_notifier =
                                         output_frame_pending_since_for_notifier.clone();
+                                    let frame_stats_for_notifier = frame_stats_for_notifier.clone();
                                     move |_state| {
                                         if let Err(err) = compositor.borrow_mut().frame_submitted() {
                                             warn!("failed to mark drm frame submitted after throttle: {}", err);
+                                        }
+                                        if let Some(frame_stats) = &frame_stats_for_notifier {
+                                            frame_stats.borrow_mut().completed_vblanks += 1;
                                         }
                                         output_frame_pending_for_notifier
                                             .borrow_mut()
@@ -1365,6 +1501,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     output_name, err
                                 );
                             }
+                            if let Some(frame_stats) = &frame_stats_for_notifier {
+                                frame_stats.borrow_mut().completed_vblanks += 1;
+                            }
                             output_frame_pending_for_notifier
                                 .borrow_mut()
                                 .insert(output_name.clone(), false);
@@ -1382,9 +1521,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         }
 
                         if matched_outputs.is_empty() {
+                            if let Some(frame_stats) = &frame_stats_for_notifier {
+                                frame_stats.borrow_mut().vblank_mismatches += 1;
+                            }
                             let pending_outputs: Vec<_> = outputs_for_vblank
                                 .borrow()
                                 .iter()
+                                .filter(|output| output.device_node == notifier_device_node)
                                 .filter_map(|output| {
                                     output_frame_pending_for_notifier
                                         .borrow()
@@ -1417,8 +1560,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             {
                                 if !recoverable_outputs.is_empty() {
                                     debug!(
-                                        "drm vblank crtc mismatch (got={:?}); releasing pending outputs {:?} to keep scanout advancing",
-                                        crtc, recoverable_outputs
+                                        "drm vblank crtc mismatch (node={} got={:?}); releasing pending outputs {:?} to keep scanout advancing",
+                                        notifier_device_node, crtc, recoverable_outputs
                                     );
                                     let _ = release_pending_tty_outputs(
                                         &outputs_for_vblank,
@@ -1429,13 +1572,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     );
                                 } else if !pending_outputs.is_empty() {
                                     debug!(
-                                        "drm vblank crtc mismatch (got={:?}); keeping pending outputs {:?} blocked until they receive a real matched vblank",
-                                        crtc, pending_outputs
+                                        "drm vblank crtc mismatch (node={} got={:?}); keeping pending outputs {:?} blocked until they receive a real matched vblank",
+                                        notifier_device_node, crtc, pending_outputs
                                     );
                                 } else {
                                     debug!(
-                                        "drm vblank crtc mismatch (got={:?}); no configured output matched",
-                                        crtc
+                                        "drm vblank crtc mismatch (node={} got={:?}); no configured output matched",
+                                        notifier_device_node, crtc
                                     );
                                 }
                                 mismatch_state.reported_active = true;
@@ -1444,8 +1587,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             let mut mismatch_state = vblank_mismatch_state_for_notifier.borrow_mut();
                             if mismatch_state.reported_active {
                                 debug!(
-                                    "drm vblank crtc routing recovered on {:?} for {:?}",
-                                    crtc, matched_outputs
+                                    "drm vblank routing recovered on node={} crtc={:?} for {:?}",
+                                    notifier_device_node, crtc, matched_outputs
                                 );
                             }
                             mismatch_state.first_seen_at = None;
@@ -1464,6 +1607,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let gpu_manager_for_redraw = gpu_manager.clone();
             let primary_render_node_for_redraw = primary_render_node;
             let first_frame_queued_for_redraw = first_frame_queued.clone();
+            let frame_stats_for_redraw = frame_stats.clone();
             ev.handle()
                 .insert_source(redraw_source, move |_event, _metadata, st| {
                     let now = Instant::now();
@@ -1506,6 +1650,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         &gpu_manager_for_redraw,
                         primary_render_node_for_redraw,
                         &first_frame_queued_for_redraw,
+                        frame_stats_for_redraw.as_ref(),
                         st,
                         now,
                         resize_preview,
@@ -1759,6 +1904,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let gpu_manager_for_timer = gpu_manager.clone();
             let primary_render_node_for_timer = primary_render_node;
             let drm_devices_for_timer = drm_devices.clone();
+            let frame_stats_for_timer = frame_stats.clone();
 
             ev.handle().insert_source(timer, move |_tick, _, st| {
                 if crate::compositor::interaction::state::take_input_state_reset_request(st) {
@@ -2040,13 +2186,18 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         Duration::from_millis(PENDING_FRAME_TIMEOUT_MS),
                         stalled_outputs
                     );
-                    let _ = release_pending_tty_outputs(
+                    let released = release_pending_tty_outputs(
                         &outputs_for_timer,
                         &output_frame_pending_for_dpms_timer,
                         &output_frame_pending_since_for_timer,
                         stalled_outputs.as_slice(),
                         "pending-frame-timeout",
                     );
+                    if let Some(frame_stats) = &frame_stats_for_timer {
+                        let mut stats = frame_stats.borrow_mut();
+                        stats.page_flip_timeouts += stalled_outputs.len() as u64;
+                        stats.page_flip_recoveries += released as u64;
+                    }
                 }
                 let due_outputs = tty_due_outputs_for_timer(
                     &outputs_for_timer,
@@ -2059,31 +2210,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
                 if any_tty_output_dpms_enabled(&dpms_enabled_for_timer.borrow()) {
                     // On the first tick after DPMS wake, re-configure layer shell
-                    // surfaces and flush frame callbacks so wallpaper clients
-                    // re-present before we queue the first scanout frame.
+                    // surfaces. Frame callbacks are sent only after a scanout frame queues.
                     if !dpms_just_woke_outputs_for_timer.borrow().is_empty() {
-                        let woke_outputs: Vec<String> =
-                            dpms_just_woke_outputs_for_timer.borrow().iter().cloned().collect();
                         st.input.interaction_state.dpms_just_woke = false;
                         dpms_just_woke_outputs_for_timer.borrow_mut().clear();
                         crate::compositor::monitor::layer_shell::configure_layer_shell_surfaces(
                             st,
                             (1, 1).into(),
-                        );
-                        for output_name in woke_outputs {
-                            crate::frame_loop::send_frame_callbacks_for_output(
-                                st,
-                                output_name.as_str(),
-                                now,
-                            );
-                        }
-                    }
-
-                    for output_name in &due_outputs {
-                        crate::frame_loop::send_frame_callbacks_for_output(
-                            st,
-                            output_name.as_str(),
-                            now,
                         );
                     }
 
@@ -2104,6 +2237,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             &gpu_manager_for_timer,
                             primary_render_node_for_timer,
                             &first_frame_queued_for_timer,
+                            frame_stats_for_timer.as_ref(),
                             st,
                             now,
                             resize_preview,
@@ -2112,6 +2246,12 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                 }
+
+                maybe_log_tty_frame_stats(
+                    frame_stats_for_timer.as_ref(),
+                    &output_frame_pending_since_for_timer,
+                    now,
+                );
 
                 let secs = now.duration_since(input_started_at).as_secs();
                 if secs >= 5

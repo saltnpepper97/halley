@@ -189,6 +189,20 @@ pub(crate) type TtyMultiFrame<'render, 'frame, 'buffer> =
 pub(crate) struct TtyFrameQueueReport {
     pub(crate) queued: bool,
     pub(crate) animation_redraw_active: bool,
+    pub(crate) direct_scanout_active: bool,
+    pub(crate) composed: bool,
+    pub(crate) sync_wait: Option<Duration>,
+}
+
+const TTY_SYNC_WAIT_WARN_MS: u64 = 8;
+
+fn tty_env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 pub(crate) struct TtyDrmProbe {
@@ -1133,6 +1147,7 @@ fn mode_info_from_drm_mode(mode: drm_control::Mode, current: bool, preferred: bo
 
 pub(crate) fn queue_tty_drm_frame(
     output_name: &str,
+    output_device_node: DrmNode,
     compositor: &Rc<RefCell<HalleyDrmCompositor>>,
     gpu_manager: &Rc<RefCell<TtyGpuManager>>,
     primary_render_node: DrmNode,
@@ -1170,7 +1185,10 @@ pub(crate) fn queue_tty_drm_frame(
 
         st.input.interaction_state.suppress_layer_shell_configure = previous_monitor.is_some();
 
-        let allow_direct_scanout = primary_render_node == output_render_node;
+        let disable_direct_scanout =
+            tty_env_flag("HALLEY_DISABLE_DIRECT_SCANOUT") || tty_env_flag("HALLEY_FORCE_COMPOSED");
+        let allow_direct_scanout =
+            !disable_direct_scanout && primary_render_node == output_render_node;
         match allow_direct_scanout.then(|| {
             fullscreen_direct_scanout_candidate(
                 st,
@@ -1244,16 +1262,32 @@ pub(crate) fn queue_tty_drm_frame(
                                     .to_string(),
                             ),
                         );
+                        let mut sync_wait = None;
                         let queued = if !render_res.is_empty {
                             if render_res.needs_sync()
                                 && let PrimaryPlaneElement::Swapchain(element) =
                                     &render_res.primary_element
-                                && let Err(err) = element.sync.wait()
                             {
-                                warn!(
-                                    "failed to wait for tty drm direct-scanout frame completion on {}: {:?}",
-                                    output_name, err
-                                );
+                                let wait_started = Instant::now();
+                                let wait_result = element.sync.wait();
+                                let wait_duration = wait_started.elapsed();
+                                sync_wait = Some(wait_duration);
+                                if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS) {
+                                    warn!(
+                                        "slow tty drm sync wait: output={} path=direct duration={:?} device_node={} primary_render_node={} output_render_node={}",
+                                        output_name,
+                                        wait_duration,
+                                        output_device_node,
+                                        primary_render_node,
+                                        output_render_node
+                                    );
+                                }
+                                if let Err(err) = wait_result {
+                                    warn!(
+                                        "failed to wait for tty drm direct-scanout frame completion on {}: {:?}",
+                                        output_name, err
+                                    );
+                                }
                             }
                             compositor.queue_frame(()).map_err(|err| {
                                 io::Error::other(format!(
@@ -1268,6 +1302,9 @@ pub(crate) fn queue_tty_drm_frame(
                         return Ok(TtyFrameQueueReport {
                             queued,
                             animation_redraw_active: animation_redraw.active,
+                            direct_scanout_active,
+                            composed: false,
+                            sync_wait,
                         });
                     }
                     Err(err) => {
@@ -1370,15 +1407,31 @@ pub(crate) fn queue_tty_drm_frame(
                 io::Error::other(format!("render_frame failed for {}: {}", output_name, err))
             })?;
 
+        let mut sync_wait = None;
         let queued = if !render_res.is_empty {
             if render_res.needs_sync()
                 && let PrimaryPlaneElement::Swapchain(element) = &render_res.primary_element
-                && let Err(err) = element.sync.wait()
             {
-                warn!(
-                    "failed to wait for tty drm composed frame completion on {}: {:?}",
-                    output_name, err
-                );
+                let wait_started = Instant::now();
+                let wait_result = element.sync.wait();
+                let wait_duration = wait_started.elapsed();
+                sync_wait = Some(wait_duration);
+                if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS) {
+                    warn!(
+                        "slow tty drm sync wait: output={} path=composed duration={:?} device_node={} primary_render_node={} output_render_node={}",
+                        output_name,
+                        wait_duration,
+                        output_device_node,
+                        primary_render_node,
+                        output_render_node
+                    );
+                }
+                if let Err(err) = wait_result {
+                    warn!(
+                        "failed to wait for tty drm composed frame completion on {}: {:?}",
+                        output_name, err
+                    );
+                }
             }
             compositor.queue_frame(()).map_err(|err| {
                 io::Error::other(format!("queue_frame failed for {}: {}", output_name, err))
@@ -1391,6 +1444,9 @@ pub(crate) fn queue_tty_drm_frame(
         Ok(TtyFrameQueueReport {
             queued,
             animation_redraw_active: animation_redraw.active,
+            direct_scanout_active: false,
+            composed: true,
+            sync_wait,
         })
     })();
 
