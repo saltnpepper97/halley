@@ -178,7 +178,7 @@ fn queue_ready_tty_outputs(
     now: Instant,
     resize_preview: Option<ResizeCtx>,
     eligible_outputs: Option<&HashSet<String>>,
-    _source: &str,
+    source: &str,
 ) {
     if !any_tty_output_dpms_enabled(&dpms_enabled.borrow()) {
         return;
@@ -256,6 +256,9 @@ fn queue_ready_tty_outputs(
                     output_frame_pending_since
                         .borrow_mut()
                         .remove(output.connector_name.as_str());
+                    if source == "timer" {
+                        crate::frame_loop::send_frame_callbacks_for_output(st, output_name, now);
+                    }
                     continue;
                 }
                 if first_frame_queued
