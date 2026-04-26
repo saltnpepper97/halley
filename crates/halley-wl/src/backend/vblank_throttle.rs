@@ -9,7 +9,7 @@ use crate::compositor::root::Halley;
 #[derive(Debug)]
 pub(crate) struct VBlankThrottle {
     event_loop: LoopHandle<'static, Halley>,
-    last_vblank_at: Option<Instant>,
+    last_vblank_timestamp: Option<Duration>,
     throttle_timer_token: Option<RegistrationToken>,
     printed_warning: bool,
     output_name: String,
@@ -32,7 +32,7 @@ impl VBlankThrottle {
     pub(crate) fn new(event_loop: LoopHandle<'static, Halley>, output_name: String) -> Self {
         Self {
             event_loop,
-            last_vblank_at: None,
+            last_vblank_timestamp: None,
             throttle_timer_token: None,
             printed_warning: false,
             output_name,
@@ -146,20 +146,20 @@ impl VBlankThrottle {
     pub(crate) fn throttle(
         &mut self,
         refresh_interval: Option<Duration>,
-        timestamp: Instant,
+        timestamp: Duration,
         mut call_vblank: impl FnMut(&mut Halley) + 'static,
     ) -> bool {
+        let now = Instant::now();
         if let Some(token) = self.throttle_timer_token.take() {
             self.event_loop.remove(token);
         }
 
-        if let Some(last) = self.last_vblank_at {
-            let passed = timestamp.saturating_duration_since(last);
-            self.update_metrics(refresh_interval, passed, timestamp);
+        if let Some(last) = self.last_vblank_timestamp {
+            let passed = timestamp.saturating_sub(last);
+            self.update_metrics(refresh_interval, passed, now);
 
             if let Some(refresh) = refresh_interval {
-                let min_interval_ns = (refresh.as_nanos() * 3) / 4;
-                if passed.as_nanos() < min_interval_ns {
+                if passed < refresh / 2 {
                     if !self.printed_warning {
                         self.printed_warning = true;
                         debug!(
@@ -179,13 +179,12 @@ impl VBlankThrottle {
                         })
                         .expect("vblank throttle timer should insert");
                     self.throttle_timer_token = Some(token);
-                    self.last_vblank_at = Some(timestamp);
                     return true;
                 }
             }
         }
 
-        self.last_vblank_at = Some(timestamp);
+        self.last_vblank_timestamp = Some(timestamp);
         false
     }
 }
