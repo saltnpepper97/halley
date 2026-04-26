@@ -15,19 +15,18 @@ use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
 pub(crate) fn on_seat_focus_changed(
-    ctx: &mut FocusCtx<'_>,
+    ctx: &FocusCtx<'_>,
     seat: &Seat<Halley>,
     focused: Option<&WlSurface>,
 ) {
-    let st = &mut ctx.st;
     debug!(
         "seat focus_changed -> {:?}",
         focused.map(|wl| format!("{:?}", wl.id()))
     );
 
     let client = focused.and_then(|wl| wl.client());
-    set_data_device_focus(&st.platform.display_handle, seat, client.clone());
-    set_primary_focus(&st.platform.display_handle, seat, client);
+    set_data_device_focus(ctx.display_handle, seat, client.clone());
+    set_primary_focus(ctx.display_handle, seat, client);
 }
 
 pub(crate) struct FocusSystemController<T> {

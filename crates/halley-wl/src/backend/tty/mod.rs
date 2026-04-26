@@ -25,7 +25,7 @@ use crate::backend::vblank_throttle::VBlankThrottle;
 use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ResizeCtx;
 use calloop::{Interest, Mode, PostAction, generic::Generic, ping::make_ping};
-use smithay::backend::drm::DrmNode;
+use smithay::backend::drm::{DrmEventMetadata, DrmEventTime, DrmNode};
 use smithay::backend::renderer::gles::GlesTexture;
 
 use smithay::backend::input::{
@@ -87,6 +87,22 @@ fn tty_env_flag(name: &str) -> bool {
             "1" | "true" | "yes" | "on"
         )
     })
+}
+
+fn monotonic_now_duration() -> Duration {
+    smithay::utils::Clock::<smithay::utils::Monotonic>::new()
+        .now()
+        .into()
+}
+
+fn drm_vblank_timestamp(metadata: Option<&DrmEventMetadata>) -> Duration {
+    if let Some(metadata) = metadata {
+        if let DrmEventTime::Monotonic(timestamp) = metadata.time {
+            return timestamp;
+        }
+    }
+
+    monotonic_now_duration()
 }
 
 fn record_tty_frame_queue(
@@ -1445,10 +1461,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 let vblank_mismatch_state_for_notifier = vblank_mismatch_state_for_notifier.clone();
                 let frame_stats_for_notifier = frame_stats.clone();
                 ev.handle().insert_source(
-                notifier,
-                move |event, _metadata, _st| match event {
-                    DrmEvent::VBlank(crtc) => {
-                        let timestamp = Instant::now();
+                    notifier,
+                    move |event, metadata, _st| match event {
+                        DrmEvent::VBlank(crtc) => {
+                        let now = Instant::now();
+                        let timestamp = drm_vblank_timestamp(metadata.as_ref());
                         let mut matched_outputs = Vec::new();
                         for output in outputs_for_vblank.borrow().iter() {
                             let initial_crtc = output.crtc;
@@ -1460,7 +1477,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             let refresh_interval = active_modes_for_notifier
                                 .borrow()
                                 .get(output_name.as_str())
-                                .map(|mode| frame_interval_for_refresh_hz(Some(mode.vrefresh() as f64)));
+                                .map(|mode| {
+                                    frame_interval_for_refresh_hz(Some(mode.vrefresh() as f64))
+                                });
                             let throttled_output_name = output_name.clone();
                             let redraw_ping_for_throttle = redraw_ping_for_vblank.clone();
                             let should_throttle = vblank_throttles_for_notifier
@@ -1555,7 +1574,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 vblank_mismatch_state_for_notifier.borrow_mut();
                             let active_for = mismatch_state
                                 .first_seen_at
-                                .get_or_insert(timestamp)
+                                .get_or_insert(now)
                                 .elapsed();
                             if active_for
                                 >= Duration::from_millis(VBLANK_MISMATCH_LOG_AFTER_MS)
@@ -1597,10 +1616,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             mismatch_state.first_seen_at = None;
                             mismatch_state.reported_active = false;
                         }
-                    }
-                    DrmEvent::Error(err) => warn!("drm event error: {}", err),
-                },
-            )?;
+                        }
+                        DrmEvent::Error(err) => warn!("drm event error: {}", err),
+                    },
+                )?;
             }
 
             let dpms_enabled_for_redraw = dpms_enabled.clone();

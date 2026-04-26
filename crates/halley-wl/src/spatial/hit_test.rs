@@ -1,3 +1,5 @@
+use std::cmp::{Ordering, Reverse};
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use crate::compositor::interaction::{HitNode, ResizeCtx};
@@ -7,7 +9,129 @@ use crate::compositor::surface::active_stacking_visible_members_for_monitor;
 use crate::frame_loop::anim_style_for;
 use crate::input::active_node_screen_rect;
 use crate::presentation::{node_marker_metrics, world_to_screen};
-use halley_core::viewport::FocusZone;
+use halley_core::field::{Field, NodeId, Vec2};
+use halley_core::viewport::{FocusRing, FocusZone};
+
+struct ActiveAreaView<'a> {
+    field: &'a Field,
+    node_monitor: &'a HashMap<NodeId, String>,
+    monitor: &'a str,
+    focus_ring: FocusRing,
+    focus_center: Vec2,
+}
+
+struct ActiveHitOrderingView {
+    stack_ranks: HashMap<NodeId, usize>,
+    draws_above_fullscreen: HashSet<NodeId>,
+    fullscreen_on_current_monitor: HashSet<NodeId>,
+    persistent_top: HashSet<NodeId>,
+    recent_top_node: Option<NodeId>,
+}
+
+impl ActiveHitOrderingView {
+    fn from_halley(
+        st: &Halley,
+        now: Instant,
+        stack_visible_front_to_back: &[NodeId],
+        hits: &[HitNode],
+    ) -> Self {
+        let current_monitor = st.model.monitor_state.current_monitor.as_str();
+        let stack_ranks = stack_visible_front_to_back
+            .iter()
+            .enumerate()
+            .map(|(index, &node_id)| (node_id, index))
+            .collect();
+        let mut draws_above_fullscreen = HashSet::new();
+        let mut fullscreen_on_current_monitor = HashSet::new();
+        let mut persistent_top = HashSet::new();
+        for hit in hits {
+            let node_id = hit.node_id;
+            if st.node_draws_above_fullscreen_on_current_monitor(node_id) {
+                draws_above_fullscreen.insert(node_id);
+            }
+            if st
+                .fullscreen_monitor_for_node(node_id)
+                .is_some_and(|monitor| monitor == current_monitor)
+            {
+                fullscreen_on_current_monitor.insert(node_id);
+            }
+            if is_persistent_rule_top(st, node_id) {
+                persistent_top.insert(node_id);
+            }
+        }
+        let recent_top_node = st
+            .model
+            .focus_state
+            .recent_top_until
+            .filter(|&until| now < until)
+            .and(st.model.focus_state.recent_top_node);
+
+        Self {
+            stack_ranks,
+            draws_above_fullscreen,
+            fullscreen_on_current_monitor,
+            persistent_top,
+            recent_top_node,
+        }
+    }
+
+    fn compare(&self, a: &HitNode, b: &HitNode) -> Ordering {
+        let compare_bool = |lhs: bool, rhs: bool| rhs.cmp(&lhs);
+        compare_bool(
+            self.draws_above_fullscreen.contains(&a.node_id),
+            self.draws_above_fullscreen.contains(&b.node_id),
+        )
+        .then_with(|| {
+            compare_bool(
+                self.fullscreen_on_current_monitor.contains(&a.node_id),
+                self.fullscreen_on_current_monitor.contains(&b.node_id),
+            )
+        })
+        .then_with(|| {
+            compare_bool(
+                self.persistent_top.contains(&a.node_id),
+                self.persistent_top.contains(&b.node_id),
+            )
+        })
+        .then_with(|| {
+            compare_bool(
+                Some(a.node_id) == self.recent_top_node,
+                Some(b.node_id) == self.recent_top_node,
+            )
+        })
+        .then_with(|| {
+            match (
+                self.stack_ranks.get(&a.node_id),
+                self.stack_ranks.get(&b.node_id),
+            ) {
+                (Some(a_rank), Some(b_rank)) => a_rank.cmp(b_rank),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            }
+        })
+        .then_with(|| Reverse(a.node_id.as_u64()).cmp(&Reverse(b.node_id.as_u64())))
+    }
+}
+
+impl ActiveAreaView<'_> {
+    fn contains(&self, node_id: NodeId) -> bool {
+        let Some(node) = self.field.node(node_id) else {
+            return false;
+        };
+        if self
+            .node_monitor
+            .get(&node_id)
+            .is_some_and(|owner| owner != self.monitor)
+        {
+            return false;
+        }
+        matches!(
+            self.focus_ring.zone(self.focus_center, node.pos),
+            FocusZone::Inside
+        )
+    }
+}
 
 pub(crate) fn pick_hit_node_at(
     st: &Halley,
@@ -24,17 +148,6 @@ pub(crate) fn pick_hit_node_at(
         st,
         st.model.monitor_state.current_monitor.as_str(),
     );
-    let recent_top_node = st
-        .model
-        .focus_state
-        .recent_top_until
-        .filter(|&until| now < until)
-        .and(st.model.focus_state.recent_top_node);
-    let stack_ranks = stack_visible_front_to_back
-        .iter()
-        .enumerate()
-        .map(|(index, &node_id)| (node_id, index))
-        .collect::<std::collections::HashMap<_, _>>();
     for id in st.model.field.node_ids_all() {
         let Some(n) = st.model.field.node(id) else {
             continue;
@@ -109,51 +222,10 @@ pub(crate) fn pick_hit_node_at(
         };
     }
 
-    active.sort_by(
-        |a, b| match (stack_ranks.get(&a.node_id), stack_ranks.get(&b.node_id)) {
-            _ => {
-                let current_monitor = st.model.monitor_state.current_monitor.as_str();
-                let compare_bool = |lhs: bool, rhs: bool| rhs.cmp(&lhs);
-                compare_bool(
-                    st.node_draws_above_fullscreen_on_current_monitor(a.node_id),
-                    st.node_draws_above_fullscreen_on_current_monitor(b.node_id),
-                )
-                .then_with(|| {
-                    compare_bool(
-                        st.fullscreen_monitor_for_node(a.node_id)
-                            .is_some_and(|monitor| monitor == current_monitor),
-                        st.fullscreen_monitor_for_node(b.node_id)
-                            .is_some_and(|monitor| monitor == current_monitor),
-                    )
-                })
-                .then_with(|| {
-                    compare_bool(
-                        is_persistent_rule_top(st, a.node_id),
-                        is_persistent_rule_top(st, b.node_id),
-                    )
-                })
-                .then_with(|| {
-                    compare_bool(
-                        Some(a.node_id) == recent_top_node,
-                        Some(b.node_id) == recent_top_node,
-                    )
-                })
-                .then_with(
-                    || match (stack_ranks.get(&a.node_id), stack_ranks.get(&b.node_id)) {
-                        (Some(a_rank), Some(b_rank)) => a_rank.cmp(b_rank),
-                        (Some(_), None) => std::cmp::Ordering::Less,
-                        (None, Some(_)) => std::cmp::Ordering::Greater,
-                        (None, None) => std::cmp::Ordering::Equal,
-                    },
-                )
-                .then_with(|| {
-                    std::cmp::Reverse(a.node_id.as_u64())
-                        .cmp(&std::cmp::Reverse(b.node_id.as_u64()))
-                })
-            }
-        },
-    );
-    node_dot.sort_by_key(|h| std::cmp::Reverse(h.node_id.as_u64()));
+    let active_ordering =
+        ActiveHitOrderingView::from_halley(st, now, &stack_visible_front_to_back, &active);
+    active.sort_by(|a, b| active_ordering.compare(a, b));
+    node_dot.sort_by_key(|h| Reverse(h.node_id.as_u64()));
 
     active
         .into_iter()
@@ -161,30 +233,19 @@ pub(crate) fn pick_hit_node_at(
         .or_else(|| node_dot.into_iter().next())
 }
 
-pub(crate) fn node_in_active_area(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
+pub(crate) fn node_in_active_area(st: &Halley, node_id: NodeId) -> bool {
     node_in_active_area_for_monitor(st, node_id, st.model.monitor_state.current_monitor.as_str())
 }
 
-pub(crate) fn node_in_active_area_for_monitor(
-    st: &Halley,
-    node_id: halley_core::field::NodeId,
-    monitor: &str,
-) -> bool {
-    let Some(n) = st.model.field.node(node_id) else {
-        return false;
-    };
-    if st
-        .model
-        .monitor_state
-        .node_monitor
-        .get(&node_id)
-        .is_some_and(|owner| owner != monitor)
-    {
-        return false;
+pub(crate) fn node_in_active_area_for_monitor(st: &Halley, node_id: NodeId, monitor: &str) -> bool {
+    ActiveAreaView {
+        field: &st.model.field,
+        node_monitor: &st.model.monitor_state.node_monitor,
+        monitor,
+        focus_ring: st.focus_ring_for_monitor(monitor),
+        focus_center: st.view_center_for_monitor(monitor),
     }
-    let focus_ring = st.focus_ring_for_monitor(monitor);
-    let focus_center = st.view_center_for_monitor(monitor);
-    matches!(focus_ring.zone(focus_center, n.pos), FocusZone::Inside)
+    .contains(node_id)
 }
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ use smithay::{
     utils::Transform,
 };
 
-use crate::compositor::ctx::{LayerShellCtx, MonitorCtx};
+use crate::compositor::ctx::LayerShellCtx;
 use crate::compositor::root::Halley;
 
 pub mod camera;
