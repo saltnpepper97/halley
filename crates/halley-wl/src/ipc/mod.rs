@@ -2,6 +2,7 @@ mod cluster;
 mod monitor;
 mod node;
 mod trail;
+mod view;
 
 use std::time::Instant;
 
@@ -17,6 +18,7 @@ use self::cluster::handle_cluster_request;
 use self::monitor::handle_monitor_request;
 use self::node::handle_node_request;
 use self::trail::handle_trail_request;
+use self::view::IpcView;
 
 #[cfg(test)]
 use self::cluster::{inspect_cluster, list_clusters};
@@ -186,19 +188,12 @@ fn handle_tile_request(st: &mut Halley, request: TileRequest) -> Response {
 }
 
 fn resolve_output_context(st: &Halley, output: Option<&str>) -> Result<String, IpcError> {
-    match output {
-        Some(name) => Ok(validate_output(st, name)?.to_string()),
-        None => Ok(st.focused_monitor().to_string()),
-    }
+    IpcView::from_halley(st).resolve_output_context(output)
 }
 
-fn validate_output<'a>(st: &'a Halley, output: &'a str) -> Result<&'a str, IpcError> {
-    st.model
-        .monitor_state
-        .monitors
-        .contains_key(output)
-        .then_some(output)
-        .ok_or_else(|| IpcError::NotFound(format!("output {output} not found")))
+fn validate_output<'a>(st: &Halley, output: &'a str) -> Result<&'a str, IpcError> {
+    IpcView::from_halley(st).validate_output(output)?;
+    Ok(output)
 }
 
 fn focus_output_if_needed(st: &mut Halley, output: &str, now: Instant) {
@@ -208,16 +203,7 @@ fn focus_output_if_needed(st: &mut Halley, output: &str, now: Instant) {
 }
 
 fn sorted_outputs(st: &Halley) -> Vec<String> {
-    let mut outputs: Vec<_> = st.model.monitor_state.monitors.keys().cloned().collect();
-    outputs.sort_by(|a, b| {
-        let am = st.model.monitor_state.monitors.get(a).expect("monitor");
-        let bm = st.model.monitor_state.monitors.get(b).expect("monitor");
-        am.offset_x
-            .cmp(&bm.offset_x)
-            .then(am.offset_y.cmp(&bm.offset_y))
-            .then(a.cmp(b))
-    });
-    outputs
+    IpcView::from_halley(st).sorted_outputs()
 }
 
 #[cfg(test)]

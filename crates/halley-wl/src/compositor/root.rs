@@ -456,7 +456,7 @@ impl Halley {
             .snapshot_for_mode(mode, output_rect, work_area_rect, scale, measure_text)
     }
 
-    pub(crate) fn focus_ctx(&mut self) -> super::ctx::FocusCtx<'_> {
+    pub(crate) fn focus_ctx(&self) -> super::ctx::FocusCtx<'_> {
         super::ctx::focus_ctx(self)
     }
 
@@ -478,31 +478,6 @@ impl Halley {
 
     pub(crate) fn fullscreen_ctx(&mut self) -> super::ctx::FullscreenCtx<'_> {
         super::ctx::fullscreen_ctx(self)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn monitor_ctx(&mut self) -> super::ctx::MonitorCtx<'_> {
-        super::ctx::monitor_ctx(self)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn cluster_ctx(&mut self) -> super::ctx::ClusterCtx<'_> {
-        super::ctx::cluster_ctx(self)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn carry_ctx(&mut self) -> super::ctx::CarryCtx<'_> {
-        super::ctx::carry_ctx(self)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn interaction_ctx(&mut self) -> super::ctx::InteractionCtx<'_> {
-        super::ctx::interaction_ctx(self)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn workspace_ctx(&mut self) -> super::ctx::WorkspaceCtx<'_> {
-        super::ctx::workspace_ctx(self)
     }
 
     #[allow(dead_code)]

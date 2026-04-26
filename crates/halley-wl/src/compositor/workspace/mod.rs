@@ -12,7 +12,7 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
 use crate::compositor::activity::CommitActivity;
-use crate::compositor::ctx::{SurfaceLifecycleCtx, WorkspaceCtx};
+use crate::compositor::ctx::SurfaceLifecycleCtx;
 use crate::compositor::root::Halley;
 
 pub mod lifecycle;

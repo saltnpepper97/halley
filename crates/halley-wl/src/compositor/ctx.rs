@@ -1,9 +1,8 @@
-#![allow(dead_code)]
-
 use crate::compositor::root::Halley;
+use smithay::reexports::wayland_server::DisplayHandle;
 
 pub(crate) struct FocusCtx<'a> {
-    pub(crate) st: &'a mut Halley,
+    pub(crate) display_handle: &'a DisplayHandle,
 }
 
 pub(crate) struct SpawnCtx<'a> {
@@ -26,28 +25,10 @@ pub(crate) struct FullscreenCtx<'a> {
     pub(crate) st: &'a mut Halley,
 }
 
-pub(crate) struct MonitorCtx<'a> {
-    pub(crate) st: &'a mut Halley,
-}
-
-pub(crate) struct ClusterCtx<'a> {
-    pub(crate) st: &'a mut Halley,
-}
-
-pub(crate) struct CarryCtx<'a> {
-    pub(crate) st: &'a mut Halley,
-}
-
-pub(crate) struct InteractionCtx<'a> {
-    pub(crate) st: &'a mut Halley,
-}
-
-pub(crate) struct WorkspaceCtx<'a> {
-    pub(crate) st: &'a mut Halley,
-}
-
-pub(crate) fn focus_ctx(st: &mut Halley) -> FocusCtx<'_> {
-    FocusCtx { st }
+pub(crate) fn focus_ctx(st: &Halley) -> FocusCtx<'_> {
+    FocusCtx {
+        display_handle: &st.platform.display_handle,
+    }
 }
 
 pub(crate) fn spawn_ctx(st: &mut Halley) -> SpawnCtx<'_> {
@@ -68,24 +49,4 @@ pub(crate) fn pointer_ctx(st: &mut Halley) -> PointerCtx<'_> {
 
 pub(crate) fn fullscreen_ctx(st: &mut Halley) -> FullscreenCtx<'_> {
     FullscreenCtx { st }
-}
-
-pub(crate) fn monitor_ctx(st: &mut Halley) -> MonitorCtx<'_> {
-    MonitorCtx { st }
-}
-
-pub(crate) fn cluster_ctx(st: &mut Halley) -> ClusterCtx<'_> {
-    ClusterCtx { st }
-}
-
-pub(crate) fn carry_ctx(st: &mut Halley) -> CarryCtx<'_> {
-    CarryCtx { st }
-}
-
-pub(crate) fn interaction_ctx(st: &mut Halley) -> InteractionCtx<'_> {
-    InteractionCtx { st }
-}
-
-pub(crate) fn workspace_ctx(st: &mut Halley) -> WorkspaceCtx<'_> {
-    WorkspaceCtx { st }
 }
