@@ -610,28 +610,6 @@ pub(crate) fn current_tty_output_signature(outputs: &[TtyDrmOutput]) -> Vec<Stri
     signature
 }
 
-pub(crate) fn selected_tty_scanout_signature(
-    dev: &mut DrmDevice,
-    tuning: &RuntimeTuning,
-) -> Result<Vec<String>, Box<dyn Error>> {
-    let mut signature = select_tty_scanouts(dev, tuning)?
-        .into_iter()
-        .map(|(crtc, mode, _connector, connector_name)| {
-            let (w, h) = mode.size();
-            format!(
-                "{}:{:?}:{}x{}@{}",
-                connector_name,
-                crtc,
-                w,
-                h,
-                mode.vrefresh()
-            )
-        })
-        .collect::<Vec<_>>();
-    signature.sort();
-    Ok(signature)
-}
-
 pub(crate) fn rebuild_tty_outputs(
     dev: &mut DrmDevice,
     gbm: &GbmDevice<DrmDeviceFd>,
