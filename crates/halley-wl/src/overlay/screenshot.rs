@@ -38,8 +38,8 @@ const MENU_ICON_SIZE: i32 = 42;
 const MENU_ITEM_BORDER_PX: f32 = 2.0;
 const ACTIVE_BORDER_ALPHA: f32 = 1.0;
 const INACTIVE_BORDER_ALPHA: f32 = 0.72;
-const MENU_BAR_CORNER_RADIUS: f32 = 3.0;
-const MENU_ITEM_CORNER_RADIUS: f32 = 2.0;
+const MENU_BAR_CORNER_RADIUS: f32 = 18.0;
+const MENU_ITEM_CORNER_RADIUS: f32 = 12.0;
 
 #[derive(Clone, Copy)]
 pub(crate) enum ScreenshotMenuHit {
@@ -369,7 +369,7 @@ mod tests {
     };
 
     #[test]
-    fn screenshot_menu_style_uses_internal_radii_and_overlay_border_toggle() {
+    fn screenshot_menu_style_follows_overlay_shape_radii_and_border_toggle() {
         let mut tuning = RuntimeTuning::default();
         tuning.decorations.border.size_px = 6;
         tuning.overlay_style.shape = OverlayShape::Rounded;
