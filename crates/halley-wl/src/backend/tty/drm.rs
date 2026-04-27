@@ -196,6 +196,25 @@ pub(crate) struct TtyFrameQueueReport {
 
 const TTY_SYNC_WAIT_WARN_MS: u64 = 8;
 
+fn queue_tty_frame_or_clear_on_failure(
+    compositor: &mut HalleyDrmCompositor,
+    output_name: &str,
+) -> Result<(), io::Error> {
+    match compositor.queue_frame(()) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let recovery = match compositor.clear() {
+                Ok(()) => "cleared drm surface for retry".to_string(),
+                Err(clear_err) => format!("failed to clear drm surface for retry: {clear_err}"),
+            };
+            compositor.reset_buffers();
+            Err(io::Error::other(format!(
+                "queue_frame failed for {output_name}: {err}; {recovery}"
+            )))
+        }
+    }
+}
+
 fn tty_env_flag(name: &str) -> bool {
     std::env::var(name).is_ok_and(|value| {
         matches!(
@@ -1267,12 +1286,7 @@ pub(crate) fn queue_tty_drm_frame(
                                     );
                                 }
                             }
-                            compositor.queue_frame(()).map_err(|err| {
-                                io::Error::other(format!(
-                                    "queue_frame failed for {}: {}",
-                                    output_name, err
-                                ))
-                            })?;
+                            queue_tty_frame_or_clear_on_failure(&mut compositor, output_name)?;
                             true
                         } else {
                             false
@@ -1411,9 +1425,7 @@ pub(crate) fn queue_tty_drm_frame(
                     );
                 }
             }
-            compositor.queue_frame(()).map_err(|err| {
-                io::Error::other(format!("queue_frame failed for {}: {}", output_name, err))
-            })?;
+            queue_tty_frame_or_clear_on_failure(&mut compositor, output_name)?;
             true
         } else {
             false
