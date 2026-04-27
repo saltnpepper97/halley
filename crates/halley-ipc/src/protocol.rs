@@ -108,6 +108,10 @@ pub enum ClusterRequest {
     LayoutCycle {
         output: Option<String>,
     },
+    Slot {
+        slot: u8,
+        output: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

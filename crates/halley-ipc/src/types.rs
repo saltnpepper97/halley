@@ -131,6 +131,7 @@ pub enum ClusterLayoutKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClusterSummary {
     pub id: u64,
+    pub slot: Option<u8>,
     pub name: Option<String>,
     pub output: Option<String>,
     pub layout: ClusterLayoutKind,
@@ -153,6 +154,7 @@ pub struct ClusterListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClusterInfo {
     pub id: u64,
+    pub slot: Option<u8>,
     pub name: Option<String>,
     pub output: Option<String>,
     pub layout: ClusterLayoutKind,

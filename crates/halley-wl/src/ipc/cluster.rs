@@ -42,6 +42,40 @@ pub(super) fn handle_cluster_request(st: &mut Halley, request: ClusterRequest) -
                 Err(err) => Response::Error(err),
             }
         }
+        ClusterRequest::Slot { slot, output } => {
+            match activate_cluster_slot(st, slot, output.as_deref()) {
+                Ok(()) => Response::Ok,
+                Err(err) => Response::Error(err),
+            }
+        }
+    }
+}
+
+fn activate_cluster_slot(st: &mut Halley, slot: u8, output: Option<&str>) -> Result<(), IpcError> {
+    if !(1..=10).contains(&slot) {
+        return Err(IpcError::InvalidRequest(format!(
+            "cluster slot must be between 1 and 10, got {slot}"
+        )));
+    }
+
+    let monitor = resolve_output_context(st, output)?;
+    let exists = crate::compositor::clusters::system::cluster_system_controller(&*st)
+        .cluster_slot_cluster_for_monitor(monitor.as_str(), slot)
+        .is_some();
+    if !exists {
+        return Err(IpcError::NotFound(format!(
+            "no cluster in slot {slot} on output {monitor}"
+        )));
+    }
+
+    let now = Instant::now();
+    focus_output_if_needed(st, monitor.as_str(), now);
+    if st.activate_cluster_slot_on_current_monitor(slot, now) {
+        Ok(())
+    } else {
+        Err(IpcError::Unsupported(format!(
+            "failed to activate cluster slot {slot} on output {monitor}"
+        )))
     }
 }
 
@@ -107,6 +141,7 @@ fn cluster_summary(st: &Halley, cid: ClusterId) -> Option<ClusterSummary> {
     let cluster = st.model.field.cluster(cid)?;
     Some(ClusterSummary {
         id: cid.as_u64(),
+        slot: cluster_slot(st, cid),
         name: cluster_display_name(st, cid),
         output: cluster_output(st, cid),
         layout: ipc_cluster_layout_kind(st.runtime.tuning.cluster_layout_kind()),
@@ -137,6 +172,7 @@ fn cluster_info(st: &Halley, cid: ClusterId) -> Result<ClusterInfo, IpcError> {
         .collect();
     Ok(ClusterInfo {
         id: cid.as_u64(),
+        slot: cluster_slot(st, cid),
         name: cluster_display_name(st, cid),
         output: cluster_output(st, cid),
         layout: ipc_cluster_layout_kind(st.runtime.tuning.cluster_layout_kind()),
@@ -147,6 +183,15 @@ fn cluster_info(st: &Halley, cid: ClusterId) -> Result<ClusterInfo, IpcError> {
         focused_member_id,
         members,
     })
+}
+
+fn cluster_slot(st: &Halley, cid: ClusterId) -> Option<u8> {
+    let output = cluster_output(st, cid)?;
+    crate::compositor::clusters::system::cluster_system_controller(st)
+        .cluster_slot_order_for_monitor(output.as_str())
+        .iter()
+        .position(|existing| *existing == cid)
+        .and_then(|index| u8::try_from(index + 1).ok())
 }
 
 fn cluster_output(st: &Halley, cid: ClusterId) -> Option<String> {

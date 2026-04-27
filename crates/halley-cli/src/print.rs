@@ -299,6 +299,13 @@ fn print_cluster_info(cluster: &ClusterInfo) {
     if let Some(output) = &cluster.output {
         println!("  output: {output}");
     }
+    println!(
+        "  slot: {}",
+        cluster
+            .slot
+            .map(|slot| slot.to_string())
+            .unwrap_or_else(|| "(none)".to_string())
+    );
     println!("  layout: {}", format_cluster_layout(cluster.layout));
     println!("  active: {}", cluster.active);
     println!("  focused: {}", cluster.focused);
@@ -339,6 +346,13 @@ fn print_cluster_brief(cluster: &ClusterSummary) {
         "    {marker} {}  {}",
         cluster.id,
         cluster_display_name(cluster.name.as_deref())
+    );
+    println!(
+        "      slot: {}",
+        cluster
+            .slot
+            .map(|slot| slot.to_string())
+            .unwrap_or_else(|| "(none)".to_string())
     );
     println!("      layout: {}", format_cluster_layout(cluster.layout));
     println!("      members: {}", cluster.member_count);
