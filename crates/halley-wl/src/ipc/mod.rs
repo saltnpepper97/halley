@@ -247,7 +247,12 @@ mod tests {
             .model
             .cluster_state
             .active_cluster_workspaces
-            .insert(monitor, cid);
+            .insert(monitor.clone(), cid);
+        state
+            .model
+            .cluster_state
+            .cluster_slot_order
+            .insert(monitor, vec![cid]);
         state
             .model
             .field
@@ -256,6 +261,49 @@ mod tests {
             .enter_active();
         state.model.focus_state.primary_interaction_focus = Some(second);
         (state, cid, first, second)
+    }
+
+    fn cluster_slot_test_state() -> (Halley, ClusterId, NodeId, String) {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let first = state.model.field.spawn_surface(
+            "first",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        let second = state.model.field.spawn_surface(
+            "second",
+            Vec2 { x: 200.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        state.assign_node_to_current_monitor(first);
+        state.assign_node_to_current_monitor(second);
+        let cid = state
+            .model
+            .field
+            .create_cluster(vec![first, second])
+            .expect("cluster");
+        let core = state.model.field.collapse_cluster(cid).expect("core");
+        state.assign_node_to_current_monitor(core);
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        state
+            .model
+            .cluster_state
+            .cluster_names
+            .insert(cid, ClusterNameRecord::Generic { slot: 1 });
+        state
+            .model
+            .cluster_state
+            .cluster_slot_order
+            .insert(monitor, vec![cid]);
+        let core_pos = state.model.field.node(core).expect("core node").pos;
+        state.model.viewport.center = core_pos;
+        state.model.camera_target_center = core_pos;
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        (state, cid, core, monitor)
     }
 
     #[test]
@@ -367,6 +415,7 @@ mod tests {
             .expect("cluster summary");
 
         assert_eq!(cluster.name.as_deref(), Some("web"));
+        assert_eq!(cluster.slot, Some(1));
         assert!(cluster.active);
         assert!(cluster.focused);
         assert_eq!(cluster.member_count, 2);
@@ -379,6 +428,7 @@ mod tests {
         let info = inspect_cluster(&state, None, None).expect("cluster inspect");
 
         assert_eq!(info.id, cid.as_u64());
+        assert_eq!(info.slot, Some(1));
         assert_eq!(info.name.as_deref(), Some("web"));
         assert!(info.active);
         assert!(info.focused);
@@ -387,5 +437,92 @@ mod tests {
         assert_eq!(info.members.len(), 2);
         assert_eq!(info.members[0].id, first.as_u64());
         assert_eq!(info.members[1].id, second.as_u64());
+    }
+
+    #[test]
+    fn cluster_slot_request_activates_slot() {
+        let (mut state, cid, _, monitor) = cluster_slot_test_state();
+
+        let response = handle_request(
+            &mut state,
+            halley_ipc::Request::Cluster(halley_ipc::ClusterRequest::Slot {
+                slot: 1,
+                output: None,
+            }),
+        );
+
+        assert!(matches!(response, Response::Ok));
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor(monitor.as_str()),
+            Some(cid)
+        );
+    }
+
+    #[test]
+    fn cluster_slot_request_toggles_active_slot_closed() {
+        let (mut state, _, core, monitor) = cluster_slot_test_state();
+
+        let first = handle_request(
+            &mut state,
+            halley_ipc::Request::Cluster(halley_ipc::ClusterRequest::Slot {
+                slot: 1,
+                output: None,
+            }),
+        );
+        let second = handle_request(
+            &mut state,
+            halley_ipc::Request::Cluster(halley_ipc::ClusterRequest::Slot {
+                slot: 1,
+                output: None,
+            }),
+        );
+
+        assert!(matches!(first, Response::Ok));
+        assert!(matches!(second, Response::Ok));
+        assert_eq!(
+            state.active_cluster_workspace_for_monitor(monitor.as_str()),
+            None
+        );
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(core)
+        );
+    }
+
+    #[test]
+    fn cluster_slot_request_rejects_invalid_slot() {
+        let (mut state, _, _, _) = cluster_slot_test_state();
+
+        let response = handle_request(
+            &mut state,
+            halley_ipc::Request::Cluster(halley_ipc::ClusterRequest::Slot {
+                slot: 0,
+                output: None,
+            }),
+        );
+
+        assert!(matches!(
+            response,
+            Response::Error(IpcError::InvalidRequest(_))
+        ));
+    }
+
+    #[test]
+    fn cluster_slot_request_reports_empty_slot() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let response = handle_request(
+            &mut state,
+            halley_ipc::Request::Cluster(halley_ipc::ClusterRequest::Slot {
+                slot: 1,
+                output: None,
+            }),
+        );
+
+        assert!(matches!(response, Response::Error(IpcError::NotFound(_))));
     }
 }

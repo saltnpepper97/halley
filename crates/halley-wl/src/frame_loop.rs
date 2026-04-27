@@ -241,7 +241,7 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
 
 #[inline]
 fn drag_edge_pan_screen_speed_pxps(cam_scale: f32) -> f32 {
-    const DRAG_EDGE_PAN_BASE_SPEED_PXPS: f32 = 132.0;
+    const DRAG_EDGE_PAN_BASE_SPEED_PXPS: f32 = 240.0;
 
     // Keep zoomed-out edge pan at the same feel, but slow it down further as
     // the camera zooms in so tighter views don't move as aggressively.

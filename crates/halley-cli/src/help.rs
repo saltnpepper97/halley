@@ -31,6 +31,7 @@ pub(crate) enum HelpTopic {
     ClusterInspect,
     ClusterLayout,
     ClusterLayoutCycle,
+    ClusterSlot,
     Stack,
     StackCycle,
     Tile,
@@ -259,11 +260,13 @@ pub(crate) fn print_help(topic: HelpTopic) {
                 "halleyctl cluster list [-o OUTPUT] [--json]",
                 "halleyctl cluster inspect [current|ID] [-o OUTPUT] [--json]",
                 "halleyctl cluster layout cycle [-o OUTPUT]",
+                "halleyctl cluster slot <1-10> [-o OUTPUT]",
             ],
             &[
                 ("list", "List clusters"),
                 ("inspect", "Show information about a cluster"),
                 ("layout", "Cluster workspace layout actions"),
+                ("slot", "Activate a cluster slot"),
             ],
         ),
         HelpTopic::ClusterList => print_help_page(
@@ -288,6 +291,11 @@ pub(crate) fn print_help(topic: HelpTopic) {
             "halleyctl cluster layout cycle",
             &["halleyctl cluster layout cycle [-o OUTPUT]"],
             &[("cycle", "Toggle between tiling and stacking layouts")],
+        ),
+        HelpTopic::ClusterSlot => print_help_page(
+            "halleyctl cluster slot",
+            &["halleyctl cluster slot <1-10> [-o OUTPUT]"],
+            &[("1-10", "Activate or toggle the cluster in that slot")],
         ),
         HelpTopic::Stack => print_help_page(
             "halleyctl stack",

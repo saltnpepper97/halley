@@ -275,6 +275,31 @@ mod tests {
     }
 
     #[test]
+    fn cluster_slot_request_parses() {
+        let args = vec![
+            "cluster".to_string(),
+            "slot".to_string(),
+            "10".to_string(),
+            "-o".to_string(),
+            "DP-1".to_string(),
+        ];
+        let outcome = match parse_request(&args) {
+            Ok(outcome) => outcome,
+            Err(err) => panic!("cluster slot request should parse: {}", err.message),
+        };
+
+        match outcome {
+            ParseOutcome::Request(halley_ipc::Request::Cluster(
+                halley_ipc::ClusterRequest::Slot { slot, output },
+            )) => {
+                assert_eq!(slot, 10);
+                assert_eq!(output.as_deref(), Some("DP-1"));
+            }
+            _ => panic!("unexpected parse outcome"),
+        }
+    }
+
+    #[test]
     fn cluster_list_request_parses() {
         let args = vec!["cluster".to_string(), "list".to_string()];
         let outcome = match parse_request(&args) {
