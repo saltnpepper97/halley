@@ -29,6 +29,9 @@ All notable changes to this project will be documented in this file.
 - Simplify the display-manager startup path so the session launcher and user service both run `halley --session` directly instead of depending on the older wrapper chain.
 
 ### Fixed
+- Recover native tty scanout immediately after DRM page-flip failures by clearing the affected DRM surface and forcing the next frame through a clean repaint path.
+- Replace periodic tty DRM topology polling with udev-driven rescans so hotplug handling no longer stalls the compositor render loop.
+- Pace tty vblank throttling from DRM event timestamps instead of wall-clock receipt time, avoiding false throttling after delayed or batched vblank delivery.
 - Ensure windows with overlap rules steal open over fullscreen windows on the target monitor, including cases where the overlap rule is resolved later during deferred rule rechecks.
 - Stop overlap-policy windows from forcing fullscreen apps windowed just because they open or take focus; only explicit focus-cycle switching now suspends the fullscreen lock.
 - Block direct scanout only while a visible overlap-policy window is actually being drawn above the fullscreen app on that monitor.
