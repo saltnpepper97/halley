@@ -19,7 +19,6 @@ use crate::backend::tty::drm::{
     TtyDrmDevice, TtyDrmOutput, TtyFrameQueueReport, TtyGpuManager, TtyOutputCaptureBackend,
     build_tty_dmabuf_output_feedbacks, current_tty_output_signature,
     probe_tty_drm_device_via_session, queue_tty_drm_frame, rebuild_tty_outputs,
-    selected_tty_scanout_signature,
 };
 use crate::backend::vblank_throttle::VBlankThrottle;
 use crate::compositor::exit_confirm::exit_confirm_controller;
@@ -27,6 +26,7 @@ use crate::compositor::interaction::ResizeCtx;
 use calloop::{Interest, Mode, PostAction, generic::Generic, ping::make_ping};
 use smithay::backend::drm::{DrmEventMetadata, DrmEventTime, DrmNode};
 use smithay::backend::renderer::gles::GlesTexture;
+use smithay::backend::udev::{UdevBackend, UdevEvent};
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, Event, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
@@ -34,7 +34,6 @@ use smithay::backend::input::{
 };
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
-const OUTPUT_RESCAN_POLL_MS: u64 = 750;
 const VBLANK_MISMATCH_LOG_AFTER_MS: u64 = 1_000;
 const PENDING_FRAME_TIMEOUT_MS: u64 = 1_500;
 const FRAME_STATS_LOG_INTERVAL_SECS: u64 = 10;
@@ -1270,6 +1269,33 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     })?;
             }
 
+            match UdevBackend::new(seat_name.as_str()) {
+                Ok(udev_backend) => {
+                    let pending_output_rescan_at_for_udev = pending_output_rescan_at.clone();
+                    ev.handle()
+                        .insert_source(udev_backend, move |event, _, _st| {
+                            match event {
+                                UdevEvent::Added { device_id, path } => {
+                                    debug!(
+                                        "tty drm udev add: device_id={} path={}",
+                                        device_id,
+                                        path.display()
+                                    );
+                                }
+                                UdevEvent::Changed { device_id } => {
+                                    debug!("tty drm udev change: device_id={}", device_id);
+                                }
+                                UdevEvent::Removed { device_id } => {
+                                    debug!("tty drm udev remove: device_id={}", device_id);
+                                }
+                            }
+                            *pending_output_rescan_at_for_udev.borrow_mut() =
+                                Some(Instant::now() + Duration::from_millis(400));
+                        })?;
+                }
+                Err(err) => warn!("tty drm udev monitoring disabled: {}", err),
+            }
+
             let mod_state = Rc::new(RefCell::new(ModState::default()));
             let mod_state_for_input = mod_state.clone();
             let pointer_state = Rc::new(RefCell::new(PointerState::default()));
@@ -1427,10 +1453,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let composed_frame_cache_for_redraw = composed_frame_cache.clone();
             let composed_frame_cache_for_timer = composed_frame_cache.clone();
             let scanout_signature_for_timer = scanout_signature.clone();
-            let pending_scanout_probe_at = Rc::new(RefCell::new(Some(
-                Instant::now() + Duration::from_millis(OUTPUT_RESCAN_POLL_MS),
-            )));
-            let pending_scanout_probe_at_for_timer = pending_scanout_probe_at.clone();
             let output_timer_tick_at = Rc::new(RefCell::new(HashMap::<String, Instant>::new()));
             let output_timer_tick_at_for_timer = output_timer_tick_at.clone();
             let event_loop_handle_for_vblank = ev.handle();
@@ -2113,45 +2135,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
                 }
-                if pending_scanout_probe_at_for_timer
-                    .borrow()
-                    .is_some_and(|deadline| now >= deadline)
-                {
-                    *pending_scanout_probe_at_for_timer.borrow_mut() =
-                        Some(now + Duration::from_millis(OUTPUT_RESCAN_POLL_MS));
-                    let maybe_signature: Result<Vec<String>, Box<dyn Error>> = {
-                        let mut signature = Vec::new();
-                        for device in drm_devices_for_timer.borrow_mut().iter_mut() {
-                            let mut dev = device.dev.borrow_mut();
-                            match selected_tty_scanout_signature(&mut dev, &st.runtime.tuning) {
-                                Ok(mut device_signature) => signature.append(&mut device_signature),
-                                Err(err) => debug!(
-                                    "tty drm topology probe skipped for {}: {}",
-                                    device.card_path.display(),
-                                    err
-                                ),
-                            }
-                        }
-                        if signature.is_empty() {
-                            Err(io::Error::other("no usable tty scanouts across DRM devices").into())
-                        } else {
-                            signature.sort();
-                            Ok(signature)
-                        }
-                    };
-                    match maybe_signature {
-                        Ok(next_signature) => {
-                            let current_signature = scanout_signature_for_timer.borrow().clone();
-                            if next_signature != current_signature {
-                                *pending_output_rescan_at_for_timer.borrow_mut() = Some(now);
-                            }
-                        }
-                        Err(err) => {
-                            debug!("tty drm topology probe skipped: {}", err);
-                        }
-                    }
-                }
-
                 if pending_output_rescan_at_for_timer
                     .borrow()
                     .is_some_and(|deadline| now >= deadline)
