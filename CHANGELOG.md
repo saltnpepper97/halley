@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Add per-monitor cluster slot actions for slots 1 through 10, default `mod+1..9` and `mod+0` binds, and parser support for remapping those actions through config.
 - Add bootstrap config merging so existing user configs pick up newly introduced template sections, options, and default keybinds without overwriting custom `rules`, `env`, or `autostart` blocks.
 - Add shipped Wayland session assets and a native `halley --session` entry path so SDDM and other display managers can launch Halley directly.
+- Add configurable compositor-drawn shadows for windows, nodes, and overlays, including generated config defaults and parser support for per-layer blur, spread, offset, and color.
 
 ### Changed
 - Keep focus-cycle state modal until the binding modifiers are released, then commit the selected window, restore or release immersive fullscreen state as needed, and recenter the pointer on the committed target.
