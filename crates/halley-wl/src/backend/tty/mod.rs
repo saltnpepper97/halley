@@ -204,7 +204,15 @@ fn queue_ready_tty_outputs(
 
     let outputs_ref = outputs.borrow();
     let mut render_order: Vec<_> = outputs_ref.iter().collect();
-    render_order.sort_by_key(|output| output.mode.vrefresh());
+    render_order.sort_by_key(|output| {
+        let animation_active = tty_output_animation_redraw_active(
+            st,
+            pointer_state,
+            output.connector_name.as_str(),
+            now,
+        );
+        (!animation_active, output.mode.vrefresh())
+    });
 
     for output in render_order {
         let output_name = output.connector_name.as_str();
@@ -416,6 +424,17 @@ fn tty_animation_output_ready_for_redraw(
                 output.connector_name.as_str(),
                 now,
             )
+    })
+}
+
+fn tty_due_outputs_include_animation_redraw(
+    st: &Halley,
+    pointer_state: &Rc<RefCell<PointerState>>,
+    due_outputs: &HashSet<String>,
+    now: Instant,
+) -> bool {
+    due_outputs.iter().any(|output_name| {
+        tty_output_animation_redraw_active(st, pointer_state, output_name.as_str(), now)
     })
 }
 
@@ -2230,7 +2249,24 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         // let the timer continue servicing every due output. Otherwise local
                         // zoom/pan on one monitor can starve unrelated outputs that still need
                         // regular scanout, such as fullscreen video playback.
-                        advance_tty_redraw_frame(st, &pointer_state_for_timer, now, false);
+                        // Do not advance camera smoothing on fullscreen-only timer frames; those
+                        // presents are invisible to the monitor currently animating pan/zoom.
+                        let animation_redraw_active = tty_animation_redraw_active(
+                            st,
+                            &outputs_for_timer,
+                            &pointer_state_for_timer,
+                            now,
+                        );
+                        if !animation_redraw_active
+                            || tty_due_outputs_include_animation_redraw(
+                                st,
+                                &pointer_state_for_timer,
+                                &due_outputs,
+                                now,
+                            )
+                        {
+                            advance_tty_redraw_frame(st, &pointer_state_for_timer, now, false);
+                        }
                         queue_ready_tty_outputs(
                             &outputs_for_timer,
                             &dpms_enabled_for_timer,
