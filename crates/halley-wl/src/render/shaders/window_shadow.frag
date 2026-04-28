@@ -23,14 +23,14 @@ void main() {
     vec2 caster = max(caster_size, vec2(1.0));
     float radius = min(max(corner_radius, 0.0), min(caster.x, caster.y) * 0.5);
 
-    // The shadow quad is padded and may be offset from the real window/caster.
-    // Measure the rounded-rect SDF from the actual caster center inside the quad,
-    // not from rect_size * 0.5, otherwise offset shadows expose their padded bounds.
+    // The shadow quad is padded and placed according to the shadow offset.
+    // The caster center is now correctly centered in the quad.
     vec2 p = v_coords * size - caster_center;
     float dist = rounded_rect_sdf(p, caster, radius);
 
     float blur = max(shadow_radius, 1.0);
     float outset = max(spread, 0.0);
+    // Expanding the fade slightly makes the shadow tail look more natural
     float fade_end = outset + blur * 3.0;
 
     // Only the outside falloff matters for the visible shadow. The window itself
@@ -40,8 +40,12 @@ void main() {
         discard;
     }
 
-    float falloff = 1.0 - smoothstep(outset, fade_end, outside_dist);
-    falloff = pow(clamp(falloff, 0.0, 1.0), 1.6);
+    // A Gaussian-like or exponential falloff looks much better than smoothstep (which is an S-curve).
+    // Shadows should drop off quickly near the caster and have a long, soft tail.
+    float t = clamp((outside_dist - outset) / (fade_end - outset), 0.0, 1.0);
+    
+    // A simple approximation for a soft, natural tail:
+    float falloff = pow(1.0 - t, 2.5);
 
     float a = shadow_color.a * alpha * falloff;
 

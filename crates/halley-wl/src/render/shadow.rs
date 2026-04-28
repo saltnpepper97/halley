@@ -58,12 +58,12 @@ pub(crate) fn draw_shadow_rect(
         (0.0, 0.0).into(),
         (tex_size.w as f64, tex_size.h as f64).into(),
     );
-    // Position of the actual caster/window inside the padded shadow quad.
-    // This keeps the shader's rounded-rect SDF aligned even when the shadow
-    // has a non-zero offset.
+    // Position of the shadow inside the padded shadow quad.
+    // The quad `dst` is already offset on the screen, so placing the shadow
+    // in the center of `dst` will naturally result in an offset shadow.
     let caster_center = (
-        (rect.loc.x - dst.loc.x) as f32 + rect.size.w as f32 * 0.5,
-        (rect.loc.y - dst.loc.y) as f32 + rect.size.h as f32 * 0.5,
+        pad as f32 + rect.size.w as f32 * 0.5,
+        pad as f32 + rect.size.h as f32 * 0.5,
     );
 
     let uniforms = [
