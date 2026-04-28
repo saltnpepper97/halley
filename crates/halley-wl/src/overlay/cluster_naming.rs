@@ -14,8 +14,8 @@ use crate::text::{draw_ui_text_in, ui_text_size_in};
 use super::{
     ACTION_ROW_GAP_Y, BANNER_GAP, BANNER_META_SCALE, BANNER_TITLE_SCALE,
     EXIT_CONFIRM_MAX_WIDTH_PAD, OverlayView, draw_overlay_action_row, draw_overlay_chip,
-    overlay_accent_fill, overlay_action_row_size, overlay_text_color_for_fill,
-    resolve_overlay_visuals,
+    draw_overlay_chip_without_shadow, overlay_accent_fill, overlay_action_row_size,
+    overlay_text_color_for_fill, resolve_overlay_visuals,
 };
 
 const CLUSTER_DIALOG_TITLE: &str = "Create cluster";
@@ -401,7 +401,7 @@ pub(crate) fn draw_cluster_naming_dialog(
             visuals.palette.subtext.alpha(0.98),
             damage,
         )?;
-        draw_overlay_chip(
+        draw_overlay_chip_without_shadow(
             frame,
             overlay.render_state,
             &visuals,
@@ -477,7 +477,7 @@ pub(crate) fn draw_cluster_naming_dialog(
             prompt.confirm_hover_mix,
         );
         let confirm_text_color = overlay_text_color_for_fill(confirm_fill, 1.0);
-        draw_overlay_chip(
+        draw_overlay_chip_without_shadow(
             frame,
             overlay.render_state,
             &visuals,

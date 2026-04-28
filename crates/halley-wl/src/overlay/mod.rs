@@ -351,7 +351,7 @@ fn draw_overflow_member_chip(
     alpha: f32,
     damage: Rectangle<i32, Physical>,
 ) -> Result<(), Box<dyn Error>> {
-    draw_overlay_chip(
+    draw_overlay_chip_without_shadow(
         frame,
         overlay.render_state,
         visuals,
@@ -539,7 +539,7 @@ fn draw_overlay_action_row(
             (cursor_x, y + (row_h - keycap_h) / 2).into(),
             (keycap_w, keycap_h).into(),
         );
-        draw_overlay_chip(
+        draw_overlay_chip_without_shadow(
             frame,
             render_state,
             visuals,
@@ -729,7 +729,7 @@ pub(crate) fn draw_cluster_overflow_strip(
     }
 
     if let (Some(track), Some(thumb)) = (scrollbar_track, scrollbar_thumb) {
-        draw_overlay_chip(
+        draw_overlay_chip_without_shadow(
             frame,
             overlay.render_state,
             &visuals,
@@ -740,7 +740,7 @@ pub(crate) fn draw_cluster_overflow_strip(
             damage,
             reveal_alpha,
         )?;
-        draw_overlay_chip(
+        draw_overlay_chip_without_shadow(
             frame,
             overlay.render_state,
             &visuals,
@@ -1150,7 +1150,7 @@ fn draw_focus_cycle_card(
         (rect.loc.x + rect.size.w - badge_w - 12, rect.loc.y + 10).into(),
         (badge_w, monitor_h + 8).into(),
     );
-    draw_overlay_chip(
+    draw_overlay_chip_without_shadow(
         frame,
         overlay.render_state,
         visuals,
@@ -1209,7 +1209,7 @@ fn draw_focus_cycle_card(
 
     if let Some(select_rect) = selection_rect {
         let select_fill = visuals.palette.border.alpha(0.94);
-        draw_overlay_chip(
+        draw_overlay_chip_without_shadow(
             frame,
             overlay.render_state,
             visuals,
@@ -1678,21 +1678,74 @@ fn draw_overlay_chip(
     damage: Rectangle<i32, Physical>,
     alpha: f32,
 ) -> Result<(), Box<dyn Error>> {
+    draw_overlay_chip_impl(
+        frame,
+        render_state,
+        visuals,
+        rect,
+        corner_radius,
+        fill_color,
+        draw_border,
+        true,
+        damage,
+        alpha,
+    )
+}
+
+fn draw_overlay_chip_without_shadow(
+    frame: &mut GlesFrame<'_, '_>,
+    render_state: &RenderState,
+    visuals: &OverlayVisuals,
+    rect: Rectangle<i32, Physical>,
+    corner_radius: f32,
+    fill_color: Color32F,
+    draw_border: bool,
+    damage: Rectangle<i32, Physical>,
+    alpha: f32,
+) -> Result<(), Box<dyn Error>> {
+    draw_overlay_chip_impl(
+        frame,
+        render_state,
+        visuals,
+        rect,
+        corner_radius,
+        fill_color,
+        draw_border,
+        false,
+        damage,
+        alpha,
+    )
+}
+
+fn draw_overlay_chip_impl(
+    frame: &mut GlesFrame<'_, '_>,
+    render_state: &RenderState,
+    visuals: &OverlayVisuals,
+    rect: Rectangle<i32, Physical>,
+    corner_radius: f32,
+    fill_color: Color32F,
+    draw_border: bool,
+    draw_shadow: bool,
+    damage: Rectangle<i32, Physical>,
+    alpha: f32,
+) -> Result<(), Box<dyn Error>> {
     let Some(texture) = render_state.gpu.node_circle_texture.as_ref() else {
         return Ok(());
     };
     let Some(program) = render_state.ui_rect_program(visuals.rounded) else {
         return Ok(());
     };
-    draw_shadow_rect(
-        frame,
-        render_state,
-        visuals.shadow,
-        rect,
-        if visuals.rounded { corner_radius } else { 0.0 },
-        alpha,
-        damage,
-    )?;
+    if draw_shadow {
+        draw_shadow_rect(
+            frame,
+            render_state,
+            visuals.shadow,
+            rect,
+            if visuals.rounded { corner_radius } else { 0.0 },
+            alpha,
+            damage,
+        )?;
+    }
     let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
     let src = Rectangle::<f64, Buffer>::new(
         (0.0, 0.0).into(),
