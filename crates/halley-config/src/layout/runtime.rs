@@ -574,29 +574,29 @@ decorations:
   shadows:
     window:
       enabled true
-      blur-radius 10
-      spread 10
+      blur-radius 8
+      spread 0
       offset-x 0
-      offset-y 12
-      colour "#00000005"
+      offset-y 5
+      colour "#05030530"
     end
 
     node:
       enabled true
-      blur-radius 10
-      spread 5
+      blur-radius 14
+      spread 0
       offset-x 0
-      offset-y 6
-      colour "#0000002e"
+      offset-y 3
+      colour "#05030524"
     end
 
     overlay:
       enabled true
-      blur-radius 16
-      spread 4
+      blur-radius 24
+      spread 1
       offset-x 0
-      offset-y 8
-      colour "#00000038"
+      offset-y 7
+      colour "#05030538"
     end
   end
 
