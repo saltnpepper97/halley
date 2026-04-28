@@ -355,6 +355,10 @@ const INTERNAL_CONFIG_PREFIX: &str = r##"@author "Dustin Pilgrim"
 # windows live in space. You move through that space with panning, zooming,
 # clusters, and focus-aware behavior.
 
+# Split configs can be included with `gather`. A gathered file without `as`
+# is merged into this config; explicit values here override gathered defaults.
+#gather "colors.rune"
+
 # Optional environment variables for apps launched by Halley.
 # Uncomment these if you want to prefer Wayland for Qt apps and use qt6ct.
 #env:
@@ -863,7 +867,10 @@ mod tests {
         assert!(rendered.contains("# Example second monitor configuration."));
         assert!(rendered.contains("    focus-ring:"));
         assert!(rendered.contains("# Cursor settings apply to the compositor itself"));
+        assert!(rendered.contains("#gather \"colors.rune\""));
         assert!(rendered.contains("  maximize:\n    enabled true\n    duration-ms 240"));
+        assert!(rendered.contains("  shadows:\n    window:"));
+        assert!(rendered.contains("      colour \"#05030530\""));
         assert!(rendered.contains("\"$var.mod+1\" \"cluster slot 1\""));
         assert!(rendered.contains("\"alt+tab\" \"cycle-focus\""));
         assert!(

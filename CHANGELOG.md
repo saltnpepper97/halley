@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - Tidy aperture module exports and config parse formatting without changing aperture behavior.
 - Make collapsed surface nodes follow the same two-step click flow as core nodes, with matching pending-click, drag-cancel, and double-click promotion behavior.
 - Simplify the display-manager startup path so the session launcher and user service both run `halley --session` directly instead of depending on the older wrapper chain.
+- Refresh shipped config examples and bootstrap defaults with split-config `gather` guidance and the current window, node, and overlay shadow defaults.
 
 ### Fixed
 - Recover native tty scanout immediately after DRM page-flip failures by clearing the affected DRM surface and forcing the next frame through a clean repaint path.
@@ -43,3 +44,4 @@ All notable changes to this project will be documented in this file.
 - Recover tty scanout when DRM vblank routing goes sideways by actually releasing recoverable pending outputs and timing out frames that never report completion.
 - Wait for compositor frames that require explicit sync before queueing DRM work, reducing native tty stalls on stricter drivers.
 - Reuse per-output composed textures and log EGL/GL renderer details during tty startup to reduce driver churn and make native rendering failures easier to diagnose.
+- Preserve `gather` resolution when config files need Halley's inline keybind fallback, including recursively gathered files that also contain inline keybind blocks.

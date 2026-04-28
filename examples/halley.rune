@@ -6,6 +6,10 @@
 # windows live in space. You move through that space with panning, zooming,
 # clusters, and focus-aware behavior.
 
+# Split configs can be included with `gather`. A gathered file without `as`
+# is merged into this config; explicit values here override gathered defaults.
+#gather "colors.rune"
+
 # Optional environment variables for apps launched by Halley.
 # Uncomment these if you want to prefer Wayland for Qt apps and use qt6ct.
 #env:
@@ -42,6 +46,11 @@ input:
   repeat-rate 30
   repeat-delay 500
   focus-mode "click"
+  keyboard:
+    layout "us"
+    variant ""
+    options ""
+  end
 end
 
 # Default font used for compositor UI like labels and overlays.
@@ -260,6 +269,35 @@ decorations:
     gap 2
     colour-focused "#fabd2f"
     colour-unfocused "#1f1f1f"
+  end
+
+  shadows:
+    window:
+      enabled true
+      blur-radius 8
+      spread 0
+      offset-x 0
+      offset-y 5
+      colour "#05030530"
+    end
+
+    node:
+      enabled true
+      blur-radius 14
+      spread 0
+      offset-x 0
+      offset-y 3
+      colour "#05030524"
+    end
+
+    overlay:
+      enabled true
+      blur-radius 24
+      spread 1
+      offset-x 0
+      offset-y 7
+      colour "#05030538"
+    end
   end
 
   resize-using-border true
