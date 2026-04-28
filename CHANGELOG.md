@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Stop valid `xdg-activation` requests from revealing or panning existing windows, preventing Steam cover clicks from recentring the Steam window.
 - Prevent close-focus restore from panning toward a fullscreen-displaced window while a fullscreen app is closing, so exiting games restores the previous window without flinging the viewport past it.
 - Make `input.focus-mode "hover"` focus collapsed surface nodes when the pointer hovers them, so close-window actions target the hovered node instead of the previously focused window.
 - Prevent fullscreen timer frames from advancing camera smoothing on monitors that are still pending presentation by queuing animation-active outputs before non-animation outputs and skipping shared camera-smoothing ticks from fullscreen/direct-scanout timer frames in that case.
