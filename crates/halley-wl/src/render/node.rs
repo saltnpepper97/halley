@@ -26,6 +26,7 @@ use crate::presentation::{
     themed_node_label_fill_color, themed_node_label_text_color, themed_node_ring_color,
     world_to_screen,
 };
+use crate::render::shadow::draw_shadow_rect;
 use crate::render::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
 use crate::text::{draw_ui_text, ui_text_size};
 
@@ -243,6 +244,16 @@ enum NodeRoundShape {
     Circle,
     Square,
     Squircle,
+}
+
+impl NodeRoundShape {
+    fn shadow_corner_radius(self, radius: i32) -> f32 {
+        match self {
+            NodeRoundShape::Circle => radius.max(1) as f32,
+            NodeRoundShape::Square => 0.0,
+            NodeRoundShape::Squircle => radius.max(1) as f32 * 0.42,
+        }
+    }
 }
 
 fn draw_shader_label(
@@ -660,6 +671,18 @@ pub(crate) fn draw_node_markers(
             let node_color = Color32F::new(nc.r(), nc.g(), nc.b(), border_frac);
             let fill_color = node_fill_color(st, highlighted);
             let fill_flat = node_fill_uses_flat_mode(st);
+            draw_shadow_rect(
+                frame,
+                &st.ui.render_state,
+                st.runtime.tuning.decorations.shadows.node,
+                Rectangle::<i32, Physical>::new(
+                    (sx - render_radius, sy - render_radius).into(),
+                    (render_radius * 2, render_radius * 2).into(),
+                ),
+                round_shape.shadow_corner_radius(render_radius),
+                ring_mix,
+                damage,
+            )?;
             draw_shader_circle(
                 frame,
                 st,

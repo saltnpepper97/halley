@@ -34,6 +34,7 @@ use scene::{collect_cursor_scene, collect_debug_frame_scene, prepare_debug_frame
 pub(crate) use draw::{draw_offscreen_textures, draw_window_borders};
 
 const WINDOW_TEXTURE_SHADER: &str = include_str!("../shaders/window_rounded_texture.frag");
+const WINDOW_SHADOW_SHADER: &str = include_str!("../shaders/window_shadow.frag");
 const SURFACE_CLIP_SHADER: &str = include_str!("../shaders/surface_clipped_texture.frag");
 
 pub(crate) fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mut Halley) {
@@ -64,6 +65,33 @@ pub(crate) fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mu
                 "window-content-clip",
                 &err,
             );
+        }
+    }
+}
+
+fn ensure_window_shadow_program(renderer: &mut GlesRenderer, st: &mut Halley) {
+    if st.ui.render_state.gpu.window_shadow_program.is_some()
+        || st.ui.render_state.gpu.window_shadow_program_failed
+    {
+        return;
+    }
+
+    match renderer.compile_custom_texture_shader(
+        WINDOW_SHADOW_SHADER,
+        &[
+            UniformName::new("rect_size", UniformType::_2f),
+            UniformName::new("caster_size", UniformType::_2f),
+            UniformName::new("caster_center", UniformType::_2f),
+            UniformName::new("corner_radius", UniformType::_1f),
+            UniformName::new("spread", UniformType::_1f),
+            UniformName::new("shadow_radius", UniformType::_1f),
+            UniformName::new("shadow_color", UniformType::_4f),
+        ],
+    ) {
+        Ok(program) => st.ui.render_state.gpu.window_shadow_program = Some(program),
+        Err(err) => {
+            st.ui.render_state.gpu.window_shadow_program_failed = true;
+            log_rounded_shader_failure("render/shaders/window_shadow.frag", "window-shadow", &err);
         }
     }
 }
@@ -141,6 +169,7 @@ pub(crate) fn draw_debug_frame_to_target(
 ) -> Result<(), Box<dyn Error>> {
     ensure_node_circle_resources(renderer, st)?;
     ensure_window_texture_program(renderer, st);
+    ensure_window_shadow_program(renderer, st);
     ensure_surface_clip_program(renderer, st);
 
     let prepared = prepare_debug_frame_state(st, size);

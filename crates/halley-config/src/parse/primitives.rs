@@ -6,7 +6,7 @@ use crate::layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, FocusRingConfig,
     InputFocusMode, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode, ShapeStyle,
+    OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode, ShadowColor, ShapeStyle,
     WindowCloseAnimationStyle,
 };
 
@@ -414,6 +414,19 @@ pub(crate) fn pick_decoration_border_color(
         .unwrap_or(default)
 }
 
+pub(crate) fn pick_shadow_color(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: ShadowColor,
+) -> ShadowColor {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    parse_hex_rgba(raw.trim().trim_matches('"'))
+        .map(|(r, g, b, a)| ShadowColor { r, g, b, a })
+        .unwrap_or(default)
+}
+
 pub(crate) fn parse_hex_rgb(value: &str) -> Option<(f32, f32, f32)> {
     let hex = value.strip_prefix('#').unwrap_or(value);
     let expanded = match hex.len() {
@@ -433,4 +446,36 @@ pub(crate) fn parse_hex_rgb(value: &str) -> Option<(f32, f32, f32)> {
     let g = u8::from_str_radix(&expanded[2..4], 16).ok()? as f32 / 255.0;
     let b = u8::from_str_radix(&expanded[4..6], 16).ok()? as f32 / 255.0;
     Some((r, g, b))
+}
+
+fn parse_hex_rgba(value: &str) -> Option<(f32, f32, f32, f32)> {
+    let hex = value.strip_prefix('#').unwrap_or(value);
+    let expanded = match hex.len() {
+        3 => {
+            let mut out = String::with_capacity(8);
+            for ch in hex.chars() {
+                out.push(ch);
+                out.push(ch);
+            }
+            out.push_str("ff");
+            out
+        }
+        4 => {
+            let mut out = String::with_capacity(8);
+            for ch in hex.chars() {
+                out.push(ch);
+                out.push(ch);
+            }
+            out
+        }
+        6 => format!("{hex}ff"),
+        8 => hex.to_string(),
+        _ => return None,
+    };
+
+    let r = u8::from_str_radix(&expanded[0..2], 16).ok()? as f32 / 255.0;
+    let g = u8::from_str_radix(&expanded[2..4], 16).ok()? as f32 / 255.0;
+    let b = u8::from_str_radix(&expanded[4..6], 16).ok()? as f32 / 255.0;
+    let a = u8::from_str_radix(&expanded[6..8], 16).ok()? as f32 / 255.0;
+    Some((r, g, b, a))
 }

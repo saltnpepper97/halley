@@ -14,6 +14,8 @@ pub(crate) struct RenderGpuState {
     pub(crate) ui_rect_square_program_failed: bool,
     pub(crate) window_texture_program: Option<GlesTexProgram>,
     pub(crate) window_texture_program_failed: bool,
+    pub(crate) window_shadow_program: Option<GlesTexProgram>,
+    pub(crate) window_shadow_program_failed: bool,
     pub(crate) surface_clip_program: Option<GlesTexProgram>,
     pub(crate) surface_clip_program_failed: bool,
 }

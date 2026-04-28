@@ -202,3 +202,43 @@ pub(super) fn build_window_border_rects(
 
     rects
 }
+
+pub(super) fn build_window_shadow_rect(
+    st: &Halley,
+    node_id: NodeId,
+    gx: i32,
+    gy: i32,
+    gw: i32,
+    gh: i32,
+    alpha: f32,
+    metrics: WindowDecorationMetrics,
+    fullscreen_on_current_monitor: bool,
+) -> Option<WindowShadowRect> {
+    let shadows = st.runtime.tuning.decorations.shadows.window;
+    if !shadows.enabled
+        || fullscreen_on_current_monitor
+        || shadows.color.a <= 0.0
+        || shadows.blur_radius <= 0.0
+        || alpha <= 0.0
+    {
+        return None;
+    }
+
+    let current_monitor = st.model.monitor_state.current_monitor.as_str();
+    if crate::compositor::workspace::state::maximize_session_target_for_monitor(st, current_monitor)
+        == Some(node_id)
+    {
+        return None;
+    }
+
+    let outer_inset =
+        metrics.primary_border_px + metrics.secondary_gap_px + metrics.secondary_border_px;
+    Some(WindowShadowRect {
+        x: gx - outer_inset,
+        y: gy - outer_inset,
+        w: (gw + outer_inset * 2).max(1),
+        h: (gh + outer_inset * 2).max(1),
+        corner_radius: metrics.secondary_outer_corner_radius_px as f32,
+        alpha,
+    })
+}

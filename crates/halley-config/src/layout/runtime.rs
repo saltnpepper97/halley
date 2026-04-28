@@ -571,6 +571,35 @@ decorations:
     colour-unfocused "#1f1f1f"
   end
 
+  shadows:
+    window:
+      enabled true
+      blur-radius 10
+      spread 10
+      offset-x 0
+      offset-y 12
+      colour "#00000005"
+    end
+
+    node:
+      enabled true
+      blur-radius 10
+      spread 5
+      offset-x 0
+      offset-y 6
+      colour "#0000002e"
+    end
+
+    overlay:
+      enabled true
+      blur-radius 16
+      spread 4
+      offset-x 0
+      offset-y 8
+      colour "#00000038"
+    end
+  end
+
   resize-using-border true
 end
 

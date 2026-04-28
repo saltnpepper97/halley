@@ -45,7 +45,10 @@ pub(crate) use capture::{
     prewarm_visible_active_window_offscreen_caches,
 };
 pub(crate) use decoration::active_window_frame_pad_px;
-use decoration::{build_window_border_rects, scaled_window_border_px, window_decoration_metrics};
+use decoration::{
+    build_window_border_rects, build_window_shadow_rect, scaled_window_border_px,
+    window_decoration_metrics,
+};
 use geometry::{
     log_window_render_path, offscreen_visual_crop_and_dst, rect_from_local_geometry, rect4_str,
     rect4f_str, should_draw_resize_overlap_overlay, sync_node_size_from_surface,
@@ -109,9 +112,20 @@ pub(crate) struct OffscreenNodeTexture {
     pub geo_h: f32,
 }
 
+#[derive(Clone)]
+pub(crate) struct WindowShadowRect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    pub corner_radius: f32,
+    pub alpha: f32,
+}
+
 pub(crate) struct StackWindowDrawUnit {
     pub node_id: NodeId,
     pub draw_order: i32,
+    pub shadow_rects: Vec<WindowShadowRect>,
     pub border_rects: Vec<ActiveBorderRect>,
     pub active_elements: Vec<CroppedClippedSurfaceElement>,
     pub offscreen_textures: Vec<OffscreenNodeTexture>,
@@ -122,6 +136,7 @@ impl StackWindowDrawUnit {
         Self {
             node_id,
             draw_order,
+            shadow_rects: Vec::new(),
             border_rects: Vec::new(),
             active_elements: Vec::new(),
             offscreen_textures: Vec::new(),
@@ -156,6 +171,9 @@ pub(crate) fn collect_active_surfaces(
         smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     >,
     Vec<StackWindowDrawUnit>,
+    Vec<WindowShadowRect>,
+    Vec<WindowShadowRect>,
+    Vec<WindowShadowRect>,
     Vec<ActiveBorderRect>,
     Vec<ActiveBorderRect>,
     Vec<ActiveBorderRect>,
@@ -229,6 +247,9 @@ pub(crate) fn collect_active_surfaces(
         stack_draw_order_map(&stack_visible_front_to_back)
     };
     let mut stack_window_units: HashMap<NodeId, StackWindowDrawUnit> = HashMap::new();
+    let mut shadow_rects: Vec<WindowShadowRect> = Vec::new();
+    let mut resized_shadow_rects: Vec<WindowShadowRect> = Vec::new();
+    let mut above_fullscreen_shadow_rects: Vec<WindowShadowRect> = Vec::new();
     let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut resized_border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut above_fullscreen_border_rects: Vec<ActiveBorderRect> = Vec::new();
@@ -519,6 +540,37 @@ pub(crate) fn collect_active_surfaces(
                 )
             });
         let preserve_visual_margin = false;
+        let window_shadow_rect = build_window_shadow_rect(
+            st,
+            node_id,
+            gx,
+            gy,
+            gw.max(1),
+            gh.max(1),
+            alpha,
+            decoration_metrics,
+            fullscreen_on_current_monitor,
+        );
+        if let Some(shadow_rect) = window_shadow_rect {
+            if stack_render_set.contains(&node_id) {
+                stack_window_units
+                    .entry(node_id)
+                    .or_insert_with(|| {
+                        StackWindowDrawUnit::new(
+                            node_id,
+                            stack_draw_orders.get(&node_id).copied().unwrap_or_default(),
+                        )
+                    })
+                    .shadow_rects
+                    .push(shadow_rect);
+            } else if draw_above_fullscreen_this_node {
+                above_fullscreen_shadow_rects.push(shadow_rect);
+            } else if draw_top_this_node {
+                resized_shadow_rects.push(shadow_rect);
+            } else {
+                shadow_rects.push(shadow_rect);
+            }
+        }
         let window_border_rects = build_window_border_rects(
             st,
             node_id,
@@ -1234,6 +1286,9 @@ pub(crate) fn collect_active_surfaces(
         above_fullscreen_popup_elements,
         node_surface_map,
         stack_window_units,
+        shadow_rects,
+        resized_shadow_rects,
+        above_fullscreen_shadow_rects,
         border_rects,
         resized_border_rects,
         above_fullscreen_border_rects,

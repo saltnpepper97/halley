@@ -13,6 +13,7 @@ use smithay::{
 
 use crate::compositor::root::Halley;
 use crate::render::draw_primitives::{draw_outline_rect, draw_rect, draw_ring};
+use crate::render::shadow::draw_shadow_rect;
 use crate::render::state::RenderState;
 use crate::render::{
     screenshot_menu_background_color, screenshot_menu_highlight_color,
@@ -288,6 +289,21 @@ fn draw_screenshot_menu(
     let item_fill = screenshot_menu_item_fill_color(overlay.tuning);
     let style = resolve_screenshot_menu_style(overlay.tuning);
     let bar_rect = screenshot_menu_bar_rect(screen_w, screen_h);
+
+    draw_shadow_rect(
+        frame,
+        overlay.render_state,
+        overlay.tuning.decorations.shadows.overlay,
+        bar_rect,
+        if style.rounded {
+            style.bar_corner_radius
+        } else {
+            0.0
+        },
+        1.0,
+        damage,
+    )?;
+
     draw_screenshot_menu_chip(
         frame,
         overlay.render_state,
