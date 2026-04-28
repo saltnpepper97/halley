@@ -125,7 +125,7 @@ pub(crate) fn request_surface_activation(
 
     if let Some(id) = st.model.surface_to_node.get(&root.id()).copied() {
         let activated =
-            crate::compositor::actions::window::focus_or_reveal_surface_node(st, id, now);
+            crate::compositor::actions::window::focus_surface_node_without_reveal(st, id, now);
         debug!(
             "applied activation request token={} node={} surface={:?} activated={}",
             token,

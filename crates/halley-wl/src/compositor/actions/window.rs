@@ -152,6 +152,29 @@ pub(crate) fn focus_or_reveal_surface_node(
     }
 }
 
+pub(crate) fn focus_surface_node_without_reveal(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+) -> bool {
+    let Some(node) = st.model.field.node(node_id) else {
+        return false;
+    };
+    if node.kind != halley_core::field::NodeKind::Surface {
+        return false;
+    }
+    if node.state == halley_core::field::NodeState::Core {
+        return false;
+    }
+
+    let target_monitor = st.monitor_for_node_or_current(node_id);
+    if st.focused_monitor() != target_monitor {
+        st.focus_monitor_view(target_monitor.as_str(), now);
+    }
+    st.set_interaction_focus(Some(node_id), 30_000, now);
+    true
+}
+
 pub(crate) fn latest_surface_node(st: &Halley) -> Option<halley_core::field::NodeId> {
     st.last_input_surface_node_for_monitor(st.focused_monitor())
         .or_else(|| st.last_input_surface_node())
@@ -808,7 +831,10 @@ pub(crate) fn toggle_node_state(
 
 #[cfg(test)]
 mod tests {
-    use super::{maximize_target_for_monitor, toggle_node_maximize_state, toggle_node_state};
+    use super::{
+        focus_surface_node_without_reveal, maximize_target_for_monitor, toggle_node_maximize_state,
+        toggle_node_state,
+    };
     use crate::compositor::root::Halley;
     use crate::window::active_window_frame_pad_px;
     use smithay::reexports::wayland_server::Display;
@@ -829,6 +855,35 @@ mod tests {
             focus_ring: None,
         }];
         tuning
+    }
+
+    #[test]
+    fn activation_focus_does_not_pan_to_existing_surface() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let id = st.model.field.spawn_surface(
+            "steam",
+            halley_core::field::Vec2 {
+                x: 1600.0,
+                y: 300.0,
+            },
+            halley_core::field::Vec2 {
+                x: 1400.0,
+                y: 700.0,
+            },
+        );
+        st.assign_node_to_monitor(id, "monitor_a");
+        let before = st.model.viewport.center;
+
+        assert!(focus_surface_node_without_reveal(
+            &mut st,
+            id,
+            Instant::now()
+        ));
+
+        assert_eq!(st.model.focus_state.primary_interaction_focus, Some(id));
+        assert_eq!(st.model.viewport.center, before);
+        assert!(st.input.interaction_state.viewport_pan_anim.is_none());
     }
 
     #[test]
