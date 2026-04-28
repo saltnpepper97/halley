@@ -440,6 +440,33 @@ end
     }
 
     #[test]
+    fn updater_adds_missing_decoration_shadow_defaults() {
+        let raw = r##"
+decorations:
+  border:
+    size 3
+    radius 0
+    colour-focused "#d65d26"
+    colour-unfocused "#333333"
+  end
+
+  resize-using-border true
+end
+"##;
+
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        assert!(updated.contains("  shadows:\n    window:"));
+        assert!(updated.contains("      blur-radius 8"));
+        assert!(updated.contains("      colour \"#05030530\""));
+        assert!(updated.contains("    node:\n      enabled true\n      blur-radius 14"));
+        assert!(updated.contains("    overlay:\n      enabled true\n      blur-radius 24"));
+        assert!(updated.contains("      colour \"#05030538\""));
+    }
+
+    #[test]
     fn updater_respects_node_section_aliases() {
         let raw = r#"
 node:
