@@ -26,13 +26,16 @@ pub(crate) fn apply_hover_focus_mode(
     let Some(node) = st.model.field.node(hit.node_id) else {
         return;
     };
-    if node.kind != halley_core::field::NodeKind::Surface
-        || !st.model.field.is_visible(hit.node_id)
-        || !matches!(
-            node.state,
-            halley_core::field::NodeState::Active | halley_core::field::NodeState::Drifting
-        )
+    if node.kind != halley_core::field::NodeKind::Surface || !st.model.field.is_visible(hit.node_id)
     {
+        return;
+    }
+    if !matches!(
+        node.state,
+        halley_core::field::NodeState::Active
+            | halley_core::field::NodeState::Drifting
+            | halley_core::field::NodeState::Node
+    ) {
         return;
     }
 

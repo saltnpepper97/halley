@@ -53,6 +53,51 @@ fn hover_focus_mode_focuses_hovered_surface() {
 }
 
 #[test]
+fn hover_focus_mode_focuses_hovered_collapsed_surface_node() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut tuning = single_monitor_tuning();
+    tuning.input.focus_mode = InputFocusMode::Hover;
+    let mut st = Halley::new_for_test(&dh, tuning);
+
+    let active = st.model.field.spawn_surface(
+        "active",
+        halley_core::field::Vec2 { x: 100.0, y: 100.0 },
+        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+    );
+    let collapsed = st.model.field.spawn_surface(
+        "collapsed",
+        halley_core::field::Vec2 { x: 500.0, y: 100.0 },
+        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+    );
+    st.assign_node_to_monitor(active, "monitor_a");
+    st.assign_node_to_monitor(collapsed, "monitor_a");
+    st.model
+        .field
+        .set_state(collapsed, halley_core::field::NodeState::Node);
+    st.set_interaction_focus(Some(active), 30_000, Instant::now());
+
+    super::focus::apply_hover_focus_mode(
+        &mut st,
+        Some(HitNode {
+            node_id: collapsed,
+            move_surface: false,
+            is_core: false,
+        }),
+        false,
+        Instant::now(),
+    );
+
+    assert_eq!(
+        st.model.focus_state.primary_interaction_focus,
+        Some(collapsed)
+    );
+    assert_eq!(
+        st.last_focused_surface_node_for_monitor("monitor_a"),
+        Some(collapsed)
+    );
+}
+
+#[test]
 fn click_focus_mode_keeps_hover_focus_disabled() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
