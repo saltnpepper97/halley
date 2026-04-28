@@ -230,6 +230,21 @@ end
         assert!(!out.decorations.secondary_border.enabled);
         assert_eq!(out.decorations.secondary_border.size_px, 1);
         assert_eq!(out.decorations.secondary_border.gap_px, 2);
+        assert_eq!(out.decorations.shadows.window.blur_radius, 8.0);
+        assert_eq!(out.decorations.shadows.window.spread, 0.0);
+        assert_eq!(out.decorations.shadows.window.offset_y, 5.0);
+        assert_eq!(out.decorations.shadows.window.color.r, 0x05 as f32 / 255.0);
+        assert_eq!(out.decorations.shadows.window.color.g, 0x03 as f32 / 255.0);
+        assert_eq!(out.decorations.shadows.window.color.b, 0x05 as f32 / 255.0);
+        assert_eq!(out.decorations.shadows.window.color.a, 0x30 as f32 / 255.0);
+        assert_eq!(out.decorations.shadows.node.blur_radius, 14.0);
+        assert_eq!(out.decorations.shadows.node.spread, 0.0);
+        assert_eq!(out.decorations.shadows.node.offset_y, 3.0);
+        assert_eq!(out.decorations.shadows.node.color.a, 0x24 as f32 / 255.0);
+        assert_eq!(out.decorations.shadows.overlay.blur_radius, 24.0);
+        assert_eq!(out.decorations.shadows.overlay.spread, 1.0);
+        assert_eq!(out.decorations.shadows.overlay.offset_y, 7.0);
+        assert_eq!(out.decorations.shadows.overlay.color.a, 0x38 as f32 / 255.0);
         assert!(!out.decorations.resize_using_border);
     }
 }
