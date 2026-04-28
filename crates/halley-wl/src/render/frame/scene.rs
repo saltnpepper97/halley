@@ -17,7 +17,7 @@ use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::window::{
     ActiveBorderRect, CroppedClippedSurfaceElement, OffscreenNodeTexture, StackWindowDrawUnit,
-    collect_active_surfaces,
+    WindowShadowRect, collect_active_surfaces,
 };
 
 pub(super) type SurfaceElement =
@@ -52,6 +52,9 @@ pub(super) struct SceneCollections {
     pub(super) above_fullscreen_popup_elements:
         Vec<smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>>,
     pub(super) stack_window_units: Vec<StackWindowDrawUnit>,
+    pub(super) shadow_rects: Vec<WindowShadowRect>,
+    pub(super) resized_shadow_rects: Vec<WindowShadowRect>,
+    pub(super) above_fullscreen_shadow_rects: Vec<WindowShadowRect>,
     pub(super) border_rects: Vec<ActiveBorderRect>,
     pub(super) resized_border_rects: Vec<ActiveBorderRect>,
     pub(super) above_fullscreen_border_rects: Vec<ActiveBorderRect>,
@@ -134,6 +137,9 @@ pub(super) fn collect_debug_frame_scene(
             above_fullscreen_popup_offscreen_textures: Vec::new(),
             above_fullscreen_popup_elements: Vec::new(),
             stack_window_units: Vec::new(),
+            shadow_rects: Vec::new(),
+            resized_shadow_rects: Vec::new(),
+            above_fullscreen_shadow_rects: Vec::new(),
             border_rects: Vec::new(),
             resized_border_rects: Vec::new(),
             above_fullscreen_border_rects: Vec::new(),
@@ -175,6 +181,9 @@ pub(super) fn collect_debug_frame_scene(
         above_fullscreen_popup_elements,
         node_surface_map,
         stack_window_units,
+        shadow_rects,
+        resized_shadow_rects,
+        above_fullscreen_shadow_rects,
         border_rects,
         resized_border_rects,
         above_fullscreen_border_rects,
@@ -272,6 +281,9 @@ pub(super) fn collect_debug_frame_scene(
         above_fullscreen_popup_offscreen_textures,
         above_fullscreen_popup_elements,
         stack_window_units,
+        shadow_rects,
+        resized_shadow_rects,
+        above_fullscreen_shadow_rects,
         border_rects,
         resized_border_rects,
         above_fullscreen_border_rects,

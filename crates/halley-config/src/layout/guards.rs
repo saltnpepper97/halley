@@ -25,6 +25,20 @@ impl RuntimeTuning {
             self.decorations.secondary_border.size_px.clamp(0, 64);
         self.decorations.secondary_border.gap_px =
             self.decorations.secondary_border.gap_px.clamp(0, 8);
+        for shadow in [
+            &mut self.decorations.shadows.window,
+            &mut self.decorations.shadows.node,
+            &mut self.decorations.shadows.overlay,
+        ] {
+            shadow.blur_radius = shadow.blur_radius.clamp(0.0, 256.0);
+            shadow.spread = shadow.spread.clamp(0.0, 256.0);
+            shadow.offset_x = shadow.offset_x.clamp(-256.0, 256.0);
+            shadow.offset_y = shadow.offset_y.clamp(-256.0, 256.0);
+            shadow.color.r = shadow.color.r.clamp(0.0, 1.0);
+            shadow.color.g = shadow.color.g.clamp(0.0, 1.0);
+            shadow.color.b = shadow.color.b.clamp(0.0, 1.0);
+            shadow.color.a = shadow.color.a.clamp(0.0, 1.0);
+        }
         self.bearings.fade_distance = self.bearings.fade_distance.clamp(120.0, 100_000.0);
 
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);

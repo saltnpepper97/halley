@@ -6,7 +6,9 @@ mod view;
 
 use std::error::Error;
 
-use halley_config::{OverlayBorderSource, OverlayColorMode, OverlayShape, RuntimeTuning};
+use halley_config::{
+    OverlayBorderSource, OverlayColorMode, OverlayShape, RuntimeTuning, ShadowLayerConfig,
+};
 use smithay::{
     backend::renderer::{
         Color32F, Texture,
@@ -18,6 +20,7 @@ use smithay::{
 use crate::compositor::root::Halley;
 use crate::presentation::themed_node_label_colors;
 use crate::render::draw_primitives::draw_rect;
+use crate::render::shadow::draw_shadow_rect;
 use crate::render::state::RenderState;
 use crate::render::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
 use crate::text::{draw_ui_text, draw_ui_text_in, ui_text_size, ui_text_size_in};
@@ -120,6 +123,7 @@ struct OverlayPalette {
 struct OverlayVisuals {
     rounded: bool,
     border_px: f32,
+    shadow: ShadowLayerConfig,
     palette: OverlayPalette,
 }
 
@@ -208,6 +212,7 @@ fn resolve_overlay_visuals(tuning: &RuntimeTuning) -> OverlayVisuals {
     OverlayVisuals {
         rounded: matches!(tuning.overlay_style.shape, OverlayShape::Rounded),
         border_px: resolve_overlay_border_width(tuning),
+        shadow: tuning.decorations.shadows.overlay,
         palette: OverlayPalette {
             fill,
             text,
@@ -1679,6 +1684,15 @@ fn draw_overlay_chip(
     let Some(program) = render_state.ui_rect_program(visuals.rounded) else {
         return Ok(());
     };
+    draw_shadow_rect(
+        frame,
+        render_state,
+        visuals.shadow,
+        rect,
+        if visuals.rounded { corner_radius } else { 0.0 },
+        alpha,
+        damage,
+    )?;
     let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
     let src = Rectangle::<f64, Buffer>::new(
         (0.0, 0.0).into(),

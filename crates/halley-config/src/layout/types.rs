@@ -193,9 +193,35 @@ pub struct SecondaryBorderConfig {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShadowColor {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShadowLayerConfig {
+    pub enabled: bool,
+    pub blur_radius: f32,
+    pub spread: f32,
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub color: ShadowColor,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShadowsConfig {
+    pub window: ShadowLayerConfig,
+    pub node: ShadowLayerConfig,
+    pub overlay: ShadowLayerConfig,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DecorationsConfig {
     pub border: PrimaryBorderConfig,
     pub secondary_border: SecondaryBorderConfig,
+    pub shadows: ShadowsConfig,
     pub resize_using_border: bool,
 }
 
@@ -238,11 +264,58 @@ impl Default for SecondaryBorderConfig {
     }
 }
 
+impl Default for ShadowsConfig {
+    fn default() -> Self {
+        Self {
+            window: ShadowLayerConfig {
+                enabled: true,
+                blur_radius: 10.0,
+                spread: 10.0,
+                offset_x: 0.0,
+                offset_y: 12.0,
+                color: ShadowColor {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.018,
+                },
+            },
+            node: ShadowLayerConfig {
+                enabled: true,
+                blur_radius: 10.0,
+                spread: 5.0,
+                offset_x: 0.0,
+                offset_y: 6.0,
+                color: ShadowColor {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.18,
+                },
+            },
+            overlay: ShadowLayerConfig {
+                enabled: true,
+                blur_radius: 16.0,
+                spread: 4.0,
+                offset_x: 0.0,
+                offset_y: 8.0,
+                color: ShadowColor {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.22,
+                },
+            },
+        }
+    }
+}
+
 impl Default for DecorationsConfig {
     fn default() -> Self {
         Self {
             border: PrimaryBorderConfig::default(),
             secondary_border: SecondaryBorderConfig::default(),
+            shadows: ShadowsConfig::default(),
             resize_using_border: false,
         }
     }

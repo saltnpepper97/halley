@@ -10,6 +10,7 @@ mod icon_tint;
 pub mod layer_shell;
 mod node;
 mod screenshot_icon;
+pub(crate) mod shadow;
 pub(crate) mod state;
 pub(crate) mod surface_capture;
 

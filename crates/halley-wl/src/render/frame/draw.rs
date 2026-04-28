@@ -25,7 +25,10 @@ use crate::overlay::{
     draw_cluster_selection_markers, draw_monitor_hud, draw_overlay_hover_label,
 };
 use crate::presentation::world_to_screen;
-use crate::window::{ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit};
+use crate::render::shadow::draw_shadow_rect;
+use crate::window::{
+    ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit, WindowShadowRect,
+};
 
 fn focus_ring_screen_radii(
     view_size: Vec2,
@@ -117,6 +120,7 @@ pub(super) fn draw_debug_frame_scene(
         prepared.now,
     )?;
 
+    draw_window_shadows(frame, size, prepared.damage, &scene.shadow_rects, st)?;
     if !scene.active_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
     }
@@ -130,6 +134,13 @@ pub(super) fn draw_debug_frame_scene(
     draw_window_borders(frame, size, prepared.damage, &scene.border_rects, st)?;
     draw_stack_window_units(frame, size, prepared.damage, &scene.stack_window_units, st)?;
     draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
+    draw_window_shadows(
+        frame,
+        size,
+        prepared.damage,
+        &scene.resized_shadow_rects,
+        st,
+    )?;
     if !scene.resized_active_elements.is_empty() {
         let _ = draw_render_elements(
             frame,
@@ -251,6 +262,13 @@ pub(super) fn draw_debug_frame_scene(
             &[prepared.damage],
         );
     }
+    draw_window_shadows(
+        frame,
+        size,
+        prepared.damage,
+        &scene.above_fullscreen_shadow_rects,
+        st,
+    )?;
     if !scene.above_fullscreen_active_elements.is_empty() {
         let _ = draw_render_elements(
             frame,
@@ -506,6 +524,7 @@ fn draw_stack_window_units(
     st: &mut Halley,
 ) -> Result<(), Box<dyn Error>> {
     for unit in stack_window_units {
+        draw_window_shadows(frame, size, damage, &unit.shadow_rects, st)?;
         if !unit.active_elements.is_empty() {
             let _ = draw_render_elements(frame, 1.0, &unit.active_elements, &[damage]);
         }
@@ -519,6 +538,43 @@ fn draw_stack_window_units(
             draw_window_borders(frame, size, damage, &unit.border_rects, st)?;
         }
     }
+    Ok(())
+}
+
+pub(crate) fn draw_window_shadows(
+    frame: &mut GlesFrame<'_, '_>,
+    size: smithay::utils::Size<i32, Physical>,
+    damage: Rectangle<i32, Physical>,
+    shadow_rects: &[WindowShadowRect],
+    st: &Halley,
+) -> Result<(), Box<dyn Error>> {
+    if shadow_rects.is_empty() {
+        return Ok(());
+    }
+
+    let config = st.runtime.tuning.decorations.shadows.window;
+    if !config.enabled || config.color.a <= 0.0 || config.blur_radius <= 0.0 {
+        return Ok(());
+    }
+    let clipped_damage = damage
+        .intersection(Rectangle::<i32, Physical>::from_size(size))
+        .unwrap_or(damage);
+
+    for rect in shadow_rects {
+        if rect.alpha <= 0.0 || rect.w <= 0 || rect.h <= 0 {
+            continue;
+        }
+        draw_shadow_rect(
+            frame,
+            &st.ui.render_state,
+            config,
+            Rectangle::<i32, Physical>::new((rect.x, rect.y).into(), (rect.w, rect.h).into()),
+            rect.corner_radius,
+            rect.alpha,
+            clipped_damage,
+        )?;
+    }
+
     Ok(())
 }
 

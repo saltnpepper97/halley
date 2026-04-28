@@ -16,7 +16,8 @@ pub use layout::{
     InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, InputConfig, InputFocusMode,
     KeyboardConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
     OverlayBorderSource, OverlayColorMode, OverlayShape, OverlayStyleConfig, PanToNewMode,
-    PrimaryBorderConfig, RuntimeTuning, ScreenshotConfig, SecondaryBorderConfig, ShapeStyle,
-    TimedAnimationConfig, ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig,
-    WindowCloseAnimationStyle, WindowRule, WindowRulePattern,
+    PrimaryBorderConfig, RuntimeTuning, ScreenshotConfig, SecondaryBorderConfig, ShadowColor,
+    ShadowLayerConfig, ShadowsConfig, ShapeStyle, TimedAnimationConfig, ViewportOutputConfig,
+    ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle, WindowRule,
+    WindowRulePattern,
 };
