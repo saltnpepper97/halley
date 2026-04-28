@@ -5,9 +5,23 @@ pub(super) fn sync_node_size_from_surface(
     node_id: halley_core::field::NodeId,
     wl: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
 ) -> Rectangle<i32, Logical> {
-    let bbox = snapshot_surface_geometry(st, node_id, wl);
+    let restoring_fullscreen = st
+        .model
+        .fullscreen_state
+        .fullscreen_restore
+        .contains_key(&node_id)
+        && !st.is_fullscreen_active(node_id);
+    let bbox = if restoring_fullscreen {
+        bbox_from_surface_tree(wl, (0, 0))
+    } else {
+        snapshot_surface_geometry(st, node_id, wl)
+    };
 
     if crate::compositor::surface::is_active_cluster_workspace_member(st, node_id) {
+        return bbox;
+    }
+
+    if restoring_fullscreen {
         return bbox;
     }
 

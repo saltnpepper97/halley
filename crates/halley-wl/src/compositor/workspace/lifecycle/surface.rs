@@ -311,6 +311,15 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
     if let Some(node_id) = st.model.surface_to_node.get(&root_key).copied() {
         st.ui.render_state.mark_window_offscreen_dirty(node_id);
         refresh_node_identity_for_surface(st, &root_surface, "Window");
+        if st
+            .model
+            .fullscreen_state
+            .fullscreen_restore
+            .contains_key(&node_id)
+            && !st.is_fullscreen_active(node_id)
+        {
+            return;
+        }
         use smithay::desktop::utils::bbox_from_surface_tree;
         use smithay::wayland::shell::xdg::SurfaceCachedState;
 

@@ -435,6 +435,8 @@ pub(crate) fn tick_live_overlap(st: &mut Halley) {
     if st.input.interaction_state.suspend_state_checks
         || st.input.interaction_state.resize_active.is_some()
         || crate::compositor::workspace::state::maximize_animation_active(st)
+        || !st.model.fullscreen_state.fullscreen_motion.is_empty()
+        || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty()
     {
         return;
     }
