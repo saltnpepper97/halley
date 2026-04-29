@@ -275,7 +275,7 @@ fn sanitized_config_temp_path(source_path: &Path, temp_dir: &Path, index: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::OverlayColorMode;
+    use crate::layout::{OverlayColorMode, PinBadgeCorner};
 
     #[test]
     fn from_rune_file_resolves_gather_when_inline_keybinds_require_sanitized_parse() {
@@ -322,6 +322,55 @@ end
             }
         );
         assert!(tuning.keybinds.modifier.super_key);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn from_rune_file_deep_merges_unaliased_gather_sections() {
+        let dir = test_temp_dir("gather-deep-merge");
+        let import_path = dir.join("colors.rune");
+        let config_path = dir.join("halley.rune");
+
+        std::fs::write(
+            &import_path,
+            r##"field:
+  pins:
+    colour "#4a4768"
+  end
+end
+"##,
+        )
+        .unwrap();
+        std::fs::write(
+            &config_path,
+            r##"gather "colors.rune"
+
+field:
+  gap 20.0
+  pins:
+    corner "top-left"
+    size 1.0
+  end
+end
+"##,
+        )
+        .unwrap();
+
+        let tuning = RuntimeTuning::from_rune_file(config_path.to_str().unwrap())
+            .expect("config should parse with deep-merged gathered field settings");
+
+        assert_eq!(tuning.non_overlap_gap_px, 20.0);
+        assert_eq!(tuning.pins.corner, PinBadgeCorner::TopLeft);
+        assert_eq!(tuning.pins.size, 1.0);
+        assert_eq!(
+            tuning.pins.color,
+            OverlayColorMode::Fixed {
+                r: 0x4a as f32 / 255.0,
+                g: 0x47 as f32 / 255.0,
+                b: 0x68 as f32 / 255.0,
+            }
+        );
 
         let _ = std::fs::remove_dir_all(dir);
     }
