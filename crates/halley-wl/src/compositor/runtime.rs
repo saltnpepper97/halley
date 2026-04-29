@@ -519,6 +519,10 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             .last_surface_focus_ms
             .retain(|id, _| alive_ids.contains(id));
         self.model
+            .focus_state
+            .overlap_raise_order
+            .retain(|id, _| alive_ids.contains(id));
+        self.model
             .workspace_state
             .manual_collapsed_nodes
             .retain(|id| alive_ids.contains(id));

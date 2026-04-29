@@ -251,6 +251,8 @@ impl Halley {
                     focus_ring_preview_until_ms: HashMap::new(),
                     recent_top_node: None,
                     recent_top_until: None,
+                    overlap_raise_order: HashMap::new(),
+                    next_overlap_raise_order: 0,
                 },
                 cluster_state: ClusterState {
                     cluster_form_state: ClusterFormationState::default(),
@@ -1064,6 +1066,14 @@ impl Halley {
 
     pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
         super::focus::state::focus_state_controller(self).set_recent_top_node(node_id, until)
+    }
+
+    pub fn raise_overlap_policy_node(&mut self, node_id: NodeId) -> bool {
+        super::focus::state::focus_state_controller(self).raise_overlap_policy_node(node_id)
+    }
+
+    pub fn overlap_policy_stack_rank(&self, node_id: NodeId) -> (u64, u64) {
+        super::focus::state::focus_state_controller(self).overlap_policy_stack_rank(node_id)
     }
 
     pub(crate) fn focus_pointer_target(

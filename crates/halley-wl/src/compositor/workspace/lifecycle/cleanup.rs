@@ -221,6 +221,7 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
             crate::compositor::workspace::state::abort_maximize_session_for_node(st, id);
             crate::compositor::workspace::state::clear_maximize_resume_for_node(st, id);
             st.model.focus_state.last_surface_focus_ms.remove(&id);
+            st.model.focus_state.overlap_raise_order.remove(&id);
             st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
             st.model.carry_state.carry_zone_hint.remove(&id);
             st.model.carry_state.carry_zone_last_change_ms.remove(&id);
@@ -408,6 +409,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
             .remove(&id);
         crate::compositor::workspace::state::clear_maximize_resume_for_node(st, id);
         st.model.focus_state.last_surface_focus_ms.remove(&id);
+        st.model.focus_state.overlap_raise_order.remove(&id);
         st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
         st.model.monitor_state.node_monitor.remove(&id);
         st.model.carry_state.carry_zone_hint.remove(&id);

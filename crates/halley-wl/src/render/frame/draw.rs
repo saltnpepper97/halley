@@ -291,6 +291,13 @@ pub(super) fn draw_debug_frame_scene(
         &scene.above_fullscreen_border_rects,
         st,
     )?;
+    draw_stack_window_units(
+        frame,
+        size,
+        prepared.damage,
+        &scene.above_fullscreen_stack_window_units,
+        st,
+    )?;
     draw_offscreen_textures(
         frame,
         prepared.damage,

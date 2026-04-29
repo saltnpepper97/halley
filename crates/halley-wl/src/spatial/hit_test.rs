@@ -22,6 +22,8 @@ struct ActiveAreaView<'a> {
 
 struct ActiveHitOrderingView {
     stack_ranks: HashMap<NodeId, usize>,
+    overlap_policy: HashSet<NodeId>,
+    overlap_ranks: HashMap<NodeId, (u64, u64)>,
     draws_above_fullscreen: HashSet<NodeId>,
     fullscreen_on_current_monitor: HashSet<NodeId>,
     persistent_top: HashSet<NodeId>,
@@ -41,11 +43,17 @@ impl ActiveHitOrderingView {
             .enumerate()
             .map(|(index, &node_id)| (node_id, index))
             .collect();
+        let mut overlap_policy = HashSet::new();
+        let mut overlap_ranks = HashMap::new();
         let mut draws_above_fullscreen = HashSet::new();
         let mut fullscreen_on_current_monitor = HashSet::new();
         let mut persistent_top = HashSet::new();
         for hit in hits {
             let node_id = hit.node_id;
+            if st.node_has_overlap_policy(node_id) {
+                overlap_policy.insert(node_id);
+                overlap_ranks.insert(node_id, st.overlap_policy_stack_rank(node_id));
+            }
             if st.node_draws_above_fullscreen_on_current_monitor(node_id) {
                 draws_above_fullscreen.insert(node_id);
             }
@@ -68,6 +76,8 @@ impl ActiveHitOrderingView {
 
         Self {
             stack_ranks,
+            overlap_policy,
+            overlap_ranks,
             draws_above_fullscreen,
             fullscreen_on_current_monitor,
             persistent_top,
@@ -92,6 +102,27 @@ impl ActiveHitOrderingView {
                 self.persistent_top.contains(&a.node_id),
                 self.persistent_top.contains(&b.node_id),
             )
+        })
+        .then_with(|| {
+            match (
+                self.overlap_policy.contains(&a.node_id),
+                self.overlap_policy.contains(&b.node_id),
+            ) {
+                (true, true) => {
+                    let a_rank = self
+                        .overlap_ranks
+                        .get(&a.node_id)
+                        .copied()
+                        .unwrap_or((0, a.node_id.as_u64()));
+                    let b_rank = self
+                        .overlap_ranks
+                        .get(&b.node_id)
+                        .copied()
+                        .unwrap_or((0, b.node_id.as_u64()));
+                    b_rank.cmp(&a_rank)
+                }
+                _ => Ordering::Equal,
+            }
         })
         .then_with(|| {
             compare_bool(
@@ -348,5 +379,91 @@ mod tests {
             .expect("surface hit");
 
         assert_eq!(hit.node_id, overlap);
+    }
+
+    #[test]
+    fn overlap_policy_hit_order_uses_raise_stack() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let raised = st.model.field.spawn_surface(
+            "raised",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 220.0, y: 160.0 },
+        );
+        let newer = st.model.field.spawn_surface(
+            "newer",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 220.0, y: 160.0 },
+        );
+        for node_id in [raised, newer] {
+            st.assign_node_to_monitor(node_id, "monitor_a");
+            let _ = st
+                .model
+                .field
+                .set_state(node_id, halley_core::field::NodeState::Active);
+            st.model.spawn_state.applied_window_rules.insert(
+                node_id,
+                crate::compositor::spawn::state::AppliedInitialWindowRule {
+                    overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
+                    spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                    cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                    parent_node: None,
+                    suppress_reveal_pan: true,
+                },
+            );
+        }
+        st.model.focus_state.overlap_raise_order.insert(raised, 20);
+        st.model.focus_state.overlap_raise_order.insert(newer, 10);
+
+        let hit = pick_hit_node_at(&st, 800, 600, 400.0, 300.0, Instant::now(), None)
+            .expect("surface hit");
+
+        assert_eq!(hit.node_id, raised);
+    }
+
+    #[test]
+    fn overlap_policy_hover_focus_does_not_change_hit_order() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let top = st.model.field.spawn_surface(
+            "top",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 220.0, y: 160.0 },
+        );
+        let hovered = st.model.field.spawn_surface(
+            "hovered",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 220.0, y: 160.0 },
+        );
+        for node_id in [top, hovered] {
+            st.assign_node_to_monitor(node_id, "monitor_a");
+            let _ = st
+                .model
+                .field
+                .set_state(node_id, halley_core::field::NodeState::Active);
+            st.model.spawn_state.applied_window_rules.insert(
+                node_id,
+                crate::compositor::spawn::state::AppliedInitialWindowRule {
+                    overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
+                    spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                    cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                    parent_node: None,
+                    suppress_reveal_pan: true,
+                },
+            );
+        }
+        st.model.focus_state.overlap_raise_order.insert(top, 20);
+        st.model.focus_state.overlap_raise_order.insert(hovered, 10);
+        st.set_recent_top_node(
+            hovered,
+            Instant::now() + std::time::Duration::from_millis(1200),
+        );
+
+        let hit = pick_hit_node_at(&st, 800, 600, 400.0, 300.0, Instant::now(), None)
+            .expect("surface hit");
+
+        assert_eq!(hit.node_id, top);
     }
 }
