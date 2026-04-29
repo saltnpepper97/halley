@@ -1,5 +1,7 @@
 mod dpms;
 mod drm;
+mod scheduler;
+mod stats;
 
 use super::*;
 
@@ -16,9 +18,17 @@ use crate::backend::tty::dpms::{
     sync_tty_dpms_state, tty_output_dpms_enabled, wake_tty_dpms_on_input,
 };
 use crate::backend::tty::drm::{
-    TtyDrmDevice, TtyDrmOutput, TtyFrameQueueReport, TtyGpuManager, TtyOutputCaptureBackend,
+    TtyDrmDevice, TtyDrmOutput, TtyGpuManager, TtyOutputCaptureBackend,
     build_tty_dmabuf_output_feedbacks, current_tty_output_signature,
     probe_tty_drm_device_via_session, queue_tty_drm_frame, rebuild_tty_outputs,
+};
+use crate::backend::tty::scheduler::{
+    tty_animation_output_ready_for_redraw, tty_animation_redraw_active,
+    tty_animation_redraw_outputs, tty_due_outputs_for_timer, tty_output_animation_redraw_active,
+    tty_outputs_include_animation_redraw, tty_ready_animation_redraw_outputs,
+};
+use crate::backend::tty::stats::{
+    TtyFrameStats, maybe_log_tty_frame_stats, record_tty_frame_queue,
 };
 use crate::backend::vblank_throttle::VBlankThrottle;
 use crate::compositor::exit_confirm::exit_confirm_controller;
@@ -36,7 +46,6 @@ use smithay::backend::input::{
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 const VBLANK_MISMATCH_LOG_AFTER_MS: u64 = 1_000;
 const PENDING_FRAME_TIMEOUT_MS: u64 = 1_500;
-const FRAME_STATS_LOG_INTERVAL_SECS: u64 = 10;
 
 const HALLEY_X11_DISPLAY_NUM: u32 = 0;
 
@@ -44,39 +53,6 @@ const HALLEY_X11_DISPLAY_NUM: u32 = 0;
 struct VBlankMismatchState {
     first_seen_at: Option<Instant>,
     reported_active: bool,
-}
-
-#[derive(Debug)]
-struct TtyFrameStats {
-    last_report_at: Instant,
-    queued_frames: u64,
-    completed_vblanks: u64,
-    page_flip_timeouts: u64,
-    page_flip_recoveries: u64,
-    vblank_mismatches: u64,
-    direct_scanout_frames: u64,
-    composed_frames: u64,
-    sync_wait_count: u64,
-    sync_wait_total_ns: u128,
-    max_sync_wait: Duration,
-}
-
-impl TtyFrameStats {
-    fn new(now: Instant) -> Self {
-        Self {
-            last_report_at: now,
-            queued_frames: 0,
-            completed_vblanks: 0,
-            page_flip_timeouts: 0,
-            page_flip_recoveries: 0,
-            vblank_mismatches: 0,
-            direct_scanout_frames: 0,
-            composed_frames: 0,
-            sync_wait_count: 0,
-            sync_wait_total_ns: 0,
-            max_sync_wait: Duration::ZERO,
-        }
-    }
 }
 
 fn tty_env_flag(name: &str) -> bool {
@@ -102,79 +78,6 @@ fn drm_vblank_timestamp(metadata: Option<&DrmEventMetadata>) -> Duration {
     }
 
     monotonic_now_duration()
-}
-
-fn record_tty_frame_queue(
-    frame_stats: Option<&Rc<RefCell<TtyFrameStats>>>,
-    report: &TtyFrameQueueReport,
-) {
-    let Some(frame_stats) = frame_stats else {
-        return;
-    };
-    if !report.queued {
-        return;
-    }
-
-    let mut stats = frame_stats.borrow_mut();
-    stats.queued_frames += 1;
-    if report.direct_scanout_active {
-        stats.direct_scanout_frames += 1;
-    }
-    if report.composed {
-        stats.composed_frames += 1;
-    }
-    if let Some(wait) = report.sync_wait {
-        stats.sync_wait_count += 1;
-        stats.sync_wait_total_ns += wait.as_nanos();
-        stats.max_sync_wait = stats.max_sync_wait.max(wait);
-    }
-}
-
-fn maybe_log_tty_frame_stats(
-    frame_stats: Option<&Rc<RefCell<TtyFrameStats>>>,
-    output_frame_pending_since: &Rc<RefCell<HashMap<String, Instant>>>,
-    now: Instant,
-) {
-    let Some(frame_stats) = frame_stats else {
-        return;
-    };
-
-    let mut stats = frame_stats.borrow_mut();
-    if now.saturating_duration_since(stats.last_report_at)
-        < Duration::from_secs(FRAME_STATS_LOG_INTERVAL_SECS)
-    {
-        return;
-    }
-
-    let pending_since = output_frame_pending_since.borrow();
-    let pending_frames = pending_since.len();
-    let max_pending_age = pending_since
-        .values()
-        .map(|queued_at| now.saturating_duration_since(*queued_at))
-        .max()
-        .unwrap_or(Duration::ZERO);
-    let avg_sync_wait = if stats.sync_wait_count == 0 {
-        Duration::ZERO
-    } else {
-        Duration::from_nanos((stats.sync_wait_total_ns / stats.sync_wait_count as u128) as u64)
-    };
-
-    debug!(
-        "tty frame stats: queued={} completed_vblanks={} page_flip_timeouts={} page_flip_recoveries={} vblank_mismatches={} direct_scanout={} composed={} sync_waits={} avg_sync_wait={:?} max_sync_wait={:?} pending_frames={} max_pending_age={:?}",
-        stats.queued_frames,
-        stats.completed_vblanks,
-        stats.page_flip_timeouts,
-        stats.page_flip_recoveries,
-        stats.vblank_mismatches,
-        stats.direct_scanout_frames,
-        stats.composed_frames,
-        stats.sync_wait_count,
-        avg_sync_wait,
-        stats.max_sync_wait,
-        pending_frames,
-        max_pending_age
-    );
-    stats.last_report_at = now;
 }
 
 fn queue_ready_tty_outputs(
@@ -350,164 +253,6 @@ fn release_pending_tty_outputs(
     }
 
     released.len()
-}
-
-fn tty_animation_redraw_active(
-    st: &Halley,
-    outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
-    pointer_state: &Rc<RefCell<PointerState>>,
-    now: Instant,
-) -> bool {
-    outputs.borrow().iter().any(|output| {
-        tty_output_animation_redraw_active(st, pointer_state, output.connector_name.as_str(), now)
-    })
-}
-
-fn tty_animation_redraw_outputs(
-    st: &Halley,
-    outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
-    pointer_state: &Rc<RefCell<PointerState>>,
-    now: Instant,
-) -> HashSet<String> {
-    outputs
-        .borrow()
-        .iter()
-        .filter_map(|output| {
-            tty_output_animation_redraw_active(
-                st,
-                pointer_state,
-                output.connector_name.as_str(),
-                now,
-            )
-            .then_some(output.connector_name.clone())
-        })
-        .collect()
-}
-
-fn tty_output_animation_redraw_active(
-    st: &Halley,
-    pointer_state: &Rc<RefCell<PointerState>>,
-    output_name: &str,
-    now: Instant,
-) -> bool {
-    if !pointer_state.borrow().move_anim.is_empty() {
-        return true;
-    }
-
-    crate::frame_loop::tty_output_animation_redraw_state(st, output_name, now).active
-}
-
-fn tty_animation_output_ready_for_redraw(
-    st: &Halley,
-    outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
-    dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
-    output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
-    pointer_state: &Rc<RefCell<PointerState>>,
-    now: Instant,
-) -> bool {
-    let outputs_ref = outputs.borrow();
-    let dpms_ref = dpms_enabled.borrow();
-    let pending_ref = output_frame_pending.borrow();
-
-    outputs_ref.iter().any(|output| {
-        dpms_ref
-            .get(output.connector_name.as_str())
-            .copied()
-            .unwrap_or(true)
-            && !pending_ref
-                .get(output.connector_name.as_str())
-                .copied()
-                .unwrap_or(false)
-            && tty_output_animation_redraw_active(
-                st,
-                pointer_state,
-                output.connector_name.as_str(),
-                now,
-            )
-    })
-}
-
-fn tty_ready_animation_redraw_outputs(
-    st: &Halley,
-    outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
-    dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
-    output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
-    pointer_state: &Rc<RefCell<PointerState>>,
-    now: Instant,
-) -> HashSet<String> {
-    let outputs_ref = outputs.borrow();
-    let dpms_ref = dpms_enabled.borrow();
-    let pending_ref = output_frame_pending.borrow();
-
-    outputs_ref
-        .iter()
-        .filter_map(|output| {
-            let output_name = output.connector_name.as_str();
-            (dpms_ref.get(output_name).copied().unwrap_or(true)
-                && !pending_ref.get(output_name).copied().unwrap_or(false)
-                && tty_output_animation_redraw_active(st, pointer_state, output_name, now))
-            .then(|| output.connector_name.clone())
-        })
-        .collect()
-}
-
-fn tty_outputs_include_animation_redraw(
-    st: &Halley,
-    pointer_state: &Rc<RefCell<PointerState>>,
-    output_names: &HashSet<String>,
-    now: Instant,
-) -> bool {
-    output_names.iter().any(|output_name| {
-        tty_output_animation_redraw_active(st, pointer_state, output_name.as_str(), now)
-    })
-}
-
-fn tty_due_outputs_for_timer(
-    outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
-    active_modes: &Rc<RefCell<HashMap<String, drm_control::Mode>>>,
-    dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
-    output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
-    output_timer_tick_at: &Rc<RefCell<HashMap<String, Instant>>>,
-    now: Instant,
-) -> HashSet<String> {
-    let outputs_ref = outputs.borrow();
-    let modes_ref = active_modes.borrow();
-    let dpms_ref = dpms_enabled.borrow();
-    let pending_ref = output_frame_pending.borrow();
-    let mut last_tick_ref = output_timer_tick_at.borrow_mut();
-
-    last_tick_ref.retain(|name, _| {
-        outputs_ref
-            .iter()
-            .any(|output| output.connector_name == *name)
-    });
-
-    outputs_ref
-        .iter()
-        .filter_map(|output| {
-            let output_name = output.connector_name.as_str();
-            if !dpms_ref.get(output_name).copied().unwrap_or(true)
-                || pending_ref.get(output_name).copied().unwrap_or(false)
-            {
-                return None;
-            }
-
-            let refresh_hz = modes_ref
-                .get(output_name)
-                .map(|mode| mode.vrefresh() as f64)
-                .or(Some(output.mode.vrefresh() as f64));
-            let interval = frame_interval_for_refresh_hz(refresh_hz);
-            let due = last_tick_ref
-                .get(output_name)
-                .is_none_or(|last| now.saturating_duration_since(*last) >= interval);
-            if !due {
-                return None;
-            }
-
-            last_tick_ref.insert(output.connector_name.clone(), now);
-            Some(output.connector_name.clone())
-        })
-        .collect()
 }
 
 fn advance_tty_redraw_frame(
