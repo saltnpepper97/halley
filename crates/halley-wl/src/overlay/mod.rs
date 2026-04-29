@@ -2,13 +2,11 @@ mod cluster_bloom;
 mod cluster_naming;
 mod screenshot;
 mod state;
+mod style;
 mod view;
 
 use std::error::Error;
 
-use halley_config::{
-    OverlayBorderSource, OverlayColorMode, OverlayShape, RuntimeTuning, ShadowLayerConfig,
-};
 use smithay::{
     backend::renderer::{
         Color32F, Texture,
@@ -36,6 +34,13 @@ pub(crate) use state::{
     ClusterBloomAnimSnapshot, ClusterBloomAnimState, ExitConfirmOverlaySnapshot,
     ExitConfirmOverlayState, OverlayActionHint, OverlayBannerSnapshot, OverlayBannerState,
     OverlayToastSnapshot, OverlayToastState,
+};
+#[cfg(test)]
+use style::color_luminance;
+pub(crate) use style::overlay_fill_and_text_colors;
+use style::{
+    OverlayVisuals, overlay_accent_fill, overlay_text_color_for_fill, overlay_text_mix,
+    resolve_overlay_visuals,
 };
 pub(crate) use view::OverlayView;
 
@@ -82,180 +87,6 @@ const OVERFLOW_SCROLLBAR_PAD: i32 = 6;
 const OVERFLOW_REVEAL_ANIM_MS: u64 = 220;
 const OVERFLOW_REVEAL_SLIDE_PX: i32 = 28;
 const EXIT_CONFIRM_TITLE: &str = "Are you sure you want to leave?";
-
-#[derive(Clone, Copy)]
-struct OverlayRgb {
-    r: f32,
-    g: f32,
-    b: f32,
-}
-
-impl OverlayRgb {
-    fn alpha(self, alpha: f32) -> Color32F {
-        Color32F::new(self.r, self.g, self.b, alpha)
-    }
-
-    fn mix(self, other: Self, amount: f32) -> Self {
-        let t = amount.clamp(0.0, 1.0);
-        Self {
-            r: self.r + (other.r - self.r) * t,
-            g: self.g + (other.g - self.g) * t,
-            b: self.b + (other.b - self.b) * t,
-        }
-    }
-
-    fn luminance(self) -> f32 {
-        self.r * 0.2126 + self.g * 0.7152 + self.b * 0.0722
-    }
-}
-
-#[derive(Clone, Copy)]
-struct OverlayPalette {
-    fill: OverlayRgb,
-    text: OverlayRgb,
-    subtext: OverlayRgb,
-    key_fill: OverlayRgb,
-    key_text: OverlayRgb,
-    border: OverlayRgb,
-}
-
-#[derive(Clone, Copy)]
-struct OverlayVisuals {
-    rounded: bool,
-    border_px: f32,
-    shadow: ShadowLayerConfig,
-    palette: OverlayPalette,
-}
-
-const LIGHT_OVERLAY_FILL: OverlayRgb = OverlayRgb {
-    r: 0.92,
-    g: 0.95,
-    b: 0.98,
-};
-const DARK_OVERLAY_FILL: OverlayRgb = OverlayRgb {
-    r: 0.15,
-    g: 0.18,
-    b: 0.22,
-};
-const LIGHT_OVERLAY_TEXT: OverlayRgb = OverlayRgb {
-    r: 0.08,
-    g: 0.10,
-    b: 0.12,
-};
-const DARK_OVERLAY_TEXT: OverlayRgb = OverlayRgb {
-    r: 0.94,
-    g: 0.96,
-    b: 0.98,
-};
-
-fn resolve_overlay_base_background(mode: OverlayColorMode) -> OverlayRgb {
-    match mode {
-        OverlayColorMode::Auto | OverlayColorMode::Light => LIGHT_OVERLAY_FILL,
-        OverlayColorMode::Dark => DARK_OVERLAY_FILL,
-        OverlayColorMode::Fixed { r, g, b } => OverlayRgb { r, g, b },
-    }
-}
-
-fn resolve_overlay_base_text(mode: OverlayColorMode, background: OverlayRgb) -> OverlayRgb {
-    match mode {
-        OverlayColorMode::Auto => {
-            if background.luminance() < 0.45 {
-                DARK_OVERLAY_TEXT
-            } else {
-                LIGHT_OVERLAY_TEXT
-            }
-        }
-        OverlayColorMode::Light => LIGHT_OVERLAY_TEXT,
-        OverlayColorMode::Dark => DARK_OVERLAY_TEXT,
-        OverlayColorMode::Fixed { r, g, b } => OverlayRgb { r, g, b },
-    }
-}
-
-fn resolve_overlay_border_color(tuning: &RuntimeTuning) -> OverlayRgb {
-    let color = match tuning.overlay_style.border_source {
-        OverlayBorderSource::Primary => tuning.decorations.border.color_focused,
-        OverlayBorderSource::Secondary => {
-            if tuning.window_secondary_border_enabled() {
-                tuning.decorations.secondary_border.color_focused
-            } else {
-                tuning.decorations.border.color_focused
-            }
-        }
-    };
-    OverlayRgb {
-        r: color.r,
-        g: color.g,
-        b: color.b,
-    }
-}
-
-fn resolve_overlay_border_width(tuning: &RuntimeTuning) -> f32 {
-    if !tuning.overlay_style.borders {
-        return 0.0;
-    }
-    match tuning.overlay_style.border_source {
-        OverlayBorderSource::Primary => tuning.window_primary_border_size_px() as f32,
-        OverlayBorderSource::Secondary => {
-            if tuning.window_secondary_border_enabled() {
-                tuning.window_secondary_border_size_px() as f32
-            } else {
-                tuning.window_primary_border_size_px() as f32
-            }
-        }
-    }
-}
-
-fn resolve_overlay_visuals(tuning: &RuntimeTuning) -> OverlayVisuals {
-    let fill = resolve_overlay_base_background(tuning.overlay_style.background_color);
-    let text = resolve_overlay_base_text(tuning.overlay_style.text_color, fill);
-    let border = resolve_overlay_border_color(tuning);
-    OverlayVisuals {
-        rounded: matches!(tuning.overlay_style.shape, OverlayShape::Rounded),
-        border_px: resolve_overlay_border_width(tuning),
-        shadow: tuning.decorations.shadows.overlay,
-        palette: OverlayPalette {
-            fill,
-            text,
-            subtext: text.mix(fill, 0.20),
-            key_fill: fill.mix(text, 0.10),
-            key_text: text,
-            border,
-        },
-    }
-}
-
-pub(crate) fn overlay_fill_and_text_colors(tuning: &RuntimeTuning) -> (Color32F, Color32F) {
-    let visuals = resolve_overlay_visuals(tuning);
-    (
-        visuals.palette.fill.alpha(1.0),
-        visuals.palette.text.alpha(1.0),
-    )
-}
-
-fn color_luminance(color: Color32F) -> f32 {
-    color.r() * 0.2126 + color.g() * 0.7152 + color.b() * 0.0722
-}
-
-fn overlay_text_color_for_fill(fill: Color32F, alpha: f32) -> Color32F {
-    if color_luminance(fill) < 0.45 {
-        DARK_OVERLAY_TEXT.alpha(alpha)
-    } else {
-        LIGHT_OVERLAY_TEXT.alpha(alpha)
-    }
-}
-
-fn overlay_accent_fill(visuals: &OverlayVisuals, border_mix: f32, alpha: f32) -> Color32F {
-    visuals
-        .palette
-        .fill
-        .mix(visuals.palette.border, border_mix)
-        .alpha(alpha)
-}
-
-fn overlay_text_mix(mix: f32) -> f32 {
-    let t = ((mix - 0.10) / 0.90).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
 
 fn cluster_overflow_visibility_mix(overlay: &OverlayView<'_>, monitor: &str, now_ms: u64) -> f32 {
     let started_at_ms = overlay

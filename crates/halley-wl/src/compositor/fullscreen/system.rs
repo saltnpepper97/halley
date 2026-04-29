@@ -112,6 +112,23 @@ mod tests {
     use halley_core::field::Vec2;
     use smithay::reexports::wayland_server::Display;
 
+    fn single_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        tuning
+    }
+
     #[test]
     fn overlap_policy_focus_preserves_same_monitor_fullscreen_lock() {
         let mut tuning = halley_config::RuntimeTuning::default();
@@ -211,6 +228,124 @@ mod tests {
             Some(overlap),
             monitor.as_str()
         ));
+    }
+
+    #[test]
+    fn live_overlap_pauses_during_fullscreen_motion() {
+        let mut tuning = single_monitor_tuning();
+        tuning.physics_enabled = false;
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 200.0, y: 200.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 220.0, y: 220.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(a, "monitor_a");
+        state.assign_node_to_monitor(b, "monitor_a");
+        let a_before = state.model.field.node(a).expect("a").pos;
+        let b_before = state.model.field.node(b).expect("b").pos;
+        let now = Instant::now();
+        state.model.fullscreen_state.fullscreen_motion.insert(
+            a,
+            crate::compositor::fullscreen::state::FullscreenMotion {
+                from: a_before,
+                to: Vec2 { x: 400.0, y: 300.0 },
+                start_ms: state.now_ms(now),
+                duration_ms: 320,
+            },
+        );
+
+        crate::frame_loop::tick_live_overlap(&mut state);
+
+        assert_eq!(state.model.field.node(a).expect("a").pos, a_before);
+        assert_eq!(state.model.field.node(b).expect("b").pos, b_before);
+    }
+
+    #[test]
+    fn fullscreen_exit_restores_displaced_nodes_after_motion() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let bystander = state.model.field.spawn_surface(
+            "bystander",
+            Vec2 { x: 520.0, y: 280.0 },
+            Vec2 { x: 220.0, y: 160.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, "monitor_a");
+        state.assign_node_to_monitor(bystander, "monitor_a");
+        let _ = state.model.field.set_pinned(bystander, true);
+
+        let fullscreen_pos = state.model.field.node(fullscreen).expect("fullscreen").pos;
+        let bystander_pos = state.model.field.node(bystander).expect("bystander").pos;
+        let bystander_size = state
+            .model
+            .field
+            .node(bystander)
+            .expect("bystander")
+            .intrinsic_size;
+        let now = Instant::now();
+
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
+
+        if let Some(space) = state.model.monitor_state.monitors.get_mut("monitor_a") {
+            space.viewport.center = Vec2 {
+                x: 1234.0,
+                y: -567.0,
+            };
+            space.camera_target_center = space.viewport.center;
+        }
+
+        assert_ne!(
+            state.model.field.node(bystander).expect("bystander").pos,
+            bystander_pos
+        );
+        assert!(state.model.field.node(bystander).expect("bystander").pinned);
+
+        state.exit_xdg_fullscreen(fullscreen, now + std::time::Duration::from_millis(300));
+        state.input.interaction_state.physics_velocity.insert(
+            bystander,
+            Vec2 {
+                x: 1200.0,
+                y: -800.0,
+            },
+        );
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(700));
+
+        assert_eq!(
+            state.model.field.node(fullscreen).expect("fullscreen").pos,
+            fullscreen_pos
+        );
+        let restored_bystander = state.model.field.node(bystander).expect("bystander");
+        assert_eq!(restored_bystander.pos, bystander_pos);
+        assert_eq!(restored_bystander.intrinsic_size, bystander_size);
+        assert!(restored_bystander.pinned);
+        assert!(
+            !state
+                .model
+                .fullscreen_state
+                .fullscreen_restore
+                .contains_key(&bystander)
+        );
+        assert!(
+            !state
+                .input
+                .interaction_state
+                .physics_velocity
+                .contains_key(&bystander)
+        );
     }
 }
 
@@ -378,6 +513,38 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         );
     }
 
+    fn fullscreen_restore_entries_for_monitor(
+        &self,
+        monitor_name: &str,
+        exclude_node: Option<NodeId>,
+    ) -> Vec<(
+        NodeId,
+        crate::compositor::fullscreen::state::FullscreenSessionEntry,
+    )> {
+        let (monitor_viewport_center, _) = self.fullscreen_monitor_view(monitor_name);
+        self.model
+            .fullscreen_state
+            .fullscreen_restore
+            .iter()
+            .filter(|&(&id, entry)| {
+                if exclude_node == Some(id) {
+                    return false;
+                }
+                let matches_saved_viewport =
+                    (entry.viewport_center.x - monitor_viewport_center.x).abs() < 1.0
+                        && (entry.viewport_center.y - monitor_viewport_center.y).abs() < 1.0;
+                let matches_assigned_monitor = self
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&id)
+                    .is_some_and(|node_monitor| node_monitor == monitor_name);
+                matches_saved_viewport || matches_assigned_monitor
+            })
+            .map(|(&id, &entry)| (id, entry))
+            .collect()
+    }
+
     fn fullscreen_displaced_target(
         &self,
         pos: Vec2,
@@ -497,21 +664,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         // Restore all nodes that were displaced when this monitor went fullscreen.
         // We identify bystanders as nodes in fullscreen_restore whose saved
         // viewport_center matches this monitor's viewport center.
-        let (monitor_viewport_center, _) = self.fullscreen_monitor_view(&monitor_name);
-        let restore_entries: Vec<(
-            NodeId,
-            crate::compositor::fullscreen::state::FullscreenSessionEntry,
-        )> = self
-            .model
-            .fullscreen_state
-            .fullscreen_restore
-            .iter()
-            .filter(|(_, entry)| {
-                (entry.viewport_center.x - monitor_viewport_center.x).abs() < 1.0
-                    && (entry.viewport_center.y - monitor_viewport_center.y).abs() < 1.0
-            })
-            .map(|(&id, &entry)| (id, entry))
-            .collect();
+        let restore_entries = self.fullscreen_restore_entries_for_monitor(&monitor_name, None);
 
         for (id, entry) in &restore_entries {
             let _ = self.model.field.set_pinned(*id, false);
@@ -570,6 +723,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         if let Some(node) = self.model.field.node_mut(id) {
             node.intrinsic_size = entry.intrinsic_size;
         }
+        let _ = self.model.field.sync_active_footprint_to_intrinsic(id);
         if let Some(loc) = entry.bbox_loc {
             self.ui.render_state.cache.bbox_loc.insert(id, loc);
         } else {
@@ -725,6 +879,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
                     pinned: other.pinned,
                 },
             );
+            self.assign_node_to_monitor(other_id, monitor_name.as_str());
             let _ = self.model.field.set_pinned(other_id, false);
             self.queue_fullscreen_motion(
                 other_id,
@@ -779,22 +934,8 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
                 .remove(&monitor_name);
 
             // Restore only bystanders that were displaced for this monitor's fullscreen.
-            let (monitor_viewport_center, _) = self.fullscreen_monitor_view(&monitor_name);
-            let restore_entries: Vec<(
-                NodeId,
-                crate::compositor::fullscreen::state::FullscreenSessionEntry,
-            )> = self
-                .model
-                .fullscreen_state
-                .fullscreen_restore
-                .iter()
-                .filter(|&(&other_id, ref entry)| {
-                    other_id != id
-                        && (entry.viewport_center.x - monitor_viewport_center.x).abs() < 1.0
-                        && (entry.viewport_center.y - monitor_viewport_center.y).abs() < 1.0
-                })
-                .map(|(&other_id, &entry)| (other_id, entry))
-                .collect();
+            let restore_entries =
+                self.fullscreen_restore_entries_for_monitor(&monitor_name, Some(id));
 
             let now_ms = self.now_ms(now);
             for (other_id, entry) in restore_entries {
@@ -859,12 +1000,16 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             };
             let _ = self.model.field.carry(id, pos);
             if t >= 1.0 {
-                finished.push(id);
+                finished.push((id, motion));
             }
         }
 
-        for id in finished {
+        for (id, motion) in finished {
             self.model.fullscreen_state.fullscreen_motion.remove(&id);
+            if let Some(node) = self.model.field.node_mut(id) {
+                node.pos = motion.to;
+            }
+            self.input.interaction_state.physics_velocity.remove(&id);
             if let Some(entry) = self
                 .model
                 .fullscreen_state

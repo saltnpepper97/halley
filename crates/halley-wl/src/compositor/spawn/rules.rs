@@ -98,11 +98,13 @@ pub(crate) fn resolve_initial_window_intent_for_surface(
     surface: &WlSurface,
 ) -> InitialWindowIntent {
     let root = surface_tree_root(surface);
+    let is_dialog = surface_is_xdg_dialog(&root);
     resolve_initial_window_intent_from_identity(
         st,
         surface_app_id(&root),
         surface_title(&root),
         parent_node_for_surface(st, &root),
+        is_dialog,
     )
 }
 
@@ -111,15 +113,16 @@ pub(crate) fn resolve_initial_window_intent_from_identity(
     app_id: Option<String>,
     title: Option<String>,
     parent_node: Option<NodeId>,
+    is_dialog: bool,
 ) -> InitialWindowIntent {
-    let rule = matching_window_rule(st, app_id.as_deref(), title.as_deref());
+    let rule = matching_window_rule(st, app_id.as_deref(), title.as_deref(), is_dialog);
     InitialWindowIntent {
         app_id,
         title,
         parent_node,
         rule: rule.unwrap_or_default(),
         matched_rule: rule.is_some(),
-        is_transient: parent_node.is_some(),
+        is_transient: parent_node.is_some() || is_dialog,
         prefer_app_intent: rule
             .is_some_and(|rule| matches!(rule.spawn_placement, InitialWindowSpawnPlacement::App)),
     }
@@ -201,7 +204,12 @@ fn matching_user_window_rule<'a>(
 fn matching_builtin_window_rule(
     app_id: Option<&str>,
     title: Option<&str>,
+    is_dialog: bool,
 ) -> Option<ResolvedInitialWindowRule> {
+    if is_dialog {
+        return Some(builtin_float_center_overlap_rule());
+    }
+
     if app_id == Some("xdg-desktop-portal-gtk") && title.is_some_and(portal_dialog_title_matches) {
         return Some(builtin_float_center_overlap_rule());
     }
@@ -217,10 +225,11 @@ fn matching_window_rule(
     st: &Halley,
     app_id: Option<&str>,
     title: Option<&str>,
+    is_dialog: bool,
 ) -> Option<ResolvedInitialWindowRule> {
     matching_user_window_rule(st, app_id, title)
         .map(rule_match)
-        .or_else(|| matching_builtin_window_rule(app_id, title))
+        .or_else(|| matching_builtin_window_rule(app_id, title, is_dialog))
 }
 
 fn builtin_window_rule_may_match_later(app_id: Option<&str>, title: Option<&str>) -> bool {
@@ -240,6 +249,18 @@ fn parent_node_for_surface(st: &Halley, surface: &WlSurface) -> Option<NodeId> {
             })
     })?;
     st.model.surface_to_node.get(&parent_surface.id()).copied()
+}
+
+fn surface_is_xdg_dialog(surface: &WlSurface) -> bool {
+    with_states(surface, |states| {
+        states
+            .data_map
+            .get::<XdgToplevelSurfaceData>()
+            .is_some_and(|data| {
+                let guard = data.lock().expect("xdg toplevel surface data");
+                guard.modal || guard.parent.is_some()
+            })
+    })
 }
 
 fn surface_tree_root(surface: &WlSurface) -> WlSurface {
@@ -308,7 +329,7 @@ mod tests {
         ];
         let state = Halley::new_for_test(&dh, tuning);
 
-        let matched = matching_window_rule(&state, Some("firefox"), None).expect("match");
+        let matched = matching_window_rule(&state, Some("firefox"), None, false).expect("match");
         assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::All);
         assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
     }
@@ -327,7 +348,7 @@ mod tests {
         let state = Halley::new_for_test(&dh, tuning);
 
         let matched =
-            matching_window_rule(&state, None, Some("Picture-in-Picture")).expect("match");
+            matching_window_rule(&state, None, Some("Picture-in-Picture"), false).expect("match");
         assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
     }
 
@@ -345,7 +366,7 @@ mod tests {
         let state = Halley::new_for_test(&dh, tuning);
 
         let matched =
-            matching_window_rule(&state, None, Some("Picture-in-Picture")).expect("match");
+            matching_window_rule(&state, None, Some("Picture-in-Picture"), false).expect("match");
         assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::None);
         assert_eq!(
             matched.spawn_placement,
@@ -362,9 +383,13 @@ mod tests {
         let dh = Display::<Halley>::new().expect("display").handle();
         let state = Halley::new_for_test(&dh, RuntimeTuning::default());
 
-        let matched =
-            matching_window_rule(&state, Some("xdg-desktop-portal-gtk"), Some("Open File"))
-                .expect("match");
+        let matched = matching_window_rule(
+            &state,
+            Some("xdg-desktop-portal-gtk"),
+            Some("Open File"),
+            false,
+        )
+        .expect("match");
         assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::All);
         assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
         assert_eq!(
@@ -379,7 +404,7 @@ mod tests {
         let state = Halley::new_for_test(&dh, RuntimeTuning::default());
 
         let matched =
-            matching_window_rule(&state, None, Some("Picture-in-Picture")).expect("match");
+            matching_window_rule(&state, None, Some("Picture-in-Picture"), false).expect("match");
         assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::All);
         assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
         assert_eq!(
@@ -424,7 +449,50 @@ mod tests {
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
-        assert!(matching_window_rule(&state, None, Some("File Upload - Firefox")).is_some());
+        assert!(matching_window_rule(&state, None, Some("File Upload - Firefox"), false).is_some());
+    }
+
+    #[test]
+    fn builtin_xdg_dialogs_float_center_and_overlap() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+
+        let matched = matching_window_rule(&state, Some("steam"), Some("Properties"), true)
+            .expect("dialog rule");
+
+        assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::All);
+        assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
+        assert_eq!(
+            matched.cluster_participation,
+            InitialWindowClusterParticipation::Float
+        );
+    }
+
+    #[test]
+    fn user_rule_overrides_builtin_xdg_dialog_behavior() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = RuntimeTuning::default();
+        tuning.window_rules = vec![WindowRule {
+            app_ids: vec![WindowRulePattern::Exact("steam".to_string())],
+            titles: Vec::new(),
+            overlap_policy: InitialWindowOverlapPolicy::None,
+            spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+            cluster_participation: InitialWindowClusterParticipation::Layout,
+        }];
+        let state = Halley::new_for_test(&dh, tuning);
+
+        let matched = matching_window_rule(&state, Some("steam"), Some("Properties"), true)
+            .expect("user rule");
+
+        assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::None);
+        assert_eq!(
+            matched.spawn_placement,
+            InitialWindowSpawnPlacement::Adjacent
+        );
+        assert_eq!(
+            matched.cluster_participation,
+            InitialWindowClusterParticipation::Layout
+        );
     }
 
     #[test]

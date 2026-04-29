@@ -110,7 +110,8 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
         && let (Some(closing_id), Some(focused_monitor)) = (closing_id, focused_monitor.as_deref())
     {
         let now = Instant::now();
-        let suppress_restore_pan = st.node_has_overlap_policy(closing_id);
+        let suppress_restore_pan =
+            st.node_has_overlap_policy(closing_id) || st.is_fullscreen_active(closing_id);
         if let Some(cid) = st.active_cluster_workspace_for_monitor(focused_monitor) {
             if matches!(
                 st.runtime.tuning.cluster_layout_kind(),

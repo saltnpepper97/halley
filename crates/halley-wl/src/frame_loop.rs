@@ -435,6 +435,8 @@ pub(crate) fn tick_live_overlap(st: &mut Halley) {
     if st.input.interaction_state.suspend_state_checks
         || st.input.interaction_state.resize_active.is_some()
         || crate::compositor::workspace::state::maximize_animation_active(st)
+        || !st.model.fullscreen_state.fullscreen_motion.is_empty()
+        || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty()
     {
         return;
     }
@@ -749,9 +751,9 @@ mod tests {
 
     #[test]
     fn edge_pan_screen_speed_slows_down_when_zoomed_in() {
-        assert!((drag_edge_pan_screen_speed_pxps(0.5) - 132.0).abs() < 0.01);
-        assert!((drag_edge_pan_screen_speed_pxps(1.0) - 132.0).abs() < 0.01);
-        assert!((drag_edge_pan_screen_speed_pxps(1.25) - 105.6).abs() < 0.01);
+        assert!((drag_edge_pan_screen_speed_pxps(0.5) - 240.0).abs() < 0.01);
+        assert!((drag_edge_pan_screen_speed_pxps(1.0) - 240.0).abs() < 0.01);
+        assert!((drag_edge_pan_screen_speed_pxps(1.25) - 192.0).abs() < 0.01);
     }
 
     #[test]
