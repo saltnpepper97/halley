@@ -427,13 +427,37 @@ fn tty_animation_output_ready_for_redraw(
     })
 }
 
-fn tty_due_outputs_include_animation_redraw(
+fn tty_ready_animation_redraw_outputs(
+    st: &Halley,
+    outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
+    dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
+    output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
+    pointer_state: &Rc<RefCell<PointerState>>,
+    now: Instant,
+) -> HashSet<String> {
+    let outputs_ref = outputs.borrow();
+    let dpms_ref = dpms_enabled.borrow();
+    let pending_ref = output_frame_pending.borrow();
+
+    outputs_ref
+        .iter()
+        .filter_map(|output| {
+            let output_name = output.connector_name.as_str();
+            (dpms_ref.get(output_name).copied().unwrap_or(true)
+                && !pending_ref.get(output_name).copied().unwrap_or(false)
+                && tty_output_animation_redraw_active(st, pointer_state, output_name, now))
+            .then(|| output.connector_name.clone())
+        })
+        .collect()
+}
+
+fn tty_outputs_include_animation_redraw(
     st: &Halley,
     pointer_state: &Rc<RefCell<PointerState>>,
-    due_outputs: &HashSet<String>,
+    output_names: &HashSet<String>,
     now: Instant,
 ) -> bool {
-    due_outputs.iter().any(|output_name| {
+    output_names.iter().any(|output_name| {
         tty_output_animation_redraw_active(st, pointer_state, output_name.as_str(), now)
     })
 }
@@ -2257,11 +2281,22 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             &pointer_state_for_timer,
                             now,
                         );
+                        let mut eligible_outputs = due_outputs.clone();
+                        if animation_redraw_active {
+                            eligible_outputs.extend(tty_ready_animation_redraw_outputs(
+                                st,
+                                &outputs_for_timer,
+                                &dpms_enabled_for_timer,
+                                &output_frame_pending_for_dpms_timer,
+                                &pointer_state_for_timer,
+                                now,
+                            ));
+                        }
                         if !animation_redraw_active
-                            || tty_due_outputs_include_animation_redraw(
+                            || tty_outputs_include_animation_redraw(
                                 st,
                                 &pointer_state_for_timer,
-                                &due_outputs,
+                                &eligible_outputs,
                                 now,
                             )
                         {
@@ -2282,7 +2317,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             st,
                             now,
                             resize_preview,
-                            Some(&due_outputs),
+                            Some(&eligible_outputs),
                             "timer",
                         );
                     }
