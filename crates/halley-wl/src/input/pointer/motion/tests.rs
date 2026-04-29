@@ -159,8 +159,8 @@ fn hover_focus_mode_works_for_tiled_cluster_members() {
         st.assign_node_to_monitor(id, "monitor_a");
     }
 
-    let cid = st.model.field.create_cluster(vec![a, b]).expect("cluster");
-    let core = st.model.field.collapse_cluster(cid).expect("core");
+    let cid = st.create_cluster(vec![a, b]).expect("cluster");
+    let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
     assert!(st.toggle_cluster_workspace_by_core(core, Instant::now()));
 
@@ -215,8 +215,8 @@ fn hover_focus_mode_only_focuses_top_of_stack_in_clusters() {
         st.assign_node_to_monitor(id, "monitor_a");
     }
 
-    let cid = st.model.field.create_cluster(vec![a, b]).expect("cluster");
-    let core = st.model.field.collapse_cluster(cid).expect("core");
+    let cid = st.create_cluster(vec![a, b]).expect("cluster");
+    let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
     assert!(st.toggle_cluster_workspace_by_core(core, Instant::now()));
 

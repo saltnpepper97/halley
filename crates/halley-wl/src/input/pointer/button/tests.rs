@@ -76,11 +76,9 @@ fn workspace_move_target_double_click_does_not_exit_cluster() {
         st.assign_node_to_monitor(id, "monitor_a");
     }
     let cid = st
-        .model
-        .field
         .create_cluster(vec![master, stack])
         .expect("cluster");
-    let core = st.model.field.collapse_cluster(cid).expect("core");
+    let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
     let now = Instant::now();
@@ -125,11 +123,9 @@ fn core_single_click_only_focuses_without_opening_bloom() {
         st.assign_node_to_monitor(id, "monitor_a");
     }
     let cid = st
-        .model
-        .field
         .create_cluster(vec![master, stack])
         .expect("cluster");
-    let core = st.model.field.collapse_cluster(cid).expect("core");
+    let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
     let mut ps = PointerState::default();
@@ -193,11 +189,9 @@ fn core_double_click_enters_cluster_workspace() {
         st.assign_node_to_monitor(id, "monitor_a");
     }
     let cid = st
-        .model
-        .field
         .create_cluster(vec![master, stack])
         .expect("cluster");
-    let core = st.model.field.collapse_cluster(cid).expect("core");
+    let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
     let frame = ButtonFrame {
@@ -431,11 +425,9 @@ fn hovering_core_long_enough_opens_bloom() {
         st.assign_node_to_monitor(id, "monitor_a");
     }
     let cid = st
-        .model
-        .field
         .create_cluster(vec![master, stack])
         .expect("cluster");
-    let core = st.model.field.collapse_cluster(cid).expect("core");
+    let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
     st.input.interaction_state.pending_core_hover =

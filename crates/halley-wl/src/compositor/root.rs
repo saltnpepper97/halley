@@ -4,7 +4,8 @@ use std::time::Instant;
 
 use calloop::LoopHandle;
 use halley_config::RuntimeTuning;
-use halley_core::cluster_policy::ClusterFormationState;
+use halley_core::cluster::ClusterId;
+use halley_core::cluster_policy::{ClusterFormationState};
 use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::viewport::Viewport;
 use smithay::{
@@ -457,6 +458,46 @@ impl Halley {
                 .set_pinned(id, self.node_session_pinned(id));
         }
         true
+    }
+
+    pub fn create_cluster(
+        &mut self,
+        members: Vec<NodeId>,
+    ) -> Result<ClusterId, halley_core::field::ClusterCreateError> {
+        let members_clone = members.clone();
+        let cid = self.model.field.create_cluster(members)?;
+
+        for member in members_clone {
+            self.model.workspace_state.user_pinned_nodes.remove(&member);
+        }
+
+        if self
+            .model
+            .field
+            .cluster(cid)
+            .is_some_and(|cluster| cluster.pinned)
+        {
+            if let Some(core_id) = self.model.field.cluster(cid).and_then(|c| c.core) {
+                self.model.workspace_state.user_pinned_nodes.insert(core_id);
+            }
+        }
+
+        Ok(cid)
+    }
+
+    pub fn collapse_cluster(&mut self, id: ClusterId) -> Option<NodeId> {
+        let core_id = self.model.field.collapse_cluster(id)?;
+
+        if self
+            .model
+            .field
+            .cluster(id)
+            .is_some_and(|cluster| cluster.pinned)
+        {
+            self.model.workspace_state.user_pinned_nodes.insert(core_id);
+        }
+
+        Some(core_id)
     }
 
     pub(crate) fn node_session_pinned(&self, id: NodeId) -> bool {

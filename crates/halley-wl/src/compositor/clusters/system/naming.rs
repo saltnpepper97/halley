@@ -679,8 +679,6 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         };
         let now_ms = self.now_ms(now);
         let created = self
-            .model
-            .field
             .create_cluster(members)
             .ok()
             .and_then(|cid| {
@@ -688,7 +686,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     .cluster_state
                     .cluster_names
                     .insert(cid, name_record.clone());
-                let core = self.model.field.collapse_cluster(cid);
+                let core = self.collapse_cluster(cid);
                 if let Some(core_id) = core {
                     self.assign_node_to_monitor(core_id, monitor);
                     let _ = self.sync_cluster_name_for_monitor(cid, monitor);

@@ -568,11 +568,9 @@ mod tests {
                 .insert(id, (0.0, 0.0, 320.0, 240.0));
         }
         let cid = state
-            .model
-            .field
             .create_cluster(vec![master, stack, stack_b, queued])
             .expect("cluster");
-        let core = state.model.field.collapse_cluster(cid).expect("core");
+        let core = state.collapse_cluster(cid).expect("core");
         state.assign_node_to_monitor(core, "monitor_a");
 
         let now = Instant::now();
@@ -645,11 +643,9 @@ mod tests {
         }
 
         let cid = state
-            .model
-            .field
             .create_cluster(vec![a, b])
             .expect("cluster");
-        let core = state.model.field.collapse_cluster(cid).expect("core");
+        let core = state.collapse_cluster(cid).expect("core");
         state.assign_node_to_monitor(core, "monitor_a");
 
         let now = Instant::now();

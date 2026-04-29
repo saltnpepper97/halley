@@ -158,11 +158,9 @@ mod tests {
         st.assign_node_to_monitor(stack, monitor.as_str());
 
         let cid = st
-            .model
-            .field
             .create_cluster(vec![master, stack])
             .expect("cluster");
-        let core = st.model.field.collapse_cluster(cid).expect("core");
+        let core = st.collapse_cluster(cid).expect("core");
         st.assign_node_to_monitor(core, monitor.as_str());
 
         assert!(!is_active_cluster_workspace_member(&st, master));
@@ -205,11 +203,9 @@ mod tests {
         }
 
         let cid = st
-            .model
-            .field
             .create_cluster(vec![a, b, c, d])
             .expect("cluster");
-        let core = st.model.field.collapse_cluster(cid).expect("core");
+        let core = st.collapse_cluster(cid).expect("core");
         st.assign_node_to_monitor(core, monitor.as_str());
         assert!(st.toggle_cluster_workspace_by_core(core, Instant::now()));
 
