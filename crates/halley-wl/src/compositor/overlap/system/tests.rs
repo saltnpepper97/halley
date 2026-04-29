@@ -1,10 +1,10 @@
 use std::time::Instant;
 
 use super::*;
-use crate::compositor::overlap::physics::{MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON};
 use crate::frame_loop::anim_style_for;
 use crate::presentation::node_render_diameter_px;
 use crate::window::active_window_frame_pad_px;
+use halley_core::overlap_physics::{MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON};
 
 fn overlap_metrics(state: &Halley, a: NodeId, b: NodeId) -> (f32, f32, f32, f32) {
     let na = state.model.field.node(a).expect("node a");

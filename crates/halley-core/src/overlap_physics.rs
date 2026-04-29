@@ -1,19 +1,19 @@
 use std::collections::HashMap;
 
-use halley_core::field::{NodeId, Vec2};
+use crate::field::{NodeId, Vec2};
 
-pub(crate) const CONTACT_SLOP: f32 = 0.5;
-pub(crate) const CONTACT_SKIN: f32 = 1.5;
-pub(crate) const MAX_PHYSICS_SPEED: f32 = 1600.0;
-pub(crate) const CONTACT_RESTITUTION: f32 = 0.02;
-pub(crate) const CONTACT_FRICTION: f32 = 0.22;
-pub(crate) const MAX_CONTACT_IMPULSE: f32 = 380.0;
-pub(crate) const MAX_POSITION_CORRECTION: f32 = 48.0;
-pub(crate) const POSITION_SOLVER_ITERS: usize = 6;
-pub(crate) const PHYSICS_REST_EPSILON: f32 = 4.0;
+pub const CONTACT_SLOP: f32 = 0.5;
+pub const CONTACT_SKIN: f32 = 1.5;
+pub const MAX_PHYSICS_SPEED: f32 = 1600.0;
+pub const CONTACT_RESTITUTION: f32 = 0.02;
+pub const CONTACT_FRICTION: f32 = 0.22;
+pub const MAX_CONTACT_IMPULSE: f32 = 380.0;
+pub const MAX_POSITION_CORRECTION: f32 = 48.0;
+pub const POSITION_SOLVER_ITERS: usize = 6;
+pub const PHYSICS_REST_EPSILON: f32 = 4.0;
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn resolve_contact_pair(
+pub fn resolve_contact_pair(
     positions: &mut HashMap<NodeId, Vec2>,
     velocities: &mut HashMap<NodeId, Vec2>,
     a: NodeId,
