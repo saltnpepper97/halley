@@ -300,7 +300,6 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
         crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
         return;
     }
-
     let pointer_world = crate::spatial::screen_to_world(
         st,
         active_drag.pointer_workspace_size.0,

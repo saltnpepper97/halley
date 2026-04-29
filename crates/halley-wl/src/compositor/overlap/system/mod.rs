@@ -79,7 +79,13 @@ pub(crate) fn required_sep_y(
 }
 
 pub(super) fn carry_overlap_node_direct(st: &mut Halley, id: NodeId, to: Vec2) -> bool {
-    if st
+    let deliberate_pointer_move = st.input.interaction_state.drag_authority_node == Some(id);
+    let was_pinned = st.model.field.node(id).is_some_and(|node| node.pinned);
+    if deliberate_pointer_move && was_pinned {
+        let _ = st.model.field.set_pinned(id, false);
+    }
+
+    let moved = if st
         .model
         .field
         .node(id)
@@ -88,7 +94,13 @@ pub(super) fn carry_overlap_node_direct(st: &mut Halley, id: NodeId, to: Vec2) -
         st.model.field.carry_cluster_by_core(id, to)
     } else {
         st.model.field.carry(id, to)
+    };
+
+    if deliberate_pointer_move && was_pinned {
+        let _ = st.model.field.set_pinned(id, true);
     }
+
+    moved
 }
 
 pub(crate) fn surface_window_collision_extents(

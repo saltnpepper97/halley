@@ -88,10 +88,17 @@ pub(crate) struct ScreenshotMenuIconCache {
 }
 
 #[derive(Default)]
+pub(crate) struct PinIconCache {
+    pub(crate) color: [u8; 4],
+    pub(crate) icon: Option<NodeAppIconTexture>,
+}
+
+#[derive(Default)]
 pub(crate) struct RenderCacheState {
     pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
     pub(crate) cluster_core_icon_cache: ClusterCoreIconCache,
     pub(crate) screenshot_menu_icon_cache: ScreenshotMenuIconCache,
+    pub(crate) pin_icon_cache: PinIconCache,
     pub(crate) ui_text: RefCell<UiTextRenderer>,
     pub(crate) zoom_nominal_size: HashMap<NodeId, Vec2>,
     pub(crate) zoom_resize_fallback: HashSet<NodeId>,

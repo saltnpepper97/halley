@@ -98,6 +98,44 @@ fn hover_focus_mode_focuses_hovered_collapsed_surface_node() {
 }
 
 #[test]
+fn hover_focus_mode_focuses_hovered_core_node() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut tuning = single_monitor_tuning();
+    tuning.input.focus_mode = InputFocusMode::Hover;
+    let mut st = Halley::new_for_test(&dh, tuning);
+
+    let first = st.model.field.spawn_surface(
+        "first",
+        halley_core::field::Vec2 { x: 100.0, y: 100.0 },
+        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+    );
+    let second = st.model.field.spawn_surface(
+        "second",
+        halley_core::field::Vec2 { x: 500.0, y: 100.0 },
+        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+    );
+    st.assign_node_to_monitor(first, "monitor_a");
+    st.assign_node_to_monitor(second, "monitor_a");
+    let cluster = st.create_cluster(vec![first, second]).expect("cluster");
+    let core = st.collapse_cluster(cluster).expect("core");
+    st.assign_node_to_monitor(core, "monitor_a");
+
+    super::focus::apply_hover_focus_mode(
+        &mut st,
+        Some(HitNode {
+            node_id: core,
+            move_surface: false,
+            is_core: true,
+        }),
+        false,
+        Instant::now(),
+    );
+
+    assert_eq!(st.model.focus_state.primary_interaction_focus, Some(core));
+    assert_eq!(st.focused_node_for_monitor("monitor_a"), Some(core));
+}
+
+#[test]
 fn click_focus_mode_keeps_hover_focus_disabled() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
@@ -159,8 +197,8 @@ fn hover_focus_mode_works_for_tiled_cluster_members() {
         st.assign_node_to_monitor(id, "monitor_a");
     }
 
-    let cid = st.model.field.create_cluster(vec![a, b]).expect("cluster");
-    let core = st.model.field.collapse_cluster(cid).expect("core");
+    let cid = st.create_cluster(vec![a, b]).expect("cluster");
+    let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
     assert!(st.toggle_cluster_workspace_by_core(core, Instant::now()));
 
@@ -215,8 +253,8 @@ fn hover_focus_mode_only_focuses_top_of_stack_in_clusters() {
         st.assign_node_to_monitor(id, "monitor_a");
     }
 
-    let cid = st.model.field.create_cluster(vec![a, b]).expect("cluster");
-    let core = st.model.field.collapse_cluster(cid).expect("core");
+    let cid = st.create_cluster(vec![a, b]).expect("cluster");
+    let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
     assert!(st.toggle_cluster_workspace_by_core(core, Instant::now()));
 

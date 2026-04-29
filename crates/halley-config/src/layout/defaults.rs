@@ -13,8 +13,8 @@ use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
     DecorationsConfig, FontConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode,
-    NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, RuntimeTuning, ScreenshotConfig,
-    ShapeStyle,
+    NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig, RuntimeTuning,
+    ScreenshotConfig, ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -47,6 +47,7 @@ impl Default for RuntimeTuning {
             bearings: BearingsConfig {
                 show_distance: true,
                 show_icons: true,
+                show_pinned: true,
                 fade_distance: 1200.0,
             },
 
@@ -71,6 +72,7 @@ impl Default for RuntimeTuning {
             non_overlap_gap_px: 20.0,
             field_active_windows_allowed: 5,
             pan_to_new: PanToNewMode::IfNeeded,
+            pins: PinsConfig::default(),
             close_restore_focus: true,
             close_restore_pan: CloseRestorePanMode::IfOffscreen,
             zoom_enabled: true,
@@ -156,6 +158,12 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             modifiers: modifier,
             key: key("m"),
             action: CompositorBindingAction::MaximizeFocusedWindow,
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Field,
+            modifiers: modifier,
+            key: key("p"),
+            action: CompositorBindingAction::ToggleFocusedPin,
         },
         CompositorBinding {
             scope: CompositorBindingScope::Global,

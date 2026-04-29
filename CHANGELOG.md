@@ -4,7 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Add user-pinned window/node/core support with default `mod+p`, `field.pins` badge styling, pinned Bearings visibility, and pin badge rendering from the bundled SVG asset.
+- Add `field.pins.size` for scaling pin badges, with more padding between the pin glyph and circular badge background.
+- Add `field.pins.background-colour` for configuring the circular pin badge background independently from the pin glyph colour.
+
+### Changed
+- Treat pinning as a property of the active entity by transferring pinned state from windows into clusters and collapsed cluster cores, keeping pinned core visibility and IPC state consistent across create, absorb, collapse, expand, and dissolve flows.
+- Move pure overlap contact physics into `halley-core` so the Wayland compositor only wires it into runtime state.
+
 ### Fixed
+- Make close-focused target the currently focused item before surface history, silently closing every member of a focused collapsed cluster core without briefly revealing survivors or using stale cross-monitor fallback closes.
+- Preserve maximize sessions when a maximized window enters and exits XDG fullscreen, so fullscreen videos return to the still-maximized window instead of dropping maximize state while keeping maximized geometry.
+- Make `input.focus-mode "hover"` focus collapsed cluster core nodes the same way it focuses regular windows and collapsed surface nodes.
+- Prevent fullscreen/game surfaces from being collapsed into nodes by automatic decay, active-window-limit pruning, carry previews, or manual collapse toggles while the fullscreen session is active or suspended.
+- Deep-merge unaliased `gather` config sections through `rune-cfg` 0.4.6 so gathered exact keys override local values without replacing unrelated local config keys.
+- Render configured window shadows for maximized windows instead of suppressing them during maximize sessions.
 - Treat XDG modal/transient dialogs as floating overlap windows by default, centering them over their parent window when available or the viewport otherwise.
 - Keep fullscreen video timer frames from delaying ready pan/zoom redraws on other monitors by including animation-active outputs in tty timer redraw eligibility before servicing video scanout.
 - Stop valid `xdg-activation` requests from revealing or panning existing windows, preventing Steam cover clicks from recentring the Steam window.
@@ -13,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - Prevent fullscreen timer frames from advancing camera smoothing on monitors that are still pending presentation by queuing animation-active outputs before non-animation outputs and skipping shared camera-smoothing ticks from fullscreen/direct-scanout timer frames in that case.
 - Fix zoom/pan progress being consumed by invisible fullscreen or game frames, which could cause the next visible frame to jump.
 - Preserve the existing NVIDIA and direct-scanout behavior with no changes to direct scanout, `HALLEY_FORCE_COMPOSED`, `HALLEY_DISABLE_DIRECT_SCANOUT`, sync waits, or frame stats.
+- Make overlap-policy windows stack like normal windows, drawing and hit-testing the clicked or newest overlapped window on top while hover focus does not raise it.
 
 ## [v0.2.0] - 2026-04-28
 

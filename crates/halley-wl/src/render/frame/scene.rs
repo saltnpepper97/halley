@@ -12,6 +12,7 @@ use super::super::bearings::{BearingChipLayout, collect_bearing_layouts};
 use super::super::cursor_surface_hotspot;
 use super::super::layer_shell::collect_layer_surfaces;
 use super::super::node::{NodeSnapshot, collect_hover_preview};
+use super::super::pin_icon::PinBadgeLayout;
 use super::super::state::ClosingWindowAnimationSnapshot;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
@@ -52,6 +53,7 @@ pub(super) struct SceneCollections {
     pub(super) above_fullscreen_popup_elements:
         Vec<smithay::backend::renderer::element::utils::CropRenderElement<SurfaceElement>>,
     pub(super) stack_window_units: Vec<StackWindowDrawUnit>,
+    pub(super) above_fullscreen_stack_window_units: Vec<StackWindowDrawUnit>,
     pub(super) shadow_rects: Vec<WindowShadowRect>,
     pub(super) resized_shadow_rects: Vec<WindowShadowRect>,
     pub(super) above_fullscreen_shadow_rects: Vec<WindowShadowRect>,
@@ -60,6 +62,7 @@ pub(super) struct SceneCollections {
     pub(super) above_fullscreen_border_rects: Vec<ActiveBorderRect>,
     pub(super) closing_window_animations: Vec<ClosingWindowAnimationSnapshot>,
     pub(super) overlap_overlay_rects: Vec<(i32, i32, i32, i32)>,
+    pub(super) pin_badges: Vec<PinBadgeLayout>,
     pub(super) hover_preview_rect: Option<(i32, i32, i32, i32)>,
     pub(super) hover_preview_elements: Vec<SurfaceElement>,
     pub(super) render_nodes: Vec<NodeSnapshot>,
@@ -137,6 +140,7 @@ pub(super) fn collect_debug_frame_scene(
             above_fullscreen_popup_offscreen_textures: Vec::new(),
             above_fullscreen_popup_elements: Vec::new(),
             stack_window_units: Vec::new(),
+            above_fullscreen_stack_window_units: Vec::new(),
             shadow_rects: Vec::new(),
             resized_shadow_rects: Vec::new(),
             above_fullscreen_shadow_rects: Vec::new(),
@@ -145,6 +149,7 @@ pub(super) fn collect_debug_frame_scene(
             above_fullscreen_border_rects: Vec::new(),
             closing_window_animations: Vec::new(),
             overlap_overlay_rects: Vec::new(),
+            pin_badges: Vec::new(),
             hover_preview_rect: None,
             hover_preview_elements: Vec::new(),
             render_nodes: Vec::new(),
@@ -181,6 +186,7 @@ pub(super) fn collect_debug_frame_scene(
         above_fullscreen_popup_elements,
         node_surface_map,
         stack_window_units,
+        above_fullscreen_stack_window_units,
         shadow_rects,
         resized_shadow_rects,
         above_fullscreen_shadow_rects,
@@ -188,6 +194,7 @@ pub(super) fn collect_debug_frame_scene(
         resized_border_rects,
         above_fullscreen_border_rects,
         overlap_overlay_rects,
+        pin_badges,
     ) = collect_active_surfaces(renderer, st, size, resize_preview, now);
     let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled() {
         st.ui
@@ -281,6 +288,7 @@ pub(super) fn collect_debug_frame_scene(
         above_fullscreen_popup_offscreen_textures,
         above_fullscreen_popup_elements,
         stack_window_units,
+        above_fullscreen_stack_window_units,
         shadow_rects,
         resized_shadow_rects,
         above_fullscreen_shadow_rects,
@@ -289,6 +297,7 @@ pub(super) fn collect_debug_frame_scene(
         above_fullscreen_border_rects,
         closing_window_animations,
         overlap_overlay_rects,
+        pin_badges,
         hover_preview_rect,
         hover_preview_elements,
         render_nodes,

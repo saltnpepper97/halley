@@ -1,10 +1,10 @@
 use std::time::Instant;
 
 use super::*;
-use crate::compositor::overlap::physics::{MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON};
 use crate::frame_loop::anim_style_for;
 use crate::presentation::node_render_diameter_px;
 use crate::window::active_window_frame_pad_px;
+use halley_core::overlap_physics::{MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON};
 
 fn overlap_metrics(state: &Halley, a: NodeId, b: NodeId) -> (f32, f32, f32, f32) {
     let na = state.model.field.node(a).expect("node a");
@@ -63,6 +63,81 @@ fn resolve_surface_overlap_separates_windows_when_physics_disabled() {
     assert!(
         !nodes_overlap(&state, a, b),
         "static overlap resolution should separate overlapping windows when physics is disabled"
+    );
+}
+
+#[test]
+fn pinned_node_is_not_displaced_by_overlap_and_unpin_restores_motion() {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let pinned = state.model.field.spawn_surface(
+        "pinned",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let other = state.model.field.spawn_surface(
+        "other",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    assert!(state.set_node_user_pinned(pinned, true));
+
+    state.resolve_surface_overlap();
+
+    assert_eq!(
+        state.model.field.node(pinned).expect("pinned").pos,
+        Vec2 { x: 0.0, y: 0.0 }
+    );
+    assert_ne!(
+        state.model.field.node(other).expect("other").pos,
+        Vec2 { x: 0.0, y: 0.0 }
+    );
+
+    assert!(state.set_node_user_pinned(pinned, false));
+    state.model.field.node_mut(pinned).expect("pinned").pos = Vec2 { x: 0.0, y: 0.0 };
+    state.model.field.node_mut(other).expect("other").pos = Vec2 { x: 0.0, y: 0.0 };
+    state.resolve_surface_overlap();
+
+    assert_ne!(
+        state.model.field.node(pinned).expect("pinned").pos,
+        Vec2 { x: 0.0, y: 0.0 }
+    );
+}
+
+#[test]
+fn physics_carry_clamps_mover_against_pinned_neighbor_immediately() {
+    let tuning = halley_config::RuntimeTuning::default();
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let pinned = state.model.field.spawn_surface(
+        "pinned",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let mover = state.model.field.spawn_surface(
+        "mover",
+        Vec2 { x: 800.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    assert!(state.set_node_user_pinned(pinned, true));
+
+    assert!(state.carry_surface_non_overlap(mover, Vec2 { x: 0.0, y: 0.0 }, false));
+
+    assert_eq!(
+        state.model.field.node(pinned).expect("pinned").pos,
+        Vec2 { x: 0.0, y: 0.0 }
+    );
+    assert!(
+        !nodes_overlap(&state, pinned, mover),
+        "mover should bump against pinned neighbor without an overlap frame"
     );
 }
 
@@ -341,12 +416,8 @@ fn dragged_window_pushes_collapsed_core_and_members_follow() {
             .model
             .field
             .spawn_surface("b", Vec2 { x: 20.0, y: 0.0 }, Vec2 { x: 200.0, y: 140.0 });
-    let cid = state
-        .model
-        .field
-        .create_cluster(vec![a, b])
-        .expect("cluster");
-    let core = state.model.field.collapse_cluster(cid).expect("core");
+    let cid = state.create_cluster(vec![a, b]).expect("cluster");
+    let core = state.collapse_cluster(cid).expect("core");
 
     let core_before = state.model.field.node(core).expect("core before").pos;
     let a_before = state.model.field.node(a).expect("a before").pos;
@@ -480,12 +551,8 @@ fn dragged_window_pushes_collapsed_core_when_physics_disabled() {
             .model
             .field
             .spawn_surface("b", Vec2 { x: 20.0, y: 0.0 }, Vec2 { x: 200.0, y: 140.0 });
-    let cid = state
-        .model
-        .field
-        .create_cluster(vec![a, b])
-        .expect("cluster");
-    let core = state.model.field.collapse_cluster(cid).expect("core");
+    let cid = state.create_cluster(vec![a, b]).expect("cluster");
+    let core = state.collapse_cluster(cid).expect("core");
 
     let core_before = state.model.field.node(core).expect("core before").pos;
     let a_before = state.model.field.node(a).expect("a before").pos;

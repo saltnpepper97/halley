@@ -91,12 +91,8 @@ fn begin_resize_blocks_active_tiled_workspace_members() {
     for id in [master, stack] {
         st.assign_node_to_monitor(id, "monitor_a");
     }
-    let cid = st
-        .model
-        .field
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
-    let core = st.model.field.collapse_cluster(cid).expect("core");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
+    let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
     assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
 
@@ -145,6 +141,38 @@ fn begin_resize_allows_non_tiled_active_windows() {
 
     assert!(ps.resize.is_some());
     assert_eq!(st.input.interaction_state.resize_active, Some(window));
+}
+
+#[test]
+fn begin_resize_allows_pinned_active_windows() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tiling_tuning());
+    let backend = TtyBackendHandle::new(800, 600);
+
+    let window = st.model.field.spawn_surface(
+        "window",
+        halley_core::field::Vec2 { x: 300.0, y: 220.0 },
+        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+    );
+    st.assign_node_to_monitor(window, "monitor_a");
+    assert!(st.set_node_user_pinned(window, true));
+
+    let mut ps = PointerState::default();
+    begin_resize(
+        &mut st,
+        &mut ps,
+        &backend,
+        HitNode {
+            node_id: window,
+            move_surface: false,
+            is_core: false,
+        },
+        resize_button_frame(),
+    );
+
+    assert!(ps.resize.is_some());
+    assert_eq!(st.input.interaction_state.resize_active, Some(window));
+    assert!(st.node_user_pinned(window));
 }
 
 #[test]

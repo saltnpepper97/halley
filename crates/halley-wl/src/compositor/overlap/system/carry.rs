@@ -22,8 +22,77 @@ pub(crate) fn carry_surface_non_overlap(
     } else if !st.runtime.tuning.physics_enabled {
         carry_surface_no_overlap_split(st, id, to)
     } else {
-        carry_overlap_node_direct(st, id, to)
+        carry_overlap_node_direct(st, id, clamp_against_locked_neighbors(st, id, to))
     }
+}
+
+fn clamp_against_locked_neighbors(st: &Halley, id: NodeId, to: Vec2) -> Vec2 {
+    let Some(n) = st.model.field.node(id) else {
+        return to;
+    };
+
+    let mover_ext = collision_extents_for_node(st, n);
+    let gap = non_overlap_gap_world(st);
+    let mut mover_pos = to;
+
+    for _ in 0..24 {
+        let locked_others: Vec<(NodeId, Vec2, CollisionExtents)> = st
+            .model
+            .field
+            .nodes()
+            .iter()
+            .filter_map(|(&oid, other)| {
+                if oid == id
+                    || !node_participates_in_overlap(st, oid)
+                    || !nodes_share_overlap_group(st, id, oid)
+                    || !(other.pinned || st.input.interaction_state.resize_static_node == Some(oid))
+                {
+                    return None;
+                }
+                Some((oid, other.pos, collision_extents_for_node(st, other)))
+            })
+            .collect();
+
+        let mut changed = false;
+        for (oid, opos, oext) in locked_others {
+            let dx = mover_pos.x - opos.x;
+            let dy = mover_pos.y - opos.y;
+            let req_x = required_sep_x(st, mover_pos.x, mover_ext, opos.x, oext, gap);
+            let req_y = required_sep_y(st, mover_pos.y, mover_ext, opos.y, oext, gap);
+            let ox = req_x - dx.abs();
+            let oy = req_y - dy.abs();
+
+            if ox <= 0.0 || oy <= 0.0 {
+                continue;
+            }
+
+            if ox < oy {
+                let s = if dx.abs() > f32::EPSILON {
+                    dx.signum()
+                } else if oid.as_u64() < id.as_u64() {
+                    1.0
+                } else {
+                    -1.0
+                };
+                mover_pos.x += s * (ox + 0.3);
+            } else {
+                let s = if dy.abs() > f32::EPSILON {
+                    dy.signum()
+                } else {
+                    1.0
+                };
+                mover_pos.y += s * (oy + 0.3);
+            }
+
+            changed = true;
+        }
+
+        if !changed {
+            break;
+        }
+    }
+
+    mover_pos
 }
 
 fn carry_surface_no_overlap_split(st: &mut Halley, id: NodeId, to: Vec2) -> bool {

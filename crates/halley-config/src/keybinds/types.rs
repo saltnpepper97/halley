@@ -109,6 +109,7 @@ pub enum CompositorBindingAction {
     OpenTerminal,
     ToggleState,
     MaximizeFocusedWindow,
+    ToggleFocusedPin,
     CloseFocusedWindow,
     ClusterMode,
     FocusCycle(FocusCycleBindingAction),

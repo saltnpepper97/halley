@@ -268,6 +268,7 @@ fn maybe_apply_pending_initial_window_rule(
             .spawn_state
             .applied_window_rules
             .insert(node_id, intent.applied_rule_for_node());
+        let _ = st.raise_overlap_policy_node(node_id);
     } else {
         st.model.spawn_state.applied_window_rules.remove(&node_id);
     }
@@ -534,6 +535,7 @@ pub(super) fn ensure_node_for_surface_impl(
             .spawn_state
             .applied_window_rules
             .insert(id, effective_intent.applied_rule_for_node());
+        let _ = st.raise_overlap_policy_node(id);
     } else if defer_rule_resolution {
         st.model.spawn_state.pending_rule_rechecks.insert(id);
         st.model.spawn_state.pending_initial_reveal.insert(id);

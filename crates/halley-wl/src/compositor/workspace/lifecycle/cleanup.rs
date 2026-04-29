@@ -221,6 +221,7 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
             crate::compositor::workspace::state::abort_maximize_session_for_node(st, id);
             crate::compositor::workspace::state::clear_maximize_resume_for_node(st, id);
             st.model.focus_state.last_surface_focus_ms.remove(&id);
+            st.model.focus_state.overlap_raise_order.remove(&id);
             st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
             st.model.carry_state.carry_zone_hint.remove(&id);
             st.model.carry_state.carry_zone_last_change_ms.remove(&id);
@@ -292,6 +293,12 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
     st.runtime.surface_activity.remove(&key);
     crate::protocol::wayland::activation::clear_surface_activation(st, surface);
     if let Some(id) = st.model.surface_to_node.remove(&key) {
+        let silent_close = st
+            .model
+            .workspace_state
+            .pending_silent_close_until_ms
+            .remove(&id)
+            .is_some();
         let close_anim_duration_ms = st.runtime.tuning.window_close_duration_ms();
         let close_anim_style = st.runtime.tuning.window_close_style();
         let closing_monitor = st.model.monitor_state.node_monitor.get(&id).cloned();
@@ -299,7 +306,8 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
             matches!(node.state, halley_core::field::NodeState::Node)
                 .then(|| (node.pos, node.label.clone(), node.state.clone()))
         });
-        if st.runtime.tuning.window_close_animation_enabled()
+        if !silent_close
+            && st.runtime.tuning.window_close_animation_enabled()
             && let Some(monitor) = closing_monitor.as_deref()
         {
             if let Some((pos, label, state)) = closing_node_snapshot {
@@ -401,6 +409,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
             .remove(&id);
         crate::compositor::workspace::state::clear_maximize_resume_for_node(st, id);
         st.model.focus_state.last_surface_focus_ms.remove(&id);
+        st.model.focus_state.overlap_raise_order.remove(&id);
         st.model.focus_state.outside_focus_ring_since_ms.remove(&id);
         st.model.monitor_state.node_monitor.remove(&id);
         st.model.carry_state.carry_zone_hint.remove(&id);

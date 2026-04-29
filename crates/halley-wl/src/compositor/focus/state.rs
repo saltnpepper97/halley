@@ -26,6 +26,8 @@ pub(crate) struct FocusState {
     pub(crate) focus_ring_preview_until_ms: HashMap<String, u64>,
     pub(crate) recent_top_node: Option<NodeId>,
     pub(crate) recent_top_until: Option<Instant>,
+    pub(crate) overlap_raise_order: HashMap<NodeId, u64>,
+    pub(crate) next_overlap_raise_order: u64,
 }
 
 pub(crate) const COMPANION_PROTECT_MS: u64 = 12_000;
@@ -103,6 +105,18 @@ impl<T: Deref<Target = Halley>> FocusStateController<T> {
     #[allow(dead_code)]
     pub(crate) fn focused_monitor_for_node(&self, id: NodeId) -> Option<String> {
         self.model.monitor_state.node_monitor.get(&id).cloned()
+    }
+
+    pub fn overlap_policy_stack_rank(&self, node_id: NodeId) -> (u64, u64) {
+        (
+            self.model
+                .focus_state
+                .overlap_raise_order
+                .get(&node_id)
+                .copied()
+                .unwrap_or(0),
+            node_id.as_u64(),
+        )
     }
 }
 
@@ -332,6 +346,24 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
     pub fn set_recent_top_node(&mut self, node_id: NodeId, until: Instant) {
         self.model.focus_state.recent_top_node = Some(node_id);
         self.model.focus_state.recent_top_until = Some(until);
+    }
+
+    pub fn raise_overlap_policy_node(&mut self, node_id: NodeId) -> bool {
+        if !self.node_has_overlap_policy(node_id) {
+            return false;
+        }
+        self.model.focus_state.next_overlap_raise_order = self
+            .model
+            .focus_state
+            .next_overlap_raise_order
+            .saturating_add(1);
+        let order = self.model.focus_state.next_overlap_raise_order;
+        self.model
+            .focus_state
+            .overlap_raise_order
+            .insert(node_id, order);
+        self.request_maintenance();
+        true
     }
 
     pub fn recent_top_node_active(&mut self, now: Instant) -> Option<NodeId> {

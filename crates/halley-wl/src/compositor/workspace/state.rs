@@ -11,6 +11,8 @@ pub(crate) struct WorkspaceState {
     pub(crate) primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
     pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
     pub(crate) pending_manual_collapses: HashMap<NodeId, u64>,
+    pub(crate) pending_silent_close_until_ms: HashMap<NodeId, u64>,
+    pub(crate) user_pinned_nodes: HashSet<NodeId>,
     pub(crate) maximize_sessions: HashMap<String, MaximizeSession>,
     pub(crate) maximize_animation: HashMap<NodeId, MaximizeAnimation>,
     pub(crate) maximize_resume: HashMap<NodeId, String>,
@@ -95,6 +97,9 @@ pub(crate) fn start_active_to_node_close_animation(
     id: NodeId,
     now: Instant,
 ) -> bool {
+    if st.is_fullscreen_session_node(id) {
+        return false;
+    }
     if !st.runtime.tuning.window_close_animation_enabled() {
         return false;
     }
@@ -133,6 +138,9 @@ pub(crate) fn start_active_to_node_close_animation(
 }
 
 pub(crate) fn queue_pending_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) {
+    if st.is_fullscreen_session_node(id) {
+        return;
+    }
     let now_ms = st.now_ms(now);
     st.model
         .workspace_state
@@ -147,6 +155,9 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
         .workspace_state
         .pending_manual_collapses
         .remove(&id);
+    if st.is_fullscreen_session_node(id) {
+        return false;
+    }
     let _ = st.model.field.set_state(id, NodeState::Node);
     let _ = st
         .model

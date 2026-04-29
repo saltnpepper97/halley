@@ -78,8 +78,10 @@ pub(crate) fn begin_drag(
             drag_ctx.current_offset = off;
         }
     }
+    if !node_is_pointer_draggable(st, hit.node_id) {
+        return;
+    }
     ps.drag = Some(drag_ctx);
-    let _ = st.model.field.set_pinned(hit.node_id, false);
     st.assign_node_to_monitor(hit.node_id, drag_monitor.as_str());
     st.input
         .interaction_state
@@ -229,6 +231,74 @@ mod tests {
                 .as_ref()
                 .is_some_and(|drag| !drag.edge_pan_eligible)
         );
+    }
+
+    #[test]
+    fn pinned_surface_drag_is_allowed_as_deliberate_anchor_move() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = st.model.field.spawn_surface(
+            "dragged",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        assert!(st.set_node_user_pinned(id, true));
+        let hit = HitNode {
+            node_id: id,
+            move_surface: false,
+            is_core: false,
+        };
+        let world_now = halley_core::field::Vec2 { x: 0.0, y: 0.0 };
+        let frame = ButtonFrame {
+            global_sx: 200.0,
+            global_sy: 120.0,
+            sx: 200.0,
+            sy: 120.0,
+            ws_w: 1600,
+            ws_h: 1200,
+            world_now,
+            workspace_active: true,
+        };
+        let mut ps = PointerState::default();
+
+        begin_drag(
+            &mut st,
+            &mut ps,
+            &TestBackend,
+            hit,
+            frame,
+            world_now,
+            false,
+            false,
+        );
+
+        assert!(ps.drag.is_some());
+        assert!(st.input.interaction_state.active_drag.is_some());
+        assert_eq!(st.input.interaction_state.drag_authority_node, Some(id));
+        assert!(st.model.field.node(id).expect("node").pinned);
+        assert!(st.carry_surface_non_overlap(
+            id,
+            halley_core::field::Vec2 { x: 40.0, y: 20.0 },
+            false,
+        ));
+        assert_eq!(
+            st.model.field.node(id).expect("node").pos,
+            halley_core::field::Vec2 { x: 40.0, y: 20.0 }
+        );
+        assert!(st.model.field.node(id).expect("node").pinned);
+
+        let drag = ps.drag.expect("drag in progress");
+        finish_pointer_drag(
+            &mut st,
+            &mut ps,
+            id,
+            drag.started_active,
+            world_now,
+            Instant::now(),
+        );
+
+        assert!(st.node_user_pinned(id));
+        assert!(st.model.field.node(id).expect("node").pinned);
     }
 
     #[test]

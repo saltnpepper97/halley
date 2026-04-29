@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use halley_core::field::NodeId;
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::reexports::wayland_server::Resource;
-
-use crate::compositor::overlap::physics::{
+use halley_core::overlap_physics::{
     CONTACT_SKIN, MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON, POSITION_SOLVER_ITERS,
     resolve_contact_pair,
 };
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+use smithay::reexports::wayland_server::Resource;
+
 use crate::compositor::root::Halley;
 
 use super::{

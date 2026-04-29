@@ -71,8 +71,11 @@ fn popup_focus_for_screen(
         .collect();
 
     toplevels.sort_by_key(|(node_id, _, _, _)| {
+        let overlap_rank = st.overlap_policy_stack_rank(*node_id);
         (
             is_persistent_rule_top(st, *node_id),
+            st.node_has_overlap_policy(*node_id),
+            overlap_rank,
             Some(*node_id) == recent_top_node,
             node_id.as_u64(),
         )

@@ -16,6 +16,5 @@ use crate::compositor::activity::{CommitActivity, VisualState};
 use crate::compositor::debug_scene::{DebugScene, build_debug_scene};
 use crate::compositor::root::Halley;
 
-pub mod physics;
 pub mod read;
 pub mod system;

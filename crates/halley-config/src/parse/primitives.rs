@@ -6,8 +6,8 @@ use crate::layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
     ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, FocusRingConfig,
     InputFocusMode, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode, ShadowColor, ShapeStyle,
-    WindowCloseAnimationStyle,
+    OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode, PinBadgeCorner, ShadowColor,
+    ShapeStyle, WindowCloseAnimationStyle,
 };
 
 pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -383,6 +383,21 @@ pub(crate) fn pick_overlay_shape(
     match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
         "square" => OverlayShape::Square,
         "rounded" => OverlayShape::Rounded,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_pin_badge_corner(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: PinBadgeCorner,
+) -> PinBadgeCorner {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "top-left" | "top_left" | "left" => PinBadgeCorner::TopLeft,
+        "top-right" | "top_right" | "right" => PinBadgeCorner::TopRight,
         _ => default,
     }
 }

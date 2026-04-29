@@ -20,22 +20,22 @@ pub(crate) fn apply_hover_focus_mode(
     let Some(hit) = hit else {
         return;
     };
-    if hit.is_core {
-        return;
-    }
     let Some(node) = st.model.field.node(hit.node_id) else {
         return;
     };
-    if node.kind != halley_core::field::NodeKind::Surface || !st.model.field.is_visible(hit.node_id)
-    {
+    if !st.model.field.is_visible(hit.node_id) {
         return;
     }
-    if !matches!(
-        node.state,
-        halley_core::field::NodeState::Active
-            | halley_core::field::NodeState::Drifting
-            | halley_core::field::NodeState::Node
-    ) {
+    let focusable = match node.kind {
+        halley_core::field::NodeKind::Surface => matches!(
+            node.state,
+            halley_core::field::NodeState::Active
+                | halley_core::field::NodeState::Drifting
+                | halley_core::field::NodeState::Node
+        ),
+        halley_core::field::NodeKind::Core => node.state == halley_core::field::NodeState::Core,
+    };
+    if !focusable {
         return;
     }
 

@@ -3,7 +3,8 @@ use rune_cfg::RuneConfig;
 use crate::layout::RuntimeTuning;
 
 use super::super::primitives::{
-    pick_bool, pick_close_restore_pan_mode, pick_f32, pick_pan_to_new_mode, pick_u64,
+    pick_bool, pick_close_restore_pan_mode, pick_f32, pick_overlay_color_mode,
+    pick_pan_to_new_mode, pick_pin_badge_corner, pick_u64,
 };
 
 pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
@@ -21,6 +22,41 @@ pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["field.pan-to-new", "field.pan_to_new"],
         out.pan_to_new,
     );
+    out.pins.corner = pick_pin_badge_corner(
+        cfg,
+        &[
+            "field.pins.corner",
+            "field.pins.badge-corner",
+            "field.pins.badge_corner",
+        ],
+        out.pins.corner,
+    );
+    out.pins.color = pick_overlay_color_mode(
+        cfg,
+        &[
+            "field.pins.colour",
+            "field.pins.color",
+            "field.pins.pin-colour",
+            "field.pins.pin_color",
+            "field.pins.pin-color",
+        ],
+        out.pins.color,
+    );
+    out.pins.background_color = pick_overlay_color_mode(
+        cfg,
+        &[
+            "field.pins.background-colour",
+            "field.pins.background_colour",
+            "field.pins.background-color",
+            "field.pins.background_color",
+            "field.pins.bg-colour",
+            "field.pins.bg_colour",
+            "field.pins.bg-color",
+            "field.pins.bg_color",
+        ],
+        out.pins.background_color,
+    );
+    out.pins.size = pick_f32(cfg, &["field.pins.size"], out.pins.size);
     out.close_restore_focus = pick_bool(
         cfg,
         &["field.close-restore-focus", "field.close_restore_focus"],
@@ -59,7 +95,7 @@ pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 mod tests {
     use rune_cfg::RuneConfig;
 
-    use crate::layout::RuntimeTuning;
+    use crate::layout::{OverlayColorMode, PinBadgeCorner, RuntimeTuning};
 
     use super::load_field_section;
 
@@ -81,5 +117,37 @@ end
 
         assert_eq!(out.field_active_windows_allowed, 7);
         assert_eq!(out.tile_max_stack, 11);
+    }
+
+    #[test]
+    fn field_section_parses_nested_pins_config() {
+        let cfg = RuneConfig::from_str(
+            r##"
+field:
+  pins:
+    corner "top-left"
+    colour "#d65d26"
+    background-color "dark"
+    size 1.35
+  end
+end
+"##,
+        )
+        .expect("field pins config should parse");
+
+        let mut out = RuntimeTuning::default();
+        load_field_section(&cfg, &mut out);
+
+        assert_eq!(out.pins.corner, PinBadgeCorner::TopLeft);
+        assert_eq!(
+            out.pins.color,
+            OverlayColorMode::Fixed {
+                r: 0xd6 as f32 / 255.0,
+                g: 0x5d as f32 / 255.0,
+                b: 0x26 as f32 / 255.0,
+            }
+        );
+        assert_eq!(out.pins.background_color, OverlayColorMode::Dark);
+        assert_eq!(out.pins.size, 1.35);
     }
 }

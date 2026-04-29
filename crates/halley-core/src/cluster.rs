@@ -42,6 +42,8 @@ pub struct Cluster {
     /// When collapsed, which Core node represents this cluster.
     pub core: Option<NodeId>,
 
+    pub pinned: bool,
+
     pub mode: ClusterMode,
     pub active_workspace: Option<ActiveWorkspace>,
 }
@@ -58,6 +60,7 @@ impl Cluster {
             id,
             members,
             core: None,
+            pinned: false,
             mode: ClusterMode::Expanded,
             active_workspace: None,
         })

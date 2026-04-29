@@ -72,6 +72,7 @@ impl RuntimeTuning {
 
         self.non_overlap_gap_px = self.non_overlap_gap_px.clamp(0.0, 256.0);
         self.field_active_windows_allowed = self.field_active_windows_allowed.clamp(0, 64);
+        self.pins.size = self.pins.size.clamp(0.5, 3.0);
         self.zoom_step = self.zoom_step.clamp(1.001, 4.0);
         self.zoom_min = self.zoom_min.clamp(0.05, 1.0);
         self.zoom_max = self.zoom_max.clamp(1.0, 16.0);

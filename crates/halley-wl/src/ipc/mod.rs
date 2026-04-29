@@ -231,11 +231,7 @@ mod tests {
         );
         state.assign_node_to_current_monitor(first);
         state.assign_node_to_current_monitor(second);
-        let cid = state
-            .model
-            .field
-            .create_cluster(vec![first, second])
-            .expect("cluster");
+        let cid = state.create_cluster(vec![first, second]).expect("cluster");
         state.model.cluster_state.cluster_names.insert(
             cid,
             ClusterNameRecord::Custom {
@@ -281,12 +277,8 @@ mod tests {
         );
         state.assign_node_to_current_monitor(first);
         state.assign_node_to_current_monitor(second);
-        let cid = state
-            .model
-            .field
-            .create_cluster(vec![first, second])
-            .expect("cluster");
-        let core = state.model.field.collapse_cluster(cid).expect("core");
+        let cid = state.create_cluster(vec![first, second]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
         state.assign_node_to_current_monitor(core);
         let monitor = state.model.monitor_state.current_monitor.clone();
         state

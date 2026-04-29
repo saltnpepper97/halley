@@ -52,6 +52,31 @@ pub enum OverlayBorderSource {
     Secondary,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PinBadgeCorner {
+    TopLeft,
+    TopRight,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PinsConfig {
+    pub corner: PinBadgeCorner,
+    pub color: OverlayColorMode,
+    pub background_color: OverlayColorMode,
+    pub size: f32,
+}
+
+impl Default for PinsConfig {
+    fn default() -> Self {
+        Self {
+            corner: PinBadgeCorner::TopRight,
+            color: OverlayColorMode::Auto,
+            background_color: OverlayColorMode::Auto,
+            size: 1.0,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OverlayStyleConfig {
     pub background_color: OverlayColorMode,
@@ -408,6 +433,7 @@ impl FocusRingConfig {
 pub struct BearingsConfig {
     pub show_distance: bool,
     pub show_icons: bool,
+    pub show_pinned: bool,
     pub fade_distance: f32,
 }
 

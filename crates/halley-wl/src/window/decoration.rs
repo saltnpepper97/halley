@@ -205,7 +205,6 @@ pub(super) fn build_window_border_rects(
 
 pub(super) fn build_window_shadow_rect(
     st: &Halley,
-    node_id: NodeId,
     gx: i32,
     gy: i32,
     gw: i32,
@@ -220,13 +219,6 @@ pub(super) fn build_window_shadow_rect(
         || shadows.color.a <= 0.0
         || shadows.blur_radius <= 0.0
         || alpha <= 0.0
-    {
-        return None;
-    }
-
-    let current_monitor = st.model.monitor_state.current_monitor.as_str();
-    if crate::compositor::workspace::state::maximize_session_target_for_monitor(st, current_monitor)
-        == Some(node_id)
     {
         return None;
     }

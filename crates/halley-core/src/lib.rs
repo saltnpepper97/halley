@@ -5,6 +5,7 @@ pub mod cluster_policy;
 pub mod decay;
 pub mod field;
 pub mod focus;
+pub mod overlap_physics;
 pub mod stacking;
 pub mod tiling;
 pub mod trail;

@@ -706,7 +706,16 @@ impl Field {
         let id = ClusterId::new(self.next_cluster);
         self.next_cluster += 1;
 
-        let cluster = Cluster::new(id, members).ok_or(ClusterCreateError::TooFewMembers)?;
+        let mut any_member_pinned = false;
+        for &member in &members {
+            if self.node(member).is_some_and(|n| n.pinned) {
+                any_member_pinned = true;
+                let _ = self.set_pinned(member, false);
+            }
+        }
+
+        let mut cluster = Cluster::new(id, members).ok_or(ClusterCreateError::TooFewMembers)?;
+        cluster.pinned = any_member_pinned;
         self.clusters.insert(id, cluster);
         Ok(id)
     }
@@ -734,12 +743,22 @@ impl Field {
         if self.cluster_id_for_member_public(member).is_some() {
             return Err(ClusterAddMemberError::AlreadyClustered(member));
         }
+        let is_pinned = self.node(member).is_some_and(|n| n.pinned);
+        if is_pinned {
+            let _ = self.set_pinned(member, false);
+        }
+
         let Some(cluster) = self.clusters.get_mut(&id) else {
             return Err(ClusterAddMemberError::MissingCluster);
         };
         if !cluster.add_member(member) {
             return Err(ClusterAddMemberError::AlreadyClustered(member));
         }
+
+        if is_pinned {
+            cluster.pinned = true;
+        }
+
         Ok(())
     }
 
@@ -754,12 +773,23 @@ impl Field {
         if self.cluster_id_for_member_public(member).is_some() {
             return Err(ClusterAddMemberError::AlreadyClustered(member));
         }
+
+        let is_pinned = self.node(member).is_some_and(|n| n.pinned);
+        if is_pinned {
+            let _ = self.set_pinned(member, false);
+        }
+
         let Some(cluster) = self.clusters.get_mut(&id) else {
             return Err(ClusterAddMemberError::MissingCluster);
         };
         if !cluster.add_member_front(member) {
             return Err(ClusterAddMemberError::AlreadyClustered(member));
         }
+
+        if is_pinned {
+            cluster.pinned = true;
+        }
+
         Ok(())
     }
 
@@ -1011,8 +1041,13 @@ impl Field {
         }
 
         let c = self.clusters.get_mut(&id)?;
+        let pinned = c.pinned;
         c.set_collapsed(true);
         c.core = Some(core_id);
+
+        if let Some(n) = self.node_mut(core_id) {
+            n.pinned = pinned;
+        }
 
         Some(core_id)
     }

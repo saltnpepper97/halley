@@ -50,6 +50,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         self.clear_cluster_shell_state(cid);
         if let Some(core_id) = core_id {
             self.model.monitor_state.node_monitor.remove(&core_id);
+            self.model
+                .workspace_state
+                .user_pinned_nodes
+                .remove(&core_id);
         }
         self.remove_cluster_name_record(cid);
         self.model.field.dissolve_cluster(cid)
@@ -147,6 +151,16 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     self.model.monitor_state.node_monitor.remove(&core_id);
                 }
                 for survivor in survivors {
+                    if self
+                        .model
+                        .workspace_state
+                        .pending_silent_close_until_ms
+                        .contains_key(&survivor)
+                        && let Some(node) = self.model.field.node_mut(survivor)
+                    {
+                        node.visibility
+                            .set(halley_core::field::Visibility::HIDDEN_BY_CLUSTER, true);
+                    }
                     let _ = self.model.field.set_detached(survivor, false);
                     if let Some(size) = self
                         .model
@@ -238,12 +252,24 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     );
                 (monitor, old_visible)
             });
+        let was_pinned = self.node_user_pinned(node_id);
         if !self
             .cluster_mutation_controller()
             .absorb_node_into_cluster(cid, node_id)
         {
             return false;
         }
+
+        if was_pinned {
+            self.model
+                .workspace_state
+                .user_pinned_nodes
+                .remove(&node_id);
+            if let Some(core_id) = self.model.field.cluster(cid).and_then(|c| c.core) {
+                self.model.workspace_state.user_pinned_nodes.insert(core_id);
+            }
+        }
+
         if let Some(cluster_monitor) = self.preferred_monitor_for_cluster(cid, None) {
             self.assign_node_to_monitor(node_id, cluster_monitor.as_str());
             if self.active_cluster_workspace_for_monitor(cluster_monitor.as_str()) == Some(cid) {

@@ -354,6 +354,7 @@ fn keybind_candidates() -> &'static [(&'static str, &'static str)] {
         ("alt+tab", "cycle-focus"),
         ("alt+shift+tab", "cycle-focus-backward"),
         ("$var.mod+m", "maximize-focused"),
+        ("$var.mod+p", "toggle-focused-pin"),
         ("$var.mod+1", "cluster slot 1"),
         ("$var.mod+2", "cluster slot 2"),
         ("$var.mod+3", "cluster slot 3"),
@@ -437,6 +438,26 @@ end
                 "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end"
             )
         );
+    }
+
+    #[test]
+    fn updater_adds_missing_pin_defaults() {
+        let raw = r#"
+field:
+  pins:
+    corner "top-right"
+    colour "auto"
+  end
+end
+"#;
+
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        assert!(updated.contains("  pins:\n    corner \"top-right\"\n    colour \"auto\""));
+        assert!(updated.contains("    background-colour \"auto\""));
+        assert!(updated.contains("    size 1.0"));
     }
 
     #[test]

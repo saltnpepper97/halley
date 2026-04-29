@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use calloop::LoopHandle;
 use halley_config::RuntimeTuning;
+use halley_core::cluster::ClusterId;
 use halley_core::cluster_policy::ClusterFormationState;
 use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::viewport::Viewport;
@@ -250,6 +251,8 @@ impl Halley {
                     focus_ring_preview_until_ms: HashMap::new(),
                     recent_top_node: None,
                     recent_top_until: None,
+                    overlap_raise_order: HashMap::new(),
+                    next_overlap_raise_order: 0,
                 },
                 cluster_state: ClusterState {
                     cluster_form_state: ClusterFormationState::default(),
@@ -274,6 +277,8 @@ impl Halley {
                     last_active_size: HashMap::new(),
                     manual_collapsed_nodes: HashSet::new(),
                     pending_manual_collapses: HashMap::new(),
+                    pending_silent_close_until_ms: HashMap::new(),
+                    user_pinned_nodes: HashSet::new(),
                     active_transition_until_ms: HashMap::new(),
                     primary_promote_cooldown_until_ms: HashMap::new(),
                     maximize_sessions: HashMap::new(),
@@ -435,6 +440,98 @@ impl Halley {
 
     pub(crate) fn apply_aperture_config(&mut self, config: crate::aperture::core::ApertureConfig) {
         self.aperture.apply_config(config);
+    }
+
+    pub(crate) fn node_user_pinned(&self, id: NodeId) -> bool {
+        self.model.workspace_state.user_pinned_nodes.contains(&id)
+    }
+
+    pub(crate) fn set_node_user_pinned(&mut self, id: NodeId, pinned: bool) -> bool {
+        if self.model.field.node(id).is_none() {
+            return false;
+        }
+        if pinned {
+            self.model.workspace_state.user_pinned_nodes.insert(id);
+            let _ = self.model.field.set_pinned(id, true);
+        } else {
+            self.model.workspace_state.user_pinned_nodes.remove(&id);
+            let _ = self
+                .model
+                .field
+                .set_pinned(id, self.node_session_pinned(id));
+        }
+        true
+    }
+
+    pub fn create_cluster(
+        &mut self,
+        members: Vec<NodeId>,
+    ) -> Result<ClusterId, halley_core::field::ClusterCreateError> {
+        let members_clone = members.clone();
+        let cid = self.model.field.create_cluster(members)?;
+
+        for member in members_clone {
+            self.model.workspace_state.user_pinned_nodes.remove(&member);
+        }
+
+        if self
+            .model
+            .field
+            .cluster(cid)
+            .is_some_and(|cluster| cluster.pinned)
+        {
+            if let Some(core_id) = self.model.field.cluster(cid).and_then(|c| c.core) {
+                self.model.workspace_state.user_pinned_nodes.insert(core_id);
+            }
+        }
+
+        Ok(cid)
+    }
+
+    pub fn collapse_cluster(&mut self, id: ClusterId) -> Option<NodeId> {
+        let core_id = self.model.field.collapse_cluster(id)?;
+
+        if self
+            .model
+            .field
+            .cluster(id)
+            .is_some_and(|cluster| cluster.pinned)
+        {
+            self.model.workspace_state.user_pinned_nodes.insert(core_id);
+        }
+
+        Some(core_id)
+    }
+
+    pub(crate) fn node_session_pinned(&self, id: NodeId) -> bool {
+        if self
+            .model
+            .workspace_state
+            .maximize_sessions
+            .values()
+            .any(|session| {
+                session.state == crate::compositor::workspace::state::MaximizeSessionState::Active
+                    && session.node_snapshots.contains_key(&id)
+            })
+        {
+            return true;
+        }
+
+        let Some(entry) = self.model.fullscreen_state.fullscreen_restore.get(&id) else {
+            return false;
+        };
+        let node_monitor = self
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
+        self.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .contains_key(&node_monitor)
+            || entry.pinned
     }
 
     pub(crate) fn aperture_config(&self) -> &crate::aperture::core::ApertureConfig {
@@ -971,6 +1068,14 @@ impl Halley {
         super::focus::state::focus_state_controller(self).set_recent_top_node(node_id, until)
     }
 
+    pub fn raise_overlap_policy_node(&mut self, node_id: NodeId) -> bool {
+        super::focus::state::focus_state_controller(self).raise_overlap_policy_node(node_id)
+    }
+
+    pub fn overlap_policy_stack_rank(&self, node_id: NodeId) -> (u64, u64) {
+        super::focus::state::focus_state_controller(self).overlap_policy_stack_rank(node_id)
+    }
+
     pub(crate) fn focus_pointer_target(
         &mut self,
         node_id: NodeId,
@@ -1143,6 +1248,10 @@ impl Halley {
 
     pub(crate) fn is_fullscreen_active(&self, node_id: NodeId) -> bool {
         super::fullscreen::system::is_fullscreen_active(self, node_id)
+    }
+
+    pub(crate) fn is_fullscreen_session_node(&self, node_id: NodeId) -> bool {
+        super::fullscreen::system::is_fullscreen_session_node(self, node_id)
     }
 
     pub(crate) fn fullscreen_target_size_for(&self, monitor_name: &str) -> (i32, i32) {

@@ -15,6 +15,11 @@ pub(crate) fn load_bearings_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["bearings.show-icons", "bearings.show_icons"],
         out.bearings.show_icons,
     );
+    out.bearings.show_pinned = pick_bool(
+        cfg,
+        &["bearings.show-pinned", "bearings.show_pinned"],
+        out.bearings.show_pinned,
+    );
     out.bearings.fade_distance = pick_f32(
         cfg,
         &["bearings.fade-distance", "bearings.fade_distance"],
