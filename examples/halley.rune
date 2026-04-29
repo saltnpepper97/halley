@@ -127,16 +127,12 @@ field:
   # Pinned windows/nodes stay locked in place and remain visible in Bearings.
   pins:
     corner "top-right"
-    colour "auto"
+    colour "#d65d26"
+    background-colour "auto"
+    size 1.0
   end
   close-restore-focus true
   close-restore-pan "if-offscreen"
-
-   pins:
-    corner "top-right"
-    colour "#d65d26"
-    size 1.0
-  end
 
   zoom:
     enabled true

@@ -54,8 +54,8 @@ pub(crate) fn pin_badge_fill_color(
     st: &Halley,
     alpha: f32,
 ) -> smithay::backend::renderer::Color32F {
-    let (fill, _) = crate::overlay::overlay_fill_and_text_colors(&st.runtime.tuning);
-    smithay::backend::renderer::Color32F::new(fill.r(), fill.g(), fill.b(), alpha)
+    let fill = pin_badge_fill_rgb(&st.runtime.tuning);
+    smithay::backend::renderer::Color32F::new(fill.0, fill.1, fill.2, alpha)
 }
 
 pub(crate) fn draw_pin_badges(
@@ -138,11 +138,37 @@ fn pin_rgba(tuning: &halley_config::RuntimeTuning) -> [u8; 4] {
 fn pin_glyph_rgb(tuning: &halley_config::RuntimeTuning) -> (f32, f32, f32) {
     let color = match tuning.pins.color {
         halley_config::OverlayColorMode::Auto => {
-            let (_, text) = crate::overlay::overlay_fill_and_text_colors(tuning);
+            let (_, text) = if matches!(
+                tuning.pins.background_color,
+                halley_config::OverlayColorMode::Auto
+            ) {
+                crate::overlay::overlay_fill_and_text_colors(tuning)
+            } else {
+                let fill = pin_badge_fill_rgb(tuning);
+                let fill = Color32F::new(fill.0, fill.1, fill.2, 1.0);
+                (fill, crate::overlay::overlay_text_color_for_fill(fill, 1.0))
+            };
             return (text.r(), text.g(), text.b());
         }
         halley_config::OverlayColorMode::Light => (0.08, 0.10, 0.12),
         halley_config::OverlayColorMode::Dark => (0.94, 0.96, 0.98),
+        halley_config::OverlayColorMode::Fixed { r, g, b } => (r, g, b),
+    };
+    (
+        color.0.clamp(0.0, 1.0),
+        color.1.clamp(0.0, 1.0),
+        color.2.clamp(0.0, 1.0),
+    )
+}
+
+fn pin_badge_fill_rgb(tuning: &halley_config::RuntimeTuning) -> (f32, f32, f32) {
+    let color = match tuning.pins.background_color {
+        halley_config::OverlayColorMode::Auto => {
+            let (fill, _) = crate::overlay::overlay_fill_and_text_colors(tuning);
+            return (fill.r(), fill.g(), fill.b());
+        }
+        halley_config::OverlayColorMode::Light => (0.92, 0.95, 0.98),
+        halley_config::OverlayColorMode::Dark => (0.15, 0.18, 0.22),
         halley_config::OverlayColorMode::Fixed { r, g, b } => (r, g, b),
     };
     (
@@ -213,5 +239,17 @@ mod tests {
         };
 
         assert_eq!(pin_rgba(&tuning), [255, 128, 0, 255]);
+    }
+
+    #[test]
+    fn fixed_pin_background_color_controls_badge_fill() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.pins.background_color = halley_config::OverlayColorMode::Fixed {
+            r: 0.25,
+            g: 0.5,
+            b: 0.75,
+        };
+
+        assert_eq!(pin_badge_fill_rgb(&tuning), (0.25, 0.5, 0.75));
     }
 }

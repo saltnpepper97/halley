@@ -441,7 +441,7 @@ end
     }
 
     #[test]
-    fn updater_adds_missing_pin_size_default() {
+    fn updater_adds_missing_pin_defaults() {
         let raw = r#"
 field:
   pins:
@@ -456,6 +456,7 @@ end
             .expect("config should change");
 
         assert!(updated.contains("  pins:\n    corner \"top-right\"\n    colour \"auto\""));
+        assert!(updated.contains("    background-colour \"auto\""));
         assert!(updated.contains("    size 1.0"));
     }
 

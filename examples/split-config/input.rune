@@ -1,0 +1,25 @@
+# Environment, cursor, and keyboard input settings.
+
+env:
+  QT_QPA_PLATFORM "wayland"
+  QT_QPA_PLATFORMTHEME "qt6ct"
+end
+
+cursor:
+  theme "Adwaita"
+  size 24
+  hide-when-typing true
+  hide-after-ms 2000
+end
+
+input:
+  repeat-rate 30
+  repeat-delay 500
+  focus-mode "click"
+
+  keyboard:
+    layout "us"
+    variant ""
+    options ""
+  end
+end

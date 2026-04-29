@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Add user-pinned window/node/core support with default `mod+p`, `field.pins` badge styling, pinned Bearings visibility, and pin badge rendering from the bundled SVG asset.
 - Add `field.pins.size` for scaling pin badges, with more padding between the pin glyph and circular badge background.
+- Add `field.pins.background-colour` for configuring the circular pin badge background independently from the pin glyph colour.
 
 ### Changed
 - Treat pinning as a property of the active entity by transferring pinned state from windows into clusters and collapsed cluster cores, keeping pinned core visibility and IPC state consistent across create, absorb, collapse, expand, and dissolve flows.

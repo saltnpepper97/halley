@@ -1,0 +1,48 @@
+@author "Dustin Pilgrim"
+@description "Halley split-config example"
+
+# Gathered files are merged into this config before Halley loads it.
+# Paths are relative to this file.
+gather "theme.rune"
+gather "field.rune"
+gather "input.rune"
+
+# Local values can override gathered defaults without replacing the whole section.
+field:
+  pins:
+    colour "#fabd2f"
+  end
+end
+
+# Keep raw/inline-style sections in the main file.
+autostart:
+  #once "waybar"
+  #once "mako"
+end
+
+keybinds:
+  mod "super"
+
+  "$var.mod+shift+r" "reload"
+  "$var.mod+shift+e" "quit"
+  "$var.mod+return" "open-terminal"
+  "$var.mod+d" "fuzzel"
+  "$var.mod+q" "close-focused"
+  "$var.mod+p" "toggle-focused-pin"
+
+  "$var.mod+leftmouse" "move-window"
+  "$var.mod+rightmouse" "resize-window"
+
+  "alt+tab" "cycle-focus"
+  "alt+shift+tab" "cycle-focus-backward"
+end
+
+rules:
+  rule:
+    app-id "firefox"
+    title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
+    overlap-policy "all"
+    spawn-placement "center"
+    cluster-participation "float"
+  end
+end

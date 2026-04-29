@@ -42,6 +42,20 @@ pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.pins.color,
     );
+    out.pins.background_color = pick_overlay_color_mode(
+        cfg,
+        &[
+            "field.pins.background-colour",
+            "field.pins.background_colour",
+            "field.pins.background-color",
+            "field.pins.background_color",
+            "field.pins.bg-colour",
+            "field.pins.bg_colour",
+            "field.pins.bg-color",
+            "field.pins.bg_color",
+        ],
+        out.pins.background_color,
+    );
     out.pins.size = pick_f32(cfg, &["field.pins.size"], out.pins.size);
     out.close_restore_focus = pick_bool(
         cfg,
@@ -113,6 +127,7 @@ field:
   pins:
     corner "top-left"
     colour "#d65d26"
+    background-color "dark"
     size 1.35
   end
 end
@@ -132,6 +147,7 @@ end
                 b: 0x26 as f32 / 255.0,
             }
         );
+        assert_eq!(out.pins.background_color, OverlayColorMode::Dark);
         assert_eq!(out.pins.size, 1.35);
     }
 }

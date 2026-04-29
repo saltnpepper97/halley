@@ -1,0 +1,48 @@
+# Visual styling can live in its own gathered file.
+
+font:
+  family "monospace"
+  size 11
+end
+
+screenshot:
+  directory "$env.HOME/Pictures/Screenshots/"
+  highlight-colour "#d65d26"
+  background-colour "auto"
+end
+
+decorations:
+  border:
+    size 3
+    radius 0
+    colour-focused "#d65d26"
+    colour-unfocused "#3c3836"
+  end
+
+  secondary-border:
+    enabled true
+    gap 2
+    size 1
+    colour-focused "#fabd2f"
+    colour-unfocused "#504945"
+  end
+
+  resize-using-border true
+end
+
+node:
+  show-labels "hover"
+  show-app-icons "always"
+  node-shape "square"
+  node-label-shape "square"
+  icon-size 0.72
+  background-colour "auto"
+end
+
+overlays:
+  background-colour "auto"
+  text-colour "auto"
+  shape "square"
+  borders true
+  border-source "primary"
+end
