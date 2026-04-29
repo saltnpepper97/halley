@@ -1393,9 +1393,7 @@ mod tests {
         );
         st.assign_node_to_monitor(master, "monitor_a");
         st.assign_node_to_monitor(stack, "monitor_a");
-        let cid = st
-            .create_cluster(vec![master, stack])
-            .expect("cluster");
+        let cid = st.create_cluster(vec![master, stack]).expect("cluster");
         let core = st.collapse_cluster(cid).expect("core");
         st.assign_node_to_monitor(core, "monitor_a");
         assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));

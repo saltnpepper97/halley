@@ -62,6 +62,7 @@ pub enum PinBadgeCorner {
 pub struct PinsConfig {
     pub corner: PinBadgeCorner,
     pub color: OverlayColorMode,
+    pub size: f32,
 }
 
 impl Default for PinsConfig {
@@ -69,6 +70,7 @@ impl Default for PinsConfig {
         Self {
             corner: PinBadgeCorner::TopRight,
             color: OverlayColorMode::Auto,
+            size: 1.0,
         }
     }
 }

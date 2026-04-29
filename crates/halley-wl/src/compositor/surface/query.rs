@@ -157,9 +157,7 @@ mod tests {
         st.assign_node_to_monitor(master, monitor.as_str());
         st.assign_node_to_monitor(stack, monitor.as_str());
 
-        let cid = st
-            .create_cluster(vec![master, stack])
-            .expect("cluster");
+        let cid = st.create_cluster(vec![master, stack]).expect("cluster");
         let core = st.collapse_cluster(cid).expect("core");
         st.assign_node_to_monitor(core, monitor.as_str());
 
@@ -202,9 +200,7 @@ mod tests {
             st.assign_node_to_monitor(id, monitor.as_str());
         }
 
-        let cid = st
-            .create_cluster(vec![a, b, c, d])
-            .expect("cluster");
+        let cid = st.create_cluster(vec![a, b, c, d]).expect("cluster");
         let core = st.collapse_cluster(cid).expect("core");
         st.assign_node_to_monitor(core, monitor.as_str());
         assert!(st.toggle_cluster_workspace_by_core(core, Instant::now()));

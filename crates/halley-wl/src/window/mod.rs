@@ -496,8 +496,10 @@ pub(crate) fn collect_active_surfaces(
             * tiling_tile_transition.map(|rect| rect.alpha).unwrap_or(1.0))
         .clamp(0.0, 1.0);
         if st.node_user_pinned(node_id) && alpha > 0.01 {
-            let radius =
-                ((14.0 * render_scale.sqrt().clamp(0.85, 1.25)).round() as i32).clamp(10, 18);
+            let radius = crate::render::pin_icon::scaled_pin_badge_radius(
+                st,
+                ((14.0 * render_scale.sqrt().clamp(0.85, 1.25)).round() as i32).clamp(10, 18),
+            );
             let corner_outset = ((radius as f32) * 0.25).round() as i32;
             let cx = match st.runtime.tuning.pins.corner {
                 halley_config::PinBadgeCorner::TopLeft => gx - corner_outset,

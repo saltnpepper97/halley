@@ -6,8 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Add user-pinned window/node/core support with default `mod+p`, `field.pins` badge styling, pinned Bearings visibility, and pin badge rendering from the bundled SVG asset.
+- Add `field.pins.size` for scaling pin badges, with more padding between the pin glyph and circular badge background.
+
+### Changed
+- Treat pinning as a property of the active entity by transferring pinned state from windows into clusters and collapsed cluster cores, keeping pinned core visibility and IPC state consistent across create, absorb, collapse, expand, and dissolve flows.
 
 ### Fixed
+- Render configured window shadows for maximized windows instead of suppressing them during maximize sessions.
 - Treat XDG modal/transient dialogs as floating overlap windows by default, centering them over their parent window when available or the viewport otherwise.
 - Keep fullscreen video timer frames from delaying ready pan/zoom redraws on other monitors by including animation-active outputs in tty timer redraw eligibility before servicing video scanout.
 - Stop valid `xdg-activation` requests from revealing or panning existing windows, preventing Steam cover clicks from recentring the Steam window.

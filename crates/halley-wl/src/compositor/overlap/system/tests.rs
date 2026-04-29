@@ -416,9 +416,7 @@ fn dragged_window_pushes_collapsed_core_and_members_follow() {
             .model
             .field
             .spawn_surface("b", Vec2 { x: 20.0, y: 0.0 }, Vec2 { x: 200.0, y: 140.0 });
-    let cid = state
-        .create_cluster(vec![a, b])
-        .expect("cluster");
+    let cid = state.create_cluster(vec![a, b]).expect("cluster");
     let core = state.collapse_cluster(cid).expect("core");
 
     let core_before = state.model.field.node(core).expect("core before").pos;
@@ -553,9 +551,7 @@ fn dragged_window_pushes_collapsed_core_when_physics_disabled() {
             .model
             .field
             .spawn_surface("b", Vec2 { x: 20.0, y: 0.0 }, Vec2 { x: 200.0, y: 140.0 });
-    let cid = state
-        .create_cluster(vec![a, b])
-        .expect("cluster");
+    let cid = state.create_cluster(vec![a, b]).expect("cluster");
     let core = state.collapse_cluster(cid).expect("core");
 
     let core_before = state.model.field.node(core).expect("core before").pos;

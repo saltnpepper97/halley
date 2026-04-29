@@ -5,7 +5,7 @@ use std::time::Instant;
 use calloop::LoopHandle;
 use halley_config::RuntimeTuning;
 use halley_core::cluster::ClusterId;
-use halley_core::cluster_policy::{ClusterFormationState};
+use halley_core::cluster_policy::ClusterFormationState;
 use halley_core::field::{Field, NodeId, Vec2};
 use halley_core::viewport::Viewport;
 use smithay::{

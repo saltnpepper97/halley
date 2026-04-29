@@ -11,6 +11,7 @@ use crate::render::icon_tint::tint_alpha_mask_image;
 use crate::render::state::{NodeAppIconTexture, PinIconCache};
 
 const PIN_ICON_RASTER_PX: u32 = 64;
+const PIN_GLYPH_DIAMETER_FRACTION: f32 = 0.62;
 const PIN_SVG: &[u8] = include_bytes!("assets/pin.svg");
 
 #[derive(Clone, Copy, Debug)]
@@ -41,6 +42,12 @@ pub(crate) fn ensure_pin_icon_resources(
 
 pub(crate) fn pin_icon_texture(st: &Halley) -> Option<&NodeAppIconTexture> {
     st.ui.render_state.cache.pin_icon_cache.icon.as_ref()
+}
+
+pub(crate) fn scaled_pin_badge_radius(st: &Halley, radius: i32) -> i32 {
+    ((radius as f32) * st.runtime.tuning.pins.size.clamp(0.5, 3.0))
+        .round()
+        .max(1.0) as i32
 }
 
 pub(crate) fn pin_badge_fill_color(
@@ -93,7 +100,9 @@ pub(crate) fn draw_pin_badge(
     let Some(icon) = pin_icon_texture(st) else {
         return Ok(());
     };
-    let side = ((layout.radius * 2) as f32 * 0.78).round().max(1.0) as i32;
+    let side = ((layout.radius * 2) as f32 * PIN_GLYPH_DIAMETER_FRACTION)
+        .round()
+        .max(1.0) as i32;
     let dest = Rectangle::<i32, Physical>::new(
         (layout.cx - side / 2, layout.cy - side / 2).into(),
         (side, side).into(),

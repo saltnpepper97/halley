@@ -135,7 +135,7 @@ field:
    pins:
     corner "top-right"
     colour "#d65d26"
-    size 18
+    size 1.0
   end
 
   zoom:

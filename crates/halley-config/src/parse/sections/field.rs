@@ -42,6 +42,7 @@ pub(crate) fn load_field_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.pins.color,
     );
+    out.pins.size = pick_f32(cfg, &["field.pins.size"], out.pins.size);
     out.close_restore_focus = pick_bool(
         cfg,
         &["field.close-restore-focus", "field.close_restore_focus"],
@@ -112,6 +113,7 @@ field:
   pins:
     corner "top-left"
     colour "#d65d26"
+    size 1.35
   end
 end
 "##,
@@ -130,5 +132,6 @@ end
                 b: 0x26 as f32 / 255.0,
             }
         );
+        assert_eq!(out.pins.size, 1.35);
     }
 }

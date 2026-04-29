@@ -91,10 +91,9 @@ fn begin_resize_blocks_active_tiled_workspace_members() {
     for id in [master, stack] {
         st.assign_node_to_monitor(id, "monitor_a");
     }
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
-    let core = st.collapse_cluster(cid).expect("core");    st.assign_node_to_monitor(core, "monitor_a");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
+    let core = st.collapse_cluster(cid).expect("core");
+    st.assign_node_to_monitor(core, "monitor_a");
     assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
 
     let mut ps = PointerState::default();

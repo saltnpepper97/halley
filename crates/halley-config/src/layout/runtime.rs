@@ -432,6 +432,8 @@ field:
   pins:
     corner "top-right"
     colour "auto"
+    # Scale for the circular pin badge and glyph.
+    size 1.0
   end
   close-restore-focus true
   close-restore-pan "if-offscreen"
@@ -876,6 +878,8 @@ mod tests {
         assert!(rendered.contains("    focus-ring:"));
         assert!(rendered.contains("# Cursor settings apply to the compositor itself"));
         assert!(rendered.contains("#gather \"colors.rune\""));
+        assert!(rendered.contains("  pins:\n    corner \"top-right\"\n    colour \"auto\""));
+        assert!(rendered.contains("    size 1.0"));
         assert!(rendered.contains("  maximize:\n    enabled true\n    duration-ms 240"));
         assert!(rendered.contains("  shadows:\n    window:"));
         assert!(rendered.contains("      colour \"#05030530\""));

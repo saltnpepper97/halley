@@ -793,7 +793,10 @@ pub(crate) fn draw_node_markers(
                 PinBadgeLayout {
                     cx,
                     cy,
-                    radius: (render_radius / 3).clamp(7, 12),
+                    radius: crate::render::pin_icon::scaled_pin_badge_radius(
+                        st,
+                        (render_radius / 3).clamp(7, 12),
+                    ),
                     alpha: dot_alpha,
                 },
                 damage,

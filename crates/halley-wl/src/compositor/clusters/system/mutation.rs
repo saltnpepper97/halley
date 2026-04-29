@@ -50,7 +50,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         self.clear_cluster_shell_state(cid);
         if let Some(core_id) = core_id {
             self.model.monitor_state.node_monitor.remove(&core_id);
-            self.model.workspace_state.user_pinned_nodes.remove(&core_id);
+            self.model
+                .workspace_state
+                .user_pinned_nodes
+                .remove(&core_id);
         }
         self.remove_cluster_name_record(cid);
         self.model.field.dissolve_cluster(cid)
@@ -248,7 +251,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         }
 
         if was_pinned {
-            self.model.workspace_state.user_pinned_nodes.remove(&node_id);
+            self.model
+                .workspace_state
+                .user_pinned_nodes
+                .remove(&node_id);
             if let Some(core_id) = self.model.field.cluster(cid).and_then(|c| c.core) {
                 self.model.workspace_state.user_pinned_nodes.insert(core_id);
             }

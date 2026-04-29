@@ -678,23 +678,20 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             }
         };
         let now_ms = self.now_ms(now);
-        let created = self
-            .create_cluster(members)
-            .ok()
-            .and_then(|cid| {
-                self.model
-                    .cluster_state
-                    .cluster_names
-                    .insert(cid, name_record.clone());
-                let core = self.collapse_cluster(cid);
-                if let Some(core_id) = core {
-                    self.assign_node_to_monitor(core_id, monitor);
-                    let _ = self.sync_cluster_name_for_monitor(cid, monitor);
-                    let _ = self.model.field.touch(core_id, now_ms);
-                    self.set_interaction_focus(Some(core_id), 30_000, now);
-                }
-                core
-            });
+        let created = self.create_cluster(members).ok().and_then(|cid| {
+            self.model
+                .cluster_state
+                .cluster_names
+                .insert(cid, name_record.clone());
+            let core = self.collapse_cluster(cid);
+            if let Some(core_id) = core {
+                self.assign_node_to_monitor(core_id, monitor);
+                let _ = self.sync_cluster_name_for_monitor(cid, monitor);
+                let _ = self.model.field.touch(core_id, now_ms);
+                self.set_interaction_focus(Some(core_id), 30_000, now);
+            }
+            core
+        });
         if created.is_some() {
             self.model.cluster_state.cluster_name_prompt.remove(monitor);
             let _ = self

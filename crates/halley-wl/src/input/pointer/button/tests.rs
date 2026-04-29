@@ -75,9 +75,7 @@ fn workspace_move_target_double_click_does_not_exit_cluster() {
     for id in [master, stack] {
         st.assign_node_to_monitor(id, "monitor_a");
     }
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
@@ -122,9 +120,7 @@ fn core_single_click_only_focuses_without_opening_bloom() {
     for id in [master, stack] {
         st.assign_node_to_monitor(id, "monitor_a");
     }
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
@@ -188,9 +184,7 @@ fn core_double_click_enters_cluster_workspace() {
     for id in [master, stack] {
         st.assign_node_to_monitor(id, "monitor_a");
     }
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
@@ -424,9 +418,7 @@ fn hovering_core_long_enough_opens_bloom() {
     for id in [master, stack] {
         st.assign_node_to_monitor(id, "monitor_a");
     }
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 

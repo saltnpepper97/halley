@@ -642,9 +642,7 @@ mod tests {
             state.assign_node_to_monitor(id, "monitor_a");
         }
 
-        let cid = state
-            .create_cluster(vec![a, b])
-            .expect("cluster");
+        let cid = state.create_cluster(vec![a, b]).expect("cluster");
         let core = state.collapse_cluster(cid).expect("core");
         state.assign_node_to_monitor(core, "monitor_a");
 

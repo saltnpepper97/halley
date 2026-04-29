@@ -391,9 +391,7 @@ fn test_cluster_monitor_transfer_reopen() {
     st.assign_node_to_monitor(n1, "monitor_a");
     st.assign_node_to_monitor(n2, "monitor_a");
 
-    let cid = st
-        .create_cluster(vec![n1, n2])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![n1, n2]).expect("cluster");
 
     let core_id = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core_id, "monitor_a");
@@ -485,9 +483,7 @@ fn test_cluster_monitor_maintenance_sync() {
     st.assign_node_to_monitor(n1, "monitor_a");
     st.assign_node_to_monitor(n2, "monitor_a");
 
-    let cid = st
-        .create_cluster(vec![n1, n2])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![n1, n2]).expect("cluster");
     let core_id = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core_id, "monitor_a");
 
@@ -541,9 +537,7 @@ fn entering_two_window_cluster_keeps_outer_gap_exact() {
     );
     st.assign_node_to_monitor(master, "monitor_a");
     st.assign_node_to_monitor(stack, "monitor_a");
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
@@ -636,9 +630,7 @@ fn entering_cluster_keeps_current_monitor_live_viewport_full_size() {
     );
     st.assign_node_to_monitor(master, "monitor_a");
     st.assign_node_to_monitor(stack, "monitor_a");
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
@@ -664,9 +656,7 @@ fn entering_tiled_cluster_workspace_focuses_master_tile() {
     );
     st.assign_node_to_monitor(master, "monitor_a");
     st.assign_node_to_monitor(stack, "monitor_a");
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
@@ -854,9 +844,7 @@ fn cluster_layout_cycle_toggles_active_workspace_layout() {
     for id in [master, stack] {
         st.assign_node_to_monitor(id, "monitor_a");
     }
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
     let now = Instant::now();
@@ -957,9 +945,7 @@ fn cluster_exit_restores_full_viewport_not_usable_viewport() {
     );
     st.assign_node_to_monitor(master, "monitor_a");
     st.assign_node_to_monitor(stack, "monitor_a");
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
@@ -1012,9 +998,7 @@ fn closing_cluster_bloom_refocuses_core() {
     );
     st.assign_node_to_monitor(master, "monitor_a");
     st.assign_node_to_monitor(stack, "monitor_a");
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
@@ -1043,9 +1027,7 @@ fn collapsing_cluster_workspace_keeps_core_focused() {
     );
     st.assign_node_to_monitor(master, "monitor_a");
     st.assign_node_to_monitor(stack, "monitor_a");
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 
@@ -1074,9 +1056,7 @@ fn toggle_state_reopens_cluster_from_focused_core() {
     );
     st.assign_node_to_monitor(master, "monitor_a");
     st.assign_node_to_monitor(stack, "monitor_a");
-    let cid = st
-        .create_cluster(vec![master, stack])
-        .expect("cluster");
+    let cid = st.create_cluster(vec![master, stack]).expect("cluster");
     let core = st.collapse_cluster(cid).expect("core");
     st.assign_node_to_monitor(core, "monitor_a");
 

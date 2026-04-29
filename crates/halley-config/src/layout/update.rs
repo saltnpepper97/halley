@@ -441,6 +441,25 @@ end
     }
 
     #[test]
+    fn updater_adds_missing_pin_size_default() {
+        let raw = r#"
+field:
+  pins:
+    corner "top-right"
+    colour "auto"
+  end
+end
+"#;
+
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        assert!(updated.contains("  pins:\n    corner \"top-right\"\n    colour \"auto\""));
+        assert!(updated.contains("    size 1.0"));
+    }
+
+    #[test]
     fn updater_adds_missing_decoration_shadow_defaults() {
         let raw = r##"
 decorations:
