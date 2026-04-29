@@ -560,7 +560,6 @@ pub(crate) fn collect_active_surfaces(
         let preserve_visual_margin = false;
         let window_shadow_rect = build_window_shadow_rect(
             st,
-            node_id,
             gx,
             gy,
             gw.max(1),
