@@ -1239,6 +1239,10 @@ impl Halley {
         super::fullscreen::system::is_fullscreen_active(self, node_id)
     }
 
+    pub(crate) fn is_fullscreen_session_node(&self, node_id: NodeId) -> bool {
+        super::fullscreen::system::is_fullscreen_session_node(self, node_id)
+    }
+
     pub(crate) fn fullscreen_target_size_for(&self, monitor_name: &str) -> (i32, i32) {
         self.model
             .monitor_state

@@ -403,6 +403,20 @@ pub(crate) fn is_fullscreen_active(st: &Halley, node_id: NodeId) -> bool {
     fullscreen_monitor_for_node(st, node_id).is_some()
 }
 
+pub(crate) fn is_fullscreen_session_node(st: &Halley, node_id: NodeId) -> bool {
+    st.model
+        .fullscreen_state
+        .fullscreen_active_node
+        .values()
+        .any(|&id| id == node_id)
+        || st
+            .model
+            .fullscreen_state
+            .fullscreen_suspended_node
+            .values()
+            .any(|&id| id == node_id)
+}
+
 impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
     const FULLSCREEN_ENTER_MS: u64 = 220;
     const FULLSCREEN_EXIT_MS: u64 = 320;

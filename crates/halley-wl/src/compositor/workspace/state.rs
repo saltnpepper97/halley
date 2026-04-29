@@ -96,6 +96,9 @@ pub(crate) fn start_active_to_node_close_animation(
     id: NodeId,
     now: Instant,
 ) -> bool {
+    if st.is_fullscreen_session_node(id) {
+        return false;
+    }
     if !st.runtime.tuning.window_close_animation_enabled() {
         return false;
     }
@@ -134,6 +137,9 @@ pub(crate) fn start_active_to_node_close_animation(
 }
 
 pub(crate) fn queue_pending_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) {
+    if st.is_fullscreen_session_node(id) {
+        return;
+    }
     let now_ms = st.now_ms(now);
     st.model
         .workspace_state
@@ -148,6 +154,9 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
         .workspace_state
         .pending_manual_collapses
         .remove(&id);
+    if st.is_fullscreen_session_node(id) {
+        return false;
+    }
     let _ = st.model.field.set_state(id, NodeState::Node);
     let _ = st
         .model

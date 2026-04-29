@@ -214,6 +214,10 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
                 if keep_set.contains(&id) {
                     continue;
                 }
+                if self.is_fullscreen_session_node(id) {
+                    let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
+                    continue;
+                }
                 crate::compositor::workspace::state::start_active_to_node_close_animation(
                     self,
                     id,
@@ -242,6 +246,15 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
         }
 
         if self.runtime.tuning.field_active_windows_allowed == 0 {
+            self.model
+                .focus_state
+                .outside_focus_ring_since_ms
+                .remove(&id);
+            let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
+            return;
+        }
+
+        if self.is_fullscreen_session_node(id) {
             self.model
                 .focus_state
                 .outside_focus_ring_since_ms
@@ -305,6 +318,7 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
 
     fn is_hard_decay_protected(&self, id: NodeId, now_ms: u64) -> bool {
         self.model.focus_state.primary_interaction_focus == Some(id)
+            || self.is_fullscreen_session_node(id)
             || self.input.interaction_state.resize_active == Some(id)
             || crate::compositor::interaction::state::is_recently_resized_node(self, id, now_ms)
             || self.model.carry_state.carry_zone_hint.contains_key(&id)
@@ -420,6 +434,71 @@ mod tests {
         assert_eq!(
             state.model.field.node(id).map(|n| n.decay),
             Some(DecayLevel::Cold)
+        );
+    }
+
+    #[test]
+    fn fullscreen_active_surface_never_decays_to_node() {
+        let (mut state, id) = outside_ring_test_state();
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor, id);
+        state
+            .model
+            .focus_state
+            .outside_focus_ring_since_ms
+            .insert(id, 5);
+
+        state.apply_single_surface_decay_policy(id, 130_000, 120_000, 30_000);
+
+        let node = state.model.field.node(id).expect("fullscreen node");
+        assert_eq!(node.decay, DecayLevel::Hot);
+        assert_eq!(node.state, halley_core::field::NodeState::Active);
+        assert!(
+            !state
+                .model
+                .focus_state
+                .outside_focus_ring_since_ms
+                .contains_key(&id)
+        );
+    }
+
+    #[test]
+    fn fullscreen_active_surface_is_exempt_from_active_window_limit_decay() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.field_active_windows_allowed = 1;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let fullscreen = state.model.field.spawn_surface(
+            "game",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        let other = state.model.field.spawn_surface(
+            "other",
+            Vec2 { x: 160.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 100.0 },
+        );
+        for id in [fullscreen, other] {
+            state.assign_node_to_monitor(id, monitor.as_str());
+        }
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor, fullscreen);
+
+        state.enforce_single_primary_active_unit();
+
+        assert_eq!(
+            state.model.field.node(fullscreen).map(|n| n.state.clone()),
+            Some(halley_core::field::NodeState::Active)
         );
     }
 

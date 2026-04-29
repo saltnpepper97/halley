@@ -210,15 +210,19 @@ pub(crate) fn update_carry_state_preview_at(
     }
     let zone = zone_for_pos_with_hysteresis(st, id, source_pos, footprint);
     let held_state = st.model.carry_state.carry_state_hold.get(&id);
-    let target = match held_state {
-        Some(halley_core::field::NodeState::Active) => DecayLevel::Hot,
-        Some(halley_core::field::NodeState::Node | halley_core::field::NodeState::Core) => {
-            DecayLevel::Cold
+    let target = if st.is_fullscreen_session_node(id) {
+        DecayLevel::Hot
+    } else {
+        match held_state {
+            Some(halley_core::field::NodeState::Active) => DecayLevel::Hot,
+            Some(halley_core::field::NodeState::Node | halley_core::field::NodeState::Core) => {
+                DecayLevel::Cold
+            }
+            _ => match zone {
+                FocusZone::Inside if was_active => DecayLevel::Hot,
+                _ => DecayLevel::Cold,
+            },
         }
-        _ => match zone {
-            FocusZone::Inside if was_active => DecayLevel::Hot,
-            _ => DecayLevel::Cold,
-        },
     };
     if matches!(target, DecayLevel::Cold) {
         crate::compositor::workspace::state::start_active_to_node_close_animation(st, id, now);

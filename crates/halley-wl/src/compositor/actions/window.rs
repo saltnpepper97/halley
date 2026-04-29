@@ -824,6 +824,9 @@ pub(crate) fn toggle_node_state(
 
     match n.state {
         halley_core::field::NodeState::Active => {
+            if st.is_fullscreen_session_node(id) {
+                return false;
+            }
             if crate::compositor::workspace::state::start_active_to_node_close_animation(
                 st, id, now,
             ) {
@@ -918,6 +921,34 @@ mod tests {
         assert_eq!(st.model.focus_state.primary_interaction_focus, Some(id));
         assert_eq!(st.model.viewport.center, before);
         assert!(st.input.interaction_state.viewport_pan_anim.is_none());
+    }
+
+    #[test]
+    fn toggle_node_state_does_not_collapse_fullscreen_surface() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let id = st.model.field.spawn_surface(
+            "game",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 800.0, y: 600.0 },
+        );
+        st.assign_node_to_monitor(id, "monitor_a");
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert("monitor_a".to_string(), id);
+
+        assert!(!toggle_node_state(&mut st, id, Instant::now(), "monitor_a"));
+        assert_eq!(
+            st.model.field.node(id).map(|n| n.state.clone()),
+            Some(halley_core::field::NodeState::Active)
+        );
+        assert!(
+            !st.model
+                .workspace_state
+                .manual_collapsed_nodes
+                .contains(&id)
+        );
     }
 
     #[test]
