@@ -151,6 +151,16 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     self.model.monitor_state.node_monitor.remove(&core_id);
                 }
                 for survivor in survivors {
+                    if self
+                        .model
+                        .workspace_state
+                        .pending_silent_close_until_ms
+                        .contains_key(&survivor)
+                        && let Some(node) = self.model.field.node_mut(survivor)
+                    {
+                        node.visibility
+                            .set(halley_core::field::Visibility::HIDDEN_BY_CLUSTER, true);
+                    }
                     let _ = self.model.field.set_detached(survivor, false);
                     if let Some(size) = self
                         .model

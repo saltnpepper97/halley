@@ -149,9 +149,18 @@ fn workspace_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
         .copied()
         .min()
         .filter(|&at_ms| at_ms > now_ms);
+    let pending_silent_close_until_ms = st
+        .model
+        .workspace_state
+        .pending_silent_close_until_ms
+        .values()
+        .copied()
+        .min()
+        .filter(|&at_ms| at_ms > now_ms);
     min_optional_deadlines([
         active_transition_until_ms,
         primary_promote_cooldown_until_ms,
+        pending_silent_close_until_ms,
     ])
 }
 
@@ -460,6 +469,25 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             .workspace_state
             .primary_promote_cooldown_until_ms
             .retain(|_, &mut until| until > now_ms);
+        let expired_silent_close = self
+            .model
+            .workspace_state
+            .pending_silent_close_until_ms
+            .iter()
+            .filter_map(|(&id, &until)| (until <= now_ms).then_some(id))
+            .collect::<Vec<_>>();
+        for id in expired_silent_close {
+            self.model
+                .workspace_state
+                .pending_silent_close_until_ms
+                .remove(&id);
+            if !self.model.field.is_cluster_member(id)
+                && let Some(node) = self.model.field.node_mut(id)
+            {
+                node.visibility
+                    .clear(halley_core::field::Visibility::HIDDEN_BY_CLUSTER);
+            }
+        }
         let alive_ids: std::collections::HashSet<_> =
             self.model.field.node_ids_all().into_iter().collect();
         self.model

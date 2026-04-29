@@ -275,6 +275,7 @@ impl Halley {
                     last_active_size: HashMap::new(),
                     manual_collapsed_nodes: HashSet::new(),
                     pending_manual_collapses: HashMap::new(),
+                    pending_silent_close_until_ms: HashMap::new(),
                     user_pinned_nodes: HashSet::new(),
                     active_transition_until_ms: HashMap::new(),
                     primary_promote_cooldown_until_ms: HashMap::new(),

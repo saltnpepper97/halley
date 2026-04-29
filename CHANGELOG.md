@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 - Treat pinning as a property of the active entity by transferring pinned state from windows into clusters and collapsed cluster cores, keeping pinned core visibility and IPC state consistent across create, absorb, collapse, expand, and dissolve flows.
 
 ### Fixed
+- Make close-focused target the currently focused item before surface history, silently closing every member of a focused collapsed cluster core without briefly revealing survivors or using stale cross-monitor fallback closes.
+- Make `input.focus-mode "hover"` focus collapsed cluster core nodes the same way it focuses regular windows and collapsed surface nodes.
 - Prevent fullscreen/game surfaces from being collapsed into nodes by automatic decay, active-window-limit pruning, carry previews, or manual collapse toggles while the fullscreen session is active or suspended.
 - Deep-merge unaliased `gather` config sections through `rune-cfg` 0.4.6 so gathered exact keys override local values without replacing unrelated local config keys.
 - Render configured window shadows for maximized windows instead of suppressing them during maximize sessions.
