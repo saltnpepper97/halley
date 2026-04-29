@@ -19,8 +19,8 @@ use crate::overlay::{
 use crate::window::{ActiveBorderRect, OffscreenNodeTexture};
 
 pub(crate) use cache::{
-    ClusterCoreIconCache, NodeAppIconCacheEntry, NodeAppIconTexture, RenderCacheState,
-    ScreenshotMenuIconCache,
+    ClusterCoreIconCache, NodeAppIconCacheEntry, NodeAppIconTexture, PinIconCache,
+    RenderCacheState, ScreenshotMenuIconCache,
 };
 pub(crate) use gpu::RenderGpuState;
 

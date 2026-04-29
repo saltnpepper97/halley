@@ -16,6 +16,7 @@ use super::super::cursor::draw_cursor_sprite;
 use super::super::cursor_theme::themed_cursor_sprite_with_fallback;
 use super::super::draw_primitives::{draw_outline_rect, draw_rect, draw_ring};
 use super::super::node::{draw_closing_node_markers, draw_node_hover_labels, draw_node_markers};
+use super::super::pin_icon::draw_pin_badges;
 use super::super::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
 use super::scene::{CursorScene, PreparedFrameState, SceneCollections};
 use crate::compositor::monitor::camera::camera_controller;
@@ -304,6 +305,8 @@ pub(super) fn draw_debug_frame_scene(
             &[prepared.damage],
         );
     }
+
+    draw_pin_badges(frame, st, &scene.pin_badges, prepared.damage)?;
 
     if !scene.layer_overlay_elements.is_empty() {
         let _ = draw_render_elements(

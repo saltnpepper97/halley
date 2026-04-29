@@ -841,6 +841,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
                 (id != node_id
                     && n.kind == halley_core::field::NodeKind::Surface
                     && self.model.field.is_visible(id)
+                    && !self.node_user_pinned(id)
                     && self
                         .model
                         .monitor_state

@@ -354,6 +354,7 @@ fn keybind_candidates() -> &'static [(&'static str, &'static str)] {
         ("alt+tab", "cycle-focus"),
         ("alt+shift+tab", "cycle-focus-backward"),
         ("$var.mod+m", "maximize-focused"),
+        ("$var.mod+p", "toggle-focused-pin"),
         ("$var.mod+1", "cluster slot 1"),
         ("$var.mod+2", "cluster slot 2"),
         ("$var.mod+3", "cluster slot 3"),

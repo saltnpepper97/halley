@@ -21,6 +21,7 @@ use super::node::{
     ensure_node_circle_resources, node_app_icon_texture_allowed,
     node_markers_need_app_icon_resources,
 };
+use super::pin_icon::ensure_pin_icon_resources;
 use super::screenshot_icon::ensure_screenshot_menu_icon_resources;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
@@ -189,6 +190,7 @@ pub(crate) fn draw_debug_frame_to_target(
         ensure_cluster_core_icon_resources(renderer, st)?;
     }
     ensure_screenshot_menu_icon_resources(renderer, st)?;
+    ensure_pin_icon_resources(renderer, st)?;
     let current_monitor = st.model.monitor_state.current_monitor.clone();
     if st.runtime.tuning.tile_queue_show_icons
         && node_app_icon_texture_allowed(st.runtime.tuning.node_show_app_icons, false)

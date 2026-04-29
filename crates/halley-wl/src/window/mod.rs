@@ -33,6 +33,7 @@ use crate::input::active_resize_geometry_screen;
 use crate::presentation::world_to_screen;
 
 use crate::render::clipped_surface::ClippedSurfaceRenderElement;
+use crate::render::pin_icon::PinBadgeLayout;
 use crate::render::surface_capture::render_surface_tree_to_texture;
 
 mod capture;
@@ -178,6 +179,7 @@ pub(crate) fn collect_active_surfaces(
     Vec<ActiveBorderRect>,
     Vec<ActiveBorderRect>,
     Vec<(i32, i32, i32, i32)>,
+    Vec<PinBadgeLayout>,
 ) {
     let mut active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let mut resized_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
@@ -254,6 +256,7 @@ pub(crate) fn collect_active_surfaces(
     let mut resized_border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut above_fullscreen_border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut overlap_overlay_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
+    let mut pin_badges: Vec<PinBadgeLayout> = Vec::new();
 
     let recent_top_node = st.recent_top_node_active(now);
     let has_persistent_rule_top = st
@@ -492,6 +495,21 @@ pub(crate) fn collect_active_surfaces(
             * stack_transition_pose.map(|pose| pose.alpha).unwrap_or(1.0)
             * tiling_tile_transition.map(|rect| rect.alpha).unwrap_or(1.0))
         .clamp(0.0, 1.0);
+        if st.node_user_pinned(node_id) && alpha > 0.01 {
+            let radius =
+                ((14.0 * render_scale.sqrt().clamp(0.85, 1.25)).round() as i32).clamp(10, 18);
+            let corner_outset = ((radius as f32) * 0.25).round() as i32;
+            let cx = match st.runtime.tuning.pins.corner {
+                halley_config::PinBadgeCorner::TopLeft => gx - corner_outset,
+                halley_config::PinBadgeCorner::TopRight => gx + gw.max(1) + corner_outset,
+            };
+            pin_badges.push(PinBadgeLayout {
+                cx,
+                cy: gy - corner_outset,
+                radius,
+                alpha,
+            });
+        }
         let decoration_metrics = if fullscreen_on_current_monitor {
             window_decoration_metrics(0, 0, 0, 0)
         } else {
@@ -1293,6 +1311,7 @@ pub(crate) fn collect_active_surfaces(
         resized_border_rects,
         above_fullscreen_border_rects,
         overlap_overlay_rects,
+        pin_badges,
     )
 }
 

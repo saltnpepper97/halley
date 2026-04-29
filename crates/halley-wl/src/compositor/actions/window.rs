@@ -199,6 +199,37 @@ fn focused_surface_node_for_action(st: &Halley, focused_monitor: &str) -> Option
         .or_else(|| st.last_focused_surface_node())
 }
 
+fn focused_node_for_pin_action(st: &Halley, focused_monitor: &str) -> Option<NodeId> {
+    st.focused_node_for_monitor(focused_monitor)
+        .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id))
+        .or(st
+            .model
+            .focus_state
+            .primary_interaction_focus
+            .filter(|&id| st.model.field.node(id).is_some() && st.model.field.is_visible(id)))
+        .or_else(|| latest_surface_node(st))
+}
+
+pub(crate) fn toggle_focused_pin_state(st: &mut Halley) -> bool {
+    let focused_monitor = st.focused_monitor().to_string();
+    let Some(id) = focused_node_for_pin_action(st, focused_monitor.as_str()) else {
+        return false;
+    };
+    let Some(node) = st.model.field.node(id) else {
+        return false;
+    };
+    if !matches!(
+        node.kind,
+        halley_core::field::NodeKind::Surface | halley_core::field::NodeKind::Core
+    ) || !st.model.field.is_visible(id)
+    {
+        return false;
+    }
+
+    let next = !st.node_user_pinned(id);
+    st.set_node_user_pinned(id, next)
+}
+
 fn field_viewport_for_monitor(st: &Halley, monitor: &str) -> halley_core::viewport::Viewport {
     if st.model.monitor_state.current_monitor == monitor {
         st.model.viewport
@@ -607,6 +638,7 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
             let node = st.model.field.node(other_id)?;
             (node.kind == halley_core::field::NodeKind::Surface
                 && st.model.field.is_visible(other_id)
+                && !st.node_user_pinned(other_id)
                 && st
                     .model
                     .monitor_state
@@ -690,11 +722,13 @@ pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
     let Some(n) = st.model.field.node(id) else {
         return false;
     };
+    if n.pinned {
+        return false;
+    }
     let to = halley_core::field::Vec2 {
         x: n.pos.x + dx,
         y: n.pos.y + dy,
     };
-    let _ = st.model.field.set_pinned(id, false);
     crate::compositor::carry::system::begin_carry_state_tracking(st, id);
     if st.carry_surface_non_overlap(id, to, false) {
         crate::compositor::carry::system::update_carry_state_preview(st, id, Instant::now());
@@ -832,8 +866,8 @@ pub(crate) fn toggle_node_state(
 #[cfg(test)]
 mod tests {
     use super::{
-        focus_surface_node_without_reveal, maximize_target_for_monitor, toggle_node_maximize_state,
-        toggle_node_state,
+        focus_surface_node_without_reveal, maximize_target_for_monitor, toggle_focused_pin_state,
+        toggle_node_maximize_state, toggle_node_state,
     };
     use crate::compositor::root::Halley;
     use crate::window::active_window_frame_pad_px;
@@ -884,6 +918,56 @@ mod tests {
         assert_eq!(st.model.focus_state.primary_interaction_focus, Some(id));
         assert_eq!(st.model.viewport.center, before);
         assert!(st.input.interaction_state.viewport_pan_anim.is_none());
+    }
+
+    #[test]
+    fn toggle_focused_pin_state_toggles_user_pin_and_movement_lock() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let id = st.model.field.spawn_surface(
+            "app",
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, "monitor_a");
+        st.set_interaction_focus(Some(id), 30_000, Instant::now());
+
+        assert!(toggle_focused_pin_state(&mut st));
+        assert!(st.node_user_pinned(id));
+        assert!(st.model.field.node(id).expect("node").pinned);
+
+        assert!(toggle_focused_pin_state(&mut st));
+        assert!(!st.node_user_pinned(id));
+        assert!(!st.model.field.node(id).expect("node").pinned);
+    }
+
+    #[test]
+    fn pinned_surface_can_still_toggle_maximize() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let id = st.model.field.spawn_surface(
+            "app",
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, "monitor_a");
+
+        assert!(st.set_node_user_pinned(id, true));
+        assert!(toggle_node_maximize_state(
+            &mut st,
+            id,
+            Instant::now(),
+            "monitor_a"
+        ));
+
+        let (target_pos, target_size) = maximize_target_for_monitor(&st, "monitor_a");
+        let node = st.model.field.node(id).expect("node");
+        assert_eq!(node.pos, target_pos);
+        assert_eq!(node.intrinsic_size, target_size);
+        assert!(st.node_user_pinned(id));
+        assert!(node.pinned);
     }
 
     #[test]

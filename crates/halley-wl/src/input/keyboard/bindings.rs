@@ -3,7 +3,7 @@ use eventline::{debug, info, warn};
 use super::modkeys::{key_matches, modifier_exact};
 use crate::compositor::actions::window::{
     move_latest_node_direction, toggle_focused_active_node_state,
-    toggle_focused_maximize_node_state,
+    toggle_focused_maximize_node_state, toggle_focused_pin_state,
 };
 use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ModState;
@@ -200,6 +200,7 @@ pub(crate) fn apply_compositor_action_press(
             }
         }
         CompositorBindingAction::MaximizeFocusedWindow => toggle_focused_maximize_node_state(st),
+        CompositorBindingAction::ToggleFocusedPin => toggle_focused_pin_state(st),
         CompositorBindingAction::CloseFocusedWindow => request_close_focused_toplevel(st),
         CompositorBindingAction::ClusterMode => st.enter_cluster_mode(),
         CompositorBindingAction::FocusCycle(direction) => {
@@ -344,6 +345,7 @@ pub(crate) fn apply_bound_key(
             | CompositorBindingAction::OpenTerminal
             | CompositorBindingAction::ToggleState
             | CompositorBindingAction::MaximizeFocusedWindow
+            | CompositorBindingAction::ToggleFocusedPin
             | CompositorBindingAction::CloseFocusedWindow
             | CompositorBindingAction::ClusterMode
             | CompositorBindingAction::FocusCycle(_)

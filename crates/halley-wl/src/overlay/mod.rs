@@ -37,11 +37,8 @@ pub(crate) use state::{
 };
 #[cfg(test)]
 use style::color_luminance;
-pub(crate) use style::overlay_fill_and_text_colors;
-use style::{
-    OverlayVisuals, overlay_accent_fill, overlay_text_color_for_fill, overlay_text_mix,
-    resolve_overlay_visuals,
-};
+use style::{OverlayVisuals, overlay_accent_fill, overlay_text_mix, resolve_overlay_visuals};
+pub(crate) use style::{overlay_fill_and_text_colors, overlay_text_color_for_fill};
 pub(crate) use view::OverlayView;
 
 const BANNER_PAD_X: i32 = 14;

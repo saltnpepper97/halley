@@ -145,7 +145,6 @@ pub(crate) fn begin_carry_state_tracking(st: &mut Halley, id: NodeId) {
     }
     st.input.interaction_state.suspend_overlap_resolve = false;
     st.input.interaction_state.suspend_state_checks = false;
-    let _ = st.model.field.set_pinned(id, false);
 
     if let Some(n) = st.model.field.node(id) {
         st.model
@@ -179,6 +178,10 @@ pub(crate) fn end_carry_state_tracking(st: &mut Halley, id: NodeId) {
     st.model.carry_state.carry_state_hold.remove(&id);
     st.input.interaction_state.suspend_overlap_resolve = false;
     st.input.interaction_state.suspend_state_checks = false;
+    let _ = st
+        .model
+        .field
+        .set_pinned(id, st.node_user_pinned(id) || st.node_session_pinned(id));
     clear_direct_carry_nodes(st);
     st.request_maintenance();
 }

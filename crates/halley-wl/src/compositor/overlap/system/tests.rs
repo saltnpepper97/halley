@@ -67,6 +67,81 @@ fn resolve_surface_overlap_separates_windows_when_physics_disabled() {
 }
 
 #[test]
+fn pinned_node_is_not_displaced_by_overlap_and_unpin_restores_motion() {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let pinned = state.model.field.spawn_surface(
+        "pinned",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let other = state.model.field.spawn_surface(
+        "other",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    assert!(state.set_node_user_pinned(pinned, true));
+
+    state.resolve_surface_overlap();
+
+    assert_eq!(
+        state.model.field.node(pinned).expect("pinned").pos,
+        Vec2 { x: 0.0, y: 0.0 }
+    );
+    assert_ne!(
+        state.model.field.node(other).expect("other").pos,
+        Vec2 { x: 0.0, y: 0.0 }
+    );
+
+    assert!(state.set_node_user_pinned(pinned, false));
+    state.model.field.node_mut(pinned).expect("pinned").pos = Vec2 { x: 0.0, y: 0.0 };
+    state.model.field.node_mut(other).expect("other").pos = Vec2 { x: 0.0, y: 0.0 };
+    state.resolve_surface_overlap();
+
+    assert_ne!(
+        state.model.field.node(pinned).expect("pinned").pos,
+        Vec2 { x: 0.0, y: 0.0 }
+    );
+}
+
+#[test]
+fn physics_carry_clamps_mover_against_pinned_neighbor_immediately() {
+    let tuning = halley_config::RuntimeTuning::default();
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let pinned = state.model.field.spawn_surface(
+        "pinned",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let mover = state.model.field.spawn_surface(
+        "mover",
+        Vec2 { x: 800.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    assert!(state.set_node_user_pinned(pinned, true));
+
+    assert!(state.carry_surface_non_overlap(mover, Vec2 { x: 0.0, y: 0.0 }, false));
+
+    assert_eq!(
+        state.model.field.node(pinned).expect("pinned").pos,
+        Vec2 { x: 0.0, y: 0.0 }
+    );
+    assert!(
+        !nodes_overlap(&state, pinned, mover),
+        "mover should bump against pinned neighbor without an overlap frame"
+    );
+}
+
+#[test]
 fn collapsed_surface_nodes_use_marker_collision_extents() {
     let tuning = halley_config::RuntimeTuning::default();
     let dh = smithay::reexports::wayland_server::Display::<Halley>::new()

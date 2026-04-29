@@ -124,8 +124,19 @@ field:
   active-windows-allowed 5
   # How aggressively the camera pans to newly opened windows.
   pan-to-new "if-needed"
+  # Pinned windows/nodes stay locked in place and remain visible in Bearings.
+  pins:
+    corner "top-right"
+    colour "auto"
+  end
   close-restore-focus true
   close-restore-pan "if-offscreen"
+
+   pins:
+    corner "top-right"
+    colour "#d65d26"
+    size 18
+  end
 
   zoom:
     enabled true
@@ -185,6 +196,7 @@ end
 bearings:
   show-distance true
   show-icons true
+  show-pinned true
   fade-distance 1200
 end
 
@@ -322,6 +334,7 @@ keybinds:
   "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
   "$var.mod+m" "maximize-focused"
+  "$var.mod+p" "toggle-focused-pin"
   "$var.mod+q" "close-focused"
 
   # Zoom controls for the field camera.

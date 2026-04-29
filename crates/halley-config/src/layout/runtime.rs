@@ -15,8 +15,8 @@ use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
     DecorationsConfig, FocusRingConfig, FontConfig, InputConfig, NodeBackgroundColorMode,
-    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, ScreenshotConfig,
-    ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
+    ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Debug)]
@@ -65,6 +65,7 @@ pub struct RuntimeTuning {
     pub non_overlap_gap_px: f32,
     pub field_active_windows_allowed: usize,
     pub pan_to_new: PanToNewMode,
+    pub pins: PinsConfig,
     pub close_restore_focus: bool,
     pub close_restore_pan: CloseRestorePanMode,
     pub zoom_enabled: bool,
@@ -427,6 +428,11 @@ field:
   active-windows-allowed 5
   # How aggressively the camera pans to newly opened windows.
   pan-to-new "if-needed"
+  # Pinned windows/nodes stay locked in place and remain visible in Bearings.
+  pins:
+    corner "top-right"
+    colour "auto"
+  end
   close-restore-focus true
   close-restore-pan "if-offscreen"
 
@@ -489,6 +495,7 @@ end
 bearings:
   show-distance true
   show-icons true
+  show-pinned true
   fade-distance 1200
 end
 
@@ -626,6 +633,7 @@ keybinds:
   "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
   "$var.mod+m" "maximize-focused"
+  "$var.mod+p" "toggle-focused-pin"
   "$var.mod+q" "close-focused"
 
   # Zoom controls for the field camera.

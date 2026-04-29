@@ -274,6 +274,7 @@ impl Halley {
                     last_active_size: HashMap::new(),
                     manual_collapsed_nodes: HashSet::new(),
                     pending_manual_collapses: HashMap::new(),
+                    user_pinned_nodes: HashSet::new(),
                     active_transition_until_ms: HashMap::new(),
                     primary_promote_cooldown_until_ms: HashMap::new(),
                     maximize_sessions: HashMap::new(),
@@ -435,6 +436,58 @@ impl Halley {
 
     pub(crate) fn apply_aperture_config(&mut self, config: crate::aperture::core::ApertureConfig) {
         self.aperture.apply_config(config);
+    }
+
+    pub(crate) fn node_user_pinned(&self, id: NodeId) -> bool {
+        self.model.workspace_state.user_pinned_nodes.contains(&id)
+    }
+
+    pub(crate) fn set_node_user_pinned(&mut self, id: NodeId, pinned: bool) -> bool {
+        if self.model.field.node(id).is_none() {
+            return false;
+        }
+        if pinned {
+            self.model.workspace_state.user_pinned_nodes.insert(id);
+            let _ = self.model.field.set_pinned(id, true);
+        } else {
+            self.model.workspace_state.user_pinned_nodes.remove(&id);
+            let _ = self
+                .model
+                .field
+                .set_pinned(id, self.node_session_pinned(id));
+        }
+        true
+    }
+
+    pub(crate) fn node_session_pinned(&self, id: NodeId) -> bool {
+        if self
+            .model
+            .workspace_state
+            .maximize_sessions
+            .values()
+            .any(|session| {
+                session.state == crate::compositor::workspace::state::MaximizeSessionState::Active
+                    && session.node_snapshots.contains_key(&id)
+            })
+        {
+            return true;
+        }
+
+        let Some(entry) = self.model.fullscreen_state.fullscreen_restore.get(&id) else {
+            return false;
+        };
+        let node_monitor = self
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
+        self.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .contains_key(&node_monitor)
+            || entry.pinned
     }
 
     pub(crate) fn aperture_config(&self) -> &crate::aperture::core::ApertureConfig {

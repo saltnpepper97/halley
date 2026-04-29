@@ -16,7 +16,7 @@ use smithay::{
 };
 
 use crate::compositor::root::Halley;
-use halley_config::{NodeBackgroundColorMode, NodeDisplayPolicy, ShapeStyle};
+use halley_config::{NodeBackgroundColorMode, NodeDisplayPolicy, PinBadgeCorner, ShapeStyle};
 
 use super::log_rounded_shader_failure;
 use crate::animation::ease_in_out_cubic;
@@ -26,6 +26,7 @@ use crate::presentation::{
     themed_node_label_fill_color, themed_node_label_text_color, themed_node_ring_color,
     world_to_screen,
 };
+use crate::render::pin_icon::{PinBadgeLayout, draw_pin_badge};
 use crate::render::shadow::draw_shadow_rect;
 use crate::render::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
 use crate::text::{draw_ui_text, ui_text_size};
@@ -161,7 +162,7 @@ pub(crate) fn ensure_node_circle_resources(
     Ok(())
 }
 
-fn draw_shader_circle(
+pub(crate) fn draw_shader_circle(
     frame: &mut GlesFrame<'_, '_>,
     st: &Halley,
     cx: i32,
@@ -240,7 +241,7 @@ fn draw_shader_circle(
 }
 
 #[derive(Clone, Copy)]
-enum NodeRoundShape {
+pub(crate) enum NodeRoundShape {
     Circle,
     Square,
     Squircle,
@@ -778,6 +779,25 @@ pub(crate) fn draw_node_markers(
                     damage,
                 )?;
             }
+        }
+        if st.node_user_pinned(id) {
+            let offset = ((render_radius as f32) * 0.78).round() as i32;
+            let cx = match st.runtime.tuning.pins.corner {
+                PinBadgeCorner::TopLeft => sx - offset,
+                PinBadgeCorner::TopRight => sx + offset,
+            };
+            let cy = sy - offset;
+            draw_pin_badge(
+                frame,
+                st,
+                PinBadgeLayout {
+                    cx,
+                    cy,
+                    radius: (render_radius / 3).clamp(7, 12),
+                    alpha: dot_alpha,
+                },
+                damage,
+            )?;
         }
     }
     Ok(())

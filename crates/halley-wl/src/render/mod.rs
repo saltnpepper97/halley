@@ -9,6 +9,7 @@ mod frame;
 mod icon_tint;
 pub mod layer_shell;
 mod node;
+pub(crate) mod pin_icon;
 mod screenshot_icon;
 pub(crate) mod shadow;
 pub(crate) mod state;

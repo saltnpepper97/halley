@@ -11,6 +11,7 @@ pub(crate) struct WorkspaceState {
     pub(crate) primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
     pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
     pub(crate) pending_manual_collapses: HashMap<NodeId, u64>,
+    pub(crate) user_pinned_nodes: HashSet<NodeId>,
     pub(crate) maximize_sessions: HashMap<String, MaximizeSession>,
     pub(crate) maximize_animation: HashMap<NodeId, MaximizeAnimation>,
     pub(crate) maximize_resume: HashMap<NodeId, String>,

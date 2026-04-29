@@ -1,7 +1,8 @@
+use std::collections::HashSet;
 use std::error::Error;
 
 use halley_core::{
-    bearings::{Bearing, bearings_for_visible_nodes},
+    bearings::{Bearing, bearing_to_point, bearings_for_visible_nodes},
     field::{NodeId, Vec2},
     viewport::Viewport,
 };
@@ -17,6 +18,7 @@ use crate::compositor::root::Halley;
 use crate::overlay::overlay_fill_and_text_colors;
 use crate::render::app_icon::{ensure_app_icon_resources_for_node_ids, node_app_icon_entry};
 use crate::render::draw_primitives::draw_rect;
+use crate::render::pin_icon::{PinBadgeLayout, draw_pin_badge};
 use crate::render::state::NodeAppIconCacheEntry;
 use crate::render::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
 use crate::text::{draw_ui_text, prime_ui_text, ui_text_size};
@@ -30,6 +32,7 @@ pub(crate) struct BearingChipLayout {
     pub(crate) distance_text: Option<String>,
     pub(crate) distance_rect: Option<Rectangle<i32, Physical>>,
     pub(crate) distance_pos: Option<(i32, i32)>,
+    pub(crate) pinned: bool,
     pub(crate) alpha: f32,
 }
 
@@ -40,6 +43,8 @@ const LABEL_SCALE: i32 = 2;
 const META_SCALE: i32 = 2;
 const ICON_SIZE: i32 = 16;
 const ICON_TEXT_GAP: i32 = 6;
+const PIN_BADGE_RADIUS: i32 = 7;
+const PIN_BADGE_GAP: i32 = 7;
 const DISTANCE_GAP: i32 = 4;
 const META_PAD_X: i32 = 7;
 const META_PAD_Y: i32 = 4;
@@ -124,6 +129,7 @@ struct BearingCandidate {
     distance: f32,
     label: String,
     size: BearingSize,
+    pinned: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -134,6 +140,7 @@ struct BearingGroup {
     label: String,
     distance: f32,
     size: BearingSize,
+    pinned: bool,
     alpha: f32,
 }
 
@@ -149,9 +156,20 @@ pub(crate) fn ensure_bearing_icon_resources(
     }
 
     let viewport = bearings_viewport_for_monitor(st, monitor);
-    let node_ids = bearings_for_visible_nodes(&st.model.field, &viewport)
+    let mut node_ids = bearings_for_visible_nodes(&st.model.field, &viewport)
         .into_iter()
-        .filter_map(|(id, _)| {
+        .map(|(id, _)| id)
+        .collect::<Vec<_>>();
+    if st.runtime.tuning.bearings.show_pinned {
+        for id in &st.model.workspace_state.user_pinned_nodes {
+            if !node_ids.contains(id) {
+                node_ids.push(*id);
+            }
+        }
+    }
+    let node_ids = node_ids
+        .into_iter()
+        .filter_map(|id| {
             let node = st.model.field.node(id)?;
             (node.kind == halley_core::field::NodeKind::Surface
                 && st
@@ -181,11 +199,40 @@ pub(crate) fn collect_bearing_layouts(
 
     let viewport = bearings_viewport_for_monitor(st, monitor);
     let mut candidates = Vec::new();
-    for (id, bearing) in bearings_for_visible_nodes(&st.model.field, &viewport) {
+    let mut seen = HashSet::new();
+    let mut bearing_nodes = bearings_for_visible_nodes(&st.model.field, &viewport)
+        .into_iter()
+        .map(|(id, bearing)| {
+            seen.insert(id);
+            (id, bearing, st.node_user_pinned(id))
+        })
+        .collect::<Vec<_>>();
+    if st.runtime.tuning.bearings.show_pinned {
+        for id in &st.model.workspace_state.user_pinned_nodes {
+            if seen.contains(id) {
+                continue;
+            }
+            let Some(node) = st.model.field.node(*id) else {
+                continue;
+            };
+            if !st.model.field.participates_in_field_view(*id) || !st.model.field.is_visible(*id) {
+                continue;
+            }
+            let Some(bearing) = bearing_to_point(&viewport, node.pos) else {
+                continue;
+            };
+            bearing_nodes.push((*id, bearing, true));
+        }
+    }
+
+    for (id, bearing, pinned) in bearing_nodes {
         let Some(node) = st.model.field.node(id) else {
             continue;
         };
-        if node.kind != halley_core::field::NodeKind::Surface {
+        if !matches!(
+            node.kind,
+            halley_core::field::NodeKind::Surface | halley_core::field::NodeKind::Core
+        ) {
             continue;
         }
         if st
@@ -217,6 +264,7 @@ pub(crate) fn collect_bearing_layouts(
             label.as_str(),
             st.runtime.tuning.bearings.show_icons,
             distance_text.as_deref(),
+            pinned,
         );
 
         candidates.push(BearingCandidate {
@@ -226,6 +274,7 @@ pub(crate) fn collect_bearing_layouts(
             distance,
             label,
             size,
+            pinned,
         });
     }
 
@@ -420,6 +469,22 @@ pub(crate) fn draw_bearings(
                 chip_text_color,
             )?;
         }
+
+        if layout.pinned {
+            draw_pin_badge(
+                frame,
+                st,
+                PinBadgeLayout {
+                    cx: layout.chip_rect.loc.x + layout.chip_rect.size.w
+                        - CHIP_PAD_X
+                        - PIN_BADGE_RADIUS,
+                    cy: layout.chip_rect.loc.y + layout.chip_rect.size.h / 2,
+                    radius: PIN_BADGE_RADIUS,
+                    alpha: layout.alpha,
+                },
+                damage,
+            )?;
+        }
     }
 
     Ok(())
@@ -452,6 +517,7 @@ fn group_lane_candidates(
 
 fn finalize_group(st: &Halley, members: Vec<BearingCandidate>, ui_mix: f32) -> BearingGroup {
     let member_count = members.len();
+    let pinned = members.iter().any(|member| member.pinned);
     let lane = members[0].lane;
     let nearest = members
         .iter()
@@ -484,8 +550,13 @@ fn finalize_group(st: &Halley, members: Vec<BearingCandidate>, ui_mix: f32) -> B
         label.as_str(),
         member_count == 1 && st.runtime.tuning.bearings.show_icons,
         distance_text.as_deref(),
+        pinned,
     );
-    let distance_fade = bearing_distance_alpha(st.runtime.tuning.bearings.fade_distance, distance);
+    let distance_fade = if pinned {
+        1.0
+    } else {
+        bearing_distance_alpha(st.runtime.tuning.bearings.fade_distance, distance)
+    };
 
     BearingGroup {
         lane,
@@ -494,6 +565,7 @@ fn finalize_group(st: &Halley, members: Vec<BearingCandidate>, ui_mix: f32) -> B
         label,
         distance,
         size,
+        pinned,
         alpha: (ui_mix * distance_fade).clamp(0.0, 1.0),
     }
 }
@@ -645,6 +717,7 @@ fn build_layout_from_group(
         distance_text,
         distance_rect,
         distance_pos,
+        pinned: group.pinned,
         alpha: group.alpha,
     }
 }
@@ -654,6 +727,7 @@ fn bearing_size(
     label: &str,
     show_icon: bool,
     distance_text: Option<&str>,
+    pinned: bool,
 ) -> BearingSize {
     let (label_w, label_h) = ui_text_size(st, label, LABEL_SCALE);
     let icon_gap = if show_icon {
@@ -661,7 +735,12 @@ fn bearing_size(
     } else {
         0
     };
-    let chip_w = (CHIP_PAD_X * 2 + icon_gap + label_w).max(44);
+    let pin_gap = if pinned {
+        PIN_BADGE_RADIUS * 2 + PIN_BADGE_GAP
+    } else {
+        0
+    };
+    let chip_w = (CHIP_PAD_X * 2 + icon_gap + label_w + pin_gap).max(44);
     let chip_h = (CHIP_PAD_Y * 2 + label_h.max(if show_icon { ICON_SIZE } else { 0 })).max(24);
     let (distance_rect_w, distance_rect_h, distance_block_h) = distance_text
         .map(|text| {
@@ -930,6 +1009,34 @@ mod tests {
             bearing_distance_alpha(fade_distance, fade_distance * 2.0),
             0.0
         );
+    }
+
+    #[test]
+    fn pinned_far_offscreen_node_stays_in_bearings() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        st.runtime.tuning.bearings.fade_distance = 100.0;
+        let id = st.model.field.spawn_surface(
+            "pinned",
+            halley_core::field::Vec2 {
+                x: 10_000.0,
+                y: 0.0,
+            },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, "default");
+
+        assert!(collect_bearing_layouts(&st, 1920, 1080, "default", 1.0).is_empty());
+
+        assert!(st.set_node_user_pinned(id, true));
+        let layouts = collect_bearing_layouts(&st, 1920, 1080, "default", 1.0);
+
+        assert_eq!(layouts.len(), 1);
+        assert_eq!(layouts[0].node_id, id);
+        assert!(layouts[0].pinned);
+        assert!(layouts[0].alpha > 0.99);
     }
 }
 

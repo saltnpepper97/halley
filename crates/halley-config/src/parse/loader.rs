@@ -70,25 +70,7 @@ impl RuntimeTuning {
             eprintln!("halley config rules parse error: {err}");
             return None;
         }
-        load_env_section(cfg, &mut out);
-        load_input_section(cfg, &mut out);
-        load_cursor_section(cfg, &mut out);
-        load_font_section(cfg, &mut out);
-        load_viewport_section(cfg, &mut out);
-        load_focus_ring_section(cfg, &mut out);
-        load_bearings_section(cfg, &mut out);
-        load_trail_section(cfg, &mut out);
-        load_nodes_section(cfg, &mut out);
-        load_clusters_section(cfg, &mut out);
-        load_tile_section(cfg, &mut out);
-        load_stacking_section(cfg, &mut out);
-        load_decay_section(cfg, &mut out);
-        load_field_section(cfg, &mut out);
-        load_physics_section(cfg, &mut out);
-        load_decorations_section(cfg, &mut out);
-        load_animations_section(cfg, &mut out);
-        load_overlays_section(cfg, &mut out);
-        load_screenshot_section(cfg, &mut out);
+        load_config_sections(cfg, &mut out);
         if let Err(err) = load_keybind_sections(cfg, &mut out) {
             eprintln!("halley config keybind parse error: {err}");
             return None;
@@ -103,6 +85,28 @@ impl RuntimeTuning {
 
         Some(out)
     }
+}
+
+fn load_config_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
+    load_env_section(cfg, out);
+    load_input_section(cfg, out);
+    load_cursor_section(cfg, out);
+    load_font_section(cfg, out);
+    load_viewport_section(cfg, out);
+    load_focus_ring_section(cfg, out);
+    load_bearings_section(cfg, out);
+    load_trail_section(cfg, out);
+    load_nodes_section(cfg, out);
+    load_clusters_section(cfg, out);
+    load_tile_section(cfg, out);
+    load_stacking_section(cfg, out);
+    load_decay_section(cfg, out);
+    load_field_section(cfg, out);
+    load_physics_section(cfg, out);
+    load_decorations_section(cfg, out);
+    load_animations_section(cfg, out);
+    load_overlays_section(cfg, out);
+    load_screenshot_section(cfg, out);
 }
 
 pub fn from_rune_file(path: &str) -> Option<RuntimeTuning> {
