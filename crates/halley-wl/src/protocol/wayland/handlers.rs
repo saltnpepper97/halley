@@ -116,6 +116,10 @@ impl CompositorHandler for Halley {
         on_commit_buffer_handler::<Self>(surface);
         self.install_drm_syncobj_blocker(surface);
         self.platform.popup_manager.commit(surface);
+        if crate::render::handle_cursor_surface_commit(&self.platform.cursor_image_status, surface)
+        {
+            self.request_maintenance();
+        }
         workspace::lifecycle::on_surface_commit(
             &mut self.surface_lifecycle_ctx(),
             surface,

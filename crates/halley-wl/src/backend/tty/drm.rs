@@ -1195,8 +1195,6 @@ pub(crate) fn queue_tty_drm_frame(
                 resize_preview,
                 hover_node,
                 preview_hover_node,
-                local_cursor,
-                cursor_image,
             )
         }) {
             None => st
@@ -1606,13 +1604,19 @@ fn fullscreen_root_surface_for_node(
 fn monitor_has_blocking_layer_shell_surfaces(st: &Halley, monitor: &str) -> bool {
     crate::compositor::monitor::layer_shell::layer_shell_placements_for_monitor(st, monitor)
         .into_iter()
-        .any(|placement| {
-            matches!(
-                placement.layer,
-                smithay::wayland::shell::wlr_layer::Layer::Top
-                    | smithay::wayland::shell::wlr_layer::Layer::Overlay
-            )
-        })
+        .any(|placement| layer_surface_blocks_direct_scanout(placement.layer, placement.size))
+}
+
+fn layer_surface_blocks_direct_scanout(
+    layer: smithay::wayland::shell::wlr_layer::Layer,
+    size: Size<i32, smithay::utils::Logical>,
+) -> bool {
+    matches!(
+        layer,
+        smithay::wayland::shell::wlr_layer::Layer::Top
+            | smithay::wayland::shell::wlr_layer::Layer::Overlay
+    ) && size.w > 1
+        && size.h > 1
 }
 
 fn fullscreen_direct_scanout_candidate(
@@ -1623,8 +1627,6 @@ fn fullscreen_direct_scanout_candidate(
     resize_preview: Option<ResizeCtx>,
     hover_node: Option<halley_core::field::NodeId>,
     preview_hover_node: Option<halley_core::field::NodeId>,
-    local_cursor: Option<(f32, f32)>,
-    cursor_image: Option<&CursorImageStatus>,
 ) -> Option<Result<FullscreenDirectScanoutCandidate, (halley_core::field::NodeId, String)>> {
     let node_id = *st
         .model
@@ -1664,11 +1666,6 @@ fn fullscreen_direct_scanout_candidate(
     if st.should_draw_focus_ring_preview(Instant::now()) {
         return Some(blocked("focus preview is active"));
     }
-    if local_cursor.is_some() && matches!(cursor_image, Some(CursorImageStatus::Surface(_))) {
-        return Some(blocked(
-            "client surface cursor requires composited fullscreen fallback",
-        ));
-    }
     if monitor_has_blocking_layer_shell_surfaces(st, output_name) {
         return Some(blocked(
             "top/overlay layer-shell surfaces are present on the output",
@@ -1695,4 +1692,39 @@ fn fullscreen_direct_scanout_candidate(
     }
 
     Some(Ok(FullscreenDirectScanoutCandidate { node_id, surface }))
+}
+
+#[cfg(test)]
+mod tests {
+    use smithay::wayland::shell::wlr_layer::Layer;
+
+    use super::*;
+
+    #[test]
+    fn placeholder_top_layer_does_not_block_direct_scanout() {
+        assert!(!layer_surface_blocks_direct_scanout(
+            Layer::Top,
+            (1, 1).into()
+        ));
+    }
+
+    #[test]
+    fn visible_top_or_overlay_layer_blocks_direct_scanout() {
+        assert!(layer_surface_blocks_direct_scanout(
+            Layer::Top,
+            (2, 2).into()
+        ));
+        assert!(layer_surface_blocks_direct_scanout(
+            Layer::Overlay,
+            (1920, 1080).into()
+        ));
+    }
+
+    #[test]
+    fn background_layers_do_not_block_direct_scanout() {
+        assert!(!layer_surface_blocks_direct_scanout(
+            Layer::Background,
+            (1920, 1080).into()
+        ));
+    }
 }

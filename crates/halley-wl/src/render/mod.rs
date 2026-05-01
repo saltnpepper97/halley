@@ -35,7 +35,7 @@ pub(crate) fn log_rounded_shader_failure(
 
 pub(crate) use bearings::bearing_hit_test;
 pub(crate) use cluster_icon::cluster_core_icon_texture;
-pub(crate) use cursor::cursor_surface_hotspot;
+pub(crate) use cursor::{cursor_surface_hotspot, handle_cursor_surface_commit};
 pub(crate) use cursor_theme::themed_cursor_sprite_with_fallback;
 pub(crate) use frame::{
     draw_debug_frame, draw_debug_frame_to_target, draw_offscreen_textures, draw_window_borders,

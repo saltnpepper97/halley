@@ -24,6 +24,7 @@ pub(crate) struct LayerPlacement {
     pub wl_surface: WlSurface,
     pub layer: Layer,
     pub origin: Point<i32, Logical>,
+    pub size: Size<i32, Logical>,
     pub keyboard_interactivity: KeyboardInteractivity,
 }
 
@@ -463,11 +464,12 @@ pub(crate) fn layer_shell_placements_for_monitor(
             continue;
         }
         let data = layer_cached_state(&surface);
-        let (origin, _) = compute_layer_placement(output_rect, &mut zone, data);
+        let (origin, size) = compute_layer_placement(output_rect, &mut zone, data);
         placements.push(LayerPlacement {
             wl_surface: surface.wl_surface().clone(),
             layer: data.layer,
             origin,
+            size,
             keyboard_interactivity: data.keyboard_interactivity,
         });
     }

@@ -11,6 +11,7 @@ use smithay::{
             DisplayHandle, Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
         },
     },
+    utils::IsAlive,
     wayland::{
         compositor::{CompositorState, add_blocker, with_states},
         cursor_shape::CursorShapeManagerState,
@@ -186,6 +187,11 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         && pointer_has_client_focus
     {
         return CursorImageStatus::Hidden;
+    }
+
+    if matches!(&st.platform.cursor_image_status, CursorImageStatus::Surface(surface) if !surface.alive())
+    {
+        return CursorImageStatus::default_named();
     }
 
     st.input
