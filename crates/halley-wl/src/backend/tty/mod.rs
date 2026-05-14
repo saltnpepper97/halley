@@ -1599,6 +1599,23 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
                     InputEvent::PointerMotion { event } => {
                         let tuning = st.runtime.tuning.clone();
+                        let (ws_w, ws_h) = backend_handle.window_size_i32();
+                        if let Some((hint_sx, hint_sy)) =
+                            crate::compositor::interaction::state::take_pointer_screen_hint_request(
+                                st,
+                            )
+                        {
+                            let mut ps = pointer_state_for_input.borrow_mut();
+                            ps.workspace_size = (ws_w, ws_h);
+                            ps.screen = (hint_sx, hint_sy);
+                            ps.world = crate::spatial::screen_to_world(
+                                st,
+                                ws_w.max(1),
+                                ws_h.max(1),
+                                hint_sx,
+                                hint_sy,
+                            );
+                        }
                         let (last_sx, last_sy) = pointer_state_for_input.borrow().screen;
                         let sx = last_sx + event.delta_x() as f32;
                         let sy = last_sy + event.delta_y() as f32;
@@ -1618,7 +1635,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             debug!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
                         }
-                        let (ws_w, ws_h) = backend_handle.window_size_i32();
                         let input_ctx = InputCtx {
                             mod_state: &mod_state_for_input,
                             pointer_state: &pointer_state_for_input,

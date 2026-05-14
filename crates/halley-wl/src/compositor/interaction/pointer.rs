@@ -8,7 +8,7 @@ use smithay::input::pointer::{CursorIcon, MotionEvent, PointerHandle};
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::{
-    compositor::get_parent,
+    compositor::{RegionAttributes, get_parent},
     pointer_constraints::{PointerConstraint, with_pointer_constraint},
 };
 
@@ -39,6 +39,13 @@ pub(crate) struct HitNode {
     pub(crate) node_id: NodeId,
     pub(crate) move_surface: bool,
     pub(crate) is_core: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ActivePointerConstraint {
+    pub(crate) surface: WlSurface,
+    pub(crate) locked: bool,
+    pub(crate) region: Option<RegionAttributes>,
 }
 
 pub(crate) const CORE_BLOOM_HOLD_MS: u64 = 1_700;
@@ -120,7 +127,11 @@ pub(crate) fn set_temporary_cursor_override_icon(
     st.request_maintenance();
 }
 
-pub(crate) fn activate_pointer_constraint_for_surface(st: &mut Halley, surface: &WlSurface) {
+pub(crate) fn activate_pointer_constraint_for_surface_at(
+    st: &mut Halley,
+    surface: &WlSurface,
+    surface_origin: Option<smithay::utils::Point<f64, smithay::utils::Logical>>,
+) {
     let Some(pointer) = st.platform.seat.get_pointer() else {
         return;
     };
@@ -130,6 +141,12 @@ pub(crate) fn activate_pointer_constraint_for_surface(st: &mut Halley, surface: 
             if let Some(constraint) = constraint
                 && !constraint.is_active()
             {
+                if let (Some(region), Some(origin)) = (constraint.region(), surface_origin) {
+                    let pos_within_surface = pointer.current_location() - origin;
+                    if !region.contains(pos_within_surface.to_i32_round()) {
+                        return false;
+                    }
+                }
                 constraint.activate();
                 true
             } else {
@@ -346,19 +363,27 @@ pub(crate) fn release_active_pointer_constraint(st: &mut Halley) -> bool {
 }
 
 pub(crate) fn active_constrained_pointer_surface(st: &Halley) -> Option<(WlSurface, bool)> {
+    active_pointer_constraint(st).map(|constraint| (constraint.surface, constraint.locked))
+}
+
+pub(crate) fn active_pointer_constraint(st: &Halley) -> Option<ActivePointerConstraint> {
     let pointer = st.platform.seat.get_pointer()?;
     let focus = pointer.current_focus()?;
     let mut current = focus;
     loop {
         let res = with_pointer_constraint(&current, &pointer, |constraint| {
-            let active = constraint
-                .as_deref()
-                .is_some_and(PointerConstraint::is_active);
-            let locked = matches!(constraint.as_deref(), Some(PointerConstraint::Locked(_)));
-            if active { Some(locked) } else { None }
+            let constraint = constraint.as_deref()?;
+            if !constraint.is_active() {
+                return None;
+            }
+            Some(ActivePointerConstraint {
+                surface: current.clone(),
+                locked: matches!(constraint, PointerConstraint::Locked(_)),
+                region: constraint.region().cloned(),
+            })
         });
-        if let Some(locked) = res {
-            return Some((current, locked));
+        if res.is_some() {
+            return res;
         }
         if let Some(parent) = get_parent(&current) {
             current = parent;
@@ -369,7 +394,10 @@ pub(crate) fn active_constrained_pointer_surface(st: &Halley) -> Option<(WlSurfa
     None
 }
 
-pub(crate) fn find_constrained_surface_in_hierarchy(st: &Halley, surface: &WlSurface) -> Option<WlSurface> {
+pub(crate) fn find_constrained_surface_in_hierarchy(
+    st: &Halley,
+    surface: &WlSurface,
+) -> Option<WlSurface> {
     let pointer = st.platform.seat.get_pointer()?;
     let mut current = surface.clone();
     loop {

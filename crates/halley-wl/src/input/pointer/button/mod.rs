@@ -651,8 +651,14 @@ pub(super) fn dispatch_pointer_button(
 
     if locked_surface.is_none() {
         if let Some((surf, _)) = focus.as_ref() {
-            if let Some(constrained) = crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(st, surf) {
-                focus = Some((constrained, pointer.current_location()));
+            if let Some(constrained) =
+                crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
+                    st, surf,
+                )
+            {
+                if constrained != *surf {
+                    focus = Some((constrained, pointer.current_location()));
+                }
             }
         }
     }
@@ -665,22 +671,23 @@ pub(super) fn dispatch_pointer_button(
         st.now_ms(Instant::now()),
     );
 
-    if locked_surface.is_none() {
-        let is_constrained = focus.as_ref().is_some_and(|(s, _)| {
-            crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(st, s).is_some()
-        });
-
-        let location = if focus.as_ref().is_some_and(|(surface, _)| {
-            crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
-                || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
-        }) {
-            (frame.sx as f64, frame.sy as f64).into()
-        } else if is_constrained {
-            pointer.current_location()
-        } else {
-            let cam_scale = st.camera_render_scale() as f64;
-            (frame.sx as f64 / cam_scale, frame.sy as f64 / cam_scale).into()
-        };
+    let location = if locked_surface.is_some() {
+        pointer.current_location()
+    } else if focus.as_ref().is_some_and(|(surface, _)| {
+        crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+            || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
+    }) {
+        (frame.sx as f64, frame.sy as f64).into()
+    } else {
+        let cam_scale = st.camera_render_scale() as f64;
+        (frame.sx as f64 / cam_scale, frame.sy as f64 / cam_scale).into()
+    };
+    let should_send_motion = match (locked_surface.as_ref(), pointer.current_focus()) {
+        (Some(locked), Some(current)) => current != *locked,
+        (Some(_), None) => true,
+        (None, _) => true,
+    };
+    if should_send_motion {
         pointer.motion(
             st,
             focus,

@@ -594,6 +594,22 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                     WinitEvent::Input(InputEvent::PointerMotion { event }) => {
                         let ws = backend_for_winit.borrow().window_size();
+                        if let Some((hint_sx, hint_sy)) =
+                            crate::compositor::interaction::state::take_pointer_screen_hint_request(
+                                st,
+                            )
+                        {
+                            let mut ps = pointer_state_for_winit.borrow_mut();
+                            ps.workspace_size = (ws.w, ws.h);
+                            ps.screen = (hint_sx, hint_sy);
+                            ps.world = crate::spatial::screen_to_world(
+                                st,
+                                ws.w.max(1),
+                                ws.h.max(1),
+                                hint_sx,
+                                hint_sy,
+                            );
+                        }
                         let (last_sx, last_sy) = pointer_state_for_winit.borrow().screen;
                         let sx = last_sx
                             + smithay::backend::input::PointerMotionEvent::<

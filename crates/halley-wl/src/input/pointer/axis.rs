@@ -264,25 +264,28 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                         st, &focus.0,
                     )
                 {
-                    focus.0 = constrained;
-                    focus.1 = pointer.current_location();
+                    if constrained != focus.0 {
+                        focus.0 = constrained;
+                        focus.1 = pointer.current_location();
+                    }
                 }
 
                 if locked_surface.is_none() {
-                    let location = if crate::compositor::monitor::layer_shell::is_layer_surface(
-                        st, &focus.0,
-                    ) || crate::protocol::wayland::session_lock::is_session_lock_surface(
-                        st, &focus.0,
-                    ) {
-                        (context.local_sx as f64, context.local_sy as f64).into()
-                    } else {
-                        let cam_scale = st.camera_render_scale() as f64;
-                        (
-                            context.local_sx as f64 / cam_scale,
-                            context.local_sy as f64 / cam_scale,
-                        )
-                            .into()
-                    };
+                    let location =
+                        if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0)
+                            || crate::protocol::wayland::session_lock::is_session_lock_surface(
+                                st, &focus.0,
+                            )
+                        {
+                            (context.local_sx as f64, context.local_sy as f64).into()
+                        } else {
+                            let cam_scale = st.camera_render_scale() as f64;
+                            (
+                                context.local_sx as f64 / cam_scale,
+                                context.local_sy as f64 / cam_scale,
+                            )
+                                .into()
+                        };
                     pointer.motion(
                         st,
                         Some(focus),
