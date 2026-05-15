@@ -166,28 +166,32 @@ pub(crate) fn apply_compositor_action_press(
         CompositorBindingAction::Reload => {
             let aperture_path = crate::aperture::default_aperture_config_path();
             let _ = crate::aperture::reload_aperture_config(st, aperture_path.as_path(), "manual");
-            if let Some(next) = RuntimeTuning::try_load_from_path(config_path) {
-                crate::bootstrap::apply_reloaded_tuning(
-                    st,
-                    next,
-                    config_path,
-                    wayland_display,
-                    "manual",
-                );
-                debug!("manual config reload from {}", config_path);
-                debug!(
-                    "resolved keybinds: {}",
-                    st.runtime.tuning.keybinds_resolved_summary()
-                );
-                debug!(
-                    "resolved zoom: {}",
-                    st.runtime.tuning.zoom_resolved_summary()
-                );
-            } else {
-                warn!(
-                    "manual reload skipped for {} because config parse/load failed",
-                    config_path
-                );
+            match RuntimeTuning::try_load_from_path_diagnostic(config_path) {
+                Ok(next) => {
+                    crate::bootstrap::apply_reloaded_tuning(
+                        st,
+                        next,
+                        config_path,
+                        wayland_display,
+                        "manual",
+                    );
+                    debug!("manual config reload from {}", config_path);
+                    debug!(
+                        "resolved keybinds: {}",
+                        st.runtime.tuning.keybinds_resolved_summary()
+                    );
+                    debug!(
+                        "resolved zoom: {}",
+                        st.runtime.tuning.zoom_resolved_summary()
+                    );
+                }
+                Err(err) => {
+                    crate::bootstrap::show_config_reload_error(st, &err);
+                    warn!(
+                        "manual reload skipped for {} because {}",
+                        config_path, err.message
+                    );
+                }
             }
             true
         }

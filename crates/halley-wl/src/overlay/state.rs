@@ -25,14 +25,29 @@ pub(crate) struct OverlayBannerSnapshot {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct OverlayToastState {
     pub(crate) message: Option<String>,
+    pub(crate) kind: OverlayToastKind,
     pub(crate) visible_until_ms: u64,
+    pub(crate) duration_ms: u64,
+    pub(crate) hovered: bool,
+    pub(crate) scroll_x: i32,
+    pub(crate) scroll_y: i32,
     pub(crate) mix: f32,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct OverlayToastSnapshot {
     pub(crate) message: String,
+    pub(crate) kind: OverlayToastKind,
+    pub(crate) scroll_x: i32,
+    pub(crate) scroll_y: i32,
     pub(crate) mix: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum OverlayToastKind {
+    #[default]
+    Info,
+    Error,
 }
 
 #[derive(Clone, Debug, Default)]

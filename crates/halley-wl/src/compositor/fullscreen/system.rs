@@ -662,14 +662,23 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         output: Option<WlOutput>,
         size: Option<(i32, i32)>,
     ) {
-        let monitor_name = self
-            .fullscreen_monitor_for_node(node_id)
-            .map(str::to_string)
-            .or_else(|| self.model.monitor_state.node_monitor.get(&node_id).cloned())
-            .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
+        let monitor_name = if fullscreen {
+            self.fullscreen_monitor_name(node_id, output.as_ref())
+        } else {
+            self.fullscreen_monitor_for_node(node_id)
+                .map(str::to_string)
+                .or_else(|| self.model.monitor_state.node_monitor.get(&node_id).cloned())
+                .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone())
+        };
         let focused_node = self
             .last_input_surface_node_for_monitor(monitor_name.as_str())
             .or_else(|| self.last_input_surface_node());
+        let bounds_size = if fullscreen {
+            size.unwrap_or_else(|| self.fullscreen_target_size_for(monitor_name.as_str()))
+        } else {
+            let view = self.usable_viewport_for_monitor(&monitor_name);
+            (view.size.x as i32, view.size.y as i32)
+        };
         for top in self.platform.xdg_shell_state.toplevel_surfaces() {
             let wl = top.wl_surface();
             let key = wl.id();
@@ -678,19 +687,9 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             }
             let (min_w, min_h) =
                 crate::compositor::surface::toplevel_min_size_for_node(self, node_id);
-            let monitor = self
-                .model
-                .monitor_state
-                .node_monitor
-                .get(&node_id)
-                .cloned()
-                .unwrap_or_else(|| self.focused_monitor().to_string());
-            let view = self.usable_viewport_for_monitor(&monitor);
-            let bounds_w = view.size.x as i32;
-            let bounds_h = view.size.y as i32;
             top.with_pending_state(|s| {
                 s.size = size.map(|(w, h)| (w.max(min_w).max(96), h.max(min_h).max(72)).into());
-                s.bounds = Some((bounds_w, bounds_h).into());
+                s.bounds = Some((bounds_size.0.max(96), bounds_size.1.max(72)).into());
                 if focused_node == Some(node_id) {
                     s.states.set(xdg_toplevel::State::Activated);
                 } else {

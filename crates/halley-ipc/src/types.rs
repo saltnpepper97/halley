@@ -17,6 +17,13 @@ pub enum ApertureMode {
 pub struct ApertureStatusResponse {
     pub output: Option<String>,
     pub mode: ApertureMode,
+    pub outputs: Vec<ApertureOutputStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApertureOutputStatus {
+    pub output: String,
+    pub mode: ApertureMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -698,15 +698,44 @@ pub(crate) fn toggle_node_maximize_state(
         return false;
     }
 
-    let monitor = st
-        .model
-        .monitor_state
-        .node_monitor
-        .get(&id)
-        .cloned()
-        .unwrap_or_else(|| focused_monitor.to_string());
+    let maximize_resume_monitor =
+        crate::compositor::workspace::state::take_maximize_resume_for_node(st, id);
+    let monitor = maximize_resume_monitor.unwrap_or_else(|| {
+        st.model
+            .monitor_state
+            .node_monitor
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| focused_monitor.to_string())
+    });
+
+    if node.state == halley_core::field::NodeState::Node {
+        uncollapse_surface_node_for_action(st, id, now);
+    }
+
     st.set_interaction_focus(Some(id), 30_000, now);
     start_maximize_session(st, id, monitor.as_str(), now)
+}
+
+fn uncollapse_surface_node_for_action(
+    st: &mut Halley,
+    id: halley_core::field::NodeId,
+    now: Instant,
+) {
+    st.model.workspace_state.manual_collapsed_nodes.remove(&id);
+    st.model
+        .workspace_state
+        .pending_manual_collapses
+        .remove(&id);
+    let _ = st
+        .model
+        .field
+        .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
+    st.model
+        .spawn_state
+        .pending_spawn_activate_at_ms
+        .remove(&id);
+    crate::compositor::workspace::state::mark_active_transition(st, id, now, 360);
 }
 
 pub(crate) fn move_latest_node(st: &mut Halley, dx: f32, dy: f32) -> bool {
@@ -838,21 +867,7 @@ pub(crate) fn toggle_node_state(
         }
 
         halley_core::field::NodeState::Node => {
-            st.model.workspace_state.manual_collapsed_nodes.remove(&id);
-            st.model
-                .workspace_state
-                .pending_manual_collapses
-                .remove(&id);
-            let _ = st
-                .model
-                .field
-                .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
-            st.model
-                .spawn_state
-                .pending_spawn_activate_at_ms
-                .remove(&id);
-            crate::compositor::workspace::state::mark_active_transition(st, id, now, 360);
-
+            uncollapse_surface_node_for_action(st, id, now);
             st.set_interaction_focus(Some(id), 30_000, now);
             if let Some(maximize_monitor) =
                 crate::compositor::workspace::state::take_maximize_resume_for_node(st, id)
@@ -999,6 +1014,51 @@ mod tests {
         assert_eq!(node.intrinsic_size, target_size);
         assert!(st.node_user_pinned(id));
         assert!(node.pinned);
+    }
+
+    #[test]
+    fn maximize_toggle_uncollapses_surface_node_before_maximizing() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let id = st.model.field.spawn_surface(
+            "app",
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, "monitor_a");
+        assert!(
+            st.model
+                .field
+                .set_decay_level(id, halley_core::decay::DecayLevel::Cold)
+        );
+        st.model.workspace_state.manual_collapsed_nodes.insert(id);
+
+        assert!(toggle_node_maximize_state(
+            &mut st,
+            id,
+            Instant::now(),
+            "monitor_a"
+        ));
+
+        let (target_pos, target_size) = maximize_target_for_monitor(&st, "monitor_a");
+        let node = st.model.field.node(id).expect("node");
+        assert_eq!(node.state, halley_core::field::NodeState::Active);
+        assert_eq!(node.pos, target_pos);
+        assert_eq!(node.intrinsic_size, target_size);
+        assert!(
+            !st.model
+                .workspace_state
+                .manual_collapsed_nodes
+                .contains(&id)
+        );
+        assert!(
+            st.model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("monitor_a")
+        );
     }
 
     #[test]

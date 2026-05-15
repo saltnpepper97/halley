@@ -127,6 +127,11 @@ impl ApertureRuntime {
         self.target_mode != ApertureMode::Hidden || !presentation_near(self.presentation, targets)
     }
 
+    pub fn animation_active(&self) -> bool {
+        let targets = mode_targets(&self.config, self.target_mode);
+        !presentation_near(self.presentation, targets)
+    }
+
     pub fn snapshot<F>(
         &self,
         output_rect: Rect,
@@ -217,7 +222,7 @@ impl ApertureRuntime {
 
         Some(ClockSnapshot {
             text,
-            font_family: self.config.clock.font_family.clone(),
+            font_family: self.config.peek.clock.font_family.clone(),
             font_px: render_font_px,
             alpha: presentation.alpha.clamp(0.0, 1.0),
             bounds,
@@ -234,19 +239,19 @@ fn mode_targets(config: &ApertureConfig, mode: ApertureMode) -> ModeTargets {
     match mode {
         ApertureMode::Normal => ModeTargets {
             alpha: 1.0,
-            font_px: config.clock.font_px.max(1) as f32,
+            font_px: config.peek.clock.font_px.max(1) as f32,
             edge_padding_px: NORMAL_MARGIN_PX,
             hidden_mix: 0.0,
         },
         ApertureMode::Collapsed => ModeTargets {
             alpha: 1.0,
-            font_px: collapsed_font_px(config.clock.font_px) as f32,
+            font_px: collapsed_font_px(config.peek.clock.font_px) as f32,
             edge_padding_px: COLLAPSED_EDGE_PADDING_PX,
             hidden_mix: 0.0,
         },
         ApertureMode::Hidden => ModeTargets {
             alpha: 0.0,
-            font_px: collapsed_font_px(config.clock.font_px) as f32,
+            font_px: collapsed_font_px(config.peek.clock.font_px) as f32,
             edge_padding_px: COLLAPSED_EDGE_PADDING_PX,
             hidden_mix: 1.0,
         },
@@ -357,8 +362,8 @@ mod tests {
         let mut runtime = ApertureRuntime::new(ApertureConfig::default());
         runtime.set_mode(ApertureMode::Hidden);
         let mut next = ApertureConfig::default();
-        next.clock.font_family = "Iosevka".to_string();
-        next.clock.color = ClockColor {
+        next.peek.clock.font_family = "Iosevka".to_string();
+        next.peek.clock.color = ClockColor {
             r: 1.0,
             g: 0.0,
             b: 0.0,
@@ -366,6 +371,6 @@ mod tests {
         runtime.apply_config(next);
 
         assert_eq!(runtime.target_mode(), ApertureMode::Hidden);
-        assert_eq!(runtime.config().clock.font_family, "Iosevka");
+        assert_eq!(runtime.config().peek.clock.font_family, "Iosevka");
     }
 }

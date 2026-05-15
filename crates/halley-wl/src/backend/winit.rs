@@ -252,7 +252,8 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             crate::bootstrap::ensure_default_user_config(None);
             let config_path = Rc::new(RuntimeTuning::config_path());
             let aperture_config_path = Rc::new(crate::aperture::default_aperture_config_path());
-            let tuning = RuntimeTuning::load_from_path(config_path.as_str());
+            let (tuning, startup_config_error) =
+                crate::bootstrap::load_startup_tuning(config_path.as_str());
             let aperture_config =
                 crate::aperture::load_aperture_config_from_path(aperture_config_path.as_path());
             tuning.apply_process_env();
@@ -359,7 +360,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let xwayland_for_timer = xwayland.clone();
             let xwayland_request_for_timer = xwayland_request_rx.clone();
             {
-                let mut fresh = RuntimeTuning::load_from_path(config_path.as_str());
+                let mut fresh = tuning.clone();
                 let ws = backend.borrow().window_size();
                 fresh.viewport_size = halley_core::field::Vec2 {
                     x: ws.w.max(1) as f32,
@@ -378,6 +379,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         refresh: 0,
                     },
                 );
+                if let Some(diagnostic) = startup_config_error.as_ref() {
+                    crate::bootstrap::show_config_startup_error(&mut state, diagnostic);
+                }
             }
             let autostart_once = state.runtime.tuning.autostart_once.clone();
             run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
@@ -590,6 +594,22 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     }
                     WinitEvent::Input(InputEvent::PointerMotion { event }) => {
                         let ws = backend_for_winit.borrow().window_size();
+                        if let Some((hint_sx, hint_sy)) =
+                            crate::compositor::interaction::state::take_pointer_screen_hint_request(
+                                st,
+                            )
+                        {
+                            let mut ps = pointer_state_for_winit.borrow_mut();
+                            ps.workspace_size = (ws.w, ws.h);
+                            ps.screen = (hint_sx, hint_sy);
+                            ps.world = crate::spatial::screen_to_world(
+                                st,
+                                ws.w.max(1),
+                                ws.h.max(1),
+                                hint_sx,
+                                hint_sy,
+                            );
+                        }
                         let (last_sx, last_sy) = pointer_state_for_winit.borrow().screen;
                         let sx = last_sx
                             + smithay::backend::input::PointerMotionEvent::<
@@ -736,33 +756,35 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             aperture_config_path_for_timer.as_path(),
                             "ipc",
                         );
-                        if let Some(next) =
-                            RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
-                        {
-                            if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
-                                apply_winit_reload(
-                                    &backend_for_timer,
-                                    st,
-                                    next,
-                                    config_path_for_timer.as_str(),
-                                    wayland_display_for_timer.as_str(),
-                                    "ipc",
-                                );
-                            } else {
-                                let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
-                                crate::bootstrap::apply_reloaded_tuning(
-                                    st,
-                                    next,
-                                    config_path_for_timer.as_str(),
-                                    wayland_display_for_timer.as_str(),
-                                    "ipc",
+                        match RuntimeTuning::try_load_from_path_diagnostic(config_path_for_timer.as_str()) {
+                            Ok(next) => {
+                                if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
+                                    apply_winit_reload(
+                                        &backend_for_timer,
+                                        st,
+                                        next,
+                                        config_path_for_timer.as_str(),
+                                        wayland_display_for_timer.as_str(),
+                                        "ipc",
+                                    );
+                                } else {
+                                    let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
+                                    crate::bootstrap::apply_reloaded_tuning(
+                                        st,
+                                        next,
+                                        config_path_for_timer.as_str(),
+                                        wayland_display_for_timer.as_str(),
+                                        "ipc",
+                                    );
+                                }
+                            }
+                            Err(err) => {
+                                crate::bootstrap::show_config_reload_error(st, &err);
+                                warn!(
+                                    "ipc: reload skipped for {} because {}",
+                                    config_path_for_timer.as_str(), err.message
                                 );
                             }
-                        } else {
-                            warn!(
-                                "ipc: reload skipped for {} because config parse/load failed",
-                                config_path_for_timer.as_str()
-                            );
                         }
                         debug!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
                         debug!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
@@ -832,34 +854,36 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         aperture_config_path_for_timer.as_path(),
                         "watch",
                     );
-                    if let Some(next) =
-                        RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
-                    {
-                        if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
-                            apply_winit_reload(
-                                &backend_for_timer,
-                                st,
-                                next,
-                                config_path_for_timer.as_str(),
-                                wayland_display_for_timer.as_str(),
-                                "watch",
-                            );
-                        } else {
-                            let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
-                            crate::bootstrap::apply_reloaded_tuning(
-                                st,
-                                next,
-                                config_path_for_timer.as_str(),
-                                wayland_display_for_timer.as_str(),
-                                "watch",
+                    match RuntimeTuning::try_load_from_path_diagnostic(config_path_for_timer.as_str()) {
+                        Ok(next) => {
+                            if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
+                                apply_winit_reload(
+                                    &backend_for_timer,
+                                    st,
+                                    next,
+                                    config_path_for_timer.as_str(),
+                                    wayland_display_for_timer.as_str(),
+                                    "watch",
+                                );
+                            } else {
+                                let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
+                                crate::bootstrap::apply_reloaded_tuning(
+                                    st,
+                                    next,
+                                    config_path_for_timer.as_str(),
+                                    wayland_display_for_timer.as_str(),
+                                    "watch",
+                                );
+                            }
+                            reloaded = true;
+                        }
+                        Err(err) => {
+                            crate::bootstrap::show_config_reload_error(st, &err);
+                            warn!(
+                                "watch: reload skipped for {} because {}",
+                                config_path_for_timer.as_str(), err.message
                             );
                         }
-                        reloaded = true;
-                    } else {
-                        warn!(
-                            "watch: reload skipped for {} because config parse/load failed",
-                            config_path_for_timer.as_str()
-                        );
                     }
                 }
                 if reloaded {

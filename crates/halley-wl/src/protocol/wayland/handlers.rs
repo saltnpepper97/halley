@@ -2,14 +2,14 @@ use super::*;
 use crate::compositor::{focus, fullscreen, interaction, monitor, spawn, workspace};
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::input::TabletToolDescriptor;
-use smithay::input::pointer::PointerHandle;
+use smithay::input::pointer::{PointerHandle, MotionEvent};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_surface::WlSurface,
 };
 use smithay::utils::SERIAL_COUNTER;
-use smithay::wayland::compositor::{add_blocker, with_states};
+use smithay::wayland::compositor::{add_blocker, get_parent, with_states};
 use smithay::wayland::dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, ImportNotifier};
 use smithay::wayland::drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjHandler};
 use smithay::wayland::output::OutputHandler;
@@ -116,6 +116,10 @@ impl CompositorHandler for Halley {
         on_commit_buffer_handler::<Self>(surface);
         self.install_drm_syncobj_blocker(surface);
         self.platform.popup_manager.commit(surface);
+        if crate::render::handle_cursor_surface_commit(&self.platform.cursor_image_status, surface)
+        {
+            self.request_maintenance();
+        }
         workspace::lifecycle::on_surface_commit(
             &mut self.surface_lifecycle_ctx(),
             surface,
@@ -192,7 +196,29 @@ impl DrmSyncobjHandler for Halley {
 impl PointerConstraintsHandler for Halley {
     fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
         if pointer.current_focus().as_ref() != Some(surface) {
-            return;
+            let mut is_ancestor = false;
+            if let Some(mut current) = pointer.current_focus() {
+                while let Some(parent) = get_parent(&current) {
+                    if parent == *surface {
+                        is_ancestor = true;
+                        break;
+                    }
+                    current = parent;
+                }
+            }
+            if is_ancestor {
+                pointer.motion(
+                    self,
+                    Some((surface.clone(), pointer.current_location())),
+                    &MotionEvent {
+                        location: pointer.current_location(),
+                        serial: SERIAL_COUNTER.next_serial(),
+                        time: crate::input::pointer::button::now_millis_u32(),
+                    },
+                );
+            } else {
+                return;
+            }
         }
         with_pointer_constraint(surface, pointer, |constraint| {
             if let Some(constraint) = constraint

@@ -266,9 +266,15 @@ impl RuntimeTuning {
     }
 
     pub fn try_load_from_path(path: &str) -> Option<Self> {
-        let mut out = Self::from_rune_file(path)?;
+        Self::try_load_from_path_diagnostic(path).ok()
+    }
+
+    pub fn try_load_from_path_diagnostic(
+        path: &str,
+    ) -> Result<Self, crate::parse::ConfigLoadDiagnostic> {
+        let mut out = Self::from_rune_file_diagnostic(path)?;
         out.clamp_values();
-        Some(out)
+        Ok(out)
     }
 
     pub fn apply_process_env(&self) {
@@ -621,6 +627,7 @@ end
 overlays:
   background-colour "auto"
   text-colour "auto"
+  error-colour "#fb4934"
   shape "square"
   borders "true"
   border-source "primary"

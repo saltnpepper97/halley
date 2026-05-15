@@ -21,3 +21,4 @@ pub use layout::{
     TimedAnimationConfig, ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig,
     WindowCloseAnimationStyle, WindowRule, WindowRulePattern,
 };
+pub use parse::ConfigLoadDiagnostic;

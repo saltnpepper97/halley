@@ -83,6 +83,9 @@ fn print_aperture_status(status: &ApertureStatusResponse) {
     let output = status.output.as_deref().unwrap_or("(default)");
     println!("output: {output}");
     println!("mode: {:?}", status.mode);
+    for output in &status.outputs {
+        println!("{}: {:?}", output.output, output.mode);
+    }
 }
 
 fn wants_json() -> bool {

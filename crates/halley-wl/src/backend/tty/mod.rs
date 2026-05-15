@@ -866,7 +866,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             )));
             let config_path = Rc::new(RuntimeTuning::config_path());
             let aperture_config_path = Rc::new(crate::aperture::default_aperture_config_path());
-            let tuning = RuntimeTuning::load_from_path(config_path.as_str());
+            let (tuning, startup_config_error) =
+                crate::bootstrap::load_startup_tuning(config_path.as_str());
             let aperture_config =
                 crate::aperture::load_aperture_config_from_path(aperture_config_path.as_path());
             tuning.apply_process_env();
@@ -980,6 +981,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let effective_viewports =
                 effective_tty_viewports_for_outputs(&tuning, outputs.borrow().as_slice());
             state.reconfigure_active_tty_monitors(&effective_viewports);
+            if let Some(diagnostic) = startup_config_error.as_ref() {
+                crate::bootstrap::show_config_startup_error(&mut state, diagnostic);
+            }
             let dmabuf_importer: Rc<dyn DmabufImportBackend> =
                 Rc::new(TtyDmabufImportBackend::new(
                     drm_probe.gpu_manager.clone(),
@@ -1595,6 +1599,23 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
                     InputEvent::PointerMotion { event } => {
                         let tuning = st.runtime.tuning.clone();
+                        let (ws_w, ws_h) = backend_handle.window_size_i32();
+                        if let Some((hint_sx, hint_sy)) =
+                            crate::compositor::interaction::state::take_pointer_screen_hint_request(
+                                st,
+                            )
+                        {
+                            let mut ps = pointer_state_for_input.borrow_mut();
+                            ps.workspace_size = (ws_w, ws_h);
+                            ps.screen = (hint_sx, hint_sy);
+                            ps.world = crate::spatial::screen_to_world(
+                                st,
+                                ws_w.max(1),
+                                ws_h.max(1),
+                                hint_sx,
+                                hint_sy,
+                            );
+                        }
                         let (last_sx, last_sy) = pointer_state_for_input.borrow().screen;
                         let sx = last_sx + event.delta_x() as f32;
                         let sy = last_sy + event.delta_y() as f32;
@@ -1614,7 +1635,6 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             debug!("tty input: first pointer event received");
                             *pointer_seen_for_input.borrow_mut() = true;
                         }
-                        let (ws_w, ws_h) = backend_handle.window_size_i32();
                         let input_ctx = InputCtx {
                             mod_state: &mod_state_for_input,
                             pointer_state: &pointer_state_for_input,
@@ -1784,44 +1804,46 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             aperture_config_path_for_timer.as_path(),
                             "ipc",
                         );
-                        if let Some(next) =
-                            RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
-                        {
-                            if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
-                                apply_tty_reload(
-                                    &drm_devices_for_timer,
-                                    &gpu_manager_for_timer,
-                                    primary_render_node_for_timer,
-                                    &outputs_for_timer,
-                                    &backend_handle_for_timer,
-                                    &pointer_state_for_timer,
-                                    st,
-                                    next,
-                                    config_path_for_timer.as_str(),
-                                    wayland_display_for_timer.as_str(),
-                                    "ipc",
-                                    &active_modes_for_timer,
-                                    &dpms_enabled_for_timer,
-                                    &output_frame_pending_for_dpms_timer,
-                                    &output_frame_pending_since_for_timer,
-                                    &output_animation_redraw_active,
-                                    &scanout_signature_for_timer,
-                                );
-                            } else {
-                                let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
-                                crate::bootstrap::apply_reloaded_tuning(
-                                    st,
-                                    next,
-                                    config_path_for_timer.as_str(),
-                                    wayland_display_for_timer.as_str(),
-                                    "ipc",
+                        match RuntimeTuning::try_load_from_path_diagnostic(config_path_for_timer.as_str()) {
+                            Ok(next) => {
+                                if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
+                                    apply_tty_reload(
+                                        &drm_devices_for_timer,
+                                        &gpu_manager_for_timer,
+                                        primary_render_node_for_timer,
+                                        &outputs_for_timer,
+                                        &backend_handle_for_timer,
+                                        &pointer_state_for_timer,
+                                        st,
+                                        next,
+                                        config_path_for_timer.as_str(),
+                                        wayland_display_for_timer.as_str(),
+                                        "ipc",
+                                        &active_modes_for_timer,
+                                        &dpms_enabled_for_timer,
+                                        &output_frame_pending_for_dpms_timer,
+                                        &output_frame_pending_since_for_timer,
+                                        &output_animation_redraw_active,
+                                        &scanout_signature_for_timer,
+                                    );
+                                } else {
+                                    let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
+                                    crate::bootstrap::apply_reloaded_tuning(
+                                        st,
+                                        next,
+                                        config_path_for_timer.as_str(),
+                                        wayland_display_for_timer.as_str(),
+                                        "ipc",
+                                    );
+                                }
+                            }
+                            Err(err) => {
+                                crate::bootstrap::show_config_reload_error(st, &err);
+                                warn!(
+                                    "ipc: reload skipped for {} because {}",
+                                    config_path_for_timer.as_str(), err.message
                                 );
                             }
-                        } else {
-                            warn!(
-                                "ipc: reload skipped for {} because config parse/load failed",
-                                config_path_for_timer.as_str()
-                            );
                         }
                         debug!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
                         debug!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
@@ -1882,21 +1904,20 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         aperture_config_path_for_timer.as_path(),
                         "watch",
                     );
-                    if let Some(next) =
-                        RuntimeTuning::try_load_from_path(config_path_for_timer.as_str())
-                    {
-                        if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
-                            apply_tty_reload(
-                                &drm_devices_for_timer,
-                                &gpu_manager_for_timer,
-                                primary_render_node_for_timer,
-                                &outputs_for_timer,
-                                &backend_handle_for_timer,
-                                &pointer_state_for_timer,
-                                st,
-                                next,
-                                config_path_for_timer.as_str(),
-                                wayland_display_for_timer.as_str(),
+                    match RuntimeTuning::try_load_from_path_diagnostic(config_path_for_timer.as_str()) {
+                        Ok(next) => {
+                            if crate::bootstrap::viewport_section_changed(&st.runtime.tuning, &next) {
+                                apply_tty_reload(
+                                    &drm_devices_for_timer,
+                                    &gpu_manager_for_timer,
+                                    primary_render_node_for_timer,
+                                    &outputs_for_timer,
+                                    &backend_handle_for_timer,
+                                    &pointer_state_for_timer,
+                                    st,
+                                    next,
+                                    config_path_for_timer.as_str(),
+                                    wayland_display_for_timer.as_str(),
                                     "watch",
                                     &active_modes_for_timer,
                                     &dpms_enabled_for_timer,
@@ -1904,23 +1925,26 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     &output_frame_pending_since_for_timer,
                                     &output_animation_redraw_active,
                                     &scanout_signature_for_timer,
-                            );
+                                );
                             } else {
                                 let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
                                 crate::bootstrap::apply_reloaded_tuning(
                                     st,
-                                next,
-                                config_path_for_timer.as_str(),
-                                wayland_display_for_timer.as_str(),
-                                "watch",
+                                    next,
+                                    config_path_for_timer.as_str(),
+                                    wayland_display_for_timer.as_str(),
+                                    "watch",
+                                );
+                            }
+                            reloaded = true;
+                        }
+                        Err(err) => {
+                            crate::bootstrap::show_config_reload_error(st, &err);
+                            warn!(
+                                "watch: reload skipped for {} because {}",
+                                config_path_for_timer.as_str(), err.message
                             );
                         }
-                        reloaded = true;
-                    } else {
-                        warn!(
-                            "watch: reload skipped for {} because config parse/load failed",
-                            config_path_for_timer.as_str()
-                        );
                     }
                 }
                 if pending_output_rescan_at_for_timer

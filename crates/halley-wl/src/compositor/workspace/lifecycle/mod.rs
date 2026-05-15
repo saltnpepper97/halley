@@ -66,6 +66,7 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
     let st = &mut ctx.st;
     let key = surface.wl_surface().id();
     let closing_id = st.model.surface_to_node.get(&key).copied();
+    let closing_fullscreen = closing_id.is_some_and(|id| st.is_fullscreen_active(id));
     let had_keyboard_focus = st
         .platform
         .seat
@@ -105,6 +106,7 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
         st.clear_keyboard_focus();
     }
 
+    let mut deferred_close_restore = None;
     if had_keyboard_focus
         && st.runtime.tuning.close_restore_focus
         && let (Some(closing_id), Some(focused_monitor)) = (closing_id, focused_monitor.as_deref())
@@ -112,7 +114,17 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
         let now = Instant::now();
         let suppress_restore_pan =
             st.node_has_overlap_policy(closing_id) || st.is_fullscreen_active(closing_id);
-        if let Some(cid) = st.active_cluster_workspace_for_monitor(focused_monitor) {
+        if closing_fullscreen {
+            if let Some(target) = non_cluster_close_restore_target(st, focused_monitor, closing_id)
+            {
+                deferred_close_restore = Some((
+                    focused_monitor.to_string(),
+                    target,
+                    suppress_restore_pan,
+                    now,
+                ));
+            }
+        } else if let Some(cid) = st.active_cluster_workspace_for_monitor(focused_monitor) {
             if matches!(
                 st.runtime.tuning.cluster_layout_kind(),
                 halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
@@ -145,26 +157,12 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
                     st.set_interaction_focus(Some(fallback), 30_000, now);
                 }
             }
-        } else if let Some(previous) =
-            st.previous_window_from_trail_on_close(focused_monitor, closing_id)
+        } else if let Some(target) =
+            non_cluster_close_restore_target(st, focused_monitor, closing_id)
         {
             let _ = st.restore_focus_to_node_after_close(
                 focused_monitor,
-                previous,
-                now,
-                suppress_restore_pan,
-            );
-        } else if let Some(fallback) = st
-            .last_focused_surface_node_for_monitor(focused_monitor)
-            .filter(|&id| id != closing_id)
-            .or_else(|| {
-                st.last_focused_surface_node()
-                    .filter(|&id| id != closing_id)
-            })
-        {
-            let _ = st.restore_focus_to_node_after_close(
-                focused_monitor,
-                fallback,
+                target,
                 now,
                 suppress_restore_pan,
             );
@@ -183,6 +181,31 @@ pub(crate) fn on_toplevel_destroyed(ctx: &mut SurfaceLifecycleCtx<'_>, surface: 
     }
 
     drop_surface_impl(st, surface.wl_surface());
+
+    if let Some((monitor, target, suppress_restore_pan, now)) = deferred_close_restore {
+        let _ = st.restore_focus_to_node_after_close(
+            monitor.as_str(),
+            target,
+            now,
+            suppress_restore_pan,
+        );
+    }
+}
+
+fn non_cluster_close_restore_target(
+    st: &mut Halley,
+    focused_monitor: &str,
+    closing_id: NodeId,
+) -> Option<NodeId> {
+    st.previous_window_from_trail_on_close(focused_monitor, closing_id)
+        .or_else(|| {
+            st.last_focused_surface_node_for_monitor(focused_monitor)
+                .filter(|&id| id != closing_id)
+        })
+        .or_else(|| {
+            st.last_focused_surface_node()
+                .filter(|&id| id != closing_id)
+        })
 }
 
 pub(crate) fn reconcile_surface_bindings(st: &mut Halley) {
@@ -688,5 +711,49 @@ mod tests {
             };
 
         assert_eq!(next_to_focus, Some(b));
+    }
+
+    #[test]
+    fn fullscreen_close_restore_must_wait_for_fullscreen_teardown() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let steam = state.model.field.spawn_surface(
+            "steam",
+            Vec2 { x: 120.0, y: 120.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let game = state.model.field.spawn_surface(
+            "game",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        for id in [steam, game] {
+            state.assign_node_to_monitor(id, "monitor_a");
+        }
+
+        let now = Instant::now();
+        state.set_interaction_focus(Some(steam), 30_000, now);
+        state.set_interaction_focus(Some(game), 30_000, now);
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert("monitor_a".to_string(), game);
+
+        assert_eq!(
+            non_cluster_close_restore_target(&mut state, "monitor_a", game),
+            Some(steam)
+        );
+        assert_eq!(state.fullscreen_focus_override(Some(steam)), Some(game));
+
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .remove("monitor_a");
+        assert_eq!(state.fullscreen_focus_override(Some(steam)), Some(steam));
     }
 }

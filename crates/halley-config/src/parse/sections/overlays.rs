@@ -35,6 +35,20 @@ pub(crate) fn load_overlays_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.overlay_style.text_color,
     );
+    out.overlay_style.error_color = pick_overlay_color_mode(
+        cfg,
+        &[
+            "overlay.error-colour",
+            "overlay.error_colour",
+            "overlay.error-color",
+            "overlay.error_color",
+            "overlays.error-colour",
+            "overlays.error_colour",
+            "overlays.error-color",
+            "overlays.error_color",
+        ],
+        out.overlay_style.error_color,
+    );
     out.overlay_style.shape = pick_overlay_shape(
         cfg,
         &["overlay.shape", "overlays.shape"],
@@ -72,6 +86,7 @@ mod tests {
 overlays:
   background-colour "#223344"
   text-colour "dark"
+  error-colour "#fb4934"
   shape "rounded"
   borders false
   border-source "secondary"
@@ -92,6 +107,14 @@ end
             }
         );
         assert_eq!(out.overlay_style.text_color, OverlayColorMode::Dark);
+        assert_eq!(
+            out.overlay_style.error_color,
+            OverlayColorMode::Fixed {
+                r: 0xfb as f32 / 255.0,
+                g: 0x49 as f32 / 255.0,
+                b: 0x34 as f32 / 255.0,
+            }
+        );
         assert_eq!(out.overlay_style.shape, OverlayShape::Rounded);
         assert!(!out.overlay_style.borders);
         assert_eq!(
@@ -108,6 +131,14 @@ end
             OverlayColorMode::Auto
         );
         assert_eq!(defaults.overlay_style.text_color, OverlayColorMode::Auto);
+        assert_eq!(
+            defaults.overlay_style.error_color,
+            OverlayColorMode::Fixed {
+                r: 0xfb as f32 / 255.0,
+                g: 0x49 as f32 / 255.0,
+                b: 0x34 as f32 / 255.0,
+            }
+        );
         assert_eq!(defaults.overlay_style.shape, OverlayShape::Square);
         assert!(defaults.overlay_style.borders);
         assert_eq!(

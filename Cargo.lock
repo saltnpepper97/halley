@@ -1012,6 +1012,7 @@ dependencies = [
  "fontdb",
  "halley-ipc",
  "rune-cfg",
+ "rustix 1.1.4",
  "rusttype",
  "smithay-client-toolkit 0.20.0",
  "wayland-client",

@@ -9,5 +9,8 @@ mod config;
 mod geometry;
 
 pub use clock::{ApertureRuntime, ClockSnapshot, PresentationState};
-pub use config::{ApertureConfig, ApertureConfigError, ApertureMode, ClockColor, ClockConfig};
+pub use config::{
+    ApertureConfig, ApertureConfigError, ApertureMode, AperturePeekConfig, AperturePlacement,
+    ClockColor, ClockConfig, PeekBackgroundColor, PeekCorner,
+};
 pub use geometry::{Point, Rect, Size};

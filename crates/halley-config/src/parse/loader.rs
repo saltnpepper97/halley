@@ -1,4 +1,4 @@
-use rune_cfg::RuneConfig;
+use rune_cfg::{RuneConfig, RuneError};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,22 +17,41 @@ use super::sections::{
     load_screenshot_section, load_stacking_section, load_tile_section, load_trail_section,
     load_viewport_section,
 };
+use super::validate::validate_known_config_keys;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfigLoadDiagnostic {
+    pub path: String,
+    pub line: Option<usize>,
+    pub column: Option<usize>,
+    pub message: String,
+    pub hint: Option<String>,
+    pub source_line: Option<String>,
+}
 
 impl RuntimeTuning {
     pub fn from_rune_file(path: &str) -> Option<Self> {
-        let raw = std::fs::read_to_string(path).ok()?;
+        Self::from_rune_file_diagnostic(path).ok()
+    }
+
+    pub fn from_rune_file_diagnostic(path: &str) -> Result<Self, ConfigLoadDiagnostic> {
+        let raw = std::fs::read_to_string(path).map_err(|err| ConfigLoadDiagnostic {
+            path: path.to_string(),
+            line: None,
+            column: None,
+            message: format!("failed to read config: {err}"),
+            hint: Some("Check that the file exists and is readable".to_string()),
+            source_line: None,
+        })?;
         let seed = Self::builtin_defaults();
-        let inline_keybinds = match parse_inline_keybinds(&raw) {
-            Ok(bindings) => bindings,
-            Err(err) => {
-                eprintln!("halley config keybind parse error: {err}");
-                return None;
-            }
-        };
+        let inline_keybinds = parse_inline_keybinds(&raw)
+            .map_err(|err| diagnostic_from_message(path, raw.as_str(), err))?;
 
-        let cfg = parse_rune_file_with_keybind_fallback(path, &raw)?;
+        let cfg = parse_rune_file_with_keybind_fallback_diagnostic(path, &raw)
+            .map_err(|err| diagnostic_from_rune_error(path, raw.as_str(), err))?;
+        validate_known_config_keys(raw.as_str(), path)?;
 
-        Self::from_parsed_rune(raw.as_str(), &cfg, inline_keybinds, seed)
+        Self::from_parsed_rune_diagnostic(path, raw.as_str(), &cfg, inline_keybinds, seed)
     }
 
     pub(crate) fn from_rune_str_with_seed(raw: &str, seed: Self) -> Option<Self> {
@@ -63,27 +82,38 @@ impl RuntimeTuning {
         inline_keybinds: Vec<(String, String)>,
         seed: Self,
     ) -> Option<Self> {
+        Self::from_parsed_rune_diagnostic("<config>", raw, cfg, inline_keybinds, seed)
+            .map_err(|err| {
+                eprintln!("halley config parse error: {}", err.message);
+            })
+            .ok()
+    }
+
+    fn from_parsed_rune_diagnostic(
+        path: &str,
+        raw: &str,
+        cfg: &RuneConfig,
+        inline_keybinds: Vec<(String, String)>,
+        seed: Self,
+    ) -> Result<Self, ConfigLoadDiagnostic> {
         let mut out = seed;
 
         load_autostart_section(raw, &mut out);
-        if let Err(err) = load_rules_section(raw, &mut out) {
-            eprintln!("halley config rules parse error: {err}");
-            return None;
-        }
+        load_rules_section(raw, &mut out).map_err(|err| {
+            diagnostic_from_message(path, raw, format!("rules parse error: {err}"))
+        })?;
         load_config_sections(cfg, &mut out);
-        if let Err(err) = load_keybind_sections(cfg, &mut out) {
-            eprintln!("halley config keybind parse error: {err}");
-            return None;
-        }
+        load_keybind_sections(cfg, &mut out).map_err(|err| {
+            diagnostic_from_message(path, raw, format!("keybind parse error: {err}"))
+        })?;
 
         if !inline_keybinds.is_empty() {
-            if let Err(err) = apply_explicit_keybind_overrides_entries(&inline_keybinds, &mut out) {
-                eprintln!("halley config keybind parse error: {err}");
-                return None;
-            }
+            apply_explicit_keybind_overrides_entries(&inline_keybinds, &mut out).map_err(
+                |err| diagnostic_from_message(path, raw, format!("keybind parse error: {err}")),
+            )?;
         }
 
-        Some(out)
+        Ok(out)
     }
 }
 
@@ -113,12 +143,102 @@ pub fn from_rune_file(path: &str) -> Option<RuntimeTuning> {
     RuntimeTuning::from_rune_file(path)
 }
 
-fn parse_rune_file_with_keybind_fallback(path: &str, raw: &str) -> Option<RuneConfig> {
-    RuneConfig::from_file(path).ok().or_else(|| {
-        let sanitized = strip_inline_keybind_block(raw);
-        parse_sanitized_rune_file(path, sanitized.as_str())
-            .or_else(|| RuneConfig::from_str(sanitized.as_str()).ok())
-    })
+fn diagnostic_from_rune_error(path: &str, raw: &str, err: RuneError) -> ConfigLoadDiagnostic {
+    let (line, column, hint) = rune_error_location(&err);
+    ConfigLoadDiagnostic {
+        path: path.to_string(),
+        line,
+        column,
+        message: err.to_string(),
+        hint,
+        source_line: line.and_then(|line| source_line(raw, line)),
+    }
+}
+
+fn diagnostic_from_message(path: &str, raw: &str, message: String) -> ConfigLoadDiagnostic {
+    let line = line_from_message(message.as_str());
+    ConfigLoadDiagnostic {
+        path: path.to_string(),
+        line,
+        column: None,
+        message,
+        hint: None,
+        source_line: line.and_then(|line| source_line(raw, line)),
+    }
+}
+
+fn rune_error_location(err: &RuneError) -> (Option<usize>, Option<usize>, Option<String>) {
+    match err {
+        RuneError::SyntaxError {
+            line, column, hint, ..
+        }
+        | RuneError::InvalidToken {
+            line, column, hint, ..
+        }
+        | RuneError::UnexpectedEof {
+            line, column, hint, ..
+        }
+        | RuneError::TypeError {
+            line, column, hint, ..
+        }
+        | RuneError::UnclosedString {
+            line, column, hint, ..
+        }
+        | RuneError::UnexpectedCharacter {
+            line, column, hint, ..
+        }
+        | RuneError::ValidationError {
+            line, column, hint, ..
+        } => (
+            (*line > 0).then_some(*line),
+            (*column > 0).then_some(*column),
+            hint.clone(),
+        ),
+        RuneError::FileError { hint, .. } | RuneError::RuntimeError { hint, .. } => {
+            (None, None, hint.clone())
+        }
+    }
+}
+
+fn source_line(raw: &str, line: usize) -> Option<String> {
+    raw.lines()
+        .nth(line.saturating_sub(1))
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
+fn line_from_message(message: &str) -> Option<usize> {
+    let idx = message.find("line ")?;
+    message[idx + 5..]
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .ok()
+}
+
+fn parse_rune_file_with_keybind_fallback_diagnostic(
+    path: &str,
+    raw: &str,
+) -> Result<RuneConfig, RuneError> {
+    RuneConfig::from_file(path)
+        .ok()
+        .or_else(|| {
+            let sanitized = strip_inline_keybind_block(raw);
+            parse_sanitized_rune_file(path, sanitized.as_str())
+                .or_else(|| RuneConfig::from_str(sanitized.as_str()).ok())
+        })
+        .ok_or_else(|| {
+            let sanitized = strip_inline_keybind_block(raw);
+            RuneConfig::from_str(sanitized.as_str())
+                .err()
+                .unwrap_or_else(|| RuneError::RuntimeError {
+                    message: "config parsing failed".to_string(),
+                    hint: None,
+                    code: None,
+                })
+        })
 }
 
 fn parse_sanitized_rune_file(original_path: &str, sanitized: &str) -> Option<RuneConfig> {

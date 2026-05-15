@@ -59,6 +59,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     let now = Instant::now();
     if crate::protocol::wayland::session_lock::session_lock_active(st) {
         let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
+        st.activate_monitor(target_monitor.as_str());
         let context = pointer_screen_context_for_monitor(st, target_monitor, (sx, sy), true, true);
         {
             let mut ps = ctx.pointer_state.borrow_mut();
@@ -115,6 +116,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         )
     };
 
+    st.activate_monitor(routing.monitor.as_str());
+
     let (desktop_hover, hover_focus_blocked) = {
         let ps = ctx.pointer_state.borrow();
         routing::dispatch_pointer_motion(st, &ps, &routing, delta, delta_unaccel, time_usec, now)
@@ -130,6 +133,19 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             )
         );
 
+    let error_toast_hovered = crate::overlay::error_toast_hit_test(
+        st,
+        routing.monitor.as_str(),
+        routing.ws_w,
+        routing.ws_h,
+        routing.local_sx as f64,
+        routing.local_sy as f64,
+    );
+    st.ui.render_state.set_overlay_error_toast_hovered(
+        routing.monitor.as_str(),
+        error_toast_hovered,
+        st.now_ms(now),
+    );
     let mut ps = ctx.pointer_state.borrow_mut();
     ps.world = p;
     ps.screen = (routing.global_sx, routing.global_sy);

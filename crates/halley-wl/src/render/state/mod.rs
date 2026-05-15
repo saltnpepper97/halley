@@ -14,7 +14,7 @@ use crate::animation::{Animator, ClusterTileTracks};
 use crate::overlay::{
     ClusterBloomAnimSnapshot, ClusterBloomAnimState, ExitConfirmOverlaySnapshot,
     ExitConfirmOverlayState, OverlayActionHint, OverlayBannerSnapshot, OverlayBannerState,
-    OverlayToastSnapshot, OverlayToastState,
+    OverlayToastKind, OverlayToastSnapshot, OverlayToastState,
 };
 use crate::window::{ActiveBorderRect, OffscreenNodeTexture};
 
@@ -429,12 +429,99 @@ impl RenderState {
         duration_ms: u64,
         now_ms: u64,
     ) {
+        self.show_overlay_toast_with_kind(
+            monitor,
+            message,
+            OverlayToastKind::Info,
+            duration_ms,
+            now_ms,
+        );
+    }
+
+    pub(crate) fn show_overlay_error_toast(
+        &mut self,
+        monitor: &str,
+        message: &str,
+        duration_ms: u64,
+        now_ms: u64,
+    ) {
+        self.show_overlay_toast_with_kind(
+            monitor,
+            message,
+            OverlayToastKind::Error,
+            duration_ms,
+            now_ms,
+        );
+    }
+
+    fn show_overlay_toast_with_kind(
+        &mut self,
+        monitor: &str,
+        message: &str,
+        kind: OverlayToastKind,
+        duration_ms: u64,
+        now_ms: u64,
+    ) {
         let toast = self.overlay_toast.entry(monitor.to_string()).or_default();
         toast.message = Some(message.to_string());
-        toast.visible_until_ms = now_ms.saturating_add(duration_ms.max(1));
+        toast.kind = kind;
+        toast.duration_ms = duration_ms.max(1);
+        toast.hovered = false;
+        toast.scroll_x = 0;
+        toast.scroll_y = 0;
+        toast.visible_until_ms = now_ms.saturating_add(toast.duration_ms);
         if toast.mix < 0.12 {
             toast.mix = 0.0;
         }
+    }
+
+    pub(crate) fn adjust_overlay_error_toast_scroll(
+        &mut self,
+        monitor: &str,
+        dx: i32,
+        dy: i32,
+        max_x: i32,
+        max_y: i32,
+    ) -> bool {
+        let Some(toast) = self.overlay_toast.get_mut(monitor) else {
+            return false;
+        };
+        if !matches!(toast.kind, OverlayToastKind::Error) || toast.message.is_none() {
+            return false;
+        }
+        let prev = (toast.scroll_x, toast.scroll_y);
+        toast.scroll_x = toast.scroll_x.saturating_add(dx).clamp(0, max_x.max(0));
+        toast.scroll_y = toast.scroll_y.saturating_add(dy).clamp(0, max_y.max(0));
+        prev != (toast.scroll_x, toast.scroll_y)
+    }
+
+    pub(crate) fn set_overlay_error_toast_hovered(
+        &mut self,
+        monitor: &str,
+        hovered: bool,
+        now_ms: u64,
+    ) {
+        let Some(toast) = self.overlay_toast.get_mut(monitor) else {
+            return;
+        };
+        if !matches!(toast.kind, OverlayToastKind::Error) || toast.message.is_none() {
+            return;
+        }
+        let was_hovered = toast.hovered;
+        toast.hovered = hovered;
+        if was_hovered && !hovered {
+            toast.visible_until_ms = now_ms.saturating_add(toast.duration_ms.max(1));
+        }
+    }
+
+    pub(crate) fn dismiss_overlay_error_toast(&mut self, monitor: &str) -> bool {
+        let Some(toast) = self.overlay_toast.get(monitor) else {
+            return false;
+        };
+        if !matches!(toast.kind, OverlayToastKind::Error) {
+            return false;
+        }
+        self.overlay_toast.remove(monitor).is_some()
     }
 
     pub(crate) fn overlay_toast_snapshot(
@@ -443,7 +530,10 @@ impl RenderState {
         now_ms: u64,
     ) -> Option<OverlayToastSnapshot> {
         let toast = self.overlay_toast.get_mut(monitor)?;
-        let target = if toast.message.is_some() && now_ms < toast.visible_until_ms {
+        let target = if toast.message.is_some()
+            && (now_ms < toast.visible_until_ms
+                || (matches!(toast.kind, OverlayToastKind::Error) && toast.hovered))
+        {
             1.0
         } else {
             0.0
@@ -459,6 +549,9 @@ impl RenderState {
         }
         Some(OverlayToastSnapshot {
             message: toast.message.clone().unwrap_or_default(),
+            kind: toast.kind,
+            scroll_x: toast.scroll_x,
+            scroll_y: toast.scroll_y,
             mix: toast.mix,
         })
     }

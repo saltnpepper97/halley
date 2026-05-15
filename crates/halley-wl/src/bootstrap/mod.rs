@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
-use halley_config::{RuntimeTuning, ViewportOutputConfig};
+use halley_config::{ConfigLoadDiagnostic, RuntimeTuning, ViewportOutputConfig};
 
 use eventline::{
     FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, enable_console_color,
@@ -124,6 +124,59 @@ pub(crate) fn apply_reloaded_tuning(
         "resolved zoom: {}",
         st.runtime.tuning.zoom_resolved_summary()
     );
+}
+
+pub(crate) fn load_startup_tuning(path: &str) -> (RuntimeTuning, Option<ConfigLoadDiagnostic>) {
+    match RuntimeTuning::try_load_from_path_diagnostic(path) {
+        Ok(tuning) => (tuning, None),
+        Err(diagnostic) => {
+            warn!(
+                "config load failed at startup from {}: {}; using built-in defaults",
+                path, diagnostic.message
+            );
+            (RuntimeTuning::builtin_defaults(), Some(diagnostic))
+        }
+    }
+}
+
+pub(crate) fn show_config_startup_error(st: &mut Halley, diagnostic: &ConfigLoadDiagnostic) {
+    show_config_error_with_title(st, diagnostic, "Config load failed", 15_000);
+}
+
+pub(crate) fn show_config_reload_error(st: &mut Halley, diagnostic: &ConfigLoadDiagnostic) {
+    show_config_error_with_title(st, diagnostic, "Config reload failed", 9000);
+}
+
+fn show_config_error_with_title(
+    st: &mut Halley,
+    diagnostic: &ConfigLoadDiagnostic,
+    title: &str,
+    duration_ms: u64,
+) {
+    let monitor = st.model.monitor_state.current_monitor.clone();
+    let now_ms = st.now_ms(std::time::Instant::now());
+    let message = config_error_message(diagnostic, title);
+    st.ui.render_state.show_overlay_error_toast(
+        monitor.as_str(),
+        message.as_str(),
+        duration_ms,
+        now_ms,
+    );
+}
+
+fn config_error_message(diagnostic: &ConfigLoadDiagnostic, title: &str) -> String {
+    let location = match (diagnostic.line, diagnostic.column) {
+        (Some(line), Some(column)) => format!("{}:{line}:{column}", diagnostic.path),
+        (Some(line), None) => format!("{}:{line}", diagnostic.path),
+        _ => diagnostic.path.clone(),
+    };
+    let mut lines = vec![title.to_string(), location, diagnostic.message.clone()];
+    if let Some(source_line) = diagnostic.source_line.as_deref() {
+        lines.push(format!("-> {source_line}"));
+    } else if let Some(hint) = diagnostic.hint.as_deref() {
+        lines.push(format!("Hint: {hint}"));
+    }
+    lines.join("\n")
 }
 
 fn normalized_tty_viewports(

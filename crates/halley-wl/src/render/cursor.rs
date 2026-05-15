@@ -1,9 +1,9 @@
 use smithay::{
     backend::renderer::{Color32F, Frame},
-    input::pointer::CursorImageSurfaceData,
+    input::pointer::{CursorImageStatus, CursorImageSurfaceData},
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Physical, Rectangle},
-    wayland::compositor::with_states,
+    wayland::compositor::{SurfaceAttributes, get_parent, with_states},
 };
 
 use super::cursor_theme::SoftwareCursorSprite;
@@ -27,6 +27,48 @@ pub(crate) fn cursor_surface_hotspot(surface: &WlSurface) -> (i32, i32) {
             })
             .unwrap_or((0, 0))
     })
+}
+
+pub(crate) fn handle_cursor_surface_commit(
+    cursor_image: &CursorImageStatus,
+    surface: &WlSurface,
+) -> bool {
+    let CursorImageStatus::Surface(cursor_surface) = cursor_image else {
+        return false;
+    };
+    let root = surface_tree_root(surface);
+    if cursor_surface != &root {
+        return false;
+    }
+
+    if surface == &root {
+        with_states(surface, |states| {
+            let cursor_image_attributes = states.data_map.get::<CursorImageSurfaceData>();
+            if let Some(mut cursor_image_attributes) =
+                cursor_image_attributes.map(|attrs| attrs.lock().unwrap())
+            {
+                let buffer_delta = states
+                    .cached_state
+                    .get::<SurfaceAttributes>()
+                    .current()
+                    .buffer_delta
+                    .take();
+                if let Some(buffer_delta) = buffer_delta {
+                    cursor_image_attributes.hotspot -= buffer_delta;
+                }
+            }
+        });
+    }
+
+    true
+}
+
+fn surface_tree_root(surface: &WlSurface) -> WlSurface {
+    let mut root = surface.clone();
+    while let Some(parent) = get_parent(&root) {
+        root = parent;
+    }
+    root
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,21 @@
+aperture:
+  placement "cursor"
+  # For a fixed output instead, use:
+  # placement "monitor"
+  # monitor "DP-1"
+  #
+  # To show Aperture on every output, use:
+  # placement "all"
+end
+
+aperture-peek:
+  corner "top-right"
+  background "#101014cc"
+  radius-px 24
+
+  clock:
+    font "CommitMono Nerd Font Bold"
+    size-px 80
+    colour "#e8a1a7"
+  end
+end

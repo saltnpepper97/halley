@@ -48,6 +48,12 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
         || crate::compositor::interaction::state::bloom_pull_preview_active_for_monitor(st, monitor)
         || st.ui.render_state.overlay_banner.contains_key(monitor)
         || st.ui.render_state.overlay_toast.contains_key(monitor)
+        || st
+            .model
+            .focus_state
+            .focus_ring_preview_until_ms
+            .get(monitor)
+            .is_some_and(|until_ms| *until_ms > st.now_ms(std::time::Instant::now()))
         || st.input.interaction_state.focus_cycle_session.is_some()
         || st
             .model

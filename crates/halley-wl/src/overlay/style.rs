@@ -33,6 +33,7 @@ impl OverlayRgb {
 pub(crate) struct OverlayPalette {
     pub(crate) fill: OverlayRgb,
     pub(crate) text: OverlayRgb,
+    pub(crate) error: OverlayRgb,
     pub(crate) subtext: OverlayRgb,
     pub(crate) key_fill: OverlayRgb,
     pub(crate) key_text: OverlayRgb,
@@ -67,6 +68,11 @@ const DARK_OVERLAY_TEXT: OverlayRgb = OverlayRgb {
     g: 0.96,
     b: 0.98,
 };
+const DEFAULT_ERROR_COLOR: OverlayRgb = OverlayRgb {
+    r: 0xfb as f32 / 255.0,
+    g: 0x49 as f32 / 255.0,
+    b: 0x34 as f32 / 255.0,
+};
 
 fn resolve_overlay_base_background(mode: OverlayColorMode) -> OverlayRgb {
     match mode {
@@ -88,6 +94,15 @@ fn resolve_overlay_base_text(mode: OverlayColorMode, background: OverlayRgb) -> 
         OverlayColorMode::Light => LIGHT_OVERLAY_TEXT,
         OverlayColorMode::Dark => DARK_OVERLAY_TEXT,
         OverlayColorMode::Fixed { r, g, b } => OverlayRgb { r, g, b },
+    }
+}
+
+fn resolve_overlay_error_color(mode: OverlayColorMode) -> OverlayRgb {
+    match mode {
+        OverlayColorMode::Fixed { r, g, b } => OverlayRgb { r, g, b },
+        OverlayColorMode::Auto | OverlayColorMode::Light | OverlayColorMode::Dark => {
+            DEFAULT_ERROR_COLOR
+        }
     }
 }
 
@@ -128,6 +143,7 @@ fn resolve_overlay_border_width(tuning: &RuntimeTuning) -> f32 {
 pub(crate) fn resolve_overlay_visuals(tuning: &RuntimeTuning) -> OverlayVisuals {
     let fill = resolve_overlay_base_background(tuning.overlay_style.background_color);
     let text = resolve_overlay_base_text(tuning.overlay_style.text_color, fill);
+    let error = resolve_overlay_error_color(tuning.overlay_style.error_color);
     let border = resolve_overlay_border_color(tuning);
     OverlayVisuals {
         rounded: matches!(tuning.overlay_style.shape, OverlayShape::Rounded),
@@ -136,6 +152,7 @@ pub(crate) fn resolve_overlay_visuals(tuning: &RuntimeTuning) -> OverlayVisuals 
         palette: OverlayPalette {
             fill,
             text,
+            error,
             subtext: text.mix(fill, 0.20),
             key_fill: fill.mix(text, 0.10),
             key_text: text,

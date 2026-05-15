@@ -18,6 +18,7 @@ fontdb = "0.23.0"
 halley-ipc.workspace = true
 rusttype = "0.9.3"
 rune-cfg.workspace = true
+rustix = { version = "1.1.4", features = ["event"] }
 smithay-client-toolkit.workspace = true
 wayland-client.workspace = true
 

@@ -81,6 +81,7 @@ impl Default for PinsConfig {
 pub struct OverlayStyleConfig {
     pub background_color: OverlayColorMode,
     pub text_color: OverlayColorMode,
+    pub error_color: OverlayColorMode,
     pub shape: OverlayShape,
     pub borders: bool,
     pub border_source: OverlayBorderSource,
@@ -91,6 +92,11 @@ impl Default for OverlayStyleConfig {
         Self {
             background_color: OverlayColorMode::Auto,
             text_color: OverlayColorMode::Auto,
+            error_color: OverlayColorMode::Fixed {
+                r: 0xfb as f32 / 255.0,
+                g: 0x49 as f32 / 255.0,
+                b: 0x34 as f32 / 255.0,
+            },
             shape: OverlayShape::Square,
             borders: true,
             border_source: OverlayBorderSource::Primary,

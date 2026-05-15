@@ -11,6 +11,7 @@ use smithay::{
             DisplayHandle, Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
         },
     },
+    utils::IsAlive,
     wayland::{
         compositor::{CompositorState, add_blocker, with_states},
         cursor_shape::CursorShapeManagerState,
@@ -168,6 +169,12 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         .and_then(|pointer| pointer.current_focus())
         .is_some();
 
+    if let Some((_, locked)) = crate::compositor::interaction::pointer::active_constrained_pointer_surface(st) {
+        if locked {
+            return CursorImageStatus::Hidden;
+        }
+    }
+
     if st.input.interaction_state.cursor_hidden_by_typing {
         return CursorImageStatus::Hidden;
     }
@@ -186,6 +193,11 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         && pointer_has_client_focus
     {
         return CursorImageStatus::Hidden;
+    }
+
+    if matches!(&st.platform.cursor_image_status, CursorImageStatus::Surface(surface) if !surface.alive())
+    {
+        return CursorImageStatus::default_named();
     }
 
     st.input

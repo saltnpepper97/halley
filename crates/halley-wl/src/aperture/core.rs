@@ -18,6 +18,23 @@ pub(crate) enum ApertureMode {
     Hidden,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum AperturePlacement {
+    #[default]
+    Cursor,
+    All,
+    Monitor,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum PeekCorner {
+    TopLeft,
+    #[default]
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ClockColor {
     pub(crate) r: f32,
@@ -31,6 +48,25 @@ impl Default for ClockColor {
             r: 0.96,
             g: 0.98,
             b: 1.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PeekBackgroundColor {
+    pub(crate) r: f32,
+    pub(crate) g: f32,
+    pub(crate) b: f32,
+    pub(crate) a: f32,
+}
+
+impl Default for PeekBackgroundColor {
+    fn default() -> Self {
+        Self {
+            r: 16.0 / 255.0,
+            g: 16.0 / 255.0,
+            b: 20.0 / 255.0,
+            a: 204.0 / 255.0,
         }
     }
 }
@@ -52,9 +88,30 @@ impl Default for ClockConfig {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AperturePeekConfig {
+    pub(crate) corner: PeekCorner,
+    pub(crate) background: PeekBackgroundColor,
+    pub(crate) radius_px: u32,
+    pub(crate) clock: ClockConfig,
+}
+
+impl Default for AperturePeekConfig {
+    fn default() -> Self {
+        Self {
+            corner: PeekCorner::TopRight,
+            background: PeekBackgroundColor::default(),
+            radius_px: 24,
+            clock: ClockConfig::default(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ApertureConfig {
-    pub(crate) clock: ClockConfig,
+    pub(crate) placement: AperturePlacement,
+    pub(crate) monitor: Option<String>,
+    pub(crate) peek: AperturePeekConfig,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -89,33 +146,65 @@ impl ApertureConfig {
         })?;
 
         let mut out = Self::default();
-        out.clock.font_family = pick_string(
+        out.placement = pick_string(&cfg, &["aperture.placement"])
+            .as_deref()
+            .and_then(parse_placement)
+            .unwrap_or(out.placement);
+        out.monitor = pick_string(&cfg, &["aperture.monitor"]).and_then(non_empty_trimmed);
+        out.peek.corner = pick_string(&cfg, &["aperture-peek.corner"])
+            .as_deref()
+            .and_then(parse_corner)
+            .unwrap_or(out.peek.corner);
+        out.peek.background = pick_background_color(
             &cfg,
             &[
-                "clock.font",
-                "clock.font-family",
-                "clock.font_family",
-                "clock.family",
+                "aperture-peek.background",
+                "aperture-peek.background-colour",
+                "aperture-peek.background-color",
+            ],
+            out.peek.background,
+        );
+        out.peek.radius_px = pick_u32(
+            &cfg,
+            &[
+                "aperture-peek.radius-px",
+                "aperture-peek.radius_px",
+                "aperture-peek.corner-radius-px",
+                "aperture-peek.corner_radius_px",
+            ],
+            out.peek.radius_px,
+        );
+        out.peek.clock.font_family = pick_string(
+            &cfg,
+            &[
+                "aperture-peek.clock.font",
+                "aperture-peek.clock.font-family",
+                "aperture-peek.clock.font_family",
+                "aperture-peek.clock.family",
             ],
         )
-        .unwrap_or(out.clock.font_family)
+        .unwrap_or(out.peek.clock.font_family)
         .trim()
         .to_string();
-        if out.clock.font_family.is_empty() {
-            out.clock.font_family = ClockConfig::default().font_family;
+        if out.peek.clock.font_family.is_empty() {
+            out.peek.clock.font_family = ClockConfig::default().font_family;
         }
-        out.clock.font_px = pick_u32(
+        out.peek.clock.font_px = pick_u32(
             &cfg,
             &[
-                "clock.size-px",
-                "clock.size_px",
-                "clock.font-px",
-                "clock.font_px",
+                "aperture-peek.clock.size-px",
+                "aperture-peek.clock.size_px",
+                "aperture-peek.clock.font-px",
+                "aperture-peek.clock.font_px",
             ],
-            out.clock.font_px,
+            out.peek.clock.font_px,
         )
         .max(1);
-        out.clock.color = pick_color(&cfg, &["clock.colour", "clock.color"], out.clock.color);
+        out.peek.clock.color = pick_clock_color(
+            &cfg,
+            &["aperture-peek.clock.colour", "aperture-peek.clock.color"],
+            out.peek.clock.color,
+        );
 
         Ok(out)
     }
@@ -211,9 +300,9 @@ impl ApertureRuntime {
 
         let effective_scale = scale.max(0.25) as f32;
         let render_font_px = match mode {
-            ApertureMode::Normal => self.config.clock.font_px.max(1),
+            ApertureMode::Normal => self.config.peek.clock.font_px.max(1),
             ApertureMode::Collapsed | ApertureMode::Hidden => {
-                collapsed_font_px(self.config.clock.font_px)
+                collapsed_font_px(self.config.peek.clock.font_px)
             }
         };
         let render_font_px = (render_font_px as f32 * effective_scale).round().max(1.0) as u32;
@@ -241,7 +330,7 @@ impl ApertureRuntime {
 
         Some(ClockSnapshot {
             text,
-            font_family: self.config.clock.font_family.clone(),
+            font_family: self.config.peek.clock.font_family.clone(),
             font_px: render_font_px,
             alpha: 1.0,
             bounds: Rect::new(x, y, text_size.w, text_size.h),
@@ -279,30 +368,89 @@ fn pick_string(cfg: &RuneConfig, paths: &[&str]) -> Option<String> {
     None
 }
 
-fn pick_color(cfg: &RuneConfig, paths: &[&str], default: ClockColor) -> ClockColor {
+fn non_empty_trimmed(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn parse_placement(value: &str) -> Option<AperturePlacement> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "cursor" => Some(AperturePlacement::Cursor),
+        "all" => Some(AperturePlacement::All),
+        "monitor" | "output" => Some(AperturePlacement::Monitor),
+        _ => None,
+    }
+}
+
+fn parse_corner(value: &str) -> Option<PeekCorner> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "top-left" | "top_left" => Some(PeekCorner::TopLeft),
+        "top-right" | "top_right" => Some(PeekCorner::TopRight),
+        "bottom-left" | "bottom_left" => Some(PeekCorner::BottomLeft),
+        "bottom-right" | "bottom_right" => Some(PeekCorner::BottomRight),
+        _ => None,
+    }
+}
+
+fn pick_clock_color(cfg: &RuneConfig, paths: &[&str], default: ClockColor) -> ClockColor {
     let Some(raw) = pick_string(cfg, paths) else {
         return default;
     };
     parse_hex_rgb(raw.trim().trim_matches('"')).unwrap_or(default)
 }
 
+fn pick_background_color(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: PeekBackgroundColor,
+) -> PeekBackgroundColor {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    parse_hex_rgba(raw.trim().trim_matches('"')).unwrap_or(default)
+}
+
 fn parse_hex_rgb(value: &str) -> Option<ClockColor> {
+    let rgba = parse_hex_rgba(value)?;
+    Some(ClockColor {
+        r: rgba.r,
+        g: rgba.g,
+        b: rgba.b,
+    })
+}
+
+fn parse_hex_rgba(value: &str) -> Option<PeekBackgroundColor> {
     let hex = value.strip_prefix('#').unwrap_or(value);
     let expanded = match hex.len() {
         3 => {
-            let mut out = String::with_capacity(6);
+            let mut out = String::with_capacity(8);
+            for ch in hex.chars() {
+                out.push(ch);
+                out.push(ch);
+            }
+            out.push_str("ff");
+            out
+        }
+        4 => {
+            let mut out = String::with_capacity(8);
             for ch in hex.chars() {
                 out.push(ch);
                 out.push(ch);
             }
             out
         }
-        6 => hex.to_string(),
+        6 => {
+            let mut out = hex.to_string();
+            out.push_str("ff");
+            out
+        }
+        8 => hex.to_string(),
         _ => return None,
     };
 
     let r = u8::from_str_radix(&expanded[0..2], 16).ok()? as f32 / 255.0;
     let g = u8::from_str_radix(&expanded[2..4], 16).ok()? as f32 / 255.0;
     let b = u8::from_str_radix(&expanded[4..6], 16).ok()? as f32 / 255.0;
-    Some(ClockColor { r, g, b })
+    let a = u8::from_str_radix(&expanded[6..8], 16).ok()? as f32 / 255.0;
+    Some(PeekBackgroundColor { r, g, b, a })
 }
