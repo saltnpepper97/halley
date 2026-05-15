@@ -196,17 +196,11 @@ impl DrmSyncobjHandler for Halley {
 impl PointerConstraintsHandler for Halley {
     fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
         if pointer.current_focus().as_ref() != Some(surface) {
-            let mut is_ancestor = false;
-            if let Some(mut current) = pointer.current_focus() {
-                while let Some(parent) = get_parent(&current) {
-                    if parent == *surface {
-                        is_ancestor = true;
-                        break;
-                    }
-                    current = parent;
-                }
-            }
-            if is_ancestor {
+            let focus = pointer.current_focus();
+            let in_focused_tree = focus.as_ref().is_some_and(|focus| {
+                surface_is_ancestor_of(surface, focus) || surface_is_ancestor_of(focus, surface)
+            });
+            if in_focused_tree {
                 pointer.motion(
                     self,
                     Some((surface.clone(), pointer.current_location())),
@@ -242,6 +236,17 @@ impl PointerConstraintsHandler for Halley {
             location,
         );
     }
+}
+
+fn surface_is_ancestor_of(ancestor: &WlSurface, surface: &WlSurface) -> bool {
+    let mut current = surface.clone();
+    while let Some(parent) = get_parent(&current) {
+        if parent == *ancestor {
+            return true;
+        }
+        current = parent;
+    }
+    false
 }
 
 #[cfg(test)]
