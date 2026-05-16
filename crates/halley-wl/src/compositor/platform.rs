@@ -20,6 +20,7 @@ use smithay::{
         idle_notify::IdleNotifierState,
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsState,
+        presentation::PresentationState,
         relative_pointer::RelativePointerManagerState,
         selection::{
             data_device::DataDeviceState, primary_selection::PrimarySelectionState,
@@ -57,6 +58,7 @@ pub(crate) struct PlatformState {
     pub(crate) popup_manager: PopupManager,
     pub(crate) wlr_layer_shell_state: WlrLayerShellState,
     pub(crate) pointer_constraints_state: PointerConstraintsState,
+    pub(crate) presentation_state: PresentationState,
     pub(crate) relative_pointer_manager_state: RelativePointerManagerState,
     pub(crate) idle_notifier_state: IdleNotifierState<Halley>,
     pub(crate) drm_syncobj_state: Option<DrmSyncobjState>,
@@ -169,7 +171,9 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         .and_then(|pointer| pointer.current_focus())
         .is_some();
 
-    if let Some((_, locked)) = crate::compositor::interaction::pointer::active_constrained_pointer_surface(st) {
+    if let Some((_, locked)) =
+        crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
+    {
         if locked {
             return CursorImageStatus::Hidden;
         }

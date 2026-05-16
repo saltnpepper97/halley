@@ -1,12 +1,19 @@
 use std::collections::HashSet;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use halley_core::field::{NodeId, Vec2};
+use smithay::desktop::utils::{
+    OutputPresentationFeedback, take_presentation_feedback_surface_tree,
+};
 use smithay::desktop::{PopupKind, find_popup_root_surface};
+use smithay::output::Output;
+use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
+use smithay::utils::{Clock, Monotonic};
 use smithay::wayland::compositor::{
     SurfaceAttributes, TraversalAction, with_surface_tree_downward,
 };
+use smithay::wayland::presentation::Refresh;
 
 use crate::animation::AnimStyle;
 use crate::compositor::monitor::camera::camera_controller;
@@ -120,9 +127,24 @@ pub(crate) fn tty_output_animation_redraw_state(
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
     let maximize_motion_active = crate::compositor::workspace::state::maximize_animation_active(st);
     let current_monitor = st.model.monitor_state.current_monitor.as_str();
-    let viewport_pan_active = monitor == current_monitor
-        && (st.input.interaction_state.viewport_pan_anim.is_some()
-            || !st.model.spawn_state.pending_spawn_pan_queue.is_empty());
+    let viewport_pan_active = st
+        .input
+        .interaction_state
+        .viewport_pan_anim
+        .as_ref()
+        .is_some_and(|anim| anim.monitor == monitor)
+        || st
+            .model
+            .spawn_state
+            .pending_spawn_pan_queue
+            .iter()
+            .any(|pan| {
+                st.model
+                    .monitor_state
+                    .node_monitor
+                    .get(&pan.node_id)
+                    .is_some_and(|node_monitor| node_monitor == monitor)
+            });
     let camera_smoothing_active = monitor == current_monitor
         && ((st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
             || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
@@ -492,6 +514,75 @@ pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str
     }
 }
 
+pub(crate) fn send_presentation_feedback_for_output(st: &Halley, output_name: &str) {
+    let Some(output) = st.model.monitor_state.outputs.get(output_name).cloned() else {
+        return;
+    };
+
+    let mut feedback = OutputPresentationFeedback::new(&output);
+    let presentation_time = Clock::<Monotonic>::new().now();
+    let refresh = refresh_for_output(&output);
+
+    for layer in st.platform.wlr_layer_shell_state.layer_surfaces() {
+        let surface = layer.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            take_presentation_feedback_surface_tree(
+                surface,
+                &mut feedback,
+                |_, _| Some(output.clone()),
+                |_, _| wp_presentation_feedback::Kind::empty(),
+            );
+        }
+    }
+
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let surface = top.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            take_presentation_feedback_surface_tree(
+                surface,
+                &mut feedback,
+                |_, _| Some(output.clone()),
+                |_, _| wp_presentation_feedback::Kind::empty(),
+            );
+        }
+    }
+
+    for popup in st.platform.xdg_shell_state.popup_surfaces() {
+        let popup_kind = PopupKind::from(popup.clone());
+        let Ok(root) = find_popup_root_surface(&popup_kind) else {
+            continue;
+        };
+        if surface_on_output(st, &root, output_name) {
+            take_presentation_feedback_surface_tree(
+                popup.wl_surface(),
+                &mut feedback,
+                |_, _| Some(output.clone()),
+                |_, _| wp_presentation_feedback::Kind::empty(),
+            );
+        }
+    }
+
+    feedback.presented(
+        presentation_time,
+        refresh,
+        0,
+        wp_presentation_feedback::Kind::Vsync,
+    );
+}
+
+fn refresh_for_output(output: &Output) -> Refresh {
+    output
+        .current_mode()
+        .map(|mode| mode.refresh)
+        .filter(|refresh_millihz| *refresh_millihz > 0)
+        .map(|refresh_millihz| {
+            Refresh::fixed(Duration::from_nanos(
+                1_000_000_000_000u64 / refresh_millihz as u64,
+            ))
+        })
+        .unwrap_or(Refresh::Unknown)
+}
+
 fn surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> bool {
     if let Some(node_id) = st.model.surface_to_node.get(&surface.id()).copied() {
         return st
@@ -601,11 +692,12 @@ mod tests {
     }
 
     #[test]
-    fn viewport_pan_only_marks_current_monitor_active() {
+    fn viewport_pan_only_marks_animation_monitor_active() {
         let mut state = multi_monitor_state();
         let _ = state.activate_monitor("right");
         state.input.interaction_state.viewport_pan_anim =
             Some(crate::compositor::interaction::state::ViewportPanAnim {
+                monitor: "right".to_string(),
                 start_ms: 0,
                 delay_ms: 0,
                 duration_ms: 120,
@@ -615,6 +707,7 @@ mod tests {
                     y: state.model.viewport.center.y,
                 },
             });
+        let _ = state.activate_monitor("left");
 
         let now = Instant::now();
         assert!(tty_output_animation_redraw_state(&state, "right", now).active);

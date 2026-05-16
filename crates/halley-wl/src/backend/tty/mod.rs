@@ -184,6 +184,7 @@ fn queue_ready_tty_outputs(
                         .remove(output.connector_name.as_str());
                     if source == "timer" {
                         crate::frame_loop::send_frame_callbacks_for_output(st, output_name, now);
+                        crate::frame_loop::send_presentation_feedback_for_output(st, output_name);
                     }
                     continue;
                 }
@@ -201,6 +202,7 @@ fn queue_ready_tty_outputs(
                     .borrow_mut()
                     .insert(output.connector_name.clone(), now);
                 crate::frame_loop::send_frame_callbacks_for_output(st, output_name, now);
+                crate::frame_loop::send_presentation_feedback_for_output(st, output_name);
             }
         }
     }

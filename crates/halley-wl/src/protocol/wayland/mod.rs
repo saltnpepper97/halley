@@ -7,9 +7,9 @@ use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
     delegate_compositor, delegate_cursor_shape, delegate_data_control, delegate_data_device,
     delegate_dmabuf, delegate_drm_syncobj, delegate_idle_notify, delegate_layer_shell,
-    delegate_output, delegate_pointer_constraints, delegate_primary_selection,
-    delegate_relative_pointer, delegate_seat, delegate_shm, delegate_viewporter,
-    delegate_xdg_activation, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_output, delegate_pointer_constraints, delegate_presentation,
+    delegate_primary_selection, delegate_relative_pointer, delegate_seat, delegate_shm,
+    delegate_viewporter, delegate_xdg_activation, delegate_xdg_decoration, delegate_xdg_shell,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
     output::Output,
     reexports::wayland_server::{Client, Resource, backend::ObjectId, protocol::wl_seat},
@@ -63,3 +63,5 @@ mod screencopy;
 pub(crate) mod session_lock;
 
 pub use client_state::ClientState;
+
+delegate_presentation!(Halley);

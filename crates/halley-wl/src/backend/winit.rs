@@ -478,6 +478,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             debug!("draw failed: {}", err);
                         } else {
                             crate::frame_loop::send_frame_callbacks(st, now);
+                            crate::frame_loop::send_presentation_feedback_for_output(st, "winit-0");
                         }
                     }
                     WinitEvent::Resized { size, .. } => {
@@ -521,6 +522,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             debug!("draw failed: {}", err);
                         } else {
                             crate::frame_loop::send_frame_callbacks(st, now);
+                            crate::frame_loop::send_presentation_feedback_for_output(st, "winit-0");
                         }
                     }
                     WinitEvent::Focus(false) => {

@@ -193,6 +193,10 @@ impl Halley {
                 popup_manager: PopupManager::default(),
                 wlr_layer_shell_state: WlrLayerShellState::new::<Halley>(dh),
                 pointer_constraints_state: PointerConstraintsState::new::<Halley>(dh),
+                presentation_state: smithay::wayland::presentation::PresentationState::new::<Halley>(
+                    dh,
+                    <smithay::utils::Monotonic as smithay::utils::ClockSource>::ID as u32,
+                ),
                 relative_pointer_manager_state: RelativePointerManagerState::new::<Halley>(dh),
                 idle_notifier_state: IdleNotifierState::new(dh, loop_handle),
                 drm_syncobj_state: None,
@@ -304,6 +308,7 @@ impl Halley {
                     applied_window_rules: HashMap::new(),
                     pending_rule_rechecks: HashSet::new(),
                     pending_initial_reveal: HashSet::new(),
+                    pending_pan_activate: None,
                 },
                 field: Field::new(),
                 viewport: primary_viewport,
@@ -1165,6 +1170,19 @@ impl Halley {
     pub fn animate_viewport_center_to(&mut self, target_center: Vec2, now: Instant) -> bool {
         super::focus::system::focus_system_controller(self)
             .animate_viewport_center_to(target_center, now)
+    }
+
+    pub fn animate_viewport_center_to_on_monitor(
+        &mut self,
+        monitor: &str,
+        target_center: Vec2,
+        now: Instant,
+    ) -> bool {
+        super::focus::system::focus_system_controller(self).animate_viewport_center_to_on_monitor(
+            monitor,
+            target_center,
+            now,
+        )
     }
 
     pub fn animate_viewport_center_to_delayed(

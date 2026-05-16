@@ -98,6 +98,7 @@ pub(crate) struct SpawnState {
     pub(crate) applied_window_rules: HashMap<NodeId, AppliedInitialWindowRule>,
     pub(crate) pending_rule_rechecks: HashSet<NodeId>,
     pub(crate) pending_initial_reveal: HashSet<NodeId>,
+    pub(crate) pending_pan_activate: Option<(NodeId, u64)>,
 }
 
 pub(crate) fn is_persistent_rule_top(st: &Halley, node_id: NodeId) -> bool {

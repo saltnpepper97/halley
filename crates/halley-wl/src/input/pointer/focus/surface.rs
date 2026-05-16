@@ -1,11 +1,12 @@
 use std::time::Instant;
 
 use smithay::desktop::{
-    PopupManager, WindowSurfaceType,
+    PopupKind, PopupManager, WindowSurfaceType,
     utils::{bbox_from_surface_tree, under_from_surface_tree},
 };
-use smithay::reexports::wayland_server::Resource;
+use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::utils::{Logical, Point};
+use smithay::wayland::{compositor::get_role, shell::xdg::XDG_POPUP_ROLE};
 
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
@@ -40,6 +41,43 @@ fn clamp_layer_popup_origin(
     }
 
     (origin_x, origin_y)
+}
+
+fn popup_parent_surface(popup: &PopupKind) -> Option<WlSurface> {
+    match popup {
+        PopupKind::Xdg(popup) => popup.get_parent_surface(),
+        PopupKind::InputMethod(popup) => popup.get_parent().map(|parent| parent.surface.clone()),
+    }
+}
+
+fn popup_depth(st: &Halley, popup: &PopupKind) -> usize {
+    let mut depth = 0;
+    let mut parent = popup_parent_surface(popup);
+    while let Some(surface) = parent {
+        if get_role(&surface) != Some(XDG_POPUP_ROLE) {
+            break;
+        }
+        depth += 1;
+        parent = st
+            .platform
+            .popup_manager
+            .find_popup(&surface)
+            .and_then(|popup| popup_parent_surface(&popup));
+    }
+    depth
+}
+
+fn popups_top_to_bottom(st: &Halley, surface: &WlSurface) -> Vec<(PopupKind, Point<i32, Logical>)> {
+    let mut popups: Vec<_> = PopupManager::popups_for_surface(surface)
+        .enumerate()
+        .map(|(index, (popup, offset))| (popup_depth(st, &popup), index, popup, offset))
+        .collect();
+    popups.sort_by_key(|(depth, index, _, _)| (*depth, *index));
+    popups
+        .into_iter()
+        .rev()
+        .map(|(_, _, popup, offset)| (popup, offset))
+        .collect()
 }
 
 fn popup_focus_for_screen(
@@ -114,9 +152,7 @@ fn popup_focus_for_screen(
             });
         let parent_geo_loc = (parent_geo.0.round() as i32, parent_geo.1.round() as i32);
 
-        let mut popups: Vec<_> = PopupManager::popups_for_surface(&wl).collect();
-        popups.reverse();
-        for (popup, popup_offset) in popups {
+        for (popup, popup_offset) in popups_top_to_bottom(st, &wl) {
             let popup_geo = popup.geometry();
             let popup_sx = xform.origin_x
                 + ((parent_geo_loc.0 + popup_offset.x - popup_geo.loc.x) as f32 * scale).round();
@@ -210,9 +246,7 @@ pub(crate) fn layer_surface_focus_for_screen(
             continue;
         }
 
-        let mut popups: Vec<_> = PopupManager::popups_for_surface(&placement.wl_surface).collect();
-        popups.reverse();
-        for (popup, popup_offset) in popups {
+        for (popup, popup_offset) in popups_top_to_bottom(st, &placement.wl_surface) {
             let popup_geo = popup.geometry();
             let (popup_origin_x, popup_origin_y) = clamp_layer_popup_origin(
                 &popup,

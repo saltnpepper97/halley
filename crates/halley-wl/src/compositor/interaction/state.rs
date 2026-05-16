@@ -59,7 +59,9 @@ pub(crate) struct NodeMoveAnim {
     pub(crate) duration: Duration,
 }
 
+#[derive(Clone)]
 pub(crate) struct ViewportPanAnim {
+    pub(crate) monitor: String,
     pub(crate) start_ms: u64,
     pub(crate) delay_ms: u64,
     pub(crate) duration_ms: u64,

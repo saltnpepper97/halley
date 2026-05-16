@@ -21,6 +21,14 @@ pub(crate) struct MotionRoutingContext {
     pub local_sy: f32,
 }
 
+pub(super) enum MotionDispatchResult {
+    ConsumedByPointerConstraint,
+    Forwarded {
+        desktop_hover: bool,
+        hover_focus_blocked: bool,
+    },
+}
+
 pub(super) fn compute_motion_routing(
     st: &mut Halley,
     ps: &PointerState,
@@ -150,7 +158,7 @@ pub(super) fn dispatch_pointer_motion(
     delta_unaccel: (f64, f64),
     time_usec: u64,
     now: Instant,
-) -> (bool, bool) {
+) -> MotionDispatchResult {
     let mut desktop_hover = false;
     let mut hover_focus_blocked = false;
 
@@ -174,7 +182,7 @@ pub(super) fn dispatch_pointer_motion(
                 );
             }
             pointer.frame(st);
-            return (false, false);
+            return MotionDispatchResult::ConsumedByPointerConstraint;
         }
 
         let locked_surface = active_constraint
@@ -279,7 +287,7 @@ pub(super) fn dispatch_pointer_motion(
                     );
                 }
                 pointer.frame(st);
-                return (false, false);
+                return MotionDispatchResult::ConsumedByPointerConstraint;
             }
         }
 
@@ -322,7 +330,10 @@ pub(super) fn dispatch_pointer_motion(
         pointer.frame(st);
     }
 
-    (desktop_hover, hover_focus_blocked)
+    MotionDispatchResult::Forwarded {
+        desktop_hover,
+        hover_focus_blocked,
+    }
 }
 
 #[cfg(test)]

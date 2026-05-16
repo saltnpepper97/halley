@@ -375,7 +375,9 @@ pub(crate) fn maybe_pan_to_restored_focus_on_close(
 ) -> bool {
     match focus_read_context(st).close_restore_pan_plan(st, monitor, id) {
         CloseRestorePanPlan::None => false,
-        CloseRestorePanPlan::PanTo(target) => st.animate_viewport_center_to(target, now),
+        CloseRestorePanPlan::PanTo(target) => {
+            st.animate_viewport_center_to_on_monitor(monitor, target, now)
+        }
     }
 }
 

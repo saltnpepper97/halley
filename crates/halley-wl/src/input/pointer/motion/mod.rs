@@ -120,7 +120,21 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
 
     let (desktop_hover, hover_focus_blocked) = {
         let ps = ctx.pointer_state.borrow();
-        routing::dispatch_pointer_motion(st, &ps, &routing, delta, delta_unaccel, time_usec, now)
+        match routing::dispatch_pointer_motion(
+            st,
+            &ps,
+            &routing,
+            delta,
+            delta_unaccel,
+            time_usec,
+            now,
+        ) {
+            routing::MotionDispatchResult::ConsumedByPointerConstraint => return,
+            routing::MotionDispatchResult::Forwarded {
+                desktop_hover,
+                hover_focus_blocked,
+            } => (desktop_hover, hover_focus_blocked),
+        }
     };
 
     let p = routing.world;
