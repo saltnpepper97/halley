@@ -455,6 +455,9 @@ pub(super) fn ensure_node_for_surface_impl(
         .unwrap_or(0);
     let defer_rule_resolution =
         crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &effective_intent);
+    let defer_steam =
+        !effective_intent.matched_rule && effective_intent.app_id.as_deref() == Some("steam");
+    let should_defer = defer_rule_resolution || defer_steam;
     if effective_intent.effective_overlap_policy()
         == halley_config::InitialWindowOverlapPolicy::None
         && !defer_rule_resolution
@@ -536,7 +539,7 @@ pub(super) fn ensure_node_for_surface_impl(
             .applied_window_rules
             .insert(id, effective_intent.applied_rule_for_node());
         let _ = st.raise_overlap_policy_node(id);
-    } else if defer_rule_resolution {
+    } else if should_defer {
         st.model.spawn_state.pending_rule_rechecks.insert(id);
         st.model.spawn_state.pending_initial_reveal.insert(id);
     }
@@ -558,7 +561,7 @@ pub(super) fn ensure_node_for_surface_impl(
             .animator
             .observe_field(&st.model.field, now);
     }
-    if defer_rule_resolution && !joined_active_cluster {
+    if should_defer && !joined_active_cluster {
         let _ = st.model.field.set_detached(id, true);
     }
     if let Some(cid) = active_cluster.filter(|_| joined_active_cluster) {

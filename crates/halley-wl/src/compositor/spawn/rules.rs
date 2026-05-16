@@ -108,7 +108,7 @@ pub(crate) fn resolve_initial_window_intent_for_surface(
     )
 }
 
-pub(crate) fn resolve_initial_window_intent_from_identity(
+fn resolve_initial_window_intent_from_identity(
     st: &Halley,
     app_id: Option<String>,
     title: Option<String>,
@@ -168,9 +168,19 @@ fn builtin_float_center_overlap_rule() -> ResolvedInitialWindowRule {
 }
 
 fn portal_dialog_title_matches(title: &str) -> bool {
-    ["File Upload", "Open File", "Save File", "Choose"]
-        .into_iter()
-        .any(|prefix| title.starts_with(prefix))
+    [
+        "File Upload",
+        "Open File",
+        "Save File",
+        "Save Image",
+        "Choose",
+    ]
+    .into_iter()
+    .any(|prefix| title.starts_with(prefix))
+}
+
+fn steam_startup_title_matches(title: &str) -> bool {
+    title == "Sign in to Steam"
 }
 
 fn matching_user_window_rule<'a>(
@@ -215,6 +225,10 @@ fn matching_builtin_window_rule(
     }
 
     if title == Some("Picture-in-Picture") {
+        return Some(builtin_float_center_overlap_rule());
+    }
+
+    if app_id == Some("steam") && title.is_some_and(|t| steam_startup_title_matches(t)) {
         return Some(builtin_float_center_overlap_rule());
     }
 
@@ -399,6 +413,26 @@ mod tests {
     }
 
     #[test]
+    fn builtin_portal_save_image_dialog_matches() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+
+        let matched = matching_window_rule(
+            &state,
+            Some("xdg-desktop-portal-gtk"),
+            Some("Save Image - cow - Google Search"),
+            false,
+        )
+        .expect("match");
+        assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::All);
+        assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
+        assert_eq!(
+            matched.cluster_participation,
+            InitialWindowClusterParticipation::Float
+        );
+    }
+
+    #[test]
     fn builtin_pip_matches() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let state = Halley::new_for_test(&dh, RuntimeTuning::default());
@@ -411,6 +445,30 @@ mod tests {
             matched.cluster_participation,
             InitialWindowClusterParticipation::Float
         );
+    }
+
+    #[test]
+    fn builtin_steam_startup_window_matches() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+
+        let matched = matching_window_rule(&state, Some("steam"), Some("Sign in to Steam"), false)
+            .expect("steam startup rule");
+
+        assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::All);
+        assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
+        assert_eq!(
+            matched.cluster_participation,
+            InitialWindowClusterParticipation::Float
+        );
+    }
+
+    #[test]
+    fn builtin_steam_rule_does_not_match_main_window() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+
+        assert!(matching_window_rule(&state, Some("steam"), Some("Steam"), false).is_none());
     }
 
     #[test]
@@ -496,11 +554,55 @@ mod tests {
     }
 
     #[test]
+    fn user_rule_overrides_builtin_steam_startup_behavior() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = RuntimeTuning::default();
+        tuning.window_rules = vec![WindowRule {
+            app_ids: vec![WindowRulePattern::Exact("steam".to_string())],
+            titles: Vec::new(),
+            overlap_policy: InitialWindowOverlapPolicy::None,
+            spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+            cluster_participation: InitialWindowClusterParticipation::Layout,
+        }];
+        let state = Halley::new_for_test(&dh, tuning);
+
+        let matched = matching_window_rule(&state, Some("steam"), Some("Sign in to Steam"), false)
+            .expect("user rule");
+
+        assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::None);
+        assert_eq!(
+            matched.spawn_placement,
+            InitialWindowSpawnPlacement::Adjacent
+        );
+        assert_eq!(
+            matched.cluster_participation,
+            InitialWindowClusterParticipation::Layout
+        );
+    }
+
+    #[test]
     fn deferred_recheck_considers_builtin_title_rules() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let state = Halley::new_for_test(&dh, RuntimeTuning::default());
         let intent = InitialWindowIntent {
             app_id: Some("xdg-desktop-portal-gtk".to_string()),
+            title: None,
+            parent_node: None,
+            rule: ResolvedInitialWindowRule::default(),
+            matched_rule: false,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+
+        assert!(needs_deferred_rule_recheck(&state, &intent));
+    }
+
+    #[test]
+    fn deferred_recheck_considers_builtin_steam_rule() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+        let intent = InitialWindowIntent {
+            app_id: Some("steam".to_string()),
             title: None,
             parent_node: None,
             rule: ResolvedInitialWindowRule::default(),

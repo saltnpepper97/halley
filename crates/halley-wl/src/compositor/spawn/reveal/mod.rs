@@ -157,11 +157,35 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 continue;
             }
 
+            let prev_monitor = self.model.monitor_state.current_monitor.clone();
+            let needs_monitor_switch = self
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&next.node_id)
+                .is_some_and(|m| *m != prev_monitor);
+
+            if needs_monitor_switch {
+                if let Some(spawn_monitor) = self
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&next.node_id)
+                    .cloned()
+                {
+                    let _ = self.activate_monitor(spawn_monitor.as_str());
+                }
+            }
+
             let did_pan = self.animate_viewport_center_to_delayed(
                 next.target_center,
                 now,
                 Halley::VIEWPORT_PAN_PRELOAD_MS,
             );
+
+            if needs_monitor_switch {
+                let _ = self.activate_monitor(prev_monitor.as_str());
+            }
             self.model.spawn_state.active_spawn_pan =
                 Some(crate::compositor::spawn::state::ActiveSpawnPan {
                     node_id: next.node_id,
