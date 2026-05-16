@@ -1172,6 +1172,19 @@ impl Halley {
             .animate_viewport_center_to(target_center, now)
     }
 
+    pub fn animate_viewport_center_to_on_monitor(
+        &mut self,
+        monitor: &str,
+        target_center: Vec2,
+        now: Instant,
+    ) -> bool {
+        super::focus::system::focus_system_controller(self).animate_viewport_center_to_on_monitor(
+            monitor,
+            target_center,
+            now,
+        )
+    }
+
     pub fn animate_viewport_center_to_delayed(
         &mut self,
         target_center: Vec2,

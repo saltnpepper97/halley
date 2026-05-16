@@ -356,7 +356,17 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
     }
 
     pub fn animate_viewport_center_to(&mut self, target_center: Vec2, now: Instant) -> bool {
-        self.animate_viewport_center_to_delayed(target_center, now, 0)
+        let monitor = self.model.monitor_state.current_monitor.clone();
+        self.animate_viewport_center_to_on_monitor_delayed(monitor.as_str(), target_center, now, 0)
+    }
+
+    pub fn animate_viewport_center_to_on_monitor(
+        &mut self,
+        monitor: &str,
+        target_center: Vec2,
+        now: Instant,
+    ) -> bool {
+        self.animate_viewport_center_to_on_monitor_delayed(monitor, target_center, now, 0)
     }
 
     pub fn animate_viewport_center_to_delayed(
@@ -365,13 +375,42 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
         now: Instant,
         delay_ms: u64,
     ) -> bool {
-        let from = self.model.viewport.center;
+        let monitor = self.model.monitor_state.current_monitor.clone();
+        self.animate_viewport_center_to_on_monitor_delayed(
+            monitor.as_str(),
+            target_center,
+            now,
+            delay_ms,
+        )
+    }
+
+    pub fn animate_viewport_center_to_on_monitor_delayed(
+        &mut self,
+        monitor: &str,
+        target_center: Vec2,
+        now: Instant,
+        delay_ms: u64,
+    ) -> bool {
+        if !self.model.monitor_state.monitors.contains_key(monitor) {
+            return false;
+        }
+        let from = if self.model.monitor_state.current_monitor == monitor {
+            self.model.viewport.center
+        } else {
+            self.model
+                .monitor_state
+                .monitors
+                .get(monitor)
+                .map(|space| space.viewport.center)
+                .unwrap_or(self.model.viewport.center)
+        };
         let dx = target_center.x - from.x;
         let dy = target_center.y - from.y;
         if dx.abs() < 0.25 && dy.abs() < 0.25 {
             return false;
         }
         self.input.interaction_state.viewport_pan_anim = Some(ViewportPanAnim {
+            monitor: monitor.to_string(),
             start_ms: self.now_ms(now),
             delay_ms,
             duration_ms: Self::VIEWPORT_PAN_DURATION_MS,
@@ -382,13 +421,39 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
     }
 
     pub(crate) fn tick_viewport_pan_animation(&mut self, now_ms: u64) {
-        let Some(anim) = &self.input.interaction_state.viewport_pan_anim else {
+        let Some(anim) = self.input.interaction_state.viewport_pan_anim.clone() else {
             return;
         };
+
+        if !self
+            .model
+            .monitor_state
+            .monitors
+            .contains_key(anim.monitor.as_str())
+        {
+            self.input.interaction_state.viewport_pan_anim = None;
+            return;
+        }
+
+        let set_center = |st: &mut Halley, center: Vec2| {
+            if st.model.monitor_state.current_monitor == anim.monitor {
+                st.model.viewport.center = center;
+                st.model.camera_target_center = center;
+                st.runtime.tuning.viewport_center = center;
+            }
+            if let Some(space) = st
+                .model
+                .monitor_state
+                .monitors
+                .get_mut(anim.monitor.as_str())
+            {
+                space.viewport.center = center;
+                space.camera_target_center = center;
+            }
+        };
+
         if now_ms <= anim.start_ms.saturating_add(anim.delay_ms) {
-            self.model.viewport.center = anim.from_center;
-            self.model.camera_target_center = self.model.viewport.center;
-            self.runtime.tuning.viewport_center = self.model.viewport.center;
+            set_center(self, anim.from_center);
             return;
         }
         let dur = anim.duration_ms.max(1);
@@ -399,12 +464,11 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
         } else {
             1.0 - (-2.0 * t + 2.0).powf(3.0) * 0.5
         };
-        self.model.viewport.center = Vec2 {
+        let center = Vec2 {
             x: anim.from_center.x + (anim.to_center.x - anim.from_center.x) * e,
             y: anim.from_center.y + (anim.to_center.y - anim.from_center.y) * e,
         };
-        self.model.camera_target_center = self.model.viewport.center;
-        self.runtime.tuning.viewport_center = self.model.viewport.center;
+        set_center(self, center);
         if t >= 1.0 {
             self.input.interaction_state.viewport_pan_anim = None;
         }
@@ -474,6 +538,89 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn two_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        tuning
+    }
+
+    #[test]
+    fn viewport_pan_animation_stays_on_origin_monitor_after_monitor_switch() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, two_monitor_tuning());
+        let _ = state.activate_monitor("right");
+
+        let left_center = state
+            .model
+            .monitor_state
+            .monitors
+            .get("left")
+            .expect("left monitor")
+            .viewport
+            .center;
+        let target = Vec2 {
+            x: 1500.0,
+            y: 300.0,
+        };
+        let now = Instant::now();
+        assert!(state.animate_viewport_center_to(target, now));
+        assert_eq!(
+            state
+                .input
+                .interaction_state
+                .viewport_pan_anim
+                .as_ref()
+                .map(|anim| anim.monitor.as_str()),
+            Some("right")
+        );
+
+        let _ = state.activate_monitor("left");
+        state.tick_viewport_pan_animation(state.now_ms(now) + 1_000);
+
+        assert_eq!(state.model.viewport.center, left_center);
+        assert_eq!(
+            state
+                .model
+                .monitor_state
+                .monitors
+                .get("right")
+                .expect("right monitor")
+                .viewport
+                .center,
+            target
+        );
+
+        let _ = state.activate_monitor("right");
+        assert_eq!(state.model.viewport.center, target);
+    }
 
     #[test]
     fn last_input_surface_prefers_current_monitor_local_focus() {

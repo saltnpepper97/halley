@@ -127,9 +127,24 @@ pub(crate) fn tty_output_animation_redraw_state(
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
     let maximize_motion_active = crate::compositor::workspace::state::maximize_animation_active(st);
     let current_monitor = st.model.monitor_state.current_monitor.as_str();
-    let viewport_pan_active = monitor == current_monitor
-        && (st.input.interaction_state.viewport_pan_anim.is_some()
-            || !st.model.spawn_state.pending_spawn_pan_queue.is_empty());
+    let viewport_pan_active = st
+        .input
+        .interaction_state
+        .viewport_pan_anim
+        .as_ref()
+        .is_some_and(|anim| anim.monitor == monitor)
+        || st
+            .model
+            .spawn_state
+            .pending_spawn_pan_queue
+            .iter()
+            .any(|pan| {
+                st.model
+                    .monitor_state
+                    .node_monitor
+                    .get(&pan.node_id)
+                    .is_some_and(|node_monitor| node_monitor == monitor)
+            });
     let camera_smoothing_active = monitor == current_monitor
         && ((st.model.viewport.center.x - st.model.camera_target_center.x).abs() > 0.05
             || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
@@ -677,11 +692,12 @@ mod tests {
     }
 
     #[test]
-    fn viewport_pan_only_marks_current_monitor_active() {
+    fn viewport_pan_only_marks_animation_monitor_active() {
         let mut state = multi_monitor_state();
         let _ = state.activate_monitor("right");
         state.input.interaction_state.viewport_pan_anim =
             Some(crate::compositor::interaction::state::ViewportPanAnim {
+                monitor: "right".to_string(),
                 start_ms: 0,
                 delay_ms: 0,
                 duration_ms: 120,
@@ -691,6 +707,7 @@ mod tests {
                     y: state.model.viewport.center.y,
                 },
             });
+        let _ = state.activate_monitor("left");
 
         let now = Instant::now();
         assert!(tty_output_animation_redraw_state(&state, "right", now).active);
