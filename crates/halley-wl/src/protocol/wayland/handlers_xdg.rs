@@ -1,5 +1,6 @@
 use super::*;
 use crate::compositor::{actions, fullscreen, monitor, spawn, surface, workspace};
+use crate::compositor::spawn::rules::ResolvedInitialWindowRule;
 use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -44,7 +45,21 @@ impl XdgShellHandler for Halley {
     fn new_toplevel(&mut self, toplevel: ToplevelSurface) {
         let intent = spawn::rules::resolve_initial_window_intent(self, &toplevel);
         let initial_size = super::handlers::initial_toplevel_size(self, &toplevel, &intent);
-        let monitor = self.focused_monitor().to_string();
+
+        // Resolve the target monitor before configuring, using the same placement
+        // logic as pick_spawn_position_with_intent so the window receives bounds
+        // for the monitor it will actually land on — not the currently focused one.
+        let is_default = intent.rule == ResolvedInitialWindowRule::default()
+            && intent.parent_node.is_none()
+            && !intent.prefer_app_intent;
+        let monitor = if is_default {
+            self.model.spawn_state.pending_spawn_monitor.clone()
+                .filter(|m| self.model.monitor_state.monitors.contains_key(m))
+                .unwrap_or_else(|| self.focused_monitor().to_string())
+        } else {
+            self.spawn_target_monitor_for_intent(&intent)
+        };
+
         let view = self.usable_viewport_for_monitor(&monitor);
         let bounds_w = view.size.x as i32;
         let bounds_h = view.size.y as i32;

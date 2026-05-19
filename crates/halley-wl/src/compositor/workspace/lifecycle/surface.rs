@@ -455,9 +455,7 @@ pub(super) fn ensure_node_for_surface_impl(
         .unwrap_or(0);
     let defer_rule_resolution =
         crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &effective_intent);
-    let defer_steam =
-        !effective_intent.matched_rule && effective_intent.app_id.as_deref() == Some("steam");
-    let should_defer = defer_rule_resolution || defer_steam;
+    let should_defer = defer_rule_resolution;
     if effective_intent.effective_overlap_policy()
         == halley_config::InitialWindowOverlapPolicy::None
         && !defer_rule_resolution

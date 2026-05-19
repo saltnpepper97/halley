@@ -247,7 +247,16 @@ fn matching_window_rule(
 }
 
 fn builtin_window_rule_may_match_later(app_id: Option<&str>, title: Option<&str>) -> bool {
-    title.is_none() || (app_id.is_none() && title.is_some_and(portal_dialog_title_matches))
+    if app_id == Some("steam") && title.is_none() {
+        return true;
+    }
+    if app_id == Some("xdg-desktop-portal-gtk") && title.is_none() {
+        return true;
+    }
+    if app_id.is_none() && title.is_some_and(portal_dialog_title_matches) {
+        return true;
+    }
+    false
 }
 
 fn parent_node_for_surface(st: &Halley, surface: &WlSurface) -> Option<NodeId> {
@@ -612,6 +621,57 @@ mod tests {
         };
 
         assert!(needs_deferred_rule_recheck(&state, &intent));
+    }
+
+    #[test]
+    fn steam_game_without_title_is_not_deferred() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+        let intent = InitialWindowIntent {
+            app_id: Some("steam_app_264710".to_string()),
+            title: None,
+            parent_node: None,
+            rule: ResolvedInitialWindowRule::default(),
+            matched_rule: false,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+
+        assert!(!needs_deferred_rule_recheck(&state, &intent));
+    }
+
+    #[test]
+    fn generic_window_without_title_is_not_deferred() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+        let intent = InitialWindowIntent {
+            app_id: Some("some-game".to_string()),
+            title: None,
+            parent_node: None,
+            rule: ResolvedInitialWindowRule::default(),
+            matched_rule: false,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+
+        assert!(!needs_deferred_rule_recheck(&state, &intent));
+    }
+
+    #[test]
+    fn steam_with_title_is_not_deferred() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let state = Halley::new_for_test(&dh, RuntimeTuning::default());
+        let intent = InitialWindowIntent {
+            app_id: Some("steam".to_string()),
+            title: Some("Subnautica 2".to_string()),
+            parent_node: None,
+            rule: ResolvedInitialWindowRule::default(),
+            matched_rule: false,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+
+        assert!(!needs_deferred_rule_recheck(&state, &intent));
     }
 
     #[test]
