@@ -302,6 +302,11 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             output.leave(surface);
         }
     }
+    crate::compositor::monitor::state::set_surface_preferred_scale_for_monitor(
+        st,
+        surface,
+        target_monitor.as_str(),
+    );
 
     crate::compositor::monitor::layer_shell::maybe_grant_layer_surface_focus_on_commit(
         &mut st.layer_shell_ctx(),
@@ -357,6 +362,11 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         });
 
         if size_changed && st.input.interaction_state.resize_active != Some(node_id) {
+            let pending_initial_reveal = st
+                .model
+                .spawn_state
+                .pending_initial_reveal
+                .contains(&node_id);
             if let Some(node) = st.model.field.node_mut(node_id) {
                 node.intrinsic_size = new_size;
                 if node.state == halley_core::field::NodeState::Active {
@@ -385,7 +395,7 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                             st.now_ms(now),
                         );
                     }
-                } else {
+                } else if !pending_initial_reveal {
                     st.resolve_overlap_now();
                 }
             }

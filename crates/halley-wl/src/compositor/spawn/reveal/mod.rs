@@ -192,7 +192,11 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 .model
                 .field
                 .set_decay_level(next.node_id, DecayLevel::Hot);
-            if let Some(intrinsic_size) = self.model.field.node(next.node_id).map(|n| n.intrinsic_size)
+            if let Some(intrinsic_size) = self
+                .model
+                .field
+                .node(next.node_id)
+                .map(|n| n.intrinsic_size)
             {
                 self.model
                     .workspace_state

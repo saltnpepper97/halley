@@ -33,7 +33,7 @@ use crate::backend::tty::stats::{
 use crate::backend::vblank_throttle::VBlankThrottle;
 use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ResizeCtx;
-use calloop::{Interest, Mode, PostAction, generic::Generic, ping::make_ping};
+use calloop::ping::make_ping;
 use smithay::backend::drm::{DrmEventMetadata, DrmEventTime, DrmNode};
 use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::udev::{UdevBackend, UdevEvent};
@@ -733,7 +733,12 @@ fn apply_tty_reload(
 
     for name in output_advertise_order(outputs.borrow().as_slice(), &st.runtime.tuning) {
         if let Some(mode) = next_modes.get(name.as_str()) {
-            st.advertise_output(name.as_str(), (*mode).into());
+            let physical_size_mm = outputs
+                .borrow()
+                .iter()
+                .find(|output| output.connector_name == name)
+                .and_then(|output| output.physical_size_mm);
+            st.advertise_output_with_physical_size(name.as_str(), (*mode).into(), physical_size_mm);
         }
     }
 
@@ -949,16 +954,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             })?;
             let sock_name = listening.socket_name().to_string_lossy().to_string();
             info!("WAYLAND_DISPLAY={}", sock_name);
-            sync_portal_activation_environment(sock_name.as_str());
             let xwayland = Rc::new(RefCell::new(ensure_xwayland_satellite(sock_name.as_str())?));
-            let (xwayland_request_tx, xwayland_request_rx) = mpsc::channel::<()>();
-            register_xwayland_request_channel(xwayland_request_tx);
-            let xwayland_request_rx = Rc::new(RefCell::new(xwayland_request_rx));
+            sync_portal_activation_environment(sock_name.as_str());
             let xwayland_for_timer = xwayland.clone();
-            let xwayland_request_for_timer = xwayland_request_rx.clone();
             let libinput_backend = libinput_backend;
 
             let mut ev: EventLoop<Halley> = EventLoop::try_new()?;
+            let xwayland_event_loop = ev.handle();
+            let xwayland_event_loop_for_timer = xwayland_event_loop.clone();
+            let xwayland_watch_tokens = XwaylandSocketWatchTokens::default();
+            let xwayland_watch_tokens_for_timer = xwayland_watch_tokens.clone();
             let _signal = ev.get_signal();
             let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
             state.apply_aperture_config(aperture_config);
@@ -1021,26 +1026,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         dh_for_clients.insert_client(client_stream, Arc::new(ClientState::new()));
                 })?;
 
-            if let Some(listener) = xwayland.borrow().filesystem_listener_source()? {
-                let xwayland_for_x11 = xwayland.clone();
-                ev.handle().insert_source(
-                    Generic::new(listener, Interest::READ, Mode::Level),
-                    move |_readiness, _listener, _st| {
-                        xwayland_for_x11.borrow_mut().request_start();
-                        Ok(PostAction::Continue)
-                    },
-                )?;
-            }
-            if let Some(listener) = xwayland.borrow().abstract_listener_source()? {
-                let xwayland_for_x11 = xwayland.clone();
-                ev.handle().insert_source(
-                    Generic::new(listener, Interest::READ, Mode::Level),
-                    move |_readiness, _listener, _st| {
-                        xwayland_for_x11.borrow_mut().request_start();
-                        Ok(PostAction::Continue)
-                    },
-                )?;
-            }
+            install_xwayland_socket_watchers(
+                &xwayland_event_loop,
+                &xwayland,
+                &xwayland_watch_tokens,
+            )?;
 
             let pending_output_rescan_at = Rc::new(RefCell::new(None::<Instant>));
             {
@@ -1149,7 +1139,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     .iter()
                     .find(|output| output.connector_name == name)
                 {
-                    state.advertise_output(output.connector_name.as_str(), output.mode.into());
+                    state.advertise_output_with_physical_size(
+                        output.connector_name.as_str(),
+                        output.mode.into(),
+                        output.physical_size_mm,
+                    );
                 }
             }
             info!("tty logical backend size={}x{}", layout_w, layout_h);
@@ -1879,13 +1873,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     request => crate::ipc::handle_request(st, request),
                 });
 
-                {
-                    let rx = xwayland_request_for_timer.borrow_mut();
-                    while rx.try_recv().is_ok() {
-                        xwayland_for_timer.borrow_mut().request_start();
-                    }
-                }
                 xwayland_for_timer.borrow_mut().tick();
+                if let Err(err) = install_xwayland_socket_watchers(
+                    &xwayland_event_loop_for_timer,
+                    &xwayland_for_timer,
+                    &xwayland_watch_tokens_for_timer,
+                ) {
+                    warn!("failed to register X11 socket watchers: {}", err);
+                }
                 st.run_maintenance_if_needed(now);
 
                 let mut reloaded = false;

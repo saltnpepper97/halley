@@ -9,7 +9,11 @@ use std::time::Instant;
 use smithay::{
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
-    utils::{Logical, Size, Transform},
+    utils::{Logical, Physical, Raw, Size, Transform},
+    wayland::{
+        compositor::{get_parent, with_states},
+        fractional_scale::with_fractional_scale,
+    },
 };
 
 use crate::compositor::root::Halley;
@@ -22,12 +26,21 @@ pub(crate) struct MonitorSpace {
     pub offset_y: i32,
     pub width: i32,
     pub height: i32,
+    pub scale: f64,
     pub viewport: Viewport,
     pub usable_viewport: Viewport,
     pub zoom_ref_size: Vec2,
     pub camera_target_center: Vec2,
     pub camera_target_view_size: Vec2,
 }
+
+const MIN_SCALE_STEP: i32 = 4;
+const MAX_SCALE_STEP: i32 = 16;
+const SCALE_STEP_DENOM: f64 = 4.0;
+const MIN_LOGICAL_AREA: i32 = 800 * 480;
+const MOBILE_TARGET_DPI: f64 = 135.0;
+const LARGE_TARGET_DPI: f64 = 110.0;
+const LARGE_MIN_SIZE_INCHES: f64 = 20.0;
 
 pub(crate) struct MonitorState {
     pub(crate) outputs: HashMap<String, Output>,
@@ -234,6 +247,7 @@ pub(crate) fn reconfigure_active_tty_monitors(
                 offset_y: viewport.offset_y,
                 width,
                 height,
+                scale: restored.map(|m| m.scale).unwrap_or(1.0),
                 viewport: restored.map(|m| m.viewport).unwrap_or(default_view),
                 usable_viewport: restored.map(|m| m.usable_viewport).unwrap_or(default_view),
                 zoom_ref_size: restored
@@ -258,6 +272,7 @@ pub(crate) fn reconfigure_active_tty_monitors(
                 offset_y: 0,
                 width: st.runtime.tuning.viewport_size.x.max(1.0).round() as i32,
                 height: st.runtime.tuning.viewport_size.y.max(1.0).round() as i32,
+                scale: 1.0,
                 viewport: view,
                 usable_viewport: view,
                 zoom_ref_size: st.runtime.tuning.viewport_size,
@@ -412,6 +427,7 @@ pub(crate) fn assign_node_to_monitor(st: &mut Halley, id: NodeId, monitor: &str)
                 output.leave(&surface);
             }
         }
+        set_surface_preferred_scale_for_monitor(st, &surface, monitor);
     }
 }
 
@@ -423,7 +439,8 @@ pub(crate) fn assign_layer_surface_to_monitor(
     st.model
         .monitor_state
         .layer_surface_monitor
-        .insert(surface.id(), monitor);
+        .insert(surface.id(), monitor.clone());
+    set_surface_preferred_scale_for_monitor(st, surface, monitor.as_str());
 }
 
 pub(crate) fn output_transform_for(st: &Halley, name: &str) -> Transform {
@@ -444,6 +461,15 @@ pub(crate) fn output_transform_for(st: &Halley, name: &str) -> Transform {
 }
 
 pub(crate) fn advertise_output(st: &mut Halley, name: &str, mode: OutputMode) {
+    advertise_output_with_physical_size(st, name, mode, None)
+}
+
+pub(crate) fn advertise_output_with_physical_size(
+    st: &mut Halley,
+    name: &str,
+    mode: OutputMode,
+    physical_size_mm: Option<(u32, u32)>,
+) {
     let transform = output_transform_for(st, name);
     let location = st
         .model
@@ -452,6 +478,13 @@ pub(crate) fn advertise_output(st: &mut Halley, name: &str, mode: OutputMode) {
         .get(name)
         .map(|monitor| (monitor.offset_x, monitor.offset_y).into())
         .unwrap_or_else(|| (0, 0).into());
+    let scale = guess_output_scale(physical_size_mm, mode.size);
+    if let Some(monitor) = st.model.monitor_state.monitors.get_mut(name) {
+        monitor.scale = scale;
+    }
+    let physical_size: Size<i32, Raw> = physical_size_mm
+        .map(|(w, h)| Size::from((w as i32, h as i32)))
+        .unwrap_or_else(|| Size::from((0, 0)));
     let output = st
         .model
         .monitor_state
@@ -461,7 +494,7 @@ pub(crate) fn advertise_output(st: &mut Halley, name: &str, mode: OutputMode) {
             let output = Output::new(
                 name.to_string(),
                 PhysicalProperties {
-                    size: (0, 0).into(),
+                    size: physical_size,
                     subpixel: Subpixel::Unknown,
                     make: "halley".to_string(),
                     model: name.to_string(),
@@ -475,9 +508,105 @@ pub(crate) fn advertise_output(st: &mut Halley, name: &str, mode: OutputMode) {
     output.change_current_state(
         Some(mode),
         Some(transform),
-        Some(Scale::Integer(1)),
+        Some(Scale::Fractional(scale)),
         Some(location),
     );
+}
+
+pub(crate) fn refresh_surface_preferred_scale(st: &Halley, surface: &WlSurface) {
+    let monitor = monitor_for_surface(st, surface)
+        .unwrap_or_else(|| st.model.monitor_state.focused_monitor.clone());
+    set_surface_preferred_scale_for_monitor(st, surface, monitor.as_str());
+}
+
+pub(crate) fn set_surface_preferred_scale_for_monitor(
+    st: &Halley,
+    surface: &WlSurface,
+    monitor: &str,
+) {
+    let scale = st
+        .model
+        .monitor_state
+        .monitors
+        .get(monitor)
+        .map(|monitor| monitor.scale)
+        .filter(|scale| scale.is_finite() && *scale > 0.0)
+        .unwrap_or(1.0);
+    with_states(surface, |states| {
+        with_fractional_scale(states, |fractional| {
+            fractional.set_preferred_scale(scale);
+        });
+    });
+}
+
+fn monitor_for_surface(st: &Halley, surface: &WlSurface) -> Option<String> {
+    let mut current = surface.clone();
+    loop {
+        let key = current.id();
+        if let Some(node_id) = st.model.surface_to_node.get(&key)
+            && let Some(monitor) = st.model.monitor_state.node_monitor.get(node_id)
+        {
+            return Some(monitor.clone());
+        }
+        if let Some(monitor) = st.model.monitor_state.layer_surface_monitor.get(&key) {
+            return Some(monitor.clone());
+        }
+        if let Some(parent) = get_parent(&current) {
+            current = parent;
+        } else {
+            return None;
+        }
+    }
+}
+
+fn guess_output_scale(
+    physical_size_mm: Option<(u32, u32)>,
+    resolution: Size<i32, Physical>,
+) -> f64 {
+    let Some((width_mm, height_mm)) = physical_size_mm else {
+        return 1.0;
+    };
+    if width_mm == 0 || height_mm == 0 || resolution.w <= 0 || resolution.h <= 0 {
+        return 1.0;
+    }
+
+    let width_mm = width_mm as f64;
+    let height_mm = height_mm as f64;
+    let diagonal_inches = (width_mm * width_mm + height_mm * height_mm).sqrt() / 25.4;
+    if diagonal_inches <= 0.0 {
+        return 1.0;
+    }
+    let target_dpi = if diagonal_inches < LARGE_MIN_SIZE_INCHES {
+        MOBILE_TARGET_DPI
+    } else {
+        LARGE_TARGET_DPI
+    };
+    let physical_dpi = ((resolution.w * resolution.w + resolution.h * resolution.h) as f64).sqrt()
+        / diagonal_inches;
+    let ideal = physical_dpi / target_dpi;
+
+    (MIN_SCALE_STEP..=MAX_SCALE_STEP)
+        .map(|step| step as f64 / SCALE_STEP_DENOM)
+        .filter(|scale| scale_is_valid_for_resolution(resolution, *scale))
+        .min_by(|a, b| {
+            (a - ideal)
+                .abs()
+                .partial_cmp(&(b - ideal).abs())
+                .unwrap_or(Ordering::Equal)
+        })
+        .map(closest_fractional_scale)
+        .unwrap_or(1.0)
+}
+
+fn scale_is_valid_for_resolution(resolution: Size<i32, Physical>, scale: f64) -> bool {
+    let logical_w = (resolution.w as f64 / scale).round() as i32;
+    let logical_h = (resolution.h as f64 / scale).round() as i32;
+    logical_w * logical_h >= MIN_LOGICAL_AREA
+}
+
+fn closest_fractional_scale(scale: f64) -> f64 {
+    const FRACTIONAL_SCALE_DENOM: f64 = 120.0;
+    (scale * FRACTIONAL_SCALE_DENOM).round() / FRACTIONAL_SCALE_DENOM
 }
 
 #[cfg(test)]
@@ -686,5 +815,18 @@ mod tests {
         assert_eq!(monitor, "right");
         assert_eq!(sx, 1200.0);
         assert_eq!(sy, 200.0);
+    }
+
+    #[test]
+    fn guess_output_scale_uses_dpi_when_physical_size_is_known() {
+        assert_eq!(
+            guess_output_scale(Some((598, 336)), Size::from((3840, 2160))),
+            1.5
+        );
+    }
+
+    #[test]
+    fn guess_output_scale_falls_back_without_physical_size() {
+        assert_eq!(guess_output_scale(None, Size::from((3840, 2160))), 1.0);
     }
 }

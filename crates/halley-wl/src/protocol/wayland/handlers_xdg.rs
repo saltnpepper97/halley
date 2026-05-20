@@ -53,7 +53,10 @@ impl XdgShellHandler for Halley {
             && intent.parent_node.is_none()
             && !intent.prefer_app_intent;
         let monitor = if is_default {
-            self.model.spawn_state.pending_spawn_monitor.clone()
+            self.model
+                .spawn_state
+                .pending_spawn_monitor
+                .clone()
                 .filter(|m| self.model.monitor_state.monitors.contains_key(m))
                 .unwrap_or_else(|| self.focused_monitor().to_string())
         } else {
@@ -102,7 +105,9 @@ impl XdgShellHandler for Halley {
         }
         spawn::reveal::reveal_new_toplevel_node(&mut self.spawn_ctx(), id, is_transient, now);
         if !handled_by_active_cluster {
-            self.resolve_surface_overlap();
+            if !self.model.spawn_state.pending_initial_reveal.contains(&id) {
+                self.resolve_surface_overlap();
+            }
             self.request_maintenance();
         }
     }

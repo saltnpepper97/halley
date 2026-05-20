@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use calloop::EventLoop;
 use calloop::timer::{TimeoutAction, Timer};
+use calloop::{EventLoop, LoopHandle, RegistrationToken};
 
 use eventline::{debug, info, scope, warn};
 use halley_config::{InputConfig, RuntimeTuning};
@@ -38,10 +38,10 @@ use smithay::{
 
 use crate::animation::advance_node_move_anim;
 use crate::bootstrap::{
-    drain_ipc_commands, ensure_dbus_session_bus_address, ensure_host_display,
+    XwaylandSatellite, drain_ipc_commands, ensure_dbus_session_bus_address, ensure_host_display,
     ensure_xdg_runtime_dir, ensure_xwayland_satellite, init_logging, publish_outputs,
-    refresh_portal_services_nonblocking, register_xwayland_request_channel, run_autostart_commands,
-    shutdown_requested, sync_portal_activation_environment,
+    refresh_portal_services_nonblocking, run_autostart_commands, shutdown_requested,
+    sync_portal_activation_environment,
 };
 use crate::compositor::interaction::{ModState, PointerState};
 use crate::compositor::root::Halley;
@@ -108,6 +108,90 @@ pub(crate) fn initialize_seat_keyboard(st: &mut Halley) {
             warn!("failed to initialize wl_seat keyboard");
         }
     }
+}
+
+#[derive(Clone, Default)]
+struct XwaylandSocketWatchTokens {
+    filesystem: Rc<RefCell<Option<RegistrationToken>>>,
+    abstract_: Rc<RefCell<Option<RegistrationToken>>>,
+}
+
+fn remove_xwayland_socket_watchers(
+    event_loop: &LoopHandle<'static, Halley>,
+    tokens: &XwaylandSocketWatchTokens,
+) {
+    if let Some(token) = tokens.filesystem.borrow_mut().take() {
+        event_loop.remove(token);
+    }
+    if let Some(token) = tokens.abstract_.borrow_mut().take() {
+        event_loop.remove(token);
+    }
+}
+
+fn install_xwayland_socket_watchers(
+    event_loop: &LoopHandle<'static, Halley>,
+    xwayland: &Rc<RefCell<XwaylandSatellite>>,
+    tokens: &XwaylandSocketWatchTokens,
+) -> Result<(), Box<dyn Error>> {
+    if !xwayland.borrow().socket_watch_available() {
+        return Ok(());
+    }
+    if tokens.filesystem.borrow().is_some() || tokens.abstract_.borrow().is_some() {
+        return Ok(());
+    }
+
+    let filesystem_listener = xwayland.borrow().filesystem_listener_source()?;
+    let abstract_listener = xwayland.borrow().abstract_listener_source()?;
+
+    if let Some(listener) = filesystem_listener {
+        let xwayland_for_x11 = xwayland.clone();
+        let event_loop_for_x11 = event_loop.clone();
+        let own_token = tokens.filesystem.clone();
+        let other_token = tokens.abstract_.clone();
+        let token = event_loop.insert_source(
+            calloop::generic::Generic::new(listener, calloop::Interest::READ, calloop::Mode::Level),
+            move |_readiness, _listener, _st| {
+                if let Some(token) = other_token.borrow_mut().take() {
+                    event_loop_for_x11.remove(token);
+                }
+                *own_token.borrow_mut() = None;
+                let mut xwayland = xwayland_for_x11.borrow_mut();
+                xwayland.request_start();
+                xwayland.tick();
+                Ok(calloop::PostAction::Remove)
+            },
+        )?;
+        *tokens.filesystem.borrow_mut() = Some(token);
+    }
+
+    if let Some(listener) = abstract_listener {
+        let xwayland_for_x11 = xwayland.clone();
+        let event_loop_for_x11 = event_loop.clone();
+        let own_token = tokens.abstract_.clone();
+        let other_token = tokens.filesystem.clone();
+        let token = match event_loop.insert_source(
+            calloop::generic::Generic::new(listener, calloop::Interest::READ, calloop::Mode::Level),
+            move |_readiness, _listener, _st| {
+                if let Some(token) = other_token.borrow_mut().take() {
+                    event_loop_for_x11.remove(token);
+                }
+                *own_token.borrow_mut() = None;
+                let mut xwayland = xwayland_for_x11.borrow_mut();
+                xwayland.request_start();
+                xwayland.tick();
+                Ok(calloop::PostAction::Remove)
+            },
+        ) {
+            Ok(token) => token,
+            Err(err) => {
+                remove_xwayland_socket_watchers(event_loop, tokens);
+                return Err(Box::new(err));
+            }
+        };
+        *tokens.abstract_.borrow_mut() = Some(token);
+    }
+
+    Ok(())
 }
 
 pub(crate) fn frame_interval_for_refresh_hz(refresh_hz: Option<f64>) -> Duration {

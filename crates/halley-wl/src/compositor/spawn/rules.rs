@@ -607,6 +607,33 @@ mod tests {
     }
 
     #[test]
+    fn deferred_recheck_considers_late_user_window_rules() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = RuntimeTuning::default();
+        tuning.window_rules = vec![WindowRule {
+            app_ids: vec![WindowRulePattern::Exact("firefox".to_string())],
+            titles: vec![WindowRulePattern::Regex(
+                regex::Regex::new("File Upload.*").expect("regex"),
+            )],
+            overlap_policy: InitialWindowOverlapPolicy::All,
+            spawn_placement: InitialWindowSpawnPlacement::Center,
+            cluster_participation: InitialWindowClusterParticipation::Float,
+        }];
+        let state = Halley::new_for_test(&dh, tuning);
+        let intent = InitialWindowIntent {
+            app_id: Some("firefox".to_string()),
+            title: None,
+            parent_node: None,
+            rule: ResolvedInitialWindowRule::default(),
+            matched_rule: false,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+
+        assert!(needs_deferred_rule_recheck(&state, &intent));
+    }
+
+    #[test]
     fn deferred_recheck_considers_builtin_steam_rule() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let state = Halley::new_for_test(&dh, RuntimeTuning::default());

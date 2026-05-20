@@ -9,7 +9,6 @@ use crate::backend::interface::{
 use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::PointerState;
 use crate::compositor::monitor::camera::camera_controller;
-use calloop::{Interest, Mode, PostAction, generic::Generic};
 use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
@@ -346,6 +345,10 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let backend = Rc::new(RefCell::new(backend));
             let backend_handle = WinitBackendHandle::new(backend.clone());
             let mut ev: EventLoop<Halley> = EventLoop::try_new()?;
+            let xwayland_event_loop = ev.handle();
+            let xwayland_event_loop_for_timer = xwayland_event_loop.clone();
+            let xwayland_watch_tokens = XwaylandSocketWatchTokens::default();
+            let xwayland_watch_tokens_for_timer = xwayland_watch_tokens.clone();
             let _signal = ev.get_signal();
             let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
             state.apply_aperture_config(aperture_config);
@@ -354,11 +357,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let dmabuf_importer: Rc<dyn DmabufImportBackend> = Rc::new(backend_handle.clone());
             state.configure_dmabuf_importer(dmabuf_importer, None);
             let xwayland = Rc::new(RefCell::new(ensure_xwayland_satellite(sock_name.as_str())?));
-            let (xwayland_request_tx, xwayland_request_rx) = mpsc::channel::<()>();
-            register_xwayland_request_channel(xwayland_request_tx);
-            let xwayland_request_rx = Rc::new(RefCell::new(xwayland_request_rx));
             let xwayland_for_timer = xwayland.clone();
-            let xwayland_request_for_timer = xwayland_request_rx.clone();
             {
                 let mut fresh = tuning.clone();
                 let ws = backend.borrow().window_size();
@@ -441,26 +440,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         dh_for_clients.insert_client(client_stream, Arc::new(ClientState::new()));
                 })?;
 
-            if let Some(listener) = xwayland.borrow().filesystem_listener_source()? {
-                let xwayland_for_x11 = xwayland.clone();
-                ev.handle().insert_source(
-                    Generic::new(listener, Interest::READ, Mode::Level),
-                    move |_readiness, _listener, _st| {
-                        xwayland_for_x11.borrow_mut().request_start();
-                        Ok(PostAction::Continue)
-                    },
-                )?;
-            }
-            if let Some(listener) = xwayland.borrow().abstract_listener_source()? {
-                let xwayland_for_x11 = xwayland.clone();
-                ev.handle().insert_source(
-                    Generic::new(listener, Interest::READ, Mode::Level),
-                    move |_readiness, _listener, _st| {
-                        xwayland_for_x11.borrow_mut().request_start();
-                        Ok(PostAction::Continue)
-                    },
-                )?;
-            }
+            install_xwayland_socket_watchers(
+                &xwayland_event_loop,
+                &xwayland,
+                &xwayland_watch_tokens,
+            )?;
 
             ev.handle()
                 .insert_source(winit_source, move |event, _, st| match event {
@@ -813,13 +797,14 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     publish_winit_output_snapshot(ws.w, ws.h, true, 0, 0);
                 }
 
-                {
-                    let rx = xwayland_request_for_timer.borrow_mut();
-                    while rx.try_recv().is_ok() {
-                        xwayland_for_timer.borrow_mut().request_start();
-                    }
-                }
                 xwayland_for_timer.borrow_mut().tick();
+                if let Err(err) = install_xwayland_socket_watchers(
+                    &xwayland_event_loop_for_timer,
+                    &xwayland_for_timer,
+                    &xwayland_watch_tokens_for_timer,
+                ) {
+                    warn!("failed to register X11 socket watchers: {}", err);
+                }
                 let resize_active = {
                     let ps = pointer_state_for_timer.borrow();
                     ps.resize.is_some()

@@ -17,6 +17,7 @@ use smithay::{
         compositor::CompositorState,
         cursor_shape::CursorShapeManagerState,
         dmabuf::DmabufState,
+        fractional_scale::FractionalScaleManagerState,
         idle_notify::IdleNotifierState,
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsState,
@@ -138,6 +139,7 @@ impl Halley {
                     offset_y: viewport.offset_y,
                     width,
                     height,
+                    scale: 1.0,
                     viewport: view,
                     usable_viewport: view,
                     zoom_ref_size: view.size,
@@ -155,6 +157,7 @@ impl Halley {
                     offset_y: 0,
                     width: tuning.viewport_size.x.max(1.0).round() as i32,
                     height: tuning.viewport_size.y.max(1.0).round() as i32,
+                    scale: 1.0,
                     viewport: view,
                     usable_viewport: view,
                     zoom_ref_size: tuning.viewport_size,
@@ -198,6 +201,7 @@ impl Halley {
                     <smithay::utils::Monotonic as smithay::utils::ClockSource>::ID as u32,
                 ),
                 relative_pointer_manager_state: RelativePointerManagerState::new::<Halley>(dh),
+                fractional_scale_manager_state: FractionalScaleManagerState::new::<Halley>(dh),
                 idle_notifier_state: IdleNotifierState::new(dh, loop_handle),
                 drm_syncobj_state: None,
                 output_manager_state: OutputManagerState::new_with_xdg_output::<Halley>(dh),
@@ -759,6 +763,20 @@ impl Halley {
 
     pub(crate) fn advertise_output(&mut self, name: &str, mode: smithay::output::Mode) {
         super::monitor::state::advertise_output(self, name, mode)
+    }
+
+    pub(crate) fn advertise_output_with_physical_size(
+        &mut self,
+        name: &str,
+        mode: smithay::output::Mode,
+        physical_size_mm: Option<(u32, u32)>,
+    ) {
+        super::monitor::state::advertise_output_with_physical_size(
+            self,
+            name,
+            mode,
+            physical_size_mm,
+        )
     }
 
     pub(crate) fn preferred_xdg_decoration_mode(

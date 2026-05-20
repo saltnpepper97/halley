@@ -12,6 +12,7 @@ use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::compositor::{add_blocker, get_parent, with_states};
 use smithay::wayland::dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, ImportNotifier};
 use smithay::wayland::drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjHandler};
+use smithay::wayland::fractional_scale::FractionalScaleHandler;
 use smithay::wayland::output::OutputHandler;
 use smithay::wayland::pointer_constraints::with_pointer_constraint;
 use smithay::wayland::selection::primary_selection::{
@@ -130,6 +131,12 @@ impl CompositorHandler for Halley {
 
 delegate_compositor!(Halley);
 delegate_viewporter!(Halley);
+
+impl FractionalScaleHandler for Halley {
+    fn new_fractional_scale(&mut self, surface: WlSurface) {
+        monitor::state::refresh_surface_preferred_scale(self, &surface);
+    }
+}
 
 impl ShmHandler for Halley {
     fn shm_state(&self) -> &ShmState {

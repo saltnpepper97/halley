@@ -210,7 +210,12 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
             st.model.spawn_state.applied_window_rules.remove(&id);
             st.model.spawn_state.pending_rule_rechecks.remove(&id);
             st.model.spawn_state.pending_initial_reveal.remove(&id);
-            if st.model.spawn_state.pending_pan_activate.is_some_and(|(nid, _)| nid == id) {
+            if st
+                .model
+                .spawn_state
+                .pending_pan_activate
+                .is_some_and(|(nid, _)| nid == id)
+            {
                 st.model.spawn_state.pending_pan_activate = None;
             }
             st.model

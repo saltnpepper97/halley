@@ -319,6 +319,11 @@ impl SessionLockHandler for Halley {
                 compositor_output.leave(surface.wl_surface());
             }
         }
+        crate::compositor::monitor::state::set_surface_preferred_scale_for_monitor(
+            self,
+            surface.wl_surface(),
+            monitor.as_str(),
+        );
 
         self.platform.session_lock.surfaces.insert(
             surface.wl_surface().id(),

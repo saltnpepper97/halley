@@ -250,6 +250,7 @@ pub(crate) struct TtyDrmOutput {
     pub(crate) crtc: drm_control::crtc::Handle,
     pub(crate) connector_name: String,
     pub(crate) mode: drm_control::Mode,
+    pub(crate) physical_size_mm: Option<(u32, u32)>,
     #[allow(dead_code)]
     pub(crate) device_node: DrmNode,
     pub(crate) render_node: DrmNode,
@@ -749,7 +750,7 @@ fn build_tty_outputs(
 
     let mut outputs = Vec::new();
 
-    for (crtc, mode, connector, connector_name) in selected {
+    for (crtc, mode, connector, connector_name, physical_size_mm) in selected {
         let surface = dev
             .create_surface(crtc, mode, &[connector])
             .map_err(|err| {
@@ -798,6 +799,7 @@ fn build_tty_outputs(
             crtc,
             connector_name,
             mode,
+            physical_size_mm,
             device_node: DrmNode::from_file(dev.device_fd()).unwrap_or(render_node),
             render_node,
             compositor: Rc::new(RefCell::new(compositor)),
@@ -816,6 +818,7 @@ pub(crate) fn select_tty_scanouts(
         drm_control::Mode,
         drm_control::connector::Handle,
         String,
+        Option<(u32, u32)>,
     )>,
     Box<dyn Error>,
 > {
@@ -1015,6 +1018,7 @@ pub(crate) fn select_tty_scanouts(
             selected_mode,
             selected_conn,
             selected_info.to_string(),
+            selected_info.size(),
         ));
     }
 
@@ -1022,7 +1026,7 @@ pub(crate) fn select_tty_scanouts(
         let configured_connectors: std::collections::HashSet<&str> =
             configured.iter().map(|v| v.connector.as_str()).collect();
         for (conn, info) in &connected {
-            if selected.iter().any(|(_, _, c, _)| c == conn) {
+            if selected.iter().any(|(_, _, c, _, _)| c == conn) {
                 continue;
             }
             if !configured_connectors.contains(info.to_string().as_str()) {
