@@ -61,6 +61,32 @@ pub fn wl_surface_for_node(st: &Halley, id: NodeId) -> Option<WlSurface> {
     None
 }
 
+fn keep_locked_focus_for_request(
+    st: &Halley,
+    locked_surface_node: Option<NodeId>,
+    requested_focus_node: Option<NodeId>,
+) -> bool {
+    let Some(locked_node) = locked_surface_node else {
+        return false;
+    };
+    if !st.is_fullscreen_active(locked_node) {
+        return false;
+    }
+    let Some(requested_node) = requested_focus_node else {
+        return true;
+    };
+    if requested_node == locked_node {
+        return true;
+    }
+
+    let locked_monitor = st
+        .fullscreen_monitor_for_node(locked_node)
+        .map(str::to_string)
+        .unwrap_or_else(|| st.monitor_for_node_or_current(locked_node));
+    let requested_monitor = st.monitor_for_node_or_current(requested_node);
+    requested_monitor == locked_monitor
+}
+
 pub(crate) fn update_selection_focus_from_surface(st: &Halley, surface: Option<&WlSurface>) {
     let client = surface.and_then(|wl| wl.client());
     set_data_device_focus(
@@ -182,8 +208,7 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
         let locked_surface_node = active_constrained_surface
             .as_ref()
             .and_then(|surface| self.model.surface_to_node.get(&surface.id()).copied());
-        let keep_locked_focus =
-            locked_surface_node.is_some_and(|nid| self.is_fullscreen_active(nid));
+        let keep_locked_focus = keep_locked_focus_for_request(self, locked_surface_node, focus_id);
         let focus_surface = if keep_locked_focus {
             active_constrained_surface
                 .clone()
@@ -568,6 +593,58 @@ mod tests {
             },
         ];
         tuning
+    }
+
+    #[test]
+    fn locked_fullscreen_focus_is_not_kept_for_different_monitor_request() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, two_monitor_tuning());
+
+        let game = state.model.field.spawn_surface(
+            "game",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        let steam = state.model.field.spawn_surface(
+            "steam",
+            Vec2 {
+                x: 1200.0,
+                y: 300.0,
+            },
+            Vec2 { x: 400.0, y: 300.0 },
+        );
+        let same_monitor = state.model.field.spawn_surface(
+            "same-monitor",
+            Vec2 { x: 320.0, y: 240.0 },
+            Vec2 { x: 300.0, y: 220.0 },
+        );
+        state.assign_node_to_monitor(game, "left");
+        state.assign_node_to_monitor(steam, "right");
+        state.assign_node_to_monitor(same_monitor, "left");
+        state
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert("left".to_string(), game);
+
+        assert!(keep_locked_focus_for_request(&state, Some(game), None));
+        assert!(keep_locked_focus_for_request(
+            &state,
+            Some(game),
+            Some(game)
+        ));
+        assert!(keep_locked_focus_for_request(
+            &state,
+            Some(game),
+            Some(same_monitor)
+        ));
+        assert!(!keep_locked_focus_for_request(
+            &state,
+            Some(game),
+            Some(steam)
+        ));
     }
 
     #[test]

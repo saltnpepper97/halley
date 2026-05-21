@@ -7,8 +7,7 @@ use std::io;
 use std::io::ErrorKind;
 use std::io::IsTerminal;
 use std::io::Write;
-use std::mem::ManuallyDrop;
-use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
@@ -20,6 +19,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use eventline::{debug, info, warn};
+use rustix::io::{FdFlags, fcntl_setfd};
 use rustix::net::{
     AddressFamily, SocketAddrUnix, SocketFlags, SocketType, bind, listen, socket_with,
 };
@@ -209,6 +209,7 @@ pub(crate) fn refresh_portal_services_nonblocking() {
 fn activation_environment_vars() -> Vec<String> {
     [
         "WAYLAND_DISPLAY",
+        "DISPLAY",
         "XDG_CURRENT_DESKTOP",
         "XDG_SESSION_TYPE",
         "XCURSOR_THEME",
@@ -435,6 +436,7 @@ impl X11SocketReservation {
             .write(true)
             .create_new(true)
             .open(&lock_path)?;
+        fcntl_setfd(&lock_file, FdFlags::CLOEXEC)?;
         let _ = writeln!(lock_file, "{}", std::process::id());
 
         let reservation = (|| {
@@ -443,12 +445,11 @@ impl X11SocketReservation {
                 Err(err) if err.kind() == ErrorKind::AddrInUse => return Err(err),
                 Err(err) => return Err(err),
             };
-            filesystem_listener.set_nonblocking(true)?;
 
             let abstract_listener = socket_with(
                 AddressFamily::UNIX,
                 SocketType::STREAM,
-                SocketFlags::NONBLOCK | SocketFlags::CLOEXEC,
+                SocketFlags::CLOEXEC,
                 None,
             )?;
             let abstract_name = socket_path.to_string_lossy().into_owned();
@@ -474,11 +475,15 @@ impl X11SocketReservation {
     }
 
     fn filesystem_listener_for_event_loop(&self) -> io::Result<UnixListener> {
-        self.filesystem_listener.try_clone()
+        let listener = self.filesystem_listener.try_clone()?;
+        Ok(clear_out_pending_x11_connections(listener))
     }
 
     fn abstract_listener_for_event_loop(&self) -> io::Result<OwnedFd> {
-        Ok(rustix::io::dup(&self.abstract_listener)?)
+        let fd = rustix::io::dup(&self.abstract_listener)?;
+        let listener = UnixListener::from(fd);
+        let listener = clear_out_pending_x11_connections(listener);
+        Ok(OwnedFd::from(listener))
     }
 
     fn child_listen_fds(&self) -> io::Result<Vec<OwnedFd>> {
@@ -489,6 +494,27 @@ impl X11SocketReservation {
     }
 }
 
+fn clear_out_pending_x11_connections(listener: UnixListener) -> UnixListener {
+    if let Err(err) = listener.set_nonblocking(true) {
+        warn!(
+            "failed to set X11 listener nonblocking before draining: {}",
+            err
+        );
+        return listener;
+    }
+
+    while listener.accept().is_ok() {}
+
+    if let Err(err) = listener.set_nonblocking(false) {
+        warn!(
+            "failed to restore X11 listener blocking mode after draining: {}",
+            err
+        );
+    }
+
+    listener
+}
+
 impl Drop for X11SocketReservation {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.socket_path);
@@ -497,6 +523,14 @@ impl Drop for X11SocketReservation {
 }
 
 impl XwaylandSatellite {
+    pub(crate) fn socket_watch_available(&self) -> bool {
+        matches!(self.mode, XwaylandMode::OnDemand)
+            && !self.disabled
+            && self.x11_sockets.is_some()
+            && self.child.is_none()
+            && !self.request_pending
+    }
+
     pub(crate) fn request_start(&mut self) {
         self.request_pending = true;
     }
@@ -559,24 +593,23 @@ impl XwaylandSatellite {
             let mut command = Command::new(self.satellite_bin.as_str());
             command
                 .arg(self.display.as_str())
+                .env_remove("DISPLAY")
                 .env("WAYLAND_DISPLAY", self.wayland_display.as_str())
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
 
-            for idx in 0..listen_fds.len() {
-                command.arg("-listenfd").arg((3 + idx).to_string());
+            let raw_fds: Vec<i32> = listen_fds.iter().map(AsRawFd::as_raw_fd).collect();
+            for raw_fd in raw_fds.iter() {
+                command.arg("-listenfd").arg(raw_fd.to_string());
             }
 
-            let raw_fds: Vec<i32> = listen_fds.iter().map(AsRawFd::as_raw_fd).collect();
             unsafe {
                 command.pre_exec(move || {
                     setpgid(None, None).map_err(io::Error::from)?;
-                    for (idx, raw_fd) in raw_fds.iter().enumerate() {
-                        let target_fd = 3 + idx as i32;
-                        let mut target = ManuallyDrop::new(OwnedFd::from_raw_fd(target_fd));
-                        rustix::io::dup2(BorrowedFd::borrow_raw(*raw_fd), &mut target)
-                            .map_err(io::Error::from)?;
+                    for raw_fd in raw_fds.iter() {
+                        let fd = std::os::fd::BorrowedFd::borrow_raw(*raw_fd);
+                        fcntl_setfd(fd, FdFlags::empty()).map_err(io::Error::from)?;
                     }
                     Ok(())
                 });
@@ -587,6 +620,7 @@ impl XwaylandSatellite {
             let mut command = Command::new(self.satellite_bin.as_str());
             command
                 .arg(self.display.as_str())
+                .env_remove("DISPLAY")
                 .env("WAYLAND_DISPLAY", self.wayland_display.as_str())
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -698,12 +732,43 @@ pub(crate) fn ensure_xwayland_satellite(
         .unwrap_or_else(|| "xwayland-satellite".to_string());
 
     match Command::new(satellite_bin.as_str())
-        .arg("--version")
+        .arg(":0")
+        .arg("--test-listenfd-support")
+        .env_remove("DISPLAY")
+        .env_remove("RUST_BACKTRACE")
+        .env_remove("RUST_LIB_BACKTRACE")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
     {
-        Ok(_) => {}
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            if mode == XwaylandMode::On {
+                return Err(io::Error::other(format!(
+                    "HALLEY_DEV_WL_XWAYLAND=on but xwayland-satellite does not support -listenfd (status {})",
+                    status
+                ))
+                .into());
+            }
+            warn!(
+                "xwayland-satellite does not support -listenfd (status {}); X11 apps are unavailable",
+                status
+            );
+            // SAFETY: Called during startup before worker threads are spawned.
+            unsafe { env::remove_var("DISPLAY") };
+            return Ok(XwaylandSatellite {
+                mode,
+                satellite_bin,
+                wayland_display: wayland_display.to_string(),
+                display: String::new(),
+                x11_sockets: None,
+                child: None,
+                restart_delay: Duration::from_millis(1500),
+                restart_after: None,
+                request_pending: false,
+                disabled: true,
+            });
+        }
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
             if mode == XwaylandMode::On {
                 return Err(io::Error::new(

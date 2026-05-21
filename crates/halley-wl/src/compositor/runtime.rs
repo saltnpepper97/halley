@@ -126,19 +126,33 @@ fn spawn_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
         .values()
         .copied()
         .min();
+    let active_spawn_pan_at_ms = st.model.spawn_state.active_spawn_pan.and_then(|pan| {
+        [pan.pan_start_at_ms, pan.reveal_at_ms]
+            .into_iter()
+            .filter(|&at_ms| at_ms > now_ms)
+            .min()
+    });
+    let pending_pan_activate_at_ms = st
+        .model
+        .spawn_state
+        .pending_pan_activate
+        .map(|(_, at_ms)| at_ms)
+        .filter(|&at_ms| at_ms > now_ms);
     min_optional_deadlines([
         pending_spawn_activate_at_ms,
         pending_tiled_insert_reveal_at_ms,
+        active_spawn_pan_at_ms,
+        pending_pan_activate_at_ms,
     ])
 }
 
 fn workspace_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
-    let active_transition_until_ms = st
+    let active_transition_at_ms = st
         .model
         .workspace_state
-        .active_transition_until_ms
+        .active_transitions
         .values()
-        .copied()
+        .map(|transition| transition.until_ms())
         .min()
         .filter(|&at_ms| at_ms > now_ms);
     let primary_promote_cooldown_until_ms = st
@@ -158,7 +172,7 @@ fn workspace_deadline_ms(st: &Halley, now_ms: u64) -> Option<u64> {
         .min()
         .filter(|&at_ms| at_ms > now_ms);
     min_optional_deadlines([
-        active_transition_until_ms,
+        active_transition_at_ms,
         primary_promote_cooldown_until_ms,
         pending_silent_close_until_ms,
     ])
@@ -463,8 +477,8 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
         self.model
             .workspace_state
-            .active_transition_until_ms
-            .retain(|_, &mut until| until > now_ms);
+            .active_transitions
+            .retain(|_, transition| transition.is_active(now_ms));
         self.model
             .workspace_state
             .primary_promote_cooldown_until_ms

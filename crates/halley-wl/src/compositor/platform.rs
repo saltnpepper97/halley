@@ -3,20 +3,25 @@ use std::os::unix::io::AsFd;
 use std::rc::Rc;
 
 use smithay::{
-    desktop::PopupManager,
+    desktop::{
+        PopupManager,
+        utils::{bbox_from_surface_tree, output_update},
+    },
     input::{Seat, SeatState, pointer::CursorImageStatus},
+    output::Scale,
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode,
         wayland_server::{
             DisplayHandle, Resource, backend::ObjectId, protocol::wl_surface::WlSurface,
         },
     },
-    utils::IsAlive,
+    utils::{IsAlive, Logical, Point, Rectangle, Transform},
     wayland::{
-        compositor::{CompositorState, add_blocker, with_states},
+        compositor::{CompositorState, add_blocker, send_surface_state, with_states},
         cursor_shape::CursorShapeManagerState,
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
         drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjState},
+        fractional_scale::{FractionalScaleManagerState, with_fractional_scale},
         idle_notify::IdleNotifierState,
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsState,
@@ -60,6 +65,7 @@ pub(crate) struct PlatformState {
     pub(crate) pointer_constraints_state: PointerConstraintsState,
     pub(crate) presentation_state: PresentationState,
     pub(crate) relative_pointer_manager_state: RelativePointerManagerState,
+    pub(crate) fractional_scale_manager_state: FractionalScaleManagerState,
     pub(crate) idle_notifier_state: IdleNotifierState<Halley>,
     pub(crate) drm_syncobj_state: Option<DrmSyncobjState>,
     pub(crate) output_manager_state: OutputManagerState,
@@ -209,6 +215,90 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         .cursor_override_icon
         .map(CursorImageStatus::Named)
         .unwrap_or_else(|| st.platform.cursor_image_status.clone())
+}
+
+fn cursor_global_position(st: &Halley) -> Option<(f32, f32)> {
+    if let Some(pos) = st.input.interaction_state.last_pointer_screen_global {
+        return Some(pos);
+    }
+
+    let pointer = st.platform.seat.get_pointer()?;
+    let location = pointer.current_location();
+    let cam_scale = st.camera_render_scale().max(0.001) as f64;
+    let monitor = st.model.monitor_state.current_monitor.as_str();
+    let (offset_x, offset_y) = st
+        .model
+        .monitor_state
+        .monitors
+        .get(monitor)
+        .map(|space| (space.offset_x as f32, space.offset_y as f32))
+        .unwrap_or((0.0, 0.0));
+    Some((
+        offset_x + (location.x * cam_scale) as f32,
+        offset_y + (location.y * cam_scale) as f32,
+    ))
+}
+
+pub(crate) fn refresh_cursor_surface_outputs(st: &mut Halley) {
+    let surface = match &st.platform.cursor_image_status {
+        CursorImageStatus::Surface(surface) if surface.alive() => surface.clone(),
+        CursorImageStatus::Surface(_) => {
+            st.platform.cursor_image_status = CursorImageStatus::default_named();
+            return;
+        }
+        CursorImageStatus::Hidden | CursorImageStatus::Named(_) => return,
+    };
+    let Some((sx, sy)) = cursor_global_position(st) else {
+        return;
+    };
+
+    let (hotspot_x, hotspot_y) = crate::render::cursor_surface_hotspot(&surface);
+    let surface_pos: Point<i32, Logical> =
+        (sx.round() as i32 - hotspot_x, sy.round() as i32 - hotspot_y).into();
+    let bbox = bbox_from_surface_tree(&surface, surface_pos);
+    let outputs = st
+        .model
+        .monitor_state
+        .outputs
+        .iter()
+        .map(|(name, output)| (name.clone(), output.clone()))
+        .collect::<Vec<_>>();
+    let mut preferred_scale = 1.0;
+    let mut preferred_transform = Transform::Normal;
+    let mut matched_output = false;
+
+    for (name, output) in outputs {
+        let Some(monitor) = st.model.monitor_state.monitors.get(name.as_str()) else {
+            output_update(&output, None, &surface);
+            continue;
+        };
+        let output_geo = Rectangle::new(
+            (monitor.offset_x, monitor.offset_y).into(),
+            (monitor.width, monitor.height).into(),
+        );
+        if let Some(mut overlap) = output_geo.intersection(bbox) {
+            overlap.loc -= surface_pos;
+            output_update(&output, Some(overlap), &surface);
+            if !matched_output || monitor.scale > preferred_scale {
+                preferred_scale = monitor.scale;
+                preferred_transform =
+                    crate::compositor::monitor::state::output_transform_for(st, name.as_str());
+                matched_output = true;
+            }
+        } else {
+            output_update(&output, None, &surface);
+        }
+    }
+
+    if matched_output {
+        with_states(&surface, |states| {
+            let scale = Scale::Fractional(preferred_scale);
+            send_surface_state(&surface, states, scale.integer_scale(), preferred_transform);
+            with_fractional_scale(states, |fractional| {
+                fractional.set_preferred_scale(scale.fractional_scale());
+            });
+        });
+    }
 }
 
 pub(crate) fn install_drm_syncobj_blocker(st: &mut Halley, surface: &WlSurface) {

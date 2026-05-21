@@ -250,7 +250,7 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
             .and_then(|(s, locked)| if *locked { Some(s.clone()) } else { None });
 
         if pointer.current_focus().is_none() {
-            if let Some(mut focus) = pointer_focus_for_screen(
+            if let Some(focus) = pointer_focus_for_screen(
                 st,
                 context.ws_w,
                 context.ws_h,
@@ -259,17 +259,6 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                 now,
                 resize_preview,
             ) {
-                if let Some(constrained) =
-                    crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
-                        st, &focus.0,
-                    )
-                {
-                    if constrained != focus.0 {
-                        focus.0 = constrained;
-                        focus.1 = pointer.current_location();
-                    }
-                }
-
                 if locked_surface.is_none() {
                     let location =
                         if crate::compositor::monitor::layer_shell::is_layer_surface(st, &focus.0)

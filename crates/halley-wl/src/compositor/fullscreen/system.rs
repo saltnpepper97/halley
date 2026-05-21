@@ -83,7 +83,7 @@ pub(crate) fn on_seat_focus_changed(
         .collect();
 
     for fullscreen_id in to_suspend {
-        st.suspend_xdg_fullscreen(fullscreen_id, now);
+        st.soft_suspend_xdg_fullscreen(fullscreen_id, now);
     }
 }
 
@@ -349,6 +349,132 @@ mod tests {
     }
 
     #[test]
+    fn soft_suspend_resumes_existing_fullscreen_session() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let bystander = state.model.field.spawn_surface(
+            "bystander",
+            Vec2 { x: 520.0, y: 280.0 },
+            Vec2 { x: 220.0, y: 160.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, "monitor_a");
+        state.assign_node_to_monitor(bystander, "monitor_a");
+
+        let now = Instant::now();
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+        let restore_count = state.model.fullscreen_state.fullscreen_restore.len();
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .get("monitor_a"),
+            Some(&fullscreen)
+        );
+
+        state.soft_suspend_xdg_fullscreen(fullscreen, now + std::time::Duration::from_millis(40));
+        assert!(
+            !state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .contains_key("monitor_a")
+        );
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .get("monitor_a"),
+            Some(&fullscreen)
+        );
+        assert_eq!(
+            state.model.fullscreen_state.fullscreen_restore.len(),
+            restore_count
+        );
+
+        state.enter_xdg_fullscreen(fullscreen, None, now + std::time::Duration::from_millis(80));
+        assert_eq!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .get("monitor_a"),
+            Some(&fullscreen)
+        );
+        assert!(
+            !state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .contains_key("monitor_a")
+        );
+        assert_eq!(
+            state.model.fullscreen_state.fullscreen_restore.len(),
+            restore_count
+        );
+    }
+
+    #[test]
+    fn hard_exit_after_soft_suspend_restores_fullscreen_session() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let bystander = state.model.field.spawn_surface(
+            "bystander",
+            Vec2 { x: 520.0, y: 280.0 },
+            Vec2 { x: 220.0, y: 160.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, "monitor_a");
+        state.assign_node_to_monitor(bystander, "monitor_a");
+        let fullscreen_pos = state.model.field.node(fullscreen).expect("fullscreen").pos;
+        let bystander_pos = state.model.field.node(bystander).expect("bystander").pos;
+
+        let now = Instant::now();
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
+        state.soft_suspend_xdg_fullscreen(fullscreen, now + std::time::Duration::from_millis(300));
+
+        state.exit_xdg_fullscreen(fullscreen, now + std::time::Duration::from_millis(340));
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(760));
+
+        assert_eq!(
+            state.model.field.node(fullscreen).expect("fullscreen").pos,
+            fullscreen_pos
+        );
+        assert_eq!(
+            state.model.field.node(bystander).expect("bystander").pos,
+            bystander_pos
+        );
+        assert!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .is_empty()
+        );
+        assert!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .is_empty()
+        );
+        assert!(state.model.fullscreen_state.fullscreen_restore.is_empty());
+    }
+
+    #[test]
     fn fullscreen_roundtrip_preserves_active_maximize_session() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut tuning = single_monitor_tuning();
@@ -572,6 +698,14 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             })
     }
 
+    fn fullscreen_suspended_monitor_for_node(&self, node_id: NodeId) -> Option<&str> {
+        self.model
+            .fullscreen_state
+            .fullscreen_suspended_node
+            .iter()
+            .find_map(|(monitor, &id)| (id == node_id).then_some(monitor.as_str()))
+    }
+
     fn queue_fullscreen_motion(
         &mut self,
         id: NodeId,
@@ -710,7 +844,13 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
     }
 
     /// Returns the monitor name that `node_id` is currently fullscreened on, if any.
-    fn exit_xdg_fullscreen_inner(&mut self, node_id: NodeId, now: Instant, suspend: bool) {
+    fn exit_xdg_fullscreen_inner(
+        &mut self,
+        node_id: NodeId,
+        now: Instant,
+        suspend: bool,
+        preserve_client_fullscreen: bool,
+    ) {
         // Find which monitor this node is fullscreened on.
         let monitor_name = match self.fullscreen_monitor_for_node(node_id) {
             Some(m) => m.to_owned(),
@@ -728,11 +868,26 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
                 .fullscreen_state
                 .fullscreen_suspended_node
                 .insert(monitor_name.clone(), node_id);
+            if preserve_client_fullscreen {
+                self.model
+                    .fullscreen_state
+                    .fullscreen_soft_suspended_node
+                    .insert(monitor_name.clone(), node_id);
+            } else {
+                self.model
+                    .fullscreen_state
+                    .fullscreen_soft_suspended_node
+                    .remove(&monitor_name);
+            }
         } else {
             // If we're doing a hard exit, clear any suspended state for this monitor too.
             self.model
                 .fullscreen_state
                 .fullscreen_suspended_node
+                .remove(&monitor_name);
+            self.model
+                .fullscreen_state
+                .fullscreen_soft_suspended_node
                 .remove(&monitor_name);
         }
 
@@ -755,7 +910,10 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             self.queue_fullscreen_motion(*id, from, entry.pos, now_ms, Self::FULLSCREEN_EXIT_MS);
         }
 
-        if let Some(entry) = self
+        if preserve_client_fullscreen {
+            // Keep the xdg-toplevel protocol fullscreen state intact while the
+            // compositor releases its local fullscreen layout lock.
+        } else if let Some(entry) = self
             .model
             .fullscreen_state
             .fullscreen_restore
@@ -789,7 +947,11 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
     }
 
     pub(crate) fn suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        self.exit_xdg_fullscreen_inner(node_id, now, true);
+        self.exit_xdg_fullscreen_inner(node_id, now, true, false);
+    }
+
+    pub(crate) fn soft_suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
+        self.exit_xdg_fullscreen_inner(node_id, now, true, true);
     }
 
     fn restore_fullscreen_snapshot(
@@ -837,11 +999,33 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             return;
         }
 
-        // Clear any suspended state for this monitor.
-        self.model
+        let soft_resume = self
+            .model
             .fullscreen_state
-            .fullscreen_suspended_node
-            .remove(&monitor_name);
+            .fullscreen_soft_suspended_node
+            .get(&monitor_name)
+            == Some(&node_id);
+
+        if soft_resume {
+            self.model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .remove(&monitor_name);
+            self.model
+                .fullscreen_state
+                .fullscreen_soft_suspended_node
+                .remove(&monitor_name);
+        } else {
+            // Clear any suspended state for this monitor.
+            self.model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .remove(&monitor_name);
+            self.model
+                .fullscreen_state
+                .fullscreen_soft_suspended_node
+                .remove(&monitor_name);
+        }
 
         // If another window is fullscreened on the same monitor, exit it first.
         if let Some(existing) = self
@@ -865,29 +1049,65 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             return;
         };
 
-        let saved_size = crate::compositor::surface::current_surface_size_for_node(self, node_id)
+        let soft_resume_entry = soft_resume
+            .then(|| {
+                self.model
+                    .fullscreen_state
+                    .fullscreen_restore
+                    .get(&node_id)
+                    .copied()
+            })
+            .flatten();
+        let saved_size = soft_resume_entry
+            .map(|entry| entry.size)
+            .unwrap_or_else(|| {
+                crate::compositor::surface::current_surface_size_for_node(self, node_id)
+                    .unwrap_or(node.intrinsic_size)
+            });
+        let saved_bbox_loc = soft_resume_entry
+            .and_then(|entry| entry.bbox_loc)
+            .or_else(|| self.ui.render_state.cache.bbox_loc.get(&node_id).copied());
+        let saved_window_geometry = soft_resume_entry
+            .and_then(|entry| entry.window_geometry)
+            .or_else(|| {
+                self.ui
+                    .render_state
+                    .cache
+                    .window_geometry
+                    .get(&node_id)
+                    .copied()
+            });
+        let saved_pos = soft_resume_entry.map(|entry| entry.pos).unwrap_or(node.pos);
+        let saved_intrinsic_size = soft_resume_entry
+            .map(|entry| entry.intrinsic_size)
             .unwrap_or(node.intrinsic_size);
-        let saved_bbox_loc = self.ui.render_state.cache.bbox_loc.get(&node_id).copied();
-        let saved_window_geometry = self
-            .ui
-            .render_state
-            .cache
-            .window_geometry
-            .get(&node_id)
-            .copied();
+        let saved_pinned = soft_resume_entry
+            .map(|entry| entry.pinned)
+            .unwrap_or(node.pinned);
 
         self.model.fullscreen_state.fullscreen_restore.insert(
             node_id,
             crate::compositor::fullscreen::state::FullscreenSessionEntry {
-                pos: node.pos,
+                pos: saved_pos,
                 size: saved_size,
                 viewport_center,
-                intrinsic_size: node.intrinsic_size,
+                intrinsic_size: saved_intrinsic_size,
                 bbox_loc: saved_bbox_loc,
                 window_geometry: saved_window_geometry,
-                pinned: node.pinned,
+                pinned: saved_pinned,
             },
         );
+        if soft_resume {
+            let fullscreen_size = Vec2 {
+                x: target_size.0 as f32,
+                y: target_size.1 as f32,
+            };
+            if let Some(node) = self.model.field.node_mut(node_id) {
+                node.intrinsic_size = fullscreen_size;
+            }
+            let _ = self.model.field.sync_active_footprint_to_intrinsic(node_id);
+            self.set_last_active_size_now(node_id, fullscreen_size);
+        }
         let _ = self.model.field.set_pinned(node_id, false);
         self.queue_fullscreen_motion(
             node_id,
@@ -966,7 +1186,9 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             );
         }
 
-        self.request_toplevel_fullscreen_state(node_id, true, output, Some(target_size));
+        if !soft_resume {
+            self.request_toplevel_fullscreen_state(node_id, true, output, Some(target_size));
+        }
         self.assign_node_to_monitor(node_id, monitor_name.as_str());
         self.model
             .fullscreen_state
@@ -977,6 +1199,20 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
     }
 
     pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
+        if !self.is_fullscreen_active(node_id)
+            && let Some(monitor) = self
+                .fullscreen_suspended_monitor_for_node(node_id)
+                .map(str::to_string)
+        {
+            self.model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .remove(&monitor);
+            self.model
+                .fullscreen_state
+                .fullscreen_active_node
+                .insert(monitor, node_id);
+        }
         // Clear suspended state on whatever monitor this node is on.
         if let Some(monitor) = self
             .fullscreen_monitor_for_node(node_id)
@@ -987,14 +1223,29 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
                 .fullscreen_suspended_node
                 .remove(&monitor);
         }
-        self.exit_xdg_fullscreen_inner(node_id, now, false);
+        self.exit_xdg_fullscreen_inner(node_id, now, false, false);
     }
 
     pub(crate) fn drop_fullscreen_surface(&mut self, id: NodeId, now: Instant) {
+        if !self.is_fullscreen_active(id)
+            && let Some(monitor) = self
+                .fullscreen_suspended_monitor_for_node(id)
+                .map(str::to_string)
+        {
+            self.model
+                .fullscreen_state
+                .fullscreen_active_node
+                .insert(monitor, id);
+        }
+
         // Clear suspended state if this node was suspended on any monitor.
         self.model
             .fullscreen_state
             .fullscreen_suspended_node
+            .retain(|_, &mut nid| nid != id);
+        self.model
+            .fullscreen_state
+            .fullscreen_soft_suspended_node
             .retain(|_, &mut nid| nid != id);
 
         if self.is_fullscreen_active(id) {

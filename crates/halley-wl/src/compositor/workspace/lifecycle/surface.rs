@@ -185,13 +185,20 @@ fn maybe_apply_pending_initial_window_rule(
     {
         return;
     }
-    let monitor = st
+    let mut monitor = st
         .model
         .monitor_state
         .node_monitor
         .get(&node_id)
         .cloned()
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    if intent.matched_rule {
+        let target_monitor = st.spawn_target_monitor_for_intent(&intent);
+        if target_monitor != monitor {
+            st.assign_node_to_monitor(node_id, target_monitor.as_str());
+            monitor = target_monitor;
+        }
+    }
     let active_cluster = st.active_cluster_workspace_for_monitor(monitor.as_str());
     let mut cluster_local = st
         .model
@@ -200,8 +207,7 @@ fn maybe_apply_pending_initial_window_rule(
         .is_some_and(|cid| active_cluster == Some(cid));
     if st.cluster_bloom_for_monitor(monitor.as_str()).is_some() {
         st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
-        st.model.spawn_state.pending_initial_reveal.remove(&node_id);
-        st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
+        let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, intent.is_transient, now);
         return;
     }
 
@@ -258,7 +264,10 @@ fn maybe_apply_pending_initial_window_rule(
     if !cluster_local
         && let Some(size) = st.model.field.node(node_id).map(|node| node.intrinsic_size)
     {
-        let (_, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
+        let (picked_monitor, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
+        if intent.matched_rule && picked_monitor != monitor {
+            st.assign_node_to_monitor(node_id, picked_monitor.as_str());
+        }
         let _ = st.model.field.carry(node_id, pos);
     }
 
@@ -273,8 +282,56 @@ fn maybe_apply_pending_initial_window_rule(
         st.model.spawn_state.applied_window_rules.remove(&node_id);
     }
     st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
+    if !st
+        .model
+        .spawn_state
+        .pending_initial_reveal
+        .contains(&node_id)
+    {
+        st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
+    } else {
+        let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, intent.is_transient, now);
+    }
+}
+
+pub(super) fn reveal_pending_initial_toplevel_if_ready(
+    st: &mut Halley,
+    node_id: NodeId,
+    is_transient: bool,
+    now: Instant,
+) -> bool {
+    if !st
+        .model
+        .spawn_state
+        .pending_initial_reveal
+        .contains(&node_id)
+        || st
+            .model
+            .spawn_state
+            .pending_rule_rechecks
+            .contains(&node_id)
+        || !st
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .contains_key(&node_id)
+    {
+        return false;
+    }
+
     st.model.spawn_state.pending_initial_reveal.remove(&node_id);
-    st.reveal_new_toplevel_node(node_id, intent.is_transient, now);
+    st.reveal_new_toplevel_node(node_id, is_transient, now);
+    if !st
+        .model
+        .field
+        .node(node_id)
+        .is_some_and(|node| node.visibility.has(Visibility::DETACHED))
+    {
+        st.resolve_surface_overlap();
+    }
+    st.request_maintenance();
+    true
 }
 
 pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
@@ -302,6 +359,11 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             output.leave(surface);
         }
     }
+    crate::compositor::monitor::state::set_surface_preferred_scale_for_monitor(
+        st,
+        surface,
+        target_monitor.as_str(),
+    );
 
     crate::compositor::monitor::layer_shell::maybe_grant_layer_surface_focus_on_commit(
         &mut st.layer_shell_ctx(),
@@ -357,6 +419,11 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         });
 
         if size_changed && st.input.interaction_state.resize_active != Some(node_id) {
+            let pending_initial_reveal = st
+                .model
+                .spawn_state
+                .pending_initial_reveal
+                .contains(&node_id);
             if let Some(node) = st.model.field.node_mut(node_id) {
                 node.intrinsic_size = new_size;
                 if node.state == halley_core::field::NodeState::Active {
@@ -385,11 +452,13 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                             st.now_ms(now),
                         );
                     }
-                } else {
+                } else if !pending_initial_reveal {
                     st.resolve_overlap_now();
                 }
             }
         }
+
+        let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, false, now);
     }
 }
 
@@ -455,9 +524,7 @@ pub(super) fn ensure_node_for_surface_impl(
         .unwrap_or(0);
     let defer_rule_resolution =
         crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, &effective_intent);
-    let defer_steam =
-        !effective_intent.matched_rule && effective_intent.app_id.as_deref() == Some("steam");
-    let should_defer = defer_rule_resolution || defer_steam;
+    let should_defer = defer_rule_resolution;
     if effective_intent.effective_overlap_policy()
         == halley_config::InitialWindowOverlapPolicy::None
         && !defer_rule_resolution
@@ -532,6 +599,7 @@ pub(super) fn ensure_node_for_surface_impl(
         let id = st.model.field.spawn_surface(label.to_string(), pos, size);
         (monitor, id, false)
     };
+    st.model.surface_to_node.insert(key, id);
     st.assign_node_to_monitor(id, monitor.as_str());
     if effective_intent.matched_rule {
         st.model
@@ -551,7 +619,6 @@ pub(super) fn ensure_node_for_surface_impl(
         let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
     }
 
-    st.model.surface_to_node.insert(key, id);
     st.ui.render_state.cache.zoom_nominal_size.insert(id, size);
     st.model.workspace_state.last_active_size.insert(id, size);
     let joined_active_cluster = spawned_in_active_cluster;

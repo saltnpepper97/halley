@@ -2,18 +2,17 @@ use super::*;
 use crate::compositor::{focus, fullscreen, interaction, monitor, spawn, workspace};
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::input::TabletToolDescriptor;
-use smithay::input::pointer::{PointerHandle, MotionEvent};
+use smithay::input::pointer::PointerHandle;
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_surface::WlSurface,
 };
-use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::compositor::{add_blocker, get_parent, with_states};
 use smithay::wayland::dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, ImportNotifier};
 use smithay::wayland::drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjHandler};
+use smithay::wayland::fractional_scale::FractionalScaleHandler;
 use smithay::wayland::output::OutputHandler;
-use smithay::wayland::pointer_constraints::with_pointer_constraint;
 use smithay::wayland::selection::primary_selection::{
     PrimarySelectionHandler, PrimarySelectionState,
 };
@@ -58,6 +57,7 @@ impl SeatHandler for Halley {
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
         self.platform.cursor_image_status = image;
+        crate::compositor::platform::refresh_cursor_surface_outputs(self);
         self.request_maintenance();
     }
 }
@@ -72,6 +72,7 @@ delegate_idle_notify!(Halley);
 impl TabletSeatHandler for Halley {
     fn tablet_tool_image(&mut self, _tool: &TabletToolDescriptor, image: CursorImageStatus) {
         self.platform.cursor_image_status = image;
+        crate::compositor::platform::refresh_cursor_surface_outputs(self);
         self.request_maintenance();
     }
 }
@@ -118,6 +119,7 @@ impl CompositorHandler for Halley {
         self.platform.popup_manager.commit(surface);
         if crate::render::handle_cursor_surface_commit(&self.platform.cursor_image_status, surface)
         {
+            crate::compositor::platform::refresh_cursor_surface_outputs(self);
             self.request_maintenance();
         }
         workspace::lifecycle::on_surface_commit(
@@ -130,6 +132,12 @@ impl CompositorHandler for Halley {
 
 delegate_compositor!(Halley);
 delegate_viewporter!(Halley);
+
+impl FractionalScaleHandler for Halley {
+    fn new_fractional_scale(&mut self, surface: WlSurface) {
+        monitor::state::refresh_surface_preferred_scale(self, &surface);
+    }
+}
 
 impl ShmHandler for Halley {
     fn shm_state(&self) -> &ShmState {
@@ -195,32 +203,26 @@ impl DrmSyncobjHandler for Halley {
 
 impl PointerConstraintsHandler for Halley {
     fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
-        if pointer.current_focus().as_ref() != Some(surface) {
-            let focus = pointer.current_focus();
-            let in_focused_tree = focus.as_ref().is_some_and(|focus| {
-                surface_is_ancestor_of(surface, focus) || surface_is_ancestor_of(focus, surface)
-            });
-            if in_focused_tree {
-                pointer.motion(
-                    self,
-                    Some((surface.clone(), pointer.current_location())),
-                    &MotionEvent {
-                        location: pointer.current_location(),
-                        serial: SERIAL_COUNTER.next_serial(),
-                        time: crate::input::pointer::button::now_millis_u32(),
-                    },
-                );
-            } else {
-                return;
-            }
-        }
-        with_pointer_constraint(surface, pointer, |constraint| {
-            if let Some(constraint) = constraint
-                && !constraint.is_active()
-            {
-                constraint.activate();
-            }
+        let focus =
+            interaction::pointer::refresh_pointer_focus_at_last_screen(self, None, Instant::now());
+        let current_focus = pointer.current_focus();
+        let in_focused_tree = current_focus.as_ref().is_some_and(|focus| {
+            focus == surface
+                || surface_is_ancestor_of(surface, focus)
+                || surface_is_ancestor_of(focus, surface)
         });
+        if !in_focused_tree {
+            return;
+        }
+
+        let surface_origin = focus
+            .as_ref()
+            .and_then(|(focused, origin)| (focused == surface).then_some(*origin));
+        interaction::pointer::activate_pointer_constraint_for_surface_at(
+            self,
+            surface,
+            surface_origin,
+        );
     }
 
     fn cursor_position_hint(

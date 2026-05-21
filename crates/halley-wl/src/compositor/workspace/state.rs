@@ -7,7 +7,7 @@ use crate::compositor::root::Halley;
 
 pub(crate) struct WorkspaceState {
     pub(crate) last_active_size: HashMap<NodeId, Vec2>,
-    pub(crate) active_transition_until_ms: HashMap<NodeId, u64>,
+    pub(crate) active_transitions: HashMap<NodeId, ActiveTransition>,
     pub(crate) primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
     pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
     pub(crate) pending_manual_collapses: HashMap<NodeId, u64>,
@@ -16,6 +16,22 @@ pub(crate) struct WorkspaceState {
     pub(crate) maximize_sessions: HashMap<String, MaximizeSession>,
     pub(crate) maximize_animation: HashMap<NodeId, MaximizeAnimation>,
     pub(crate) maximize_resume: HashMap<NodeId, String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ActiveTransition {
+    pub(crate) started_at_ms: u64,
+    pub(crate) duration_ms: u64,
+}
+
+impl ActiveTransition {
+    pub(crate) fn until_ms(self) -> u64 {
+        self.started_at_ms.saturating_add(self.duration_ms.max(1))
+    }
+
+    pub(crate) fn is_active(self, now_ms: u64) -> bool {
+        now_ms < self.until_ms()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -63,10 +79,13 @@ pub fn mark_active_transition(st: &mut Halley, id: NodeId, now: Instant, duratio
     if !st.runtime.tuning.animations_enabled() {
         return;
     }
-    st.model
-        .workspace_state
-        .active_transition_until_ms
-        .insert(id, st.now_ms(now).saturating_add(duration_ms.max(1)));
+    st.model.workspace_state.active_transitions.insert(
+        id,
+        ActiveTransition {
+            started_at_ms: st.now_ms(now),
+            duration_ms: duration_ms.max(1),
+        },
+    );
     st.request_maintenance();
 }
 
@@ -81,13 +100,17 @@ pub fn active_transition_alpha(st: &Halley, id: NodeId, now: Instant) -> f32 {
     {
         return 0.0;
     }
-    let Some(&until) = st.model.workspace_state.active_transition_until_ms.get(&id) else {
+    let Some(&transition) = st.model.workspace_state.active_transitions.get(&id) else {
         return 0.0;
     };
+    let until = transition.until_ms();
     if now_ms >= until {
         return 0.0;
     }
-    let total = 420.0f32;
+    if now_ms <= transition.started_at_ms {
+        return 1.0;
+    }
+    let total = transition.duration_ms.max(1) as f32;
     let remaining = (until.saturating_sub(now_ms)) as f32;
     (remaining / total).clamp(0.0, 1.0)
 }

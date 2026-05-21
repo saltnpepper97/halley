@@ -187,44 +187,25 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 let _ = self.activate_monitor(prev_monitor.as_str());
             }
 
-            let _ = self.model.field.set_detached(next.node_id, false);
-            let _ = self
-                .model
-                .field
-                .set_decay_level(next.node_id, DecayLevel::Hot);
-            if let Some(intrinsic_size) = self.model.field.node(next.node_id).map(|n| n.intrinsic_size)
-            {
-                self.model
-                    .workspace_state
-                    .last_active_size
-                    .insert(next.node_id, intrinsic_size);
+            let active = crate::compositor::spawn::state::ActiveSpawnPan {
+                node_id: next.node_id,
+                pan_start_at_ms: now_ms.saturating_add(if did_pan {
+                    Halley::VIEWPORT_PAN_PRELOAD_MS
+                } else {
+                    0
+                }),
+                reveal_at_ms: now_ms.saturating_add(if did_pan {
+                    Halley::VIEWPORT_PAN_PRELOAD_MS + Halley::VIEWPORT_PAN_DURATION_MS
+                } else {
+                    0
+                }),
+            };
+            if did_pan {
+                self.model.spawn_state.active_spawn_pan = Some(active);
+                self.request_maintenance();
+            } else {
+                self.reveal_completed_spawn_pan(active, now, now_ms);
             }
-            let duration_ms = self.runtime.tuning.window_open_duration_ms();
-            if self.runtime.tuning.window_open_animation_enabled() {
-                crate::compositor::workspace::state::mark_active_transition(
-                    &mut **self,
-                    next.node_id,
-                    now,
-                    duration_ms,
-                );
-            }
-            self.record_focus_trail_visit(next.node_id);
-            self.model.focus_state.suppress_trail_record_once = true;
-
-            self.model.spawn_state.active_spawn_pan =
-                Some(crate::compositor::spawn::state::ActiveSpawnPan {
-                    node_id: next.node_id,
-                    pan_start_at_ms: now_ms.saturating_add(if did_pan {
-                        Halley::VIEWPORT_PAN_PRELOAD_MS
-                    } else {
-                        0
-                    }),
-                    reveal_at_ms: now_ms.saturating_add(if did_pan {
-                        Halley::VIEWPORT_PAN_PRELOAD_MS + Halley::VIEWPORT_PAN_DURATION_MS
-                    } else {
-                        0
-                    }),
-                });
             break;
         }
     }
@@ -257,9 +238,46 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             return;
         }
 
-        self.model.spawn_state.pending_pan_activate = Some((active.node_id, now_ms + 16));
+        self.reveal_completed_spawn_pan(active, now, now_ms);
         self.model.spawn_state.active_spawn_pan = None;
         self.maybe_start_pending_spawn_pan(now);
+    }
+
+    fn reveal_completed_spawn_pan(
+        &mut self,
+        active: crate::compositor::spawn::state::ActiveSpawnPan,
+        now: Instant,
+        now_ms: u64,
+    ) {
+        let _ = self.model.field.set_detached(active.node_id, false);
+        let _ = self
+            .model
+            .field
+            .set_decay_level(active.node_id, DecayLevel::Hot);
+        if let Some(intrinsic_size) = self
+            .model
+            .field
+            .node(active.node_id)
+            .map(|n| n.intrinsic_size)
+        {
+            self.model
+                .workspace_state
+                .last_active_size
+                .insert(active.node_id, intrinsic_size);
+        }
+        let duration_ms = self.runtime.tuning.window_open_duration_ms();
+        if self.runtime.tuning.window_open_animation_enabled() {
+            crate::compositor::workspace::state::mark_active_transition(
+                &mut **self,
+                active.node_id,
+                now,
+                duration_ms,
+            );
+        }
+        self.record_focus_trail_visit(active.node_id);
+        self.model.focus_state.suppress_trail_record_once = true;
+        self.model.spawn_state.pending_pan_activate = Some((active.node_id, now_ms + 16));
+        self.request_maintenance();
     }
 
     pub(crate) fn reveal_new_toplevel_node(
@@ -1401,6 +1419,59 @@ mod tests {
                 .map(|pan| pan.node_id),
             Some(id)
         );
+    }
+
+    #[test]
+    fn spawn_pan_reveals_window_and_open_animation_after_pan_finishes() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 { x: 800.0, y: 600.0 };
+
+        let id = state.model.field.spawn_surface(
+            "new",
+            Vec2 { x: 1200.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 80.0 },
+        );
+        let start = Instant::now();
+
+        state.reveal_new_toplevel_node(id, false, start);
+
+        assert!(state.model.field.node(id).is_some_and(|node| {
+            node.visibility
+                .has(halley_core::field::Visibility::DETACHED)
+        }));
+        assert!(
+            !state
+                .model
+                .workspace_state
+                .active_transitions
+                .contains_key(&id)
+        );
+
+        let finish = start
+            + std::time::Duration::from_millis(
+                Halley::VIEWPORT_PAN_PRELOAD_MS + Halley::VIEWPORT_PAN_DURATION_MS + 1,
+            );
+        state.tick_pending_spawn_pan(finish, state.now_ms(finish));
+
+        assert!(state.model.spawn_state.active_spawn_pan.is_none());
+        assert!(state.model.field.node(id).is_some_and(|node| {
+            !node
+                .visibility
+                .has(halley_core::field::Visibility::DETACHED)
+        }));
+        assert!(
+            state
+                .model
+                .workspace_state
+                .active_transitions
+                .contains_key(&id)
+        );
+        assert!(state.model.spawn_state.pending_pan_activate.is_some());
     }
 
     #[test]

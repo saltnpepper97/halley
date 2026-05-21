@@ -39,8 +39,18 @@ pub(super) fn compute_motion_routing(
     sy: f32,
     allow_unbounded_screen: bool,
 ) -> MotionRoutingContext {
-    let constrained_surface_info =
+    let mut constrained_surface_info =
         crate::compositor::interaction::pointer::active_constrained_pointer_surface(st);
+    if let Some((surface, _)) = constrained_surface_info.as_ref() {
+        let constrained_monitor = st.monitor_for_surface_or_current(surface);
+        if st
+            .monitor_for_screen(raw_sx, raw_sy)
+            .is_some_and(|pointer_monitor| pointer_monitor != constrained_monitor)
+        {
+            crate::compositor::interaction::pointer::release_active_pointer_constraint(st);
+            constrained_surface_info = None;
+        }
+    }
     let grabbed_layer_surface = st
         .platform
         .seat
@@ -199,7 +209,7 @@ pub(super) fn dispatch_pointer_motion(
             });
 
         let resize_preview = ps.resize;
-        let mut focus = if let Some(surface) = grabbed_layer_surface.clone() {
+        let focus = if let Some(surface) = grabbed_layer_surface.clone() {
             grabbed_layer_surface_focus(st, &surface)
         } else if let Some(surface) = locked_surface.clone() {
             Some((surface, pointer.current_location()))
@@ -214,20 +224,6 @@ pub(super) fn dispatch_pointer_motion(
                 resize_preview,
             )
         };
-
-        if locked_surface.is_none() {
-            if let Some((surf, _)) = focus.as_ref() {
-                if let Some(constrained) =
-                    crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
-                        st, surf,
-                    )
-                {
-                    if constrained != *surf {
-                        focus = Some((constrained, pointer.current_location()));
-                    }
-                }
-            }
-        }
 
         desktop_hover = focus.is_none();
         hover_focus_blocked = focus.as_ref().is_some_and(|(surface, _)| {
@@ -328,6 +324,7 @@ pub(super) fn dispatch_pointer_motion(
             );
         }
         pointer.frame(st);
+        crate::compositor::interaction::pointer::maybe_activate_pointer_constraint(st, now);
     }
 
     MotionDispatchResult::Forwarded {

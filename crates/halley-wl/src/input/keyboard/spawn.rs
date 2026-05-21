@@ -10,8 +10,6 @@ use std::process::Command;
 use eventline::{debug, warn};
 use halley_config::CursorConfig;
 
-use crate::bootstrap::request_xwayland_start;
-
 const WAYLAND_TERMINAL_CANDIDATES: &[&str] = &[
     "ghostty",
     "kitty",
@@ -106,7 +104,6 @@ pub(crate) fn spawn_command(
     activation_token: Option<&str>,
     label: &str,
 ) -> Option<Child> {
-    request_xwayland_start();
     let path = augmented_spawn_path();
     let path = path.to_string_lossy().into_owned();
     let shell_command = format!(

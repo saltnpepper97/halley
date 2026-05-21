@@ -7,8 +7,9 @@ use halley_core::field::{NodeId, Vec2};
 use smithay::input::pointer::{CursorIcon, MotionEvent, PointerHandle};
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{Logical, Point};
 use smithay::wayland::{
-    compositor::{RegionAttributes, get_parent},
+    compositor::{RegionAttributes, SubsurfaceCachedState, get_parent, with_states},
     pointer_constraints::{PointerConstraint, with_pointer_constraint},
 };
 
@@ -136,12 +137,17 @@ pub(crate) fn activate_pointer_constraint_for_surface_at(
         return;
     };
     let mut current = surface.clone();
+    let mut current_origin = surface_origin;
     loop {
         let activated = with_pointer_constraint(&current, &pointer, |constraint| {
             if let Some(constraint) = constraint
                 && !constraint.is_active()
             {
-                if let (Some(region), Some(origin)) = (constraint.region(), surface_origin) {
+                let origin = current_origin;
+                if let Some(region) = constraint.region() {
+                    let Some(origin) = origin else {
+                        return false;
+                    };
                     let pos_within_surface = pointer.current_location() - origin;
                     if !region.contains(pos_within_surface.to_i32_round()) {
                         return false;
@@ -157,11 +163,117 @@ pub(crate) fn activate_pointer_constraint_for_surface_at(
             break;
         }
         if let Some(parent) = get_parent(&current) {
+            if let Some(origin) = current_origin.as_mut() {
+                let location = with_states(&current, |states| {
+                    states
+                        .cached_state
+                        .get::<SubsurfaceCachedState>()
+                        .current()
+                        .location
+                });
+                origin.x -= location.x as f64;
+                origin.y -= location.y as f64;
+            }
             current = parent;
         } else {
             break;
         }
     }
+}
+
+pub(crate) fn maybe_activate_pointer_constraint(st: &mut Halley, now: Instant) {
+    let Some(pointer) = st.platform.seat.get_pointer() else {
+        return;
+    };
+    let Some(current_focus) = pointer.current_focus() else {
+        return;
+    };
+    let focus = pointer_focus_at_last_screen(st, None, now).and_then(|(focus, _)| focus);
+    let Some((surface, surface_origin)) = focus else {
+        return;
+    };
+    if surface != current_focus {
+        return;
+    }
+    activate_pointer_constraint_for_surface_at(st, &surface, Some(surface_origin));
+}
+
+fn pointer_focus_at_last_screen(
+    st: &mut Halley,
+    resize_preview: Option<ResizeCtx>,
+    now: Instant,
+) -> Option<(
+    Option<(WlSurface, Point<f64, Logical>)>,
+    Point<f64, Logical>,
+)> {
+    let pointer = st.platform.seat.get_pointer()?;
+    let (global_sx, global_sy) = st
+        .input
+        .interaction_state
+        .last_pointer_screen_global
+        .unwrap_or_else(|| {
+            let location = pointer.current_location();
+            let cam_scale = st.camera_render_scale().max(0.001) as f64;
+            let monitor = st.model.monitor_state.current_monitor.as_str();
+            st.model
+                .monitor_state
+                .monitors
+                .get(monitor)
+                .map(|space| {
+                    (
+                        space.offset_x as f32 + (location.x * cam_scale) as f32,
+                        space.offset_y as f32 + (location.y * cam_scale) as f32,
+                    )
+                })
+                .unwrap_or((
+                    (location.x * cam_scale) as f32,
+                    (location.y * cam_scale) as f32,
+                ))
+        });
+    let monitor = st.monitor_for_screen_or_interaction(global_sx, global_sy);
+    let (ws_w, ws_h, local_sx, local_sy) =
+        st.local_screen_in_monitor(monitor.as_str(), global_sx, global_sy);
+    let focus = crate::input::pointer::focus::pointer_focus_for_screen(
+        st,
+        ws_w,
+        ws_h,
+        local_sx,
+        local_sy,
+        now,
+        resize_preview,
+    );
+    let location = if focus.as_ref().is_some_and(|(surface, _)| {
+        crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+            || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
+    }) {
+        (local_sx as f64, local_sy as f64).into()
+    } else {
+        let cam_scale = st.camera_render_scale() as f64;
+        (local_sx as f64 / cam_scale, local_sy as f64 / cam_scale).into()
+    };
+    Some((focus, location))
+}
+
+pub(crate) fn refresh_pointer_focus_at_last_screen(
+    st: &mut Halley,
+    resize_preview: Option<ResizeCtx>,
+    now: Instant,
+) -> Option<(WlSurface, Point<f64, Logical>)> {
+    let pointer = st.platform.seat.get_pointer()?;
+    let (focus, location) = pointer_focus_at_last_screen(st, resize_preview, now)?;
+
+    pointer.motion(
+        st,
+        focus.clone(),
+        &MotionEvent {
+            location,
+            serial: SERIAL_COUNTER.next_serial(),
+            time: crate::input::pointer::button::now_millis_u32(),
+        },
+    );
+    pointer.frame(st);
+    maybe_activate_pointer_constraint(st, now);
+    focus
 }
 
 pub(crate) fn clear_pointer_focus(st: &mut Halley) {

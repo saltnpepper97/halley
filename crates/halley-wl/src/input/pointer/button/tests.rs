@@ -371,7 +371,7 @@ fn collapsed_node_single_click_only_focuses_without_promoting() {
     assert!(
         !st.model
             .workspace_state
-            .active_transition_until_ms
+            .active_transitions
             .contains_key(&node)
     );
     assert!(
@@ -420,7 +420,7 @@ fn collapsed_node_single_click_reveals_when_offscreen() {
     assert!(
         !st.model
             .workspace_state
-            .active_transition_until_ms
+            .active_transitions
             .contains_key(&node)
     );
     assert!(st.input.interaction_state.viewport_pan_anim.is_some());
@@ -480,7 +480,7 @@ fn collapsed_node_double_click_promotes() {
     assert!(
         st.model
             .workspace_state
-            .active_transition_until_ms
+            .active_transitions
             .contains_key(&node)
     );
     assert!(

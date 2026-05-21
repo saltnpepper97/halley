@@ -260,6 +260,95 @@ mod tests {
     }
 
     #[test]
+    fn pending_initial_reveal_waits_for_late_rule_recheck() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+        let id = state.model.field.spawn_surface(
+            "late-rule",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(id, "monitor_a");
+        let _ = state
+            .model
+            .field
+            .set_state(id, halley_core::field::NodeState::Active);
+        let _ = state.model.field.set_detached(id, true);
+        state.model.spawn_state.pending_initial_reveal.insert(id);
+        state.model.spawn_state.pending_rule_rechecks.insert(id);
+        state
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .insert(id, (0.0, 0.0, 320.0, 240.0));
+
+        assert!(!surface::reveal_pending_initial_toplevel_if_ready(
+            &mut state,
+            id,
+            false,
+            Instant::now()
+        ));
+
+        assert!(state.model.spawn_state.pending_initial_reveal.contains(&id));
+        assert!(
+            state
+                .model
+                .field
+                .node(id)
+                .is_some_and(|node| node.visibility.has(Visibility::DETACHED))
+        );
+        assert_ne!(state.model.focus_state.primary_interaction_focus, Some(id));
+    }
+
+    #[test]
+    fn pending_initial_reveal_unblocks_after_committed_geometry() {
+        let mut tuning = single_monitor_tuning();
+        tuning.pan_to_new = halley_config::PanToNewMode::Never;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let id = state.model.field.spawn_surface(
+            "ready",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(id, "monitor_a");
+        let _ = state
+            .model
+            .field
+            .set_state(id, halley_core::field::NodeState::Active);
+        let _ = state.model.field.set_detached(id, true);
+        state.model.spawn_state.pending_initial_reveal.insert(id);
+        state
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .insert(id, (0.0, 0.0, 320.0, 240.0));
+
+        assert!(surface::reveal_pending_initial_toplevel_if_ready(
+            &mut state,
+            id,
+            false,
+            Instant::now()
+        ));
+
+        assert!(!state.model.spawn_state.pending_initial_reveal.contains(&id));
+        assert!(
+            state
+                .model
+                .field
+                .node(id)
+                .is_some_and(|node| !node.visibility.has(Visibility::DETACHED))
+        );
+        assert_eq!(state.model.focus_state.primary_interaction_focus, Some(id));
+    }
+
+    #[test]
     fn new_toplevel_on_fullscreen_monitor_exits_only_that_monitor_fullscreen() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![

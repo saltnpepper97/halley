@@ -38,6 +38,7 @@ pub(crate) struct FullscreenDirectScanoutState {
 pub(crate) struct FullscreenState {
     pub(crate) fullscreen_active_node: HashMap<String, NodeId>,
     pub(crate) fullscreen_suspended_node: HashMap<String, NodeId>,
+    pub(crate) fullscreen_soft_suspended_node: HashMap<String, NodeId>,
     pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,
     pub(crate) fullscreen_motion: HashMap<NodeId, FullscreenMotion>,
     pub(crate) fullscreen_scale_anim: HashMap<NodeId, FullscreenScaleAnim>,

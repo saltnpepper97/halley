@@ -3,7 +3,6 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
 
 use halley_config::{ConfigLoadDiagnostic, RuntimeTuning, ViewportOutputConfig};
 
@@ -11,7 +10,6 @@ use eventline::{
     FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, enable_console_color,
     enable_console_duration, info, scope, warn,
 };
-use once_cell::sync::OnceCell;
 use rustix::process::Signal;
 use rustix::runtime::{KernelSigSet, KernelSigaction, kernel_sigaction};
 
@@ -23,13 +21,11 @@ mod common;
 mod ipc;
 
 pub(crate) use common::{
-    RuntimeBackend, auto_backend, ensure_dbus_session_bus_address, ensure_host_display,
-    ensure_xdg_runtime_dir, ensure_xwayland_satellite, halley_runtime_dir,
+    RuntimeBackend, XwaylandSatellite, auto_backend, ensure_dbus_session_bus_address,
+    ensure_host_display, ensure_xdg_runtime_dir, ensure_xwayland_satellite, halley_runtime_dir,
     refresh_portal_services_nonblocking, sync_portal_activation_environment,
 };
 pub(crate) use ipc::{drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc};
-
-static XWAYLAND_REQUEST_TX: OnceCell<mpsc::Sender<()>> = OnceCell::new();
 
 // Set to true by the SIGTERM/SIGINT handler so the event loop can exit cleanly,
 // allowing Drop impls (including the spawned-children cleanup) to run.
@@ -49,16 +45,6 @@ unsafe extern "C" fn handle_shutdown_signal(_: rustix::ffi::c_int) {
 
 pub(crate) fn shutdown_requested() -> bool {
     SHUTDOWN_REQUESTED.load(Ordering::Relaxed)
-}
-
-pub(crate) fn register_xwayland_request_channel(tx: mpsc::Sender<()>) {
-    let _ = XWAYLAND_REQUEST_TX.set(tx);
-}
-
-pub(crate) fn request_xwayland_start() {
-    if let Some(tx) = XWAYLAND_REQUEST_TX.get() {
-        let _ = tx.send(());
-    }
 }
 
 /// Spawns autostart commands and pushes the resulting Child handles into

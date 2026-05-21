@@ -67,6 +67,9 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             ps.workspace_size = (context.ws_w, context.ws_h);
             ps.world = context.world;
         }
+        st.input.interaction_state.last_pointer_screen_global =
+            Some((context.global_sx, context.global_sy));
+        crate::compositor::platform::refresh_cursor_surface_outputs(st);
         if let Some(pointer) = st.platform.seat.get_pointer() {
             let focus = pointer_focus_for_screen(
                 st,
@@ -166,6 +169,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     ps.workspace_size = (routing.ws_w, routing.ws_h);
     st.input.interaction_state.last_pointer_screen_global =
         Some((routing.global_sx, routing.global_sy));
+    crate::compositor::platform::refresh_cursor_surface_outputs(st);
 
     if handle_screenshot_pointer_motion(
         st,

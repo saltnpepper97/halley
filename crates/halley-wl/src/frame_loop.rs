@@ -87,9 +87,9 @@ pub(crate) fn tty_output_animation_redraw_state(
         && st
             .model
             .workspace_state
-            .active_transition_until_ms
+            .active_transitions
             .values()
-            .any(|&until| until > now_ms);
+            .any(|transition| transition.is_active(now_ms));
     let tiled_insert_reveal_active = st
         .model
         .spawn_state
@@ -846,6 +846,29 @@ mod tests {
             ) > 0.0,
             "active transition alpha should still be tracked when physics is disabled"
         );
+    }
+
+    #[test]
+    fn active_transition_alpha_uses_configured_duration() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = state.model.field.spawn_surface(
+            "anim",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        let start = Instant::now();
+
+        crate::compositor::workspace::state::mark_active_transition(&mut state, id, start, 1000);
+        let alpha = crate::compositor::workspace::state::active_transition_alpha(
+            &state,
+            id,
+            start + std::time::Duration::from_millis(500),
+        );
+
+        assert!((alpha - 0.5).abs() < 0.02, "alpha was {alpha}");
     }
 
     #[test]
