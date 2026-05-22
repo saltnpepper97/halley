@@ -18,6 +18,36 @@ use super::{
     required_sep_y,
 };
 
+fn initial_spawn_authority_pair(st: &Halley, a: NodeId, b: NodeId) -> Option<(NodeId, NodeId)> {
+    if st
+        .model
+        .spawn_state
+        .initial_spawn_authority
+        .get(&a)
+        .is_some_and(|authority| authority.anchor_node == b)
+    {
+        return Some((a, b));
+    }
+    if st
+        .model
+        .spawn_state
+        .initial_spawn_authority
+        .get(&b)
+        .is_some_and(|authority| authority.anchor_node == a)
+    {
+        return Some((b, a));
+    }
+    None
+}
+
+fn is_initial_spawn_anchor(st: &Halley, id: NodeId) -> bool {
+    st.model
+        .spawn_state
+        .initial_spawn_authority
+        .values()
+        .any(|authority| authority.anchor_node == id)
+}
+
 fn resolve_static_surface_overlap(st: &mut Halley, ids: &[NodeId]) {
     let drag_authority = st.input.interaction_state.drag_authority_node;
 
@@ -39,12 +69,17 @@ fn resolve_static_surface_overlap(st: &mut Halley, ids: &[NodeId]) {
                     continue;
                 }
 
+                let authority = initial_spawn_authority_pair(st, a, b);
                 let a_locked = na.pinned
                     || st.input.interaction_state.resize_active == Some(a)
-                    || st.input.interaction_state.resize_static_node == Some(a);
+                    || st.input.interaction_state.resize_static_node == Some(a)
+                    || authority.is_some_and(|(_, anchor)| anchor == a)
+                    || is_initial_spawn_anchor(st, a);
                 let b_locked = nb.pinned
                     || st.input.interaction_state.resize_active == Some(b)
-                    || st.input.interaction_state.resize_static_node == Some(b);
+                    || st.input.interaction_state.resize_static_node == Some(b)
+                    || authority.is_some_and(|(_, anchor)| anchor == b)
+                    || is_initial_spawn_anchor(st, b);
                 if a_locked && b_locked {
                     continue;
                 }
@@ -241,7 +276,9 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
         let Some(node) = st.model.field.node(id) else {
             continue;
         };
-        let pinned = node.pinned || st.input.interaction_state.resize_static_node == Some(id);
+        let pinned = node.pinned
+            || st.input.interaction_state.resize_static_node == Some(id)
+            || is_initial_spawn_anchor(st, id);
         if physics_inv_mass(st, id, pinned) <= 0.0 {
             continue;
         }
@@ -269,10 +306,15 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
                     continue;
                 }
 
-                let a_pinned =
-                    na.pinned || st.input.interaction_state.resize_static_node == Some(a);
-                let b_pinned =
-                    nb.pinned || st.input.interaction_state.resize_static_node == Some(b);
+                let authority = initial_spawn_authority_pair(st, a, b);
+                let a_pinned = na.pinned
+                    || st.input.interaction_state.resize_static_node == Some(a)
+                    || authority.is_some_and(|(_, anchor)| anchor == a)
+                    || is_initial_spawn_anchor(st, a);
+                let b_pinned = nb.pinned
+                    || st.input.interaction_state.resize_static_node == Some(b)
+                    || authority.is_some_and(|(_, anchor)| anchor == b)
+                    || is_initial_spawn_anchor(st, b);
                 let inv_mass_a = physics_inv_mass(st, a, a_pinned);
                 let inv_mass_b = physics_inv_mass(st, b, b_pinned);
                 if inv_mass_a <= 0.0 && inv_mass_b <= 0.0 {
@@ -318,7 +360,9 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
         let Some(node) = st.model.field.node(id) else {
             continue;
         };
-        let pinned = node.pinned || st.input.interaction_state.resize_static_node == Some(id);
+        let pinned = node.pinned
+            || st.input.interaction_state.resize_static_node == Some(id)
+            || is_initial_spawn_anchor(st, id);
         if st.input.interaction_state.drag_authority_node != Some(id)
             && let Some(pos) = positions.get(&id).copied()
         {

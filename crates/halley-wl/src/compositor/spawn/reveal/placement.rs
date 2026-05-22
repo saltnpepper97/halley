@@ -1,4 +1,5 @@
 use std::ops::{Deref, DerefMut};
+use std::time::Instant;
 
 use eventline::debug;
 use halley_config::{InitialWindowOverlapPolicy, InitialWindowSpawnPlacement};
@@ -10,9 +11,15 @@ use crate::compositor::overlap::system::CollisionExtents;
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::read;
 use crate::compositor::spawn::rules::{InitialWindowIntent, ResolvedInitialWindowRule};
+use crate::compositor::spawn::state::{
+    InitialSpawnAuthority, InitialSpawnPlacement, SpawnPlacementExtents,
+};
 use crate::window::active_window_frame_pad_px;
 
 use super::SpawnRevealController;
+
+const SPAWN_COLLISION_SAFETY_SCALE: f32 = 1.08;
+const SPAWN_CONTACT_MARGIN: f32 = 4.0;
 
 /// Spawn candidates are tried in a deterministic star pattern:
 /// center, then right, left, up, down for each ring.
@@ -25,6 +32,52 @@ fn spawn_cardinal_dirs() -> [Vec2; 4] {
     ]
 }
 
+fn spawn_candidate_extents(size: Vec2, frame_pad: f32) -> CollisionExtents {
+    let half_w = (size.x * 0.5 + frame_pad) * SPAWN_COLLISION_SAFETY_SCALE + SPAWN_CONTACT_MARGIN;
+    let half_h = (size.y * 0.5 + frame_pad) * SPAWN_COLLISION_SAFETY_SCALE + SPAWN_CONTACT_MARGIN;
+    CollisionExtents {
+        left: half_w,
+        right: half_w,
+        top: half_h,
+        bottom: half_h,
+    }
+}
+
+fn spawn_safe_obstacle_extents(ext: CollisionExtents) -> CollisionExtents {
+    CollisionExtents {
+        left: ext.left * SPAWN_COLLISION_SAFETY_SCALE + SPAWN_CONTACT_MARGIN,
+        right: ext.right * SPAWN_COLLISION_SAFETY_SCALE + SPAWN_CONTACT_MARGIN,
+        top: ext.top * SPAWN_COLLISION_SAFETY_SCALE + SPAWN_CONTACT_MARGIN,
+        bottom: ext.bottom * SPAWN_COLLISION_SAFETY_SCALE + SPAWN_CONTACT_MARGIN,
+    }
+}
+
+fn spawn_record_extents(ext: CollisionExtents) -> SpawnPlacementExtents {
+    SpawnPlacementExtents {
+        left: ext.left,
+        right: ext.right,
+        top: ext.top,
+        bottom: ext.bottom,
+    }
+}
+
+fn spawn_dir_from_delta(delta: Vec2) -> Option<Vec2> {
+    if delta.x.abs() <= 0.5 && delta.y.abs() <= 0.5 {
+        return None;
+    }
+    if delta.x.abs() >= delta.y.abs() {
+        Some(Vec2 {
+            x: delta.x.signum(),
+            y: 0.0,
+        })
+    } else {
+        Some(Vec2 {
+            x: 0.0,
+            y: delta.y.signum(),
+        })
+    }
+}
+
 fn spawn_candidate_for_snapshot_dir(
     focus_pos: Vec2,
     focus_size: Vec2,
@@ -33,13 +86,13 @@ fn spawn_candidate_for_snapshot_dir(
     gap: f32,
     frame_pad: f32,
 ) -> Vec2 {
-    let focus_ext = CollisionExtents {
+    let focus_ext = spawn_safe_obstacle_extents(CollisionExtents {
         left: focus_size.x * 0.5 + frame_pad,
         right: focus_size.x * 0.5 + frame_pad,
         top: focus_size.y * 0.5 + frame_pad,
         bottom: focus_size.y * 0.5 + frame_pad,
-    };
-    let candidate_ext = CollisionExtents::symmetric(size);
+    });
+    let candidate_ext = spawn_candidate_extents(size, frame_pad);
     if dir.x > 0.0 {
         Vec2 {
             x: focus_pos.x + focus_ext.right + candidate_ext.left + gap,
@@ -115,9 +168,12 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         dir: Vec2,
     ) -> Option<Vec2> {
         let node = self.model.field.node(id)?;
-        let focus_ext = self.spawn_obstacle_extents_for_node(node);
-        let candidate_ext = CollisionExtents::symmetric(size);
-        let gap = self.non_overlap_gap_world();
+        let focus_ext = self.spawn_safe_obstacle_extents_for_node(node);
+        let candidate_ext = spawn_candidate_extents(
+            size,
+            active_window_frame_pad_px(&self.runtime.tuning) as f32,
+        );
+        let gap = self.non_overlap_gap_world() + SPAWN_CONTACT_MARGIN;
         let pos = if dir.x > 0.0 {
             Vec2 {
                 x: node.pos.x + focus_ext.right + candidate_ext.left + gap,
@@ -139,19 +195,39 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
                 y: node.pos.y - focus_ext.top - candidate_ext.bottom - gap,
             }
         };
+        let pos = if dir.x == 0.0 && dir.y != 0.0 {
+            let monitor = self
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
+            self.adjust_vertical_candidate_to_row(monitor.as_str(), node.pos, pos, size)
+        } else {
+            pos
+        };
         Some(pos)
     }
 
     pub(crate) fn spawn_star_step_x(&self, size: Vec2) -> f32 {
-        size.x
-            + (active_window_frame_pad_px(&self.runtime.tuning) as f32 * 2.0)
-            + self.non_overlap_gap_world()
+        spawn_candidate_extents(
+            size,
+            active_window_frame_pad_px(&self.runtime.tuning) as f32,
+        )
+        .size()
+        .x + self.non_overlap_gap_world()
+            + SPAWN_CONTACT_MARGIN
     }
 
     pub(crate) fn spawn_star_step_y(&self, size: Vec2) -> f32 {
-        size.y
-            + (active_window_frame_pad_px(&self.runtime.tuning) as f32 * 2.0)
-            + self.non_overlap_gap_world()
+        spawn_candidate_extents(
+            size,
+            active_window_frame_pad_px(&self.runtime.tuning) as f32,
+        )
+        .size()
+        .y + self.non_overlap_gap_world()
+            + SPAWN_CONTACT_MARGIN
     }
 
     #[cfg(test)]
@@ -236,21 +312,12 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
             return true;
         }
         let pair_gap = self.non_overlap_gap_world();
-        let candidate = CollisionExtents::symmetric(size);
+        let candidate = spawn_candidate_extents(
+            size,
+            active_window_frame_pad_px(&self.runtime.tuning) as f32,
+        );
         !self.model.field.nodes().values().any(|other| {
-            if Some(other.id) == skip_node
-                || other.kind != halley_core::field::NodeKind::Surface
-                || !self.model.field.is_visible(other.id)
-            {
-                return false;
-            }
-            if self
-                .model
-                .monitor_state
-                .node_monitor
-                .get(&other.id)
-                .is_some_and(|other_monitor| other_monitor != monitor)
-            {
+            if Some(other.id) == skip_node {
                 return false;
             }
             if overlap_policy == InitialWindowOverlapPolicy::ParentOnly
@@ -258,34 +325,167 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
             {
                 return false;
             }
-            let (other_pos, other_ext) = if let Some(session) =
-                crate::compositor::workspace::state::maximize_session_for_monitor(self, monitor)
-                    .filter(|session| {
-                        session.state
-                            == crate::compositor::workspace::state::MaximizeSessionState::SpawnRestoring
-                    })
-                && let Some(snapshot) = session.node_snapshots.get(&other.id)
-            {
-                let half_w = snapshot.size.x.max(1.0) * 0.5
-                    + active_window_frame_pad_px(&self.runtime.tuning) as f32;
-                let half_h = snapshot.size.y.max(1.0) * 0.5
-                    + active_window_frame_pad_px(&self.runtime.tuning) as f32;
-                (
-                    snapshot.pos,
-                    CollisionExtents {
-                        left: half_w,
-                        right: half_w,
-                        top: half_h,
-                        bottom: half_h,
-                    },
-                )
-            } else {
-                (other.pos, self.spawn_obstacle_extents_for_node(other))
+            let Some((other_pos, other_ext)) = self.visible_spawn_obstacle(monitor, other.id)
+            else {
+                return false;
             };
             let req_x = self.required_sep_x(pos.x, candidate, other_pos.x, other_ext, pair_gap);
             let req_y = self.required_sep_y(pos.y, candidate, other_pos.y, other_ext, pair_gap);
             (pos.x - other_pos.x).abs() < req_x && (pos.y - other_pos.y).abs() < req_y
         })
+    }
+
+    fn visible_spawn_obstacle(
+        &self,
+        monitor: &str,
+        id: NodeId,
+    ) -> Option<(Vec2, CollisionExtents)> {
+        let other = self.model.field.node(id)?;
+        if other.kind != halley_core::field::NodeKind::Surface
+            || !self.model.field.is_visible(id)
+            || self
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&id)
+                .is_some_and(|other_monitor| other_monitor != monitor)
+        {
+            return None;
+        }
+
+        if let Some(session) = crate::compositor::workspace::state::maximize_session_for_monitor(
+            self, monitor,
+        )
+        .filter(|session| {
+            session.state
+                == crate::compositor::workspace::state::MaximizeSessionState::SpawnRestoring
+        }) && let Some(snapshot) = session.node_snapshots.get(&id)
+        {
+            let half_w = snapshot.size.x.max(1.0) * 0.5
+                + active_window_frame_pad_px(&self.runtime.tuning) as f32;
+            let half_h = snapshot.size.y.max(1.0) * 0.5
+                + active_window_frame_pad_px(&self.runtime.tuning) as f32;
+            return Some((
+                snapshot.pos,
+                spawn_safe_obstacle_extents(CollisionExtents {
+                    left: half_w,
+                    right: half_w,
+                    top: half_h,
+                    bottom: half_h,
+                }),
+            ));
+        }
+
+        Some((other.pos, self.spawn_safe_obstacle_extents_for_node(other)))
+    }
+
+    fn spawn_safe_obstacle_extents_for_node(
+        &self,
+        node: &halley_core::field::Node,
+    ) -> CollisionExtents {
+        spawn_safe_obstacle_extents(self.spawn_obstacle_extents_for_node(node))
+    }
+
+    fn adjust_vertical_candidate_to_row(
+        &self,
+        monitor: &str,
+        center: Vec2,
+        mut pos: Vec2,
+        size: Vec2,
+    ) -> Vec2 {
+        let dy = pos.y - center.y;
+        let dir_y = if dy > 0.0 {
+            1.0
+        } else if dy < 0.0 {
+            -1.0
+        } else {
+            0.0
+        };
+        if dir_y == 0.0 || pos.x != center.x {
+            return pos;
+        }
+
+        let candidate = spawn_candidate_extents(
+            size,
+            active_window_frame_pad_px(&self.runtime.tuning) as f32,
+        );
+        let gap = self.non_overlap_gap_world() * 2.0 + SPAWN_CONTACT_MARGIN;
+        let mut row_top: Option<f32> = None;
+        let mut row_bottom: Option<f32> = None;
+
+        for other in self.model.field.nodes().values() {
+            let Some((other_pos, other_ext)) = self.visible_spawn_obstacle(monitor, other.id)
+            else {
+                continue;
+            };
+            let top = other_pos.y - other_ext.top;
+            let bottom = other_pos.y + other_ext.bottom;
+            if center.y < top || center.y > bottom {
+                continue;
+            }
+
+            row_top = Some(row_top.map_or(top, |current| current.min(top)));
+            row_bottom = Some(row_bottom.map_or(bottom, |current| current.max(bottom)));
+        }
+
+        if dir_y < 0.0 {
+            if let Some(row_top) = row_top {
+                let y = row_top - gap - candidate.bottom;
+                if pos.y > y {
+                    pos.y = y;
+                }
+            }
+        } else if let Some(row_bottom) = row_bottom {
+            let y = row_bottom + gap + candidate.top;
+            if pos.y < y {
+                pos.y = y;
+            }
+        }
+
+        pos
+    }
+
+    fn vertical_row_center_for_candidate(
+        &self,
+        monitor: &str,
+        anchor_pos: Vec2,
+        dir_y: f32,
+        size: Vec2,
+        skip_node: Option<NodeId>,
+    ) -> Option<f32> {
+        let candidate = spawn_candidate_extents(
+            size,
+            active_window_frame_pad_px(&self.runtime.tuning) as f32,
+        );
+        let gap = self.non_overlap_gap_world() * 2.0 + SPAWN_CONTACT_MARGIN;
+        let mut row_top: Option<f32> = None;
+        let mut row_bottom: Option<f32> = None;
+
+        for other in self.model.field.nodes().values() {
+            if Some(other.id) == skip_node {
+                continue;
+            }
+            let Some((other_pos, other_ext)) = self.visible_spawn_obstacle(monitor, other.id)
+            else {
+                continue;
+            };
+            let top = other_pos.y - other_ext.top;
+            let bottom = other_pos.y + other_ext.bottom;
+            if anchor_pos.y < top || anchor_pos.y > bottom {
+                continue;
+            }
+
+            row_top = Some(row_top.map_or(top, |current| current.min(top)));
+            row_bottom = Some(row_bottom.map_or(bottom, |current| current.max(bottom)));
+        }
+
+        if dir_y < 0.0 {
+            row_top.map(|top| top - gap - candidate.bottom)
+        } else if dir_y > 0.0 {
+            row_bottom.map(|bottom| bottom + gap + candidate.top)
+        } else {
+            None
+        }
     }
 
     fn try_spawn_star(&self, monitor: &str, center: Vec2, size: Vec2) -> Option<Vec2> {
@@ -306,16 +506,36 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         overlap_policy: InitialWindowOverlapPolicy,
         parent_node: Option<NodeId>,
     ) -> Option<Vec2> {
+        self.try_spawn_star_with_policy_skip(
+            monitor,
+            center,
+            size,
+            overlap_policy,
+            parent_node,
+            None,
+        )
+    }
+
+    fn try_spawn_star_with_policy_skip(
+        &self,
+        monitor: &str,
+        center: Vec2,
+        size: Vec2,
+        overlap_policy: InitialWindowOverlapPolicy,
+        parent_node: Option<NodeId>,
+        skip_node: Option<NodeId>,
+    ) -> Option<Vec2> {
         for offset in self.star_candidate_offsets(size) {
             let pos = Vec2 {
                 x: center.x + offset.x,
                 y: center.y + offset.y,
             };
+            let pos = self.adjust_vertical_candidate_to_row(monitor, center, pos, size);
             if self.spawn_candidate_fits_with_policy(
                 monitor,
                 pos,
                 size,
-                None,
+                skip_node,
                 overlap_policy,
                 parent_node,
             ) {
@@ -380,6 +600,121 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
 }
 
 impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
+    fn set_pending_initial_spawn_placement(
+        &mut self,
+        monitor: &str,
+        anchor_node: Option<NodeId>,
+        anchor_pos: Vec2,
+        anchor_ext: Option<CollisionExtents>,
+        chosen_pos: Vec2,
+        dir: Option<Vec2>,
+        overlap_policy: InitialWindowOverlapPolicy,
+    ) {
+        self.model.spawn_state.pending_initial_spawn_placement = Some(InitialSpawnPlacement {
+            monitor: monitor.to_string(),
+            anchor_node,
+            anchor_pos,
+            anchor_ext: anchor_ext.map(spawn_record_extents),
+            chosen_pos,
+            dir,
+            overlap_policy,
+        });
+    }
+
+    pub(crate) fn finalize_initial_spawn_position(&mut self, id: NodeId, size: Vec2) -> bool {
+        let Some(record) = self.model.spawn_state.initial_spawn_placements.remove(&id) else {
+            return false;
+        };
+        if record.overlap_policy != InitialWindowOverlapPolicy::None {
+            return false;
+        }
+        let Some(dir) = record.dir else {
+            return false;
+        };
+
+        let candidate = spawn_candidate_extents(
+            size,
+            active_window_frame_pad_px(&self.runtime.tuning) as f32,
+        );
+        let pair_gap = self.non_overlap_gap_world() + SPAWN_CONTACT_MARGIN;
+        let row_gap = pair_gap * 2.0;
+        let mut pos = record.chosen_pos;
+
+        if dir.x > 0.0 {
+            if let Some(anchor) = record.anchor_ext {
+                pos.x = record.anchor_pos.x + anchor.right + candidate.left + pair_gap;
+                pos.y = record.anchor_pos.y;
+            }
+        } else if dir.x < 0.0 {
+            if let Some(anchor) = record.anchor_ext {
+                pos.x = record.anchor_pos.x - anchor.left - candidate.right - pair_gap;
+                pos.y = record.anchor_pos.y;
+            }
+        } else if dir.y != 0.0 {
+            pos.x = record.anchor_pos.x;
+            if let Some(y) = self.vertical_row_center_for_candidate(
+                record.monitor.as_str(),
+                record.anchor_pos,
+                dir.y,
+                size,
+                Some(id),
+            ) {
+                pos.y = y;
+            } else if let Some(anchor) = record.anchor_ext {
+                pos.y = if dir.y < 0.0 {
+                    record.anchor_pos.y - anchor.top - row_gap - candidate.bottom
+                } else {
+                    record.anchor_pos.y + anchor.bottom + row_gap + candidate.top
+                };
+            }
+        }
+
+        if !self.spawn_candidate_fits_with_policy(
+            record.monitor.as_str(),
+            pos,
+            size,
+            Some(id),
+            InitialWindowOverlapPolicy::None,
+            None,
+        ) && let Some(fallback) = self.try_spawn_star_with_policy_skip(
+            record.monitor.as_str(),
+            record.anchor_pos,
+            size,
+            InitialWindowOverlapPolicy::None,
+            None,
+            Some(id),
+        ) {
+            pos = fallback;
+        }
+
+        let _ = self.model.field.carry(id, pos);
+        if let Some(anchor_node) = record.anchor_node
+            && anchor_node != id
+            && self.model.field.node(anchor_node).is_some()
+        {
+            let duration_ms = self
+                .runtime
+                .tuning
+                .window_open_duration_ms()
+                .saturating_add(500)
+                .max(900);
+            let until_ms = self.now_ms(Instant::now()).saturating_add(duration_ms);
+            self.model.spawn_state.initial_spawn_authority.insert(
+                id,
+                InitialSpawnAuthority {
+                    anchor_node,
+                    until_ms,
+                },
+            );
+            self.input.interaction_state.physics_velocity.remove(&id);
+            self.input
+                .interaction_state
+                .physics_velocity
+                .remove(&anchor_node);
+        }
+        true
+    }
+
     pub(crate) fn update_spawn_patch(
         &mut self,
         monitor: &str,
@@ -454,7 +789,16 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                         );
                     }
                     for dir in spawn_cardinal_dirs() {
-                        if let Some(pos) = self.spawn_candidate_for_focus_dir(parent_id, size, dir)
+                        if let Some(pos) = self
+                            .spawn_candidate_for_focus_dir(parent_id, size, dir)
+                            .map(|pos| {
+                                self.adjust_vertical_candidate_to_row(
+                                    target_monitor.as_str(),
+                                    parent_anchor.unwrap_or(pos),
+                                    pos,
+                                    size,
+                                )
+                            })
                             && self.spawn_candidate_fits_with_policy(
                                 target_monitor.as_str(),
                                 pos,
@@ -464,6 +808,20 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                                 intent.parent_node,
                             )
                         {
+                            let anchor_ext = self
+                                .model
+                                .field
+                                .node(parent_id)
+                                .map(|node| self.spawn_safe_obstacle_extents_for_node(node));
+                            self.set_pending_initial_spawn_placement(
+                                target_monitor.as_str(),
+                                Some(parent_id),
+                                parent_anchor.unwrap_or(pos),
+                                anchor_ext,
+                                pos,
+                                Some(dir),
+                                overlap_policy,
+                            );
                             return (target_monitor, pos, false);
                         }
                     }
@@ -471,15 +829,46 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 }
                 if overlap_policy == InitialWindowOverlapPolicy::All {
                     if let Some((_, pos)) = fullscreen_anchor {
+                        self.set_pending_initial_spawn_placement(
+                            target_monitor.as_str(),
+                            None,
+                            pos,
+                            None,
+                            pos,
+                            None,
+                            overlap_policy,
+                        );
                         return (target_monitor, pos, false);
                     }
                     if let Some(id) = focus_id {
                         for dir in spawn_cardinal_dirs() {
                             if let Some(pos) = self.spawn_candidate_for_focus_dir(id, size, dir) {
+                                let anchor_ext =
+                                    self.model.field.node(id).map(|node| {
+                                        self.spawn_safe_obstacle_extents_for_node(node)
+                                    });
+                                self.set_pending_initial_spawn_placement(
+                                    target_monitor.as_str(),
+                                    Some(id),
+                                    focus_pos,
+                                    anchor_ext,
+                                    pos,
+                                    Some(dir),
+                                    overlap_policy,
+                                );
                                 return (target_monitor, pos, false);
                             }
                         }
                     }
+                    self.set_pending_initial_spawn_placement(
+                        target_monitor.as_str(),
+                        focus_id,
+                        focus_pos,
+                        None,
+                        focus_pos,
+                        None,
+                        overlap_policy,
+                    );
                     return (target_monitor, focus_pos, false);
                 }
                 return self.default_pick_spawn_position(size);
@@ -506,6 +895,18 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             )
             .unwrap_or(chosen)
         };
+        self.set_pending_initial_spawn_placement(
+            target_monitor.as_str(),
+            intent.parent_node,
+            chosen,
+            None,
+            pos,
+            spawn_dir_from_delta(Vec2 {
+                x: pos.x - chosen.x,
+                y: pos.y - chosen.y,
+            }),
+            overlap_policy,
+        );
         let growth_dir = self.pick_cluster_growth_dir(target_monitor.as_str(), chosen);
         self.update_spawn_patch(
             target_monitor.as_str(),
@@ -547,8 +948,14 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             focus_id.map(|id| id.as_u64())
         );
         if let Some(override_focus) = focus_override {
-            let gap = self.non_overlap_gap_world();
+            let gap = self.non_overlap_gap_world() + SPAWN_CONTACT_MARGIN;
             let frame_pad = active_window_frame_pad_px(&self.runtime.tuning) as f32;
+            let override_ext = spawn_safe_obstacle_extents(CollisionExtents {
+                left: override_focus.size.x * 0.5 + frame_pad,
+                right: override_focus.size.x * 0.5 + frame_pad,
+                top: override_focus.size.y * 0.5 + frame_pad,
+                bottom: override_focus.size.y * 0.5 + frame_pad,
+            });
             for dir in spawn_cardinal_dirs() {
                 let pos = spawn_candidate_for_snapshot_dir(
                     override_focus.pos,
@@ -558,7 +965,22 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                     gap,
                     frame_pad,
                 );
+                let pos = self.adjust_vertical_candidate_to_row(
+                    target_monitor.as_str(),
+                    override_focus.pos,
+                    pos,
+                    size,
+                );
                 if self.spawn_candidate_fits(target_monitor.as_str(), pos, size, None) {
+                    self.set_pending_initial_spawn_placement(
+                        target_monitor.as_str(),
+                        None,
+                        override_focus.pos,
+                        Some(override_ext),
+                        pos,
+                        Some(dir),
+                        InitialWindowOverlapPolicy::None,
+                    );
                     self.update_spawn_patch(
                         target_monitor.as_str(),
                         override_focus.pos,
@@ -584,6 +1006,18 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             if let Some(pos) =
                 self.try_spawn_star(target_monitor.as_str(), override_focus.pos, size)
             {
+                self.set_pending_initial_spawn_placement(
+                    target_monitor.as_str(),
+                    None,
+                    override_focus.pos,
+                    Some(override_ext),
+                    pos,
+                    spawn_dir_from_delta(Vec2 {
+                        x: pos.x - override_focus.pos.x,
+                        y: pos.y - override_focus.pos.y,
+                    }),
+                    InitialWindowOverlapPolicy::None,
+                );
                 let growth_dir =
                     self.pick_cluster_growth_dir(target_monitor.as_str(), override_focus.pos);
                 self.update_spawn_patch(
@@ -614,9 +1048,32 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
 
         if let Some(id) = focus_id {
             for dir in spawn_cardinal_dirs() {
-                if let Some(pos) = self.spawn_candidate_for_focus_dir(id, size, dir)
+                if let Some(pos) = self
+                    .spawn_candidate_for_focus_dir(id, size, dir)
+                    .map(|pos| {
+                        self.adjust_vertical_candidate_to_row(
+                            target_monitor.as_str(),
+                            focus_pos,
+                            pos,
+                            size,
+                        )
+                    })
                     && self.spawn_candidate_fits(target_monitor.as_str(), pos, size, None)
                 {
+                    let anchor_ext = self
+                        .model
+                        .field
+                        .node(id)
+                        .map(|node| self.spawn_safe_obstacle_extents_for_node(node));
+                    self.set_pending_initial_spawn_placement(
+                        target_monitor.as_str(),
+                        Some(id),
+                        focus_pos,
+                        anchor_ext,
+                        pos,
+                        Some(dir),
+                        InitialWindowOverlapPolicy::None,
+                    );
                     self.update_spawn_patch(
                         target_monitor.as_str(),
                         focus_pos,
@@ -647,6 +1104,24 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             viewport_center
         };
         if let Some(pos) = self.try_spawn_star(target_monitor.as_str(), anchor, size) {
+            let anchor_ext = focus_id.filter(|_| focus_visible).and_then(|id| {
+                self.model
+                    .field
+                    .node(id)
+                    .map(|node| self.spawn_safe_obstacle_extents_for_node(node))
+            });
+            self.set_pending_initial_spawn_placement(
+                target_monitor.as_str(),
+                focus_id.filter(|_| focus_visible),
+                anchor,
+                anchor_ext,
+                pos,
+                spawn_dir_from_delta(Vec2 {
+                    x: pos.x - anchor.x,
+                    y: pos.y - anchor.y,
+                }),
+                InitialWindowOverlapPolicy::None,
+            );
             let growth_dir = self.pick_cluster_growth_dir(target_monitor.as_str(), anchor);
             self.update_spawn_patch(
                 target_monitor.as_str(),
@@ -694,6 +1169,15 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             fallback_anchor.y,
             size.x,
             size.y
+        );
+        self.set_pending_initial_spawn_placement(
+            target_monitor.as_str(),
+            None,
+            fallback_anchor,
+            None,
+            fallback_anchor,
+            None,
+            InitialWindowOverlapPolicy::None,
         );
         (target_monitor, fallback_anchor, false)
     }

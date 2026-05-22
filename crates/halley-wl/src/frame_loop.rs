@@ -185,6 +185,15 @@ pub(crate) fn tty_output_animation_redraw_state(
 
 pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
     st.ui.render_state.render_last_tick = now;
+    let now_ms = st.now_ms(now);
+    st.model
+        .spawn_state
+        .initial_spawn_authority
+        .retain(|spawned, authority| {
+            authority.until_ms > now_ms
+                && st.model.field.node(*spawned).is_some()
+                && st.model.field.node(authority.anchor_node).is_some()
+        });
     st.platform.popup_manager.cleanup();
     let alive: HashSet<NodeId> = st.model.field.node_ids_all().into_iter().collect();
     st.input
