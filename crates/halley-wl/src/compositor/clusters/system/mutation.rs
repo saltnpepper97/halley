@@ -1,6 +1,34 @@
 use super::*;
 
 impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
+    fn monitor_has_visible_surface_node(&self, monitor: &str) -> bool {
+        self.model.field.nodes().values().any(|node| {
+            node.kind == halley_core::field::NodeKind::Surface
+                && self.model.field.is_visible(node.id)
+                && self
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&node.id)
+                    .is_some_and(|node_monitor| node_monitor == monitor)
+        })
+    }
+
+    fn reset_empty_monitor_spawn_state(&mut self, monitor: &str) {
+        if self.monitor_has_visible_surface_node(monitor) {
+            return;
+        }
+
+        let view_anchor = self.default_spawn_view_anchor_for_monitor(monitor);
+        let spawn = self.spawn_monitor_state_mut(monitor);
+        spawn.spawn_patch = None;
+        spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::View;
+        spawn.spawn_view_anchor = view_anchor;
+        spawn.spawn_focus_override = None;
+        spawn.spawn_pan_start_center = None;
+        self.model.focus_state.monitor_focus.remove(monitor);
+    }
+
     pub(super) fn cluster_mutation_controller(&mut self) -> ClusterMutationController<'_> {
         let crate::compositor::root::Halley {
             model,
@@ -60,6 +88,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
     }
 
     pub(crate) fn remove_node_from_field(&mut self, id: NodeId, now_ms: u64) -> bool {
+        let removed_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
         let stack_remove_transition = self
             .model
             .field
@@ -186,6 +215,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 let _ = self.sync_cluster_monitor(cid, None);
             }
             None => {}
+        }
+
+        if let Some(monitor) = removed_monitor {
+            self.reset_empty_monitor_spawn_state(monitor.as_str());
         }
 
         true

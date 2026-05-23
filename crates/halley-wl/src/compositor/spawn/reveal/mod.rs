@@ -768,6 +768,39 @@ mod tests {
     }
 
     #[test]
+    fn closing_all_windows_resets_default_spawn_to_view_center() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let first = state.pick_spawn_position(size).1;
+        let first_id = state.model.field.spawn_surface("first", first, size);
+        state.assign_node_to_current_monitor(first_id);
+        state.set_interaction_focus(Some(first_id), 30_000, Instant::now());
+        let second = state.pick_spawn_position(size).1;
+        let second_id = state.model.field.spawn_surface("second", second, size);
+        state.assign_node_to_current_monitor(second_id);
+        state.set_interaction_focus(Some(second_id), 30_000, Instant::now());
+
+        let now_ms = state.now_ms(Instant::now());
+        assert!(state.remove_node_from_field(first_id, now_ms));
+        state.model.monitor_state.node_monitor.remove(&first_id);
+        assert!(state.remove_node_from_field(second_id, now_ms));
+        state.model.monitor_state.node_monitor.remove(&second_id);
+
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, Vec2 { x: 0.0, y: 0.0 });
+    }
+
+    #[test]
     fn off_center_focused_window_does_not_anchor_default_spawn() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.focus_ring_rx = 100.0;
