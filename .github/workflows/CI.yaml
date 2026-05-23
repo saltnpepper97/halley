@@ -12,9 +12,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libdrm-dev \ 
+            libdrm-dev \
             libgbm-dev \
-            libegl1-mesa-dev \
+            libegl-dev \
             libgles2-mesa-dev \
             libseat-dev \
             libinput-dev \
