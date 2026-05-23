@@ -1372,22 +1372,31 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             }
         }
 
-        let focus_anchor_id =
-            focus_id.filter(|id| self.node_is_in_spawn_active_area(target_monitor.as_str(), *id));
+        let focus_anchor_id = focus_id.filter(|id| {
+            self.node_is_in_spawn_active_area(target_monitor.as_str(), *id)
+                || !self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), *id)
+        });
         let patch = monitor_spawn.spawn_patch.as_ref();
-        let anchor = patch.map_or_else(
-            || {
-                if focus_anchor_id.is_some() {
-                    focus_pos
-                } else if focus_id.is_some() {
-                    viewport_center
-                } else {
-                    focus_pos
-                }
-            },
-            |patch| patch.anchor,
-        );
-        let anchor_node = patch.and_then(|patch| patch.focus_node).or(focus_anchor_id);
+        let focus_moved_from_patch = patch.is_some_and(|patch| {
+            focus_anchor_id.is_some()
+                && ((focus_pos.x - patch.anchor.x).abs() > 0.5
+                    || (focus_pos.y - patch.anchor.y).abs() > 0.5)
+        });
+        let use_patch_anchor = patch.is_some() && !focus_moved_from_patch;
+        let anchor = if use_patch_anchor {
+            patch.map(|patch| patch.anchor).unwrap_or(viewport_center)
+        } else if focus_anchor_id.is_some() {
+            focus_pos
+        } else if focus_id.is_some() {
+            viewport_center
+        } else {
+            focus_pos
+        };
+        let anchor_node = if use_patch_anchor {
+            patch.and_then(|patch| patch.focus_node).or(focus_anchor_id)
+        } else {
+            focus_anchor_id
+        };
         let anchor_ext = anchor_node.and_then(|id| {
             self.model.field.node(id).and_then(|node| {
                 ((node.pos.x - anchor.x).abs() <= 0.5 && (node.pos.y - anchor.y).abs() <= 0.5)

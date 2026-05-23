@@ -702,12 +702,11 @@ mod tests {
             assert_eq!(pos, expected);
             let id = state.model.field.spawn_surface("spawned", pos, size);
             state.assign_node_to_current_monitor(id);
-            state.set_interaction_focus(Some(id), 30_000, Instant::now());
         }
     }
 
     #[test]
-    fn auto_focused_spawn_does_not_move_patch_anchor() {
+    fn focused_spawn_reanchors_default_patch() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
@@ -730,14 +729,17 @@ mod tests {
         state.set_interaction_focus(Some(second_id), 30_000, Instant::now());
         let third = state.pick_spawn_position(size).1;
         let offsets = state.star_candidate_offsets(size);
+        let third_expected = state
+            .right_spawn_candidate_for_focus(second_id, size)
+            .expect("right of focused spawn");
 
         assert_eq!(first, offsets[0]);
         assert_eq!(second, offsets[1]);
-        assert_eq!(third, offsets[2]);
+        assert_eq!(third, third_expected);
     }
 
     #[test]
-    fn live_sequential_spawns_return_to_left_arm_after_right2() {
+    fn stable_center_focus_returns_to_left_arm_after_right2() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
@@ -750,13 +752,18 @@ mod tests {
         };
         let size = Vec2 { x: 120.0, y: 90.0 };
         let expected = state.star_candidate_offsets(size);
+        let first = state.pick_spawn_position(size).1;
+        assert_eq!(first, expected[0], "spawn index 0");
+        let first_id = state.model.field.spawn_surface("spawned", first, size);
+        state.assign_node_to_current_monitor(first_id);
+        state.set_interaction_focus(Some(first_id), 30_000, Instant::now());
 
-        for (index, expected_pos) in expected.iter().copied().take(7).enumerate() {
+        for (index, expected_pos) in expected.iter().copied().take(7).enumerate().skip(1) {
             let (_, pos, _) = state.pick_spawn_position(size);
             assert_eq!(pos, expected_pos, "spawn index {index}");
             let id = state.model.field.spawn_surface("spawned", pos, size);
             state.assign_node_to_current_monitor(id);
-            state.set_interaction_focus(Some(id), 30_000, Instant::now());
+            state.set_interaction_focus(Some(first_id), 30_000, Instant::now());
         }
     }
 
@@ -1062,7 +1069,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_mode_keeps_stable_patch_after_auto_focusing_new_spawn() {
+    fn focus_mode_reanchors_patch_after_focusing_new_spawn() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
@@ -1106,8 +1113,8 @@ mod tests {
             .right_spawn_candidate_for_focus(anchor, size)
             .expect("right spawn candidate");
         let second_expected = state
-            .spawn_candidate_for_focus_dir(anchor, size, Vec2 { x: -1.0, y: 0.0 })
-            .expect("left spawn candidate");
+            .right_spawn_candidate_for_focus(first_id, size)
+            .expect("right of focused spawn");
 
         assert_eq!(first, first_expected);
         assert_eq!(second, second_expected);
@@ -1350,7 +1357,7 @@ mod tests {
     }
 
     #[test]
-    fn shorter_secondary_uses_stable_patch_ring_order() {
+    fn shorter_secondary_continues_from_focused_spawn() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![
             halley_config::ViewportOutputConfig {
@@ -1396,7 +1403,12 @@ mod tests {
         state.set_interaction_focus(Some(second_id), 30_000, Instant::now());
         let third = state.pick_spawn_position(size).1;
 
-        let expected = state.star_candidate_offsets(size);
+        let second_expected = state
+            .right_spawn_candidate_for_focus(first_id, size)
+            .expect("right of first");
+        let third_expected = state
+            .right_spawn_candidate_for_focus(second_id, size)
+            .expect("right of second");
         assert_eq!(
             first,
             Vec2 {
@@ -1404,20 +1416,8 @@ mod tests {
                 y: 600.0
             }
         );
-        assert_eq!(
-            second,
-            Vec2 {
-                x: 3520.0 + expected[1].x,
-                y: 600.0
-            }
-        );
-        assert_eq!(
-            third,
-            Vec2 {
-                x: 3520.0 + expected[2].x,
-                y: 600.0
-            }
-        );
+        assert_eq!(second, second_expected);
+        assert_eq!(third, third_expected);
     }
 
     #[test]
