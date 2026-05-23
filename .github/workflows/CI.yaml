@@ -1,0 +1,43 @@
+name: Halley
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libdrm-dev \ 
+            libgbm-dev \
+            libegl1-mesa-dev \
+            libgles2-mesa-dev \
+            libseat-dev \
+            libinput-dev \
+            libudev-dev \
+            libwayland-dev \
+            wayland-protocols \
+            pkg-config \
+            libxkbcommon-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload halley
+        uses: actions/upload-artifact@v4
+        with:
+          name: halley
+          path: target/release/halley
+
+      - name: Upload halleyctl
+        uses: actions/upload-artifact@v4
+        with:
+          name: halleyctl
+          path: target/release/halleyctl
