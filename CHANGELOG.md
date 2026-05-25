@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Add `wp_presentation` support and send presentation feedback after TTY and winit frames so Wayland clients such as gamescope can receive frame timing instead of falling back to X11 behavior.
+- Add fractional scale protocol support, including DPI-based output scale guesses and preferred scale updates for surfaces as they move between monitors.
 - Add configurable Aperture placement for cursor-following, a fixed monitor, or every output, including per-output Aperture status IPC and CLI output.
 - Add `aperture-peek` styling for corner, rounded background, radius, and clock appearance, plus an `examples/aperture.rune` sample config.
 - Add user-pinned window/node/core support with default `mod+p`, `field.pins` badge styling, pinned Bearings visibility, and pin badge rendering from the bundled SVG asset.
@@ -15,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Add strict config validation diagnostics for unknown Halley keys and invalid literals, with path, line, source text, and suggestions when available.
 
 ### Changed
+- Rework Xwayland socket startup around event-loop socket watchers, safer listener handoff, close-on-exec lock files, `-listenfd` capability detection, and portal `DISPLAY` activation environment export.
 - Rework `halley-aperture` standalone rendering to maintain per-output layer surfaces, redraw clocks on a timed Wayland poll loop, and keep animations advancing without busy sleeping.
 - Treat pinning as a property of the active entity by transferring pinned state from windows into clusters and collapsed cluster cores, keeping pinned core visibility and IPC state consistent across create, absorb, collapse, expand, and dissolve flows.
 - Move pure overlap contact physics into `halley-core` so the Wayland compositor only wires it into runtime state.
@@ -22,6 +24,13 @@ All notable changes to this project will be documented in this file.
 - Rename the default explicit field-drag pointer action from `field-jump` to `pan-field`, keeping `field-jump` and `drag-pan` as config aliases for compatibility.
 
 ### Fixed
+- Use the launch or window-rule spawn target monitor for initial `xdg_toplevel` configure bounds so new clients receive bounds for the output they will actually open on.
+- Prevent focus decay while spawn or open transitions are still active, avoiding premature collapse during window launch and reveal animations.
+- Preserve fullscreen and pointer state across monitor changes by separating soft fullscreen suspension from client fullscreen exits, refreshing pointer constraints from the last screen position, releasing constraints when crossing monitors, and keeping cursor surface output state current.
+- Smooth new-window reveal timing by waiting for committed geometry before starting open animations, preserving late rule rechecks, keeping offscreen spawn-panned windows detached until the pan reaches the reveal point, and scheduling delayed reveal timers.
+- Make initial spawn placement anchor-aware once real window geometry is known, including row-aware vertical placement, conservative open-animation extents, and anchored overlap resolution that keeps the focused anchor fixed while the new spawn yields.
+- Stabilize spawn patch placement by reanchoring patches on the focused window and resetting patch state when a monitor becomes empty.
+- Respect late user window rules in deferred rule rechecks and avoid resolving overlap for windows still pending their initial reveal.
 - Scope viewport pan animations to the monitor that created them so quick pointer movement to another output cannot retarget an in-flight spawn or close-restore pan and move the wrong monitor.
 - Defer spawn-pan focus activation until the tick after a spawn reveal pan completes, while applying reveal state immediately so new windows are undetached, hot, transition-tracked, and recorded in focus history as soon as the reveal begins.
 - Fix cross-monitor spawn reveal pans in click-to-focus mode by creating the pan from the spawn monitor's viewport center instead of whichever monitor was current when the reveal started.
