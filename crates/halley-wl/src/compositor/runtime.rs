@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -26,6 +26,9 @@ pub(crate) struct RuntimeState {
     pub(crate) maintenance_dirty: bool,
     pub(crate) screenshot_full_repaint_until_ms: u64,
     pub(crate) maintenance_ping: Option<Ping>,
+    pub(crate) tty_redraw_all: bool,
+    pub(crate) tty_redraw_outputs: HashSet<String>,
+    pub(crate) tty_frame_callback_sequence: HashMap<String, u32>,
     pub(crate) pending_drm_syncobj_surfaces: Arc<Mutex<Vec<ObjectId>>>,
     pub(crate) activation: ActivationRuntimeState,
     pub(crate) spawned_children: Vec<std::process::Child>,
@@ -383,6 +386,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
     #[inline]
     pub fn request_maintenance(&mut self) {
         self.runtime.maintenance_dirty = true;
+        self.runtime.tty_redraw_all = true;
         if let Some(ping) = &self.runtime.maintenance_ping {
             ping.ping();
         }

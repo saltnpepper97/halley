@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
@@ -11,7 +12,7 @@ use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_pre
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::utils::{Clock, Monotonic};
 use smithay::wayland::compositor::{
-    SurfaceAttributes, TraversalAction, with_surface_tree_downward,
+    SurfaceAttributes, SurfaceData, TraversalAction, with_surface_tree_downward,
 };
 use smithay::wayland::presentation::Refresh;
 
@@ -19,6 +20,11 @@ use crate::animation::AnimStyle;
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::compositor::screenshot::screenshot_controller;
+
+#[derive(Default)]
+struct SurfaceFrameCallbackThrottle {
+    last_sent_at: RefCell<Option<(String, u32)>>,
+}
 
 #[cfg(test)]
 use crate::window::ActiveBorderRect;
@@ -497,18 +503,19 @@ pub(crate) fn send_frame_callbacks(st: &mut Halley, now: Instant) {
 pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str, now: Instant) {
     let elapsed_ms = now.duration_since(st.runtime.started_at).as_millis();
     let time_ms = elapsed_ms.min(u32::MAX as u128) as u32;
+    let sequence = st.tty_frame_callback_sequence(output_name);
 
     for layer in st.platform.wlr_layer_shell_state.layer_surfaces() {
         let surface = layer.wl_surface();
         if surface_on_output(st, surface, output_name) {
-            send_frames_surface_tree(surface, time_ms);
+            send_frames_surface_tree_for_output(surface, time_ms, output_name, sequence);
         }
     }
 
     for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let surface = top.wl_surface();
         if surface_on_output(st, surface, output_name) {
-            send_frames_surface_tree(surface, time_ms);
+            send_frames_surface_tree_for_output(surface, time_ms, output_name, sequence);
         }
     }
 
@@ -518,7 +525,7 @@ pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str
             continue;
         };
         if surface_on_output(st, &root, output_name) {
-            send_frames_surface_tree(popup.wl_surface(), time_ms);
+            send_frames_surface_tree_for_output(popup.wl_surface(), time_ms, output_name, sequence);
         }
     }
 }
@@ -630,6 +637,56 @@ fn send_frames_surface_tree(
         },
         |_, _, &()| true,
     );
+}
+
+fn send_frames_surface_tree_for_output(
+    surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    time_ms: u32,
+    output_name: &str,
+    sequence: u32,
+) {
+    with_surface_tree_downward(
+        surface,
+        (),
+        |_, _, &()| TraversalAction::DoChildren(()),
+        |_, states, &()| {
+            let has_callbacks = !states
+                .cached_state
+                .get::<SurfaceAttributes>()
+                .current()
+                .frame_callbacks
+                .is_empty();
+            if !has_callbacks {
+                return;
+            }
+            if !should_send_frame_callback(states, output_name, sequence) {
+                return;
+            }
+            let mut surface_attributes = states.cached_state.get::<SurfaceAttributes>();
+            let callbacks = &mut surface_attributes.current().frame_callbacks;
+            for callback in callbacks.drain(..) {
+                callback.done(time_ms);
+            }
+        },
+        |_, _, &()| true,
+    );
+}
+
+fn should_send_frame_callback(states: &SurfaceData, output_name: &str, sequence: u32) -> bool {
+    let throttling = states
+        .data_map
+        .get_or_insert(SurfaceFrameCallbackThrottle::default);
+    let mut last_sent_at = throttling.last_sent_at.borrow_mut();
+    if last_sent_at
+        .as_ref()
+        .is_some_and(|(last_output, last_sequence)| {
+            last_output == output_name && *last_sequence == sequence
+        })
+    {
+        return false;
+    }
+    *last_sent_at = Some((output_name.to_string(), sequence));
+    true
 }
 
 #[cfg(test)]

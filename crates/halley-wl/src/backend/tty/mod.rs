@@ -80,12 +80,96 @@ fn drm_vblank_timestamp(metadata: Option<&DrmEventMetadata>) -> Duration {
     monotonic_now_duration()
 }
 
+fn output_frame_interval(output: &TtyDrmOutput) -> Duration {
+    frame_interval_for_refresh_hz(Some(output.mode.vrefresh() as f64))
+}
+
+fn schedule_estimated_frame_callback(
+    estimated_frame_callbacks: &Rc<RefCell<HashMap<String, Instant>>>,
+    output: &TtyDrmOutput,
+    now: Instant,
+) {
+    estimated_frame_callbacks
+        .borrow_mut()
+        .entry(output.connector_name.clone())
+        .or_insert_with(|| now + output_frame_interval(output));
+}
+
+fn send_due_estimated_frame_callbacks(
+    estimated_frame_callbacks: &Rc<RefCell<HashMap<String, Instant>>>,
+    output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
+    st: &mut Halley,
+    now: Instant,
+) {
+    let pending = output_frame_pending.borrow();
+    let due_outputs: Vec<String> = estimated_frame_callbacks
+        .borrow()
+        .iter()
+        .filter_map(|(output_name, due_at)| {
+            (now >= *due_at && !pending.get(output_name.as_str()).copied().unwrap_or(false))
+                .then_some(output_name.clone())
+        })
+        .collect();
+    drop(pending);
+
+    if due_outputs.is_empty() {
+        return;
+    }
+
+    let mut estimated = estimated_frame_callbacks.borrow_mut();
+    for output_name in due_outputs {
+        estimated.remove(output_name.as_str());
+        st.advance_tty_frame_callback_sequence(output_name.as_str());
+        crate::frame_loop::send_frame_callbacks_for_output(st, output_name.as_str(), now);
+    }
+}
+
+fn take_ready_tty_redraw_outputs(
+    backend_handle: &TtyBackendHandle,
+    outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
+    output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
+    st: &mut Halley,
+) -> HashSet<String> {
+    if backend_handle.take_redraw_all_outputs() || std::mem::take(&mut st.runtime.tty_redraw_all) {
+        for output in outputs.borrow().iter() {
+            st.runtime
+                .tty_redraw_outputs
+                .insert(output.connector_name.clone());
+        }
+    }
+
+    let output_names: HashSet<String> = outputs
+        .borrow()
+        .iter()
+        .map(|output| output.connector_name.clone())
+        .collect();
+    st.runtime
+        .tty_redraw_outputs
+        .retain(|output_name| output_names.contains(output_name));
+
+    let pending = output_frame_pending.borrow();
+    let ready: HashSet<String> = st
+        .runtime
+        .tty_redraw_outputs
+        .iter()
+        .filter(|output_name| !pending.get(output_name.as_str()).copied().unwrap_or(false))
+        .cloned()
+        .collect();
+    drop(pending);
+
+    for output_name in &ready {
+        st.runtime.tty_redraw_outputs.remove(output_name.as_str());
+    }
+    ready
+}
+
 fn queue_ready_tty_outputs(
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
     output_frame_pending_since: &Rc<RefCell<HashMap<String, Instant>>>,
     output_animation_redraw_active: &Rc<RefCell<HashMap<String, bool>>>,
+    estimated_frame_callbacks: &Rc<RefCell<HashMap<String, Instant>>>,
     composed_frame_cache: &Rc<RefCell<HashMap<String, GlesTexture>>>,
     pointer_state: &Rc<RefCell<crate::compositor::interaction::PointerState>>,
     gpu_manager: &Rc<RefCell<TtyGpuManager>>,
@@ -96,7 +180,7 @@ fn queue_ready_tty_outputs(
     now: Instant,
     resize_preview: Option<ResizeCtx>,
     eligible_outputs: Option<&HashSet<String>>,
-    source: &str,
+    _source: &str,
 ) {
     if !any_tty_output_dpms_enabled(&dpms_enabled.borrow()) {
         return;
@@ -182,12 +266,12 @@ fn queue_ready_tty_outputs(
                     output_frame_pending_since
                         .borrow_mut()
                         .remove(output.connector_name.as_str());
-                    if source == "timer" {
-                        crate::frame_loop::send_frame_callbacks_for_output(st, output_name, now);
-                        crate::frame_loop::send_presentation_feedback_for_output(st, output_name);
-                    }
+                    schedule_estimated_frame_callback(estimated_frame_callbacks, output, now);
                     continue;
                 }
+                estimated_frame_callbacks
+                    .borrow_mut()
+                    .remove(output.connector_name.as_str());
                 if first_frame_queued
                     .borrow_mut()
                     .insert(output.connector_name.clone())
@@ -201,6 +285,7 @@ fn queue_ready_tty_outputs(
                 output_frame_pending_since
                     .borrow_mut()
                     .insert(output.connector_name.clone(), now);
+                st.advance_tty_frame_callback_sequence(output_name);
                 crate::frame_loop::send_frame_callbacks_for_output(st, output_name, now);
                 crate::frame_loop::send_presentation_feedback_for_output(st, output_name);
             }
@@ -1198,6 +1283,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 );
             }
             let output_animation_redraw_active = Rc::new(RefCell::new(HashMap::new()));
+            let estimated_frame_callbacks =
+                Rc::new(RefCell::new(HashMap::<String, Instant>::new()));
             let composed_frame_cache = Rc::new(RefCell::new(HashMap::<String, GlesTexture>::new()));
             {
                 let mut pending = output_frame_pending.borrow_mut();
@@ -1240,6 +1327,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let outputs_for_redraw = outputs.clone();
             let composed_frame_cache_for_redraw = composed_frame_cache.clone();
             let composed_frame_cache_for_timer = composed_frame_cache.clone();
+            let estimated_frame_callbacks_for_redraw = estimated_frame_callbacks.clone();
+            let estimated_frame_callbacks_for_timer = estimated_frame_callbacks.clone();
             let scanout_signature_for_timer = scanout_signature.clone();
             let output_timer_tick_at = Rc::new(RefCell::new(HashMap::<String, Instant>::new()));
             let output_timer_tick_at_for_timer = output_timer_tick_at.clone();
@@ -1436,6 +1525,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let output_frame_pending_for_redraw = output_frame_pending.clone();
             let output_animation_redraw_active_for_redraw = output_animation_redraw_active.clone();
             let pointer_state_for_redraw = pointer_state.clone();
+            let backend_handle_for_redraw = backend_handle.clone();
             let gpu_manager_for_redraw = gpu_manager.clone();
             let primary_render_node_for_redraw = primary_render_node;
             let first_frame_queued_for_redraw = first_frame_queued.clone();
@@ -1457,17 +1547,34 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         &pointer_state_for_redraw,
                         now,
                     );
-                    if !(animation_redraw_active && !animation_output_ready) {
-                        advance_tty_redraw_frame(st, &pointer_state_for_redraw, now, false);
-                    }
-                    let eligible_outputs = animation_redraw_active.then(|| {
-                        tty_animation_redraw_outputs(
+                    let mut eligible_outputs = take_ready_tty_redraw_outputs(
+                        &backend_handle_for_redraw,
+                        &outputs_for_redraw,
+                        &output_frame_pending_for_redraw,
+                        st,
+                    );
+                    if animation_redraw_active && animation_output_ready {
+                        eligible_outputs.extend(tty_animation_redraw_outputs(
                             st,
                             &outputs_for_redraw,
                             &pointer_state_for_redraw,
                             now,
-                        )
-                    });
+                        ));
+                    }
+                    let eligible_includes_animation = tty_outputs_include_animation_redraw(
+                        st,
+                        &pointer_state_for_redraw,
+                        &eligible_outputs,
+                        now,
+                    );
+                    if !eligible_outputs.is_empty()
+                        && (!animation_redraw_active || eligible_includes_animation)
+                    {
+                        advance_tty_redraw_frame(st, &pointer_state_for_redraw, now, false);
+                    }
+                    if eligible_outputs.is_empty() {
+                        return;
+                    }
                     let ps = pointer_state_for_redraw.borrow();
                     let resize_preview = ps.resize;
                     drop(ps);
@@ -1477,6 +1584,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         &output_frame_pending_for_redraw,
                         &output_frame_pending_since,
                         &output_animation_redraw_active_for_redraw,
+                        &estimated_frame_callbacks_for_redraw,
                         &composed_frame_cache_for_redraw,
                         &pointer_state_for_redraw,
                         &gpu_manager_for_redraw,
@@ -1486,7 +1594,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         st,
                         now,
                         resize_preview,
-                        eligible_outputs.as_ref(),
+                        Some(&eligible_outputs),
                         "redraw",
                     );
                 })?;
@@ -2023,6 +2131,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 );
 
                 if any_tty_output_dpms_enabled(&dpms_enabled_for_timer.borrow()) {
+                    send_due_estimated_frame_callbacks(
+                        &estimated_frame_callbacks_for_timer,
+                        &output_frame_pending_for_dpms_timer,
+                        st,
+                        now,
+                    );
+
                     // On the first tick after DPMS wake, re-configure layer shell
                     // surfaces. Frame callbacks are sent only after a scanout frame queues.
                     if !dpms_just_woke_outputs_for_timer.borrow().is_empty() {
@@ -2035,19 +2150,18 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     }
 
                     if !due_outputs.is_empty() {
-                        // Keep the redraw-ping path biased toward animation-active outputs, but
-                        // let the timer continue servicing every due output. Otherwise local
-                        // zoom/pan on one monitor can starve unrelated outputs that still need
-                        // regular scanout, such as fullscreen video playback.
-                        // Do not advance camera smoothing on fullscreen-only timer frames; those
-                        // presents are invisible to the monitor currently animating pan/zoom.
                         let animation_redraw_active = tty_animation_redraw_active(
                             st,
                             &outputs_for_timer,
                             &pointer_state_for_timer,
                             now,
                         );
-                        let mut eligible_outputs = due_outputs.clone();
+                        let mut eligible_outputs = take_ready_tty_redraw_outputs(
+                            &backend_handle_for_timer,
+                            &outputs_for_timer,
+                            &output_frame_pending_for_dpms_timer,
+                            st,
+                        );
                         if animation_redraw_active {
                             eligible_outputs.extend(tty_ready_animation_redraw_outputs(
                                 st,
@@ -2058,34 +2172,36 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 now,
                             ));
                         }
-                        if !animation_redraw_active
-                            || tty_outputs_include_animation_redraw(
+                        if !eligible_outputs.is_empty() {
+                            let eligible_includes_animation = tty_outputs_include_animation_redraw(
                                 st,
                                 &pointer_state_for_timer,
                                 &eligible_outputs,
                                 now,
-                            )
-                        {
-                            advance_tty_redraw_frame(st, &pointer_state_for_timer, now, false);
+                            );
+                            if !animation_redraw_active || eligible_includes_animation {
+                                advance_tty_redraw_frame(st, &pointer_state_for_timer, now, false);
+                            }
+                            queue_ready_tty_outputs(
+                                &outputs_for_timer,
+                                &dpms_enabled_for_timer,
+                                &output_frame_pending,
+                                &output_frame_pending_since_for_timer,
+                                &output_animation_redraw_active,
+                                &estimated_frame_callbacks_for_timer,
+                                &composed_frame_cache_for_timer,
+                                &pointer_state_for_timer,
+                                &gpu_manager_for_timer,
+                                primary_render_node_for_timer,
+                                &first_frame_queued_for_timer,
+                                frame_stats_for_timer.as_ref(),
+                                st,
+                                now,
+                                resize_preview,
+                                Some(&eligible_outputs),
+                                "timer",
+                            );
                         }
-                        queue_ready_tty_outputs(
-                            &outputs_for_timer,
-                            &dpms_enabled_for_timer,
-                            &output_frame_pending,
-                            &output_frame_pending_since_for_timer,
-                            &output_animation_redraw_active,
-                            &composed_frame_cache_for_timer,
-                            &pointer_state_for_timer,
-                            &gpu_manager_for_timer,
-                            primary_render_node_for_timer,
-                            &first_frame_queued_for_timer,
-                            frame_stats_for_timer.as_ref(),
-                            st,
-                            now,
-                            resize_preview,
-                            Some(&eligible_outputs),
-                            "timer",
-                        );
                     }
                 }
 

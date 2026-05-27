@@ -409,6 +409,9 @@ impl Halley {
                 maintenance_dirty: true,
                 screenshot_full_repaint_until_ms: 0,
                 maintenance_ping: None,
+                tty_redraw_all: true,
+                tty_redraw_outputs: HashSet::new(),
+                tty_frame_callback_sequence: HashMap::new(),
                 pending_drm_syncobj_surfaces: Arc::new(Mutex::new(Vec::new())),
                 activation: Default::default(),
                 spawned_children: Vec::new(),
@@ -957,6 +960,31 @@ impl Halley {
 
     pub fn request_maintenance(&mut self) {
         super::runtime::runtime_controller(self).request_maintenance()
+    }
+
+    pub fn request_tty_redraw_for_monitor(&mut self, monitor: &str) {
+        self.runtime.tty_redraw_outputs.insert(monitor.to_string());
+        if let Some(ping) = &self.runtime.maintenance_ping {
+            ping.ping();
+        }
+    }
+
+    pub fn advance_tty_frame_callback_sequence(&mut self, output_name: &str) -> u32 {
+        let sequence = self
+            .runtime
+            .tty_frame_callback_sequence
+            .entry(output_name.to_string())
+            .or_insert(0);
+        *sequence = sequence.wrapping_add(1);
+        *sequence
+    }
+
+    pub fn tty_frame_callback_sequence(&self, output_name: &str) -> u32 {
+        self.runtime
+            .tty_frame_callback_sequence
+            .get(output_name)
+            .copied()
+            .unwrap_or(0)
     }
 
     #[allow(dead_code)]
