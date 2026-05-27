@@ -331,15 +331,22 @@ impl<T: DerefMut<Target = Halley>> FocusSystemController<T> {
 
     pub(crate) fn note_pan_viewport_change(&mut self, _now: Instant) {
         let current_monitor = self.model.monitor_state.current_monitor.clone();
+        let spawn_pan_active = self.model.spawn_state.active_spawn_pan.is_some()
+            || !self.model.spawn_state.pending_spawn_pan_queue.is_empty()
+            || self.model.spawn_state.pending_pan_activate.is_some();
         if self
             .spawn_monitor_state(current_monitor.as_str())
             .spawn_anchor_mode
             == crate::compositor::spawn::state::SpawnAnchorMode::View
+            && !spawn_pan_active
         {
             self.spawn_monitor_state_mut(current_monitor.as_str())
                 .spawn_view_anchor = self.model.viewport.center;
         }
         self.request_maintenance();
+        if spawn_pan_active {
+            return;
+        }
         let Some(start_center) = self
             .spawn_monitor_state(current_monitor.as_str())
             .spawn_pan_start_center
@@ -593,6 +600,47 @@ mod tests {
             },
         ];
         tuning
+    }
+
+    #[test]
+    fn spawn_pan_does_not_clear_active_spawn_patch() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let anchor = Vec2 { x: 0.0, y: 0.0 };
+        let id = state.model.field.spawn_surface(
+            "spawned",
+            Vec2 { x: 300.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_current_monitor(id);
+        state.update_spawn_patch(
+            monitor.as_str(),
+            anchor,
+            None,
+            anchor,
+            Vec2 { x: 1.0, y: 0.0 },
+        );
+        state.model.spawn_state.active_spawn_pan =
+            Some(crate::compositor::spawn::state::ActiveSpawnPan {
+                node_id: id,
+                pan_start_at_ms: 0,
+                reveal_at_ms: 0,
+            });
+        state.model.viewport.center = Vec2 { x: 300.0, y: 0.0 };
+
+        state.note_pan_viewport_change(Instant::now());
+
+        assert_eq!(
+            state
+                .spawn_monitor_state(monitor.as_str())
+                .spawn_patch
+                .as_ref()
+                .map(|patch| patch.anchor),
+            Some(anchor)
+        );
     }
 
     #[test]

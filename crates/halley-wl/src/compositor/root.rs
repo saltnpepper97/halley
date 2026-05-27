@@ -313,6 +313,9 @@ impl Halley {
                     applied_window_rules: HashMap::new(),
                     pending_rule_rechecks: HashSet::new(),
                     pending_initial_reveal: HashSet::new(),
+                    pending_initial_spawn_placement: None,
+                    initial_spawn_placements: HashMap::new(),
+                    initial_spawn_authority: HashMap::new(),
                     pending_pan_activate: None,
                 },
                 field: Field::new(),
@@ -1438,6 +1441,11 @@ impl Halley {
     ) -> (String, Vec2, bool) {
         super::spawn::reveal::spawn_reveal_controller(self)
             .pick_spawn_position_with_intent(size, intent)
+    }
+
+    pub(crate) fn finalize_initial_spawn_position(&mut self, id: NodeId, size: Vec2) -> bool {
+        super::spawn::reveal::spawn_reveal_controller(self)
+            .finalize_initial_spawn_position(id, size)
     }
 
     #[allow(dead_code)]

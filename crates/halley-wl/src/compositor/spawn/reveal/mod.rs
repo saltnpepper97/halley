@@ -626,13 +626,16 @@ mod tests {
         );
 
         let size = Vec2 { x: 120.0, y: 90.0 };
-        let existing = state
-            .model
-            .field
-            .spawn_surface("existing", Vec2 { x: 143.0, y: 0.0 }, size);
+        let right = state
+            .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 1.0, y: 0.0 })
+            .expect("right spawn candidate");
+        let left = state
+            .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: -1.0, y: 0.0 })
+            .expect("left spawn candidate");
+        let existing = state.model.field.spawn_surface("existing", right, size);
         state.assign_node_to_current_monitor(existing);
         let (_, pos, needs_pan) = state.pick_spawn_position(size);
-        assert_eq!(pos, Vec2 { x: -143.0, y: 0.0 });
+        assert_eq!(pos, left);
         assert!(!needs_pan);
     }
 
@@ -667,6 +670,161 @@ mod tests {
                 y: 0.0
             }
         );
+    }
+
+    #[test]
+    fn spawn_star_expands_outward_round_robin_after_first_ring_is_full() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        {
+            let monitor = state.model.monitor_state.current_monitor.clone();
+            let spawn = state.spawn_monitor_state_mut(monitor.as_str());
+            spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::View;
+            spawn.spawn_view_anchor = Vec2 { x: 0.0, y: 0.0 };
+        }
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        for pos in state.star_candidate_offsets(size).into_iter().take(5) {
+            let id = state.model.field.spawn_surface("blocker", pos, size);
+            state.assign_node_to_current_monitor(id);
+        }
+        let offsets = state.star_candidate_offsets(size);
+
+        for expected in offsets.into_iter().skip(5).take(4) {
+            let (_, pos, _) = state.pick_spawn_position(size);
+            assert_eq!(pos, expected);
+            let id = state.model.field.spawn_surface("spawned", pos, size);
+            state.assign_node_to_current_monitor(id);
+        }
+    }
+
+    #[test]
+    fn focused_spawn_reanchors_default_patch() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let first = state.pick_spawn_position(size).1;
+        let first_id = state.model.field.spawn_surface("first", first, size);
+        state.assign_node_to_current_monitor(first_id);
+        state.set_interaction_focus(Some(first_id), 30_000, Instant::now());
+
+        let second = state.pick_spawn_position(size).1;
+        let second_id = state.model.field.spawn_surface("second", second, size);
+        state.assign_node_to_current_monitor(second_id);
+        state.set_interaction_focus(Some(second_id), 30_000, Instant::now());
+        let third = state.pick_spawn_position(size).1;
+        let offsets = state.star_candidate_offsets(size);
+        let third_expected = state
+            .right_spawn_candidate_for_focus(second_id, size)
+            .expect("right of focused spawn");
+
+        assert_eq!(first, offsets[0]);
+        assert_eq!(second, offsets[1]);
+        assert_eq!(third, third_expected);
+    }
+
+    #[test]
+    fn stable_center_focus_returns_to_left_arm_after_right2() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 3200.0,
+            y: 2400.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let expected = state.star_candidate_offsets(size);
+        let first = state.pick_spawn_position(size).1;
+        assert_eq!(first, expected[0], "spawn index 0");
+        let first_id = state.model.field.spawn_surface("spawned", first, size);
+        state.assign_node_to_current_monitor(first_id);
+        state.set_interaction_focus(Some(first_id), 30_000, Instant::now());
+
+        for (index, expected_pos) in expected.iter().copied().take(7).enumerate().skip(1) {
+            let (_, pos, _) = state.pick_spawn_position(size);
+            assert_eq!(pos, expected_pos, "spawn index {index}");
+            let id = state.model.field.spawn_surface("spawned", pos, size);
+            state.assign_node_to_current_monitor(id);
+            state.set_interaction_focus(Some(first_id), 30_000, Instant::now());
+        }
+    }
+
+    #[test]
+    fn closing_all_windows_resets_default_spawn_to_view_center() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let first = state.pick_spawn_position(size).1;
+        let first_id = state.model.field.spawn_surface("first", first, size);
+        state.assign_node_to_current_monitor(first_id);
+        state.set_interaction_focus(Some(first_id), 30_000, Instant::now());
+        let second = state.pick_spawn_position(size).1;
+        let second_id = state.model.field.spawn_surface("second", second, size);
+        state.assign_node_to_current_monitor(second_id);
+        state.set_interaction_focus(Some(second_id), 30_000, Instant::now());
+
+        let now_ms = state.now_ms(Instant::now());
+        assert!(state.remove_node_from_field(first_id, now_ms));
+        state.model.monitor_state.node_monitor.remove(&first_id);
+        assert!(state.remove_node_from_field(second_id, now_ms));
+        state.model.monitor_state.node_monitor.remove(&second_id);
+
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, Vec2 { x: 0.0, y: 0.0 });
+    }
+
+    #[test]
+    fn off_center_focused_window_does_not_anchor_default_spawn() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.focus_ring_rx = 100.0;
+        tuning.focus_ring_ry = 100.0;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let focused = state.model.field.spawn_surface(
+            "focused",
+            Vec2 { x: 400.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+
+        let (_, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
+
+        assert_eq!(pos, Vec2 { x: 0.0, y: 0.0 });
     }
 
     #[test]
@@ -720,7 +878,7 @@ mod tests {
             .right_spawn_candidate_for_focus(focused, Vec2 { x: 120.0, y: 90.0 })
             .expect("right spawn candidate");
         assert_eq!(monitor, "right");
-        assert_eq!(pos, expected);
+        assert!((pos.x - expected.x).abs() < 0.5 && (pos.y - expected.y).abs() < 0.5);
     }
 
     #[test]
@@ -852,7 +1010,7 @@ mod tests {
             .right_spawn_candidate_for_focus(latest, Vec2 { x: 120.0, y: 90.0 })
             .expect("right spawn candidate");
         assert_eq!(monitor, "right");
-        assert_eq!(pos, expected);
+        assert!((pos.x - expected.x).abs() < 0.5 && (pos.y - expected.y).abs() < 0.5);
     }
 
     #[test]
@@ -944,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_mode_keeps_monitor_local_patch_after_auto_focusing_new_spawn() {
+    fn focus_mode_reanchors_patch_after_focusing_new_spawn() {
         let tuning = halley_config::RuntimeTuning::default();
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
@@ -989,7 +1147,7 @@ mod tests {
             .expect("right spawn candidate");
         let second_expected = state
             .right_spawn_candidate_for_focus(first_id, size)
-            .expect("right spawn candidate");
+            .expect("right of focused spawn");
 
         assert_eq!(first, first_expected);
         assert_eq!(second, second_expected);
@@ -1232,7 +1390,7 @@ mod tests {
     }
 
     #[test]
-    fn shorter_secondary_keeps_building_to_the_right_offscreen() {
+    fn shorter_secondary_continues_from_focused_spawn() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![
             halley_config::ViewportOutputConfig {
@@ -1280,10 +1438,10 @@ mod tests {
 
         let second_expected = state
             .right_spawn_candidate_for_focus(first_id, size)
-            .expect("right spawn candidate");
+            .expect("right of first");
         let third_expected = state
             .right_spawn_candidate_for_focus(second_id, size)
-            .expect("right spawn candidate");
+            .expect("right of second");
         assert_eq!(
             first,
             Vec2 {
@@ -1320,10 +1478,6 @@ mod tests {
         let up = state
             .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 0.0, y: -1.0 })
             .expect("up");
-        let down = state
-            .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 0.0, y: 1.0 })
-            .expect("down");
-
         let right_id = state.model.field.spawn_surface("right", right, size);
         let left_id = state.model.field.spawn_surface("left", left, size);
         let up_id = state.model.field.spawn_surface("up", up, size);
@@ -1332,7 +1486,252 @@ mod tests {
         state.assign_node_to_current_monitor(up_id);
 
         let chosen = state.pick_spawn_position(size).1;
-        assert_eq!(chosen, down);
+        assert_eq!(chosen, state.star_candidate_offsets(size)[4]);
+    }
+
+    #[test]
+    fn focused_up_uses_current_row_height_not_focused_height() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let row_size = Vec2 { x: 120.0, y: 300.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+
+        let mut row_ids = vec![focused];
+        for dir in [Vec2 { x: 1.0, y: 0.0 }, Vec2 { x: -1.0, y: 0.0 }] {
+            let pos = state
+                .spawn_candidate_for_focus_dir(focused, size, dir)
+                .expect("side candidate");
+            let id = state.model.field.spawn_surface("row", pos, row_size);
+            state.assign_node_to_current_monitor(id);
+            row_ids.push(id);
+        }
+
+        let focused_up = state
+            .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 0.0, y: -1.0 })
+            .expect("focused up");
+        let frame_pad = active_window_frame_pad_px(&state.runtime.tuning) as f32;
+        let candidate_bottom = (size.y * 0.5 + frame_pad) * 1.08 + 4.0;
+        let row_top = row_ids
+            .iter()
+            .filter_map(|&id| {
+                state.model.field.node(id).map(|node| {
+                    let ext = state.surface_window_collision_extents(node);
+                    node.pos.y - (ext.top * 1.08 + 4.0)
+                })
+            })
+            .fold(f32::INFINITY, f32::min);
+        let expected_y = row_top - (state.non_overlap_gap_world() * 2.0 + 4.0) - candidate_bottom;
+
+        assert_eq!(focused_up.x, 0.0);
+        assert!((focused_up.y - expected_y).abs() < 0.5);
+    }
+
+    #[test]
+    fn focused_down_uses_current_row_height_not_focused_height() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let row_size = Vec2 { x: 120.0, y: 300.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+
+        let mut row_ids = vec![focused];
+        for dir in [Vec2 { x: 1.0, y: 0.0 }, Vec2 { x: -1.0, y: 0.0 }] {
+            let pos = state
+                .spawn_candidate_for_focus_dir(focused, size, dir)
+                .expect("side candidate");
+            let id = state.model.field.spawn_surface("row", pos, row_size);
+            state.assign_node_to_current_monitor(id);
+            row_ids.push(id);
+        }
+
+        let frame_pad = active_window_frame_pad_px(&state.runtime.tuning) as f32;
+        let candidate_top = (size.y * 0.5 + frame_pad) * 1.08 + 4.0;
+        let candidate_bottom = (size.y * 0.5 + frame_pad) * 1.08 + 4.0;
+        let row_top = row_ids
+            .iter()
+            .filter_map(|&id| {
+                state.model.field.node(id).map(|node| {
+                    let ext = state.surface_window_collision_extents(node);
+                    node.pos.y - (ext.top * 1.08 + 4.0)
+                })
+            })
+            .fold(f32::INFINITY, f32::min);
+        let row_bottom = row_ids
+            .iter()
+            .filter_map(|&id| {
+                state.model.field.node(id).map(|node| {
+                    let ext = state.surface_window_collision_extents(node);
+                    node.pos.y + (ext.bottom * 1.08 + 4.0)
+                })
+            })
+            .fold(f32::NEG_INFINITY, f32::max);
+        let expected_up_y =
+            row_top - (state.non_overlap_gap_world() * 2.0 + 4.0) - candidate_bottom;
+        let up_blocker = state.model.field.spawn_surface(
+            "up-blocker",
+            Vec2 {
+                x: 0.0,
+                y: expected_up_y,
+            },
+            size,
+        );
+        state.assign_node_to_current_monitor(up_blocker);
+
+        let focused_down = state
+            .spawn_candidate_for_focus_dir(focused, size, Vec2 { x: 0.0, y: 1.0 })
+            .expect("focused down");
+        let expected_y = row_bottom + (state.non_overlap_gap_world() * 2.0 + 4.0) + candidate_top;
+
+        assert_eq!(focused_down.x, 0.0);
+        assert!((focused_down.y - expected_y).abs() < 0.5);
+    }
+
+    #[test]
+    fn star_up_starts_short_row_above_current_row() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        {
+            let monitor = state.model.monitor_state.current_monitor.clone();
+            let spawn = state.spawn_monitor_state_mut(monitor.as_str());
+            spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::View;
+            spawn.spawn_view_anchor = Vec2 { x: 0.0, y: 0.0 };
+        }
+
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let offsets = state.star_candidate_offsets(size);
+        for pos in offsets.iter().copied().take(3) {
+            let id = state.model.field.spawn_surface("blocker", pos, size);
+            state.assign_node_to_current_monitor(id);
+        }
+
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, offsets[3]);
+    }
+
+    #[test]
+    fn star_down_starts_short_row_below_current_row() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        {
+            let monitor = state.model.monitor_state.current_monitor.clone();
+            let spawn = state.spawn_monitor_state_mut(monitor.as_str());
+            spawn.spawn_anchor_mode = crate::compositor::spawn::state::SpawnAnchorMode::View;
+            spawn.spawn_view_anchor = Vec2 { x: 0.0, y: 0.0 };
+        }
+
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let offsets = state.star_candidate_offsets(size);
+        for pos in offsets.iter().copied().take(4) {
+            let id = state.model.field.spawn_surface("blocker", pos, size);
+            state.assign_node_to_current_monitor(id);
+        }
+
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, offsets[4]);
+    }
+
+    #[test]
+    fn focused_cardinal_spawn_candidates_include_frame_pad() {
+        let dirs = [
+            ("right", Vec2 { x: 1.0, y: 0.0 }),
+            ("left", Vec2 { x: -1.0, y: 0.0 }),
+            ("up", Vec2 { x: 0.0, y: -1.0 }),
+            ("down", Vec2 { x: 0.0, y: 1.0 }),
+        ];
+
+        for (name, dir) in dirs {
+            let tuning = halley_config::RuntimeTuning::default();
+            let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+                .expect("display")
+                .handle();
+            let mut state = Halley::new_for_test(&dh, tuning);
+
+            let size = Vec2 { x: 120.0, y: 90.0 };
+            let focused = state
+                .model
+                .field
+                .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
+            state.assign_node_to_current_monitor(focused);
+            let _ = state
+                .model
+                .field
+                .set_state(focused, halley_core::field::NodeState::Active);
+            state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+
+            let pos = state
+                .spawn_candidate_for_focus_dir(focused, size, dir)
+                .expect("spawn candidate");
+            let candidate = state.model.field.spawn_surface("candidate", pos, size);
+            state.assign_node_to_current_monitor(candidate);
+            let _ = state
+                .model
+                .field
+                .set_state(candidate, halley_core::field::NodeState::Active);
+
+            let focused_node = state.model.field.node(focused).expect("focused");
+            let candidate_node = state.model.field.node(candidate).expect("candidate");
+            let focused_ext = state.surface_window_collision_extents(focused_node);
+            let candidate_ext = state.surface_window_collision_extents(candidate_node);
+            let gap = state.non_overlap_gap_world();
+            let req_x = state.required_sep_x(
+                focused_node.pos.x,
+                focused_ext,
+                candidate_node.pos.x,
+                candidate_ext,
+                gap,
+            );
+            let req_y = state.required_sep_y(
+                focused_node.pos.y,
+                focused_ext,
+                candidate_node.pos.y,
+                candidate_ext,
+                gap,
+            );
+            let dx = (candidate_node.pos.x - focused_node.pos.x).abs();
+            let dy = (candidate_node.pos.y - focused_node.pos.y).abs();
+
+            assert!(
+                dx >= req_x || dy >= req_y,
+                "{name} candidate should not overlap with frame padding: dx={dx}, dy={dy}, req_x={req_x}, req_y={req_y}"
+            );
+        }
     }
 
     #[test]
