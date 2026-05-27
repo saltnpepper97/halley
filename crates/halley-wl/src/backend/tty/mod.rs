@@ -137,6 +137,9 @@ fn take_ready_tty_redraw_outputs(
                 .insert(output.connector_name.clone());
         }
     }
+    st.runtime
+        .tty_redraw_outputs
+        .extend(backend_handle.take_redraw_outputs());
 
     let output_names: HashSet<String> = outputs
         .borrow()

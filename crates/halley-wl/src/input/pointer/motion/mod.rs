@@ -164,6 +164,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         st.now_ms(now),
     );
     let mut ps = ctx.pointer_state.borrow_mut();
+    let previous_cursor_monitor = st.monitor_for_screen(ps.screen.0, ps.screen.1);
     ps.world = p;
     ps.screen = (routing.global_sx, routing.global_sy);
     ps.workspace_size = (routing.ws_w, routing.ws_h);
@@ -502,7 +503,12 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         && st.input.interaction_state.pending_core_hover.is_none()
         && st.input.interaction_state.overlay_hover_target.is_none()
     {
-        ctx.backend.request_cursor_redraw();
+        if let Some(previous_monitor) = previous_cursor_monitor.as_deref()
+            && previous_monitor != routing.monitor.as_str()
+        {
+            ctx.backend.request_output_redraw(previous_monitor);
+        }
+        ctx.backend.request_output_redraw(routing.monitor.as_str());
     } else {
         ctx.backend.request_redraw();
     }
