@@ -918,6 +918,66 @@ mod tests {
     }
 
     #[test]
+    fn stale_spawn_focus_override_is_ignored_after_panning_away() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 300.0, y: 0.0 };
+        state.model.viewport.size = Vec2 { x: 800.0, y: 600.0 };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        state
+            .spawn_monitor_state_mut(monitor.as_str())
+            .spawn_focus_override = Some(crate::compositor::spawn::state::SpawnFocusOverride {
+            pos: Vec2 { x: 0.0, y: 0.0 },
+            size,
+        });
+
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, state.model.viewport.center);
+    }
+
+    #[test]
+    fn spawn_focus_override_is_kept_when_view_center_is_on_override() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 { x: 800.0, y: 600.0 };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        state
+            .spawn_monitor_state_mut(monitor.as_str())
+            .spawn_focus_override = Some(crate::compositor::spawn::state::SpawnFocusOverride {
+            pos: Vec2 { x: 0.0, y: 0.0 },
+            size,
+        });
+        let expected = state
+            .right_spawn_candidate_for_focus(focused, size)
+            .expect("right spawn candidate");
+
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, expected);
+    }
+
+    #[test]
     fn focused_window_can_reanchor_after_panning_back_into_view() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.focus_ring_rx = 100.0;

@@ -300,7 +300,8 @@ fn maybe_apply_pending_initial_window_rule(
         cluster_local = true;
     }
 
-    if !cluster_local
+    if should_repick_deferred_initial_window_position(&intent)
+        && !cluster_local
         && let Some(size) = st.model.field.node(node_id).map(|node| node.intrinsic_size)
     {
         let (picked_monitor, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
@@ -338,6 +339,10 @@ fn maybe_apply_pending_initial_window_rule(
     } else {
         let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, intent.is_transient, now);
     }
+}
+
+pub(super) fn should_repick_deferred_initial_window_position(intent: &InitialWindowIntent) -> bool {
+    intent.matched_rule
 }
 
 pub(super) fn reveal_pending_initial_toplevel_if_ready(

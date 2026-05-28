@@ -367,6 +367,122 @@ mod tests {
     }
 
     #[test]
+    fn deferred_default_app_id_does_not_repick_initial_spawn_position() {
+        let default_late_app_id = InitialWindowIntent {
+            app_id: Some("kitty".to_string()),
+            title: None,
+            parent_node: None,
+            rule: ResolvedInitialWindowRule::default(),
+            builtin_rule: None,
+            matched_rule: false,
+            is_transient: false,
+            prefer_app_intent: false,
+        };
+        let matched_rule = InitialWindowIntent {
+            app_id: Some("firefox".to_string()),
+            matched_rule: true,
+            rule: ResolvedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Center,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+            },
+            ..default_late_app_id.clone()
+        };
+
+        assert!(!surface::should_repick_deferred_initial_window_position(
+            &default_late_app_id
+        ));
+        assert!(surface::should_repick_deferred_initial_window_position(
+            &matched_rule
+        ));
+    }
+
+    #[test]
+    fn view_center_reset_spawn_stays_centered_after_committed_size() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        state.model.viewport.center = Vec2 { x: 200.0, y: 0.0 };
+        state.model.viewport.size = Vec2 { x: 800.0, y: 600.0 };
+        let view_center = state.model.viewport.center;
+        let predicted_size = Vec2 { x: 80.0, y: 60.0 };
+        let committed_size = Vec2 { x: 180.0, y: 140.0 };
+
+        let focused = state.model.field.spawn_surface(
+            "focused",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_monitor(focused, monitor.as_str());
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+        let pending = state.model.field.spawn_surface(
+            "kitty-like",
+            Vec2 { x: 368.0, y: 0.0 },
+            predicted_size,
+        );
+        state.assign_node_to_monitor(pending, monitor.as_str());
+        state.model.spawn_state.initial_spawn_placements.insert(
+            pending,
+            crate::compositor::spawn::state::InitialSpawnPlacement {
+                monitor: monitor.clone(),
+                anchor_node: None,
+                anchor_pos: view_center,
+                anchor_ext: None,
+                chosen_pos: Vec2 { x: 368.0, y: 0.0 },
+                dir: None,
+                preserve_chosen_pos: true,
+                view_center_reset: true,
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
+            },
+        );
+
+        assert!(state.finalize_initial_spawn_position(pending, committed_size));
+
+        assert_eq!(
+            state.model.field.node(pending).expect("pending").pos,
+            view_center
+        );
+    }
+
+    #[test]
+    fn no_anchor_default_spawn_stays_centered_after_committed_size() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        state.model.viewport.center = Vec2 { x: 320.0, y: 0.0 };
+        state.model.viewport.size = Vec2 { x: 800.0, y: 600.0 };
+        let committed_size = Vec2 { x: 180.0, y: 140.0 };
+
+        let (_picked_monitor, pos, _) = state.pick_spawn_position(Vec2 { x: 80.0, y: 60.0 });
+        assert_eq!(pos, state.model.viewport.center);
+        let pending = state
+            .model
+            .field
+            .spawn_surface("kitty-like", pos, Vec2 { x: 80.0, y: 60.0 });
+        state.assign_node_to_monitor(pending, monitor.as_str());
+        let record = state
+            .model
+            .spawn_state
+            .pending_initial_spawn_placement
+            .take()
+            .expect("pending initial spawn placement");
+        assert!(record.view_center_reset);
+        state
+            .model
+            .spawn_state
+            .initial_spawn_placements
+            .insert(pending, record);
+
+        assert!(state.finalize_initial_spawn_position(pending, committed_size));
+
+        assert_eq!(state.model.field.node(pending).expect("pending").pos, pos);
+    }
+
+    #[test]
     fn pending_initial_reveal_clamps_new_window_without_displacing_existing() {
         let mut tuning = single_monitor_tuning();
         tuning.pan_to_new = halley_config::PanToNewMode::Never;
@@ -420,6 +536,7 @@ mod tests {
                 chosen_pos: predicted_pos,
                 dir: Some(Vec2 { x: 0.0, y: -1.0 }),
                 preserve_chosen_pos: false,
+                view_center_reset: false,
                 overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
             },
         );
@@ -524,6 +641,7 @@ mod tests {
                 chosen_pos: predicted_pos,
                 dir: Some(Vec2 { x: 0.0, y: -1.0 }),
                 preserve_chosen_pos: false,
+                view_center_reset: false,
                 overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
             },
         );
@@ -615,6 +733,7 @@ mod tests {
                     chosen_pos,
                     dir: Some(dir),
                     preserve_chosen_pos: false,
+                    view_center_reset: false,
                     overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
                 },
             );

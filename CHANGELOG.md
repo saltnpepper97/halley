@@ -31,6 +31,9 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Reset stale default spawn anchors when a monitor is empty or the focused window has been panned out of the active spawn area, so new windows start at the current viewport center instead of continuing an old left/right pattern.
 - Keep pan-away reset spawns centered against the current usable view once the view center leaves the focused window footprint, ignoring stale/off-center focus for fit and candidate generation while still avoiding windows in the current view.
+- Preserve view-center reset placement through late app-id and real-size commits, fixing kitty-style terminals being shifted off-center after their final geometry arrives.
+- Preserve no-anchor default/view-mode spawn placement through late size commits, covering intermittent terminal launches after spawn state has already switched to view anchoring.
+- Ignore stale spawn focus overrides after manual pan-away unless the current view center is still over the override footprint, preventing terminals from being pulled back toward the last focused window.
 - Avoid cursorless direct scanout for active fullscreen outputs that are waiting on frame callbacks, preventing fullscreen video from freezing when the cursor leaves or hides.
 - Make hover-mode keybind/default spawns follow the pointer monitor even when that monitor already has windows, avoiding terminals opening on the stale focused monitor at edge positions.
 - Latch the live pointer monitor for keyboard launch actions so stale pending spawn monitor state cannot route terminals to the previous output.

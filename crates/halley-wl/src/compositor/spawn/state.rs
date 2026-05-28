@@ -80,6 +80,7 @@ pub(crate) struct InitialSpawnPlacement {
     pub(crate) chosen_pos: Vec2,
     pub(crate) dir: Option<Vec2>,
     pub(crate) preserve_chosen_pos: bool,
+    pub(crate) view_center_reset: bool,
     pub(crate) overlap_policy: InitialWindowOverlapPolicy,
 }
 
