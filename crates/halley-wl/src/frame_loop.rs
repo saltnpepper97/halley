@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
@@ -543,6 +543,43 @@ pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str
     }
 }
 
+pub(crate) fn output_has_pending_frame_callbacks(st: &Halley, output_name: &str) -> bool {
+    st.platform
+        .wlr_layer_shell_state
+        .layer_surfaces()
+        .any(|layer| {
+            let surface = layer.wl_surface();
+            surface_on_output(st, surface, output_name)
+                && surface_tree_has_pending_frame_callbacks(surface)
+        })
+        || st
+            .platform
+            .xdg_shell_state
+            .toplevel_surfaces()
+            .iter()
+            .any(|top| {
+                let surface = top.wl_surface();
+                surface_visible_on_output(st, surface, output_name)
+                    && surface_tree_has_pending_frame_callbacks(surface)
+            })
+        || st
+            .platform
+            .xdg_shell_state
+            .popup_surfaces()
+            .iter()
+            .any(|popup| {
+                let popup_kind = PopupKind::from(popup.clone());
+                let Ok(root) = find_popup_root_surface(&popup_kind) else {
+                    return false;
+                };
+                surface_visible_on_output(st, &root, output_name)
+                    && surface_tree_has_pending_frame_callbacks(popup.wl_surface())
+            })
+        || matches!(st.platform.cursor_manager.cursor_image(), CursorImageStatus::Surface(surface) if surface.alive()
+            && cursor_surface_on_output(st, surface, output_name)
+            && surface_tree_has_pending_frame_callbacks(surface))
+}
+
 pub(crate) fn take_presentation_feedback_for_output(
     st: &Halley,
     output_name: &str,
@@ -654,6 +691,20 @@ fn surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> boo
         .is_some_and(|monitor| monitor == output_name)
 }
 
+fn surface_visible_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> bool {
+    if let Some(node_id) = st.model.surface_to_node.get(&surface.id()).copied() {
+        return st.model.field.is_visible(node_id)
+            && st
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&node_id)
+                .is_some_and(|monitor| monitor == output_name);
+    }
+
+    surface_on_output(st, surface, output_name)
+}
+
 fn cursor_surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> bool {
     let Some((sx, sy)) = cursor_global_position(st) else {
         return false;
@@ -716,6 +767,30 @@ fn send_frames_surface_tree(
         },
         |_, _, &()| true,
     );
+}
+
+fn surface_tree_has_pending_frame_callbacks(
+    surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+) -> bool {
+    let pending = Cell::new(false);
+    with_surface_tree_downward(
+        surface,
+        (),
+        |_, _, &()| TraversalAction::DoChildren(()),
+        |_, states, &()| {
+            pending.set(
+                pending.get()
+                    || !states
+                        .cached_state
+                        .get::<SurfaceAttributes>()
+                        .current()
+                        .frame_callbacks
+                        .is_empty(),
+            );
+        },
+        |_, _, &()| !pending.get(),
+    );
+    pending.get()
 }
 
 fn send_frames_surface_tree_for_output(

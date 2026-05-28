@@ -2391,6 +2391,17 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
 
+                    let frame_callback_due_outputs: HashSet<String> = due_outputs
+                        .iter()
+                        .filter(|output_name| {
+                            crate::frame_loop::output_has_pending_frame_callbacks(
+                                st,
+                                output_name.as_str(),
+                            )
+                        })
+                        .cloned()
+                        .collect();
+
                     if !due_outputs.is_empty() || !st.runtime.tty_redraw_outputs.is_empty() {
                         let animation_redraw_active = tty_animation_redraw_active(
                             st,
@@ -2405,6 +2416,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             &frame_clocks_for_timer,
                             st,
                         );
+                        eligible_outputs.extend(frame_callback_due_outputs);
                         if animation_redraw_active {
                             eligible_outputs.extend(tty_ready_animation_redraw_outputs(
                                 st,

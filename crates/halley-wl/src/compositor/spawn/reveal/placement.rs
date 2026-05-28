@@ -419,8 +419,25 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         let Some(node) = self.model.field.node(id) else {
             return false;
         };
+        self.pos_is_in_spawn_active_area(monitor, node.pos)
+    }
+
+    fn pos_is_in_spawn_active_area(&self, monitor: &str, pos: Vec2) -> bool {
         let center = self.view_center_for_monitor(monitor);
-        self.focus_ring_for_monitor(monitor).zone(center, node.pos) == FocusZone::Inside
+        self.focus_ring_for_monitor(monitor).zone(center, pos) == FocusZone::Inside
+    }
+
+    fn monitor_has_visible_spawn_surface(&self, monitor: &str) -> bool {
+        self.model.field.nodes().values().any(|node| {
+            node.kind == halley_core::field::NodeKind::Surface
+                && self.model.field.is_visible(node.id)
+                && self
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&node.id)
+                    .is_some_and(|node_monitor| node_monitor == monitor)
+        })
     }
 
     fn occupied_spawn_bounds(
@@ -1261,11 +1278,15 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             .take();
         self.spawn_monitor_state_mut(target_monitor.as_str())
             .spawn_cursor += 1;
-        let monitor_spawn = self.spawn_monitor_state(target_monitor.as_str());
         let viewport_center =
             read::spawn_read_context(self).viewport_center_for_monitor(target_monitor.as_str());
         let (focus_id, focus_pos) =
             read::spawn_read_context(self).current_spawn_focus(target_monitor.as_str());
+        if !self.monitor_has_visible_spawn_surface(target_monitor.as_str()) {
+            self.spawn_monitor_state_mut(target_monitor.as_str())
+                .spawn_patch = None;
+        }
+        let monitor_spawn = self.spawn_monitor_state(target_monitor.as_str());
         debug!(
             "spawn target resolved: target_monitor={} focused_monitor={} interaction_monitor={} anchor_mode={:?} focus_id={:?}",
             target_monitor,
@@ -1372,17 +1393,24 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             }
         }
 
+        let patch = monitor_spawn.spawn_patch.as_ref();
+        let patch_anchor_active = patch.is_some_and(|patch| {
+            self.pos_is_in_spawn_active_area(target_monitor.as_str(), patch.anchor)
+        });
         let focus_anchor_id = focus_id.filter(|id| {
             self.node_is_in_spawn_active_area(target_monitor.as_str(), *id)
-                || !self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), *id)
+                || (patch_anchor_active
+                    && !self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), *id))
         });
-        let patch = monitor_spawn.spawn_patch.as_ref();
         let focus_moved_from_patch = patch.is_some_and(|patch| {
             focus_anchor_id.is_some()
                 && ((focus_pos.x - patch.anchor.x).abs() > 0.5
                     || (focus_pos.y - patch.anchor.y).abs() > 0.5)
         });
-        let use_patch_anchor = patch.is_some() && !focus_moved_from_patch;
+        let use_patch_anchor = patch.is_some()
+            && self.monitor_has_visible_spawn_surface(target_monitor.as_str())
+            && patch_anchor_active
+            && !focus_moved_from_patch;
         let anchor = if use_patch_anchor {
             patch.map(|patch| patch.anchor).unwrap_or(viewport_center)
         } else if focus_anchor_id.is_some() {

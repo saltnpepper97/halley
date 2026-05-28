@@ -47,7 +47,6 @@ impl<'a> SpawnReadContext<'a> {
         if self.input_focus_mode == InputFocusMode::Hover
             && let Some(pointer_monitor) = self.pointer_monitor.as_deref()
             && self.monitor_state.monitors.contains_key(pointer_monitor)
-            && !self.monitor_has_visible_surface(pointer_monitor)
         {
             return pointer_monitor.to_string();
         }
@@ -57,19 +56,6 @@ impl<'a> SpawnReadContext<'a> {
             return focused;
         }
         self.interaction_monitor.to_string()
-    }
-
-    fn monitor_has_visible_surface(&self, monitor: &str) -> bool {
-        self.monitor_state
-            .node_monitor
-            .iter()
-            .any(|(id, node_monitor)| {
-                node_monitor == monitor
-                    && self.field.node(*id).is_some_and(|node| {
-                        node.kind == halley_core::field::NodeKind::Surface
-                            && self.field.is_visible(*id)
-                    })
-            })
     }
 
     fn last_input_surface_node_for_monitor(&self, monitor: &str) -> Option<NodeId> {

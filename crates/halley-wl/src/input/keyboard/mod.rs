@@ -143,6 +143,18 @@ fn log_keyboard_binding_resolution(
     );
 }
 
+fn latch_hover_keyboard_spawn_monitor(st: &mut Halley, pointer_screen: (f32, f32)) {
+    if st.runtime.tuning.input.focus_mode != halley_config::InputFocusMode::Hover {
+        return;
+    }
+    let Some(monitor) = st.monitor_for_screen(pointer_screen.0, pointer_screen.1) else {
+        return;
+    };
+    st.input.interaction_state.last_pointer_screen_global = Some(pointer_screen);
+    st.set_interaction_monitor(monitor.as_str());
+    st.model.spawn_state.pending_spawn_monitor = Some(monitor);
+}
+
 pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     st: &mut Halley,
     ctx: &InputCtx<'_, B>,
@@ -536,17 +548,78 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         intercept,
     );
 
-    if pressed
-        && matched_binding
-        && (first_binding_press
+    if pressed && matched_binding {
+        let should_apply = first_binding_press
             || (repeat_binding_press
                 && matched_action
                     .as_ref()
                     .is_some_and(|action: &CompositorBindingAction| {
                         compositor_action_allows_repeat(action.clone())
-                    })))
-        && apply_bound_key(st, code, &mods, ctx.config_path, ctx.wayland_display)
-    {
-        ctx.backend.request_redraw();
+                    }));
+        if should_apply {
+            let launch_like = matched_launch.is_some()
+                || matches!(matched_action, Some(CompositorBindingAction::OpenTerminal));
+            if launch_like {
+                let pointer_screen = ctx.pointer_state.borrow().screen;
+                latch_hover_keyboard_spawn_monitor(st, pointer_screen);
+            }
+            if apply_bound_key(st, code, &mods, ctx.config_path, ctx.wayland_display) {
+                ctx.backend.request_redraw();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hover_keyboard_launch_latches_pointer_monitor_over_stale_pending_monitor() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.input.focus_mode = halley_config::InputFocusMode::Hover;
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.spawn_state.pending_spawn_monitor = Some("left".to_string());
+
+        latch_hover_keyboard_spawn_monitor(&mut state, (900.0, 120.0));
+
+        assert_eq!(
+            state.model.spawn_state.pending_spawn_monitor.as_deref(),
+            Some("right")
+        );
+        assert_eq!(
+            state.input.interaction_state.last_pointer_screen_global,
+            Some((900.0, 120.0))
+        );
+        assert_eq!(state.interaction_monitor(), "right");
     }
 }

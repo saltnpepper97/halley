@@ -54,7 +54,7 @@ impl XdgShellHandler for Halley {
                 .pending_spawn_monitor
                 .clone()
                 .filter(|m| self.model.monitor_state.monitors.contains_key(m))
-                .unwrap_or_else(|| self.focused_monitor().to_string())
+                .unwrap_or_else(|| self.spawn_target_monitor_for_intent(&intent))
         } else {
             self.spawn_target_monitor_for_intent(&intent)
         };
