@@ -449,6 +449,7 @@ mod tests {
                 cluster_participation: InitialWindowClusterParticipation::Layout,
                 parent_node: None,
                 suppress_reveal_pan: false,
+                builtin_rule: None,
             },
         );
 

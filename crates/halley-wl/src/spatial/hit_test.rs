@@ -164,7 +164,7 @@ impl ActiveAreaView<'_> {
     }
 }
 
-pub(crate) fn pick_hit_node_at(
+pub(crate) fn hit_nodes_at(
     st: &Halley,
     w: i32,
     h: i32,
@@ -172,7 +172,7 @@ pub(crate) fn pick_hit_node_at(
     sy: f32,
     now: Instant,
     resize_preview: Option<ResizeCtx>,
-) -> Option<HitNode> {
+) -> Vec<HitNode> {
     let mut active: Vec<HitNode> = Vec::new();
     let mut node_dot: Vec<HitNode> = Vec::new();
     let stack_visible_front_to_back = active_stacking_visible_members_for_monitor(
@@ -258,10 +258,22 @@ pub(crate) fn pick_hit_node_at(
     active.sort_by(|a, b| active_ordering.compare(a, b));
     node_dot.sort_by_key(|h| Reverse(h.node_id.as_u64()));
 
+    active.extend(node_dot);
     active
+}
+
+pub(crate) fn pick_hit_node_at(
+    st: &Halley,
+    w: i32,
+    h: i32,
+    sx: f32,
+    sy: f32,
+    now: Instant,
+    resize_preview: Option<ResizeCtx>,
+) -> Option<HitNode> {
+    hit_nodes_at(st, w, h, sx, sy, now, resize_preview)
         .into_iter()
         .next()
-        .or_else(|| node_dot.into_iter().next())
 }
 
 pub(crate) fn node_in_active_area(st: &Halley, node_id: NodeId) -> bool {
@@ -372,6 +384,7 @@ mod tests {
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
                 parent_node: None,
                 suppress_reveal_pan: true,
+                builtin_rule: None,
             },
         );
 
@@ -410,6 +423,7 @@ mod tests {
                     cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
                     parent_node: None,
                     suppress_reveal_pan: true,
+                    builtin_rule: None,
                 },
             );
         }
@@ -451,6 +465,7 @@ mod tests {
                     cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
                     parent_node: None,
                     suppress_reveal_pan: true,
+                    builtin_rule: None,
                 },
             );
         }

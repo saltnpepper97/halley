@@ -13,7 +13,7 @@ use smithay::{
 
 use super::super::bearings::draw_bearings;
 use super::super::cursor::draw_cursor_sprite;
-use super::super::cursor_theme::themed_cursor_sprite_with_fallback;
+use super::super::cursor_theme::CursorManager;
 use super::super::draw_primitives::{draw_outline_rect, draw_rect, draw_ring};
 use super::super::node::{draw_closing_node_markers, draw_node_hover_labels, draw_node_markers};
 use super::super::pin_icon::draw_pin_badges;
@@ -802,13 +802,14 @@ pub(super) fn draw_cursor_layer(
     damage: Rectangle<i32, Physical>,
     cursor_screen: Option<(f32, f32)>,
     cursor: &CursorScene,
+    cursor_manager: &mut CursorManager,
     cursor_config: &halley_config::CursorConfig,
 ) -> Result<(), Box<dyn Error>> {
     if let Some((sx, sy)) = cursor_screen {
         let draw_fallback_arrow = match &cursor.cursor_status {
             smithay::input::pointer::CursorImageStatus::Hidden => false,
             smithay::input::pointer::CursorImageStatus::Named(icon) => {
-                if let Some(sprite) = themed_cursor_sprite_with_fallback(cursor_config, *icon) {
+                if let Some(sprite) = cursor_manager.sprite_with_fallback(cursor_config, *icon) {
                     draw_cursor_sprite(frame, damage, (sx, sy), sprite.as_ref())?;
                     false
                 } else {

@@ -423,6 +423,7 @@ mod tests {
                 spawn_placement,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
             },
+            builtin_rule: None,
             matched_rule: true,
             is_transient: parent_node.is_some(),
             prefer_app_intent: matches!(spawn_placement, InitialWindowSpawnPlacement::App),

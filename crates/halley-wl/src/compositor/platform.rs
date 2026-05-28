@@ -42,6 +42,7 @@ use smithay::{
 use super::root::Halley;
 use crate::backend::interface::DmabufImportBackend;
 use crate::protocol::wayland::ClientState;
+use crate::render::CursorManager;
 
 fn preferred_xdg_decoration_mode_for() -> XdgDecorationMode {
     XdgDecorationMode::ServerSide
@@ -78,7 +79,7 @@ pub(crate) struct PlatformState {
     pub(crate) data_control_state: DataControlState,
     pub(crate) session_lock: crate::protocol::wayland::session_lock::HalleySessionLockState,
     pub(crate) seat: Seat<Halley>,
-    pub(crate) cursor_image_status: CursorImageStatus,
+    pub(crate) cursor_manager: CursorManager,
     pub(crate) dmabuf_importer: Option<Rc<dyn DmabufImportBackend>>,
     pub(crate) dmabuf_output_feedbacks: HashMap<String, DmabufFeedback>,
 }
@@ -133,7 +134,10 @@ mod tests {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.cursor.hide_after_ms = 5_000;
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.platform.cursor_image_status = CursorImageStatus::default_named();
+        state
+            .platform
+            .cursor_manager
+            .set_cursor_image(CursorImageStatus::default_named());
         state.input.interaction_state.last_cursor_activity_at_ms = 0;
 
         assert!(matches!(
@@ -148,7 +152,10 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
-        state.platform.cursor_image_status = CursorImageStatus::Hidden;
+        state
+            .platform
+            .cursor_manager
+            .set_cursor_image(CursorImageStatus::Hidden);
         state.input.interaction_state.cursor_override_icon = Some(CursorIcon::Pointer);
 
         assert!(matches!(
@@ -199,14 +206,13 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         }
     }
 
-    if matches!(st.platform.cursor_image_status, CursorImageStatus::Hidden)
-        && pointer_has_client_focus
-    {
+    let cursor_image = st.platform.cursor_manager.cursor_image();
+
+    if matches!(cursor_image, CursorImageStatus::Hidden) && pointer_has_client_focus {
         return CursorImageStatus::Hidden;
     }
 
-    if matches!(&st.platform.cursor_image_status, CursorImageStatus::Surface(surface) if !surface.alive())
-    {
+    if matches!(cursor_image, CursorImageStatus::Surface(surface) if !surface.alive()) {
         return CursorImageStatus::default_named();
     }
 
@@ -214,7 +220,7 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         .interaction_state
         .cursor_override_icon
         .map(CursorImageStatus::Named)
-        .unwrap_or_else(|| st.platform.cursor_image_status.clone())
+        .unwrap_or_else(|| cursor_image.clone())
 }
 
 fn cursor_global_position(st: &Halley) -> Option<(f32, f32)> {
@@ -240,12 +246,13 @@ fn cursor_global_position(st: &Halley) -> Option<(f32, f32)> {
 }
 
 pub(crate) fn refresh_cursor_surface_outputs(st: &mut Halley) {
-    let surface = match &st.platform.cursor_image_status {
-        CursorImageStatus::Surface(surface) if surface.alive() => surface.clone(),
-        CursorImageStatus::Surface(_) => {
-            st.platform.cursor_image_status = CursorImageStatus::default_named();
-            return;
-        }
+    st.platform
+        .cursor_manager
+        .check_cursor_image_surface_alive();
+    let cursor_image = st.platform.cursor_manager.cursor_image().clone();
+    let surface = match cursor_image {
+        CursorImageStatus::Surface(surface) if surface.alive() => surface,
+        CursorImageStatus::Surface(_) => return,
         CursorImageStatus::Hidden | CursorImageStatus::Named(_) => return,
     };
     let Some((sx, sy)) = cursor_global_position(st) else {

@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::fs;
 use std::sync::{Arc, Mutex};
 
 use halley_config::CursorConfig;
 use once_cell::sync::Lazy;
-use smithay::input::pointer::CursorIcon;
+use smithay::input::pointer::{CursorIcon, CursorImageStatus};
+use smithay::utils::IsAlive;
 use xcursor::{CursorTheme, parser::Image};
 
 // ---------------------------------------------------------------------------
@@ -23,16 +25,96 @@ pub(crate) struct SoftwareCursorSprite {
 // Cache
 // ---------------------------------------------------------------------------
 
-#[derive(Clone)]
-struct CachedCursorSprite {
-    theme: String,
-    size: u32,
-    icon_key: String,
-    sprite: Option<Arc<SoftwareCursorSprite>>,
+type CursorSpriteCache = HashMap<(String, u32, String), Option<Arc<SoftwareCursorSprite>>>;
+
+#[derive(Default)]
+struct CursorSpriteManager {
+    cache: CursorSpriteCache,
 }
 
-static CURSOR_SPRITE_CACHE: Lazy<Mutex<Option<CachedCursorSprite>>> =
-    Lazy::new(|| Mutex::new(None));
+impl CursorSpriteManager {
+    fn sprite_with_fallback(
+        &mut self,
+        cursor: &CursorConfig,
+        icon: CursorIcon,
+    ) -> Option<Arc<SoftwareCursorSprite>> {
+        self.sprite(cursor, icon).or_else(|| {
+            if icon == CursorIcon::Default {
+                None
+            } else {
+                self.sprite(cursor, CursorIcon::Default)
+            }
+        })
+    }
+
+    fn sprite(
+        &mut self,
+        cursor: &CursorConfig,
+        icon: CursorIcon,
+    ) -> Option<Arc<SoftwareCursorSprite>> {
+        let theme = cursor.theme.trim();
+        let theme = if theme.is_empty() { "Adwaita" } else { theme };
+        let size = cursor.size.clamp(8, 128);
+        let icon_key = icon.name().to_string();
+        let cache_key = (theme.to_string(), size, icon_key);
+
+        self.cache
+            .entry(cache_key)
+            .or_insert_with(|| {
+                load_cursor_from_theme(theme, size, icon).or_else(|| {
+                    if theme == "Adwaita" {
+                        None
+                    } else {
+                        load_cursor_from_theme("Adwaita", size, icon)
+                    }
+                })
+            })
+            .clone()
+    }
+}
+
+static CURSOR_SPRITES: Lazy<Mutex<CursorSpriteManager>> =
+    Lazy::new(|| Mutex::new(CursorSpriteManager::default()));
+
+pub(crate) struct CursorManager {
+    current_cursor: CursorImageStatus,
+    sprites: CursorSpriteManager,
+}
+
+impl Default for CursorManager {
+    fn default() -> Self {
+        Self {
+            current_cursor: CursorImageStatus::default_named(),
+            sprites: CursorSpriteManager::default(),
+        }
+    }
+}
+
+impl CursorManager {
+    pub(crate) fn cursor_image(&self) -> &CursorImageStatus {
+        &self.current_cursor
+    }
+
+    pub(crate) fn set_cursor_image(&mut self, cursor: CursorImageStatus) {
+        self.current_cursor = cursor;
+    }
+
+    pub(crate) fn check_cursor_image_surface_alive(&mut self) {
+        if let CursorImageStatus::Surface(surface) = &self.current_cursor
+            && !surface.alive()
+        {
+            self.current_cursor = CursorImageStatus::default_named();
+        }
+    }
+
+    pub(crate) fn sprite_with_fallback(
+        &mut self,
+        cursor: &CursorConfig,
+        icon: CursorIcon,
+    ) -> Option<Arc<SoftwareCursorSprite>> {
+        self.sprites.sprite_with_fallback(cursor, icon)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Theme loading
@@ -84,50 +166,12 @@ fn load_cursor_from_theme(
 // Public sprite resolution with fallback chain
 // ---------------------------------------------------------------------------
 
-fn themed_cursor_sprite(
-    cursor: &CursorConfig,
-    icon: CursorIcon,
-) -> Option<Arc<SoftwareCursorSprite>> {
-    let theme = cursor.theme.trim();
-    let theme = if theme.is_empty() { "Adwaita" } else { theme };
-    let size = cursor.size.clamp(8, 128);
-    let icon_key = icon.name().to_string();
-
-    let mut cache = CURSOR_SPRITE_CACHE.lock().ok()?;
-    if let Some(cached) = cache.as_ref()
-        && cached.theme == theme
-        && cached.size == size
-        && cached.icon_key == icon_key
-    {
-        return cached.sprite.clone();
-    }
-
-    let sprite = load_cursor_from_theme(theme, size, icon).or_else(|| {
-        if theme == "Adwaita" {
-            None
-        } else {
-            load_cursor_from_theme("Adwaita", size, icon)
-        }
-    });
-
-    *cache = Some(CachedCursorSprite {
-        theme: theme.to_string(),
-        size,
-        icon_key,
-        sprite: sprite.clone(),
-    });
-    sprite
-}
-
 pub(crate) fn themed_cursor_sprite_with_fallback(
     cursor: &CursorConfig,
     icon: CursorIcon,
 ) -> Option<Arc<SoftwareCursorSprite>> {
-    themed_cursor_sprite(cursor, icon).or_else(|| {
-        if icon == CursorIcon::Default {
-            None
-        } else {
-            themed_cursor_sprite(cursor, CursorIcon::Default)
-        }
-    })
+    CURSOR_SPRITES
+        .lock()
+        .ok()?
+        .sprite_with_fallback(cursor, icon)
 }

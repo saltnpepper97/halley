@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::error::Error;
 use std::rc::Rc;
 
@@ -16,9 +17,37 @@ use crate::compositor::root::Halley;
 use crate::render::draw_debug_frame;
 use std::cell::Cell;
 
+#[derive(Default)]
+pub(crate) struct TtyRedrawRequests {
+    all_outputs: bool,
+    outputs: HashSet<String>,
+}
+
+impl TtyRedrawRequests {
+    pub(crate) fn mark_all_outputs(&mut self) {
+        self.all_outputs = true;
+    }
+
+    pub(crate) fn take_all_outputs(&mut self) -> bool {
+        std::mem::take(&mut self.all_outputs)
+    }
+
+    pub(crate) fn mark_output(&mut self, output_name: &str) {
+        self.outputs.insert(output_name.to_string());
+    }
+
+    pub(crate) fn take_outputs(&mut self) -> HashSet<String> {
+        std::mem::take(&mut self.outputs)
+    }
+}
+
 pub(crate) trait BackendView {
     fn window_size_i32(&self) -> (i32, i32);
     fn request_redraw(&self);
+
+    fn request_output_redraw(&self, _output_name: &str) {
+        self.request_redraw();
+    }
 }
 
 pub(crate) trait RenderBackend: BackendView {
@@ -44,6 +73,7 @@ pub(crate) struct CaptureDmabufResult {
 pub(crate) struct TtyBackendHandle {
     size: Rc<Cell<(i32, i32)>>,
     redraw_ping: Rc<RefCell<Option<Rc<Ping>>>>,
+    redraw_requests: Rc<RefCell<TtyRedrawRequests>>,
 }
 
 impl TtyBackendHandle {
@@ -51,6 +81,7 @@ impl TtyBackendHandle {
         Self {
             size: Rc::new(Cell::new((width, height))),
             redraw_ping: Rc::new(RefCell::new(None)),
+            redraw_requests: Rc::new(RefCell::new(TtyRedrawRequests::default())),
         }
     }
 
@@ -61,6 +92,14 @@ impl TtyBackendHandle {
     pub(crate) fn set_redraw_ping(&self, redraw_ping: Rc<Ping>) {
         *self.redraw_ping.borrow_mut() = Some(redraw_ping);
     }
+
+    pub(crate) fn take_redraw_all_outputs(&self) -> bool {
+        self.redraw_requests.borrow_mut().take_all_outputs()
+    }
+
+    pub(crate) fn take_redraw_outputs(&self) -> HashSet<String> {
+        self.redraw_requests.borrow_mut().take_outputs()
+    }
 }
 
 impl BackendView for TtyBackendHandle {
@@ -69,6 +108,14 @@ impl BackendView for TtyBackendHandle {
     }
 
     fn request_redraw(&self) {
+        self.redraw_requests.borrow_mut().mark_all_outputs();
+        if let Some(redraw_ping) = self.redraw_ping.borrow().as_ref() {
+            redraw_ping.ping();
+        }
+    }
+
+    fn request_output_redraw(&self, output_name: &str) {
+        self.redraw_requests.borrow_mut().mark_output(output_name);
         if let Some(redraw_ping) = self.redraw_ping.borrow().as_ref() {
             redraw_ping.ping();
         }

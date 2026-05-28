@@ -16,7 +16,7 @@ use smithay::wayland::{
 use crate::compositor::ctx::PointerCtx;
 use crate::compositor::interaction::drag::DragCtx;
 use crate::compositor::interaction::resize::ResizeCtx;
-use crate::compositor::interaction::state::NodeMoveAnim;
+use crate::compositor::interaction::state::{NodeMoveAnim, PointerContents};
 use crate::compositor::root::Halley;
 use crate::input::active_node_surface_transform_screen_details;
 
@@ -188,7 +188,7 @@ pub(crate) fn maybe_activate_pointer_constraint(st: &mut Halley, now: Instant) {
     let Some(current_focus) = pointer.current_focus() else {
         return;
     };
-    let focus = pointer_focus_at_last_screen(st, None, now).and_then(|(focus, _)| focus);
+    let focus = pointer_focus_at_last_screen(st, None, now).and_then(|(focus, _, _)| focus);
     let Some((surface, surface_origin)) = focus else {
         return;
     };
@@ -205,6 +205,7 @@ fn pointer_focus_at_last_screen(
 ) -> Option<(
     Option<(WlSurface, Point<f64, Logical>)>,
     Point<f64, Logical>,
+    PointerContents,
 )> {
     let pointer = st.platform.seat.get_pointer()?;
     let (global_sx, global_sy) = st
@@ -251,7 +252,48 @@ fn pointer_focus_at_last_screen(
         let cam_scale = st.camera_render_scale() as f64;
         (local_sx as f64 / cam_scale, local_sy as f64 / cam_scale).into()
     };
-    Some((focus, location))
+    let contents = pointer_contents_for_focus(st, monitor, focus.as_ref());
+    Some((focus, location, contents))
+}
+
+fn pointer_contents_for_focus(
+    st: &Halley,
+    monitor: String,
+    focus: Option<&(WlSurface, Point<f64, Logical>)>,
+) -> PointerContents {
+    let surface = focus.map(|(surface, _)| surface.id());
+    let root_surface = focus.map(|(surface, _)| surface_tree_root(surface).id());
+    let node_id = root_surface
+        .as_ref()
+        .and_then(|id| st.model.surface_to_node.get(id).copied());
+    let is_layer_surface = focus.is_some_and(|(surface, _)| {
+        crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+    });
+    let is_session_lock_surface = focus.is_some_and(|(surface, _)| {
+        crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
+    });
+
+    PointerContents {
+        monitor: Some(monitor),
+        surface,
+        root_surface,
+        node_id,
+        is_layer_surface,
+        is_session_lock_surface,
+    }
+}
+
+pub(crate) fn update_pointer_contents_from_focus(
+    st: &mut Halley,
+    monitor: String,
+    focus: Option<&(WlSurface, Point<f64, Logical>)>,
+) -> bool {
+    let contents = pointer_contents_for_focus(st, monitor, focus);
+    if st.input.interaction_state.pointer_contents == contents {
+        return false;
+    }
+    st.input.interaction_state.pointer_contents = contents;
+    true
 }
 
 pub(crate) fn refresh_pointer_focus_at_last_screen(
@@ -260,7 +302,7 @@ pub(crate) fn refresh_pointer_focus_at_last_screen(
     now: Instant,
 ) -> Option<(WlSurface, Point<f64, Logical>)> {
     let pointer = st.platform.seat.get_pointer()?;
-    let (focus, location) = pointer_focus_at_last_screen(st, resize_preview, now)?;
+    let (focus, location, contents) = pointer_focus_at_last_screen(st, resize_preview, now)?;
 
     pointer.motion(
         st,
@@ -272,8 +314,43 @@ pub(crate) fn refresh_pointer_focus_at_last_screen(
         },
     );
     pointer.frame(st);
+    st.input.interaction_state.pointer_contents = contents;
     maybe_activate_pointer_constraint(st, now);
     focus
+}
+
+pub(crate) fn update_pointer_contents_at_last_screen(
+    st: &mut Halley,
+    resize_preview: Option<ResizeCtx>,
+    now: Instant,
+) -> bool {
+    let Some(pointer) = st.platform.seat.get_pointer() else {
+        return false;
+    };
+    if pointer.is_grabbed() {
+        return false;
+    }
+    let Some((focus, location, contents)) = pointer_focus_at_last_screen(st, resize_preview, now)
+    else {
+        return false;
+    };
+    if st.input.interaction_state.pointer_contents == contents {
+        return false;
+    }
+
+    pointer.motion(
+        st,
+        focus,
+        &MotionEvent {
+            location,
+            serial: SERIAL_COUNTER.next_serial(),
+            time: crate::input::pointer::button::now_millis_u32(),
+        },
+    );
+    pointer.frame(st);
+    st.input.interaction_state.pointer_contents = contents;
+    maybe_activate_pointer_constraint(st, now);
+    true
 }
 
 pub(crate) fn clear_pointer_focus(st: &mut Halley) {
@@ -295,6 +372,7 @@ pub(crate) fn clear_pointer_focus(st: &mut Halley) {
         },
     );
     pointer.frame(st);
+    st.input.interaction_state.pointer_contents = PointerContents::default();
 }
 
 pub(crate) fn center_pointer_on_node(st: &mut Halley, node_id: NodeId, now: Instant) -> bool {

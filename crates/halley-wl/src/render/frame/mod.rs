@@ -238,12 +238,14 @@ pub(crate) fn draw_debug_frame_to_target(
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
 
     draw_debug_frame_scene(&mut frame, st, size, &prepared, &scene, hover_node)?;
+    let cursor_config = st.runtime.tuning.cursor.clone();
     draw_cursor_layer(
         &mut frame,
         prepared.damage,
         cursor_screen,
         &cursor,
-        &st.runtime.tuning.cursor,
+        &mut st.platform.cursor_manager,
+        &cursor_config,
     )?;
 
     let _ = frame.finish()?;

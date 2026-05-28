@@ -22,4 +22,4 @@ pub(crate) fn screen_to_world(
     }
 }
 
-pub(crate) use hit_test::{node_in_active_area, pick_hit_node_at};
+pub(crate) use hit_test::{hit_nodes_at, node_in_active_area, pick_hit_node_at};

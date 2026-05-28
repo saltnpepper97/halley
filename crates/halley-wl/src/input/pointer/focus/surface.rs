@@ -11,7 +11,7 @@ use smithay::wayland::{compositor::get_role, shell::xdg::XDG_POPUP_ROLE};
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::state::is_persistent_rule_top;
-use crate::spatial::pick_hit_node_at;
+use crate::spatial::{hit_nodes_at, pick_hit_node_at};
 
 use super::super::resize::active_node_surface_transform_screen_details;
 
@@ -337,46 +337,25 @@ pub(crate) fn pointer_focus_for_screen(
         return Some(focus);
     }
 
-    let hit = pick_hit_node_at(st, ws_w, ws_h, sx, sy, now, resize_preview)?;
-
-    let xform = active_node_surface_transform_screen_details(
-        st,
-        ws_w,
-        ws_h,
-        hit.node_id,
-        now,
-        resize_preview,
-    )?;
-    let scale = xform.scale.max(0.001);
-
-    let local = Point::<f64, Logical>::from((
-        ((sx - xform.origin_x) / scale) as f64,
-        ((sy - xform.origin_y) / scale) as f64,
-    ));
-
-    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
-        let wl = top.wl_surface().clone();
-        let key = wl.id();
-        if st.model.surface_to_node.get(&key).copied() != Some(hit.node_id) {
-            continue;
-        }
-
-        let Some((surface, surface_loc)) =
-            under_from_surface_tree(&wl, local, (0, 0), WindowSurfaceType::ALL)
-        else {
+    let hits = hit_nodes_at(st, ws_w, ws_h, sx, sy, now, resize_preview);
+    for hit in hits {
+        let Some(xform) = active_node_surface_transform_screen_details(
+            st,
+            ws_w,
+            ws_h,
+            hit.node_id,
+            now,
+            resize_preview,
+        ) else {
             continue;
         };
+        let scale = xform.scale.max(0.001);
 
-        let cam_scale_f = st.camera_render_scale() as f64;
-        let focus_origin = Point::<f64, Logical>::from((
-            xform.origin_x as f64 / cam_scale_f + surface_loc.x as f64,
-            xform.origin_y as f64 / cam_scale_f + surface_loc.y as f64,
+        let local = Point::<f64, Logical>::from((
+            ((sx - xform.origin_x) / scale) as f64,
+            ((sy - xform.origin_y) / scale) as f64,
         ));
 
-        return Some((surface, focus_origin));
-    }
-
-    if resize_preview.is_some_and(|rz| rz.node_id == hit.node_id) {
         for top in st.platform.xdg_shell_state.toplevel_surfaces() {
             let wl = top.wl_surface().clone();
             let key = wl.id();
@@ -384,13 +363,37 @@ pub(crate) fn pointer_focus_for_screen(
                 continue;
             }
 
+            let Some((surface, surface_loc)) =
+                under_from_surface_tree(&wl, local, (0, 0), WindowSurfaceType::ALL)
+            else {
+                continue;
+            };
+
             let cam_scale_f = st.camera_render_scale() as f64;
             let focus_origin = Point::<f64, Logical>::from((
-                xform.origin_x as f64 / cam_scale_f,
-                xform.origin_y as f64 / cam_scale_f,
+                xform.origin_x as f64 / cam_scale_f + surface_loc.x as f64,
+                xform.origin_y as f64 / cam_scale_f + surface_loc.y as f64,
             ));
 
-            return Some((wl, focus_origin));
+            return Some((surface, focus_origin));
+        }
+
+        if resize_preview.is_some_and(|rz| rz.node_id == hit.node_id) {
+            for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+                let wl = top.wl_surface().clone();
+                let key = wl.id();
+                if st.model.surface_to_node.get(&key).copied() != Some(hit.node_id) {
+                    continue;
+                }
+
+                let cam_scale_f = st.camera_render_scale() as f64;
+                let focus_origin = Point::<f64, Logical>::from((
+                    xform.origin_x as f64 / cam_scale_f,
+                    xform.origin_y as f64 / cam_scale_f,
+                ));
+
+                return Some((wl, focus_origin));
+            }
         }
     }
     None

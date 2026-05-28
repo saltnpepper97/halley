@@ -56,8 +56,9 @@ impl SeatHandler for Halley {
     }
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
-        self.platform.cursor_image_status = image;
+        self.platform.cursor_manager.set_cursor_image(image);
         crate::compositor::platform::refresh_cursor_surface_outputs(self);
+        self.runtime.tty_redraw_all = true;
         self.request_maintenance();
     }
 }
@@ -71,8 +72,9 @@ delegate_idle_notify!(Halley);
 
 impl TabletSeatHandler for Halley {
     fn tablet_tool_image(&mut self, _tool: &TabletToolDescriptor, image: CursorImageStatus) {
-        self.platform.cursor_image_status = image;
+        self.platform.cursor_manager.set_cursor_image(image);
         crate::compositor::platform::refresh_cursor_surface_outputs(self);
+        self.runtime.tty_redraw_all = true;
         self.request_maintenance();
     }
 }
@@ -117,9 +119,18 @@ impl CompositorHandler for Halley {
         on_commit_buffer_handler::<Self>(surface);
         self.install_drm_syncobj_blocker(surface);
         self.platform.popup_manager.commit(surface);
-        if crate::render::handle_cursor_surface_commit(&self.platform.cursor_image_status, surface)
-        {
+        if crate::render::handle_cursor_surface_commit(
+            self.platform.cursor_manager.cursor_image(),
+            surface,
+        ) {
             crate::compositor::platform::refresh_cursor_surface_outputs(self);
+            let output_name = self
+                .input
+                .interaction_state
+                .last_pointer_screen_global
+                .and_then(|(sx, sy)| self.monitor_for_screen(sx, sy))
+                .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
+            self.request_tty_redraw_for_monitor(output_name.as_str());
             self.request_maintenance();
         }
         workspace::lifecycle::on_surface_commit(

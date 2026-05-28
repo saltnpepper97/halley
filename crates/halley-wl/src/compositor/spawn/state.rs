@@ -48,6 +48,7 @@ pub(crate) struct AppliedInitialWindowRule {
     pub(crate) cluster_participation: InitialWindowClusterParticipation,
     pub(crate) parent_node: Option<NodeId>,
     pub(crate) suppress_reveal_pan: bool,
+    pub(crate) builtin_rule: Option<super::rules::BuiltinInitialWindowRule>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -370,6 +371,7 @@ mod tests {
                 cluster_participation: InitialWindowClusterParticipation::Float,
                 parent_node: None,
                 suppress_reveal_pan: true,
+                builtin_rule: None,
             },
         );
 

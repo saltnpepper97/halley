@@ -225,6 +225,12 @@ pub(super) fn dispatch_pointer_motion(
             )
         };
 
+        crate::compositor::interaction::pointer::update_pointer_contents_from_focus(
+            st,
+            routing.monitor.clone(),
+            focus.as_ref(),
+        );
+
         desktop_hover = focus.is_none();
         hover_focus_blocked = focus.as_ref().is_some_and(|(surface, _)| {
             crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)

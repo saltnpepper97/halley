@@ -5,7 +5,7 @@ use halley_config::CompositorBindingAction;
 use halley_core::cluster::ClusterId;
 use halley_core::field::{NodeId, Vec2};
 use halley_core::viewport::Viewport;
-use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::reexports::wayland_server::{backend::ObjectId, protocol::wl_surface::WlSurface};
 
 use crate::compositor::interaction::drag::DragAxisMode;
 use crate::compositor::root::Halley;
@@ -214,10 +214,21 @@ pub(crate) struct FocusCycleSession {
     pub(crate) immersive_lock_released: bool,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PointerContents {
+    pub(crate) monitor: Option<String>,
+    pub(crate) surface: Option<ObjectId>,
+    pub(crate) root_surface: Option<ObjectId>,
+    pub(crate) node_id: Option<NodeId>,
+    pub(crate) is_layer_surface: bool,
+    pub(crate) is_session_lock_surface: bool,
+}
+
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
     pub(crate) last_pointer_screen_global: Option<(f32, f32)>,
+    pub(crate) pointer_contents: PointerContents,
     pub(crate) suppress_layer_shell_configure: bool,
     pub(crate) dpms_just_woke: bool,
     pub(crate) resize_active: Option<NodeId>,
@@ -755,7 +766,10 @@ mod tests {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.cursor.hide_while_typing = false;
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.platform.cursor_image_status = CursorImageStatus::Hidden;
+        state
+            .platform
+            .cursor_manager
+            .set_cursor_image(CursorImageStatus::Hidden);
 
         // Should return hidden (respecting the client)
         assert!(matches!(

@@ -32,9 +32,18 @@ pub(crate) struct InitialWindowIntent {
     pub(crate) title: Option<String>,
     pub(crate) parent_node: Option<NodeId>,
     pub(crate) rule: ResolvedInitialWindowRule,
+    pub(crate) builtin_rule: Option<BuiltinInitialWindowRule>,
     pub(crate) matched_rule: bool,
     pub(crate) is_transient: bool,
     pub(crate) prefer_app_intent: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BuiltinInitialWindowRule {
+    Dialog,
+    PortalDialog,
+    PictureInPicture,
+    SteamStartup,
 }
 
 impl InitialWindowIntent {
@@ -44,6 +53,7 @@ impl InitialWindowIntent {
             title: self.title.clone(),
             parent_node: self.parent_node,
             rule: ResolvedInitialWindowRule::default(),
+            builtin_rule: None,
             matched_rule: false,
             is_transient: self.is_transient,
             prefer_app_intent: false,
@@ -65,6 +75,7 @@ impl InitialWindowIntent {
                 InitialWindowSpawnPlacement::Adjacent
             ) || effective_overlap_policy != InitialWindowOverlapPolicy::None
                 || self.rule.cluster_participation == InitialWindowClusterParticipation::Float,
+            builtin_rule: self.builtin_rule,
         }
     }
 
@@ -115,12 +126,14 @@ fn resolve_initial_window_intent_from_identity(
     parent_node: Option<NodeId>,
     is_dialog: bool,
 ) -> InitialWindowIntent {
-    let rule = matching_window_rule(st, app_id.as_deref(), title.as_deref(), is_dialog);
+    let (rule, builtin_rule) =
+        matching_window_rule_with_source(st, app_id.as_deref(), title.as_deref(), is_dialog);
     InitialWindowIntent {
         app_id,
         title,
         parent_node,
         rule: rule.unwrap_or_default(),
+        builtin_rule,
         matched_rule: rule.is_some(),
         is_transient: parent_node.is_some() || is_dialog,
         prefer_app_intent: rule
@@ -215,35 +228,63 @@ fn matching_builtin_window_rule(
     app_id: Option<&str>,
     title: Option<&str>,
     is_dialog: bool,
-) -> Option<ResolvedInitialWindowRule> {
+) -> Option<(BuiltinInitialWindowRule, ResolvedInitialWindowRule)> {
     if is_dialog {
-        return Some(builtin_float_center_overlap_rule());
+        return Some((
+            BuiltinInitialWindowRule::Dialog,
+            builtin_float_center_overlap_rule(),
+        ));
     }
 
     if app_id == Some("xdg-desktop-portal-gtk") && title.is_some_and(portal_dialog_title_matches) {
-        return Some(builtin_float_center_overlap_rule());
+        return Some((
+            BuiltinInitialWindowRule::PortalDialog,
+            builtin_float_center_overlap_rule(),
+        ));
     }
 
     if title == Some("Picture-in-Picture") {
-        return Some(builtin_float_center_overlap_rule());
+        return Some((
+            BuiltinInitialWindowRule::PictureInPicture,
+            builtin_float_center_overlap_rule(),
+        ));
     }
 
     if app_id == Some("steam") && title.is_some_and(|t| steam_startup_title_matches(t)) {
-        return Some(builtin_float_center_overlap_rule());
+        return Some((
+            BuiltinInitialWindowRule::SteamStartup,
+            builtin_float_center_overlap_rule(),
+        ));
     }
 
     None
 }
 
+fn matching_window_rule_with_source(
+    st: &Halley,
+    app_id: Option<&str>,
+    title: Option<&str>,
+    is_dialog: bool,
+) -> (
+    Option<ResolvedInitialWindowRule>,
+    Option<BuiltinInitialWindowRule>,
+) {
+    if let Some(rule) = matching_user_window_rule(st, app_id, title).map(rule_match) {
+        return (Some(rule), None);
+    }
+    matching_builtin_window_rule(app_id, title, is_dialog)
+        .map(|(builtin, rule)| (Some(rule), Some(builtin)))
+        .unwrap_or((None, None))
+}
+
+#[cfg(test)]
 fn matching_window_rule(
     st: &Halley,
     app_id: Option<&str>,
     title: Option<&str>,
     is_dialog: bool,
 ) -> Option<ResolvedInitialWindowRule> {
-    matching_user_window_rule(st, app_id, title)
-        .map(rule_match)
-        .or_else(|| matching_builtin_window_rule(app_id, title, is_dialog))
+    matching_window_rule_with_source(st, app_id, title, is_dialog).0
 }
 
 fn builtin_window_rule_may_match_later(app_id: Option<&str>, title: Option<&str>) -> bool {
@@ -598,6 +639,7 @@ mod tests {
             title: None,
             parent_node: None,
             rule: ResolvedInitialWindowRule::default(),
+            builtin_rule: None,
             matched_rule: false,
             is_transient: false,
             prefer_app_intent: false,
@@ -625,6 +667,7 @@ mod tests {
             title: None,
             parent_node: None,
             rule: ResolvedInitialWindowRule::default(),
+            builtin_rule: None,
             matched_rule: false,
             is_transient: false,
             prefer_app_intent: false,
@@ -642,6 +685,7 @@ mod tests {
             title: None,
             parent_node: None,
             rule: ResolvedInitialWindowRule::default(),
+            builtin_rule: None,
             matched_rule: false,
             is_transient: false,
             prefer_app_intent: false,
@@ -659,6 +703,7 @@ mod tests {
             title: None,
             parent_node: None,
             rule: ResolvedInitialWindowRule::default(),
+            builtin_rule: None,
             matched_rule: false,
             is_transient: false,
             prefer_app_intent: false,
@@ -676,6 +721,7 @@ mod tests {
             title: None,
             parent_node: None,
             rule: ResolvedInitialWindowRule::default(),
+            builtin_rule: None,
             matched_rule: false,
             is_transient: false,
             prefer_app_intent: false,
@@ -693,6 +739,7 @@ mod tests {
             title: Some("Subnautica 2".to_string()),
             parent_node: None,
             rule: ResolvedInitialWindowRule::default(),
+            builtin_rule: None,
             matched_rule: false,
             is_transient: false,
             prefer_app_intent: false,
@@ -712,6 +759,7 @@ mod tests {
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Float,
             },
+            builtin_rule: None,
             matched_rule: true,
             is_transient: false,
             prefer_app_intent: false,

@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Add `wp_presentation` support and send presentation feedback after TTY and winit frames so Wayland clients such as gamescope can receive frame timing instead of falling back to X11 behavior.
+- Add a cursor redraw hook and targeted TTY output redraw requests so pointer-only motion can repaint the affected output instead of forcing every monitor through a redraw.
 - Add fractional scale protocol support, including DPI-based output scale guesses and preferred scale updates for surfaces as they move between monitors.
 - Add configurable Aperture placement for cursor-following, a fixed monitor, or every output, including per-output Aperture status IPC and CLI output.
 - Add `aperture-peek` styling for corner, rounded background, radius, and clock appearance, plus an `examples/aperture.rune` sample config.
@@ -16,6 +17,9 @@ All notable changes to this project will be documented in this file.
 - Add strict config validation diagnostics for unknown Halley keys and invalid literals, with path, line, source text, and suggestions when available.
 
 ### Changed
+- Move TTY `wp_presentation` delivery to the DRM vblank completion path, carrying feedback as frame data and reporting `Vsync`, `HwCompletion`, and real `HwClock` timestamps when available.
+- Expand TTY DRM compositor setup for stricter drivers by using high-priority EGL contexts, supporting `Xbgr8888`/`Abgr8888` scanout formats, and retrying compositor creation with invalid modifiers when advertised modifiers fail.
+- Cache cursor sprites by theme, size, and icon so cursor changes avoid repeatedly reloading the same theme images.
 - Rework Xwayland socket startup around event-loop socket watchers, safer listener handoff, close-on-exec lock files, `-listenfd` capability detection, and portal `DISPLAY` activation environment export.
 - Rework `halley-aperture` standalone rendering to maintain per-output layer surfaces, redraw clocks on a timed Wayland poll loop, and keep animations advancing without busy sleeping.
 - Treat pinning as a property of the active entity by transferring pinned state from windows into clusters and collapsed cluster cores, keeping pinned core visibility and IPC state consistent across create, absorb, collapse, expand, and dissolve flows.
@@ -24,6 +28,10 @@ All notable changes to this project will be documented in this file.
 - Rename the default explicit field-drag pointer action from `field-jump` to `pan-field`, keeping `field-jump` and `drag-pan` as config aliases for compatibility.
 
 ### Fixed
+- Restore direct game client cursor handoff by sending frame callbacks and presentation feedback to client cursor surfaces, refreshing pointer contents when the surface under the cursor changes, and falling through transparent helper hit nodes to the actual surface below.
+- Keep Steam's built-in startup/login overlap behavior from leaking onto the main Steam client by expiring the startup rule once the surface no longer matches the login window.
+- Route layer-shell commits through the monitor assigned to that layer surface so layer state updates no longer use the wrong active monitor context.
+- Throttle TTY redraws and frame callbacks per output so fullscreen/video timer frames and cursor motion avoid unnecessary cross-monitor redraw work.
 - Use the launch or window-rule spawn target monitor for initial `xdg_toplevel` configure bounds so new clients receive bounds for the output they will actually open on.
 - Prevent focus decay while spawn or open transitions are still active, avoiding premature collapse during window launch and reveal animations.
 - Preserve fullscreen and pointer state across monitor changes by separating soft fullscreen suspension from client fullscreen exits, refreshing pointer constraints from the last screen position, releasing constraints when crossing monitors, and keeping cursor surface output state current.

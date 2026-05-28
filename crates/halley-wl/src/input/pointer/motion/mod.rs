@@ -121,7 +121,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
 
     st.activate_monitor(routing.monitor.as_str());
 
-    let (desktop_hover, hover_focus_blocked) = {
+    let (_, hover_focus_blocked) = {
         let ps = ctx.pointer_state.borrow();
         match routing::dispatch_pointer_motion(
             st,
@@ -164,6 +164,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         st.now_ms(now),
     );
     let mut ps = ctx.pointer_state.borrow_mut();
+    let previous_cursor_monitor = st.monitor_for_screen(ps.screen.0, ps.screen.1);
     ps.world = p;
     ps.screen = (routing.global_sx, routing.global_sy);
     ps.workspace_size = (routing.ws_w, routing.ws_h);
@@ -455,7 +456,8 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
 
     focus::apply_hover_focus_mode(st, hover_hit, hover_focus_blocked, now);
 
-    if next_hover != ps.hover_node {
+    let hover_changed = next_hover != ps.hover_node;
+    if hover_changed {
         ps.hover_started_at = next_hover.map(|_| now);
     } else if next_hover.is_none() {
         ps.hover_started_at = None;
@@ -488,11 +490,26 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     if ps.drag.is_none()
         && ps.resize.is_none()
         && !ps.panning
-        && desktop_hover
         && st.input.interaction_state.overlay_hover_target.is_none()
+        && st.input.interaction_state.pending_core_hover.is_none()
     {
         crate::compositor::interaction::pointer::set_cursor_override_icon(st, None);
     }
 
-    ctx.backend.request_redraw();
+    if !hover_changed
+        && ps.drag.is_none()
+        && ps.resize.is_none()
+        && !ps.panning
+        && st.input.interaction_state.pending_core_hover.is_none()
+        && st.input.interaction_state.overlay_hover_target.is_none()
+    {
+        if let Some(previous_monitor) = previous_cursor_monitor.as_deref()
+            && previous_monitor != routing.monitor.as_str()
+        {
+            ctx.backend.request_output_redraw(previous_monitor);
+        }
+        ctx.backend.request_output_redraw(routing.monitor.as_str());
+    } else {
+        ctx.backend.request_redraw();
+    }
 }

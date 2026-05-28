@@ -167,6 +167,7 @@ mod tests {
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
                 parent_node: None,
                 suppress_reveal_pan: true,
+                builtin_rule: None,
             },
         );
 
@@ -220,6 +221,7 @@ mod tests {
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
                 parent_node: None,
                 suppress_reveal_pan: true,
+                builtin_rule: None,
             },
         );
 

@@ -159,7 +159,46 @@ pub(super) fn refresh_node_identity_for_surface(
         }
     }
 
-    maybe_apply_pending_initial_window_rule(st, node_id, &root_surface, Instant::now());
+    let now = Instant::now();
+    maybe_apply_pending_initial_window_rule(st, node_id, &root_surface, now);
+    expire_stale_steam_startup_rule(st, node_id, &root_surface, now);
+}
+
+fn expire_stale_steam_startup_rule(
+    st: &mut Halley,
+    node_id: NodeId,
+    root_surface: &WlSurface,
+    now: Instant,
+) {
+    let had_steam_startup_rule = st
+        .model
+        .spawn_state
+        .applied_window_rules
+        .get(&node_id)
+        .is_some_and(|rule| {
+            rule.builtin_rule
+                == Some(crate::compositor::spawn::rules::BuiltinInitialWindowRule::SteamStartup)
+        });
+    if !had_steam_startup_rule {
+        return;
+    }
+
+    let intent = crate::compositor::spawn::rules::resolve_initial_window_intent_for_surface(
+        st,
+        root_surface,
+    );
+    if intent.builtin_rule
+        == Some(crate::compositor::spawn::rules::BuiltinInitialWindowRule::SteamStartup)
+    {
+        return;
+    }
+
+    st.model.spawn_state.applied_window_rules.remove(&node_id);
+    st.resolve_surface_overlap();
+    let _ = crate::compositor::interaction::pointer::refresh_pointer_focus_at_last_screen(
+        st, None, now,
+    );
+    st.request_maintenance();
 }
 
 fn maybe_apply_pending_initial_window_rule(
@@ -401,10 +440,13 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         st.model.monitor_state.node_monitor.get(node_id).cloned()
     } else if crate::protocol::wayland::session_lock::is_session_lock_surface(st, &root_surface) {
         crate::protocol::wayland::session_lock::monitor_for_surface(st, &root_surface)
+    } else if let Some(monitor) = st.model.monitor_state.layer_surface_monitor.get(&root_key) {
+        Some(monitor.clone())
     } else {
         None
     }
     .unwrap_or_else(|| st.model.monitor_state.focused_monitor.clone());
+    st.request_tty_redraw_for_monitor(target_monitor.as_str());
 
     for (name, output) in &st.model.monitor_state.outputs {
         if *name == target_monitor {
