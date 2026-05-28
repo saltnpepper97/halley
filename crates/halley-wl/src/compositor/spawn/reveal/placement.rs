@@ -4,7 +4,7 @@ use std::time::Instant;
 use eventline::debug;
 use halley_config::{InitialWindowOverlapPolicy, InitialWindowSpawnPlacement};
 use halley_core::field::{NodeId, Vec2};
-use halley_core::viewport::{FocusZone, Viewport};
+use halley_core::viewport::Viewport;
 
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::overlap::system::CollisionExtents;
@@ -348,6 +348,53 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         })
     }
 
+    fn spawn_candidate_fits_with_view_obstacles(
+        &self,
+        monitor: &str,
+        pos: Vec2,
+        size: Vec2,
+    ) -> bool {
+        let pair_gap = self.non_overlap_gap_world();
+        let candidate = spawn_candidate_extents(
+            size,
+            active_window_frame_pad_px(&self.runtime.tuning) as f32,
+        );
+        !self.model.field.nodes().values().any(|other| {
+            let Some((other_pos, other_ext)) = self.visible_spawn_obstacle(monitor, other.id)
+            else {
+                return false;
+            };
+            if !self.obstacle_intersects_current_view(monitor, other_pos, other_ext) {
+                return false;
+            }
+            let req_x = self.required_sep_x(pos.x, candidate, other_pos.x, other_ext, pair_gap);
+            let req_y = self.required_sep_y(pos.y, candidate, other_pos.y, other_ext, pair_gap);
+            (pos.x - other_pos.x).abs() < req_x && (pos.y - other_pos.y).abs() < req_y
+        })
+    }
+
+    fn obstacle_intersects_current_view(
+        &self,
+        monitor: &str,
+        pos: Vec2,
+        ext: CollisionExtents,
+    ) -> bool {
+        let view = self.usable_viewport_for_monitor(monitor);
+        let left = view.center.x - view.size.x * 0.5;
+        let right = view.center.x + view.size.x * 0.5;
+        let top = view.center.y - view.size.y * 0.5;
+        let bottom = view.center.y + view.size.y * 0.5;
+        let obstacle_left = pos.x - ext.left;
+        let obstacle_right = pos.x + ext.right;
+        let obstacle_top = pos.y - ext.top;
+        let obstacle_bottom = pos.y + ext.bottom;
+
+        obstacle_right >= left
+            && obstacle_left <= right
+            && obstacle_bottom >= top
+            && obstacle_top <= bottom
+    }
+
     fn visible_spawn_obstacle(
         &self,
         monitor: &str,
@@ -415,16 +462,21 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         spawn_safe_obstacle_extents(self.spawn_obstacle_extents_for_node(node))
     }
 
-    fn node_is_in_spawn_active_area(&self, monitor: &str, id: NodeId) -> bool {
+    fn view_center_hits_spawn_node(&self, monitor: &str, id: NodeId) -> bool {
         let Some(node) = self.model.field.node(id) else {
             return false;
         };
-        self.pos_is_in_spawn_active_area(monitor, node.pos)
+        let center = self.usable_viewport_for_monitor(monitor).center;
+        let ext = self.spawn_safe_obstacle_extents_for_node(node);
+        center.x >= node.pos.x - ext.left
+            && center.x <= node.pos.x + ext.right
+            && center.y >= node.pos.y - ext.top
+            && center.y <= node.pos.y + ext.bottom
     }
 
-    fn pos_is_in_spawn_active_area(&self, monitor: &str, pos: Vec2) -> bool {
-        let center = self.view_center_for_monitor(monitor);
-        self.focus_ring_for_monitor(monitor).zone(center, pos) == FocusZone::Inside
+    fn point_is_spawn_view_center(&self, monitor: &str, pos: Vec2) -> bool {
+        let center = self.usable_viewport_for_monitor(monitor).center;
+        (pos.x - center.x).abs() <= 0.5 && (pos.y - center.y).abs() <= 0.5
     }
 
     fn monitor_has_visible_spawn_surface(&self, monitor: &str) -> bool {
@@ -723,6 +775,20 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
             overlap_policy,
             parent_node,
         ))
+    }
+
+    fn try_view_center_spawn_star(&self, monitor: &str, center: Vec2, size: Vec2) -> Option<Vec2> {
+        for offset in self.star_candidate_offsets(size) {
+            let pos = Vec2 {
+                x: center.x + offset.x,
+                y: center.y + offset.y,
+            };
+            if self.spawn_candidate_fits_with_view_obstacles(monitor, pos, size) {
+                return Some(pos);
+            }
+        }
+
+        None
     }
 
     fn strict_spawn_arm_candidate(
@@ -1395,12 +1461,18 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
 
         let patch = monitor_spawn.spawn_patch.as_ref();
         let patch_anchor_active = patch.is_some_and(|patch| {
-            self.pos_is_in_spawn_active_area(target_monitor.as_str(), patch.anchor)
+            patch
+                .focus_node
+                .is_some_and(|id| self.view_center_hits_spawn_node(target_monitor.as_str(), id))
+                || (patch.focus_node.is_none()
+                    && self.point_is_spawn_view_center(target_monitor.as_str(), patch.anchor))
         });
         let focus_anchor_id = focus_id.filter(|id| {
-            self.node_is_in_spawn_active_area(target_monitor.as_str(), *id)
-                || (patch_anchor_active
-                    && !self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), *id))
+            let focus_continues_active_patch = patch.is_some_and(|patch| {
+                patch_anchor_active && patch.focus_node.is_some() && patch.focus_node != Some(*id)
+            });
+            self.view_center_hits_spawn_node(target_monitor.as_str(), *id)
+                || focus_continues_active_patch
         });
         let focus_moved_from_patch = patch.is_some_and(|patch| {
             focus_anchor_id.is_some()
@@ -1420,6 +1492,8 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         } else {
             focus_pos
         };
+        let reset_to_view_center =
+            !use_patch_anchor && focus_id.is_some() && focus_anchor_id.is_none();
         let anchor_node = if use_patch_anchor {
             patch.and_then(|patch| patch.focus_node).or(focus_anchor_id)
         } else {
@@ -1431,9 +1505,12 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                     .then(|| self.spawn_safe_obstacle_extents_for_node(node))
             })
         });
-        let pos = self
-            .try_strict_spawn_star(target_monitor.as_str(), anchor, size)
-            .unwrap_or(anchor);
+        let pos = if reset_to_view_center {
+            self.try_view_center_spawn_star(target_monitor.as_str(), anchor, size)
+        } else {
+            self.try_strict_spawn_star(target_monitor.as_str(), anchor, size)
+        }
+        .unwrap_or(anchor);
         self.set_pending_initial_spawn_placement(
             target_monitor.as_str(),
             anchor_node,

@@ -30,6 +30,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Reset stale default spawn anchors when a monitor is empty or the focused window has been panned out of the active spawn area, so new windows start at the current viewport center instead of continuing an old left/right pattern.
+- Keep pan-away reset spawns centered against the current usable view once the view center leaves the focused window footprint, ignoring stale/off-center focus for fit and candidate generation while still avoiding windows in the current view.
+- Avoid cursorless direct scanout for active fullscreen outputs that are waiting on frame callbacks, preventing fullscreen video from freezing when the cursor leaves or hides.
 - Make hover-mode keybind/default spawns follow the pointer monitor even when that monitor already has windows, avoiding terminals opening on the stale focused monitor at edge positions.
 - Latch the live pointer monitor for keyboard launch actions so stale pending spawn monitor state cannot route terminals to the previous output.
 - Keep visible TTY clients with pending frame callbacks paced on refresh ticks so unfocused fullscreen video continues advancing frames.

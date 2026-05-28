@@ -559,7 +559,7 @@ pub(crate) fn output_has_pending_frame_callbacks(st: &Halley, output_name: &str)
             .iter()
             .any(|top| {
                 let surface = top.wl_surface();
-                surface_visible_on_output(st, surface, output_name)
+                surface_frame_callback_relevant_on_output(st, surface, output_name)
                     && surface_tree_has_pending_frame_callbacks(surface)
             })
         || st
@@ -572,7 +572,7 @@ pub(crate) fn output_has_pending_frame_callbacks(st: &Halley, output_name: &str)
                 let Ok(root) = find_popup_root_surface(&popup_kind) else {
                     return false;
                 };
-                surface_visible_on_output(st, &root, output_name)
+                surface_frame_callback_relevant_on_output(st, &root, output_name)
                     && surface_tree_has_pending_frame_callbacks(popup.wl_surface())
             })
         || matches!(st.platform.cursor_manager.cursor_image(), CursorImageStatus::Surface(surface) if surface.alive()
@@ -691,9 +691,19 @@ fn surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> boo
         .is_some_and(|monitor| monitor == output_name)
 }
 
-fn surface_visible_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> bool {
+fn surface_frame_callback_relevant_on_output(
+    st: &Halley,
+    surface: &WlSurface,
+    output_name: &str,
+) -> bool {
     if let Some(node_id) = st.model.surface_to_node.get(&surface.id()).copied() {
-        return st.model.field.is_visible(node_id)
+        let fullscreen_on_output = st
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .get(output_name)
+            .is_some_and(|active| *active == node_id);
+        return (st.model.field.is_visible(node_id) || fullscreen_on_output)
             && st
                 .model
                 .monitor_state

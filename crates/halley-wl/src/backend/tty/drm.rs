@@ -1239,8 +1239,16 @@ pub(crate) fn queue_tty_drm_frame(
 
         let disable_direct_scanout =
             tty_env_flag("HALLEY_DISABLE_DIRECT_SCANOUT") || tty_env_flag("HALLEY_FORCE_COMPOSED");
-        let allow_direct_scanout =
-            !disable_direct_scanout && primary_render_node == output_render_node;
+        let fullscreen_needs_paced_frames =
+            crate::frame_loop::output_has_pending_frame_callbacks(st, output_name)
+                && st
+                    .model
+                    .fullscreen_state
+                    .fullscreen_active_node
+                    .contains_key(output_name);
+        let allow_direct_scanout = !disable_direct_scanout
+            && !fullscreen_needs_paced_frames
+            && primary_render_node == output_render_node;
         match allow_direct_scanout.then(|| {
             fullscreen_direct_scanout_candidate(
                 st,
