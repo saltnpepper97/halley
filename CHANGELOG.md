@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Add strict config validation diagnostics for unknown Halley keys and invalid literals, with path, line, source text, and suggestions when available.
 
 ### Changed
+- Split the large overlay renderer module into focused banner, toast, focus-cycle, cluster-overflow, chip, action-row, hover-label, selection-marker, and text-helper modules while preserving the existing overlay API and behavior.
 - Move TTY `wp_presentation` delivery to the DRM vblank completion path, carrying feedback as frame data and reporting `Vsync`, `HwCompletion`, and real `HwClock` timestamps when available.
 - Expand TTY DRM compositor setup for stricter drivers by using high-priority EGL contexts, supporting `Xbgr8888`/`Abgr8888` scanout formats, and retrying compositor creation with invalid modifiers when advertised modifiers fail.
 - Cache cursor sprites by theme, size, and icon so cursor changes avoid repeatedly reloading the same theme images.
