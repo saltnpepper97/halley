@@ -37,6 +37,8 @@ use calloop::ping::make_ping;
 use smithay::backend::drm::{DrmEventMetadata, DrmEventTime, DrmNode};
 use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::udev::{UdevBackend, UdevEvent};
+use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
+use smithay::wayland::presentation::Refresh;
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, Event, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
@@ -78,6 +80,37 @@ fn drm_vblank_timestamp(metadata: Option<&DrmEventMetadata>) -> Duration {
     }
 
     monotonic_now_duration()
+}
+
+fn present_tty_frame_feedback<E: std::fmt::Display>(
+    output_name: &str,
+    submitted: Result<Option<smithay::desktop::utils::OutputPresentationFeedback>, E>,
+    presentation_time: Duration,
+    refresh_interval: Option<Duration>,
+    sequence: u64,
+) {
+    let Some(mut feedback) = (match submitted {
+        Ok(feedback) => feedback,
+        Err(err) => {
+            warn!(
+                "failed to mark drm frame submitted for {}: {}",
+                output_name, err
+            );
+            return;
+        }
+    }) else {
+        return;
+    };
+
+    let refresh = refresh_interval
+        .map(Refresh::Fixed)
+        .unwrap_or(Refresh::Unknown);
+    let mut flags =
+        wp_presentation_feedback::Kind::Vsync | wp_presentation_feedback::Kind::HwCompletion;
+    if !presentation_time.is_zero() {
+        flags.insert(wp_presentation_feedback::Kind::HwClock);
+    }
+    feedback.presented::<_, smithay::utils::Monotonic>(presentation_time, refresh, sequence, flags);
 }
 
 fn output_frame_interval(output: &TtyDrmOutput) -> Duration {
@@ -290,7 +323,6 @@ fn queue_ready_tty_outputs(
                     .insert(output.connector_name.clone(), now);
                 st.advance_tty_frame_callback_sequence(output_name);
                 crate::frame_loop::send_frame_callbacks_for_output(st, output_name, now);
-                crate::frame_loop::send_presentation_feedback_for_output(st, output_name);
             }
         }
     }
@@ -1382,6 +1414,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 .map(|mode| {
                                     frame_interval_for_refresh_hz(Some(mode.vrefresh() as f64))
                                 });
+                            let sequence = metadata
+                                .as_ref()
+                                .map(|metadata| metadata.sequence as u64)
+                                .unwrap_or(0);
                             let throttled_output_name = output_name.clone();
                             let redraw_ping_for_throttle = redraw_ping_for_vblank.clone();
                             let should_throttle = vblank_throttles_for_notifier
@@ -1401,9 +1437,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                         output_frame_pending_since_for_notifier.clone();
                                     let frame_stats_for_notifier = frame_stats_for_notifier.clone();
                                     move |_state| {
-                                        if let Err(err) = compositor.borrow_mut().frame_submitted() {
-                                            warn!("failed to mark drm frame submitted after throttle: {}", err);
-                                        }
+                                        present_tty_frame_feedback(
+                                            throttled_output_name.as_str(),
+                                            compositor.borrow_mut().frame_submitted(),
+                                            monotonic_now_duration(),
+                                            refresh_interval,
+                                            sequence,
+                                        );
                                         if let Some(frame_stats) = &frame_stats_for_notifier {
                                             frame_stats.borrow_mut().completed_vblanks += 1;
                                         }
@@ -1419,12 +1459,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             if should_throttle {
                                 continue;
                             }
-                            if let Err(err) = compositor.borrow_mut().frame_submitted() {
-                                warn!(
-                                    "failed to mark drm frame submitted for {}: {}",
-                                    output_name, err
-                                );
-                            }
+                            present_tty_frame_feedback(
+                                output_name.as_str(),
+                                compositor.borrow_mut().frame_submitted(),
+                                timestamp,
+                                refresh_interval,
+                                sequence,
+                            );
                             if let Some(frame_stats) = &frame_stats_for_notifier {
                                 frame_stats.borrow_mut().completed_vblanks += 1;
                             }

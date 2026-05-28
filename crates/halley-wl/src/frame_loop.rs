@@ -543,14 +543,15 @@ pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str
     }
 }
 
-pub(crate) fn send_presentation_feedback_for_output(st: &Halley, output_name: &str) {
+pub(crate) fn take_presentation_feedback_for_output(
+    st: &Halley,
+    output_name: &str,
+) -> Option<OutputPresentationFeedback> {
     let Some(output) = st.model.monitor_state.outputs.get(output_name).cloned() else {
-        return;
+        return None;
     };
 
     let mut feedback = OutputPresentationFeedback::new(&output);
-    let presentation_time = Clock::<Monotonic>::new().now();
-    let refresh = refresh_for_output(&output);
 
     for layer in st.platform.wlr_layer_shell_state.layer_surfaces() {
         let surface = layer.wl_surface();
@@ -603,6 +604,18 @@ pub(crate) fn send_presentation_feedback_for_output(st: &Halley, output_name: &s
         );
     }
 
+    Some(feedback)
+}
+
+pub(crate) fn send_presentation_feedback_for_output(st: &Halley, output_name: &str) {
+    let Some(mut feedback) = take_presentation_feedback_for_output(st, output_name) else {
+        return;
+    };
+    let Some(output) = st.model.monitor_state.outputs.get(output_name) else {
+        return;
+    };
+    let presentation_time = Clock::<Monotonic>::new().now();
+    let refresh = refresh_for_output(output);
     feedback.presented(
         presentation_time,
         refresh,

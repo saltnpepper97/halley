@@ -11,7 +11,7 @@ use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags, PrimaryPlaneElement};
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmNode, NodeType};
-use smithay::backend::egl::{EGLDevice, EGLDisplay};
+use smithay::backend::egl::{context::ContextPriority, EGLDevice, EGLDisplay};
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::element::{
     Element, Kind, RenderElement, UnderlyingStorage,
@@ -24,6 +24,7 @@ use smithay::backend::renderer::multigpu::gbm::GbmGlesBackend;
 use smithay::backend::renderer::multigpu::{GpuManager, MultiFrame, MultiRenderer};
 use smithay::backend::renderer::{Bind, Offscreen, Texture};
 use smithay::desktop::{PopupManager, utils::bbox_from_surface_tree};
+use smithay::desktop::utils::OutputPresentationFeedback;
 use smithay::input::pointer::CursorImageStatus;
 use smithay::output::OutputModeSource;
 use smithay::reexports::wayland_server::Resource;
@@ -34,6 +35,13 @@ use smithay::wayland::dmabuf::{DmabufFeedback, DmabufFeedbackBuilder};
 
 type SurfaceElement =
     smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>;
+
+const SUPPORTED_COLOR_FORMATS: [Fourcc; 4] = [
+    Fourcc::Xrgb8888,
+    Fourcc::Xbgr8888,
+    Fourcc::Argb8888,
+    Fourcc::Abgr8888,
+];
 
 render_elements! {
     HalleyDirectScanoutElement<=GlesRenderer>;
@@ -174,7 +182,7 @@ impl<'render> RenderElement<TtyMultiRenderer<'render>> for PrimaryGpuTextureElem
 pub(crate) type HalleyDrmCompositor = DrmCompositor<
     GbmAllocator<DrmDeviceFd>,           // buffer allocator
     GbmFramebufferExporter<DrmDeviceFd>, // framebuffer exporter
-    (),                                  // per-frame user data (unused)
+    OutputPresentationFeedback,          // per-frame presentation feedback
     DrmDeviceFd,                         // raw DRM fd
 >;
 
@@ -199,8 +207,9 @@ const TTY_SYNC_WAIT_WARN_MS: u64 = 8;
 fn queue_tty_frame_or_clear_on_failure(
     compositor: &mut HalleyDrmCompositor,
     output_name: &str,
+    feedback: OutputPresentationFeedback,
 ) -> Result<(), io::Error> {
-    match compositor.queue_frame(()) {
+    match compositor.queue_frame(feedback) {
         Ok(()) => Ok(()),
         Err(err) => {
             let recovery = match compositor.clear() {
@@ -409,7 +418,9 @@ pub(crate) fn probe_tty_drm_device_via_session(
         );
     }
 
-    let gpu_manager = Rc::new(RefCell::new(GpuManager::new(GbmGlesBackend::default())?));
+    let gpu_manager = Rc::new(RefCell::new(GpuManager::new(
+        GbmGlesBackend::with_context_priority(ContextPriority::High),
+    )?));
     let mut devices = Vec::new();
     let mut outputs = Vec::new();
     let mut primary_render_node = None;
@@ -769,10 +780,9 @@ fn build_tty_outputs(
         // export rendered GBM buffers as KMS framebuffers.
         let exporter = GbmFramebufferExporter::new(gbm.clone(), None);
 
-        let color_formats = [Fourcc::Xrgb8888, Fourcc::Argb8888];
         let (mw, mh) = mode.size();
 
-        let compositor = DrmCompositor::new(
+        let compositor = match DrmCompositor::new(
             OutputModeSource::Static {
                 size: Size::from((mw as i32, mh as i32)),
                 scale: Scale::from((1.0, 1.0)),
@@ -782,17 +792,58 @@ fn build_tty_outputs(
             None, // cursor plane: disabled for now
             allocator,
             exporter,
-            color_formats,
+            SUPPORTED_COLOR_FORMATS,
             render_formats.iter().copied(),
             dev.cursor_size(),
             Some(gbm.clone()),
-        )
-        .map_err(|err| {
-            io::Error::other(format!(
-                "failed to create drm compositor for {}:{}: {}",
-                card_label, connector_name, err
-            ))
-        })?;
+        ) {
+            Ok(compositor) => compositor,
+            Err(err) => {
+                warn!(
+                    "failed to create drm compositor for {}:{} with advertised modifiers: {}; retrying with invalid modifiers",
+                    card_label, connector_name, err
+                );
+                let surface = dev
+                    .create_surface(crtc, mode, &[connector])
+                    .map_err(|err| {
+                        io::Error::other(format!(
+                            "failed to recreate drm surface on {}:{}: {}",
+                            card_label, connector_name, err
+                        ))
+                    })?;
+                let allocator = GbmAllocator::new(
+                    gbm.clone(),
+                    GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
+                );
+                let exporter = GbmFramebufferExporter::new(gbm.clone(), None);
+                let invalid_modifier_formats = render_formats
+                    .iter()
+                    .copied()
+                    .filter(|format| format.modifier == Modifier::Invalid)
+                    .collect::<Vec<_>>();
+                DrmCompositor::new(
+                    OutputModeSource::Static {
+                        size: Size::from((mw as i32, mh as i32)),
+                        scale: Scale::from((1.0, 1.0)),
+                        transform: Transform::Normal,
+                    },
+                    surface,
+                    None,
+                    allocator,
+                    exporter,
+                    SUPPORTED_COLOR_FORMATS,
+                    invalid_modifier_formats.iter().copied(),
+                    dev.cursor_size(),
+                    Some(gbm.clone()),
+                )
+                .map_err(|err| {
+                    io::Error::other(format!(
+                        "failed to create drm compositor for {}:{}: {}",
+                        card_label, connector_name, err
+                    ))
+                })?
+            }
+        };
 
         outputs.push(TtyDrmOutput {
             connector,
@@ -1288,7 +1339,21 @@ pub(crate) fn queue_tty_drm_frame(
                                     );
                                 }
                             }
-                            queue_tty_frame_or_clear_on_failure(&mut compositor, output_name)?;
+                            let feedback =
+                                crate::frame_loop::take_presentation_feedback_for_output(
+                                    st,
+                                    output_name,
+                                )
+                                .ok_or_else(|| {
+                                    io::Error::other(format!(
+                                        "missing presentation feedback output {output_name}"
+                                    ))
+                                })?;
+                            queue_tty_frame_or_clear_on_failure(
+                                &mut compositor,
+                                output_name,
+                                feedback,
+                            )?;
                             true
                         } else {
                             false
@@ -1427,7 +1492,14 @@ pub(crate) fn queue_tty_drm_frame(
                     );
                 }
             }
-            queue_tty_frame_or_clear_on_failure(&mut compositor, output_name)?;
+            let feedback =
+                crate::frame_loop::take_presentation_feedback_for_output(st, output_name)
+                    .ok_or_else(|| {
+                        io::Error::other(format!(
+                            "missing presentation feedback output {output_name}"
+                        ))
+                    })?;
+            queue_tty_frame_or_clear_on_failure(&mut compositor, output_name, feedback)?;
             true
         } else {
             false
