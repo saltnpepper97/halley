@@ -3,8 +3,10 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use halley_core::field::{NodeId, Vec2};
+use smithay::backend::renderer::element::RenderElementStates;
 use smithay::desktop::utils::{
-    OutputPresentationFeedback, bbox_from_surface_tree, take_presentation_feedback_surface_tree,
+    OutputPresentationFeedback, bbox_from_surface_tree,
+    surface_presentation_feedback_flags_from_states, take_presentation_feedback_surface_tree,
 };
 use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::input::pointer::CursorImageStatus;
@@ -638,6 +640,77 @@ pub(crate) fn take_presentation_feedback_for_output(
             &mut feedback,
             |_, _| Some(output.clone()),
             |_, _| wp_presentation_feedback::Kind::empty(),
+        );
+    }
+
+    Some(feedback)
+}
+
+pub(crate) fn take_presentation_feedback_for_output_with_states(
+    st: &Halley,
+    output_name: &str,
+    render_element_states: &RenderElementStates,
+) -> Option<OutputPresentationFeedback> {
+    let output = st.model.monitor_state.outputs.get(output_name).cloned()?;
+    let mut feedback = OutputPresentationFeedback::new(&output);
+
+    let primary_output = |surface: &WlSurface, _states: &SurfaceData| {
+        render_element_states
+            .element_was_presented(surface)
+            .then(|| output.clone())
+    };
+    let feedback_flags = |surface: &WlSurface, _states: &SurfaceData| {
+        surface_presentation_feedback_flags_from_states(surface, render_element_states)
+    };
+
+    for layer in st.platform.wlr_layer_shell_state.layer_surfaces() {
+        let surface = layer.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            take_presentation_feedback_surface_tree(
+                surface,
+                &mut feedback,
+                primary_output,
+                feedback_flags,
+            );
+        }
+    }
+
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let surface = top.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            take_presentation_feedback_surface_tree(
+                surface,
+                &mut feedback,
+                primary_output,
+                feedback_flags,
+            );
+        }
+    }
+
+    for popup in st.platform.xdg_shell_state.popup_surfaces() {
+        let popup_kind = PopupKind::from(popup.clone());
+        let Ok(root) = find_popup_root_surface(&popup_kind) else {
+            continue;
+        };
+        if surface_on_output(st, &root, output_name) {
+            take_presentation_feedback_surface_tree(
+                popup.wl_surface(),
+                &mut feedback,
+                primary_output,
+                feedback_flags,
+            );
+        }
+    }
+
+    if let CursorImageStatus::Surface(surface) = st.platform.cursor_manager.cursor_image()
+        && surface.alive()
+        && cursor_surface_on_output(st, surface, output_name)
+    {
+        take_presentation_feedback_surface_tree(
+            surface,
+            &mut feedback,
+            primary_output,
+            feedback_flags,
         );
     }
 

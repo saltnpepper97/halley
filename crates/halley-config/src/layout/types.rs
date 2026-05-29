@@ -594,6 +594,6 @@ impl ViewportVrrMode {
     }
 
     pub fn drm_enabled(self) -> bool {
-        !matches!(self, Self::Off)
+        matches!(self, Self::On)
     }
 }

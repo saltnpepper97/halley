@@ -189,6 +189,10 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         };
         if let Some(action) = compositor_binding_action_active(st, wheel_code, &mods) {
             ctx.pointer_state.borrow_mut().panning = false;
+            let zoom_action = matches!(
+                action,
+                CompositorBindingAction::ZoomIn | CompositorBindingAction::ZoomOut
+            );
             if matches!(
                 action,
                 CompositorBindingAction::ZoomIn | CompositorBindingAction::ZoomOut
@@ -205,7 +209,11 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                 );
             }
             if apply_compositor_action_press(st, action, ctx.config_path, ctx.wayland_display) {
-                ctx.backend.request_redraw();
+                if zoom_action {
+                    ctx.backend.request_output_redraw(context.monitor.as_str());
+                } else {
+                    ctx.backend.request_redraw();
+                }
             }
             return;
         }

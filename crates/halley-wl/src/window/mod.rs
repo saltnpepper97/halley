@@ -14,9 +14,9 @@ use smithay::{
         gles::{GlesRenderer, GlesTexture},
     },
     desktop::{PopupManager, utils::bbox_from_surface_tree},
-    reexports::wayland_server::Resource,
+    reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
     utils::{Logical, Physical, Rectangle, Size},
-    wayland::compositor::with_states,
+    wayland::compositor::{get_parent, with_states},
     wayland::shell::xdg::SurfaceCachedState,
 };
 
@@ -143,6 +143,39 @@ impl StackWindowDrawUnit {
             offscreen_textures: Vec::new(),
         }
     }
+}
+
+pub(crate) fn node_is_game_like(st: &Halley, node_id: NodeId) -> bool {
+    st.model
+        .node_app_ids
+        .get(&node_id)
+        .is_some_and(|app_id| app_id.starts_with("steam_app_"))
+}
+
+pub(crate) fn node_requires_live_surface_render(st: &Halley, node_id: NodeId) -> bool {
+    if node_is_game_like(st, node_id) || st.fullscreen_monitor_for_node(node_id).is_some() {
+        return true;
+    }
+
+    crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
+        .and_then(|(surface, _)| root_surface_node_id(st, &surface))
+        .is_some_and(|constrained_node| constrained_node == node_id)
+}
+
+fn root_surface_node_id(st: &Halley, surface: &WlSurface) -> Option<NodeId> {
+    let mut root = surface.clone();
+    while let Some(parent) = get_parent(&root) {
+        root = parent;
+    }
+    st.model.surface_to_node.get(&root.id()).copied()
+}
+
+fn rect_covers_output(rect: (i32, i32, i32, i32), output: Rectangle<i32, Physical>) -> bool {
+    let tolerance = 2;
+    rect.0 <= output.loc.x + tolerance
+        && rect.1 <= output.loc.y + tolerance
+        && rect.0 + rect.2 >= output.loc.x + output.size.w - tolerance
+        && rect.1 + rect.3 >= output.loc.y + output.size.h - tolerance
 }
 
 fn active_surface_draw_rank(st: &Halley, node_id: NodeId) -> (u64, u64) {
@@ -379,6 +412,7 @@ pub(crate) fn collect_active_surfaces(
         let draw_above_fullscreen_this_node =
             st.node_draws_above_fullscreen_on_current_monitor(node_id);
         let overlap_policy_draw_order = overlap_policy_draw_order(st, node_id);
+        let live_surface_node = node_requires_live_surface_render(st, node_id);
 
         let force_live_surface_scale =
             resizing_this_node || dragging_this_node || active_cluster_member;
@@ -493,6 +527,10 @@ pub(crate) fn collect_active_surfaces(
         };
 
         let (gx, gy, gw, gh) = geometry_rect;
+        let game_covers_output = live_surface_node
+            && node_is_game_like(st, node_id)
+            && rect_covers_output((gx, gy, gw.max(1), gh.max(1)), output_clip);
+        let fullscreen_like_for_render = fullscreen_on_current_monitor || game_covers_output;
 
         if should_draw_resize_overlap_overlay(
             resize_rect_px,
@@ -525,7 +563,7 @@ pub(crate) fn collect_active_surfaces(
                 alpha,
             });
         }
-        let decoration_metrics = if fullscreen_on_current_monitor {
+        let decoration_metrics = if fullscreen_like_for_render {
             window_decoration_metrics(0, 0, 0, 0)
         } else {
             window_decoration_metrics(
@@ -581,7 +619,7 @@ pub(crate) fn collect_active_surfaces(
             gh.max(1),
             alpha,
             decoration_metrics,
-            fullscreen_on_current_monitor,
+            fullscreen_like_for_render,
         );
         if let Some(shadow_rect) = window_shadow_rect {
             if stack_render_set.contains(&node_id) {
@@ -624,7 +662,7 @@ pub(crate) fn collect_active_surfaces(
             gh.max(1),
             alpha,
             render_scale,
-            fullscreen_on_current_monitor,
+            fullscreen_like_for_render,
         );
         if stack_render_set.contains(&node_id) {
             stack_window_units
@@ -654,7 +692,7 @@ pub(crate) fn collect_active_surfaces(
             border_rects.extend(window_border_rects);
         }
         // Games/fullscreen processes bypass offscreen zoom for performance and compatibility.
-        let use_offscreen_zoom = !fullscreen_on_current_monitor;
+        let use_offscreen_zoom = !fullscreen_on_current_monitor && !live_surface_node;
 
         if use_offscreen_zoom {
             let spawn_pan_pending = st

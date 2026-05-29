@@ -475,6 +475,36 @@ pub(crate) fn apply_cursor_position_hint(
     let Some(node_id) = st.model.surface_to_node.get(&root.id()).copied() else {
         return;
     };
+
+    if crate::window::node_requires_live_surface_render(st, node_id) {
+        let bbox = smithay::desktop::utils::bbox_from_surface_tree(&root, (0, 0));
+        let target_x = (bbox.loc.x as f64 + location.x).clamp(0.0, (bbox.size.w.max(1) - 1) as f64);
+        let target_y = (bbox.loc.y as f64 + location.y).clamp(0.0, (bbox.size.h.max(1) - 1) as f64);
+        let monitor = st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&node_id)
+            .cloned()
+            .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+        let (global_x, global_y) = st
+            .model
+            .monitor_state
+            .monitors
+            .get(monitor.as_str())
+            .map(|space| {
+                (
+                    space.offset_x as f32 + target_x as f32,
+                    space.offset_y as f32 + target_y as f32,
+                )
+            })
+            .unwrap_or((target_x as f32, target_y as f32));
+        st.input.interaction_state.pending_pointer_screen_hint = Some((global_x, global_y));
+        pointer.set_location((target_x, target_y).into());
+        st.request_maintenance();
+        return;
+    }
+
     let monitor = st
         .model
         .monitor_state

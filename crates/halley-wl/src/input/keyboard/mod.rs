@@ -564,7 +564,19 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
                 latch_hover_keyboard_spawn_monitor(st, pointer_screen);
             }
             if apply_bound_key(st, code, &mods, ctx.config_path, ctx.wayland_display) {
-                ctx.backend.request_redraw();
+                if matched_action.as_ref().is_some_and(|action| {
+                    matches!(
+                        action,
+                        CompositorBindingAction::ZoomIn
+                            | CompositorBindingAction::ZoomOut
+                            | CompositorBindingAction::ZoomReset
+                    )
+                }) {
+                    ctx.backend
+                        .request_output_redraw(st.model.monitor_state.current_monitor.as_str());
+                } else {
+                    ctx.backend.request_redraw();
+                }
             }
         }
     }
