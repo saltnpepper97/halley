@@ -5,10 +5,15 @@ use crate::backend::interface::BackendView;
 use crate::compositor::interaction::state::ActiveDragState;
 use crate::compositor::interaction::{DragAxisMode, DragCtx, HitNode, ModState, PointerState};
 use crate::compositor::root::Halley;
-use crate::compositor::surface::is_active_stacking_workspace_member;
+use crate::compositor::surface::{
+    is_active_stacking_workspace_member, node_blocks_interactive_transform,
+};
 
 pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
     if st.is_fullscreen_active(node_id) {
+        return false;
+    }
+    if node_blocks_interactive_transform(st, node_id) {
         return false;
     }
     if crate::compositor::workspace::state::node_in_maximize_session(st, node_id) {

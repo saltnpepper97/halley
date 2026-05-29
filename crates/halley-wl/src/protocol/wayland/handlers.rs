@@ -8,7 +8,7 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::{
     Client, Resource, protocol::wl_surface::WlSurface,
 };
-use smithay::wayland::compositor::{add_blocker, get_parent, with_states};
+use smithay::wayland::compositor::{add_blocker, with_states};
 use smithay::wayland::dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, ImportNotifier};
 use smithay::wayland::drm_syncobj::{DrmSyncPoint, DrmSyncobjCachedState, DrmSyncobjHandler};
 use smithay::wayland::fractional_scale::FractionalScaleHandler;
@@ -214,25 +214,24 @@ impl DrmSyncobjHandler for Halley {
 
 impl PointerConstraintsHandler for Halley {
     fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
-        let focus =
-            interaction::pointer::refresh_pointer_focus_at_last_screen(self, None, Instant::now());
-        let current_focus = pointer.current_focus();
-        let in_focused_tree = current_focus.as_ref().is_some_and(|focus| {
-            focus == surface
-                || surface_is_ancestor_of(surface, focus)
-                || surface_is_ancestor_of(focus, surface)
-        });
-        if !in_focused_tree {
+        // Keep this path free of fresh absolute pointer motion. Recomputing focus here
+        // regressed Tiny Glade's right-click camera lock by injecting a motion event at
+        // lock creation time; use the existing pointer focus/location instead.
+        let focus = pointer
+            .current_focus()
+            .map(|focused| (focused, pointer.current_location()));
+        let Some(surface_origin) = interaction::pointer::retarget_pointer_focus_for_constraint(
+            self,
+            surface,
+            pointer,
+            focus.as_ref(),
+        ) else {
             return;
-        }
-
-        let surface_origin = focus
-            .as_ref()
-            .and_then(|(focused, origin)| (focused == surface).then_some(*origin));
+        };
         interaction::pointer::activate_pointer_constraint_for_surface_at(
             self,
             surface,
-            surface_origin,
+            Some(surface_origin),
         );
     }
 
@@ -249,17 +248,6 @@ impl PointerConstraintsHandler for Halley {
             location,
         );
     }
-}
-
-fn surface_is_ancestor_of(ancestor: &WlSurface, surface: &WlSurface) -> bool {
-    let mut current = surface.clone();
-    while let Some(parent) = get_parent(&current) {
-        if parent == *ancestor {
-            return true;
-        }
-        current = parent;
-    }
-    false
 }
 
 #[cfg(test)]

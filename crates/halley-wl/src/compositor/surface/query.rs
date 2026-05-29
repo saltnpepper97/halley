@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
 use halley_core::cluster_layout::{ClusterWorkspaceLayoutKind, cluster_visible_limit};
+use halley_core::field::NodeId;
+use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
+use smithay::wayland::compositor::get_parent;
 
 use crate::compositor::root::Halley;
 
@@ -68,20 +71,63 @@ pub(crate) fn is_active_stacking_workspace_member(
     active_stacking_visible_members_for_monitor(st, monitor.as_str()).contains(&node_id)
 }
 
-pub(crate) fn node_allows_interactive_resize(
-    st: &Halley,
-    node_id: halley_core::field::NodeId,
-) -> bool {
+pub(crate) fn node_allows_interactive_resize(st: &Halley, node_id: NodeId) -> bool {
     st.model
         .field
         .node(node_id)
         .is_some_and(|node| node.state == halley_core::field::NodeState::Active)
+        && !node_blocks_interactive_transform(st, node_id)
         && !crate::compositor::workspace::state::node_in_maximize_session(st, node_id)
         && !is_active_stacking_workspace_member(st, node_id)
         && !(matches!(
             st.runtime.tuning.cluster_layout_kind(),
             ClusterWorkspaceLayoutKind::Tiling
         ) && is_active_cluster_workspace_member(st, node_id))
+}
+
+pub(crate) fn node_blocks_interactive_transform(st: &Halley, node_id: NodeId) -> bool {
+    st.fullscreen_monitor_for_node(node_id).is_some()
+        || active_pointer_constraint_belongs_to_node(st, node_id)
+        || node_covers_assigned_output(st, node_id)
+}
+
+fn active_pointer_constraint_belongs_to_node(st: &Halley, node_id: NodeId) -> bool {
+    crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
+        .and_then(|(surface, _)| root_surface_node_id(st, &surface))
+        == Some(node_id)
+}
+
+fn root_surface_node_id(st: &Halley, surface: &WlSurface) -> Option<NodeId> {
+    let mut root = surface.clone();
+    while let Some(parent) = get_parent(&root) {
+        root = parent;
+    }
+    st.model.surface_to_node.get(&root.id()).copied()
+}
+
+fn node_covers_assigned_output(st: &Halley, node_id: NodeId) -> bool {
+    let Some(node) = st.model.field.node(node_id) else {
+        return false;
+    };
+    if node.kind != halley_core::field::NodeKind::Surface || !st.model.field.is_visible(node_id) {
+        return false;
+    }
+    let Some(monitor_name) = st.model.monitor_state.node_monitor.get(&node_id) else {
+        return false;
+    };
+    let Some(space) = st.model.monitor_state.monitors.get(monitor_name.as_str()) else {
+        return false;
+    };
+
+    let tolerance = 4.0;
+    let output_size = space.viewport.size;
+    let output_center = space.viewport.center;
+    let size = node.footprint;
+
+    size.x >= output_size.x - tolerance
+        && size.y >= output_size.y - tolerance
+        && (node.pos.x - output_center.x).abs() <= tolerance
+        && (node.pos.y - output_center.y).abs() <= tolerance
 }
 
 pub(crate) fn stacking_render_order_map(
@@ -243,5 +289,45 @@ mod tests {
         );
 
         assert!(!node_allows_interactive_resize(&st, window));
+    }
+
+    #[test]
+    fn output_sized_surface_blocks_interactive_resize() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let space = st
+            .model
+            .monitor_state
+            .monitors
+            .get(monitor.as_str())
+            .expect("monitor")
+            .clone();
+
+        let window = st.model.field.spawn_surface(
+            "borderless-game",
+            space.viewport.center,
+            space.viewport.size,
+        );
+        st.assign_node_to_monitor(window, monitor.as_str());
+
+        assert!(node_blocks_interactive_transform(&st, window));
+        assert!(!node_allows_interactive_resize(&st, window));
+    }
+
+    #[test]
+    fn ordinary_active_surface_allows_interactive_resize() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let window = st.model.field.spawn_surface(
+            "window",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(window, monitor.as_str());
+
+        assert!(!node_blocks_interactive_transform(&st, window));
+        assert!(node_allows_interactive_resize(&st, window));
     }
 }

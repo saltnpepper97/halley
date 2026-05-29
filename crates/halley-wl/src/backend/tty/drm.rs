@@ -452,6 +452,8 @@ pub(crate) fn probe_tty_drm_device_via_session(
         );
     }
 
+    // Do not make high-priority EGL the default. It caused AMD/Paralives TTY
+    // flicker and stutter; keep it as an explicit NVIDIA/debug opt-in only.
     let gles_backend = if tty_env_flag("HALLEY_TTY_HIGH_PRIORITY_EGL") {
         GbmGlesBackend::with_context_priority(ContextPriority::High)
     } else {

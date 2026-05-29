@@ -49,24 +49,6 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         return;
     }
 
-    if let Some(pointer) = st.platform.seat.get_pointer()
-        && let Some(constraint) =
-            crate::compositor::interaction::pointer::active_pointer_constraint(st)
-        && constraint.locked
-    {
-        pointer.relative_motion(
-            st,
-            Some((constraint.surface, pointer.current_location())),
-            &RelativeMotionEvent {
-                delta: delta.into(),
-                delta_unaccel: delta_unaccel.into(),
-                utime: time_usec,
-            },
-        );
-        pointer.frame(st);
-        return;
-    }
-
     if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
         ctx.backend.request_redraw();
     }

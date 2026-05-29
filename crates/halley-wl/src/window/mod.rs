@@ -14,9 +14,9 @@ use smithay::{
         gles::{GlesRenderer, GlesTexture},
     },
     desktop::{PopupManager, utils::bbox_from_surface_tree},
-    reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
+    reexports::wayland_server::Resource,
     utils::{Logical, Physical, Rectangle, Size},
-    wayland::compositor::{get_parent, with_states},
+    wayland::compositor::with_states,
     wayland::shell::xdg::SurfaceCachedState,
 };
 
@@ -153,21 +153,7 @@ pub(crate) fn node_is_game_like(st: &Halley, node_id: NodeId) -> bool {
 }
 
 pub(crate) fn node_requires_live_surface_render(st: &Halley, node_id: NodeId) -> bool {
-    if node_is_game_like(st, node_id) || st.fullscreen_monitor_for_node(node_id).is_some() {
-        return true;
-    }
-
-    crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
-        .and_then(|(surface, _)| root_surface_node_id(st, &surface))
-        .is_some_and(|constrained_node| constrained_node == node_id)
-}
-
-fn root_surface_node_id(st: &Halley, surface: &WlSurface) -> Option<NodeId> {
-    let mut root = surface.clone();
-    while let Some(parent) = get_parent(&root) {
-        root = parent;
-    }
-    st.model.surface_to_node.get(&root.id()).copied()
+    node_is_game_like(st, node_id) || st.fullscreen_monitor_for_node(node_id).is_some()
 }
 
 fn rect_covers_output(rect: (i32, i32, i32, i32), output: Rectangle<i32, Physical>) -> bool {
