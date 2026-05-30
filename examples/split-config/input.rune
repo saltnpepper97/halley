@@ -16,6 +16,7 @@ input:
   repeat-rate 30
   repeat-delay 500
   focus-mode "click"
+  raise-on-click true
 
   keyboard:
     layout "us"

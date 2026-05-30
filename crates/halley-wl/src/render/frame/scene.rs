@@ -61,7 +61,6 @@ pub(super) struct SceneCollections {
     pub(super) resized_border_rects: Vec<ActiveBorderRect>,
     pub(super) above_fullscreen_border_rects: Vec<ActiveBorderRect>,
     pub(super) closing_window_animations: Vec<ClosingWindowAnimationSnapshot>,
-    pub(super) overlap_overlay_rects: Vec<(i32, i32, i32, i32)>,
     pub(super) pin_badges: Vec<PinBadgeLayout>,
     pub(super) hover_preview_rect: Option<(i32, i32, i32, i32)>,
     pub(super) hover_preview_elements: Vec<SurfaceElement>,
@@ -148,7 +147,6 @@ pub(super) fn collect_debug_frame_scene(
             resized_border_rects: Vec::new(),
             above_fullscreen_border_rects: Vec::new(),
             closing_window_animations: Vec::new(),
-            overlap_overlay_rects: Vec::new(),
             pin_badges: Vec::new(),
             hover_preview_rect: None,
             hover_preview_elements: Vec::new(),
@@ -193,7 +191,6 @@ pub(super) fn collect_debug_frame_scene(
         border_rects,
         resized_border_rects,
         above_fullscreen_border_rects,
-        overlap_overlay_rects,
         pin_badges,
     ) = collect_active_surfaces(renderer, st, size, resize_preview, now);
     let closing_window_animations = if st.runtime.tuning.window_close_animation_enabled() {
@@ -296,7 +293,6 @@ pub(super) fn collect_debug_frame_scene(
         resized_border_rects,
         above_fullscreen_border_rects,
         closing_window_animations,
-        overlap_overlay_rects,
         pin_badges,
         hover_preview_rect,
         hover_preview_elements,

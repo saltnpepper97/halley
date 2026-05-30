@@ -654,7 +654,7 @@ pub(super) fn dispatch_pointer_button(
         .grabbed_layer_surface
         .clone()
         .filter(|surface| crate::compositor::monitor::layer_shell::is_layer_surface(st, surface));
-    let focus = if let Some(surface) = grabbed_layer_surface {
+    let mut focus = if let Some(surface) = grabbed_layer_surface {
         grabbed_layer_surface_focus(st, &surface)
     } else if let Some(surface) = locked_surface.clone() {
         Some((surface, pointer.current_location()))
@@ -669,6 +669,17 @@ pub(super) fn dispatch_pointer_button(
             resize_preview,
         )
     };
+
+    if locked_surface.is_none()
+        && let Some((surface, _)) = focus.as_ref()
+        && let Some(constrained) =
+            crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
+                st, surface,
+            )
+        && constrained != *surface
+    {
+        focus = Some((constrained, pointer.current_location()));
+    }
 
     let motion_serial = SERIAL_COUNTER.next_serial();
     let button_serial = SERIAL_COUNTER.next_serial();
@@ -705,13 +716,6 @@ pub(super) fn dispatch_pointer_button(
             },
         );
     }
-    if let Some((surface, surface_origin)) = focus.as_ref() {
-        crate::compositor::interaction::pointer::activate_pointer_constraint_for_surface_at(
-            st,
-            surface,
-            Some(*surface_origin),
-        );
-    }
     pointer.button(
         st,
         &ButtonEvent {
@@ -722,10 +726,6 @@ pub(super) fn dispatch_pointer_button(
         },
     );
     pointer.frame(st);
-    crate::compositor::interaction::pointer::maybe_activate_pointer_constraint(
-        st,
-        std::time::Instant::now(),
-    );
 }
 
 use crate::compositor::exit_confirm::exit_confirm_controller;

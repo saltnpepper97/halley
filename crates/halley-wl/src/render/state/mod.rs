@@ -18,6 +18,8 @@ use crate::overlay::{
 };
 use crate::window::{ActiveBorderRect, OffscreenNodeTexture};
 
+const LANDMARK_SLIDE_DURATION_MS: u64 = 520;
+
 pub(crate) use cache::{
     ClusterCoreIconCache, NodeAppIconCacheEntry, NodeAppIconTexture, PinIconCache,
     RenderCacheState, ScreenshotMenuIconCache,
@@ -48,6 +50,27 @@ pub(crate) struct StackCycleTransitionSnapshot {
     pub(crate) old_visible: Vec<NodeId>,
     pub(crate) new_visible: Vec<NodeId>,
     pub(crate) source_rects: Option<HashMap<NodeId, Rect>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RaiseAnimationState {
+    pub(crate) started_at: Instant,
+    pub(crate) duration_ms: u64,
+    pub(crate) scale: f32,
+    pub(crate) shadow_boost: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct RaiseAnimationSnapshot {
+    pub(crate) scale: f32,
+    pub(crate) shadow_boost: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LandmarkSlideAnimationState {
+    pub(crate) from: Vec2,
+    pub(crate) to: Vec2,
+    pub(crate) started_at: Instant,
 }
 
 #[derive(Clone)]
@@ -95,6 +118,8 @@ pub(crate) struct RenderState {
     pub(crate) overlay_exit_confirm: HashMap<String, ExitConfirmOverlayState>,
     pub(crate) closing_window_animations: HashMap<NodeId, ClosingWindowAnimationState>,
     pub(crate) stack_cycle_transition: HashMap<String, StackCycleTransitionState>,
+    pub(crate) raise_animations: HashMap<NodeId, RaiseAnimationState>,
+    pub(crate) landmark_slide_animations: HashMap<NodeId, LandmarkSlideAnimationState>,
     pub(crate) gpu: RenderGpuState,
 
     pub(crate) render_last_tick: Instant,
@@ -127,6 +152,128 @@ impl RenderState {
                 },
             },
         );
+    }
+
+    pub(crate) fn start_raise_animation(
+        &mut self,
+        node_id: NodeId,
+        now: Instant,
+        duration_ms: u64,
+        scale: f32,
+        shadow_boost: f32,
+    ) {
+        self.raise_animations.insert(
+            node_id,
+            RaiseAnimationState {
+                started_at: now,
+                duration_ms: duration_ms.max(1),
+                scale: scale.max(1.0),
+                shadow_boost: shadow_boost.clamp(0.0, 1.0),
+            },
+        );
+    }
+
+    pub(crate) fn start_landmark_slide_animation(
+        &mut self,
+        node_id: NodeId,
+        from: Vec2,
+        to: Vec2,
+        now: Instant,
+    ) {
+        if (from.x - to.x).abs() <= 0.5 && (from.y - to.y).abs() <= 0.5 {
+            return;
+        }
+        self.landmark_slide_animations.insert(
+            node_id,
+            LandmarkSlideAnimationState {
+                from,
+                to,
+                started_at: now,
+            },
+        );
+    }
+
+    pub(crate) fn landmark_slide_active_for_monitor(
+        &self,
+        field: &Field,
+        node_monitor: &HashMap<NodeId, String>,
+        monitor: &str,
+        now: Instant,
+    ) -> bool {
+        self.landmark_slide_animations.iter().any(|(&id, anim)| {
+            (now.saturating_duration_since(anim.started_at).as_millis() as u64)
+                < LANDMARK_SLIDE_DURATION_MS
+                && field.is_visible(id)
+                && !node_monitor
+                    .get(&id)
+                    .is_some_and(|node_monitor| node_monitor != monitor)
+        })
+    }
+
+    pub(crate) fn landmark_slide_position(
+        &mut self,
+        node_id: NodeId,
+        fallback: Vec2,
+        now: Instant,
+    ) -> Vec2 {
+        let Some(anim) = self.landmark_slide_animations.get(&node_id).copied() else {
+            return fallback;
+        };
+        let elapsed_ms = now.saturating_duration_since(anim.started_at).as_millis() as u64;
+        if elapsed_ms >= LANDMARK_SLIDE_DURATION_MS {
+            self.landmark_slide_animations.remove(&node_id);
+            return fallback;
+        }
+        let t = (elapsed_ms as f32 / LANDMARK_SLIDE_DURATION_MS as f32).clamp(0.0, 1.0);
+        let end = 1.0 - (1.0 + 5.0) * (-5.0f32).exp();
+        let damped = ((1.0 - (1.0 + 5.0 * t) * (-5.0 * t).exp()) / end).clamp(0.0, 1.0);
+        Vec2 {
+            x: anim.from.x + (anim.to.x - anim.from.x) * damped,
+            y: anim.from.y + (anim.to.y - anim.from.y) * damped,
+        }
+    }
+
+    pub(crate) fn raise_animation_active_for_monitor(
+        &self,
+        field: &Field,
+        node_monitor: &HashMap<NodeId, String>,
+        monitor: &str,
+        now: Instant,
+    ) -> bool {
+        self.raise_animations.iter().any(|(&id, anim)| {
+            (now.saturating_duration_since(anim.started_at).as_millis() as u64) < anim.duration_ms
+                && field.is_visible(id)
+                && node_monitor
+                    .get(&id)
+                    .is_some_and(|node_monitor| node_monitor == monitor)
+        })
+    }
+
+    pub(crate) fn raise_animation_for(
+        &mut self,
+        node_id: NodeId,
+        now: Instant,
+    ) -> RaiseAnimationSnapshot {
+        let Some(anim) = self.raise_animations.get(&node_id).copied() else {
+            return RaiseAnimationSnapshot {
+                scale: 1.0,
+                shadow_boost: 0.0,
+            };
+        };
+        let elapsed_ms = now.saturating_duration_since(anim.started_at).as_millis() as u64;
+        if elapsed_ms >= anim.duration_ms {
+            self.raise_animations.remove(&node_id);
+            return RaiseAnimationSnapshot {
+                scale: 1.0,
+                shadow_boost: 0.0,
+            };
+        }
+        let t = (elapsed_ms as f32 / anim.duration_ms as f32).clamp(0.0, 1.0);
+        let pulse = (1.0 - t).powi(2);
+        RaiseAnimationSnapshot {
+            scale: 1.0 + (anim.scale - 1.0) * pulse,
+            shadow_boost: anim.shadow_boost * pulse,
+        }
     }
 
     pub(crate) fn start_closing_node_animation(

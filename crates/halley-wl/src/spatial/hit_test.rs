@@ -22,18 +22,16 @@ struct ActiveAreaView<'a> {
 
 struct ActiveHitOrderingView {
     stack_ranks: HashMap<NodeId, usize>,
-    overlap_policy: HashSet<NodeId>,
     overlap_ranks: HashMap<NodeId, (u64, u64)>,
     draws_above_fullscreen: HashSet<NodeId>,
     fullscreen_on_current_monitor: HashSet<NodeId>,
     persistent_top: HashSet<NodeId>,
-    recent_top_node: Option<NodeId>,
 }
 
 impl ActiveHitOrderingView {
     fn from_halley(
         st: &Halley,
-        now: Instant,
+        _now: Instant,
         stack_visible_front_to_back: &[NodeId],
         hits: &[HitNode],
     ) -> Self {
@@ -43,17 +41,13 @@ impl ActiveHitOrderingView {
             .enumerate()
             .map(|(index, &node_id)| (node_id, index))
             .collect();
-        let mut overlap_policy = HashSet::new();
         let mut overlap_ranks = HashMap::new();
         let mut draws_above_fullscreen = HashSet::new();
         let mut fullscreen_on_current_monitor = HashSet::new();
         let mut persistent_top = HashSet::new();
         for hit in hits {
             let node_id = hit.node_id;
-            if st.node_has_overlap_policy(node_id) {
-                overlap_policy.insert(node_id);
-                overlap_ranks.insert(node_id, st.overlap_policy_stack_rank(node_id));
-            }
+            overlap_ranks.insert(node_id, st.overlap_policy_stack_rank(node_id));
             if st.node_draws_above_fullscreen_on_current_monitor(node_id) {
                 draws_above_fullscreen.insert(node_id);
             }
@@ -67,21 +61,12 @@ impl ActiveHitOrderingView {
                 persistent_top.insert(node_id);
             }
         }
-        let recent_top_node = st
-            .model
-            .focus_state
-            .recent_top_until
-            .filter(|&until| now < until)
-            .and(st.model.focus_state.recent_top_node);
-
         Self {
             stack_ranks,
-            overlap_policy,
             overlap_ranks,
             draws_above_fullscreen,
             fullscreen_on_current_monitor,
             persistent_top,
-            recent_top_node,
         }
     }
 
@@ -104,31 +89,17 @@ impl ActiveHitOrderingView {
             )
         })
         .then_with(|| {
-            match (
-                self.overlap_policy.contains(&a.node_id),
-                self.overlap_policy.contains(&b.node_id),
-            ) {
-                (true, true) => {
-                    let a_rank = self
-                        .overlap_ranks
-                        .get(&a.node_id)
-                        .copied()
-                        .unwrap_or((0, a.node_id.as_u64()));
-                    let b_rank = self
-                        .overlap_ranks
-                        .get(&b.node_id)
-                        .copied()
-                        .unwrap_or((0, b.node_id.as_u64()));
-                    b_rank.cmp(&a_rank)
-                }
-                _ => Ordering::Equal,
-            }
-        })
-        .then_with(|| {
-            compare_bool(
-                Some(a.node_id) == self.recent_top_node,
-                Some(b.node_id) == self.recent_top_node,
-            )
+            let a_rank = self
+                .overlap_ranks
+                .get(&a.node_id)
+                .copied()
+                .unwrap_or((0, a.node_id.as_u64()));
+            let b_rank = self
+                .overlap_ranks
+                .get(&b.node_id)
+                .copied()
+                .unwrap_or((0, b.node_id.as_u64()));
+            b_rank.cmp(&a_rank)
         })
         .then_with(|| {
             match (

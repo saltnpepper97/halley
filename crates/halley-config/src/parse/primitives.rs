@@ -4,10 +4,11 @@ use rune_cfg::RuneConfig;
 
 use crate::layout::{
     ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, FocusRingConfig,
-    InputFocusMode, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode, PinBadgeCorner, ShadowColor,
-    ShapeStyle, WindowCloseAnimationStyle,
+    ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, ExpandedPlacementStrategy,
+    FindEmptyMode, FocusRingConfig, InputFocusMode, LandmarkPlacementStrategy,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, NormalBlockerPolicy,
+    OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode, PinBadgeCorner,
+    PinnedBlockerPolicy, ShadowColor, ShapeStyle, WindowCloseAnimationStyle,
 };
 
 pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -63,6 +64,77 @@ pub(crate) fn pick_close_restore_pan_mode(
         "never" => CloseRestorePanMode::Never,
         "if-offscreen" | "if_offscreen" => CloseRestorePanMode::IfOffscreen,
         "always" => CloseRestorePanMode::Always,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_expanded_placement_strategy(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: ExpandedPlacementStrategy,
+) -> ExpandedPlacementStrategy {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "center" => ExpandedPlacementStrategy::Center,
+        "find-empty" | "find_empty" => ExpandedPlacementStrategy::FindEmpty,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_find_empty_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: FindEmptyMode,
+) -> FindEmptyMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "best-effort" | "best_effort" => FindEmptyMode::BestEffort,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_landmark_placement_strategy(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: LandmarkPlacementStrategy,
+) -> LandmarkPlacementStrategy {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "nearest-free" | "nearest_free" => LandmarkPlacementStrategy::NearestFree,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_normal_blocker_policy(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: NormalBlockerPolicy,
+) -> NormalBlockerPolicy {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "relocate" => NormalBlockerPolicy::Relocate,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_pinned_blocker_policy(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: PinnedBlockerPolicy,
+) -> PinnedBlockerPolicy {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "preserve" => PinnedBlockerPolicy::Preserve,
         _ => default,
     }
 }

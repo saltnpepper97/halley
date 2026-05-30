@@ -313,7 +313,6 @@ impl Halley {
                     pending_initial_reveal: HashSet::new(),
                     pending_initial_spawn_placement: None,
                     initial_spawn_placements: HashMap::new(),
-                    initial_spawn_authority: HashMap::new(),
                     pending_pan_activate: None,
                 },
                 field: Field::new(),
@@ -341,6 +340,8 @@ impl Halley {
                     overlay_exit_confirm: HashMap::new(),
                     closing_window_animations: HashMap::new(),
                     stack_cycle_transition: HashMap::new(),
+                    raise_animations: HashMap::new(),
+                    landmark_slide_animations: HashMap::new(),
                     gpu: Default::default(),
                     render_last_tick: now,
                 },
@@ -352,6 +353,7 @@ impl Halley {
                     pending_pointer_screen_hint: None,
                     last_pointer_screen_global: None,
                     pointer_contents: Default::default(),
+                    pointer_surface_origin: None,
                     suppress_layer_shell_configure: false,
                     dpms_just_woke: false,
                     resize_active: None,
@@ -750,9 +752,17 @@ impl Halley {
     }
 
     pub(crate) fn assign_node_to_monitor(&mut self, id: NodeId, monitor: &str) {
+        let previous_monitor = self.model.monitor_state.node_monitor.get(&id).cloned();
         super::monitor::state::assign_node_to_monitor(self, id, monitor);
-        super::clusters::system::cluster_system_controller(self)
+        super::clusters::system::cluster_system_controller(&mut *self)
             .sync_cluster_name_for_node_monitor(id, monitor);
+        if previous_monitor.as_deref() != Some(monitor)
+            && super::workspace::state::abort_maximize_session_for_external_active_node_on_monitor(
+                self, monitor, id,
+            )
+        {
+            self.request_maintenance();
+        }
     }
 
     pub(crate) fn assign_layer_surface_to_monitor(
@@ -911,6 +921,10 @@ impl Halley {
 
     pub(crate) fn resolve_surface_overlap(&mut self) {
         super::overlap::system::resolve_surface_overlap(self)
+    }
+
+    pub(crate) fn resolve_landmarks_overlapped_by_active_window(&mut self, window_id: NodeId) {
+        super::overlap::system::resolve_landmarks_overlapped_by_active_window(self, window_id)
     }
 
     pub(crate) fn request_toplevel_resize(&mut self, node_id: NodeId, width: i32, height: i32) {

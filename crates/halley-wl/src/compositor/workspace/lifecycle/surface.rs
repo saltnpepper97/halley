@@ -159,46 +159,24 @@ pub(super) fn refresh_node_identity_for_surface(
         }
     }
 
+    if crate::window::node_is_game_like(st, node_id) {
+        st.model
+            .spawn_state
+            .pending_spawn_pan_queue
+            .retain(|pending| pending.node_id != node_id);
+        if st
+            .model
+            .spawn_state
+            .active_spawn_pan
+            .is_some_and(|active| active.node_id == node_id)
+        {
+            st.model.spawn_state.active_spawn_pan = None;
+            st.input.interaction_state.viewport_pan_anim = None;
+        }
+    }
+
     let now = Instant::now();
     maybe_apply_pending_initial_window_rule(st, node_id, &root_surface, now);
-    expire_stale_steam_startup_rule(st, node_id, &root_surface, now);
-}
-
-fn expire_stale_steam_startup_rule(
-    st: &mut Halley,
-    node_id: NodeId,
-    root_surface: &WlSurface,
-    now: Instant,
-) {
-    let had_steam_startup_rule = st
-        .model
-        .spawn_state
-        .applied_window_rules
-        .get(&node_id)
-        .is_some_and(|rule| {
-            rule.builtin_rule
-                == Some(crate::compositor::spawn::rules::BuiltinInitialWindowRule::SteamStartup)
-        });
-    if !had_steam_startup_rule {
-        return;
-    }
-
-    let intent = crate::compositor::spawn::rules::resolve_initial_window_intent_for_surface(
-        st,
-        root_surface,
-    );
-    if intent.builtin_rule
-        == Some(crate::compositor::spawn::rules::BuiltinInitialWindowRule::SteamStartup)
-    {
-        return;
-    }
-
-    st.model.spawn_state.applied_window_rules.remove(&node_id);
-    st.resolve_surface_overlap();
-    let _ = crate::compositor::interaction::pointer::refresh_pointer_focus_at_last_screen(
-        st, None, now,
-    );
-    st.request_maintenance();
 }
 
 fn maybe_apply_pending_initial_window_rule(
@@ -300,7 +278,8 @@ fn maybe_apply_pending_initial_window_rule(
         cluster_local = true;
     }
 
-    if !cluster_local
+    if should_repick_deferred_initial_window_position(&intent)
+        && !cluster_local
         && let Some(size) = st.model.field.node(node_id).map(|node| node.intrinsic_size)
     {
         let (picked_monitor, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
@@ -309,7 +288,6 @@ fn maybe_apply_pending_initial_window_rule(
         }
         let _ = st.model.field.carry(node_id, pos);
         if let Some(record) = st.model.spawn_state.pending_initial_spawn_placement.take() {
-            activate_initial_spawn_authority(st, node_id, &record, now);
             st.model
                 .spawn_state
                 .initial_spawn_placements
@@ -323,10 +301,10 @@ fn maybe_apply_pending_initial_window_rule(
             .spawn_state
             .applied_window_rules
             .insert(node_id, intent.applied_rule_for_node());
-        let _ = st.raise_overlap_policy_node(node_id);
     } else {
         st.model.spawn_state.applied_window_rules.remove(&node_id);
     }
+    let _ = st.raise_overlap_policy_node(node_id);
     st.model.spawn_state.pending_rule_rechecks.remove(&node_id);
     if !st
         .model
@@ -338,6 +316,10 @@ fn maybe_apply_pending_initial_window_rule(
     } else {
         let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, intent.is_transient, now);
     }
+}
+
+pub(super) fn should_repick_deferred_initial_window_position(intent: &InitialWindowIntent) -> bool {
+    intent.matched_rule
 }
 
 pub(super) fn reveal_pending_initial_toplevel_if_ready(
@@ -377,6 +359,7 @@ pub(super) fn reveal_pending_initial_toplevel_if_ready(
     }
     st.model.spawn_state.pending_initial_reveal.remove(&node_id);
     st.reveal_new_toplevel_node(node_id, is_transient, now);
+    st.resolve_landmarks_overlapped_by_active_window(node_id);
     if !st
         .model
         .field
@@ -388,43 +371,6 @@ pub(super) fn reveal_pending_initial_toplevel_if_ready(
     }
     st.request_maintenance();
     true
-}
-
-fn activate_initial_spawn_authority(
-    st: &mut Halley,
-    node_id: NodeId,
-    record: &crate::compositor::spawn::state::InitialSpawnPlacement,
-    now: Instant,
-) {
-    if record.overlap_policy != halley_config::InitialWindowOverlapPolicy::None {
-        return;
-    }
-    let Some(anchor_node) = record.anchor_node else {
-        return;
-    };
-    if anchor_node == node_id || st.model.field.node(anchor_node).is_none() {
-        return;
-    }
-
-    let duration_ms = st
-        .runtime
-        .tuning
-        .window_open_duration_ms()
-        .saturating_add(500)
-        .max(900);
-    let until_ms = st.now_ms(now).saturating_add(duration_ms);
-    st.model.spawn_state.initial_spawn_authority.insert(
-        node_id,
-        crate::compositor::spawn::state::InitialSpawnAuthority {
-            anchor_node,
-            until_ms,
-        },
-    );
-    st.input.interaction_state.physics_velocity.remove(&node_id);
-    st.input
-        .interaction_state
-        .physics_velocity
-        .remove(&anchor_node);
 }
 
 pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
@@ -501,6 +447,12 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             (bbox.size.w, bbox.size.h),
             geo.map(|g| (g.loc.x, g.loc.y, g.size.w, g.size.h)),
         );
+        let first_geometry_commit = !st
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .contains_key(&node_id);
         st.ui
             .render_state
             .cache
@@ -513,12 +465,12 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             (node.intrinsic_size.x - new_size.x).abs() > 0.5
                 || (node.intrinsic_size.y - new_size.y).abs() > 0.5
         });
+        let pending_initial_reveal = st
+            .model
+            .spawn_state
+            .pending_initial_reveal
+            .contains(&node_id);
         if size_changed && st.input.interaction_state.resize_active != Some(node_id) {
-            let pending_initial_reveal = st
-                .model
-                .spawn_state
-                .pending_initial_reveal
-                .contains(&node_id);
             if let Some(node) = st.model.field.node_mut(node_id) {
                 node.intrinsic_size = new_size;
                 if node.state == halley_core::field::NodeState::Active {
@@ -529,6 +481,15 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                 .workspace_state
                 .last_active_size
                 .insert(node_id, new_size);
+            if !pending_initial_reveal
+                && st
+                    .model
+                    .workspace_state
+                    .active_transitions
+                    .contains_key(&node_id)
+            {
+                st.resolve_landmarks_overlapped_by_active_window(node_id);
+            }
             let finalized_initial_spawn =
                 !pending_initial_reveal && st.finalize_initial_spawn_position(node_id, new_size);
             st.request_maintenance();
@@ -556,6 +517,12 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         }
 
         let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, false, now);
+        if st.input.interaction_state.resize_active != Some(node_id)
+            && st.model.field.is_visible(node_id)
+            && first_geometry_commit
+        {
+            st.resolve_landmarks_overlapped_by_active_window(node_id);
+        }
     }
 }
 
@@ -702,7 +669,6 @@ pub(super) fn ensure_node_for_surface_impl(
     if !spawned_in_active_cluster
         && let Some(record) = st.model.spawn_state.pending_initial_spawn_placement.take()
     {
-        activate_initial_spawn_authority(st, id, &record, now);
         st.model
             .spawn_state
             .initial_spawn_placements
@@ -713,7 +679,6 @@ pub(super) fn ensure_node_for_surface_impl(
             .spawn_state
             .applied_window_rules
             .insert(id, effective_intent.applied_rule_for_node());
-        let _ = st.raise_overlap_policy_node(id);
     } else if should_defer {
         st.model.spawn_state.pending_rule_rechecks.insert(id);
         st.model.spawn_state.pending_initial_reveal.insert(id);
@@ -722,6 +687,7 @@ pub(super) fn ensure_node_for_surface_impl(
         .model
         .field
         .set_state(id, halley_core::field::NodeState::Active);
+    let _ = st.raise_overlap_policy_node(id);
     if !spawned_in_active_cluster {
         let _ = st.model.field.set_decay_level(id, DecayLevel::Hot);
     }

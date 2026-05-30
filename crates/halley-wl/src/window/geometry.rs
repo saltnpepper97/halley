@@ -95,26 +95,6 @@ fn snapshot_surface_geometry(
     bbox
 }
 
-pub(super) fn should_draw_resize_overlap_overlay(
-    resize_rect_px: Option<(i32, i32, i32, i32, NodeId)>,
-    node_id: NodeId,
-    geometry_rect: (i32, i32, i32, i32),
-    resizing_node_has_overlap_policy: bool,
-) -> bool {
-    let Some((rl, rt, rr, rb, rid)) = resize_rect_px else {
-        return false;
-    };
-    if resizing_node_has_overlap_policy || node_id == rid {
-        return false;
-    }
-    let (gx, gy, gw, gh) = geometry_rect;
-    let wl = gx;
-    let wt = gy;
-    let wr = gx + gw.max(1);
-    let wb = gy + gh.max(1);
-    wl < rr && rl < wr && wt < rb && rt < wb
-}
-
 pub(super) fn log_window_render_path(
     _st: &Halley,
     _node_id: halley_core::field::NodeId,

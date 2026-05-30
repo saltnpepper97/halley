@@ -92,7 +92,6 @@ fn popup_focus_for_screen(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
 )> {
-    let recent_top_node = st.recent_top_node_active(now);
     let mut toplevels: Vec<_> = st
         .platform
         .xdg_shell_state
@@ -109,12 +108,9 @@ fn popup_focus_for_screen(
         .collect();
 
     toplevels.sort_by_key(|(node_id, _, _, _)| {
-        let overlap_rank = st.overlap_policy_stack_rank(*node_id);
         (
             is_persistent_rule_top(st, *node_id),
-            st.node_has_overlap_policy(*node_id),
-            overlap_rank,
-            Some(*node_id) == recent_top_node,
+            st.overlap_policy_stack_rank(*node_id),
             node_id.as_u64(),
         )
     });

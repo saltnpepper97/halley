@@ -2,7 +2,7 @@ use rune_cfg::RuneConfig;
 
 use crate::layout::RuntimeTuning;
 
-use super::super::primitives::{pick_bool, pick_u64, pick_window_close_animation_style};
+use super::super::primitives::{pick_bool, pick_f32, pick_u64, pick_window_close_animation_style};
 
 pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.animations.enabled = pick_bool(
@@ -143,6 +143,37 @@ pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning)
         ],
         out.animations.stack.duration_ms,
     );
+
+    out.animations.raise.enabled = pick_bool(
+        cfg,
+        &["animation.raise.enabled", "animations.raise.enabled"],
+        out.animations.raise.enabled,
+    );
+    out.animations.raise.duration_ms = pick_u64(
+        cfg,
+        &[
+            "animation.raise.duration-ms",
+            "animation.raise.duration_ms",
+            "animations.raise.duration-ms",
+            "animations.raise.duration_ms",
+        ],
+        out.animations.raise.duration_ms,
+    );
+    out.animations.raise.scale = pick_f32(
+        cfg,
+        &["animation.raise.scale", "animations.raise.scale"],
+        out.animations.raise.scale,
+    );
+    out.animations.raise.shadow_boost = pick_f32(
+        cfg,
+        &[
+            "animation.raise.shadow-boost",
+            "animation.raise.shadow_boost",
+            "animations.raise.shadow-boost",
+            "animations.raise.shadow_boost",
+        ],
+        out.animations.raise.shadow_boost,
+    );
 }
 
 #[cfg(test)]
@@ -184,6 +215,12 @@ animations:
     enabled true
     duration-ms 444
   end
+  raise:
+    enabled true
+    duration-ms 155
+    scale 1.04
+    shadow-boost 0.25
+  end
 end
 "#,
         )
@@ -209,6 +246,10 @@ end
         assert_eq!(out.animations.tile.duration_ms, 333);
         assert!(out.animations.stack.enabled);
         assert_eq!(out.animations.stack.duration_ms, 444);
+        assert!(out.animations.raise.enabled);
+        assert_eq!(out.animations.raise.duration_ms, 155);
+        assert_eq!(out.animations.raise.scale, 1.04);
+        assert_eq!(out.animations.raise.shadow_boost, 0.25);
     }
 
     #[test]
@@ -229,5 +270,9 @@ end
         assert_eq!(out.animations.tile.duration_ms, 240);
         assert!(out.animations.stack.enabled);
         assert_eq!(out.animations.stack.duration_ms, 220);
+        assert!(out.animations.raise.enabled);
+        assert_eq!(out.animations.raise.duration_ms, 140);
+        assert_eq!(out.animations.raise.scale, 1.025);
+        assert_eq!(out.animations.raise.shadow_boost, 0.18);
     }
 }

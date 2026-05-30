@@ -7,7 +7,7 @@ pub(crate) use query::{
     active_stacking_front_member_for_monitor, active_stacking_render_order_for_monitor,
     active_stacking_visible_members_for_monitor, is_active_cluster_workspace_member,
     is_active_stacking_workspace_member, node_allows_interactive_resize,
-    stack_focus_target_for_node,
+    node_blocks_interactive_transform, stack_focus_target_for_node,
 };
 pub(crate) use xdg::{
     current_surface_size_for_node, request_close_focused_toplevel, request_close_node_toplevel,

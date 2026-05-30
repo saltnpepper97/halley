@@ -327,7 +327,28 @@ pub(super) fn clone_stack_window_unit_for_pose(
         })
         .collect::<Vec<_>>();
 
-    if shadow_rects.is_empty() && border_rects.is_empty() && offscreen_textures.is_empty() {
+    let pin_badges = unit
+        .pin_badges
+        .iter()
+        .copied()
+        .map(|mut badge| {
+            let x = to_cx as f32 + (badge.cx as f32 - from_cx as f32) * scale_x;
+            let y = to_cy as f32 + (badge.cy as f32 - from_cy as f32) * scale_y;
+            badge.cx = x.round() as i32;
+            badge.cy = y.round() as i32;
+            badge.radius = ((badge.radius as f32) * scale_x.min(scale_y))
+                .round()
+                .max(1.0) as i32;
+            badge.alpha *= to_pose.alpha.clamp(0.0, 1.0);
+            badge
+        })
+        .collect::<Vec<_>>();
+
+    if shadow_rects.is_empty()
+        && border_rects.is_empty()
+        && offscreen_textures.is_empty()
+        && pin_badges.is_empty()
+    {
         return None;
     }
 
@@ -336,6 +357,7 @@ pub(super) fn clone_stack_window_unit_for_pose(
         draw_order: to_pose.draw_order,
         shadow_rects,
         border_rects,
+        pin_badges,
         active_elements: Vec::new(),
         offscreen_textures,
     })

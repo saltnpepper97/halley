@@ -1,11 +1,11 @@
 use halley_config::{
-    InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
-    WindowRule,
+    ExpandedPlacementStrategy, InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
+    InitialWindowSpawnPlacement, WindowRule,
 };
 use halley_core::field::NodeId;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::wayland::compositor::with_states;
-use smithay::wayland::shell::xdg::{ToplevelSurface, XdgToplevelSurfaceData};
+use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface, XdgToplevelSurfaceData};
 
 use crate::compositor::root::Halley;
 
@@ -26,6 +26,21 @@ impl Default for ResolvedInitialWindowRule {
     }
 }
 
+fn default_expanded_spawn_placement(st: &Halley) -> InitialWindowSpawnPlacement {
+    match st.runtime.tuning.placement.expanded.strategy {
+        ExpandedPlacementStrategy::Center => InitialWindowSpawnPlacement::Center,
+        ExpandedPlacementStrategy::FindEmpty => InitialWindowSpawnPlacement::Adjacent,
+    }
+}
+
+fn default_initial_window_rule(st: &Halley) -> ResolvedInitialWindowRule {
+    ResolvedInitialWindowRule {
+        overlap_policy: InitialWindowOverlapPolicy::None,
+        spawn_placement: default_expanded_spawn_placement(st),
+        cluster_participation: InitialWindowClusterParticipation::Layout,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InitialWindowIntent {
     pub(crate) app_id: Option<String>,
@@ -43,7 +58,6 @@ pub(crate) enum BuiltinInitialWindowRule {
     Dialog,
     PortalDialog,
     PictureInPicture,
-    SteamStartup,
 }
 
 impl InitialWindowIntent {
@@ -88,6 +102,7 @@ impl InitialWindowIntent {
 
     pub(crate) fn effective_spawn_placement(&self) -> InitialWindowSpawnPlacement {
         match self.rule.spawn_placement {
+            InitialWindowSpawnPlacement::Default => InitialWindowSpawnPlacement::Center,
             InitialWindowSpawnPlacement::App if self.parent_node.is_some() => {
                 InitialWindowSpawnPlacement::Center
             }
@@ -110,11 +125,13 @@ pub(crate) fn resolve_initial_window_intent_for_surface(
 ) -> InitialWindowIntent {
     let root = surface_tree_root(surface);
     let is_dialog = surface_is_xdg_dialog(&root);
+    let default_float = is_dialog || surface_is_fixed_height(&root);
     resolve_initial_window_intent_from_identity(
         st,
         surface_app_id(&root),
         surface_title(&root),
         parent_node_for_surface(st, &root),
+        default_float,
         is_dialog,
     )
 }
@@ -124,15 +141,16 @@ fn resolve_initial_window_intent_from_identity(
     app_id: Option<String>,
     title: Option<String>,
     parent_node: Option<NodeId>,
+    default_float: bool,
     is_dialog: bool,
 ) -> InitialWindowIntent {
     let (rule, builtin_rule) =
-        matching_window_rule_with_source(st, app_id.as_deref(), title.as_deref(), is_dialog);
+        matching_window_rule_with_source(st, app_id.as_deref(), title.as_deref(), default_float);
     InitialWindowIntent {
         app_id,
         title,
         parent_node,
-        rule: rule.unwrap_or_default(),
+        rule: rule.unwrap_or_else(|| default_initial_window_rule(st)),
         builtin_rule,
         matched_rule: rule.is_some(),
         is_transient: parent_node.is_some() || is_dialog,
@@ -164,10 +182,13 @@ pub(crate) fn needs_deferred_rule_recheck(st: &Halley, intent: &InitialWindowInt
         || builtin_window_rule_may_match_later(intent.app_id.as_deref(), intent.title.as_deref())
 }
 
-fn rule_match(rule: &WindowRule) -> ResolvedInitialWindowRule {
+fn rule_match(st: &Halley, rule: &WindowRule) -> ResolvedInitialWindowRule {
     ResolvedInitialWindowRule {
-        overlap_policy: rule.overlap_policy,
-        spawn_placement: rule.spawn_placement,
+        overlap_policy: InitialWindowOverlapPolicy::None,
+        spawn_placement: match rule.spawn_placement {
+            InitialWindowSpawnPlacement::Default => default_expanded_spawn_placement(st),
+            placement => placement,
+        },
         cluster_participation: rule.cluster_participation,
     }
 }
@@ -190,10 +211,6 @@ fn portal_dialog_title_matches(title: &str) -> bool {
     ]
     .into_iter()
     .any(|prefix| title.starts_with(prefix))
-}
-
-fn steam_startup_title_matches(title: &str) -> bool {
-    title == "Sign in to Steam"
 }
 
 fn matching_user_window_rule<'a>(
@@ -227,9 +244,9 @@ fn matching_user_window_rule<'a>(
 fn matching_builtin_window_rule(
     app_id: Option<&str>,
     title: Option<&str>,
-    is_dialog: bool,
+    default_float: bool,
 ) -> Option<(BuiltinInitialWindowRule, ResolvedInitialWindowRule)> {
-    if is_dialog {
+    if default_float {
         return Some((
             BuiltinInitialWindowRule::Dialog,
             builtin_float_center_overlap_rule(),
@@ -250,13 +267,6 @@ fn matching_builtin_window_rule(
         ));
     }
 
-    if app_id == Some("steam") && title.is_some_and(|t| steam_startup_title_matches(t)) {
-        return Some((
-            BuiltinInitialWindowRule::SteamStartup,
-            builtin_float_center_overlap_rule(),
-        ));
-    }
-
     None
 }
 
@@ -264,15 +274,17 @@ fn matching_window_rule_with_source(
     st: &Halley,
     app_id: Option<&str>,
     title: Option<&str>,
-    is_dialog: bool,
+    default_float: bool,
 ) -> (
     Option<ResolvedInitialWindowRule>,
     Option<BuiltinInitialWindowRule>,
 ) {
-    if let Some(rule) = matching_user_window_rule(st, app_id, title).map(rule_match) {
+    if let Some(rule) =
+        matching_user_window_rule(st, app_id, title).map(|rule| rule_match(st, rule))
+    {
         return (Some(rule), None);
     }
-    matching_builtin_window_rule(app_id, title, is_dialog)
+    matching_builtin_window_rule(app_id, title, default_float)
         .map(|(builtin, rule)| (Some(rule), Some(builtin)))
         .unwrap_or((None, None))
 }
@@ -282,15 +294,12 @@ fn matching_window_rule(
     st: &Halley,
     app_id: Option<&str>,
     title: Option<&str>,
-    is_dialog: bool,
+    default_float: bool,
 ) -> Option<ResolvedInitialWindowRule> {
-    matching_window_rule_with_source(st, app_id, title, is_dialog).0
+    matching_window_rule_with_source(st, app_id, title, default_float).0
 }
 
 fn builtin_window_rule_may_match_later(app_id: Option<&str>, title: Option<&str>) -> bool {
-    if app_id == Some("steam") && title.is_none() {
-        return true;
-    }
     if app_id == Some("xdg-desktop-portal-gtk") && title.is_none() {
         return true;
     }
@@ -315,6 +324,10 @@ fn parent_node_for_surface(st: &Halley, surface: &WlSurface) -> Option<NodeId> {
     st.model.surface_to_node.get(&parent_surface.id()).copied()
 }
 
+fn fixed_height_size_requests_float(min_h: i32, max_h: i32) -> bool {
+    min_h > 0 && min_h == max_h
+}
+
 fn surface_is_xdg_dialog(surface: &WlSurface) -> bool {
     with_states(surface, |states| {
         states
@@ -324,6 +337,14 @@ fn surface_is_xdg_dialog(surface: &WlSurface) -> bool {
                 let guard = data.lock().expect("xdg toplevel surface data");
                 guard.modal || guard.parent.is_some()
             })
+    })
+}
+
+fn surface_is_fixed_height(surface: &WlSurface) -> bool {
+    with_states(surface, |states| {
+        let mut cached = states.cached_state.get::<SurfaceCachedState>();
+        let current = cached.current();
+        fixed_height_size_requests_float(current.min_size.h, current.max_size.h)
     })
 }
 
@@ -498,12 +519,12 @@ mod tests {
     }
 
     #[test]
-    fn builtin_steam_startup_window_matches() {
+    fn builtin_default_float_matches() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let state = Halley::new_for_test(&dh, RuntimeTuning::default());
 
-        let matched = matching_window_rule(&state, Some("steam"), Some("Sign in to Steam"), false)
-            .expect("steam startup rule");
+        let matched = matching_window_rule(&state, Some("steam"), Some("Sign in to Steam"), true)
+            .expect("default floating rule");
 
         assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::All);
         assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
@@ -514,11 +535,14 @@ mod tests {
     }
 
     #[test]
-    fn builtin_steam_rule_does_not_match_main_window() {
+    fn steam_windows_have_no_builtin_rule_without_default_float() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let state = Halley::new_for_test(&dh, RuntimeTuning::default());
 
         assert!(matching_window_rule(&state, Some("steam"), Some("Steam"), false).is_none());
+        assert!(
+            matching_window_rule(&state, Some("steam"), Some("Sign in to Steam"), false).is_none()
+        );
     }
 
     #[test]
@@ -604,7 +628,7 @@ mod tests {
     }
 
     #[test]
-    fn user_rule_overrides_builtin_steam_startup_behavior() {
+    fn user_rule_overrides_builtin_default_float_behavior() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut tuning = RuntimeTuning::default();
         tuning.window_rules = vec![WindowRule {
@@ -616,7 +640,7 @@ mod tests {
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
-        let matched = matching_window_rule(&state, Some("steam"), Some("Sign in to Steam"), false)
+        let matched = matching_window_rule(&state, Some("steam"), Some("Sign in to Steam"), true)
             .expect("user rule");
 
         assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::None);
@@ -677,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn deferred_recheck_considers_builtin_steam_rule() {
+    fn steam_without_title_is_not_deferred_without_builtin_rule() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let state = Halley::new_for_test(&dh, RuntimeTuning::default());
         let intent = InitialWindowIntent {
@@ -691,7 +715,14 @@ mod tests {
             prefer_app_intent: false,
         };
 
-        assert!(needs_deferred_rule_recheck(&state, &intent));
+        assert!(!needs_deferred_rule_recheck(&state, &intent));
+    }
+
+    #[test]
+    fn fixed_height_size_requests_default_float() {
+        assert!(fixed_height_size_requests_float(480, 480));
+        assert!(!fixed_height_size_requests_float(0, 480));
+        assert!(!fixed_height_size_requests_float(480, 720));
     }
 
     #[test]

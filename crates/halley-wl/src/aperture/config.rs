@@ -20,18 +20,16 @@ pub(crate) fn default_aperture_config_path() -> PathBuf {
     PathBuf::from("aperture.rune")
 }
 
-pub(crate) fn aperture_config_matches_event_path(
-    event_path: &Path,
-    main_path: &Path,
-    aperture_path: &Path,
-) -> bool {
-    matches_path(event_path, main_path) || matches_path(event_path, aperture_path)
+pub(crate) fn config_matches_event_path(event_path: &Path, targets: &[PathBuf]) -> bool {
+    targets
+        .iter()
+        .any(|target| matches_path(event_path, target))
 }
 
-pub(crate) fn config_watch_roots(main_path: &Path, aperture_path: &Path) -> Vec<PathBuf> {
+pub(crate) fn config_watch_roots(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for root in [main_path, aperture_path].into_iter().map(|path| {
+    for root in paths.iter().map(|path| {
         path.parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| path.to_path_buf())

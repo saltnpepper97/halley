@@ -603,6 +603,25 @@ mod tests {
     }
 
     #[test]
+    fn focusing_pointer_target_does_not_raise_window() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = state.model.field.spawn_surface(
+            "hovered",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        state.assign_node_to_current_monitor(id);
+
+        let before = state.overlap_policy_stack_rank(id);
+        state.focus_pointer_target(id, 30_000, Instant::now());
+
+        assert_eq!(state.overlap_policy_stack_rank(id), before);
+    }
+
+    #[test]
     fn spawn_pan_does_not_clear_active_spawn_patch() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")

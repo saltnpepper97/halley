@@ -37,6 +37,7 @@ pub(crate) fn promote_node_level(
             .manual_collapsed_nodes
             .remove(&node_id);
         let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
+        let _ = st.raise_overlap_policy_node(node_id);
         crate::compositor::workspace::state::mark_active_transition(st, node_id, now, 360);
         st.set_interaction_focus(Some(node_id), 30_000, now);
         return start_maximize_session(st, node_id, maximize_monitor, now);
@@ -50,6 +51,7 @@ pub(crate) fn promote_node_level(
             .remove(&node_id);
 
         let _ = st.model.field.set_decay_level(node_id, DecayLevel::Hot);
+        let _ = st.raise_overlap_policy_node(node_id);
         crate::compositor::workspace::state::mark_active_transition(st, node_id, now, 360);
 
         st.set_interaction_focus(Some(node_id), 30_000, now);
@@ -692,6 +694,9 @@ pub(crate) fn toggle_node_maximize_state(
     if node.kind != halley_core::field::NodeKind::Surface {
         return false;
     }
+    if st.node_user_pinned(id) {
+        return false;
+    }
     if crate::compositor::surface::is_active_cluster_workspace_member(st, id)
         || st.is_fullscreen_active(id)
     {
@@ -731,6 +736,7 @@ fn uncollapse_surface_node_for_action(
         .model
         .field
         .set_decay_level(id, halley_core::decay::DecayLevel::Hot);
+    let _ = st.raise_overlap_policy_node(id);
     st.model
         .spawn_state
         .pending_spawn_activate_at_ms
@@ -909,6 +915,38 @@ mod tests {
         tuning
     }
 
+    fn two_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.maximize.enabled = false;
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        tuning
+    }
+
     #[test]
     fn activation_focus_does_not_pan_to_existing_surface() {
         let dh = Display::<Halley>::new().expect("display").handle();
@@ -988,7 +1026,7 @@ mod tests {
     }
 
     #[test]
-    fn pinned_surface_can_still_toggle_maximize() {
+    fn pinned_surface_cannot_toggle_maximize() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut tuning = single_monitor_tuning();
         tuning.animations.maximize.enabled = false;
@@ -1001,19 +1039,53 @@ mod tests {
         st.assign_node_to_monitor(id, "monitor_a");
 
         assert!(st.set_node_user_pinned(id, true));
-        assert!(toggle_node_maximize_state(
+        assert!(!toggle_node_maximize_state(
             &mut st,
             id,
             Instant::now(),
             "monitor_a"
         ));
 
-        let (target_pos, target_size) = maximize_target_for_monitor(&st, "monitor_a");
         let node = st.model.field.node(id).expect("node");
-        assert_eq!(node.pos, target_pos);
-        assert_eq!(node.intrinsic_size, target_size);
+        assert_eq!(node.pos, halley_core::field::Vec2 { x: 120.0, y: 140.0 });
+        assert_eq!(
+            node.intrinsic_size,
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 }
+        );
         assert!(st.node_user_pinned(id));
         assert!(node.pinned);
+    }
+
+    #[test]
+    fn opening_collapsed_surface_raises_it_above_existing_active_window() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let opened = st.model.field.spawn_surface(
+            "opened",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 300.0, y: 200.0 },
+        );
+        let existing = st.model.field.spawn_surface(
+            "existing",
+            halley_core::field::Vec2 { x: 40.0, y: 40.0 },
+            halley_core::field::Vec2 { x: 300.0, y: 200.0 },
+        );
+        st.assign_node_to_monitor(opened, "monitor_a");
+        st.assign_node_to_monitor(existing, "monitor_a");
+        let _ = st
+            .model
+            .field
+            .set_state(opened, halley_core::field::NodeState::Node);
+        let _ = st.raise_overlap_policy_node(existing);
+
+        assert!(toggle_node_state(
+            &mut st,
+            opened,
+            Instant::now(),
+            "monitor_a"
+        ));
+
+        assert!(st.overlap_policy_stack_rank(opened) > st.overlap_policy_stack_rank(existing));
     }
 
     #[test]
@@ -1267,6 +1339,97 @@ mod tests {
     }
 
     #[test]
+    fn moving_external_active_window_to_maximized_monitor_unmaximizes() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, two_monitor_tuning());
+
+        let target = st.model.field.spawn_surface(
+            "target",
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        let bystander = st.model.field.spawn_surface(
+            "bystander",
+            halley_core::field::Vec2 { x: 460.0, y: 260.0 },
+            halley_core::field::Vec2 { x: 240.0, y: 180.0 },
+        );
+        let moved = st.model.field.spawn_surface(
+            "moved",
+            halley_core::field::Vec2 { x: -420.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 300.0, y: 180.0 },
+        );
+        st.assign_node_to_monitor(target, "right");
+        st.assign_node_to_monitor(bystander, "right");
+        st.assign_node_to_monitor(moved, "left");
+
+        assert!(toggle_node_maximize_state(
+            &mut st,
+            target,
+            Instant::now(),
+            "right"
+        ));
+        assert!(
+            st.model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("right")
+        );
+
+        st.assign_node_to_monitor(moved, "right");
+
+        assert!(
+            !st.model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("right")
+        );
+        assert_eq!(
+            st.model.field.node(target).expect("target").pos,
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 }
+        );
+        assert_eq!(
+            st.model.field.node(bystander).expect("bystander").pos,
+            halley_core::field::Vec2 { x: 460.0, y: 260.0 }
+        );
+        assert_eq!(
+            st.model
+                .monitor_state
+                .node_monitor
+                .get(&moved)
+                .map(String::as_str),
+            Some("right")
+        );
+    }
+
+    #[test]
+    fn assigning_maximize_session_member_does_not_abort_session() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, two_monitor_tuning());
+
+        let target = st.model.field.spawn_surface(
+            "target",
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(target, "right");
+
+        assert!(toggle_node_maximize_state(
+            &mut st,
+            target,
+            Instant::now(),
+            "right"
+        ));
+        st.assign_node_to_monitor(target, "right");
+
+        assert!(
+            st.model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("right")
+        );
+    }
+
+    #[test]
     fn unmaximize_restores_camera_via_smooth_target() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
@@ -1404,6 +1567,49 @@ mod tests {
         assert_eq!(
             st.model.field.node(bystander).expect("bystander").pos,
             halley_core::field::Vec2 { x: 460.0, y: 260.0 }
+        );
+    }
+
+    #[test]
+    fn manual_collapse_places_node_out_from_under_active_window() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let blocker = st.model.field.spawn_surface(
+            "blocker",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 420.0, y: 280.0 },
+        );
+        let target = st.model.field.spawn_surface(
+            "target",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 220.0 },
+        );
+        st.assign_node_to_monitor(blocker, monitor.as_str());
+        st.assign_node_to_monitor(target, monitor.as_str());
+        let blocker_pos = st.model.field.node(blocker).expect("blocker").pos;
+        let target_pos = st.model.field.node(target).expect("target").pos;
+
+        assert!(crate::compositor::workspace::state::finish_manual_collapse(
+            &mut st,
+            target,
+            Instant::now(),
+        ));
+
+        assert_eq!(
+            st.model.field.node(blocker).expect("blocker").pos,
+            blocker_pos
+        );
+        assert_ne!(st.model.field.node(target).expect("target").pos, target_pos);
+        assert!(
+            st.ui
+                .render_state
+                .landmark_slide_animations
+                .contains_key(&target)
+        );
+        assert_eq!(
+            st.model.field.node(target).expect("target").state,
+            halley_core::field::NodeState::Node
         );
     }
 

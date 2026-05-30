@@ -250,6 +250,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         now_ms: u64,
     ) {
         let _ = self.model.field.set_detached(active.node_id, false);
+        self.resolve_landmarks_overlapped_by_active_window(active.node_id);
         let _ = self
             .model
             .field
@@ -310,6 +311,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         }
         if cluster_local {
             let _ = self.model.field.set_detached(id, false);
+            self.resolve_landmarks_overlapped_by_active_window(id);
             self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
             self.set_interaction_focus(Some(id), 30_000, now);
             self.model
@@ -338,6 +340,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             .is_some_and(|rule| rule.suppress_reveal_pan)
         {
             let _ = self.model.field.set_detached(id, false);
+            self.resolve_landmarks_overlapped_by_active_window(id);
             self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
             self.record_focus_trail_visit(id);
             self.model.focus_state.suppress_trail_record_once = true;
@@ -361,6 +364,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             RevealNewToplevelPlan::AlreadyQueued => {}
             RevealNewToplevelPlan::ActivateNow => {
                 let _ = self.model.field.set_detached(id, false);
+                self.resolve_landmarks_overlapped_by_active_window(id);
                 self.record_focus_trail_visit(id);
                 self.model.focus_state.suppress_trail_record_once = true;
                 self.set_interaction_focus(Some(id), 30_000, now);
@@ -432,7 +436,8 @@ mod tests {
 
     #[test]
     fn star_offsets_are_center_then_right_left_up_down() {
-        let tuning = halley_config::RuntimeTuning::default();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.pan_to_new = halley_config::PanToNewMode::Always;
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -593,7 +598,7 @@ mod tests {
             .expect("display")
             .handle();
         let mut state = Halley::new_for_test(&dh, tuning);
-        state.model.viewport.center = Vec2 { x: 500.0, y: 0.0 };
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
         state.model.viewport.size = Vec2 { x: 800.0, y: 600.0 };
 
         let focused = state.model.field.spawn_surface(
@@ -829,6 +834,249 @@ mod tests {
     }
 
     #[test]
+    fn empty_monitor_ignores_stale_spawn_patch() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 500.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        state.update_spawn_patch(
+            monitor.as_str(),
+            Vec2 { x: -800.0, y: 0.0 },
+            None,
+            Vec2 { x: -800.0, y: 0.0 },
+            Vec2 { x: 1.0, y: 0.0 },
+        );
+
+        let (_, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
+
+        assert_eq!(pos, Vec2 { x: 500.0, y: 0.0 });
+    }
+
+    #[test]
+    fn panning_away_from_focused_window_resets_default_spawn_to_view_center() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.focus_ring_rx = 100.0;
+        tuning.focus_ring_ry = 100.0;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+
+        let (_, near_focus, _) = state.pick_spawn_position(size);
+        assert_ne!(near_focus, Vec2 { x: 0.0, y: 0.0 });
+
+        state.model.viewport.center = Vec2 { x: 2000.0, y: 0.0 };
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, Vec2 { x: 2000.0, y: 0.0 });
+    }
+
+    #[test]
+    fn panning_slightly_off_focused_window_resets_to_exact_view_center() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+        let expected_focused = state
+            .right_spawn_candidate_for_focus(focused, size)
+            .expect("right spawn candidate");
+
+        let (_, at_focus, _) = state.pick_spawn_position(size);
+        assert_eq!(at_focus, expected_focused);
+
+        state.model.viewport.center = Vec2 { x: 200.0, y: 0.0 };
+        let (_, away_pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(away_pos, Vec2 { x: 200.0, y: 0.0 });
+    }
+
+    #[test]
+    fn stale_spawn_focus_override_is_ignored_after_panning_away() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 300.0, y: 0.0 };
+        state.model.viewport.size = Vec2 { x: 800.0, y: 600.0 };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        state
+            .spawn_monitor_state_mut(monitor.as_str())
+            .spawn_focus_override = Some(crate::compositor::spawn::state::SpawnFocusOverride {
+            pos: Vec2 { x: 0.0, y: 0.0 },
+            size,
+        });
+
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, state.model.viewport.center);
+    }
+
+    #[test]
+    fn spawn_focus_override_is_kept_when_view_center_is_on_override() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 { x: 800.0, y: 600.0 };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        state
+            .spawn_monitor_state_mut(monitor.as_str())
+            .spawn_focus_override = Some(crate::compositor::spawn::state::SpawnFocusOverride {
+            pos: Vec2 { x: 0.0, y: 0.0 },
+            size,
+        });
+        let expected = state
+            .right_spawn_candidate_for_focus(focused, size)
+            .expect("right spawn candidate");
+
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, expected);
+    }
+
+    #[test]
+    fn focused_window_can_reanchor_after_panning_back_into_view() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.focus_ring_rx = 100.0;
+        tuning.focus_ring_ry = 100.0;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: 0.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+
+        state.model.viewport.center = Vec2 { x: 900.0, y: 0.0 };
+        let (_, away_pos, _) = state.pick_spawn_position(size);
+        assert_eq!(away_pos, Vec2 { x: 900.0, y: 0.0 });
+
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        let expected = state
+            .right_spawn_candidate_for_focus(focused, size)
+            .expect("right spawn candidate");
+        let (_, back_pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(back_pos, expected);
+    }
+
+    #[test]
+    fn panning_away_ignores_stale_offscreen_focus_for_exact_view_center() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.focus_ring_rx = 100.0;
+        tuning.focus_ring_ry = 100.0;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: -1000.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, Vec2 { x: 0.0, y: 0.0 });
+    }
+
+    #[test]
+    fn panning_away_uses_nearest_center_slot_when_current_view_is_blocked() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.focus_ring_rx = 100.0;
+        tuning.focus_ring_ry = 100.0;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+        state.model.viewport.size = Vec2 {
+            x: 1600.0,
+            y: 1200.0,
+        };
+        let size = Vec2 { x: 120.0, y: 90.0 };
+        let focused = state
+            .model
+            .field
+            .spawn_surface("focused", Vec2 { x: -1000.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(focused);
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+        let blocker = state
+            .model
+            .field
+            .spawn_surface("blocker", Vec2 { x: 0.0, y: 0.0 }, size);
+        state.assign_node_to_current_monitor(blocker);
+
+        let (_, pos, _) = state.pick_spawn_position(size);
+
+        assert_eq!(pos, state.star_candidate_offsets(size)[1]);
+    }
+
+    #[test]
     fn focused_monitor_drives_spawn_even_when_current_monitor_differs() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![
@@ -937,6 +1185,66 @@ mod tests {
     }
 
     #[test]
+    fn hover_focus_mode_uses_non_empty_pointer_monitor_for_spawn_target() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.input.focus_mode = halley_config::InputFocusMode::Hover;
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let focused = state.model.field.spawn_surface(
+            "focused-left",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_monitor(focused, "left");
+        state.set_interaction_focus(Some(focused), 30_000, Instant::now());
+        let existing_right = state.model.field.spawn_surface(
+            "existing-right",
+            Vec2 {
+                x: 1000.0,
+                y: 300.0,
+            },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_monitor(existing_right, "right");
+        state.input.interaction_state.last_pointer_screen_global = Some((900.0, 120.0));
+
+        let (monitor, pos, _) = state.pick_spawn_position(Vec2 { x: 120.0, y: 90.0 });
+
+        assert_eq!(state.resolve_spawn_target_monitor(), "right");
+        assert_eq!(monitor, "right");
+        assert!(pos.x >= 800.0, "spawn should stay on the pointer monitor");
+    }
+
+    #[test]
     fn monitor_local_last_input_beats_stale_monitor_focus_for_spawn_anchor() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![
@@ -981,7 +1289,7 @@ mod tests {
         let latest = state.model.field.spawn_surface(
             "latest",
             Vec2 {
-                x: 1320.0,
+                x: 1200.0,
                 y: 300.0,
             },
             Vec2 { x: 120.0, y: 90.0 },
