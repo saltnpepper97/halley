@@ -484,6 +484,7 @@ pub(crate) fn pick_window_close_animation_style(
     };
     match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
         "shrink" => WindowCloseAnimationStyle::Shrink,
+        "fade" => WindowCloseAnimationStyle::Fade,
         _ => default,
     }
 }

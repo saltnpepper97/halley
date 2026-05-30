@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.3.0] - 2026-05-30
 
 ### Added
 - Add `wp_presentation` support and send presentation feedback after TTY and winit frames so Wayland clients such as gamescope can receive frame timing instead of falling back to X11 behavior.
@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Add `field.pins.background-colour` for configuring the circular pin badge background independently from the pin glyph colour.
 - Add top-right config error overlays for startup, manual reload, IPC reload, and file-watch reload failures, including scrollable diagnostics, hover pause, right-click dismissal, wheel and shift-wheel scrolling, and configurable `overlays.error-colour` styling.
 - Add strict config validation diagnostics for unknown Halley keys and invalid literals, with path, line, source text, and suggestions when available.
+- Add a selectable `animations.window-close.style "fade"` close animation that fades captured closing windows without shrinking them.
 
 ### Changed
 - Switch the field placement model so expanded windows may overlap other expanded windows while collapsed nodes and core landmarks remain non-overlapping map objects; pinned landmarks remain solid blockers during spawn, drag, and resize.
@@ -101,6 +102,7 @@ All notable changes to this project will be documented in this file.
 - Prevent right-click holds on empty field space from starting a camera pan.
 - Make overlap-policy windows stack like normal windows, drawing and hit-testing the clicked or newest overlapped window on top while hover focus does not raise it.
 - Animate unpinned collapsed nodes sliding out from under explicitly spawned or resized active windows while keeping logical overlap resolution immediate.
+- Delay manual-collapse node slide-out until the captured close animation finishes, so noding an overlapped behind window visibly slides the collapsed marker out instead of snapping under the closing snapshot.
 
 ## [v0.2.0] - 2026-04-28
 

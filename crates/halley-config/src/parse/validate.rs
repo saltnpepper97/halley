@@ -625,7 +625,7 @@ fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
         "placement.reveal.pan-to-new" => {
             Some(&["never", "if-needed", "if_needed", "always", "true", "false"])
         }
-        "animations.window-close.style" => Some(&["shrink"]),
+        "animations.window-close.style" => Some(&["shrink", "fade"]),
         path if viewport_output_path(path)
             .is_some_and(|rest| rest == "vrr" || rest == "variable-refresh-rate") =>
         {

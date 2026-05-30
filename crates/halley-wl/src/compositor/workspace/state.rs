@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use halley_core::field::{NodeId, NodeKind, NodeState, Vec2};
 
@@ -196,9 +196,16 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
         if let Some(to) = st.model.field.node(id).map(|node| node.pos)
             && ((from.x - to.x).abs() > 0.5 || (from.y - to.y).abs() > 0.5)
         {
+            let slide_start = st
+                .ui
+                .render_state
+                .closing_window_animations
+                .get(&id)
+                .map(|anim| anim.started_at + Duration::from_millis(anim.duration_ms))
+                .unwrap_or(now);
             st.ui
                 .render_state
-                .start_landmark_slide_animation(id, from, to, now);
+                .start_landmark_slide_animation_at(id, from, to, slide_start);
         }
     }
 
