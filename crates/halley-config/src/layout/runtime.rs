@@ -16,7 +16,8 @@ use super::{
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
     DecorationsConfig, FocusRingConfig, FontConfig, InputConfig, NodeBackgroundColorMode,
     NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
-    ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    PlacementConfig, ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle,
+    WindowRule,
 };
 
 #[derive(Clone, Debug)]
@@ -65,6 +66,7 @@ pub struct RuntimeTuning {
     pub non_overlap_gap_px: f32,
     pub field_active_windows_allowed: usize,
     pub pan_to_new: PanToNewMode,
+    pub placement: PlacementConfig,
     pub pins: PinsConfig,
     pub close_restore_focus: bool,
     pub close_restore_pan: CloseRestorePanMode,
@@ -236,6 +238,22 @@ impl RuntimeTuning {
         self.animations.stack.duration_ms.max(1)
     }
 
+    pub fn raise_animation_enabled(&self) -> bool {
+        self.animations_enabled() && self.animations.raise.enabled
+    }
+
+    pub fn raise_animation_duration_ms(&self) -> u64 {
+        self.animations.raise.duration_ms.max(1)
+    }
+
+    pub fn raise_animation_scale(&self) -> f32 {
+        self.animations.raise.scale.max(1.0)
+    }
+
+    pub fn raise_animation_shadow_boost(&self) -> f32 {
+        self.animations.raise.shadow_boost.clamp(0.0, 1.0)
+    }
+
     pub fn config_path() -> String {
         match env::var("HALLEY_WL_CONFIG") {
             Ok(path) => absolutize_path(&path).to_string_lossy().to_string(),
@@ -402,6 +420,8 @@ input:
   repeat-rate 30
   repeat-delay 500
   focus-mode "click"
+  # Raise clicked windows independently from focus mode. Hover focus does not imply raise.
+  raise-on-click true
   keyboard:
     layout "us"
     variant ""
@@ -432,8 +452,6 @@ field:
   # Maximum number of non-node windows allowed on the Field before decay takes over.
   # Set to 0 to disable decay entirely.
   active-windows-allowed 5
-  # How aggressively the camera pans to newly opened windows.
-  pan-to-new "if-needed"
   # Pinned windows/nodes stay locked in place and remain visible in Bearings.
   pins:
     corner "top-right"
@@ -452,6 +470,35 @@ field:
     max 1.35
     smooth true
     smooth-rate 12.5
+  end
+end
+
+# Placement controls where new expanded windows initially appear and how the
+# readable landmark layer behaves. Expanded windows always allow overlap with
+# other expanded windows; this block does not configure overlap permission.
+placement:
+  expanded:
+    # Initial spawn strategy for expanded windows.
+    # `center` opens at the target view center. `find-empty` best-effort searches
+    # around that center while ignoring expanded windows as blockers.
+    strategy "center"
+    fallback "center"
+    find-empty-mode "best-effort"
+  end
+
+  landmarks:
+    # Nodes, core nodes, and collapsed clusters remain non-overlapping map objects.
+    strategy "nearest-free"
+    normal-blocker "relocate"
+    pinned-blocker "preserve"
+  end
+
+  reveal:
+    enabled true
+    max-pan-px 360
+    animation-ms 180
+    # After placement, reveal the new active window if it would otherwise be awkward/offscreen.
+    pan-to-new "if-needed"
   end
 end
 
@@ -571,6 +618,13 @@ animations:
   stack:
     enabled true
     duration-ms 220
+  end
+
+  raise:
+    enabled true
+    duration-ms 140
+    scale 1.025
+    shadow-boost 0.18
   end
 end
 
@@ -731,7 +785,6 @@ rules:
   rule:
     app-id "firefox"
     title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
-    overlap-policy "all"
     spawn-placement "center"
     cluster-participation "float"
   end
@@ -863,6 +916,8 @@ mod tests {
             crate::layout::KeyboardConfig::default()
         );
         assert_eq!(tuning.animations.maximize.duration_ms, 240);
+        assert_eq!(tuning.animations.raise.duration_ms, 140);
+        assert_eq!(tuning.animations.raise.scale, 1.025);
     }
 
     #[test]
@@ -891,15 +946,19 @@ mod tests {
         ));
         assert!(rendered.contains("    size 1.0"));
         assert!(rendered.contains("  maximize:\n    enabled true\n    duration-ms 240"));
+        assert!(rendered.contains("  raise:\n    enabled true\n    duration-ms 140"));
         assert!(rendered.contains("  shadows:\n    window:"));
         assert!(rendered.contains("      colour \"#05030530\""));
         assert!(rendered.contains("\"$var.mod+1\" \"cluster slot 1\""));
         assert!(rendered.contains("\"alt+tab\" \"cycle-focus\""));
         assert!(
-            rendered.contains(
-                "input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"\n  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end\nend"
-            )
+            rendered
+                .contains("input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"")
         );
+        assert!(rendered.contains("  raise-on-click true"));
+        assert!(rendered.contains(
+            "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end\nend"
+        ));
     }
 
     #[test]

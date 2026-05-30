@@ -191,6 +191,9 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
         .pending_spawn_activate_at_ms
         .remove(&id);
     st.model.workspace_state.manual_collapsed_nodes.insert(id);
+    if let Some(pos) = st.model.field.node(id).map(|node| node.pos) {
+        let _ = st.carry_surface_non_overlap(id, pos, false);
+    }
 
     if st.model.focus_state.primary_interaction_focus == Some(id) {
         st.set_interaction_focus(None, 0, now);
@@ -302,13 +305,6 @@ pub(crate) fn maximize_session_target_for_monitor(st: &Halley, monitor: &str) ->
         .maximize_sessions
         .get(monitor)
         .map(|session| session.target_id)
-}
-
-pub(crate) fn maximize_session_for_monitor<'a>(
-    st: &'a Halley,
-    monitor: &str,
-) -> Option<&'a MaximizeSession> {
-    st.model.workspace_state.maximize_sessions.get(monitor)
 }
 
 pub(crate) fn node_in_maximize_session(st: &Halley, node_id: NodeId) -> bool {
@@ -487,6 +483,30 @@ pub(crate) fn abort_maximize_session_for_node(st: &mut Halley, id: NodeId) -> bo
     monitor
         .as_deref()
         .is_some_and(|monitor| abort_maximize_session_for_monitor(st, monitor))
+}
+
+pub(crate) fn abort_maximize_session_for_external_active_node_on_monitor(
+    st: &mut Halley,
+    monitor: &str,
+    entering_id: NodeId,
+) -> bool {
+    let should_abort = {
+        let Some(session) = st.model.workspace_state.maximize_sessions.get(monitor) else {
+            return false;
+        };
+        if session.state != MaximizeSessionState::Active
+            || session.node_snapshots.contains_key(&entering_id)
+        {
+            return false;
+        }
+        st.model.field.node(entering_id).is_some_and(|node| {
+            node.kind == NodeKind::Surface
+                && node.state == NodeState::Active
+                && st.model.field.is_visible(entering_id)
+        })
+    };
+
+    should_abort && abort_maximize_session_for_monitor(st, monitor)
 }
 
 pub(crate) fn tick_maximize_animation(st: &mut Halley, now: Instant) {

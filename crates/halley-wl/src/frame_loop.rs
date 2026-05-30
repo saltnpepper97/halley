@@ -132,6 +132,19 @@ pub(crate) fn tty_output_animation_redraw_state(
                     .as_millis() as u64)
                     < transition.duration_ms
             });
+    let raise_animation_active = st.runtime.tuning.raise_animation_enabled()
+        && st.ui.render_state.raise_animation_active_for_monitor(
+            &st.model.field,
+            &st.model.monitor_state.node_monitor,
+            monitor,
+            now,
+        );
+    let landmark_slide_active = st.ui.render_state.landmark_slide_active_for_monitor(
+        &st.model.field,
+        &st.model.monitor_state.node_monitor,
+        monitor,
+        now,
+    );
     let fullscreen_motion_active = !st.model.fullscreen_state.fullscreen_motion.is_empty()
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
     let maximize_motion_active = crate::compositor::workspace::state::maximize_animation_active(st);
@@ -182,6 +195,8 @@ pub(crate) fn tty_output_animation_redraw_state(
         || cluster_tile_active
         || close_window_active
         || stack_cycle_active
+        || raise_animation_active
+        || landmark_slide_active
         || viewport_pan_active
         || camera_smoothing_active
         || overlay_active;
@@ -194,15 +209,6 @@ pub(crate) fn tty_output_animation_redraw_state(
 
 pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
     st.ui.render_state.render_last_tick = now;
-    let now_ms = st.now_ms(now);
-    st.model
-        .spawn_state
-        .initial_spawn_authority
-        .retain(|spawned, authority| {
-            authority.until_ms > now_ms
-                && st.model.field.node(*spawned).is_some()
-                && st.model.field.node(authority.anchor_node).is_some()
-        });
     st.platform.popup_manager.cleanup();
     let alive: HashSet<NodeId> = st.model.field.node_ids_all().into_iter().collect();
     st.input

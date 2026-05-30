@@ -86,7 +86,7 @@ fn finalize_window_rule(rule: &PartialWindowRule, line_no: usize) -> Result<Wind
             .unwrap_or(InitialWindowOverlapPolicy::None),
         spawn_placement: rule
             .spawn_placement
-            .unwrap_or(InitialWindowSpawnPlacement::Adjacent),
+            .unwrap_or(InitialWindowSpawnPlacement::Default),
         cluster_participation: rule
             .cluster_participation
             .unwrap_or(InitialWindowClusterParticipation::Layout),
@@ -116,7 +116,11 @@ fn parse_rule_entry(
             rule.titles = parse_rule_match_strings(value, line_no, "title")?;
         }
         "overlap-policy" | "overlap_policy" => {
-            rule.overlap_policy = Some(parse_rule_overlap_policy(value, line_no)?);
+            // Deprecated: expanded windows always allow overlap with other expanded
+            // windows now. Keep accepting old configs during migration, but do not
+            // preserve the old configurable no-overlap/overlap-policy model.
+            let _ = parse_rule_overlap_policy(value, line_no)?;
+            rule.overlap_policy = Some(InitialWindowOverlapPolicy::None);
         }
         "spawn-placement" | "spawn_placement" => {
             rule.spawn_placement = Some(parse_rule_spawn_placement(value, line_no)?);

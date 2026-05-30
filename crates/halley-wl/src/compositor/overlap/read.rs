@@ -161,7 +161,7 @@ impl<'a> OverlapReadContext<'a> {
 
     #[inline]
     pub(crate) fn nodes_share_overlap_group(&self, a: NodeId, b: NodeId) -> bool {
-        if self.node_allows_overlap_with(a, b) || self.node_allows_overlap_with(b, a) {
+        if !self.nodes_require_non_overlap(a, b) {
             return false;
         }
         match (
@@ -173,23 +173,30 @@ impl<'a> OverlapReadContext<'a> {
         }
     }
 
-    fn node_allows_overlap_with(&self, id: NodeId, other: NodeId) -> bool {
-        if matches!(
-            self.tuning.cluster_layout_kind(),
-            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
-        ) {
-            return false;
-        }
-        let Some(rule) = self.spawn_state.applied_window_rules.get(&id) else {
-            return false;
-        };
-        match rule.overlap_policy {
-            halley_config::InitialWindowOverlapPolicy::None => false,
-            halley_config::InitialWindowOverlapPolicy::ParentOnly => {
-                rule.parent_node == Some(other)
-            }
-            halley_config::InitialWindowOverlapPolicy::All => true,
-        }
+    #[inline]
+    pub(crate) fn node_is_expanded_window(&self, id: NodeId) -> bool {
+        self.field.node(id).is_some_and(|node| {
+            node.kind == halley_core::field::NodeKind::Surface
+                && node.state == halley_core::field::NodeState::Active
+        })
+    }
+
+    #[inline]
+    pub(crate) fn node_is_landmark(&self, id: NodeId) -> bool {
+        self.field.node(id).is_some_and(|node| {
+            matches!(
+                node.state,
+                halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+            )
+        })
+    }
+
+    fn nodes_require_non_overlap(&self, a: NodeId, b: NodeId) -> bool {
+        let a_landmark = self.node_is_landmark(a);
+        let b_landmark = self.node_is_landmark(b);
+        let a_expanded = self.node_is_expanded_window(a);
+        let b_expanded = self.node_is_expanded_window(b);
+        (a_landmark || b_landmark) || !(a_expanded && b_expanded)
     }
 
     #[inline]
@@ -293,10 +300,10 @@ impl<'a> OverlapReadContext<'a> {
         n: &halley_core::field::Node,
     ) -> CollisionExtents {
         let basis = self
-            .workspace_state
-            .last_active_size
-            .get(&n.id)
-            .copied()
+            .field
+            .node(n.id)
+            .and_then(|node| node.resize_footprint)
+            .or_else(|| self.workspace_state.last_active_size.get(&n.id).copied())
             .or_else(|| {
                 self.render_state
                     .cache

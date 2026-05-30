@@ -541,6 +541,7 @@ pub(crate) fn finish_pointer_drag(
     }
     crate::compositor::carry::system::set_drag_authority_node(st, None);
     crate::compositor::carry::system::end_carry_state_tracking(st, node_id);
+    st.resolve_surface_overlap();
     ps.preview_block_until = Some(now + Duration::from_millis(360));
     ps.drag = None;
 }

@@ -86,9 +86,11 @@ pub(crate) fn node_allows_interactive_resize(st: &Halley, node_id: NodeId) -> bo
 }
 
 pub(crate) fn node_blocks_interactive_transform(st: &Halley, node_id: NodeId) -> bool {
-    st.fullscreen_monitor_for_node(node_id).is_some()
+    st.model.field.node(node_id).is_some_and(|node| node.pinned)
+        || st.fullscreen_monitor_for_node(node_id).is_some()
         || active_pointer_constraint_belongs_to_node(st, node_id)
-        || node_covers_assigned_output(st, node_id)
+        || (crate::window::node_is_game_like(st, node_id)
+            && node_covers_assigned_output(st, node_id))
 }
 
 fn active_pointer_constraint_belongs_to_node(st: &Halley, node_id: NodeId) -> bool {
@@ -292,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn output_sized_surface_blocks_interactive_resize() {
+    fn output_sized_game_like_surface_blocks_interactive_resize() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
         let monitor = st.model.monitor_state.current_monitor.clone();
@@ -310,9 +312,36 @@ mod tests {
             space.viewport.size,
         );
         st.assign_node_to_monitor(window, monitor.as_str());
+        st.model
+            .node_app_ids
+            .insert(window, "steam_app_123".to_string());
 
         assert!(node_blocks_interactive_transform(&st, window));
         assert!(!node_allows_interactive_resize(&st, window));
+    }
+
+    #[test]
+    fn output_sized_ordinary_surface_allows_interactive_resize() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let space = st
+            .model
+            .monitor_state
+            .monitors
+            .get(monitor.as_str())
+            .expect("monitor")
+            .clone();
+
+        let window =
+            st.model
+                .field
+                .spawn_surface("firefox", space.viewport.center, space.viewport.size);
+        st.assign_node_to_monitor(window, monitor.as_str());
+        st.model.node_app_ids.insert(window, "firefox".to_string());
+
+        assert!(!node_blocks_interactive_transform(&st, window));
+        assert!(node_allows_interactive_resize(&st, window));
     }
 
     #[test]

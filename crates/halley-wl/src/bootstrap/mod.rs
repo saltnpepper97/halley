@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -10,6 +11,8 @@ use eventline::{
     FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, enable_console_color,
     enable_console_duration, info, scope, warn,
 };
+use halley_core::field::Vec2;
+use halley_core::viewport::Viewport;
 use rustix::process::Signal;
 use rustix::runtime::{KernelSigSet, KernelSigaction, kernel_sigaction};
 
@@ -31,12 +34,22 @@ pub(crate) use ipc::{drain_ipc_commands, init_ipc, publish_outputs, shutdown_ipc
 // allowing Drop impls (including the spawned-children cleanup) to run.
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
+#[derive(Clone)]
 pub(crate) struct LiveCameraState {
-    viewport: halley_core::viewport::Viewport,
-    zoom_ref_size: halley_core::field::Vec2,
-    camera_target_center: halley_core::field::Vec2,
-    camera_target_view_size: halley_core::field::Vec2,
+    viewport: Viewport,
+    zoom_ref_size: Vec2,
+    camera_target_center: Vec2,
+    camera_target_view_size: Vec2,
     viewport_pan_anim: Option<ViewportPanAnim>,
+    monitors: HashMap<String, LiveMonitorCameraState>,
+}
+
+#[derive(Clone, Copy)]
+struct LiveMonitorCameraState {
+    viewport: Viewport,
+    zoom_ref_size: Vec2,
+    camera_target_center: Vec2,
+    camera_target_view_size: Vec2,
 }
 
 unsafe extern "C" fn handle_shutdown_signal(_: rustix::ffi::c_int) {
@@ -79,6 +92,23 @@ pub(crate) fn capture_live_camera_state(st: &mut Halley) -> LiveCameraState {
         camera_target_center: st.model.camera_target_center,
         camera_target_view_size: st.model.camera_target_view_size,
         viewport_pan_anim: st.input.interaction_state.viewport_pan_anim.take(),
+        monitors: st
+            .model
+            .monitor_state
+            .monitors
+            .iter()
+            .map(|(name, space)| {
+                (
+                    name.clone(),
+                    LiveMonitorCameraState {
+                        viewport: space.viewport,
+                        zoom_ref_size: space.zoom_ref_size,
+                        camera_target_center: space.camera_target_center,
+                        camera_target_view_size: space.camera_target_view_size,
+                    },
+                )
+            })
+            .collect(),
     }
 }
 
@@ -88,8 +118,15 @@ pub(crate) fn restore_live_camera_state(st: &mut Halley, state: LiveCameraState)
     st.model.camera_target_center = state.camera_target_center;
     st.model.camera_target_view_size = state.camera_target_view_size;
     st.input.interaction_state.viewport_pan_anim = state.viewport_pan_anim;
-    st.runtime.tuning.viewport_center = st.model.viewport.center;
-    st.runtime.tuning.viewport_size = st.model.viewport.size;
+
+    for (name, camera) in state.monitors {
+        if let Some(space) = st.model.monitor_state.monitors.get_mut(name.as_str()) {
+            space.viewport = camera.viewport;
+            space.zoom_ref_size = camera.zoom_ref_size;
+            space.camera_target_center = camera.camera_target_center;
+            space.camera_target_view_size = camera.camera_target_view_size;
+        }
+    }
 }
 
 pub(crate) fn apply_reloaded_tuning(
@@ -102,6 +139,8 @@ pub(crate) fn apply_reloaded_tuning(
     let live_camera = capture_live_camera_state(st);
     st.apply_tuning(next);
     restore_live_camera_state(st, live_camera);
+    st.ui.render_state.clear_window_offscreen_caches();
+    st.request_maintenance();
     // Clone to avoid borrow conflict when passing st mutably below.
     let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
@@ -204,37 +243,6 @@ fn normalized_tty_viewports(
 
 pub(crate) fn viewport_section_changed(prev: &RuntimeTuning, next: &RuntimeTuning) -> bool {
     normalized_tty_viewports(prev) != normalized_tty_viewports(next)
-}
-
-pub(crate) fn preserve_viewport_section(
-    prev: &RuntimeTuning,
-    mut next: RuntimeTuning,
-) -> RuntimeTuning {
-    next.viewport_center = prev.viewport_center;
-    next.viewport_size = prev.viewport_size;
-    let prev_viewports: std::collections::HashMap<_, _> = prev
-        .tty_viewports
-        .iter()
-        .map(|viewport| (viewport.connector.clone(), viewport.clone()))
-        .collect();
-    next.tty_viewports = next
-        .tty_viewports
-        .into_iter()
-        .map(|mut viewport| {
-            if let Some(prev_viewport) = prev_viewports.get(&viewport.connector) {
-                viewport.enabled = prev_viewport.enabled;
-                viewport.offset_x = prev_viewport.offset_x;
-                viewport.offset_y = prev_viewport.offset_y;
-                viewport.width = prev_viewport.width;
-                viewport.height = prev_viewport.height;
-                viewport.refresh_rate = prev_viewport.refresh_rate;
-                viewport.transform_degrees = prev_viewport.transform_degrees;
-                viewport.vrr = prev_viewport.vrr;
-            }
-            viewport
-        })
-        .collect();
-    next
 }
 
 pub(crate) fn ensure_default_user_config(tty_viewports: Option<&[ViewportOutputConfig]>) {

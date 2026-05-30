@@ -11,9 +11,7 @@ use crate::compositor::overlap::system::CollisionExtents;
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::read;
 use crate::compositor::spawn::rules::{InitialWindowIntent, ResolvedInitialWindowRule};
-use crate::compositor::spawn::state::{
-    InitialSpawnAuthority, InitialSpawnPlacement, SpawnPlacementExtents,
-};
+use crate::compositor::spawn::state::{InitialSpawnPlacement, SpawnPlacementExtents};
 use crate::window::active_window_frame_pad_px;
 
 use super::SpawnRevealController;
@@ -318,12 +316,9 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         pos: Vec2,
         size: Vec2,
         skip_node: Option<NodeId>,
-        overlap_policy: InitialWindowOverlapPolicy,
-        parent_node: Option<NodeId>,
+        _overlap_policy: InitialWindowOverlapPolicy,
+        _parent_node: Option<NodeId>,
     ) -> bool {
-        if overlap_policy == InitialWindowOverlapPolicy::All {
-            return true;
-        }
         let pair_gap = self.non_overlap_gap_world();
         let candidate = spawn_candidate_extents(
             size,
@@ -331,11 +326,6 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         );
         !self.model.field.nodes().values().any(|other| {
             if Some(other.id) == skip_node {
-                return false;
-            }
-            if overlap_policy == InitialWindowOverlapPolicy::ParentOnly
-                && parent_node == Some(other.id)
-            {
                 return false;
             }
             let Some((other_pos, other_ext)) = self.visible_spawn_obstacle(monitor, other.id)
@@ -405,7 +395,12 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
         id: NodeId,
     ) -> Option<(Vec2, CollisionExtents)> {
         let other = self.model.field.node(id)?;
-        if other.kind != halley_core::field::NodeKind::Surface
+        let is_pinned_landmark = other.pinned
+            && matches!(
+                other.state,
+                halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+            );
+        if !is_pinned_landmark
             || !self.model.field.is_visible(id)
             || self
                 .model
@@ -415,29 +410,6 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
                 .is_some_and(|other_monitor| other_monitor != monitor)
         {
             return None;
-        }
-
-        if let Some(session) = crate::compositor::workspace::state::maximize_session_for_monitor(
-            self, monitor,
-        )
-        .filter(|session| {
-            session.state
-                == crate::compositor::workspace::state::MaximizeSessionState::SpawnRestoring
-        }) && let Some(snapshot) = session.node_snapshots.get(&id)
-        {
-            let half_w = snapshot.size.x.max(1.0) * 0.5
-                + active_window_frame_pad_px(&self.runtime.tuning) as f32;
-            let half_h = snapshot.size.y.max(1.0) * 0.5
-                + active_window_frame_pad_px(&self.runtime.tuning) as f32;
-            return Some((
-                snapshot.pos,
-                spawn_safe_obstacle_extents(CollisionExtents {
-                    left: half_w,
-                    right: half_w,
-                    top: half_h,
-                    bottom: half_h,
-                }),
-            ));
         }
 
         Some((other.pos, self.spawn_safe_obstacle_extents_for_node(other)))
@@ -933,7 +905,8 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
     pub(crate) fn spawn_target_monitor_for_intent(&self, intent: &InitialWindowIntent) -> String {
         let default_monitor = read::spawn_read_context(self).resolve_spawn_target_monitor();
         match intent.effective_spawn_placement() {
-            InitialWindowSpawnPlacement::Center
+            InitialWindowSpawnPlacement::Default
+            | InitialWindowSpawnPlacement::Center
             | InitialWindowSpawnPlacement::Adjacent
             | InitialWindowSpawnPlacement::App => self
                 .resolve_parent_monitor(intent.parent_node)
@@ -973,25 +946,22 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
     fn set_pending_initial_spawn_placement(
         &mut self,
         monitor: &str,
-        anchor_node: Option<NodeId>,
         anchor_pos: Vec2,
         anchor_ext: Option<CollisionExtents>,
         chosen_pos: Vec2,
         dir: Option<Vec2>,
         preserve_chosen_pos: bool,
         view_center_reset: bool,
-        overlap_policy: InitialWindowOverlapPolicy,
+        _overlap_policy: InitialWindowOverlapPolicy,
     ) {
         self.model.spawn_state.pending_initial_spawn_placement = Some(InitialSpawnPlacement {
             monitor: monitor.to_string(),
-            anchor_node,
             anchor_pos,
             anchor_ext: anchor_ext.map(spawn_record_extents),
             chosen_pos,
             dir,
             preserve_chosen_pos,
             view_center_reset,
-            overlap_policy,
         });
     }
 
@@ -999,9 +969,6 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         let Some(record) = self.model.spawn_state.initial_spawn_placements.remove(&id) else {
             return false;
         };
-        if record.overlap_policy != InitialWindowOverlapPolicy::None {
-            return false;
-        }
         let mut pos = record.chosen_pos;
 
         if record.view_center_reset {
@@ -1076,30 +1043,6 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         }
 
         let _ = self.model.field.carry(id, pos);
-        if let Some(anchor_node) = record.anchor_node
-            && anchor_node != id
-            && self.model.field.node(anchor_node).is_some()
-        {
-            let duration_ms = self
-                .runtime
-                .tuning
-                .window_open_duration_ms()
-                .saturating_add(500)
-                .max(900);
-            let until_ms = self.now_ms(Instant::now()).saturating_add(duration_ms);
-            self.model.spawn_state.initial_spawn_authority.insert(
-                id,
-                InitialSpawnAuthority {
-                    anchor_node,
-                    until_ms,
-                },
-            );
-            self.input.interaction_state.physics_velocity.remove(&id);
-            self.input
-                .interaction_state
-                .physics_velocity
-                .remove(&anchor_node);
-        }
         true
     }
 
@@ -1131,7 +1074,6 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
     ) {
         self.set_pending_initial_spawn_placement(
             monitor,
-            anchor.node,
             anchor.pos,
             anchor.ext,
             candidate.pos,
@@ -1172,8 +1114,6 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             .spawn_cursor += 1;
         let viewport_center =
             read::spawn_read_context(self).viewport_center_for_monitor(target_monitor.as_str());
-        let (focus_id, focus_pos) =
-            read::spawn_read_context(self).current_spawn_focus(target_monitor.as_str());
         let fullscreen_anchor = if overlap_policy != InitialWindowOverlapPolicy::None {
             self.fullscreen_anchor_for_monitor(target_monitor.as_str())
         } else {
@@ -1266,65 +1206,19 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
 
                     return self.default_pick_spawn_position(size);
                 }
-                if overlap_policy == InitialWindowOverlapPolicy::All {
-                    if let Some((fullscreen_id, pos)) = fullscreen_anchor {
-                        let anchor = self
-                            .spawn_anchor_for_node(fullscreen_id)
-                            .unwrap_or_else(|| self.spawn_anchor_at(pos));
-                        let candidate = SpawnCandidate {
-                            pos: anchor.pos,
-                            dir: None,
-                        };
-                        self.commit_spawn_plan(
-                            target_monitor.as_str(),
-                            anchor,
-                            candidate,
-                            overlap_policy,
-                        );
-                        return (target_monitor, candidate.pos, false);
-                    }
-                    if let Some(id) = focus_id
-                        && let Some(anchor) = self.spawn_anchor_for_node(id)
-                    {
-                        for dir in spawn_cardinal_dirs() {
-                            if let Some(pos) = self.spawn_candidate_for_focus_dir(id, size, dir) {
-                                let candidate = SpawnCandidate {
-                                    pos,
-                                    dir: Some(dir),
-                                };
-                                self.commit_spawn_plan(
-                                    target_monitor.as_str(),
-                                    anchor,
-                                    candidate,
-                                    overlap_policy,
-                                );
-                                return (target_monitor, candidate.pos, false);
-                            }
-                        }
-                    }
-                    let anchor = self.spawn_anchor_at(focus_pos);
-                    let candidate = SpawnCandidate {
-                        pos: focus_pos,
-                        dir: None,
-                    };
-                    self.commit_spawn_plan(
-                        target_monitor.as_str(),
-                        anchor,
-                        candidate,
-                        overlap_policy,
-                    );
-                    return (target_monitor, candidate.pos, false);
-                }
                 return self.default_pick_spawn_position(size);
             }
-            InitialWindowSpawnPlacement::Center
+            InitialWindowSpawnPlacement::Default
+            | InitialWindowSpawnPlacement::Center
             | InitialWindowSpawnPlacement::ViewportCenter
             | InitialWindowSpawnPlacement::Cursor
             | InitialWindowSpawnPlacement::App => {}
         }
 
         let anchor = match placement {
-            InitialWindowSpawnPlacement::Center | InitialWindowSpawnPlacement::App => intent
+            InitialWindowSpawnPlacement::Default
+            | InitialWindowSpawnPlacement::Center
+            | InitialWindowSpawnPlacement::App => intent
                 .parent_node
                 .and_then(|id| self.spawn_anchor_for_node(id))
                 .or_else(|| {
@@ -1341,13 +1235,8 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             InitialWindowSpawnPlacement::Adjacent => unreachable!("adjacent handled above"),
         };
 
-        let candidate = if overlap_policy == InitialWindowOverlapPolicy::All {
-            SpawnCandidate {
-                pos: anchor.pos,
-                dir: None,
-            }
-        } else {
-            self.try_spawn_star_with_policy(
+        let candidate = self
+            .try_spawn_star_with_policy(
                 target_monitor.as_str(),
                 anchor.pos,
                 size,
@@ -1364,8 +1253,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             .unwrap_or(SpawnCandidate {
                 pos: anchor.pos,
                 dir: None,
-            })
-        };
+            });
         self.commit_spawn_plan(target_monitor.as_str(), anchor, candidate, overlap_policy);
         (target_monitor, candidate.pos, false)
     }
@@ -1434,7 +1322,6 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 if self.spawn_candidate_fits(target_monitor.as_str(), pos, size, None) {
                     self.set_pending_initial_spawn_placement(
                         target_monitor.as_str(),
-                        None,
                         override_focus.pos,
                         Some(override_ext),
                         pos,
@@ -1470,7 +1357,6 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             {
                 self.set_pending_initial_spawn_placement(
                     target_monitor.as_str(),
-                    None,
                     override_focus.pos,
                     Some(override_ext),
                     pos,
@@ -1562,7 +1448,6 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         .unwrap_or(anchor);
         self.set_pending_initial_spawn_placement(
             target_monitor.as_str(),
-            anchor_node,
             anchor,
             anchor_ext,
             pos,

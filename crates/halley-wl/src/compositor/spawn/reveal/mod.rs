@@ -250,6 +250,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         now_ms: u64,
     ) {
         let _ = self.model.field.set_detached(active.node_id, false);
+        self.resolve_landmarks_overlapped_by_active_window(active.node_id);
         let _ = self
             .model
             .field
@@ -310,6 +311,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         }
         if cluster_local {
             let _ = self.model.field.set_detached(id, false);
+            self.resolve_landmarks_overlapped_by_active_window(id);
             self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
             self.set_interaction_focus(Some(id), 30_000, now);
             self.model
@@ -338,6 +340,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             .is_some_and(|rule| rule.suppress_reveal_pan)
         {
             let _ = self.model.field.set_detached(id, false);
+            self.resolve_landmarks_overlapped_by_active_window(id);
             self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
             self.record_focus_trail_visit(id);
             self.model.focus_state.suppress_trail_record_once = true;
@@ -361,6 +364,7 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
             RevealNewToplevelPlan::AlreadyQueued => {}
             RevealNewToplevelPlan::ActivateNow => {
                 let _ = self.model.field.set_detached(id, false);
+                self.resolve_landmarks_overlapped_by_active_window(id);
                 self.record_focus_trail_visit(id);
                 self.model.focus_state.suppress_trail_record_once = true;
                 self.set_interaction_focus(Some(id), 30_000, now);
@@ -432,7 +436,8 @@ mod tests {
 
     #[test]
     fn star_offsets_are_center_then_right_left_up_down() {
-        let tuning = halley_config::RuntimeTuning::default();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.pan_to_new = halley_config::PanToNewMode::Always;
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();

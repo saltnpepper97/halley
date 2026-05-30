@@ -41,7 +41,6 @@ rules:
   rule:
     app-id "firefox"
     title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
-    overlap-policy "all"
     spawn-placement "center"
     cluster-participation "float"
   end

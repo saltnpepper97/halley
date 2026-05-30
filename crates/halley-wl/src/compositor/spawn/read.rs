@@ -175,6 +175,12 @@ impl<'a> SpawnReadContext<'a> {
         {
             return RevealNewToplevelPlan::ActivateNow;
         }
+        if crate::window::node_is_game_like(st, id) {
+            return RevealNewToplevelPlan::ActivateNow;
+        }
+        if !self.pinned_landmark_blocks_spawn_center(st, monitor.as_str()) {
+            return RevealNewToplevelPlan::ActivateNow;
+        }
         let target_center = match self.pan_to_new {
             PanToNewMode::Never => return RevealNewToplevelPlan::ActivateNow,
             PanToNewMode::Always => match self.field.node(id) {
@@ -196,6 +202,30 @@ impl<'a> SpawnReadContext<'a> {
             }
         };
         RevealNewToplevelPlan::QueuePan { target_center }
+    }
+
+    fn pinned_landmark_blocks_spawn_center(&self, st: &Halley, monitor: &str) -> bool {
+        let center = self.viewport_center_for_monitor(monitor);
+        self.field.nodes().values().any(|node| {
+            node.pinned
+                && matches!(
+                    node.state,
+                    halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+                )
+                && self.field.is_visible(node.id)
+                && self
+                    .monitor_state
+                    .node_monitor
+                    .get(&node.id)
+                    .is_some_and(|node_monitor| node_monitor == monitor)
+                && {
+                    let ext = st.collision_extents_for_node(node);
+                    center.x >= node.pos.x - ext.left
+                        && center.x <= node.pos.x + ext.right
+                        && center.y >= node.pos.y - ext.top
+                        && center.y <= node.pos.y + ext.bottom
+                }
+        })
     }
 }
 
@@ -222,5 +252,38 @@ pub(crate) fn spawn_read_context(st: &Halley) -> SpawnReadContext<'_> {
             .and_then(|(sx, sy)| st.monitor_for_screen(sx, sy)),
         input_focus_mode: st.runtime.tuning.input.focus_mode,
         pan_to_new: st.runtime.tuning.pan_to_new,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use smithay::reexports::wayland_server::Display;
+
+    #[test]
+    fn game_like_toplevel_does_not_queue_reveal_pan() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.pan_to_new = PanToNewMode::Always;
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let id = st.model.field.spawn_surface(
+            "game",
+            Vec2 { x: 4000.0, y: 0.0 },
+            Vec2 {
+                x: 1280.0,
+                y: 720.0,
+            },
+        );
+        st.assign_node_to_current_monitor(id);
+        st.model
+            .node_app_ids
+            .insert(id, "steam_app_123".to_string());
+
+        match spawn_read_context(&st).reveal_new_toplevel_plan(&st, id, false) {
+            RevealNewToplevelPlan::ActivateNow => {}
+            RevealNewToplevelPlan::AlreadyQueued | RevealNewToplevelPlan::QueuePan { .. } => {
+                panic!("game-like windows should not queue reveal pan")
+            }
+        }
     }
 }

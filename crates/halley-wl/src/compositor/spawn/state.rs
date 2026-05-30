@@ -74,20 +74,12 @@ pub(crate) struct SpawnPlacementExtents {
 #[derive(Clone, Debug)]
 pub(crate) struct InitialSpawnPlacement {
     pub(crate) monitor: String,
-    pub(crate) anchor_node: Option<NodeId>,
     pub(crate) anchor_pos: Vec2,
     pub(crate) anchor_ext: Option<SpawnPlacementExtents>,
     pub(crate) chosen_pos: Vec2,
     pub(crate) dir: Option<Vec2>,
     pub(crate) preserve_chosen_pos: bool,
     pub(crate) view_center_reset: bool,
-    pub(crate) overlap_policy: InitialWindowOverlapPolicy,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct InitialSpawnAuthority {
-    pub(crate) anchor_node: NodeId,
-    pub(crate) until_ms: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -128,7 +120,6 @@ pub(crate) struct SpawnState {
     pub(crate) pending_initial_reveal: HashSet<NodeId>,
     pub(crate) pending_initial_spawn_placement: Option<InitialSpawnPlacement>,
     pub(crate) initial_spawn_placements: HashMap<NodeId, InitialSpawnPlacement>,
-    pub(crate) initial_spawn_authority: HashMap<NodeId, InitialSpawnAuthority>,
     pub(crate) pending_pan_activate: Option<(NodeId, u64)>,
 }
 
@@ -136,7 +127,13 @@ pub(crate) fn is_persistent_rule_top(st: &Halley, node_id: NodeId) -> bool {
     st.model
         .spawn_state
         .applied_window_rules
-        .contains_key(&node_id)
+        .get(&node_id)
+        .is_some_and(|rule| {
+            matches!(
+                rule.builtin_rule,
+                Some(super::rules::BuiltinInitialWindowRule::PictureInPicture)
+            )
+        })
 }
 
 pub(crate) fn node_has_overlap_policy(st: &Halley, node_id: NodeId) -> bool {
@@ -324,6 +321,7 @@ pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, n
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compositor::spawn::rules::BuiltinInitialWindowRule;
     use smithay::reexports::wayland_server::Display;
 
     #[test]
@@ -380,5 +378,55 @@ mod tests {
             &st,
             monitor.as_str()
         ));
+    }
+
+    #[test]
+    fn float_cluster_participation_rule_is_not_persistent_top() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = st.model.field.spawn_surface(
+            "float-rule-window",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+
+        st.model.spawn_state.applied_window_rules.insert(
+            id,
+            AppliedInitialWindowRule {
+                overlap_policy: InitialWindowOverlapPolicy::None,
+                spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+                builtin_rule: None,
+            },
+        );
+
+        assert!(!is_persistent_rule_top(&st, id));
+    }
+
+    #[test]
+    fn picture_in_picture_builtin_rule_is_persistent_top() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = st.model.field.spawn_surface(
+            "pip",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+
+        st.model.spawn_state.applied_window_rules.insert(
+            id,
+            AppliedInitialWindowRule {
+                overlap_policy: InitialWindowOverlapPolicy::All,
+                spawn_placement: InitialWindowSpawnPlacement::Center,
+                cluster_participation: InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+                builtin_rule: Some(BuiltinInitialWindowRule::PictureInPicture),
+            },
+        );
+
+        assert!(is_persistent_rule_top(&st, id));
     }
 }

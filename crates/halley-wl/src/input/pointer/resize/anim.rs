@@ -245,6 +245,7 @@ fn finish_resize_interaction(
     );
     st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
     st.end_resize_interaction(now);
+    st.resolve_landmarks_overlapped_by_active_window(resize.node_id);
     st.resolve_overlap_now();
 }
 

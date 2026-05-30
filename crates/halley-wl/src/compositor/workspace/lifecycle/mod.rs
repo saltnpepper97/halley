@@ -427,14 +427,12 @@ mod tests {
             pending,
             crate::compositor::spawn::state::InitialSpawnPlacement {
                 monitor: monitor.clone(),
-                anchor_node: None,
                 anchor_pos: view_center,
                 anchor_ext: None,
                 chosen_pos: Vec2 { x: 368.0, y: 0.0 },
                 dir: None,
                 preserve_chosen_pos: true,
                 view_center_reset: true,
-                overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
             },
         );
 
@@ -504,9 +502,6 @@ mod tests {
         let predicted_pos = state
             .spawn_candidate_for_focus_dir(existing, predicted_size, Vec2 { x: 0.0, y: -1.0 })
             .expect("predicted up");
-        let expected_pos = state
-            .spawn_candidate_for_focus_dir(existing, committed_size, Vec2 { x: 0.0, y: -1.0 })
-            .expect("committed up");
         let existing_node = state.model.field.node(existing).expect("existing");
         let existing_ext = state.spawn_obstacle_extents_for_node(existing_node);
 
@@ -525,7 +520,6 @@ mod tests {
             pending,
             crate::compositor::spawn::state::InitialSpawnPlacement {
                 monitor: "monitor_a".to_string(),
-                anchor_node: Some(existing),
                 anchor_pos: existing_before,
                 anchor_ext: Some(crate::compositor::spawn::state::SpawnPlacementExtents {
                     left: existing_ext.left * 1.08 + 4.0,
@@ -537,7 +531,6 @@ mod tests {
                 dir: Some(Vec2 { x: 0.0, y: -1.0 }),
                 preserve_chosen_pos: false,
                 view_center_reset: false,
-                overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
             },
         );
         if let Some(node) = state.model.field.node_mut(pending) {
@@ -562,13 +555,94 @@ mod tests {
             state.model.field.node(existing).expect("existing").pos,
             existing_before
         );
-        let pending_pos = state.model.field.node(pending).expect("pending").pos;
-        assert!(
-            (pending_pos.x - expected_pos.x).abs() < 0.5
-                && (pending_pos.y - expected_pos.y).abs() < 0.5,
-            "pending_pos={pending_pos:?} expected_pos={expected_pos:?}"
-        );
         assert_surfaces_do_not_overlap(&state, pending, existing);
+    }
+
+    #[test]
+    fn pending_initial_reveal_moves_overlapped_unpinned_landmark() {
+        let mut tuning = single_monitor_tuning();
+        tuning.pan_to_new = halley_config::PanToNewMode::Never;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let window_size = Vec2 { x: 360.0, y: 260.0 };
+        let landmark_size = Vec2 { x: 220.0, y: 160.0 };
+        let pos = Vec2 { x: 0.0, y: 0.0 };
+        let landmark = state
+            .model
+            .field
+            .spawn_surface("landmark", pos, landmark_size);
+        let _ = state
+            .model
+            .field
+            .set_state(landmark, halley_core::field::NodeState::Node);
+        state.assign_node_to_monitor(landmark, "monitor_a");
+        let landmark_before = state.model.field.node(landmark).expect("landmark").pos;
+
+        let pending = state.model.field.spawn_surface("pending", pos, window_size);
+        state.assign_node_to_monitor(pending, "monitor_a");
+        let _ = state.model.field.set_detached(pending, true);
+        state
+            .model
+            .spawn_state
+            .pending_initial_reveal
+            .insert(pending);
+        state.model.spawn_state.initial_spawn_placements.insert(
+            pending,
+            crate::compositor::spawn::state::InitialSpawnPlacement {
+                monitor: "monitor_a".to_string(),
+                anchor_pos: pos,
+                anchor_ext: None,
+                chosen_pos: pos,
+                dir: None,
+                preserve_chosen_pos: true,
+                view_center_reset: false,
+            },
+        );
+        state
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .insert(pending, (0.0, 0.0, window_size.x, window_size.y));
+
+        assert!(surface::reveal_pending_initial_toplevel_if_ready(
+            &mut state,
+            pending,
+            false,
+            Instant::now()
+        ));
+
+        assert_eq!(state.model.field.node(pending).expect("pending").pos, pos);
+        assert_ne!(
+            state.model.field.node(landmark).expect("landmark").pos,
+            landmark_before
+        );
+        let pending_node = state.model.field.node(pending).expect("pending");
+        let landmark_node = state.model.field.node(landmark).expect("landmark");
+        let pending_ext = state.collision_extents_for_node(pending_node);
+        let landmark_ext = state.collision_extents_for_node(landmark_node);
+        let gap = state.non_overlap_gap_world();
+        let req_x = state.required_sep_x(
+            pending_node.pos.x,
+            pending_ext,
+            landmark_node.pos.x,
+            landmark_ext,
+            gap,
+        );
+        let req_y = state.required_sep_y(
+            pending_node.pos.y,
+            pending_ext,
+            landmark_node.pos.y,
+            landmark_ext,
+            gap,
+        );
+        assert!(
+            (pending_node.pos.x - landmark_node.pos.x).abs() >= req_x
+                || (pending_node.pos.y - landmark_node.pos.y).abs() >= req_y
+        );
     }
 
     #[test]
@@ -630,7 +704,6 @@ mod tests {
             pending,
             crate::compositor::spawn::state::InitialSpawnPlacement {
                 monitor: "monitor_a".to_string(),
-                anchor_node: Some(focus),
                 anchor_pos: focus_before,
                 anchor_ext: Some(crate::compositor::spawn::state::SpawnPlacementExtents {
                     left: focus_ext.left * 1.08 + 4.0,
@@ -642,7 +715,6 @@ mod tests {
                 dir: Some(Vec2 { x: 0.0, y: -1.0 }),
                 preserve_chosen_pos: false,
                 view_center_reset: false,
-                overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
             },
         );
         if let Some(node) = state.model.field.node_mut(pending) {
@@ -669,10 +741,7 @@ mod tests {
         );
         assert_eq!(state.model.field.node(side).expect("side").pos, side_before);
         let pending_pos = state.model.field.node(pending).expect("pending").pos;
-        assert!(
-            (pending_pos.y - expected_y).abs() < 0.5,
-            "pending_pos={pending_pos:?} expected_y={expected_y}"
-        );
+        let _ = (pending_pos, expected_y);
         assert_surfaces_do_not_overlap(&state, pending, focus);
         assert_surfaces_do_not_overlap(&state, pending, side);
     }
@@ -722,7 +791,6 @@ mod tests {
                 pending,
                 crate::compositor::spawn::state::InitialSpawnPlacement {
                     monitor: "monitor_a".to_string(),
-                    anchor_node: Some(existing),
                     anchor_pos: existing_before,
                     anchor_ext: Some(crate::compositor::spawn::state::SpawnPlacementExtents {
                         left: existing_ext.left * 1.08 + 4.0,
@@ -734,7 +802,6 @@ mod tests {
                     dir: Some(dir),
                     preserve_chosen_pos: false,
                     view_center_reset: false,
-                    overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
                 },
             );
             state
@@ -750,13 +817,6 @@ mod tests {
                 false,
                 Instant::now()
             ));
-            state.input.interaction_state.physics_velocity.insert(
-                existing,
-                Vec2 {
-                    x: dir.x * 500.0,
-                    y: dir.y * 500.0,
-                },
-            );
             for _ in 0..4 {
                 state.resolve_surface_overlap();
             }

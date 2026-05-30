@@ -102,6 +102,7 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
                     .values()
                     .any(|&nid| nid == id);
                 self.set_interaction_focus(Some(id), 30_000, now);
+                let _ = self.raise_overlap_policy_node(id);
                 if restoring_suspended_fullscreen {
                     true
                 } else {
@@ -354,6 +355,41 @@ mod tests {
             state.model.focus_state.primary_interaction_focus,
             Some(second)
         );
+    }
+
+    #[test]
+    fn trail_navigation_raises_selected_active_window() {
+        let tuning = halley_config::RuntimeTuning::default();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let first = state.model.field.spawn_surface(
+            "first",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let second = state.model.field.spawn_surface(
+            "second",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(first);
+        state.assign_node_to_current_monitor(second);
+
+        state.set_interaction_focus(Some(first), 30_000, now);
+        state.set_interaction_focus(Some(second), 30_000, now);
+        state
+            .model
+            .focus_state
+            .overlap_raise_order
+            .insert(second, 20);
+        state.model.focus_state.next_overlap_raise_order = 20;
+
+        assert!(state.navigate_window_trail(TrailDirection::Prev, now));
+        assert!(state.overlap_policy_stack_rank(first) > state.overlap_policy_stack_rank(second));
     }
 
     #[test]

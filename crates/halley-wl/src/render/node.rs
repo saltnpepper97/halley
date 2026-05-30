@@ -572,7 +572,10 @@ pub(crate) fn draw_node_markers(
             continue;
         }
 
-        let p_smooth = node_pos;
+        let p_smooth = st
+            .ui
+            .render_state
+            .landmark_slide_position(id, node_pos, now);
 
         const PROXY_TO_MARKER_START: f32 = 0.50;
         const PROXY_TO_MARKER_END: f32 = 0.20;
@@ -582,10 +585,7 @@ pub(crate) fn draw_node_markers(
         let marker_mix = ease_in_out_cubic(marker_mix_lin);
         let proxy_mix = 1.0 - marker_mix;
 
-        let p = halley_core::field::Vec2 {
-            x: p_smooth.x + (node_pos.x - p_smooth.x) * marker_mix,
-            y: p_smooth.y + (node_pos.y - p_smooth.y) * marker_mix,
-        };
+        let p = p_smooth;
         let (sx, sy) = world_to_screen(st, size.w, size.h, p.x, p.y);
         let hovered = hover_node == Some(id);
         let focused = st.model.focus_state.primary_interaction_focus == Some(id);
@@ -972,7 +972,11 @@ pub(crate) fn draw_node_hover_labels(
         let label_slide = ((reveal_mix - 0.15) / 0.65).clamp(0.0, 1.0);
         let label_grow = ((reveal_mix - 0.40) / 0.55).clamp(0.0, 1.0);
 
-        let (sx, sy) = world_to_screen(st, size.w, size.h, node.pos.x, node.pos.y);
+        let label_pos = st
+            .ui
+            .render_state
+            .landmark_slide_position(node.id, node.pos, now);
+        let (sx, sy) = world_to_screen(st, size.w, size.h, label_pos.x, label_pos.y);
         let (dot_half, base_label_gap, base_label_w, base_label_h) =
             node_marker_metrics(st, node.label.len(), anim.scale);
         let label_gap = ((base_label_gap as f32) * (1.0 + 0.45 * label_grow)).round() as i32;

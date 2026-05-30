@@ -31,7 +31,7 @@ fn tick_overlap_frames(state: &mut Halley, frames: usize) {
 }
 
 #[test]
-fn resolve_surface_overlap_separates_windows_when_physics_disabled() {
+fn resolve_surface_overlap_allows_expanded_windows_to_overlap_when_physics_disabled() {
     let mut tuning = halley_config::RuntimeTuning::default();
     tuning.physics_enabled = false;
     let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
@@ -57,13 +57,409 @@ fn resolve_surface_overlap_separates_windows_when_physics_disabled() {
             .model
             .field
             .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
-
     state.resolve_surface_overlap();
 
     assert!(
-        !nodes_overlap(&state, a, b),
-        "static overlap resolution should separate overlapping windows when physics is disabled"
+        nodes_overlap(&state, a, b),
+        "expanded windows should be allowed to overlap"
     );
+}
+
+#[test]
+fn new_expanded_window_does_not_displace_existing_expanded_window() {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let existing = state.model.field.spawn_surface(
+        "existing",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let spawned = state.model.field.spawn_surface(
+        "spawned",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let existing_pos = state.model.field.node(existing).expect("existing").pos;
+    let spawned_pos = state.model.field.node(spawned).expect("spawned").pos;
+
+    state.resolve_surface_overlap();
+
+    assert_eq!(
+        state.model.field.node(existing).expect("existing").pos,
+        existing_pos
+    );
+    assert_eq!(
+        state.model.field.node(spawned).expect("spawned").pos,
+        spawned_pos
+    );
+    assert!(nodes_overlap(&state, existing, spawned));
+}
+
+#[test]
+fn active_window_does_not_displace_unpinned_collapsed_node() {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let window = state.model.field.spawn_surface(
+        "window",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let node = state.model.field.spawn_surface(
+        "node",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    assert!(
+        state
+            .model
+            .field
+            .set_state(node, halley_core::field::NodeState::Node)
+    );
+    let window_pos = state.model.field.node(window).expect("window").pos;
+    let node_pos = state.model.field.node(node).expect("node").pos;
+
+    state.resolve_surface_overlap();
+
+    assert_eq!(
+        state.model.field.node(window).expect("window").pos,
+        window_pos
+    );
+    assert_eq!(state.model.field.node(node).expect("node").pos, node_pos);
+    assert!(nodes_overlap(&state, window, node));
+}
+
+#[test]
+fn active_window_does_not_displace_pinned_collapsed_node() {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let window = state.model.field.spawn_surface(
+        "window",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let node = state.model.field.spawn_surface(
+        "pinned-node",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    assert!(
+        state
+            .model
+            .field
+            .set_state(node, halley_core::field::NodeState::Node)
+    );
+    assert!(state.set_node_user_pinned(node, true));
+    let pinned_pos = state.model.field.node(node).expect("node").pos;
+
+    state.resolve_surface_overlap();
+
+    assert_eq!(state.model.field.node(node).expect("node").pos, pinned_pos);
+    assert_eq!(
+        state.model.field.node(window).expect("window").pos,
+        pinned_pos
+    );
+}
+
+#[test]
+fn explicit_new_window_resolve_moves_overlapped_unpinned_node() {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let window = state.model.field.spawn_surface(
+        "window",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let node = state.model.field.spawn_surface(
+        "node",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 320.0, y: 220.0 },
+    );
+    let _ = state
+        .model
+        .field
+        .set_state(node, halley_core::field::NodeState::Node);
+    let window_pos = state.model.field.node(window).expect("window").pos;
+    let node_pos = state.model.field.node(node).expect("node").pos;
+
+    state.resolve_landmarks_overlapped_by_active_window(window);
+
+    assert_eq!(
+        state.model.field.node(window).expect("window").pos,
+        window_pos
+    );
+    assert_ne!(state.model.field.node(node).expect("node").pos, node_pos);
+    assert!(!nodes_overlap(&state, window, node));
+}
+
+#[test]
+fn explicit_new_window_resolve_uses_full_extents_during_open_transition() {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let window = state.model.field.spawn_surface(
+        "window",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let node = state.model.field.spawn_surface(
+        "node",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 320.0, y: 220.0 },
+    );
+    let _ = state
+        .model
+        .field
+        .set_state(node, halley_core::field::NodeState::Node);
+    state.model.workspace_state.active_transitions.insert(
+        window,
+        crate::compositor::workspace::state::ActiveTransition {
+            started_at_ms: 0,
+            duration_ms: u64::MAX,
+        },
+    );
+    let node_pos = state.model.field.node(node).expect("node").pos;
+
+    state.resolve_landmarks_overlapped_by_active_window(window);
+
+    let window_node = state.model.field.node(window).expect("window");
+    let landmark = state.model.field.node(node).expect("node");
+    let window_ext = state.surface_window_collision_extents(window_node);
+    let node_ext = state.collision_extents_for_node(landmark);
+    let req_x = state.required_sep_x(window_node.pos.x, window_ext, landmark.pos.x, node_ext, 0.0);
+    let req_y = state.required_sep_y(window_node.pos.y, window_ext, landmark.pos.y, node_ext, 0.0);
+
+    assert_ne!(landmark.pos, node_pos);
+    assert!(
+        (window_node.pos.x - landmark.pos.x).abs() >= req_x
+            || (window_node.pos.y - landmark.pos.y).abs() >= req_y
+    );
+}
+
+#[test]
+fn dragged_node_uses_physics_to_push_active_window() {
+    let tuning = halley_config::RuntimeTuning::default();
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+    state.model.viewport.size = Vec2 {
+        x: 1600.0,
+        y: 1200.0,
+    };
+    state.model.zoom_ref_size = Vec2 {
+        x: 1600.0,
+        y: 1200.0,
+    };
+
+    let window = state.model.field.spawn_surface(
+        "window",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let node = state.model.field.spawn_surface(
+        "node",
+        Vec2 { x: -800.0, y: 0.0 },
+        Vec2 { x: 320.0, y: 220.0 },
+    );
+    let _ = state
+        .model
+        .field
+        .set_state(node, halley_core::field::NodeState::Node);
+    let window_before = state.model.field.node(window).expect("window").pos;
+
+    crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(node));
+    assert!(state.carry_surface_non_overlap(node, Vec2 { x: 0.0, y: 0.0 }, false));
+    state.input.interaction_state.physics_last_tick =
+        Instant::now() - std::time::Duration::from_millis(16);
+    state.resolve_surface_overlap();
+
+    assert_eq!(
+        state.model.field.node(node).expect("node").pos,
+        Vec2 { x: 0.0, y: 0.0 }
+    );
+    assert_ne!(
+        state.model.field.node(window).expect("window").pos,
+        window_before
+    );
+}
+
+#[test]
+fn dragged_collapsed_node_clamps_against_expanded_window_gap() {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let window = state.model.field.spawn_surface(
+        "window",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let node = state.model.field.spawn_surface(
+        "node",
+        Vec2 { x: -800.0, y: 0.0 },
+        Vec2 { x: 320.0, y: 220.0 },
+    );
+    assert!(
+        state
+            .model
+            .field
+            .set_state(node, halley_core::field::NodeState::Node)
+    );
+
+    crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(node));
+    assert!(state.carry_surface_non_overlap(node, Vec2 { x: 800.0, y: 0.0 }, false));
+
+    assert!(!nodes_overlap(&state, window, node));
+    assert!(state.model.field.node(node).expect("node").pos.x > 0.0);
+}
+
+#[test]
+fn dragged_collapsed_node_slides_along_window_edge_and_flips_after_midpoint() {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let window = state.model.field.spawn_surface(
+        "window",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let node = state.model.field.spawn_surface(
+        "node",
+        Vec2 { x: 0.0, y: -800.0 },
+        Vec2 { x: 320.0, y: 220.0 },
+    );
+    assert!(
+        state
+            .model
+            .field
+            .set_state(node, halley_core::field::NodeState::Node)
+    );
+
+    crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(node));
+    assert!(state.carry_surface_non_overlap(node, Vec2 { x: 90.0, y: -10.0 }, false));
+    let first = state.model.field.node(node).expect("node").pos;
+    assert!(first.y < 0.0);
+    assert!((first.x - 90.0).abs() < 0.5);
+    assert!(!nodes_overlap(&state, window, node));
+
+    assert!(state.carry_surface_non_overlap(node, Vec2 { x: 160.0, y: -10.0 }, false));
+    let second = state.model.field.node(node).expect("node").pos;
+    assert!((second.y - first.y).abs() < 0.5);
+    assert!((second.x - 160.0).abs() < 0.5);
+    assert!(!nodes_overlap(&state, window, node));
+
+    assert!(state.carry_surface_non_overlap(node, Vec2 { x: 160.0, y: 10.0 }, false));
+    let third = state.model.field.node(node).expect("node").pos;
+    assert!(third.y > 0.0);
+    assert!((third.x - 160.0).abs() < 0.5);
+    assert!(!nodes_overlap(&state, window, node));
+}
+
+#[test]
+fn pinned_active_window_cannot_be_carried_but_can_overlap_active_window() {
+    let tuning = halley_config::RuntimeTuning::default();
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let pinned = state.model.field.spawn_surface(
+        "pinned",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let other = state.model.field.spawn_surface(
+        "other",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    assert!(state.set_node_user_pinned(pinned, true));
+
+    crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(pinned));
+    assert!(!state.carry_surface_non_overlap(pinned, Vec2 { x: 500.0, y: 0.0 }, false));
+    state.resolve_surface_overlap();
+
+    assert_eq!(
+        state.model.field.node(pinned).expect("pinned").pos,
+        Vec2 { x: 0.0, y: 0.0 }
+    );
+    assert!(nodes_overlap(&state, pinned, other));
+}
+
+#[test]
+fn trapped_unpinned_landmark_escapes_overlapping_landmarks() {
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
+    let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+        .expect("display")
+        .handle();
+    let mut state = Halley::new_for_test(&dh, tuning);
+
+    let left = state.model.field.spawn_surface(
+        "left",
+        Vec2 { x: -80.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let right = state.model.field.spawn_surface(
+        "right",
+        Vec2 { x: 80.0, y: 0.0 },
+        Vec2 { x: 420.0, y: 280.0 },
+    );
+    let node = state.model.field.spawn_surface(
+        "node",
+        Vec2 { x: 0.0, y: 0.0 },
+        Vec2 { x: 320.0, y: 220.0 },
+    );
+    assert!(
+        state
+            .model
+            .field
+            .set_state(node, halley_core::field::NodeState::Node)
+    );
+    let _ = state
+        .model
+        .field
+        .set_state(left, halley_core::field::NodeState::Node);
+    let _ = state
+        .model
+        .field
+        .set_state(right, halley_core::field::NodeState::Node);
+
+    state.resolve_surface_overlap();
+
+    assert!(!nodes_overlap(&state, left, node));
+    assert!(!nodes_overlap(&state, right, node));
 }
 
 #[test]
@@ -85,6 +481,14 @@ fn pinned_node_is_not_displaced_by_overlap_and_unpin_restores_motion() {
         Vec2 { x: 0.0, y: 0.0 },
         Vec2 { x: 420.0, y: 280.0 },
     );
+    let _ = state
+        .model
+        .field
+        .set_state(pinned, halley_core::field::NodeState::Node);
+    let _ = state
+        .model
+        .field
+        .set_state(other, halley_core::field::NodeState::Node);
     assert!(state.set_node_user_pinned(pinned, true));
 
     state.resolve_surface_overlap();
@@ -127,6 +531,10 @@ fn physics_carry_clamps_mover_against_pinned_neighbor_immediately() {
         Vec2 { x: 800.0, y: 0.0 },
         Vec2 { x: 420.0, y: 280.0 },
     );
+    let _ = state
+        .model
+        .field
+        .set_state(pinned, halley_core::field::NodeState::Node);
     assert!(state.set_node_user_pinned(pinned, true));
 
     assert!(state.carry_surface_non_overlap(mover, Vec2 { x: 0.0, y: 0.0 }, false));
@@ -345,7 +753,8 @@ fn overlap_resolution_is_not_limited_to_current_monitor() {
 
 #[test]
 fn dragged_window_is_authoritative_while_neighbor_yields() {
-    let tuning = halley_config::RuntimeTuning::default();
+    let mut tuning = halley_config::RuntimeTuning::default();
+    tuning.physics_enabled = false;
     let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
         .expect("display")
         .handle();
@@ -381,12 +790,12 @@ fn dragged_window_is_authoritative_while_neighbor_yields() {
     let active_node = state.model.field.node(active).expect("active surface");
     let collapsed_node = state.model.field.node(node).expect("collapsed node");
 
-    assert_eq!(collapsed_node.pos, Vec2 { x: 0.0, y: 0.0 });
-    assert!(active_node.pos != Vec2 { x: 0.0, y: 0.0 });
+    assert_eq!(active_node.pos, Vec2 { x: 0.0, y: 0.0 });
+    assert!(collapsed_node.pos != Vec2 { x: 0.0, y: 0.0 });
 }
 
 #[test]
-fn dragged_window_pushes_collapsed_core_and_members_follow() {
+fn dragged_window_pushes_collapsed_core() {
     let tuning = halley_config::RuntimeTuning::default();
     let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
         .expect("display")
@@ -425,17 +834,17 @@ fn dragged_window_pushes_collapsed_core_and_members_follow() {
 
     crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
     assert!(state.carry_surface_non_overlap(dragged, Vec2 { x: 0.0, y: 0.0 }, false));
+    state.input.interaction_state.physics_last_tick =
+        Instant::now() - std::time::Duration::from_millis(16);
     state.resolve_surface_overlap();
 
     let dragged_after = state.model.field.node(dragged).expect("dragged after");
     let core_after = state.model.field.node(core).expect("core after");
-    let a_after = state.model.field.node(a).expect("a after");
-    let b_after = state.model.field.node(b).expect("b after");
 
     assert_eq!(dragged_after.pos, Vec2 { x: 0.0, y: 0.0 });
     assert!(core_after.pos != core_before);
-    assert_eq!(a_after.pos, a_before);
-    assert_eq!(b_after.pos, b_before);
+    assert_eq!(state.model.field.node(a).expect("a after").pos, a_before);
+    assert_eq!(state.model.field.node(b).expect("b after").pos, b_before);
 }
 
 #[test]
@@ -473,9 +882,9 @@ fn dragged_window_pushes_neighbor_when_physics_disabled() {
     let dragged_after = state.model.field.node(dragged).expect("dragged after");
     let passive_after = state.model.field.node(passive).expect("passive after");
 
-    assert!(dragged_after.pos.x < 280.0);
-    assert!(passive_after.pos.x > passive_before.x);
-    assert!(!nodes_overlap(&state, dragged, passive));
+    assert_eq!(dragged_after.pos, Vec2 { x: 280.0, y: 0.0 });
+    assert_eq!(passive_after.pos, passive_before);
+    assert!(nodes_overlap(&state, dragged, passive));
 }
 
 #[test]
@@ -506,6 +915,10 @@ fn dragged_window_yields_against_pinned_neighbor_when_physics_disabled() {
         Vec2 { x: 420.0, y: 280.0 },
     );
     let pinned_before = state.model.field.node(pinned).expect("pinned before").pos;
+    let _ = state
+        .model
+        .field
+        .set_state(pinned, halley_core::field::NodeState::Node);
     let _ = state.model.field.set_pinned(pinned, true);
 
     crate::compositor::carry::system::set_drag_authority_node(&mut state, Some(dragged));
@@ -730,7 +1143,7 @@ fn resolve_overlap_settles_collapsed_nodes() {
 }
 
 #[test]
-fn resolve_overlap_settles_active_surface_and_node() {
+fn passive_overlap_allows_active_surface_and_node_overlap() {
     let tuning = halley_config::RuntimeTuning::default();
     let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
         .expect("display")
@@ -759,12 +1172,17 @@ fn resolve_overlap_settles_active_surface_and_node() {
         .model
         .field
         .set_state(node, halley_core::field::NodeState::Node);
+    let active_pos = state.model.field.node(active).expect("active").pos;
+    let node_pos = state.model.field.node(node).expect("node").pos;
 
     tick_overlap_frames(&mut state, 96);
 
-    let (dx, dy, req_x, req_y) = overlap_metrics(&state, active, node);
-
-    assert!(dx >= req_x || dy >= req_y);
+    assert_eq!(
+        state.model.field.node(active).expect("active").pos,
+        active_pos
+    );
+    assert_eq!(state.model.field.node(node).expect("node").pos, node_pos);
+    assert!(nodes_overlap(&state, active, node));
 }
 
 #[test]
@@ -793,11 +1211,9 @@ fn resolve_overlap_settles_two_active_surfaces() {
             .model
             .field
             .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
-
     tick_overlap_frames(&mut state, 128);
 
-    let (dx, dy, req_x, req_y) = overlap_metrics(&state, a, b);
-    assert!(dx >= req_x || dy >= req_y);
+    assert!(nodes_overlap(&state, a, b));
 }
 
 #[test]
@@ -818,6 +1234,14 @@ fn body_velocity_is_bounded_under_contact() {
             .model
             .field
             .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+    let _ = state
+        .model
+        .field
+        .set_state(a, halley_core::field::NodeState::Node);
+    let _ = state
+        .model
+        .field
+        .set_state(b, halley_core::field::NodeState::Node);
 
     for _ in 0..12 {
         state.resolve_surface_overlap();
@@ -857,6 +1281,10 @@ fn angled_drag_contact_does_not_create_unbounded_velocity() {
         Vec2 { x: 0.0, y: 0.0 },
         Vec2 { x: 420.0, y: 280.0 },
     );
+    let _ = state
+        .model
+        .field
+        .set_state(passive, halley_core::field::NodeState::Node);
     let dragged = state.model.field.spawn_surface(
         "dragged",
         Vec2 {
@@ -937,6 +1365,14 @@ fn direct_border_hit_triggers_physics_response() {
             .model
             .field
             .spawn_surface("b", Vec2 { x: 0.0, y: 0.0 }, Vec2 { x: 420.0, y: 280.0 });
+    let _ = state
+        .model
+        .field
+        .set_state(a, halley_core::field::NodeState::Node);
+    let _ = state
+        .model
+        .field
+        .set_state(b, halley_core::field::NodeState::Node);
     let ea = state.collision_extents_for_node(state.model.field.node(a).expect("a"));
     let eb = state.collision_extents_for_node(state.model.field.node(b).expect("b"));
     let req_x = state.required_sep_x(0.0, ea, 1.0, eb, state.non_overlap_gap_world());
@@ -982,6 +1418,14 @@ fn grabbed_window_kinematic_velocity_pushes_neighbor_without_retaining_momentum(
         Vec2 { x: 0.0, y: 0.0 },
         Vec2 { x: 420.0, y: 280.0 },
     );
+    let _ = state
+        .model
+        .field
+        .set_state(dragged, halley_core::field::NodeState::Node);
+    let _ = state
+        .model
+        .field
+        .set_state(passive, halley_core::field::NodeState::Node);
     let ea = state.collision_extents_for_node(state.model.field.node(dragged).expect("dragged"));
     let eb = state.collision_extents_for_node(state.model.field.node(passive).expect("passive"));
     let req_x = state.required_sep_x(0.0, ea, 1.0, eb, state.non_overlap_gap_world());

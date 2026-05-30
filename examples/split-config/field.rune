@@ -3,7 +3,6 @@
 field:
   gap 20.0
   active-windows-allowed 5
-  pan-to-new "if-needed"
 
   pins:
     corner "top-right"
@@ -22,6 +21,27 @@ field:
     max 1.35
     smooth true
     smooth-rate 12.5
+  end
+end
+
+placement:
+  expanded:
+    strategy "center"
+    fallback "center"
+    find-empty-mode "best-effort"
+  end
+
+  landmarks:
+    strategy "nearest-free"
+    normal-blocker "relocate"
+    pinned-blocker "preserve"
+  end
+
+  reveal:
+    enabled true
+    max-pan-px 360
+    animation-ms 180
+    pan-to-new "if-needed"
   end
 end
 

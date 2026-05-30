@@ -133,6 +133,7 @@ impl ConfigSchema {
             "keybinds",
             "nodes",
             "overlays",
+            "placement",
             "physics",
             "rules",
             "screenshot",
@@ -150,6 +151,7 @@ impl ConfigSchema {
             "animations.window-open",
             "animations.tile",
             "animations.stack",
+            "animations.raise",
             "bearings",
             "clusters",
             "cursor",
@@ -170,6 +172,10 @@ impl ConfigSchema {
             "input.keyboard",
             "nodes",
             "overlays",
+            "placement",
+            "placement.expanded",
+            "placement.landmarks",
+            "placement.reveal",
             "physics",
             "screenshot",
             "stacking",
@@ -192,6 +198,10 @@ impl ConfigSchema {
             "animations.tile.duration-ms",
             "animations.stack.enabled",
             "animations.stack.duration-ms",
+            "animations.raise.enabled",
+            "animations.raise.duration-ms",
+            "animations.raise.scale",
+            "animations.raise.shadow-boost",
             "bearings.show-distance",
             "bearings.show-icons",
             "bearings.show-pinned",
@@ -283,6 +293,7 @@ impl ConfigSchema {
             "input.repeat-rate",
             "input.repeat-delay",
             "input.focus-mode",
+            "input.raise-on-click",
             "input.keyboard.layout",
             "input.keyboard.variant",
             "input.keyboard.options",
@@ -319,6 +330,16 @@ impl ConfigSchema {
             "overlays.shape",
             "overlays.borders",
             "overlays.border-source",
+            "placement.expanded.strategy",
+            "placement.expanded.fallback",
+            "placement.expanded.find-empty-mode",
+            "placement.landmarks.strategy",
+            "placement.landmarks.normal-blocker",
+            "placement.landmarks.pinned-blocker",
+            "placement.reveal.enabled",
+            "placement.reveal.max-pan-px",
+            "placement.reveal.animation-ms",
+            "placement.reveal.pan-to-new",
             "physics.enabled",
             "physics.damping",
             "screenshot.directory",
@@ -417,6 +438,9 @@ fn numeric_scalar(path: &str) -> bool {
             | "animations.window-open.duration-ms"
             | "animations.tile.duration-ms"
             | "animations.stack.duration-ms"
+            | "animations.raise.duration-ms"
+            | "animations.raise.scale"
+            | "animations.raise.shadow-boost"
             | "bearings.fade-distance"
             | "clusters.distance-px"
             | "clusters.cluster-dwell-ms"
@@ -472,6 +496,8 @@ fn numeric_scalar(path: &str) -> bool {
             | "nodes.primary-hot-inner-frac"
             | "nodes.hot-inner-frac"
             | "nodes.icon-size"
+            | "placement.reveal.max-pan-px"
+            | "placement.reveal.animation-ms"
             | "physics.damping"
             | "stacking.max-visible"
             | "stacking.visible-limit"
@@ -521,6 +547,7 @@ fn bool_scalar(path: &str) -> bool {
             | "animations.window-open.enabled"
             | "animations.tile.enabled"
             | "animations.stack.enabled"
+            | "animations.raise.enabled"
             | "bearings.show-distance"
             | "bearings.show-icons"
             | "bearings.show-pinned"
@@ -535,7 +562,9 @@ fn bool_scalar(path: &str) -> bool {
             | "field.close-restore-focus"
             | "field.zoom.enabled"
             | "field.zoom.smooth"
+            | "input.raise-on-click"
             | "overlays.borders"
+            | "placement.reveal.enabled"
             | "physics.enabled"
             | "tile.new-on-top"
             | "tile.queue-show-icons"
@@ -586,6 +615,16 @@ fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
         }
         "overlays.shape" => Some(&["square", "rounded"]),
         "overlays.border-source" => Some(&["primary", "secondary"]),
+        "placement.expanded.strategy" | "placement.expanded.fallback" => {
+            Some(&["center", "find-empty", "find_empty"])
+        }
+        "placement.expanded.find-empty-mode" => Some(&["best-effort", "best_effort"]),
+        "placement.landmarks.strategy" => Some(&["nearest-free", "nearest_free"]),
+        "placement.landmarks.normal-blocker" => Some(&["relocate"]),
+        "placement.landmarks.pinned-blocker" => Some(&["preserve"]),
+        "placement.reveal.pan-to-new" => {
+            Some(&["never", "if-needed", "if_needed", "always", "true", "false"])
+        }
         "animations.window-close.style" => Some(&["shrink"]),
         path if viewport_output_path(path)
             .is_some_and(|rest| rest == "vrr" || rest == "variable-refresh-rate") =>

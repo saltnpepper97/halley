@@ -1,5 +1,5 @@
 use rune_cfg::{RuneConfig, RuneError};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,8 +14,8 @@ use super::sections::{
     load_cursor_section, load_decay_section, load_decorations_section, load_env_section,
     load_field_section, load_focus_ring_section, load_font_section, load_input_section,
     load_keybind_sections, load_nodes_section, load_overlays_section, load_physics_section,
-    load_screenshot_section, load_stacking_section, load_tile_section, load_trail_section,
-    load_viewport_section,
+    load_placement_section, load_screenshot_section, load_stacking_section, load_tile_section,
+    load_trail_section, load_viewport_section,
 };
 use super::validate::validate_known_config_keys;
 
@@ -132,6 +132,7 @@ fn load_config_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     load_stacking_section(cfg, out);
     load_decay_section(cfg, out);
     load_field_section(cfg, out);
+    load_placement_section(cfg, out);
     load_physics_section(cfg, out);
     load_decorations_section(cfg, out);
     load_animations_section(cfg, out);
@@ -141,6 +142,50 @@ fn load_config_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
 
 pub fn from_rune_file(path: &str) -> Option<RuntimeTuning> {
     RuntimeTuning::from_rune_file(path)
+}
+
+pub fn gather_dependencies_for_file(path: &str) -> Vec<PathBuf> {
+    let root = absolutize_config_path(Path::new(path));
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    collect_gather_dependencies(&root, &mut seen, &mut out);
+    out
+}
+
+fn collect_gather_dependencies(path: &Path, seen: &mut HashSet<PathBuf>, out: &mut Vec<PathBuf>) {
+    let key = absolutize_config_path(path);
+    if !seen.insert(key.clone()) {
+        return;
+    }
+    let Ok(raw) = std::fs::read_to_string(&key) else {
+        return;
+    };
+    let base_dir = key.parent().unwrap_or_else(|| Path::new("."));
+    for line in raw.lines() {
+        let Some(dep) = gather_path_from_line(line, base_dir) else {
+            continue;
+        };
+        if !dep.exists() || out.contains(&dep) {
+            continue;
+        }
+        out.push(dep.clone());
+        collect_gather_dependencies(dep.as_path(), seen, out);
+    }
+}
+
+fn gather_path_from_line(line: &str, base_dir: &Path) -> Option<PathBuf> {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with("gather") {
+        return None;
+    }
+    let after_gather = trimmed.strip_prefix("gather")?.trim_start();
+    let quote = after_gather.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let close_relative = after_gather[1..].find(quote)?;
+    let raw_path = &after_gather[1..close_relative + 1];
+    Some(resolve_gather_path_for_halley(raw_path, base_dir))
 }
 
 fn diagnostic_from_rune_error(path: &str, raw: &str, err: RuneError) -> ConfigLoadDiagnostic {
@@ -491,6 +536,33 @@ end
                 b: 0x68 as f32 / 255.0,
             }
         );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn gather_dependencies_for_file_collects_nested_imports() {
+        let dir = test_temp_dir("gather-dependencies");
+        let nested_path = dir.join("nested.rune");
+        let import_path = dir.join("colors.rune");
+        let config_path = dir.join("halley.rune");
+
+        std::fs::write(&nested_path, "field:\n  gap 22\nend\n").unwrap();
+        std::fs::write(
+            &import_path,
+            r##"gather "nested.rune"
+nodes:
+  icon-size 0.62
+end
+"##,
+        )
+        .unwrap();
+        std::fs::write(&config_path, r##"gather "colors.rune""##).unwrap();
+
+        let deps = gather_dependencies_for_file(config_path.to_str().unwrap());
+
+        assert!(deps.contains(&import_path));
+        assert!(deps.contains(&nested_path));
 
         let _ = std::fs::remove_dir_all(dir);
     }

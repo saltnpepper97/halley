@@ -155,6 +155,14 @@ fn latch_hover_keyboard_spawn_monitor(st: &mut Halley, pointer_screen: (f32, f32
     st.model.spawn_state.pending_spawn_monitor = Some(monitor);
 }
 
+fn keyboard_has_client_focus(st: &Halley) -> bool {
+    st.platform
+        .seat
+        .get_keyboard()
+        .and_then(|keyboard| keyboard.current_focus())
+        .is_some()
+}
+
 pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     st: &mut Halley,
     ctx: &InputCtx<'_, B>,
@@ -439,6 +447,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         && !matched_binding
         && !cluster_blocks_key
         && !compositor_shortcuts_blocked
+        && !keyboard_has_client_focus(st)
         && let Some(fid) = st.last_input_surface_node_for_monitor(st.focused_monitor())
     {
         let open_monitors = st

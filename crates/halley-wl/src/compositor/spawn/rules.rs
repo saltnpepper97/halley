@@ -1,6 +1,6 @@
 use halley_config::{
-    InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
-    WindowRule,
+    ExpandedPlacementStrategy, InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
+    InitialWindowSpawnPlacement, WindowRule,
 };
 use halley_core::field::NodeId;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
@@ -23,6 +23,21 @@ impl Default for ResolvedInitialWindowRule {
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,
         }
+    }
+}
+
+fn default_expanded_spawn_placement(st: &Halley) -> InitialWindowSpawnPlacement {
+    match st.runtime.tuning.placement.expanded.strategy {
+        ExpandedPlacementStrategy::Center => InitialWindowSpawnPlacement::Center,
+        ExpandedPlacementStrategy::FindEmpty => InitialWindowSpawnPlacement::Adjacent,
+    }
+}
+
+fn default_initial_window_rule(st: &Halley) -> ResolvedInitialWindowRule {
+    ResolvedInitialWindowRule {
+        overlap_policy: InitialWindowOverlapPolicy::None,
+        spawn_placement: default_expanded_spawn_placement(st),
+        cluster_participation: InitialWindowClusterParticipation::Layout,
     }
 }
 
@@ -87,6 +102,7 @@ impl InitialWindowIntent {
 
     pub(crate) fn effective_spawn_placement(&self) -> InitialWindowSpawnPlacement {
         match self.rule.spawn_placement {
+            InitialWindowSpawnPlacement::Default => InitialWindowSpawnPlacement::Center,
             InitialWindowSpawnPlacement::App if self.parent_node.is_some() => {
                 InitialWindowSpawnPlacement::Center
             }
@@ -134,7 +150,7 @@ fn resolve_initial_window_intent_from_identity(
         app_id,
         title,
         parent_node,
-        rule: rule.unwrap_or_default(),
+        rule: rule.unwrap_or_else(|| default_initial_window_rule(st)),
         builtin_rule,
         matched_rule: rule.is_some(),
         is_transient: parent_node.is_some() || is_dialog,
@@ -166,10 +182,13 @@ pub(crate) fn needs_deferred_rule_recheck(st: &Halley, intent: &InitialWindowInt
         || builtin_window_rule_may_match_later(intent.app_id.as_deref(), intent.title.as_deref())
 }
 
-fn rule_match(rule: &WindowRule) -> ResolvedInitialWindowRule {
+fn rule_match(st: &Halley, rule: &WindowRule) -> ResolvedInitialWindowRule {
     ResolvedInitialWindowRule {
-        overlap_policy: rule.overlap_policy,
-        spawn_placement: rule.spawn_placement,
+        overlap_policy: InitialWindowOverlapPolicy::None,
+        spawn_placement: match rule.spawn_placement {
+            InitialWindowSpawnPlacement::Default => default_expanded_spawn_placement(st),
+            placement => placement,
+        },
         cluster_participation: rule.cluster_participation,
     }
 }
@@ -260,7 +279,9 @@ fn matching_window_rule_with_source(
     Option<ResolvedInitialWindowRule>,
     Option<BuiltinInitialWindowRule>,
 ) {
-    if let Some(rule) = matching_user_window_rule(st, app_id, title).map(rule_match) {
+    if let Some(rule) =
+        matching_user_window_rule(st, app_id, title).map(|rule| rule_match(st, rule))
+    {
         return (Some(rule), None);
     }
     matching_builtin_window_rule(app_id, title, default_float)

@@ -52,8 +52,7 @@ use decoration::{
 };
 use geometry::{
     log_window_render_path, offscreen_visual_crop_and_dst, rect_from_local_geometry, rect4_str,
-    rect4f_str, should_draw_resize_overlap_overlay, sync_node_size_from_surface,
-    wrap_direct_surface_elements,
+    rect4f_str, sync_node_size_from_surface, wrap_direct_surface_elements,
 };
 use stack::{build_stack_transition_plan, clone_stack_window_unit_for_pose, stack_draw_order_map};
 
@@ -128,6 +127,7 @@ pub(crate) struct StackWindowDrawUnit {
     pub draw_order: i32,
     pub shadow_rects: Vec<WindowShadowRect>,
     pub border_rects: Vec<ActiveBorderRect>,
+    pub pin_badges: Vec<PinBadgeLayout>,
     pub active_elements: Vec<CroppedClippedSurfaceElement>,
     pub offscreen_textures: Vec<OffscreenNodeTexture>,
 }
@@ -139,6 +139,7 @@ impl StackWindowDrawUnit {
             draw_order,
             shadow_rects: Vec::new(),
             border_rects: Vec::new(),
+            pin_badges: Vec::new(),
             active_elements: Vec::new(),
             offscreen_textures: Vec::new(),
         }
@@ -206,14 +207,13 @@ pub(crate) fn collect_active_surfaces(
     Vec<ActiveBorderRect>,
     Vec<ActiveBorderRect>,
     Vec<ActiveBorderRect>,
-    Vec<(i32, i32, i32, i32)>,
     Vec<PinBadgeLayout>,
 ) {
-    let mut active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
+    let active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let mut resized_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let mut fullscreen_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let mut above_fullscreen_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
-    let mut offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut resized_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut above_fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
@@ -279,39 +279,15 @@ pub(crate) fn collect_active_surfaces(
     let mut stack_window_units: HashMap<NodeId, StackWindowDrawUnit> = HashMap::new();
     let mut above_fullscreen_stack_window_units: HashMap<NodeId, StackWindowDrawUnit> =
         HashMap::new();
-    let mut shadow_rects: Vec<WindowShadowRect> = Vec::new();
+    let shadow_rects: Vec<WindowShadowRect> = Vec::new();
     let mut resized_shadow_rects: Vec<WindowShadowRect> = Vec::new();
     let mut above_fullscreen_shadow_rects: Vec<WindowShadowRect> = Vec::new();
-    let mut border_rects: Vec<ActiveBorderRect> = Vec::new();
+    let border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut resized_border_rects: Vec<ActiveBorderRect> = Vec::new();
     let mut above_fullscreen_border_rects: Vec<ActiveBorderRect> = Vec::new();
-    let mut overlap_overlay_rects: Vec<(i32, i32, i32, i32)> = Vec::new();
     let mut pin_badges: Vec<PinBadgeLayout> = Vec::new();
 
-    let recent_top_node = st.recent_top_node_active(now);
-    let has_persistent_rule_top = st
-        .model
-        .spawn_state
-        .applied_window_rules
-        .keys()
-        .any(|id| st.model.field.is_visible(*id));
     let output_clip = Rectangle::<i32, Physical>::new((0, 0).into(), size);
-    let resize_rect_px = resize_preview.and_then(|rz| {
-        if !st.node_visible_on_current_monitor(rz.node_id) {
-            return None;
-        }
-        Some((
-            rz.preview_left_px.min(rz.preview_right_px).round() as i32,
-            rz.preview_top_px.min(rz.preview_bottom_px).round() as i32,
-            rz.preview_left_px.max(rz.preview_right_px).round() as i32,
-            rz.preview_top_px.max(rz.preview_bottom_px).round() as i32,
-            rz.node_id,
-        ))
-    });
-    let resize_preview_has_overlap_policy = resize_rect_px
-        .map(|(_, _, _, _, rid)| st.node_has_overlap_policy(rid))
-        .unwrap_or(false);
-
     let mut wl_surfaces: Vec<_> = st
         .platform
         .xdg_shell_state
@@ -391,14 +367,13 @@ pub(crate) fn collect_active_surfaces(
         let persistent_rule_top = is_persistent_rule_top(st, node_id);
         let overlap_policy_stack_this_node = st.node_has_overlap_policy(node_id);
         let draw_top_this_node = resizing_this_node
-            || (recent_top_node == Some(node_id)
-                && (!has_persistent_rule_top || persistent_rule_top))
             || dragging_this_node
             || (persistent_rule_top && !overlap_policy_stack_this_node);
         let draw_above_fullscreen_this_node =
             st.node_draws_above_fullscreen_on_current_monitor(node_id);
         let overlap_policy_draw_order = overlap_policy_draw_order(st, node_id);
         let live_surface_node = node_requires_live_surface_render(st, node_id);
+        let raise_anim = st.ui.render_state.raise_animation_for(node_id, now);
 
         let force_live_surface_scale =
             resizing_this_node || dragging_this_node || active_cluster_member;
@@ -436,7 +411,17 @@ pub(crate) fn collect_active_surfaces(
         };
 
         let cam_scale = st.camera_render_scale();
-        let render_scale = scale * cam_scale * fit_scale;
+        let raise_scale = if fullscreen_on_current_monitor || live_surface_node {
+            1.0
+        } else {
+            raise_anim.scale
+        };
+        let raise_shadow_boost = if fullscreen_on_current_monitor || live_surface_node {
+            0.0
+        } else {
+            raise_anim.shadow_boost
+        };
+        let render_scale = scale * cam_scale * fit_scale * raise_scale;
 
         let p = stack_transition_pose
             .map(|pose| pose.center)
@@ -518,21 +503,12 @@ pub(crate) fn collect_active_surfaces(
             && rect_covers_output((gx, gy, gw.max(1), gh.max(1)), output_clip);
         let fullscreen_like_for_render = fullscreen_on_current_monitor || game_covers_output;
 
-        if should_draw_resize_overlap_overlay(
-            resize_rect_px,
-            node_id,
-            (gx, gy, gw, gh),
-            resize_preview_has_overlap_policy,
-        ) {
-            overlap_overlay_rects.push((gx, gy, gw.max(1), gh.max(1)));
-        }
-
         let alpha = (anim.alpha
             * live_ramp
             * stack_transition_pose.map(|pose| pose.alpha).unwrap_or(1.0)
             * tiling_tile_transition.map(|rect| rect.alpha).unwrap_or(1.0))
         .clamp(0.0, 1.0);
-        if st.node_user_pinned(node_id) && alpha > 0.01 {
+        let window_pin_badge = if st.node_user_pinned(node_id) && alpha > 0.01 {
             let radius = crate::render::pin_icon::scaled_pin_badge_radius(
                 st,
                 ((14.0 * render_scale.sqrt().clamp(0.85, 1.25)).round() as i32).clamp(10, 18),
@@ -542,13 +518,15 @@ pub(crate) fn collect_active_surfaces(
                 halley_config::PinBadgeCorner::TopLeft => gx - corner_outset,
                 halley_config::PinBadgeCorner::TopRight => gx + gw.max(1) + corner_outset,
             };
-            pin_badges.push(PinBadgeLayout {
+            Some(PinBadgeLayout {
                 cx,
                 cy: gy - corner_outset,
                 radius,
                 alpha,
-            });
-        }
+            })
+        } else {
+            None
+        };
         let decoration_metrics = if fullscreen_like_for_render {
             window_decoration_metrics(0, 0, 0, 0)
         } else {
@@ -603,7 +581,7 @@ pub(crate) fn collect_active_surfaces(
             gy,
             gw.max(1),
             gh.max(1),
-            alpha,
+            (alpha + raise_shadow_boost).clamp(0.0, 1.0),
             decoration_metrics,
             fullscreen_like_for_render,
         );
@@ -636,7 +614,11 @@ pub(crate) fn collect_active_surfaces(
             } else if draw_top_this_node {
                 resized_shadow_rects.push(shadow_rect);
             } else {
-                shadow_rects.push(shadow_rect);
+                stack_window_units
+                    .entry(node_id)
+                    .or_insert_with(|| StackWindowDrawUnit::new(node_id, overlap_policy_draw_order))
+                    .shadow_rects
+                    .push(shadow_rect);
             }
         }
         let window_border_rects = build_window_border_rects(
@@ -675,7 +657,44 @@ pub(crate) fn collect_active_surfaces(
         } else if draw_top_this_node {
             resized_border_rects.extend(window_border_rects);
         } else {
-            border_rects.extend(window_border_rects);
+            stack_window_units
+                .entry(node_id)
+                .or_insert_with(|| StackWindowDrawUnit::new(node_id, overlap_policy_draw_order))
+                .border_rects = window_border_rects;
+        }
+        if let Some(pin_badge) = window_pin_badge {
+            if stack_render_set.contains(&node_id) {
+                stack_window_units
+                    .entry(node_id)
+                    .or_insert_with(|| {
+                        StackWindowDrawUnit::new(
+                            node_id,
+                            stack_draw_orders.get(&node_id).copied().unwrap_or_default(),
+                        )
+                    })
+                    .pin_badges
+                    .push(pin_badge);
+            } else if overlap_policy_stack_this_node && draw_above_fullscreen_this_node {
+                above_fullscreen_stack_window_units
+                    .entry(node_id)
+                    .or_insert_with(|| StackWindowDrawUnit::new(node_id, overlap_policy_draw_order))
+                    .pin_badges
+                    .push(pin_badge);
+            } else if overlap_policy_stack_this_node {
+                stack_window_units
+                    .entry(node_id)
+                    .or_insert_with(|| StackWindowDrawUnit::new(node_id, overlap_policy_draw_order))
+                    .pin_badges
+                    .push(pin_badge);
+            } else if draw_above_fullscreen_this_node || draw_top_this_node {
+                pin_badges.push(pin_badge);
+            } else {
+                stack_window_units
+                    .entry(node_id)
+                    .or_insert_with(|| StackWindowDrawUnit::new(node_id, overlap_policy_draw_order))
+                    .pin_badges
+                    .push(pin_badge);
+            }
         }
         // Games/fullscreen processes bypass offscreen zoom for performance and compatibility.
         let use_offscreen_zoom = !fullscreen_on_current_monitor && !live_surface_node;
@@ -815,7 +834,13 @@ pub(crate) fn collect_active_surfaces(
                     } else if draw_top_this_node {
                         resized_active_elements.extend(cropped);
                     } else {
-                        active_elements.extend(cropped);
+                        stack_window_units
+                            .entry(node_id)
+                            .or_insert_with(|| {
+                                StackWindowDrawUnit::new(node_id, overlap_policy_draw_order)
+                            })
+                            .active_elements
+                            .extend(cropped);
                     }
                     continue;
                 }
@@ -953,7 +978,13 @@ pub(crate) fn collect_active_surfaces(
                             } else if draw_top_this_node {
                                 resized_active_elements.extend(cropped);
                             } else {
-                                active_elements.extend(cropped);
+                                stack_window_units
+                                    .entry(node_id)
+                                    .or_insert_with(|| {
+                                        StackWindowDrawUnit::new(node_id, overlap_policy_draw_order)
+                                    })
+                                    .active_elements
+                                    .extend(cropped);
                             }
                             continue;
                         }
@@ -1189,7 +1220,13 @@ pub(crate) fn collect_active_surfaces(
                     } else if draw_top_this_node {
                         resized_offscreen_textures.push(offscreen);
                     } else {
-                        offscreen_textures.push(offscreen);
+                        stack_window_units
+                            .entry(node_id)
+                            .or_insert_with(|| {
+                                StackWindowDrawUnit::new(node_id, overlap_policy_draw_order)
+                            })
+                            .offscreen_textures
+                            .push(offscreen);
                     }
                 }
                 None => {
@@ -1277,7 +1314,11 @@ pub(crate) fn collect_active_surfaces(
             } else if draw_top_this_node {
                 resized_active_elements.extend(cropped);
             } else {
-                active_elements.extend(cropped);
+                stack_window_units
+                    .entry(node_id)
+                    .or_insert_with(|| StackWindowDrawUnit::new(node_id, overlap_policy_draw_order))
+                    .active_elements
+                    .extend(cropped);
             }
         }
 
@@ -1407,11 +1448,12 @@ pub(crate) fn collect_active_surfaces(
             }
         }
     }
-    stack_window_units.sort_by_key(|unit| unit.draw_order);
+    stack_window_units.sort_by_key(|unit| (unit.draw_order, unit.node_id.as_u64()));
     let mut above_fullscreen_stack_window_units = above_fullscreen_stack_window_units
         .into_values()
         .collect::<Vec<_>>();
-    above_fullscreen_stack_window_units.sort_by_key(|unit| unit.draw_order);
+    above_fullscreen_stack_window_units
+        .sort_by_key(|unit| (unit.draw_order, unit.node_id.as_u64()));
 
     (
         active_elements,
@@ -1437,17 +1479,13 @@ pub(crate) fn collect_active_surfaces(
         border_rects,
         resized_border_rects,
         above_fullscreen_border_rects,
-        overlap_overlay_rects,
         pin_badges,
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        active_surface_draw_rank, should_draw_resize_overlap_overlay, window_decoration_metrics,
-        world_to_screen_for_view,
-    };
+    use super::{active_surface_draw_rank, window_decoration_metrics, world_to_screen_for_view};
     use crate::compositor::root::Halley;
     use crate::compositor::surface::stacking_render_order_map;
     use halley_core::field::NodeId;
@@ -1488,26 +1526,6 @@ mod tests {
         ids.sort_by_key(|&id| active_surface_draw_rank(&state, id));
 
         assert_eq!(ids, vec![old, newest, raised]);
-    }
-
-    #[test]
-    fn resize_overlap_overlay_skips_underlay_for_overlap_policy_resize() {
-        assert!(!should_draw_resize_overlap_overlay(
-            Some((0, 0, 100, 100, NodeId::new(1))),
-            NodeId::new(2),
-            (20, 20, 40, 40),
-            true,
-        ));
-    }
-
-    #[test]
-    fn resize_overlap_overlay_marks_intersecting_underlay_for_normal_resize() {
-        assert!(should_draw_resize_overlap_overlay(
-            Some((0, 0, 100, 100, NodeId::new(1))),
-            NodeId::new(2),
-            (20, 20, 40, 40),
-            false,
-        ));
     }
 
     #[test]
