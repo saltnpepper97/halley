@@ -319,9 +319,8 @@ pub(crate) fn collect_active_surfaces(
             .and_then(|plan| plan.poses.get(&node_id).copied());
         let stack_member_rendered = stack_render_set.contains(&node_id);
         if node.state != halley_core::field::NodeState::Active
-            || (!stack_member_rendered
-                && (!st.model.field.is_visible(node_id)
-                    || !st.node_visible_on_current_monitor(node_id)))
+            || !st.model.field.is_visible(node_id)
+            || !st.node_assigned_to_current_monitor(node_id)
         {
             continue;
         }

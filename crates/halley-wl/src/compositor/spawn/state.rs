@@ -177,9 +177,7 @@ pub(crate) fn node_draws_above_fullscreen_on_monitor(
         .monitor_state
         .node_monitor
         .get(&node_id)
-        .map(String::as_str)
-        .unwrap_or(st.model.monitor_state.current_monitor.as_str())
-        == monitor
+        .is_some_and(|node_monitor| node_monitor == monitor)
 }
 
 pub(crate) fn monitor_has_visible_overlap_policy_window(st: &Halley, monitor: &str) -> bool {
@@ -376,6 +374,55 @@ mod tests {
 
         assert!(monitor_has_visible_overlap_policy_window(
             &st,
+            monitor.as_str()
+        ));
+    }
+
+    #[test]
+    fn overlap_policy_window_without_monitor_assignment_draws_above_no_outputs() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let fullscreen = st.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        let overlap = st.model.field.spawn_surface(
+            "overlap",
+            Vec2 { x: 790.0, y: 300.0 },
+            Vec2 { x: 240.0, y: 180.0 },
+        );
+        st.assign_node_to_monitor(fullscreen, monitor.as_str());
+        st.model.monitor_state.node_monitor.remove(&overlap);
+        for id in [fullscreen, overlap] {
+            let _ = st
+                .model
+                .field
+                .set_state(id, halley_core::field::NodeState::Active);
+        }
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor.clone(), fullscreen);
+        st.model.spawn_state.applied_window_rules.insert(
+            overlap,
+            AppliedInitialWindowRule {
+                overlap_policy: InitialWindowOverlapPolicy::All,
+                spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+                builtin_rule: None,
+            },
+        );
+
+        assert!(!node_draws_above_fullscreen_on_monitor(
+            &st,
+            overlap,
             monitor.as_str()
         ));
     }

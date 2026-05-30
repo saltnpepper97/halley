@@ -404,6 +404,14 @@ pub(crate) fn node_visible_on_current_monitor(st: &Halley, id: NodeId) -> bool {
         .is_none_or(|monitor| monitor == &st.model.monitor_state.current_monitor)
 }
 
+pub(crate) fn node_assigned_to_current_monitor(st: &Halley, id: NodeId) -> bool {
+    st.model
+        .monitor_state
+        .node_monitor
+        .get(&id)
+        .is_some_and(|monitor| monitor == &st.model.monitor_state.current_monitor)
+}
+
 #[allow(dead_code)]
 pub(crate) fn assign_node_to_current_monitor(st: &mut Halley, id: NodeId) {
     let monitor = st.model.monitor_state.current_monitor.clone();
@@ -663,6 +671,28 @@ mod tests {
 
         assert_eq!(state.focused_monitor(), "right");
         assert_eq!(state.interaction_monitor(), "left");
+    }
+
+    #[test]
+    fn render_assignment_requires_explicit_current_monitor_owner() {
+        let tuning = two_monitor_tuning();
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let node_id = state.model.field.spawn_surface(
+            "straddling",
+            Vec2 { x: 790.0, y: 300.0 },
+            Vec2 { x: 240.0, y: 160.0 },
+        );
+
+        let _ = state.activate_monitor("left");
+        assert!(!node_assigned_to_current_monitor(&state, node_id));
+        state.assign_node_to_monitor(node_id, "left");
+        assert!(node_assigned_to_current_monitor(&state, node_id));
+
+        let _ = state.activate_monitor("right");
+        assert!(!node_assigned_to_current_monitor(&state, node_id));
     }
 
     #[test]
