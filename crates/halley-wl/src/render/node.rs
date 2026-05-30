@@ -572,7 +572,7 @@ pub(crate) fn draw_node_markers(
             continue;
         }
 
-        let p_smooth = st
+        let p = st
             .ui
             .render_state
             .landmark_slide_position(id, node_pos, now);
@@ -585,7 +585,6 @@ pub(crate) fn draw_node_markers(
         let marker_mix = ease_in_out_cubic(marker_mix_lin);
         let proxy_mix = 1.0 - marker_mix;
 
-        let p = p_smooth;
         let (sx, sy) = world_to_screen(st, size.w, size.h, p.x, p.y);
         let hovered = hover_node == Some(id);
         let focused = st.model.focus_state.primary_interaction_focus == Some(id);

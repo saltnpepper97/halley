@@ -18,6 +18,8 @@ use crate::overlay::{
 };
 use crate::window::{ActiveBorderRect, OffscreenNodeTexture};
 
+const LANDMARK_SLIDE_DURATION_MS: u64 = 520;
+
 pub(crate) use cache::{
     ClusterCoreIconCache, NodeAppIconCacheEntry, NodeAppIconTexture, PinIconCache,
     RenderCacheState, ScreenshotMenuIconCache,
@@ -69,7 +71,6 @@ pub(crate) struct LandmarkSlideAnimationState {
     pub(crate) from: Vec2,
     pub(crate) to: Vec2,
     pub(crate) started_at: Instant,
-    pub(crate) duration_ms: u64,
 }
 
 #[derive(Clone)]
@@ -188,7 +189,6 @@ impl RenderState {
                 from,
                 to,
                 started_at: now,
-                duration_ms: 520,
             },
         );
     }
@@ -201,7 +201,8 @@ impl RenderState {
         now: Instant,
     ) -> bool {
         self.landmark_slide_animations.iter().any(|(&id, anim)| {
-            (now.saturating_duration_since(anim.started_at).as_millis() as u64) < anim.duration_ms
+            (now.saturating_duration_since(anim.started_at).as_millis() as u64)
+                < LANDMARK_SLIDE_DURATION_MS
                 && field.is_visible(id)
                 && !node_monitor
                     .get(&id)
@@ -219,11 +220,11 @@ impl RenderState {
             return fallback;
         };
         let elapsed_ms = now.saturating_duration_since(anim.started_at).as_millis() as u64;
-        if elapsed_ms >= anim.duration_ms {
+        if elapsed_ms >= LANDMARK_SLIDE_DURATION_MS {
             self.landmark_slide_animations.remove(&node_id);
             return fallback;
         }
-        let t = (elapsed_ms as f32 / anim.duration_ms as f32).clamp(0.0, 1.0);
+        let t = (elapsed_ms as f32 / LANDMARK_SLIDE_DURATION_MS as f32).clamp(0.0, 1.0);
         let end = 1.0 - (1.0 + 5.0) * (-5.0f32).exp();
         let damped = ((1.0 - (1.0 + 5.0 * t) * (-5.0 * t).exp()) / end).clamp(0.0, 1.0);
         Vec2 {

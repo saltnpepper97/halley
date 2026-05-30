@@ -481,18 +481,13 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                 .workspace_state
                 .last_active_size
                 .insert(node_id, new_size);
-            let opening_visible_active = !pending_initial_reveal
-                && st.model.field.is_visible(node_id)
-                && st.model.field.node(node_id).is_some_and(|node| {
-                    node.kind == halley_core::field::NodeKind::Surface
-                        && node.state == halley_core::field::NodeState::Active
-                })
+            if !pending_initial_reveal
                 && st
                     .model
                     .workspace_state
                     .active_transitions
-                    .contains_key(&node_id);
-            if opening_visible_active {
+                    .contains_key(&node_id)
+            {
                 st.resolve_landmarks_overlapped_by_active_window(node_id);
             }
             let finalized_initial_spawn =
@@ -521,10 +516,10 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             }
         }
 
-        let revealed_initial = reveal_pending_initial_toplevel_if_ready(st, node_id, false, now);
+        let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, false, now);
         if st.input.interaction_state.resize_active != Some(node_id)
             && st.model.field.is_visible(node_id)
-            && (first_geometry_commit || revealed_initial)
+            && first_geometry_commit
         {
             st.resolve_landmarks_overlapped_by_active_window(node_id);
         }

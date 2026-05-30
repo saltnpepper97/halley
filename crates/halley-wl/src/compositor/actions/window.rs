@@ -1601,6 +1601,12 @@ mod tests {
             blocker_pos
         );
         assert_ne!(st.model.field.node(target).expect("target").pos, target_pos);
+        assert!(
+            st.ui
+                .render_state
+                .landmark_slide_animations
+                .contains_key(&target)
+        );
         assert_eq!(
             st.model.field.node(target).expect("target").state,
             halley_core::field::NodeState::Node

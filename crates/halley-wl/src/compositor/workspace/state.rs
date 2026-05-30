@@ -191,8 +191,15 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
         .pending_spawn_activate_at_ms
         .remove(&id);
     st.model.workspace_state.manual_collapsed_nodes.insert(id);
-    if let Some(pos) = st.model.field.node(id).map(|node| node.pos) {
-        let _ = st.carry_surface_non_overlap(id, pos, false);
+    if let Some(from) = st.model.field.node(id).map(|node| node.pos) {
+        let _ = st.carry_surface_non_overlap(id, from, false);
+        if let Some(to) = st.model.field.node(id).map(|node| node.pos)
+            && ((from.x - to.x).abs() > 0.5 || (from.y - to.y).abs() > 0.5)
+        {
+            st.ui
+                .render_state
+                .start_landmark_slide_animation(id, from, to, now);
+        }
     }
 
     if st.model.focus_state.primary_interaction_focus == Some(id) {
