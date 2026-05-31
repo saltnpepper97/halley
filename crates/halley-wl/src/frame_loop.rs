@@ -39,7 +39,11 @@ pub(crate) struct TtyOutputAnimationRedrawState {
 }
 
 pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) -> bool {
-    if st.now_ms(std::time::Instant::now()) < st.runtime.screenshot_full_repaint_until_ms {
+    monitor_overlay_requires_full_repaint_at(st, monitor, st.now_ms(std::time::Instant::now()))
+}
+
+fn monitor_overlay_requires_full_repaint_at(st: &Halley, monitor: &str, now_ms: u64) -> bool {
+    if now_ms < st.runtime.screenshot_full_repaint_until_ms {
         return true;
     }
     st.cluster_mode_active_for_monitor(monitor)
@@ -53,9 +57,7 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
             .cluster_state
             .cluster_overflow_visible_until_ms
             .get(monitor)
-            .is_some_and(|visible_until_ms| {
-                *visible_until_ms > st.now_ms(std::time::Instant::now())
-            })
+            .is_some_and(|visible_until_ms| *visible_until_ms > now_ms)
         || st
             .model
             .cluster_state
@@ -69,7 +71,7 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
             .focus_state
             .focus_ring_preview_until_ms
             .get(monitor)
-            .is_some_and(|until_ms| *until_ms > st.now_ms(std::time::Instant::now()))
+            .is_some_and(|until_ms| *until_ms > now_ms)
         || st.input.interaction_state.focus_cycle_session.is_some()
         || st
             .model
@@ -147,7 +149,8 @@ pub(crate) fn tty_output_animation_redraw_state(
     );
     let fullscreen_motion_active = !st.model.fullscreen_state.fullscreen_motion.is_empty()
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
-    let maximize_motion_active = crate::compositor::workspace::state::maximize_animation_active(st);
+    let maximize_motion_active =
+        crate::compositor::workspace::state::maximize_animation_active_for_monitor(st, monitor);
     let current_monitor = st.model.monitor_state.current_monitor.as_str();
     let viewport_pan_active = st
         .input
@@ -172,7 +175,7 @@ pub(crate) fn tty_output_animation_redraw_state(
             || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
             || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
             || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05);
-    let overlay_active = monitor_overlay_requires_full_repaint(st, monitor)
+    let overlay_active = monitor_overlay_requires_full_repaint_at(st, monitor, now_ms)
         || st
             .ui
             .render_state

@@ -297,7 +297,13 @@ pub(crate) fn collect_active_surfaces(
             let wl = t.wl_surface().clone();
             let key = wl.id();
             let node_id = st.model.surface_to_node.get(&key).copied()?;
-            node_surface_map.insert(node_id, wl.clone());
+            let node = st.model.field.node(node_id)?;
+            if node.state != halley_core::field::NodeState::Active
+                || !st.model.field.is_visible(node_id)
+                || !st.node_assigned_to_current_monitor(node_id)
+            {
+                return None;
+            }
             Some((node_id, wl))
         })
         .collect();
@@ -314,6 +320,7 @@ pub(crate) fn collect_active_surfaces(
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };
+        node_surface_map.insert(node_id, wl.clone());
         let stack_transition_pose = stack_transition_plan
             .as_ref()
             .and_then(|plan| plan.poses.get(&node_id).copied());

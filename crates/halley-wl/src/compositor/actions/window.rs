@@ -1447,6 +1447,58 @@ mod tests {
     }
 
     #[test]
+    fn pending_manual_collapse_slides_from_original_active_position() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.window_close.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let blocker = st.model.field.spawn_surface(
+            "blocker",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 420.0, y: 280.0 },
+        );
+        let target = st.model.field.spawn_surface(
+            "target",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 220.0 },
+        );
+        st.assign_node_to_monitor(blocker, monitor.as_str());
+        st.assign_node_to_monitor(target, monitor.as_str());
+        let origin = st.model.field.node(target).expect("target").pos;
+        let now = Instant::now();
+
+        assert!(toggle_node_state(&mut st, target, now, monitor.as_str()));
+        assert!(
+            st.model
+                .workspace_state
+                .pending_manual_collapses
+                .contains_key(&target)
+        );
+
+        crate::compositor::workspace::state::process_pending_manual_collapses_for_monitor(
+            &mut st,
+            monitor.as_str(),
+            now + std::time::Duration::from_millis(140),
+        );
+
+        let resolved = st.model.field.node(target).expect("target").pos;
+        assert_ne!(resolved, origin);
+        let slide = st
+            .ui
+            .render_state
+            .landmark_slide_animations
+            .get(&target)
+            .expect("landmark slide animation");
+        assert_eq!(slide.from, origin);
+        assert_eq!(slide.to, resolved);
+        assert_eq!(
+            st.model.field.node(target).expect("target").state,
+            halley_core::field::NodeState::Node
+        );
+    }
+
+    #[test]
     fn reopening_collapsed_maximized_window_reenters_maximize() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut tuning = single_monitor_tuning();

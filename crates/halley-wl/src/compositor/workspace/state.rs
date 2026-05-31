@@ -10,7 +10,7 @@ pub(crate) struct WorkspaceState {
     pub(crate) active_transitions: HashMap<NodeId, ActiveTransition>,
     pub(crate) primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
     pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
-    pub(crate) pending_manual_collapses: HashMap<NodeId, u64>,
+    pub(crate) pending_manual_collapses: HashMap<NodeId, PendingManualCollapse>,
     pub(crate) pending_silent_close_until_ms: HashMap<NodeId, u64>,
     pub(crate) user_pinned_nodes: HashSet<NodeId>,
     pub(crate) maximize_sessions: HashMap<String, MaximizeSession>,
@@ -22,6 +22,12 @@ pub(crate) struct WorkspaceState {
 pub(crate) struct ActiveTransition {
     pub(crate) started_at_ms: u64,
     pub(crate) duration_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PendingManualCollapse {
+    pub(crate) requested_at_ms: u64,
+    pub(crate) origin_pos: Vec2,
 }
 
 impl ActiveTransition {
@@ -164,16 +170,26 @@ pub(crate) fn queue_pending_manual_collapse(st: &mut Halley, id: NodeId, now: In
         return;
     }
     let now_ms = st.now_ms(now);
+    let origin_pos = st
+        .model
+        .field
+        .node(id)
+        .map(|node| node.pos)
+        .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
     st.model
         .workspace_state
         .pending_manual_collapses
         .entry(id)
-        .or_insert(now_ms);
+        .or_insert(PendingManualCollapse {
+            requested_at_ms: now_ms,
+            origin_pos,
+        });
     st.request_maintenance();
 }
 
 pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) -> bool {
-    st.model
+    let pending = st
+        .model
         .workspace_state
         .pending_manual_collapses
         .remove(&id);
@@ -190,7 +206,10 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
         .pending_spawn_activate_at_ms
         .remove(&id);
     st.model.workspace_state.manual_collapsed_nodes.insert(id);
-    if let Some(from) = st.model.field.node(id).map(|node| node.pos) {
+    if let Some(current_pos) = st.model.field.node(id).map(|node| node.pos) {
+        let from = pending
+            .map(|pending| pending.origin_pos)
+            .unwrap_or(current_pos);
         let _ = st.carry_surface_non_overlap(id, from, false);
         if let Some(to) = st.model.field.node(id).map(|node| node.pos)
             && ((from.x - to.x).abs() > 0.5 || (from.y - to.y).abs() > 0.5)
@@ -232,11 +251,11 @@ pub(crate) fn process_pending_manual_collapses_for_monitor(
         .workspace_state
         .pending_manual_collapses
         .iter()
-        .map(|(&id, &requested_at_ms)| (id, requested_at_ms))
+        .map(|(&id, pending)| (id, *pending))
         .collect::<Vec<_>>();
 
     let mut needs_retry = false;
-    for (id, requested_at_ms) in pending {
+    for (id, pending) in pending {
         let Some(node) = st.model.field.node(id) else {
             st.model
                 .workspace_state
@@ -265,7 +284,7 @@ pub(crate) fn process_pending_manual_collapses_for_monitor(
         }
 
         if start_active_to_node_close_animation(st, id, now)
-            || now_ms.saturating_sub(requested_at_ms) >= PENDING_MANUAL_COLLAPSE_MAX_WAIT_MS
+            || now_ms.saturating_sub(pending.requested_at_ms) >= PENDING_MANUAL_COLLAPSE_MAX_WAIT_MS
         {
             let _ = finish_manual_collapse(st, id, now);
         } else {
@@ -297,6 +316,20 @@ pub(crate) fn maximize_animation_active(st: &Halley) -> bool {
             .maximize_sessions
             .values()
             .any(|session| matches!(session.state, MaximizeSessionState::Restoring))
+}
+
+pub(crate) fn maximize_animation_active_for_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .workspace_state
+        .maximize_animation
+        .values()
+        .any(|anim| anim.monitor == monitor)
+        || st
+            .model
+            .workspace_state
+            .maximize_sessions
+            .get(monitor)
+            .is_some_and(|session| matches!(session.state, MaximizeSessionState::Restoring))
 }
 
 pub(crate) fn maximize_session_active_on_monitor(st: &Halley, monitor: &str) -> bool {

@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - Draw active-window pin badges with the owning window's z-order, matching borders instead of staying globally above overlapping windows.
 - Preserve existing keyboard focus for overlay/popup text input instead of restoring last input focus on every unbound typing key.
 - Keep maximized windows active when new or transferred windows overlap them, while allowing click raise, trail navigation, and focus cycling to bring maximized windows forward again through normal stacking.
+- Preserve the original active-window position for delayed manual collapses so the first collapse over another window visibly slides the resulting node out from under the blocker.
 - Remove initial-spawn push-away authority so opening a new expanded window does not shove existing expanded windows out of the way.
 - Limit new-window reveal panning to the one case where a pinned landmark blocks the current spawn center.
 - Apply live config reloads directly and force active window render caches/full redraw after reload.
@@ -66,6 +67,7 @@ All notable changes to this project will be documented in this file.
 - Keep Steam's built-in startup/login overlap behavior from leaking onto the main Steam client by expiring the startup rule once the surface no longer matches the login window.
 - Route layer-shell commits through the monitor assigned to that layer surface so layer state updates no longer use the wrong active monitor context.
 - Throttle TTY redraws and frame callbacks per output so fullscreen/video timer frames and cursor motion avoid unnecessary cross-monitor redraw work.
+- Reduce per-output render work by filtering active surfaces before sorting/syncing them and scoping maximize animation redraws to the affected monitor.
 - Use the launch or window-rule spawn target monitor for initial `xdg_toplevel` configure bounds so new clients receive bounds for the output they will actually open on.
 - Prevent focus decay while spawn or open transitions are still active, avoiding premature collapse during window launch and reveal animations.
 - Preserve fullscreen and pointer state across monitor changes by separating soft fullscreen suspension from client fullscreen exits, refreshing pointer constraints from the last screen position, releasing constraints when crossing monitors, and keeping cursor surface output state current.
