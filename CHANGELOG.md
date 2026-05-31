@@ -34,6 +34,7 @@ All notable changes to this project will be documented in this file.
 - Move pure overlap contact physics into `halley-core` so the Wayland compositor only wires it into runtime state.
 - Remove empty npm package manifests from the repository root.
 - Rename the default explicit field-drag pointer action from `field-jump` to `pan-field`, keeping `field-jump` and `drag-pan` as config aliases for compatibility.
+- Treat maximize and fullscreen as presentation states: they now preserve field geometry, do not shove other windows or pinned landmarks, and participate in normal focus/raise ordering so other windows can appear above them until the maximized/fullscreen window is explicitly raised again.
 
 ### Fixed
 - Keep window borders at the same z-depth as their owning window so a background window's border cannot draw over the foreground window.
@@ -43,7 +44,7 @@ All notable changes to this project will be documented in this file.
 - Make dragged collapsed nodes/cores slide along expanded-window edges and flip sides only after crossing the window midpoint instead of snapping into corners.
 - Draw active-window pin badges with the owning window's z-order, matching borders instead of staying globally above overlapping windows.
 - Preserve existing keyboard focus for overlay/popup text input instead of restoring last input focus on every unbound typing key.
-- End a monitor's active maximize session when an external active window is moved onto that monitor, so transferred windows cannot sit above a still-maximized target.
+- Keep maximized windows active when new or transferred windows overlap them, while allowing click raise, trail navigation, and focus cycling to bring maximized windows forward again through normal stacking.
 - Remove initial-spawn push-away authority so opening a new expanded window does not shove existing expanded windows out of the way.
 - Limit new-window reveal panning to the one case where a pinned landmark blocks the current spawn center.
 - Apply live config reloads directly and force active window render caches/full redraw after reload.

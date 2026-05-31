@@ -21,6 +21,14 @@ pub(super) fn sync_node_size_from_surface(
         return bbox;
     }
 
+    if crate::compositor::workspace::state::node_in_maximize_session(st, node_id) {
+        return bbox;
+    }
+
+    if st.is_fullscreen_active(node_id) {
+        return bbox;
+    }
+
     if restoring_fullscreen {
         return bbox;
     }

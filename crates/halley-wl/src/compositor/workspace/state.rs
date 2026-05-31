@@ -321,6 +321,39 @@ pub(crate) fn maximize_session_target_for_monitor(st: &Halley, monitor: &str) ->
         .map(|session| session.target_id)
 }
 
+pub(crate) fn maximize_session_monitor_for_node(st: &Halley, node_id: NodeId) -> Option<String> {
+    st.model
+        .workspace_state
+        .maximize_sessions
+        .iter()
+        .find_map(|(monitor, session)| (session.target_id == node_id).then(|| monitor.clone()))
+}
+
+pub(crate) fn maximized_visual_for_node_on_current_monitor(
+    st: &Halley,
+    node_id: NodeId,
+) -> Option<(Vec2, Vec2)> {
+    let monitor = st.model.monitor_state.current_monitor.as_str();
+    let session = st.model.workspace_state.maximize_sessions.get(monitor)?;
+    if session.target_id != node_id || session.state != MaximizeSessionState::Active {
+        return None;
+    }
+    let viewport = if st.model.monitor_state.current_monitor == monitor {
+        st.model.viewport
+    } else {
+        st.model.monitor_state.monitors.get(monitor)?.viewport
+    };
+    let inset = st.non_overlap_gap_world().max(0.0)
+        + crate::window::active_window_frame_pad_px(&st.runtime.tuning) as f32;
+    Some((
+        viewport.center,
+        Vec2 {
+            x: (viewport.size.x - inset * 2.0).max(96.0),
+            y: (viewport.size.y - inset * 2.0).max(72.0),
+        },
+    ))
+}
+
 pub(crate) fn node_in_maximize_session(st: &Halley, node_id: NodeId) -> bool {
     st.model
         .workspace_state
@@ -456,7 +489,6 @@ pub(crate) fn abort_maximize_session_for_monitor(st: &mut Halley, monitor: &str)
 
     apply_monitor_camera_snapshot(st, monitor, session.camera);
 
-    let mut restored_any = false;
     for (id, snapshot) in session.node_snapshots {
         st.model.workspace_state.maximize_animation.remove(&id);
 
@@ -465,7 +497,6 @@ pub(crate) fn abort_maximize_session_for_monitor(st: &mut Halley, monitor: &str)
         };
         node.pos = snapshot.pos;
         node.intrinsic_size = snapshot.size;
-        restored_any = true;
         let _ = st.model.field.sync_active_footprint_to_intrinsic(id);
         let _ = st.model.field.set_pinned(id, snapshot.pinned);
         st.request_toplevel_resize(
@@ -474,10 +505,6 @@ pub(crate) fn abort_maximize_session_for_monitor(st: &mut Halley, monitor: &str)
             snapshot.size.y.round() as i32,
         );
         st.set_last_active_size_now(id, snapshot.size);
-    }
-
-    if restored_any {
-        st.resolve_overlap_now();
     }
     true
 }
@@ -504,23 +531,8 @@ pub(crate) fn abort_maximize_session_for_external_active_node_on_monitor(
     monitor: &str,
     entering_id: NodeId,
 ) -> bool {
-    let should_abort = {
-        let Some(session) = st.model.workspace_state.maximize_sessions.get(monitor) else {
-            return false;
-        };
-        if session.state != MaximizeSessionState::Active
-            || session.node_snapshots.contains_key(&entering_id)
-        {
-            return false;
-        }
-        st.model.field.node(entering_id).is_some_and(|node| {
-            node.kind == NodeKind::Surface
-                && node.state == NodeState::Active
-                && st.model.field.is_visible(entering_id)
-        })
-    };
-
-    should_abort && abort_maximize_session_for_monitor(st, monitor)
+    let _ = (st, monitor, entering_id);
+    false
 }
 
 pub(crate) fn tick_maximize_animation(st: &mut Halley, now: Instant) {

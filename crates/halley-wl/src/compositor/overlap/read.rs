@@ -127,6 +127,14 @@ impl<'a> OverlapReadContext<'a> {
         if self.spawn_state.pending_initial_reveal.contains(&id) {
             return false;
         }
+        if self
+            .workspace_state
+            .maximize_sessions
+            .values()
+            .any(|session| session.target_id == id)
+        {
+            return false;
+        }
         self.field.node(id).is_some_and(|n| {
             self.field.is_visible(id)
                 && matches!(

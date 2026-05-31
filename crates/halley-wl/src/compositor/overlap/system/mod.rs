@@ -44,7 +44,7 @@ fn physics_inv_mass(st: &Halley, id: NodeId, pinned: bool) -> f32 {
 
 #[inline]
 fn node_participates_in_overlap(st: &Halley, id: NodeId) -> bool {
-    overlap_read_context(st).node_participates_in_overlap(id)
+    !st.is_fullscreen_active(id) && overlap_read_context(st).node_participates_in_overlap(id)
 }
 
 pub(crate) fn non_overlap_gap_world(st: &Halley) -> f32 {

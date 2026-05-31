@@ -831,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn new_toplevel_on_fullscreen_monitor_exits_only_that_monitor_fullscreen() {
+    fn new_toplevel_on_fullscreen_monitor_keeps_fullscreen_active() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.tty_viewports = vec![
             halley_config::ViewportOutputConfig {
@@ -892,12 +892,13 @@ mod tests {
 
         exit_monitor_fullscreen_for_new_toplevel(&mut state, "left", Instant::now());
 
-        assert!(
-            !state
+        assert_eq!(
+            state
                 .model
                 .fullscreen_state
                 .fullscreen_active_node
-                .contains_key("left")
+                .get("left"),
+            Some(&fullscreen_left)
         );
         assert_eq!(
             state
@@ -1010,7 +1011,7 @@ mod tests {
     }
 
     #[test]
-    fn maximize_exit_for_new_toplevel_restores_focus_anchor() {
+    fn new_toplevel_does_not_exit_maximize() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -1037,25 +1038,16 @@ mod tests {
         exit_monitor_maximize_for_new_toplevel(&mut state, monitor.as_str(), Instant::now());
 
         assert!(
-            !state
+            state
                 .model
                 .workspace_state
                 .maximize_sessions
                 .contains_key(monitor.as_str())
         );
-        assert_eq!(
-            state.model.focus_state.primary_interaction_focus,
-            Some(target)
-        );
-        assert_eq!(state.current_spawn_focus(monitor.as_str()).0, Some(target));
-        assert_eq!(
-            state.current_spawn_focus(monitor.as_str()).1,
-            Vec2 { x: 100.0, y: 100.0 }
-        );
     }
 
     #[test]
-    fn maximize_exit_rule_matches_only_non_overlap_toplevels() {
+    fn maximize_exit_rule_never_exits_for_new_toplevels() {
         let normal_intent = InitialWindowIntent {
             app_id: None,
             title: None,
@@ -1079,7 +1071,7 @@ mod tests {
             ..normal_intent.clone()
         };
 
-        assert!(should_exit_monitor_maximize_for_new_toplevel(
+        assert!(!should_exit_monitor_maximize_for_new_toplevel(
             &normal_intent
         ));
         assert!(!should_exit_monitor_maximize_for_new_toplevel(

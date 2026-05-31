@@ -2055,6 +2055,11 @@ fn fullscreen_direct_scanout_candidate(
     if hover_node.is_some() || preview_hover_node.is_some() {
         return Some(blocked("hover UI is active"));
     }
+    if !active_surface_frontmost_on_monitor(st, node_id, output_name) {
+        return Some(blocked(
+            "fullscreen candidate is covered by a higher stacked window",
+        ));
+    }
     if st.should_draw_focus_ring_preview(Instant::now()) {
         return Some(blocked("focus preview is active"));
     }
@@ -2084,6 +2089,38 @@ fn fullscreen_direct_scanout_candidate(
         surface,
         surface_loc: (-bbox.loc.x, -bbox.loc.y),
     }))
+}
+
+fn active_surface_frontmost_on_monitor(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+    output_name: &str,
+) -> bool {
+    let target_rank = st.overlap_policy_stack_rank(node_id);
+    st.model.field.node_ids_all().into_iter().all(|other_id| {
+        if other_id == node_id {
+            return true;
+        }
+        let Some(other) = st.model.field.node(other_id) else {
+            return true;
+        };
+        if other.kind != halley_core::field::NodeKind::Surface
+            || other.state != halley_core::field::NodeState::Active
+            || !st.model.field.is_visible(other_id)
+        {
+            return true;
+        }
+        if !st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&other_id)
+            .is_some_and(|monitor| monitor == output_name)
+        {
+            return true;
+        }
+        st.overlap_policy_stack_rank(other_id) <= target_rank
+    })
 }
 
 #[cfg(test)]

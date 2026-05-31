@@ -24,7 +24,6 @@ struct ActiveHitOrderingView {
     stack_ranks: HashMap<NodeId, usize>,
     overlap_ranks: HashMap<NodeId, (u64, u64)>,
     draws_above_fullscreen: HashSet<NodeId>,
-    fullscreen_on_current_monitor: HashSet<NodeId>,
     persistent_top: HashSet<NodeId>,
 }
 
@@ -35,7 +34,6 @@ impl ActiveHitOrderingView {
         stack_visible_front_to_back: &[NodeId],
         hits: &[HitNode],
     ) -> Self {
-        let current_monitor = st.model.monitor_state.current_monitor.as_str();
         let stack_ranks = stack_visible_front_to_back
             .iter()
             .enumerate()
@@ -43,19 +41,12 @@ impl ActiveHitOrderingView {
             .collect();
         let mut overlap_ranks = HashMap::new();
         let mut draws_above_fullscreen = HashSet::new();
-        let mut fullscreen_on_current_monitor = HashSet::new();
         let mut persistent_top = HashSet::new();
         for hit in hits {
             let node_id = hit.node_id;
             overlap_ranks.insert(node_id, st.overlap_policy_stack_rank(node_id));
             if st.node_draws_above_fullscreen_on_current_monitor(node_id) {
                 draws_above_fullscreen.insert(node_id);
-            }
-            if st
-                .fullscreen_monitor_for_node(node_id)
-                .is_some_and(|monitor| monitor == current_monitor)
-            {
-                fullscreen_on_current_monitor.insert(node_id);
             }
             if is_persistent_rule_top(st, node_id) {
                 persistent_top.insert(node_id);
@@ -65,7 +56,6 @@ impl ActiveHitOrderingView {
             stack_ranks,
             overlap_ranks,
             draws_above_fullscreen,
-            fullscreen_on_current_monitor,
             persistent_top,
         }
     }
@@ -76,12 +66,6 @@ impl ActiveHitOrderingView {
             self.draws_above_fullscreen.contains(&a.node_id),
             self.draws_above_fullscreen.contains(&b.node_id),
         )
-        .then_with(|| {
-            compare_bool(
-                self.fullscreen_on_current_monitor.contains(&a.node_id),
-                self.fullscreen_on_current_monitor.contains(&b.node_id),
-            )
-        })
         .then_with(|| {
             compare_bool(
                 self.persistent_top.contains(&a.node_id),
@@ -405,6 +389,84 @@ mod tests {
             .expect("surface hit");
 
         assert_eq!(hit.node_id, raised);
+    }
+
+    #[test]
+    fn maximized_window_uses_normal_raise_order_for_hits() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let maximized = st.model.field.spawn_surface(
+            "maximized",
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        let floating = st.model.field.spawn_surface(
+            "floating",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 220.0, y: 160.0 },
+        );
+        for node_id in [maximized, floating] {
+            st.assign_node_to_monitor(node_id, "monitor_a");
+            let _ = st
+                .model
+                .field
+                .set_state(node_id, halley_core::field::NodeState::Active);
+        }
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                maximized,
+                Instant::now(),
+                "monitor_a",
+            )
+        );
+
+        let hit = pick_hit_node_at(&st, 800, 600, 400.0, 300.0, Instant::now(), None)
+            .expect("surface hit");
+        assert_eq!(hit.node_id, floating);
+
+        assert!(st.raise_overlap_policy_node(maximized));
+        let hit = pick_hit_node_at(&st, 800, 600, 400.0, 300.0, Instant::now(), None)
+            .expect("surface hit");
+        assert_eq!(hit.node_id, maximized);
+    }
+
+    #[test]
+    fn fullscreen_window_uses_normal_raise_order_for_hits() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let fullscreen = st.model.field.spawn_surface(
+            "fullscreen",
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        let floating = st.model.field.spawn_surface(
+            "floating",
+            halley_core::field::Vec2 { x: 400.0, y: 300.0 },
+            halley_core::field::Vec2 { x: 220.0, y: 160.0 },
+        );
+        for node_id in [fullscreen, floating] {
+            st.assign_node_to_monitor(node_id, "monitor_a");
+            let _ = st
+                .model
+                .field
+                .set_state(node_id, halley_core::field::NodeState::Active);
+        }
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert("monitor_a".to_string(), fullscreen);
+
+        let hit = pick_hit_node_at(&st, 800, 600, 400.0, 300.0, Instant::now(), None)
+            .expect("surface hit");
+        assert_eq!(hit.node_id, floating);
+
+        assert!(st.raise_overlap_policy_node(fullscreen));
+        let hit = pick_hit_node_at(&st, 800, 600, 400.0, 300.0, Instant::now(), None)
+            .expect("surface hit");
+        assert_eq!(hit.node_id, fullscreen);
     }
 
     #[test]

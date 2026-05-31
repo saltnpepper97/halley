@@ -1358,10 +1358,7 @@ impl Halley {
             })
     }
 
-    pub(crate) fn suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        super::fullscreen::system::fullscreen_controller(self).suspend_xdg_fullscreen(node_id, now)
-    }
-
+    #[cfg(test)]
     pub(crate) fn soft_suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
         super::fullscreen::system::fullscreen_controller(self)
             .soft_suspend_xdg_fullscreen(node_id, now)
