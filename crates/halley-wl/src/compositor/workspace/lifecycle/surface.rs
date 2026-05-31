@@ -431,6 +431,7 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             .window_geometry
             .insert(node_id, window_geometry);
         if is_active_cluster_workspace_member(st, node_id) {
+            let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, false, now);
             return;
         }
         let pending_initial_reveal = st

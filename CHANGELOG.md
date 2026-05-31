@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.2] - 2026-05-31
+
+### Fixed
+- Clear pending initial reveal state for tiled cluster members once committed geometry arrives, preventing focused terminals in tiled clusters from keeping stale rendered textures while input continues to reach the client.
+
 ## [v0.3.0] - 2026-05-30
 
 ### Added
