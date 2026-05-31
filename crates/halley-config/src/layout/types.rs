@@ -133,6 +133,7 @@ impl TimedAnimationConfig {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WindowCloseAnimationStyle {
     Shrink,
+    Fade,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -140,6 +141,25 @@ pub struct WindowCloseAnimationConfig {
     pub enabled: bool,
     pub duration_ms: u64,
     pub style: WindowCloseAnimationStyle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RaiseAnimationConfig {
+    pub enabled: bool,
+    pub duration_ms: u64,
+    pub scale: f32,
+    pub shadow_boost: f32,
+}
+
+impl RaiseAnimationConfig {
+    pub const fn new(enabled: bool, duration_ms: u64, scale: f32, shadow_boost: f32) -> Self {
+        Self {
+            enabled,
+            duration_ms,
+            scale,
+            shadow_boost,
+        }
+    }
 }
 
 impl WindowCloseAnimationConfig {
@@ -161,6 +181,7 @@ pub struct AnimationsConfig {
     pub window_open: TimedAnimationConfig,
     pub tile: TimedAnimationConfig,
     pub stack: TimedAnimationConfig,
+    pub raise: RaiseAnimationConfig,
 }
 
 impl Default for AnimationsConfig {
@@ -177,6 +198,7 @@ impl Default for AnimationsConfig {
             window_open: TimedAnimationConfig::new(true, 620),
             tile: TimedAnimationConfig::new(true, 240),
             stack: TimedAnimationConfig::new(true, 220),
+            raise: RaiseAnimationConfig::new(true, 140, 1.025, 0.18),
         }
     }
 }
@@ -360,6 +382,100 @@ pub enum PanToNewMode {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExpandedPlacementStrategy {
+    Center,
+    FindEmpty,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FindEmptyMode {
+    BestEffort,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LandmarkPlacementStrategy {
+    NearestFree,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NormalBlockerPolicy {
+    Relocate,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PinnedBlockerPolicy {
+    Preserve,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpandedPlacementConfig {
+    pub strategy: ExpandedPlacementStrategy,
+    pub fallback: ExpandedPlacementStrategy,
+    pub find_empty_mode: FindEmptyMode,
+}
+
+impl Default for ExpandedPlacementConfig {
+    fn default() -> Self {
+        Self {
+            strategy: ExpandedPlacementStrategy::FindEmpty,
+            fallback: ExpandedPlacementStrategy::Center,
+            find_empty_mode: FindEmptyMode::BestEffort,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LandmarkPlacementConfig {
+    pub strategy: LandmarkPlacementStrategy,
+    pub normal_blocker: NormalBlockerPolicy,
+    pub pinned_blocker: PinnedBlockerPolicy,
+}
+
+impl Default for LandmarkPlacementConfig {
+    fn default() -> Self {
+        Self {
+            strategy: LandmarkPlacementStrategy::NearestFree,
+            normal_blocker: NormalBlockerPolicy::Relocate,
+            pinned_blocker: PinnedBlockerPolicy::Preserve,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlacementRevealConfig {
+    pub enabled: bool,
+    pub max_pan_px: f32,
+    pub animation_ms: u64,
+}
+
+impl Default for PlacementRevealConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_pan_px: 360.0,
+            animation_ms: 180,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlacementConfig {
+    pub expanded: ExpandedPlacementConfig,
+    pub landmarks: LandmarkPlacementConfig,
+    pub reveal: PlacementRevealConfig,
+}
+
+impl Default for PlacementConfig {
+    fn default() -> Self {
+        Self {
+            expanded: ExpandedPlacementConfig::default(),
+            landmarks: LandmarkPlacementConfig::default(),
+            reveal: PlacementRevealConfig::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CloseRestorePanMode {
     Never,
     IfOffscreen,
@@ -407,6 +523,7 @@ pub struct InputConfig {
     pub repeat_rate: i32,
     pub repeat_delay: i32,
     pub focus_mode: InputFocusMode,
+    pub raise_on_click: bool,
     pub keyboard: KeyboardConfig,
 }
 
@@ -416,6 +533,7 @@ impl Default for InputConfig {
             repeat_rate: 30,
             repeat_delay: 500,
             focus_mode: InputFocusMode::Click,
+            raise_on_click: true,
             keyboard: KeyboardConfig::default(),
         }
     }
@@ -541,6 +659,7 @@ pub enum InitialWindowOverlapPolicy {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InitialWindowSpawnPlacement {
+    Default,
     Center,
     Adjacent,
     ViewportCenter,
@@ -594,6 +713,6 @@ impl ViewportVrrMode {
     }
 
     pub fn drm_enabled(self) -> bool {
-        !matches!(self, Self::Off)
+        matches!(self, Self::On)
     }
 }

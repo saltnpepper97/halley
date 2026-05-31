@@ -151,6 +151,27 @@ fn print_output(output: &OutputInfo) {
     if let Some(vrr_support) = &output.vrr_support {
         println!("  vrr_support: {}", vrr_support);
     }
+    if output.direct_scanout_candidate_node.is_some()
+        || output.direct_scanout_active_node.is_some()
+        || output.direct_scanout_reason.is_some()
+    {
+        println!(
+            "  direct_scanout: candidate={} active={}{}",
+            output
+                .direct_scanout_candidate_node
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            output
+                .direct_scanout_active_node
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            output
+                .direct_scanout_reason
+                .as_ref()
+                .map(|reason| format!(" reason={reason}"))
+                .unwrap_or_default()
+        );
+    }
 
     if output.modes.is_empty() {
         println!("  modes: (none)");

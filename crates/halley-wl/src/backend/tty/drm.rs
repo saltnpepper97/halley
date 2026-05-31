@@ -10,7 +10,7 @@ use smithay::backend::allocator::{Format, Fourcc, Modifier};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags, PrimaryPlaneElement};
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
-use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmNode, NodeType};
+use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmNode, NodeType, VrrSupport};
 use smithay::backend::egl::{context::ContextPriority, EGLDevice, EGLDisplay};
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::element::{
@@ -23,7 +23,7 @@ use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::multigpu::gbm::GbmGlesBackend;
 use smithay::backend::renderer::multigpu::{GpuManager, MultiFrame, MultiRenderer};
 use smithay::backend::renderer::{Bind, Offscreen, Texture};
-use smithay::desktop::{PopupManager, utils::bbox_from_surface_tree};
+use smithay::desktop::utils::bbox_from_surface_tree;
 use smithay::desktop::utils::OutputPresentationFeedback;
 use smithay::input::pointer::CursorImageStatus;
 use smithay::output::OutputModeSource;
@@ -233,6 +233,40 @@ fn tty_env_flag(name: &str) -> bool {
     })
 }
 
+fn tty_game_path_debug(output_name: &str, node_id: halley_core::field::NodeId, message: &str) {
+    if tty_env_flag("HALLEY_TTY_GAME_DEBUG") {
+        debug!(
+            "tty game render path: output={} node={} {}",
+            output_name, node_id, message
+        );
+    }
+}
+
+fn tty_game_direct_scanout_transition_debug(
+    st: &Halley,
+    output_name: &str,
+    node_id: halley_core::field::NodeId,
+    active: bool,
+    reason: Option<&str>,
+) {
+    if !tty_env_flag("HALLEY_TTY_GAME_DEBUG") {
+        return;
+    }
+    let previous = st.model.fullscreen_state.direct_scanout.get(output_name);
+    let previous_active = previous.and_then(|state| state.active_node) == Some(node_id);
+    let previous_reason = previous.and_then(|state| state.reason.as_deref());
+    if previous_active == active && previous_reason == reason {
+        return;
+    }
+    debug!(
+        "tty game render path: output={} node={} direct scanout active={} reason={}",
+        output_name,
+        node_id,
+        active,
+        reason.unwrap_or("none")
+    );
+}
+
 pub(crate) struct TtyDrmProbe {
     pub(crate) devices: Vec<TtyDrmDevice>,
     pub(crate) gpu_manager: Rc<RefCell<TtyGpuManager>>,
@@ -418,9 +452,14 @@ pub(crate) fn probe_tty_drm_device_via_session(
         );
     }
 
-    let gpu_manager = Rc::new(RefCell::new(GpuManager::new(
-        GbmGlesBackend::with_context_priority(ContextPriority::High),
-    )?));
+    // Do not make high-priority EGL the default. It caused AMD/Paralives TTY
+    // flicker and stutter; keep it as an explicit NVIDIA/debug opt-in only.
+    let gles_backend = if tty_env_flag("HALLEY_TTY_HIGH_PRIORITY_EGL") {
+        GbmGlesBackend::with_context_priority(ContextPriority::High)
+    } else {
+        GbmGlesBackend::default()
+    };
+    let gpu_manager = Rc::new(RefCell::new(GpuManager::new(gles_backend)?));
     let mut devices = Vec::new();
     let mut outputs = Vec::new();
     let mut primary_render_node = None;
@@ -844,6 +883,8 @@ fn build_tty_outputs(
                 })?
             }
         };
+        let mut compositor = compositor;
+        configure_tty_vrr(&mut compositor, connector, connector_name.as_str(), tuning);
 
         outputs.push(TtyDrmOutput {
             connector,
@@ -858,6 +899,46 @@ fn build_tty_outputs(
     }
 
     Ok(outputs)
+}
+
+fn configure_tty_vrr(
+    compositor: &mut HalleyDrmCompositor,
+    connector: drm_control::connector::Handle,
+    connector_name: &str,
+    tuning: &RuntimeTuning,
+) {
+    let requested = tuning
+        .tty_viewports
+        .iter()
+        .find(|viewport| viewport.connector == connector_name)
+        .map(|viewport| viewport.vrr.drm_enabled())
+        .unwrap_or(false);
+
+    match compositor.vrr_supported(connector) {
+        Ok(VrrSupport::Supported | VrrSupport::RequiresModeset) => {
+            if let Err(err) = compositor.use_vrr(requested) {
+                warn!(
+                    "failed to {} VRR on {}: {}",
+                    if requested { "enable" } else { "disable" },
+                    connector_name,
+                    err
+                );
+            }
+        }
+        Ok(VrrSupport::NotSupported) => {
+            if requested {
+                warn!(
+                    "VRR requested for {}, but connector does not support it",
+                    connector_name
+                );
+            }
+            let _ = compositor.use_vrr(false);
+        }
+        Err(err) => warn!(
+            "failed to query VRR support for {}: {}",
+            connector_name, err
+        ),
+    }
 }
 
 pub(crate) fn select_tty_scanouts(
@@ -1239,8 +1320,114 @@ pub(crate) fn queue_tty_drm_frame(
 
         let disable_direct_scanout =
             tty_env_flag("HALLEY_DISABLE_DIRECT_SCANOUT") || tty_env_flag("HALLEY_FORCE_COMPOSED");
-        let allow_direct_scanout =
-            !disable_direct_scanout && primary_render_node == output_render_node;
+        if !disable_direct_scanout
+            && primary_render_node == output_render_node
+            && st.output_transform_for(output_name) == Transform::Normal
+            && crate::protocol::wayland::session_lock::session_lock_active(st)
+        {
+            let surfaces = crate::protocol::wayland::session_lock::current_monitor_surfaces(st);
+            if let Some(surface) = surfaces.first() {
+                let mut gpu_manager = gpu_manager.borrow_mut();
+                let mut renderer =
+                    gpu_manager
+                        .single_renderer(&primary_render_node)
+                        .map_err(|err| {
+                            io::Error::other(format!(
+                                "failed to create primary renderer for {} session lock: {:?}",
+                                output_name, err
+                            ))
+                        })?;
+                let renderer_ref = renderer.as_mut();
+                let elements = render_tty_direct_elements(
+                    renderer_ref,
+                    surface,
+                    (0, 0),
+                    local_cursor,
+                    cursor_image,
+                    &st.runtime.tuning.cursor,
+                    Kind::Unspecified,
+                )?;
+                match compositor.render_frame(
+                    renderer_ref,
+                    &elements,
+                    [0.04, 0.05, 0.06, 1.0],
+                    tty_direct_frame_flags(),
+                ) {
+                    Ok(render_res) => {
+                        let mut sync_wait = None;
+                        let queued = if !render_res.is_empty {
+                            if render_res.needs_sync()
+                                && let PrimaryPlaneElement::Swapchain(element) =
+                                    &render_res.primary_element
+                            {
+                                let wait_started = Instant::now();
+                                let wait_result = element.sync.wait();
+                                let wait_duration = wait_started.elapsed();
+                                sync_wait = Some(wait_duration);
+                                if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS) {
+                                    warn!(
+                                        "slow tty drm sync wait: output={} path=session-lock-direct duration={:?} device_node={} primary_render_node={} output_render_node={}",
+                                        output_name,
+                                        wait_duration,
+                                        output_device_node,
+                                        primary_render_node,
+                                        output_render_node
+                                    );
+                                }
+                                if let Err(err) = wait_result {
+                                    warn!(
+                                        "failed to wait for tty drm session-lock direct frame completion on {}: {:?}",
+                                        output_name, err
+                                    );
+                                }
+                            }
+                            let feedback = crate::frame_loop::take_presentation_feedback_for_output_with_states(
+                                st,
+                                output_name,
+                                &render_res.states,
+                            )
+                            .ok_or_else(|| {
+                                    io::Error::other(format!(
+                                        "missing presentation feedback output {output_name}"
+                                    ))
+                                })?;
+                            queue_tty_frame_or_clear_on_failure(
+                                &mut compositor,
+                                output_name,
+                                feedback,
+                            )?;
+                            true
+                        } else {
+                            false
+                        };
+                        return Ok(TtyFrameQueueReport {
+                            queued,
+                            animation_redraw_active: animation_redraw.active,
+                            direct_scanout_active: false,
+                            composed: false,
+                            sync_wait,
+                        });
+                    }
+                    Err(err) => {
+                        debug!(
+                            "session lock direct tty render fell back to composed path for {}: {}",
+                            output_name, err
+                        );
+                    }
+                }
+            }
+        }
+
+        let fullscreen_needs_paced_frames =
+            crate::frame_loop::output_has_pending_frame_callbacks(st, output_name)
+                && st
+                    .model
+                    .fullscreen_state
+                    .fullscreen_active_node
+                    .contains_key(output_name);
+        let allow_direct_scanout = !disable_direct_scanout
+            && !fullscreen_needs_paced_frames
+            && primary_render_node == output_render_node;
         match allow_direct_scanout.then(|| {
             fullscreen_direct_scanout_candidate(
                 st,
@@ -1286,7 +1473,7 @@ pub(crate) fn queue_tty_drm_frame(
                     render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
                         renderer_ref,
                         &candidate.surface,
-                        (0, 0),
+                        candidate.surface_loc,
                         1.0,
                         1.0,
                         Kind::Unspecified,
@@ -1298,80 +1485,99 @@ pub(crate) fn queue_tty_drm_frame(
                     renderer_ref,
                     &elements,
                     [0.0, 0.0, 0.0, 1.0],
-                    FrameFlags::DEFAULT,
+                    tty_direct_frame_flags(),
                 ) {
                     Ok(render_res) => {
                         let direct_scanout_active =
                             matches!(render_res.primary_element, PrimaryPlaneElement::Element(_));
+                        let fallback_reason = (!direct_scanout_active).then_some(
+                            "eligible fullscreen surface fell back to compositor primary plane"
+                                .to_string(),
+                        );
+                        tty_game_direct_scanout_transition_debug(
+                            st,
+                            output_name,
+                            candidate.node_id,
+                            direct_scanout_active,
+                            fallback_reason.as_deref(),
+                        );
                         st.model.fullscreen_state.set_direct_scanout_status(
                             output_name,
                             Some(candidate.node_id),
                             direct_scanout_active.then_some(candidate.node_id),
-                            (!direct_scanout_active).then_some(
-                                "eligible fullscreen surface fell back to compositor primary plane"
-                                    .to_string(),
-                            ),
+                            fallback_reason,
                         );
-                        let mut sync_wait = None;
-                        let queued = if !render_res.is_empty {
-                            if render_res.needs_sync()
-                                && let PrimaryPlaneElement::Swapchain(element) =
-                                    &render_res.primary_element
-                            {
-                                let wait_started = Instant::now();
-                                let wait_result = element.sync.wait();
-                                let wait_duration = wait_started.elapsed();
-                                sync_wait = Some(wait_duration);
-                                if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS) {
-                                    warn!(
-                                        "slow tty drm sync wait: output={} path=direct duration={:?} device_node={} primary_render_node={} output_render_node={}",
-                                        output_name,
-                                        wait_duration,
-                                        output_device_node,
-                                        primary_render_node,
-                                        output_render_node
-                                    );
+                        if direct_scanout_active {
+                            let mut sync_wait = None;
+                            let queued = if !render_res.is_empty {
+                                if render_res.needs_sync()
+                                    && let PrimaryPlaneElement::Swapchain(element) =
+                                        &render_res.primary_element
+                                {
+                                    let wait_started = Instant::now();
+                                    let wait_result = element.sync.wait();
+                                    let wait_duration = wait_started.elapsed();
+                                    sync_wait = Some(wait_duration);
+                                    if wait_duration >= Duration::from_millis(TTY_SYNC_WAIT_WARN_MS)
+                                    {
+                                        warn!(
+                                            "slow tty drm sync wait: output={} path=direct duration={:?} device_node={} primary_render_node={} output_render_node={}",
+                                            output_name,
+                                            wait_duration,
+                                            output_device_node,
+                                            primary_render_node,
+                                            output_render_node
+                                        );
+                                    }
+                                    if let Err(err) = wait_result {
+                                        warn!(
+                                            "failed to wait for tty drm direct-scanout frame completion on {}: {:?}",
+                                            output_name, err
+                                        );
+                                    }
                                 }
-                                if let Err(err) = wait_result {
-                                    warn!(
-                                        "failed to wait for tty drm direct-scanout frame completion on {}: {:?}",
-                                        output_name, err
-                                    );
-                                }
-                            }
-                            let feedback =
-                                crate::frame_loop::take_presentation_feedback_for_output(
+                                let feedback = crate::frame_loop::take_presentation_feedback_for_output_with_states(
                                     st,
                                     output_name,
+                                    &render_res.states,
                                 )
                                 .ok_or_else(|| {
-                                    io::Error::other(format!(
-                                        "missing presentation feedback output {output_name}"
-                                    ))
-                                })?;
-                            queue_tty_frame_or_clear_on_failure(
-                                &mut compositor,
-                                output_name,
-                                feedback,
-                            )?;
-                            true
-                        } else {
-                            false
-                        };
-                        return Ok(TtyFrameQueueReport {
-                            queued,
-                            animation_redraw_active: animation_redraw.active,
-                            direct_scanout_active,
-                            composed: false,
-                            sync_wait,
-                        });
+                                        io::Error::other(format!(
+                                            "missing presentation feedback output {output_name}"
+                                        ))
+                                    })?;
+                                queue_tty_frame_or_clear_on_failure(
+                                    &mut compositor,
+                                    output_name,
+                                    feedback,
+                                )?;
+                                true
+                            } else {
+                                false
+                            };
+                            return Ok(TtyFrameQueueReport {
+                                queued,
+                                animation_redraw_active: animation_redraw.active,
+                                direct_scanout_active,
+                                composed: false,
+                                sync_wait,
+                            });
+                        }
                     }
                     Err(err) => {
+                        let reason = format!("direct scanout render attempt failed: {}", err);
+                        tty_game_direct_scanout_transition_debug(
+                            st,
+                            output_name,
+                            candidate.node_id,
+                            false,
+                            Some(reason.as_str()),
+                        );
                         st.model.fullscreen_state.set_direct_scanout_status(
                             output_name,
                             Some(candidate.node_id),
                             None,
-                            Some(format!("direct scanout render attempt failed: {}", err)),
+                            Some(reason),
                         );
                     }
                 }
@@ -1492,13 +1698,16 @@ pub(crate) fn queue_tty_drm_frame(
                     );
                 }
             }
-            let feedback =
-                crate::frame_loop::take_presentation_feedback_for_output(st, output_name)
-                    .ok_or_else(|| {
-                        io::Error::other(format!(
-                            "missing presentation feedback output {output_name}"
-                        ))
-                    })?;
+            let feedback = crate::frame_loop::take_presentation_feedback_for_output_with_states(
+                st,
+                output_name,
+                &render_res.states,
+            )
+            .ok_or_else(|| {
+                io::Error::other(format!(
+                    "missing presentation feedback output {output_name}"
+                ))
+            })?;
             queue_tty_frame_or_clear_on_failure(&mut compositor, output_name, feedback)?;
             true
         } else {
@@ -1591,6 +1800,37 @@ fn log_tty_renderer_info(card_path: &Path, renderer: &mut GlesRenderer) {
 struct FullscreenDirectScanoutCandidate {
     node_id: halley_core::field::NodeId,
     surface: WlSurface,
+    surface_loc: (i32, i32),
+}
+
+fn tty_direct_frame_flags() -> FrameFlags {
+    FrameFlags::ALLOW_PRIMARY_PLANE_SCANOUT_ANY | FrameFlags::ALLOW_CURSOR_PLANE_SCANOUT
+}
+
+fn render_tty_direct_elements(
+    renderer: &mut GlesRenderer,
+    surface: &WlSurface,
+    surface_loc: (i32, i32),
+    local_cursor: Option<(f32, f32)>,
+    cursor_image: Option<&CursorImageStatus>,
+    cursor_config: &halley_config::CursorConfig,
+    surface_kind: Kind,
+) -> Result<Vec<HalleyDirectScanoutElement>, Box<dyn Error>> {
+    let mut elements =
+        direct_scanout_cursor_elements(renderer, local_cursor, cursor_image, cursor_config)?;
+    elements.extend(
+        render_elements_from_surface_tree::<_, HalleyDirectScanoutElement>(
+            renderer,
+            surface,
+            surface_loc,
+            1.0,
+            1.0,
+            surface_kind,
+        )
+        .into_iter()
+        .map(Into::into),
+    );
+    Ok(elements)
 }
 
 fn direct_scanout_cursor_elements(
@@ -1677,6 +1917,69 @@ fn fullscreen_root_surface_for_node(
         })
 }
 
+fn live_surface_direct_scanout_candidate(
+    st: &Halley,
+    output_name: &str,
+    output_w: i32,
+    output_h: i32,
+) -> Option<(halley_core::field::NodeId, WlSurface, (i32, i32))> {
+    st.platform
+        .xdg_shell_state
+        .toplevel_surfaces()
+        .iter()
+        .find_map(|top| {
+            let wl = top.wl_surface();
+            let node_id = st.model.surface_to_node.get(&wl.id()).copied()?;
+            let live_render = crate::window::node_requires_live_surface_render(st, node_id);
+            if st.fullscreen_monitor_for_node(node_id).is_some()
+                || !live_render
+                || !st.model.field.is_visible(node_id)
+                || st
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&node_id)
+                    .is_none_or(|monitor| monitor != output_name)
+            {
+                if live_render {
+                    tty_game_path_debug(
+                        output_name,
+                        node_id,
+                        "direct candidate rejected: not visible/current-output or already fullscreen",
+                    );
+                }
+                return None;
+            }
+            let node = st.model.field.node(node_id)?;
+            if node.state != halley_core::field::NodeState::Active {
+                tty_game_path_debug(
+                    output_name,
+                    node_id,
+                    "direct candidate rejected: node is not active",
+                );
+                return None;
+            }
+            let bbox = bbox_from_surface_tree(wl, (0, 0));
+            let tolerance = 4;
+            if bbox.loc.x > tolerance
+                || bbox.loc.y > tolerance
+                || bbox.loc.x + bbox.size.w < output_w - tolerance
+                || bbox.loc.y + bbox.size.h < output_h - tolerance
+            {
+                tty_game_path_debug(
+                    output_name,
+                    node_id,
+                    &format!(
+                        "direct candidate rejected: bbox=({},{} {}x{}) output={}x{}",
+                        bbox.loc.x, bbox.loc.y, bbox.size.w, bbox.size.h, output_w, output_h
+                    ),
+                );
+                return None;
+            }
+            Some((node_id, wl.clone(), (-bbox.loc.x, -bbox.loc.y)))
+        })
+}
+
 fn monitor_has_blocking_layer_shell_surfaces(st: &Halley, monitor: &str) -> bool {
     crate::compositor::monitor::layer_shell::layer_shell_placements_for_monitor(st, monitor)
         .into_iter()
@@ -1704,12 +2007,25 @@ fn fullscreen_direct_scanout_candidate(
     hover_node: Option<halley_core::field::NodeId>,
     preview_hover_node: Option<halley_core::field::NodeId>,
 ) -> Option<Result<FullscreenDirectScanoutCandidate, (halley_core::field::NodeId, String)>> {
-    let node_id = *st
+    let candidate = st
         .model
         .fullscreen_state
         .fullscreen_active_node
-        .get(output_name)?;
-    let blocked = |reason: &str| Err((node_id, reason.to_string()));
+        .get(output_name)
+        .and_then(|node_id| {
+            fullscreen_root_surface_for_node(st, *node_id)
+                .map(|surface| (*node_id, surface, (0, 0)))
+        })
+        .or_else(|| live_surface_direct_scanout_candidate(st, output_name, output_w, output_h))?;
+    let (node_id, surface, _surface_loc) = candidate;
+    let blocked = |reason: &str| {
+        tty_game_path_debug(
+            output_name,
+            node_id,
+            &format!("direct candidate blocked: {reason}"),
+        );
+        Err((node_id, reason.to_string()))
+    };
 
     if st.output_transform_for(output_name) != Transform::Normal {
         return Some(blocked("output transform is not normal"));
@@ -1739,6 +2055,11 @@ fn fullscreen_direct_scanout_candidate(
     if hover_node.is_some() || preview_hover_node.is_some() {
         return Some(blocked("hover UI is active"));
     }
+    if !active_surface_frontmost_on_monitor(st, node_id, output_name) {
+        return Some(blocked(
+            "fullscreen candidate is covered by a higher stacked window",
+        ));
+    }
     if st.should_draw_focus_ring_preview(Instant::now()) {
         return Some(blocked("focus preview is active"));
     }
@@ -1752,22 +2073,54 @@ fn fullscreen_direct_scanout_candidate(
             "overlap-policy window is visible above fullscreen on the output",
         ));
     }
-    let Some(surface) = fullscreen_root_surface_for_node(st, node_id) else {
-        return Some(blocked("fullscreen node has no live toplevel surface"));
-    };
-    if PopupManager::popups_for_surface(&surface).next().is_some() {
-        return Some(blocked("fullscreen surface has popups"));
-    }
-
     let bbox = bbox_from_surface_tree(&surface, (0, 0));
-    if bbox.loc.x != 0 || bbox.loc.y != 0 {
-        return Some(blocked("surface bbox is offset from the output origin"));
-    }
-    if (bbox.size.w - output_w).abs() > 1 || (bbox.size.h - output_h).abs() > 1 {
-        return Some(blocked("surface bbox does not match the output mode size"));
+    let tolerance = 4;
+    if bbox.loc.x > tolerance
+        || bbox.loc.y > tolerance
+        || bbox.loc.x + bbox.size.w < output_w - tolerance
+        || bbox.loc.y + bbox.size.h < output_h - tolerance
+    {
+        return Some(blocked("surface bbox does not cover the output mode size"));
     }
 
-    Some(Ok(FullscreenDirectScanoutCandidate { node_id, surface }))
+    tty_game_path_debug(output_name, node_id, "direct candidate accepted");
+    Some(Ok(FullscreenDirectScanoutCandidate {
+        node_id,
+        surface,
+        surface_loc: (-bbox.loc.x, -bbox.loc.y),
+    }))
+}
+
+fn active_surface_frontmost_on_monitor(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+    output_name: &str,
+) -> bool {
+    let target_rank = st.overlap_policy_stack_rank(node_id);
+    st.model.field.node_ids_all().into_iter().all(|other_id| {
+        if other_id == node_id {
+            return true;
+        }
+        let Some(other) = st.model.field.node(other_id) else {
+            return true;
+        };
+        if other.kind != halley_core::field::NodeKind::Surface
+            || other.state != halley_core::field::NodeState::Active
+            || !st.model.field.is_visible(other_id)
+        {
+            return true;
+        }
+        if !st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&other_id)
+            .is_some_and(|monitor| monitor == output_name)
+        {
+            return true;
+        }
+        st.overlap_policy_stack_rank(other_id) <= target_rank
+    })
 }
 
 #[cfg(test)]

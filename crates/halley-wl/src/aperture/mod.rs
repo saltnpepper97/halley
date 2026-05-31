@@ -16,7 +16,7 @@ use halley_core::viewport::Viewport;
 use self::core::{ApertureConfig, ApertureMode, ApertureRuntime, ClockSnapshot, Rect, Size};
 
 pub(crate) use config::{
-    aperture_config_matches_event_path, config_watch_roots, default_aperture_config_path,
+    config_matches_event_path, config_watch_roots, default_aperture_config_path,
 };
 
 pub(crate) struct ApertureState {

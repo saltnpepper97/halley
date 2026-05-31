@@ -14,7 +14,7 @@ use smithay::{
 use super::super::bearings::draw_bearings;
 use super::super::cursor::draw_cursor_sprite;
 use super::super::cursor_theme::CursorManager;
-use super::super::draw_primitives::{draw_outline_rect, draw_rect, draw_ring};
+use super::super::draw_primitives::{draw_rect, draw_ring};
 use super::super::node::{draw_closing_node_markers, draw_node_hover_labels, draw_node_markers};
 use super::super::pin_icon::draw_pin_badges;
 use super::super::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
@@ -134,7 +134,6 @@ pub(super) fn draw_debug_frame_scene(
     )?;
     draw_window_borders(frame, size, prepared.damage, &scene.border_rects, st)?;
     draw_stack_window_units(frame, size, prepared.damage, &scene.stack_window_units, st)?;
-    draw_overlap_overlays(frame, prepared.damage, &scene.overlap_overlay_rects)?;
     draw_window_shadows(
         frame,
         size,
@@ -449,12 +448,14 @@ fn draw_closing_window_animations(
             continue;
         };
 
-        let scale = match style {
+        let eased = crate::animation::ease_in_out_cubic(animation.progress);
+        let (scale, alpha) = match style {
             halley_config::WindowCloseAnimationStyle::Shrink => {
-                (1.0 - crate::animation::ease_in_out_cubic(animation.progress)).clamp(0.0, 1.0)
+                ((1.0 - eased).clamp(0.0, 1.0), 1.0)
             }
+            halley_config::WindowCloseAnimationStyle::Fade => (1.0, (1.0 - eased).clamp(0.0, 1.0)),
         };
-        if scale <= 0.001 {
+        if scale <= 0.001 || alpha <= 0.001 {
             continue;
         }
 
@@ -478,6 +479,7 @@ fn draw_closing_window_animations(
                 tex.geo_w *= scale;
                 tex.geo_h *= scale;
                 tex.corner_radius *= scale;
+                tex.alpha *= alpha;
                 tex
             })
             .collect::<Vec<_>>();
@@ -512,7 +514,7 @@ fn draw_closing_window_animations(
                         inner_offset_y: border_rect.inner_offset_y * scale,
                         inner_w: (border_rect.inner_w * scale).max(1.0),
                         inner_h: (border_rect.inner_h * scale).max(1.0),
-                        alpha: border_rect.alpha,
+                        alpha: border_rect.alpha * alpha,
                         border_px: border_rect.border_px * scale,
                         corner_radius: border_rect.corner_radius * scale,
                         inner_corner_radius: border_rect.inner_corner_radius * scale,
@@ -546,6 +548,9 @@ fn draw_stack_window_units(
         )?;
         if !unit.border_rects.is_empty() {
             draw_window_borders(frame, size, damage, &unit.border_rects, st)?;
+        }
+        if !unit.pin_badges.is_empty() {
+            draw_pin_badges(frame, st, &unit.pin_badges, damage)?;
         }
     }
     Ok(())
@@ -721,38 +726,6 @@ pub(crate) fn draw_window_borders(
             ),
             damage,
             size,
-        )?;
-    }
-
-    Ok(())
-}
-
-fn draw_overlap_overlays<F>(
-    frame: &mut F,
-    damage: Rectangle<i32, Physical>,
-    overlap_overlay_rects: &[(i32, i32, i32, i32)],
-) -> Result<(), F::Error>
-where
-    F: Frame,
-{
-    for &(x, y, w, h) in overlap_overlay_rects {
-        draw_rect(
-            frame,
-            x,
-            y,
-            w,
-            h,
-            Color32F::new(0.45, 0.45, 0.45, 0.34),
-            damage,
-        )?;
-        draw_outline_rect(
-            frame,
-            x,
-            y,
-            w,
-            h,
-            Color32F::new(0.72, 0.72, 0.72, 0.78),
-            damage,
         )?;
     }
 

@@ -215,6 +215,8 @@ fn apply_winit_reload(
     let live_camera = crate::bootstrap::capture_live_camera_state(st);
     st.apply_tuning(next);
     crate::bootstrap::restore_live_camera_state(st, live_camera);
+    st.ui.render_state.clear_window_offscreen_caches();
+    st.request_maintenance();
     st.advertise_output(
         "winit-0",
         smithay::output::Mode {
@@ -276,8 +278,14 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
 
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
-                let config_watch_target = PathBuf::from(config_path.as_str());
-                let aperture_watch_target = aperture_config_path.as_ref().clone();
+                let mut config_watch_targets = vec![
+                    PathBuf::from(config_path.as_str()),
+                    aperture_config_path.as_ref().clone(),
+                ];
+                config_watch_targets.extend(halley_config::gather_dependencies_for_file(
+                    config_path.as_str(),
+                ));
+                let config_watch_targets_for_callback = config_watch_targets.clone();
                 let mut watcher: RecommendedWatcher = notify::recommended_watcher(
                     move |result: Result<notify::Event, notify::Error>| {
                         if let Ok(event) = result {
@@ -285,10 +293,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                 true
                             } else {
                                 event.paths.iter().any(|path| {
-                                    crate::aperture::aperture_config_matches_event_path(
+                                    crate::aperture::config_matches_event_path(
                                         path,
-                                        config_watch_target.as_path(),
-                                        aperture_watch_target.as_path(),
+                                        &config_watch_targets_for_callback,
                                     )
                                 })
                             };
@@ -305,10 +312,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         }
                     },
                 )?;
-                for watch_root in crate::aperture::config_watch_roots(
-                    Path::new(config_path.as_str()),
-                    aperture_config_path.as_path(),
-                ) {
+                for watch_root in crate::aperture::config_watch_roots(&config_watch_targets) {
                     if let Err(err) =
                         watcher.watch(watch_root.as_path(), RecursiveMode::NonRecursive)
                     {
@@ -754,7 +758,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                         "ipc",
                                     );
                                 } else {
-                                    let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
                                     crate::bootstrap::apply_reloaded_tuning(
                                         st,
                                         next,
@@ -853,7 +856,6 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                     "watch",
                                 );
                             } else {
-                                let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
                                 crate::bootstrap::apply_reloaded_tuning(
                                     st,
                                     next,

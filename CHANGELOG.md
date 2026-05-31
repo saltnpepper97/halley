@@ -2,10 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.3.0] - 2026-05-30
 
 ### Added
 - Add `wp_presentation` support and send presentation feedback after TTY and winit frames so Wayland clients such as gamescope can receive frame timing instead of falling back to X11 behavior.
+- Add a global `placement:` config block for expanded-window spawn strategy, landmark placement behavior, and post-placement reveal settings, with generated defaults and example configs updated for bootstrap migration.
+- Add `input.raise-on-click` so clicking a window can bring it forward independently from click/hover focus mode.
 - Add a cursor redraw hook and targeted TTY output redraw requests so pointer-only motion can repaint the affected output instead of forcing every monitor through a redraw.
 - Add fractional scale protocol support, including DPI-based output scale guesses and preferred scale updates for surfaces as they move between monitors.
 - Add configurable Aperture placement for cursor-following, a fixed monitor, or every output, including per-output Aperture status IPC and CLI output.
@@ -15,10 +17,17 @@ All notable changes to this project will be documented in this file.
 - Add `field.pins.background-colour` for configuring the circular pin badge background independently from the pin glyph colour.
 - Add top-right config error overlays for startup, manual reload, IPC reload, and file-watch reload failures, including scrollable diagnostics, hover pause, right-click dismissal, wheel and shift-wheel scrolling, and configurable `overlays.error-colour` styling.
 - Add strict config validation diagnostics for unknown Halley keys and invalid literals, with path, line, source text, and suggestions when available.
+- Add a selectable `animations.window-close.style "fade"` close animation that fades captured closing windows without shrinking them.
+- Add visual-only maximize/unmaximize animation using `animations.maximize`, preserving field geometry while tweening the presented rect.
 
 ### Changed
+- Switch the field placement model so expanded windows may overlap other expanded windows while collapsed nodes and core landmarks remain non-overlapping map objects; pinned landmarks remain solid blockers during spawn, drag, and resize.
+- Deprecate rule `overlap-policy` as a no-op during config migration; use `spawn-placement` for per-rule placement overrides and `cluster-participation "float"` for floating dialog behavior.
+- Keep active pinned windows immovable, including drag/resize/maximize paths, while still allowing them to overlap other expanded windows; collapsed pinned nodes/cores remain non-overlappable solid landmarks.
+- Remove the resize overlap overlay now that overlap is normal expanded-window behavior.
+- Split the large overlay renderer module into focused banner, toast, focus-cycle, cluster-overflow, chip, action-row, hover-label, selection-marker, and text-helper modules while preserving the existing overlay API and behavior.
 - Move TTY `wp_presentation` delivery to the DRM vblank completion path, carrying feedback as frame data and reporting `Vsync`, `HwCompletion`, and real `HwClock` timestamps when available.
-- Expand TTY DRM compositor setup for stricter drivers by using high-priority EGL contexts, supporting `Xbgr8888`/`Abgr8888` scanout formats, and retrying compositor creation with invalid modifiers when advertised modifiers fail.
+- Expand TTY DRM compositor setup for stricter drivers by supporting `Xbgr8888`/`Abgr8888` scanout formats and retrying compositor creation with invalid modifiers when advertised modifiers fail; high-priority EGL remains an explicit `HALLEY_TTY_HIGH_PRIORITY_EGL=1` opt-in.
 - Cache cursor sprites by theme, size, and icon so cursor changes avoid repeatedly reloading the same theme images.
 - Rework Xwayland socket startup around event-loop socket watchers, safer listener handoff, close-on-exec lock files, `-listenfd` capability detection, and portal `DISPLAY` activation environment export.
 - Rework `halley-aperture` standalone rendering to maintain per-output layer surfaces, redraw clocks on a timed Wayland poll loop, and keep animations advancing without busy sleeping.
@@ -26,12 +35,41 @@ All notable changes to this project will be documented in this file.
 - Move pure overlap contact physics into `halley-core` so the Wayland compositor only wires it into runtime state.
 - Remove empty npm package manifests from the repository root.
 - Rename the default explicit field-drag pointer action from `field-jump` to `pan-field`, keeping `field-jump` and `drag-pan` as config aliases for compatibility.
+- Treat maximize and fullscreen as presentation states: they now preserve field geometry, do not shove other windows or pinned landmarks, and participate in normal focus/raise ordering so other windows can appear above them until the maximized/fullscreen window is explicitly raised again.
 
 ### Fixed
+- Keep window borders at the same z-depth as their owning window so a background window's border cannot draw over the foreground window.
+- Clamp dragged collapsed nodes/cores against expanded windows at the configured field gap and move trapped unpinned landmarks to the nearest free readable spot after overlap resolution.
+- Keep hover focus from changing window stacking; only explicit raise events such as new active windows and click-to-raise alter overlap order.
+- Treat trail navigation as an intentional selection and raise the selected active window.
+- Make dragged collapsed nodes/cores slide along expanded-window edges and flip sides only after crossing the window midpoint instead of snapping into corners.
+- Draw active-window pin badges with the owning window's z-order, matching borders instead of staying globally above overlapping windows.
+- Preserve existing keyboard focus for overlay/popup text input instead of restoring last input focus on every unbound typing key.
+- Keep maximized windows active when new or transferred windows overlap them, while allowing click raise, trail navigation, and focus cycling to bring maximized windows forward again through normal stacking.
+- Preserve the original active-window position for delayed manual collapses so the first collapse over another window visibly slides the resulting node out from under the blocker.
+- Apply the same collapsed-node placement and slide animation to automatic active-window-limit and focus-ring decay collapses.
+- Let active-window-limit collapse enforcement run during visual active-transition animations so the first automatic collapse resolves without waiting for later pointer movement.
+- Remove initial-spawn push-away authority so opening a new expanded window does not shove existing expanded windows out of the way.
+- Limit new-window reveal panning to the one case where a pinned landmark blocks the current spawn center.
+- Apply live config reloads directly and force active window render caches/full redraw after reload.
+- Watch gathered config files for reloads, so saving files included with `gather` updates the live config.
+- Fix Tiny Glade/native Wayland pointer-lock camera spins by avoiding fresh absolute pointer-motion refreshes while `new_constraint` is creating a lock, preserving the existing focus/location instead.
+- Block interactive move and resize for fullscreen-like game surfaces, including output-covering borderless clients and active pointer-constrained surfaces, so games such as Tiny Glade cannot be compositor-resized while grabbed.
+- Restore normal EGL priority as the default TTY GBM/GLES path after high-priority EGL caused AMD game flicker/stutter; keep the high-priority path available only through `HALLEY_TTY_HIGH_PRIORITY_EGL=1`.
+- Reset stale default spawn anchors when a monitor is empty or the focused window has been panned out of the active spawn area, so new windows start at the current viewport center instead of continuing an old left/right pattern.
+- Keep pan-away reset spawns centered against the current usable view once the view center leaves the focused window footprint, ignoring stale/off-center focus for fit and candidate generation while still avoiding windows in the current view.
+- Preserve view-center reset placement through late app-id and real-size commits, fixing kitty-style terminals being shifted off-center after their final geometry arrives.
+- Preserve no-anchor default/view-mode spawn placement through late size commits, covering intermittent terminal launches after spawn state has already switched to view anchoring.
+- Ignore stale spawn focus overrides after manual pan-away unless the current view center is still over the override footprint, preventing terminals from being pulled back toward the last focused window.
+- Avoid cursorless direct scanout for active fullscreen outputs that are waiting on frame callbacks, preventing fullscreen video from freezing when the cursor leaves or hides.
+- Make hover-mode keybind/default spawns follow the pointer monitor even when that monitor already has windows, avoiding terminals opening on the stale focused monitor at edge positions.
+- Latch the live pointer monitor for keyboard launch actions so stale pending spawn monitor state cannot route terminals to the previous output.
+- Keep visible TTY clients with pending frame callbacks paced on refresh ticks so unfocused fullscreen video continues advancing frames.
 - Restore direct game client cursor handoff by sending frame callbacks and presentation feedback to client cursor surfaces, refreshing pointer contents when the surface under the cursor changes, and falling through transparent helper hit nodes to the actual surface below.
 - Keep Steam's built-in startup/login overlap behavior from leaking onto the main Steam client by expiring the startup rule once the surface no longer matches the login window.
 - Route layer-shell commits through the monitor assigned to that layer surface so layer state updates no longer use the wrong active monitor context.
 - Throttle TTY redraws and frame callbacks per output so fullscreen/video timer frames and cursor motion avoid unnecessary cross-monitor redraw work.
+- Reduce per-output render work by filtering active surfaces before sorting/syncing them and scoping maximize animation redraws to the affected monitor.
 - Use the launch or window-rule spawn target monitor for initial `xdg_toplevel` configure bounds so new clients receive bounds for the output they will actually open on.
 - Prevent focus decay while spawn or open transitions are still active, avoiding premature collapse during window launch and reveal animations.
 - Preserve fullscreen and pointer state across monitor changes by separating soft fullscreen suspension from client fullscreen exits, refreshing pointer constraints from the last screen position, releasing constraints when crossing monitors, and keeping cursor surface output state current.
@@ -69,6 +107,8 @@ All notable changes to this project will be documented in this file.
 - Stop `move-window` from implicitly panning the field at monitor edges; `pan-field` keeps the old edge-pan window drag behavior, active drags can switch between the two modes as modifiers change, and empty-field left drag still pans the camera.
 - Prevent right-click holds on empty field space from starting a camera pan.
 - Make overlap-policy windows stack like normal windows, drawing and hit-testing the clicked or newest overlapped window on top while hover focus does not raise it.
+- Animate unpinned collapsed nodes sliding out from under explicitly spawned or resized active windows while keeping logical overlap resolution immediate.
+- Delay manual-collapse node slide-out until the captured close animation finishes, so noding an overlapped behind window visibly slides the collapsed marker out instead of snapping under the closing snapshot.
 
 ## [v0.2.0] - 2026-04-28
 

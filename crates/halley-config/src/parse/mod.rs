@@ -6,4 +6,4 @@ mod sections;
 mod validate;
 mod viewport;
 
-pub use loader::{ConfigLoadDiagnostic, from_rune_file};
+pub use loader::{ConfigLoadDiagnostic, from_rune_file, gather_dependencies_for_file};

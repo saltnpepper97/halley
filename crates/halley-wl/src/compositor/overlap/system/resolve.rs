@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use halley_core::field::NodeId;
+use halley_core::field::{NodeId, Vec2};
 use halley_core::overlap_physics::{
     CONTACT_SKIN, MAX_PHYSICS_SPEED, PHYSICS_REST_EPSILON, POSITION_SOLVER_ITERS,
     resolve_contact_pair,
@@ -13,40 +13,10 @@ use crate::compositor::root::Halley;
 
 use super::{
     carry_overlap_node_direct, clamp_speed, collision_extents_for_node,
-    layout_collision_extents_for_node, node_participates_in_overlap, nodes_share_overlap_group,
-    non_overlap_gap_world, physics_damping_per_sec, physics_inv_mass, required_sep_x,
-    required_sep_y,
+    layout_collision_extents_for_node, mixed_expanded_landmark_locks, node_is_landmark,
+    node_participates_in_overlap, nodes_share_overlap_group, non_overlap_gap_world,
+    physics_damping_per_sec, physics_inv_mass, required_sep_x, required_sep_y,
 };
-
-fn initial_spawn_authority_pair(st: &Halley, a: NodeId, b: NodeId) -> Option<(NodeId, NodeId)> {
-    if st
-        .model
-        .spawn_state
-        .initial_spawn_authority
-        .get(&a)
-        .is_some_and(|authority| authority.anchor_node == b)
-    {
-        return Some((a, b));
-    }
-    if st
-        .model
-        .spawn_state
-        .initial_spawn_authority
-        .get(&b)
-        .is_some_and(|authority| authority.anchor_node == a)
-    {
-        return Some((b, a));
-    }
-    None
-}
-
-fn is_initial_spawn_anchor(st: &Halley, id: NodeId) -> bool {
-    st.model
-        .spawn_state
-        .initial_spawn_authority
-        .values()
-        .any(|authority| authority.anchor_node == id)
-}
 
 fn resolve_static_surface_overlap(st: &mut Halley, ids: &[NodeId]) {
     let drag_authority = st.input.interaction_state.drag_authority_node;
@@ -69,17 +39,14 @@ fn resolve_static_surface_overlap(st: &mut Halley, ids: &[NodeId]) {
                     continue;
                 }
 
-                let authority = initial_spawn_authority_pair(st, a, b);
                 let a_locked = na.pinned
                     || st.input.interaction_state.resize_active == Some(a)
-                    || st.input.interaction_state.resize_static_node == Some(a)
-                    || authority.is_some_and(|(_, anchor)| anchor == a)
-                    || is_initial_spawn_anchor(st, a);
+                    || st.input.interaction_state.resize_static_node == Some(a);
                 let b_locked = nb.pinned
                     || st.input.interaction_state.resize_active == Some(b)
-                    || st.input.interaction_state.resize_static_node == Some(b)
-                    || authority.is_some_and(|(_, anchor)| anchor == b)
-                    || is_initial_spawn_anchor(st, b);
+                    || st.input.interaction_state.resize_static_node == Some(b);
+                let (a_locked, b_locked) =
+                    mixed_expanded_landmark_locks(st, a, b, a_locked, b_locked);
                 if a_locked && b_locked {
                     continue;
                 }
@@ -213,6 +180,93 @@ fn resolve_static_surface_overlap(st: &mut Halley, ids: &[NodeId]) {
     }
 }
 
+fn nodes_overlap_at(st: &Halley, a: NodeId, a_pos: Vec2, b: NodeId, b_pos: Vec2) -> bool {
+    let Some(na) = st.model.field.node(a) else {
+        return false;
+    };
+    let Some(nb) = st.model.field.node(b) else {
+        return false;
+    };
+    let ea = layout_collision_extents_for_node(st, na);
+    let eb = layout_collision_extents_for_node(st, nb);
+    let gap = non_overlap_gap_world(st);
+    let req_x = required_sep_x(st, a_pos.x, ea, b_pos.x, eb, gap);
+    let req_y = required_sep_y(st, a_pos.y, ea, b_pos.y, eb, gap);
+    (a_pos.x - b_pos.x).abs() < req_x && (a_pos.y - b_pos.y).abs() < req_y
+}
+
+fn landmark_position_is_free(st: &Halley, id: NodeId, pos: Vec2) -> bool {
+    st.model.field.nodes().iter().all(|(&oid, other)| {
+        oid == id
+            || !node_participates_in_overlap(st, oid)
+            || !node_is_landmark(st, oid)
+            || !nodes_share_overlap_group(st, id, oid)
+            || !nodes_overlap_at(st, id, pos, oid, other.pos)
+    })
+}
+
+fn nearest_free_landmark_position(st: &Halley, id: NodeId) -> Option<Vec2> {
+    let node = st.model.field.node(id)?;
+    let ext = layout_collision_extents_for_node(st, node);
+    let gap = non_overlap_gap_world(st);
+    let mut candidates = Vec::new();
+
+    for (&oid, other) in st.model.field.nodes() {
+        if oid == id
+            || !node_participates_in_overlap(st, oid)
+            || !node_is_landmark(st, oid)
+            || !nodes_share_overlap_group(st, id, oid)
+            || !nodes_overlap_at(st, id, node.pos, oid, other.pos)
+        {
+            continue;
+        }
+        let oext = layout_collision_extents_for_node(st, other);
+        candidates.push(Vec2 {
+            x: other.pos.x - (ext.right + oext.left + gap + 0.3),
+            y: node.pos.y,
+        });
+        candidates.push(Vec2 {
+            x: other.pos.x + (ext.left + oext.right + gap + 0.3),
+            y: node.pos.y,
+        });
+        candidates.push(Vec2 {
+            x: node.pos.x,
+            y: other.pos.y - (ext.bottom + oext.top + gap + 0.3),
+        });
+        candidates.push(Vec2 {
+            x: node.pos.x,
+            y: other.pos.y + (ext.top + oext.bottom + gap + 0.3),
+        });
+    }
+
+    candidates
+        .into_iter()
+        .filter(|&candidate| landmark_position_is_free(st, id, candidate))
+        .min_by(|a, b| {
+            let da = (a.x - node.pos.x).powi(2) + (a.y - node.pos.y).powi(2);
+            let db = (b.x - node.pos.x).powi(2) + (b.y - node.pos.y).powi(2);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        })
+}
+
+fn resolve_trapped_landmarks(st: &mut Halley, ids: &[NodeId]) {
+    for &id in ids {
+        let Some(node) = st.model.field.node(id) else {
+            continue;
+        };
+        if node.pinned
+            || st.input.interaction_state.drag_authority_node == Some(id)
+            || !node_is_landmark(st, id)
+            || landmark_position_is_free(st, id, node.pos)
+        {
+            continue;
+        }
+        if let Some(pos) = nearest_free_landmark_position(st, id) {
+            let _ = carry_overlap_node_direct(st, id, pos);
+        }
+    }
+}
+
 pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
     if st.input.interaction_state.suspend_overlap_resolve {
         return;
@@ -224,8 +278,36 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
         .nodes()
         .keys()
         .copied()
-        .filter(|&id| node_participates_in_overlap(st, id))
+        .filter(|&id| node_participates_in_overlap(st, id) && node_is_landmark(st, id))
         .collect();
+
+    if let Some(drag_id) = st.input.interaction_state.drag_authority_node
+        && node_participates_in_overlap(st, drag_id)
+        && !ids.contains(&drag_id)
+    {
+        ids.push(drag_id);
+    }
+
+    if let Some(drag_id) = st.input.interaction_state.drag_authority_node
+        && node_is_landmark(st, drag_id)
+    {
+        let active_windows = st
+            .model
+            .field
+            .node_ids_all()
+            .into_iter()
+            .filter(|&id| {
+                node_participates_in_overlap(st, id)
+                    && super::node_is_expanded_window(st, id)
+                    && nodes_share_overlap_group(st, drag_id, id)
+            })
+            .collect::<Vec<_>>();
+        for id in active_windows {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
 
     if ids.is_empty() {
         return;
@@ -235,6 +317,7 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
 
     if !st.runtime.tuning.physics_enabled {
         resolve_static_surface_overlap(st, &ids);
+        resolve_trapped_landmarks(st, &ids);
         return;
     }
 
@@ -276,9 +359,7 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
         let Some(node) = st.model.field.node(id) else {
             continue;
         };
-        let pinned = node.pinned
-            || st.input.interaction_state.resize_static_node == Some(id)
-            || is_initial_spawn_anchor(st, id);
+        let pinned = node.pinned || st.input.interaction_state.resize_static_node == Some(id);
         if physics_inv_mass(st, id, pinned) <= 0.0 {
             continue;
         }
@@ -306,15 +387,12 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
                     continue;
                 }
 
-                let authority = initial_spawn_authority_pair(st, a, b);
-                let a_pinned = na.pinned
-                    || st.input.interaction_state.resize_static_node == Some(a)
-                    || authority.is_some_and(|(_, anchor)| anchor == a)
-                    || is_initial_spawn_anchor(st, a);
-                let b_pinned = nb.pinned
-                    || st.input.interaction_state.resize_static_node == Some(b)
-                    || authority.is_some_and(|(_, anchor)| anchor == b)
-                    || is_initial_spawn_anchor(st, b);
+                let a_pinned =
+                    na.pinned || st.input.interaction_state.resize_static_node == Some(a);
+                let b_pinned =
+                    nb.pinned || st.input.interaction_state.resize_static_node == Some(b);
+                let (a_pinned, b_pinned) =
+                    mixed_expanded_landmark_locks(st, a, b, a_pinned, b_pinned);
                 let inv_mass_a = physics_inv_mass(st, a, a_pinned);
                 let inv_mass_b = physics_inv_mass(st, b, b_pinned);
                 if inv_mass_a <= 0.0 && inv_mass_b <= 0.0 {
@@ -360,9 +438,7 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
         let Some(node) = st.model.field.node(id) else {
             continue;
         };
-        let pinned = node.pinned
-            || st.input.interaction_state.resize_static_node == Some(id)
-            || is_initial_spawn_anchor(st, id);
+        let pinned = node.pinned || st.input.interaction_state.resize_static_node == Some(id);
         if st.input.interaction_state.drag_authority_node != Some(id)
             && let Some(pos) = positions.get(&id).copied()
         {
@@ -388,6 +464,51 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
             st.input.interaction_state.physics_velocity.insert(id, vel);
         }
     }
+    let ids = st.model.field.nodes().keys().copied().collect::<Vec<_>>();
+    resolve_trapped_landmarks(st, &ids);
+}
+
+pub(crate) fn resolve_landmarks_overlapped_by_active_window(st: &mut Halley, window_id: NodeId) {
+    if !super::node_is_expanded_window(st, window_id) || !st.model.field.is_visible(window_id) {
+        return;
+    }
+    let mut ids = st
+        .model
+        .field
+        .node_ids_all()
+        .into_iter()
+        .filter(|&id| {
+            id != window_id
+                && node_participates_in_overlap(st, id)
+                && node_is_landmark(st, id)
+                && st.model.field.node(id).is_some_and(|node| !node.pinned)
+                && nodes_share_overlap_group(st, window_id, id)
+        })
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return;
+    }
+    let before = ids
+        .iter()
+        .filter_map(|&id| st.model.field.node(id).map(|node| (id, node.pos)))
+        .collect::<HashMap<_, _>>();
+    ids.push(window_id);
+
+    let previous_drag_authority = st.input.interaction_state.drag_authority_node;
+    st.input.interaction_state.drag_authority_node = Some(window_id);
+    resolve_static_surface_overlap(st, &ids);
+    st.input.interaction_state.drag_authority_node = previous_drag_authority;
+    let now = Instant::now();
+    for (id, from) in before {
+        if let Some(to) = st.model.field.node(id).map(|node| node.pos)
+            && ((from.x - to.x).abs() > 0.5 || (from.y - to.y).abs() > 0.5)
+        {
+            st.ui
+                .render_state
+                .start_landmark_slide_animation(id, from, to, now);
+        }
+    }
+    st.request_maintenance();
 }
 
 pub(crate) fn request_toplevel_resize(st: &mut Halley, node_id: NodeId, width: i32, height: i32) {

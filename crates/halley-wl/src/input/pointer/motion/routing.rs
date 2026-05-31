@@ -3,7 +3,7 @@ use std::time::Instant;
 use smithay::input::pointer::{MotionEvent, RelativeMotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
-use super::super::button::{active_pointer_binding, now_millis_u32};
+use super::super::button::active_pointer_binding;
 use super::super::context::{clamp_screen_to_monitor, pointer_screen_context_for_monitor};
 use super::super::focus::{grabbed_layer_surface_focus, pointer_focus_for_screen};
 use crate::compositor::interaction::{ModState, PointerState};
@@ -167,6 +167,7 @@ pub(super) fn dispatch_pointer_motion(
     delta: (f64, f64),
     delta_unaccel: (f64, f64),
     time_usec: u64,
+    time_msec: u32,
     now: Instant,
 ) -> MotionDispatchResult {
     let mut desktop_hover = false;
@@ -183,7 +184,7 @@ pub(super) fn dispatch_pointer_motion(
             if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
                 pointer.relative_motion(
                     st,
-                    Some((constraint.surface.clone(), pointer.current_location())),
+                    Some((constraint.surface.clone(), constraint.origin)),
                     &RelativeMotionEvent {
                         delta: delta.into(),
                         delta_unaccel: delta_unaccel.into(),
@@ -209,7 +210,7 @@ pub(super) fn dispatch_pointer_motion(
             });
 
         let resize_preview = ps.resize;
-        let focus = if let Some(surface) = grabbed_layer_surface.clone() {
+        let mut focus = if let Some(surface) = grabbed_layer_surface.clone() {
             grabbed_layer_surface_focus(st, &surface)
         } else if let Some(surface) = locked_surface.clone() {
             Some((surface, pointer.current_location()))
@@ -224,6 +225,17 @@ pub(super) fn dispatch_pointer_motion(
                 resize_preview,
             )
         };
+
+        if locked_surface.is_none()
+            && let Some((surface, _)) = focus.as_ref()
+            && let Some(constrained) =
+                crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
+                    st, surface,
+                )
+            && constrained != *surface
+        {
+            focus = Some((constrained, pointer.current_location()));
+        }
 
         crate::compositor::interaction::pointer::update_pointer_contents_from_focus(
             st,
@@ -280,7 +292,7 @@ pub(super) fn dispatch_pointer_motion(
                 if delta.0.abs() > f64::EPSILON || delta.1.abs() > f64::EPSILON {
                     pointer.relative_motion(
                         st,
-                        Some((constraint.surface.clone(), pointer.current_location())),
+                        Some((constraint.surface.clone(), constraint.origin)),
                         &RelativeMotionEvent {
                             delta: delta.into(),
                             delta_unaccel: delta_unaccel.into(),
@@ -306,7 +318,7 @@ pub(super) fn dispatch_pointer_motion(
                 &MotionEvent {
                     location,
                     serial: SERIAL_COUNTER.next_serial(),
-                    time: now_millis_u32(),
+                    time: time_msec,
                 },
             );
         }
@@ -330,7 +342,6 @@ pub(super) fn dispatch_pointer_motion(
             );
         }
         pointer.frame(st);
-        crate::compositor::interaction::pointer::maybe_activate_pointer_constraint(st, now);
     }
 
     MotionDispatchResult::Forwarded {

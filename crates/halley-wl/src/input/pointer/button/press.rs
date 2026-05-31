@@ -110,7 +110,9 @@ pub(super) fn handle_left_press(
         begin_pan_if_allowed(st, ps, backend, monitor, frame.global_sx, frame.global_sy);
         return;
     };
-    let _ = st.raise_overlap_policy_node(hit.node_id);
+    if st.runtime.tuning.input.raise_on_click {
+        let _ = st.raise_overlap_policy_node(hit.node_id);
+    }
     if frame.workspace_active {
         let drag_target_ok = node_is_pointer_draggable(st, hit.node_id);
         if drag_binding_active && drag_target_ok && !hit.is_core {

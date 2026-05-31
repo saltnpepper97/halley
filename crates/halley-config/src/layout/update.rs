@@ -411,7 +411,9 @@ end
             .expect("config should update")
             .expect("config should change");
 
-        assert!(updated.contains("  maximize:\n    enabled true\n    duration-ms 240\n  end"));
+        assert!(updated.contains("  maximize:\n    enabled true"));
+        assert!(updated.contains("    duration-ms 240"));
+        assert!(updated.contains("  raise:\n    enabled true\n    duration-ms 140"));
         assert!(updated.contains("smooth-resize:\n    enabled true\n    duration-ms 90"));
     }
 
@@ -433,6 +435,7 @@ end
             updated
                 .contains("input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"")
         );
+        assert!(updated.contains("  raise-on-click true"));
         assert!(
             updated.contains(
                 "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end"
@@ -518,7 +521,8 @@ end
 
         assert!(updated.contains("animation:\n  enabled true"));
         assert!(!updated.contains("\nanimations:\n"));
-        assert!(updated.contains("  maximize:\n    enabled true\n    duration-ms 240\n  end"));
+        assert!(updated.contains("  maximize:\n    enabled true"));
+        assert!(updated.contains("    duration-ms 240"));
     }
 
     #[test]

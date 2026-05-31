@@ -74,19 +74,12 @@ pub(crate) struct SpawnPlacementExtents {
 #[derive(Clone, Debug)]
 pub(crate) struct InitialSpawnPlacement {
     pub(crate) monitor: String,
-    pub(crate) anchor_node: Option<NodeId>,
     pub(crate) anchor_pos: Vec2,
     pub(crate) anchor_ext: Option<SpawnPlacementExtents>,
     pub(crate) chosen_pos: Vec2,
     pub(crate) dir: Option<Vec2>,
     pub(crate) preserve_chosen_pos: bool,
-    pub(crate) overlap_policy: InitialWindowOverlapPolicy,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct InitialSpawnAuthority {
-    pub(crate) anchor_node: NodeId,
-    pub(crate) until_ms: u64,
+    pub(crate) view_center_reset: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -127,7 +120,6 @@ pub(crate) struct SpawnState {
     pub(crate) pending_initial_reveal: HashSet<NodeId>,
     pub(crate) pending_initial_spawn_placement: Option<InitialSpawnPlacement>,
     pub(crate) initial_spawn_placements: HashMap<NodeId, InitialSpawnPlacement>,
-    pub(crate) initial_spawn_authority: HashMap<NodeId, InitialSpawnAuthority>,
     pub(crate) pending_pan_activate: Option<(NodeId, u64)>,
 }
 
@@ -135,7 +127,13 @@ pub(crate) fn is_persistent_rule_top(st: &Halley, node_id: NodeId) -> bool {
     st.model
         .spawn_state
         .applied_window_rules
-        .contains_key(&node_id)
+        .get(&node_id)
+        .is_some_and(|rule| {
+            matches!(
+                rule.builtin_rule,
+                Some(super::rules::BuiltinInitialWindowRule::PictureInPicture)
+            )
+        })
 }
 
 pub(crate) fn node_has_overlap_policy(st: &Halley, node_id: NodeId) -> bool {
@@ -179,9 +177,7 @@ pub(crate) fn node_draws_above_fullscreen_on_monitor(
         .monitor_state
         .node_monitor
         .get(&node_id)
-        .map(String::as_str)
-        .unwrap_or(st.model.monitor_state.current_monitor.as_str())
-        == monitor
+        .is_some_and(|node_monitor| node_monitor == monitor)
 }
 
 pub(crate) fn monitor_has_visible_overlap_policy_window(st: &Halley, monitor: &str) -> bool {
@@ -323,6 +319,7 @@ pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, n
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compositor::spawn::rules::BuiltinInitialWindowRule;
     use smithay::reexports::wayland_server::Display;
 
     #[test]
@@ -379,5 +376,104 @@ mod tests {
             &st,
             monitor.as_str()
         ));
+    }
+
+    #[test]
+    fn overlap_policy_window_without_monitor_assignment_draws_above_no_outputs() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, tuning);
+
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let fullscreen = st.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        let overlap = st.model.field.spawn_surface(
+            "overlap",
+            Vec2 { x: 790.0, y: 300.0 },
+            Vec2 { x: 240.0, y: 180.0 },
+        );
+        st.assign_node_to_monitor(fullscreen, monitor.as_str());
+        st.model.monitor_state.node_monitor.remove(&overlap);
+        for id in [fullscreen, overlap] {
+            let _ = st
+                .model
+                .field
+                .set_state(id, halley_core::field::NodeState::Active);
+        }
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(monitor.clone(), fullscreen);
+        st.model.spawn_state.applied_window_rules.insert(
+            overlap,
+            AppliedInitialWindowRule {
+                overlap_policy: InitialWindowOverlapPolicy::All,
+                spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+                builtin_rule: None,
+            },
+        );
+
+        assert!(!node_draws_above_fullscreen_on_monitor(
+            &st,
+            overlap,
+            monitor.as_str()
+        ));
+    }
+
+    #[test]
+    fn float_cluster_participation_rule_is_not_persistent_top() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = st.model.field.spawn_surface(
+            "float-rule-window",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+
+        st.model.spawn_state.applied_window_rules.insert(
+            id,
+            AppliedInitialWindowRule {
+                overlap_policy: InitialWindowOverlapPolicy::None,
+                spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+                builtin_rule: None,
+            },
+        );
+
+        assert!(!is_persistent_rule_top(&st, id));
+    }
+
+    #[test]
+    fn picture_in_picture_builtin_rule_is_persistent_top() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = st.model.field.spawn_surface(
+            "pip",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+
+        st.model.spawn_state.applied_window_rules.insert(
+            id,
+            AppliedInitialWindowRule {
+                overlap_policy: InitialWindowOverlapPolicy::All,
+                spawn_placement: InitialWindowSpawnPlacement::Center,
+                cluster_participation: InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+                builtin_rule: Some(BuiltinInitialWindowRule::PictureInPicture),
+            },
+        );
+
+        assert!(is_persistent_rule_top(&st, id));
     }
 }

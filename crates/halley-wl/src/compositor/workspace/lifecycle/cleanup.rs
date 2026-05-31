@@ -211,11 +211,6 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
             st.model.spawn_state.pending_rule_rechecks.remove(&id);
             st.model.spawn_state.pending_initial_reveal.remove(&id);
             st.model.spawn_state.initial_spawn_placements.remove(&id);
-            st.model.spawn_state.initial_spawn_authority.remove(&id);
-            st.model
-                .spawn_state
-                .initial_spawn_authority
-                .retain(|_, authority| authority.anchor_node != id);
             if st
                 .model
                 .spawn_state
@@ -411,11 +406,6 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
         st.model.spawn_state.pending_rule_rechecks.remove(&id);
         st.model.spawn_state.pending_initial_reveal.remove(&id);
         st.model.spawn_state.initial_spawn_placements.remove(&id);
-        st.model.spawn_state.initial_spawn_authority.remove(&id);
-        st.model
-            .spawn_state
-            .initial_spawn_authority
-            .retain(|_, authority| authority.anchor_node != id);
         st.model.workspace_state.active_transitions.remove(&id);
         st.model
             .workspace_state

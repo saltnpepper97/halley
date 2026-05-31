@@ -9,7 +9,9 @@ use crate::frame_loop::anim_style_for;
 
 pub(crate) use crate::compositor::overlap::read::CollisionExtents;
 pub(crate) use carry::carry_surface_non_overlap;
-pub(crate) use resolve::{request_toplevel_resize, resolve_surface_overlap};
+pub(crate) use resolve::{
+    request_toplevel_resize, resolve_landmarks_overlapped_by_active_window, resolve_surface_overlap,
+};
 
 fn overlap_read_context(st: &Halley) -> OverlapReadContext<'_> {
     OverlapReadContext {
@@ -42,7 +44,7 @@ fn physics_inv_mass(st: &Halley, id: NodeId, pinned: bool) -> f32 {
 
 #[inline]
 fn node_participates_in_overlap(st: &Halley, id: NodeId) -> bool {
-    overlap_read_context(st).node_participates_in_overlap(id)
+    !st.is_fullscreen_active(id) && overlap_read_context(st).node_participates_in_overlap(id)
 }
 
 pub(crate) fn non_overlap_gap_world(st: &Halley) -> f32 {
@@ -67,6 +69,55 @@ fn nodes_share_overlap_group(st: &Halley, a: NodeId, b: NodeId) -> bool {
 }
 
 #[inline]
+fn node_is_expanded_window(st: &Halley, id: NodeId) -> bool {
+    overlap_read_context(st).node_is_expanded_window(id)
+}
+
+#[inline]
+fn node_is_landmark(st: &Halley, id: NodeId) -> bool {
+    overlap_read_context(st).node_is_landmark(id)
+}
+
+fn mixed_expanded_landmark_locks(
+    st: &Halley,
+    a: NodeId,
+    b: NodeId,
+    a_locked: bool,
+    b_locked: bool,
+) -> (bool, bool) {
+    let a_expanded = node_is_expanded_window(st, a);
+    let b_expanded = node_is_expanded_window(st, b);
+    let a_landmark = node_is_landmark(st, a);
+    let b_landmark = node_is_landmark(st, b);
+    let physics_drag = st.runtime.tuning.physics_enabled;
+    let drag_authority = st.input.interaction_state.drag_authority_node;
+
+    if a_expanded && b_landmark {
+        let b_pinned = st.model.field.node(b).is_some_and(|node| node.pinned);
+        if physics_drag && drag_authority == Some(b) {
+            return (a_locked, true);
+        }
+        if b_pinned {
+            (a_locked, true)
+        } else {
+            (true, b_locked)
+        }
+    } else if b_expanded && a_landmark {
+        let a_pinned = st.model.field.node(a).is_some_and(|node| node.pinned);
+        if physics_drag && drag_authority == Some(a) {
+            return (true, b_locked);
+        }
+        if a_pinned {
+            (true, b_locked)
+        } else {
+            (a_locked, true)
+        }
+    } else {
+        (a_locked, b_locked)
+    }
+}
+
+#[inline]
 pub(crate) fn required_sep_y(
     st: &Halley,
     a_pos_y: f32,
@@ -79,13 +130,11 @@ pub(crate) fn required_sep_y(
 }
 
 pub(super) fn carry_overlap_node_direct(st: &mut Halley, id: NodeId, to: Vec2) -> bool {
-    let deliberate_pointer_move = st.input.interaction_state.drag_authority_node == Some(id);
-    let was_pinned = st.model.field.node(id).is_some_and(|node| node.pinned);
-    if deliberate_pointer_move && was_pinned {
-        let _ = st.model.field.set_pinned(id, false);
+    if st.model.field.node(id).is_some_and(|node| node.pinned) {
+        return false;
     }
 
-    let moved = if st
+    if st
         .model
         .field
         .node(id)
@@ -94,13 +143,7 @@ pub(super) fn carry_overlap_node_direct(st: &mut Halley, id: NodeId, to: Vec2) -
         st.model.field.carry_cluster_by_core(id, to)
     } else {
         st.model.field.carry(id, to)
-    };
-
-    if deliberate_pointer_move && was_pinned {
-        let _ = st.model.field.set_pinned(id, true);
     }
-
-    moved
 }
 
 pub(crate) fn surface_window_collision_extents(
@@ -164,6 +207,7 @@ pub(super) fn layout_collision_extents_for_node(
     n: &halley_core::field::Node,
 ) -> CollisionExtents {
     match n.state {
+        halley_core::field::NodeState::Active => surface_window_collision_extents(st, n),
         halley_core::field::NodeState::Node | halley_core::field::NodeState::Core => {
             collision_extents_for_node(st, n)
         }

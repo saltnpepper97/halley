@@ -22,12 +22,16 @@ pub(crate) mod tests;
 
 pub(crate) use drag::{begin_drag, finish_pointer_drag, node_is_pointer_draggable};
 
-use super::button::now_millis_u32;
 use super::context::{clamp_screen_to_workspace, pointer_screen_context_for_monitor};
 use super::focus::pointer_focus_for_screen;
 use super::resize::handle_resize_motion;
 use super::screenshot::handle_screenshot_pointer_motion;
 use crate::input::keyboard::modkeys::modifier_active;
+
+#[inline]
+fn event_time_msec(time_usec: u64) -> u32 {
+    (time_usec / 1_000).min(u32::MAX as u64) as u32
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
@@ -44,6 +48,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     if exit_confirm_controller(&*st).active() {
         return;
     }
+
     if crate::compositor::interaction::state::note_cursor_activity(st, st.now_ms(Instant::now())) {
         ctx.backend.request_redraw();
     }
@@ -97,7 +102,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
                 &MotionEvent {
                     location: (context.local_sx as f64, context.local_sy as f64).into(),
                     serial: SERIAL_COUNTER.next_serial(),
-                    time: now_millis_u32(),
+                    time: event_time_msec(time_usec),
                 },
             );
         }
@@ -130,6 +135,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             delta,
             delta_unaccel,
             time_usec,
+            event_time_msec(time_usec),
             now,
         ) {
             routing::MotionDispatchResult::ConsumedByPointerConstraint => return,
@@ -397,7 +403,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         });
         st.note_pan_viewport_change(now);
         ps.pan_last_screen = (routing.global_sx, routing.global_sy);
-        ctx.backend.request_redraw();
+        ctx.backend.request_output_redraw(routing.monitor.as_str());
     }
 
     let bloom_hover = if ps.drag.is_none() && ps.resize.is_none() && !ps.panning {

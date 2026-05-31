@@ -54,7 +54,7 @@ impl XdgShellHandler for Halley {
                 .pending_spawn_monitor
                 .clone()
                 .filter(|m| self.model.monitor_state.monitors.contains_key(m))
-                .unwrap_or_else(|| self.focused_monitor().to_string())
+                .unwrap_or_else(|| self.spawn_target_monitor_for_intent(&intent))
         } else {
             self.spawn_target_monitor_for_intent(&intent)
         };
@@ -138,8 +138,13 @@ impl XdgShellHandler for Halley {
         let Some(node_id) = self.model.surface_to_node.get(&key).copied() else {
             return;
         };
-        if crate::compositor::workspace::state::node_in_maximize_session(self, node_id) {
-            return;
+        if let Some(monitor) =
+            crate::compositor::workspace::state::maximize_session_monitor_for_node(self, node_id)
+        {
+            let _ = crate::compositor::workspace::state::abort_maximize_session_for_monitor(
+                self,
+                monitor.as_str(),
+            );
         }
         let now = Instant::now();
         let focus_target = surface::stack_focus_target_for_node(self, node_id).unwrap_or(node_id);

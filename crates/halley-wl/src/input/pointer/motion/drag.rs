@@ -5,10 +5,15 @@ use crate::backend::interface::BackendView;
 use crate::compositor::interaction::state::ActiveDragState;
 use crate::compositor::interaction::{DragAxisMode, DragCtx, HitNode, ModState, PointerState};
 use crate::compositor::root::Halley;
-use crate::compositor::surface::is_active_stacking_workspace_member;
+use crate::compositor::surface::{
+    is_active_stacking_workspace_member, node_blocks_interactive_transform,
+};
 
 pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
     if st.is_fullscreen_active(node_id) {
+        return false;
+    }
+    if node_blocks_interactive_transform(st, node_id) {
         return false;
     }
     if crate::compositor::workspace::state::node_in_maximize_session(st, node_id) {
@@ -70,6 +75,14 @@ pub(crate) fn begin_drag(
     st.input.interaction_state.pending_core_click = None;
     st.input.interaction_state.pending_collapsed_node_press = None;
     st.input.interaction_state.pending_collapsed_node_click = None;
+    if let Some(monitor) =
+        crate::compositor::workspace::state::maximize_session_monitor_for_node(st, hit.node_id)
+    {
+        let _ = crate::compositor::workspace::state::abort_maximize_session_for_monitor(
+            st,
+            monitor.as_str(),
+        );
+    }
     let drag_monitor = st.monitor_for_node_or_current(hit.node_id);
     let edge_pan_eligible = drag_edge_pan_eligible(
         st,
@@ -489,6 +502,63 @@ mod tests {
 
         assert!(!node_is_pointer_draggable(&st, id));
     }
+
+    #[test]
+    fn finishing_active_drag_raises_dropped_window() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let existing = st.model.field.spawn_surface(
+            "existing",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        let dragged = st.model.field.spawn_surface(
+            "dragged",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        st.assign_node_to_current_monitor(existing);
+        st.assign_node_to_current_monitor(dragged);
+        let _ = st
+            .model
+            .field
+            .set_state(existing, halley_core::field::NodeState::Active);
+        let _ = st
+            .model
+            .field
+            .set_state(dragged, halley_core::field::NodeState::Active);
+        assert!(st.raise_overlap_policy_node(existing));
+        assert!(st.overlap_policy_stack_rank(existing) > st.overlap_policy_stack_rank(dragged));
+
+        let mut ps = PointerState::default();
+        st.input.interaction_state.active_drag = Some(ActiveDragState {
+            node_id: dragged,
+            allow_monitor_transfer: true,
+            edge_pan_eligible: false,
+            current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            pointer_monitor: st.model.monitor_state.current_monitor.clone(),
+            pointer_workspace_size: (1600, 1200),
+            pointer_screen_local: (200.0, 120.0),
+            edge_pan_x: DragAxisMode::Free,
+            edge_pan_y: DragAxisMode::Free,
+            last_edge_pan_at: Instant::now(),
+        });
+
+        finish_pointer_drag(
+            &mut st,
+            &mut ps,
+            dragged,
+            true,
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            Instant::now(),
+        );
+
+        assert!(st.overlap_policy_stack_rank(dragged) > st.overlap_policy_stack_rank(existing));
+        assert_eq!(
+            st.model.focus_state.primary_interaction_focus,
+            Some(dragged)
+        );
+    }
 }
 
 pub(crate) fn finish_pointer_drag(
@@ -536,6 +606,12 @@ pub(crate) fn finish_pointer_drag(
     }
     crate::compositor::carry::system::set_drag_authority_node(st, None);
     crate::compositor::carry::system::end_carry_state_tracking(st, node_id);
+    if started_active {
+        let _ = st.raise_overlap_policy_node(node_id);
+        st.set_recent_top_node(node_id, now + Duration::from_millis(1200));
+        st.set_interaction_focus(Some(node_id), 30_000, now);
+    }
+    st.resolve_surface_overlap();
     ps.preview_block_until = Some(now + Duration::from_millis(360));
     ps.drag = None;
 }

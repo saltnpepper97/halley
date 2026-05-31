@@ -13,8 +13,8 @@ use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
     DecorationsConfig, FontConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode,
-    NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig, RuntimeTuning,
-    ScreenshotConfig, ShapeStyle,
+    NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig, PlacementConfig,
+    RuntimeTuning, ScreenshotConfig, ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -72,6 +72,7 @@ impl Default for RuntimeTuning {
             non_overlap_gap_px: 20.0,
             field_active_windows_allowed: 5,
             pan_to_new: PanToNewMode::IfNeeded,
+            placement: PlacementConfig::default(),
             pins: PinsConfig::default(),
             close_restore_focus: true,
             close_restore_pan: CloseRestorePanMode::IfOffscreen,

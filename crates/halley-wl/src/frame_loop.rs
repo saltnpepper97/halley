@@ -1,10 +1,12 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use halley_core::field::{NodeId, Vec2};
+use smithay::backend::renderer::element::RenderElementStates;
 use smithay::desktop::utils::{
-    OutputPresentationFeedback, bbox_from_surface_tree, take_presentation_feedback_surface_tree,
+    OutputPresentationFeedback, bbox_from_surface_tree,
+    surface_presentation_feedback_flags_from_states, take_presentation_feedback_surface_tree,
 };
 use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::input::pointer::CursorImageStatus;
@@ -37,7 +39,11 @@ pub(crate) struct TtyOutputAnimationRedrawState {
 }
 
 pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) -> bool {
-    if st.now_ms(std::time::Instant::now()) < st.runtime.screenshot_full_repaint_until_ms {
+    monitor_overlay_requires_full_repaint_at(st, monitor, st.now_ms(std::time::Instant::now()))
+}
+
+fn monitor_overlay_requires_full_repaint_at(st: &Halley, monitor: &str, now_ms: u64) -> bool {
+    if now_ms < st.runtime.screenshot_full_repaint_until_ms {
         return true;
     }
     st.cluster_mode_active_for_monitor(monitor)
@@ -51,9 +57,7 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
             .cluster_state
             .cluster_overflow_visible_until_ms
             .get(monitor)
-            .is_some_and(|visible_until_ms| {
-                *visible_until_ms > st.now_ms(std::time::Instant::now())
-            })
+            .is_some_and(|visible_until_ms| *visible_until_ms > now_ms)
         || st
             .model
             .cluster_state
@@ -67,7 +71,7 @@ pub(crate) fn monitor_overlay_requires_full_repaint(st: &Halley, monitor: &str) 
             .focus_state
             .focus_ring_preview_until_ms
             .get(monitor)
-            .is_some_and(|until_ms| *until_ms > st.now_ms(std::time::Instant::now()))
+            .is_some_and(|until_ms| *until_ms > now_ms)
         || st.input.interaction_state.focus_cycle_session.is_some()
         || st
             .model
@@ -130,9 +134,23 @@ pub(crate) fn tty_output_animation_redraw_state(
                     .as_millis() as u64)
                     < transition.duration_ms
             });
+    let raise_animation_active = st.runtime.tuning.raise_animation_enabled()
+        && st.ui.render_state.raise_animation_active_for_monitor(
+            &st.model.field,
+            &st.model.monitor_state.node_monitor,
+            monitor,
+            now,
+        );
+    let landmark_slide_active = st.ui.render_state.landmark_slide_active_for_monitor(
+        &st.model.field,
+        &st.model.monitor_state.node_monitor,
+        monitor,
+        now,
+    );
     let fullscreen_motion_active = !st.model.fullscreen_state.fullscreen_motion.is_empty()
         || !st.model.fullscreen_state.fullscreen_scale_anim.is_empty();
-    let maximize_motion_active = crate::compositor::workspace::state::maximize_animation_active(st);
+    let maximize_motion_active =
+        crate::compositor::workspace::state::maximize_animation_active_for_monitor(st, monitor);
     let current_monitor = st.model.monitor_state.current_monitor.as_str();
     let viewport_pan_active = st
         .input
@@ -157,7 +175,7 @@ pub(crate) fn tty_output_animation_redraw_state(
             || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
             || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
             || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05);
-    let overlay_active = monitor_overlay_requires_full_repaint(st, monitor)
+    let overlay_active = monitor_overlay_requires_full_repaint_at(st, monitor, now_ms)
         || st
             .ui
             .render_state
@@ -180,6 +198,8 @@ pub(crate) fn tty_output_animation_redraw_state(
         || cluster_tile_active
         || close_window_active
         || stack_cycle_active
+        || raise_animation_active
+        || landmark_slide_active
         || viewport_pan_active
         || camera_smoothing_active
         || overlay_active;
@@ -192,15 +212,6 @@ pub(crate) fn tty_output_animation_redraw_state(
 
 pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
     st.ui.render_state.render_last_tick = now;
-    let now_ms = st.now_ms(now);
-    st.model
-        .spawn_state
-        .initial_spawn_authority
-        .retain(|spawned, authority| {
-            authority.until_ms > now_ms
-                && st.model.field.node(*spawned).is_some()
-                && st.model.field.node(authority.anchor_node).is_some()
-        });
     st.platform.popup_manager.cleanup();
     let alive: HashSet<NodeId> = st.model.field.node_ids_all().into_iter().collect();
     st.input
@@ -543,6 +554,43 @@ pub(crate) fn send_frame_callbacks_for_output(st: &mut Halley, output_name: &str
     }
 }
 
+pub(crate) fn output_has_pending_frame_callbacks(st: &Halley, output_name: &str) -> bool {
+    st.platform
+        .wlr_layer_shell_state
+        .layer_surfaces()
+        .any(|layer| {
+            let surface = layer.wl_surface();
+            surface_on_output(st, surface, output_name)
+                && surface_tree_has_pending_frame_callbacks(surface)
+        })
+        || st
+            .platform
+            .xdg_shell_state
+            .toplevel_surfaces()
+            .iter()
+            .any(|top| {
+                let surface = top.wl_surface();
+                surface_frame_callback_relevant_on_output(st, surface, output_name)
+                    && surface_tree_has_pending_frame_callbacks(surface)
+            })
+        || st
+            .platform
+            .xdg_shell_state
+            .popup_surfaces()
+            .iter()
+            .any(|popup| {
+                let popup_kind = PopupKind::from(popup.clone());
+                let Ok(root) = find_popup_root_surface(&popup_kind) else {
+                    return false;
+                };
+                surface_frame_callback_relevant_on_output(st, &root, output_name)
+                    && surface_tree_has_pending_frame_callbacks(popup.wl_surface())
+            })
+        || matches!(st.platform.cursor_manager.cursor_image(), CursorImageStatus::Surface(surface) if surface.alive()
+            && cursor_surface_on_output(st, surface, output_name)
+            && surface_tree_has_pending_frame_callbacks(surface))
+}
+
 pub(crate) fn take_presentation_feedback_for_output(
     st: &Halley,
     output_name: &str,
@@ -607,6 +655,77 @@ pub(crate) fn take_presentation_feedback_for_output(
     Some(feedback)
 }
 
+pub(crate) fn take_presentation_feedback_for_output_with_states(
+    st: &Halley,
+    output_name: &str,
+    render_element_states: &RenderElementStates,
+) -> Option<OutputPresentationFeedback> {
+    let output = st.model.monitor_state.outputs.get(output_name).cloned()?;
+    let mut feedback = OutputPresentationFeedback::new(&output);
+
+    let primary_output = |surface: &WlSurface, _states: &SurfaceData| {
+        render_element_states
+            .element_was_presented(surface)
+            .then(|| output.clone())
+    };
+    let feedback_flags = |surface: &WlSurface, _states: &SurfaceData| {
+        surface_presentation_feedback_flags_from_states(surface, render_element_states)
+    };
+
+    for layer in st.platform.wlr_layer_shell_state.layer_surfaces() {
+        let surface = layer.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            take_presentation_feedback_surface_tree(
+                surface,
+                &mut feedback,
+                primary_output,
+                feedback_flags,
+            );
+        }
+    }
+
+    for top in st.platform.xdg_shell_state.toplevel_surfaces() {
+        let surface = top.wl_surface();
+        if surface_on_output(st, surface, output_name) {
+            take_presentation_feedback_surface_tree(
+                surface,
+                &mut feedback,
+                primary_output,
+                feedback_flags,
+            );
+        }
+    }
+
+    for popup in st.platform.xdg_shell_state.popup_surfaces() {
+        let popup_kind = PopupKind::from(popup.clone());
+        let Ok(root) = find_popup_root_surface(&popup_kind) else {
+            continue;
+        };
+        if surface_on_output(st, &root, output_name) {
+            take_presentation_feedback_surface_tree(
+                popup.wl_surface(),
+                &mut feedback,
+                primary_output,
+                feedback_flags,
+            );
+        }
+    }
+
+    if let CursorImageStatus::Surface(surface) = st.platform.cursor_manager.cursor_image()
+        && surface.alive()
+        && cursor_surface_on_output(st, surface, output_name)
+    {
+        take_presentation_feedback_surface_tree(
+            surface,
+            &mut feedback,
+            primary_output,
+            feedback_flags,
+        );
+    }
+
+    Some(feedback)
+}
+
 pub(crate) fn send_presentation_feedback_for_output(st: &Halley, output_name: &str) {
     let Some(mut feedback) = take_presentation_feedback_for_output(st, output_name) else {
         return;
@@ -652,6 +771,30 @@ fn surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> boo
         .layer_surface_monitor
         .get(&surface.id())
         .is_some_and(|monitor| monitor == output_name)
+}
+
+fn surface_frame_callback_relevant_on_output(
+    st: &Halley,
+    surface: &WlSurface,
+    output_name: &str,
+) -> bool {
+    if let Some(node_id) = st.model.surface_to_node.get(&surface.id()).copied() {
+        let fullscreen_on_output = st
+            .model
+            .fullscreen_state
+            .fullscreen_active_node
+            .get(output_name)
+            .is_some_and(|active| *active == node_id);
+        return (st.model.field.is_visible(node_id) || fullscreen_on_output)
+            && st
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&node_id)
+                .is_some_and(|monitor| monitor == output_name);
+    }
+
+    surface_on_output(st, surface, output_name)
 }
 
 fn cursor_surface_on_output(st: &Halley, surface: &WlSurface, output_name: &str) -> bool {
@@ -716,6 +859,30 @@ fn send_frames_surface_tree(
         },
         |_, _, &()| true,
     );
+}
+
+fn surface_tree_has_pending_frame_callbacks(
+    surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+) -> bool {
+    let pending = Cell::new(false);
+    with_surface_tree_downward(
+        surface,
+        (),
+        |_, _, &()| TraversalAction::DoChildren(()),
+        |_, states, &()| {
+            pending.set(
+                pending.get()
+                    || !states
+                        .cached_state
+                        .get::<SurfaceAttributes>()
+                        .current()
+                        .frame_callbacks
+                        .is_empty(),
+            );
+        },
+        |_, _, &()| !pending.get(),
+    );
+    pending.get()
 }
 
 fn send_frames_surface_tree_for_output(

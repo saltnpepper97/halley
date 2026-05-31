@@ -57,6 +57,127 @@ struct VBlankMismatchState {
     reported_active: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum TtyRedrawState {
+    Idle,
+    Queued,
+    WaitingForVBlank { redraw_needed: bool },
+    WaitingForEstimatedVBlank { due_at: Instant },
+    WaitingForEstimatedVBlankAndQueued { due_at: Instant },
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TtyFrameClock {
+    refresh_interval: Duration,
+    last_presentation_time: Option<Duration>,
+    last_presentation_instant: Option<Instant>,
+    redraw_state: TtyRedrawState,
+}
+
+impl TtyFrameClock {
+    fn new(refresh_interval: Duration) -> Self {
+        Self {
+            refresh_interval,
+            last_presentation_time: None,
+            last_presentation_instant: None,
+            redraw_state: TtyRedrawState::Idle,
+        }
+    }
+
+    fn set_refresh_interval(&mut self, refresh_interval: Duration) {
+        self.refresh_interval = refresh_interval;
+    }
+
+    fn presented(&mut self, presentation_time: Duration, now: Instant) -> bool {
+        if !presentation_time.is_zero() {
+            self.last_presentation_time = Some(presentation_time);
+            self.last_presentation_instant = Some(now);
+        }
+        match std::mem::replace(&mut self.redraw_state, TtyRedrawState::Idle) {
+            TtyRedrawState::WaitingForVBlank { redraw_needed } => {
+                if redraw_needed {
+                    self.redraw_state = TtyRedrawState::Queued;
+                }
+                redraw_needed
+            }
+            TtyRedrawState::Queued | TtyRedrawState::WaitingForEstimatedVBlankAndQueued { .. } => {
+                self.redraw_state = TtyRedrawState::Queued;
+                true
+            }
+            TtyRedrawState::Idle | TtyRedrawState::WaitingForEstimatedVBlank { .. } => false,
+        }
+    }
+
+    fn queue_redraw(&mut self) {
+        self.redraw_state = match self.redraw_state {
+            TtyRedrawState::Idle => TtyRedrawState::Queued,
+            TtyRedrawState::WaitingForVBlank { .. } => TtyRedrawState::WaitingForVBlank {
+                redraw_needed: true,
+            },
+            TtyRedrawState::WaitingForEstimatedVBlank { due_at }
+            | TtyRedrawState::WaitingForEstimatedVBlankAndQueued { due_at } => {
+                TtyRedrawState::WaitingForEstimatedVBlankAndQueued { due_at }
+            }
+            TtyRedrawState::Queued => TtyRedrawState::Queued,
+        };
+    }
+
+    fn mark_submitted(&mut self) {
+        self.redraw_state = TtyRedrawState::WaitingForVBlank {
+            redraw_needed: false,
+        };
+    }
+
+    fn mark_estimated_wait(&mut self, due_at: Instant) {
+        self.redraw_state = match self.redraw_state {
+            TtyRedrawState::Queued | TtyRedrawState::WaitingForEstimatedVBlankAndQueued { .. } => {
+                TtyRedrawState::WaitingForEstimatedVBlankAndQueued { due_at }
+            }
+            _ => TtyRedrawState::WaitingForEstimatedVBlank { due_at },
+        };
+    }
+
+    fn consume_estimated_wait(&mut self) -> bool {
+        match std::mem::replace(&mut self.redraw_state, TtyRedrawState::Idle) {
+            TtyRedrawState::WaitingForEstimatedVBlankAndQueued { .. } | TtyRedrawState::Queued => {
+                self.redraw_state = TtyRedrawState::Queued;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn next_presentation_instant(&self, now: Instant) -> Instant {
+        let Some(last) = self.last_presentation_instant else {
+            return now + self.refresh_interval;
+        };
+        let mut next = last + self.refresh_interval;
+        while next <= now {
+            next += self.refresh_interval;
+        }
+        next
+    }
+}
+
+fn sync_tty_frame_clocks(
+    frame_clocks: &Rc<RefCell<HashMap<String, TtyFrameClock>>>,
+    outputs: &[TtyDrmOutput],
+) {
+    let mut clocks = frame_clocks.borrow_mut();
+    clocks.retain(|output_name, _| {
+        outputs
+            .iter()
+            .any(|output| output.connector_name == *output_name)
+    });
+    for output in outputs {
+        let interval = output_frame_interval(output);
+        clocks
+            .entry(output.connector_name.clone())
+            .and_modify(|clock| clock.set_refresh_interval(interval))
+            .or_insert_with(|| TtyFrameClock::new(interval));
+    }
+}
+
 fn tty_env_flag(name: &str) -> bool {
     std::env::var(name).is_ok_and(|value| {
         matches!(
@@ -119,17 +240,29 @@ fn output_frame_interval(output: &TtyDrmOutput) -> Duration {
 
 fn schedule_estimated_frame_callback(
     estimated_frame_callbacks: &Rc<RefCell<HashMap<String, Instant>>>,
+    frame_clocks: &Rc<RefCell<HashMap<String, TtyFrameClock>>>,
     output: &TtyDrmOutput,
     now: Instant,
 ) {
+    let due_at = frame_clocks
+        .borrow()
+        .get(output.connector_name.as_str())
+        .map(|clock| clock.next_presentation_instant(now))
+        .unwrap_or_else(|| now + output_frame_interval(output));
     estimated_frame_callbacks
         .borrow_mut()
         .entry(output.connector_name.clone())
-        .or_insert_with(|| now + output_frame_interval(output));
+        .or_insert(due_at);
+    frame_clocks
+        .borrow_mut()
+        .entry(output.connector_name.clone())
+        .or_insert_with(|| TtyFrameClock::new(output_frame_interval(output)))
+        .mark_estimated_wait(due_at);
 }
 
 fn send_due_estimated_frame_callbacks(
     estimated_frame_callbacks: &Rc<RefCell<HashMap<String, Instant>>>,
+    frame_clocks: &Rc<RefCell<HashMap<String, TtyFrameClock>>>,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
     st: &mut Halley,
     now: Instant,
@@ -152,8 +285,16 @@ fn send_due_estimated_frame_callbacks(
     let mut estimated = estimated_frame_callbacks.borrow_mut();
     for output_name in due_outputs {
         estimated.remove(output_name.as_str());
-        st.advance_tty_frame_callback_sequence(output_name.as_str());
-        crate::frame_loop::send_frame_callbacks_for_output(st, output_name.as_str(), now);
+        let redraw_queued = frame_clocks
+            .borrow_mut()
+            .get_mut(output_name.as_str())
+            .is_some_and(TtyFrameClock::consume_estimated_wait);
+        if redraw_queued {
+            st.runtime.tty_redraw_outputs.insert(output_name);
+        } else {
+            st.advance_tty_frame_callback_sequence(output_name.as_str());
+            crate::frame_loop::send_frame_callbacks_for_output(st, output_name.as_str(), now);
+        }
     }
 }
 
@@ -161,6 +302,7 @@ fn take_ready_tty_redraw_outputs(
     backend_handle: &TtyBackendHandle,
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
+    frame_clocks: &Rc<RefCell<HashMap<String, TtyFrameClock>>>,
     st: &mut Halley,
 ) -> HashSet<String> {
     if backend_handle.take_redraw_all_outputs() || std::mem::take(&mut st.runtime.tty_redraw_all) {
@@ -184,6 +326,16 @@ fn take_ready_tty_redraw_outputs(
         .retain(|output_name| output_names.contains(output_name));
 
     let pending = output_frame_pending.borrow();
+    {
+        let mut clocks = frame_clocks.borrow_mut();
+        for output_name in &st.runtime.tty_redraw_outputs {
+            if pending.get(output_name.as_str()).copied().unwrap_or(false)
+                && let Some(clock) = clocks.get_mut(output_name.as_str())
+            {
+                clock.queue_redraw();
+            }
+        }
+    }
     let ready: HashSet<String> = st
         .runtime
         .tty_redraw_outputs
@@ -206,6 +358,7 @@ fn queue_ready_tty_outputs(
     output_frame_pending_since: &Rc<RefCell<HashMap<String, Instant>>>,
     output_animation_redraw_active: &Rc<RefCell<HashMap<String, bool>>>,
     estimated_frame_callbacks: &Rc<RefCell<HashMap<String, Instant>>>,
+    frame_clocks: &Rc<RefCell<HashMap<String, TtyFrameClock>>>,
     composed_frame_cache: &Rc<RefCell<HashMap<String, GlesTexture>>>,
     pointer_state: &Rc<RefCell<crate::compositor::interaction::PointerState>>,
     gpu_manager: &Rc<RefCell<TtyGpuManager>>,
@@ -302,7 +455,12 @@ fn queue_ready_tty_outputs(
                     output_frame_pending_since
                         .borrow_mut()
                         .remove(output.connector_name.as_str());
-                    schedule_estimated_frame_callback(estimated_frame_callbacks, output, now);
+                    schedule_estimated_frame_callback(
+                        estimated_frame_callbacks,
+                        frame_clocks,
+                        output,
+                        now,
+                    );
                     continue;
                 }
                 estimated_frame_callbacks
@@ -321,6 +479,11 @@ fn queue_ready_tty_outputs(
                 output_frame_pending_since
                     .borrow_mut()
                     .insert(output.connector_name.clone(), now);
+                frame_clocks
+                    .borrow_mut()
+                    .entry(output.connector_name.clone())
+                    .or_insert_with(|| TtyFrameClock::new(output_frame_interval(output)))
+                    .mark_submitted();
                 st.advance_tty_frame_callback_sequence(output_name);
                 crate::frame_loop::send_frame_callbacks_for_output(st, output_name, now);
             }
@@ -740,6 +903,7 @@ fn apply_tty_reload(
     output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
     output_frame_pending_since: &Rc<RefCell<HashMap<String, Instant>>>,
     output_animation_redraw_active: &Rc<RefCell<HashMap<String, bool>>>,
+    frame_clocks: &Rc<RefCell<HashMap<String, TtyFrameClock>>>,
     scanout_signature: &Rc<RefCell<Vec<String>>>,
 ) -> bool {
     let mut rebuilt = Vec::new();
@@ -818,6 +982,8 @@ fn apply_tty_reload(
         }
     }
     crate::bootstrap::restore_live_camera_state(st, live_camera);
+    st.ui.render_state.clear_window_offscreen_caches();
+    st.request_maintenance();
 
     *scanout_signature.borrow_mut() = current_tty_output_signature(&rebuilt);
     st.configure_dmabuf_output_feedbacks(build_tty_dmabuf_output_feedbacks(
@@ -826,6 +992,7 @@ fn apply_tty_reload(
         primary_render_node,
     ));
     sync_tty_dpms_state(&rebuilt, dpms_enabled);
+    sync_tty_frame_clocks(frame_clocks, rebuilt.as_slice());
     *outputs.borrow_mut() = rebuilt;
 
     {
@@ -1018,8 +1185,14 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
 
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
-                let config_watch_target = PathBuf::from(config_path.as_str());
-                let aperture_watch_target = aperture_config_path.as_ref().clone();
+                let mut config_watch_targets = vec![
+                    PathBuf::from(config_path.as_str()),
+                    aperture_config_path.as_ref().clone(),
+                ];
+                config_watch_targets.extend(halley_config::gather_dependencies_for_file(
+                    config_path.as_str(),
+                ));
+                let config_watch_targets_for_callback = config_watch_targets.clone();
                 let mut watcher: RecommendedWatcher = notify::recommended_watcher(
                     move |result: Result<notify::Event, notify::Error>| {
                         if let Ok(event) = result {
@@ -1027,10 +1200,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 true
                             } else {
                                 event.paths.iter().any(|path| {
-                                    crate::aperture::aperture_config_matches_event_path(
+                                    crate::aperture::config_matches_event_path(
                                         path,
-                                        config_watch_target.as_path(),
-                                        aperture_watch_target.as_path(),
+                                        &config_watch_targets_for_callback,
                                     )
                                 })
                             };
@@ -1047,10 +1219,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         }
                     },
                 )?;
-                for watch_root in crate::aperture::config_watch_roots(
-                    Path::new(config_path.as_str()),
-                    aperture_config_path.as_path(),
-                ) {
+                for watch_root in crate::aperture::config_watch_roots(&config_watch_targets) {
                     if let Err(err) =
                         watcher.watch(watch_root.as_path(), RecursiveMode::NonRecursive)
                     {
@@ -1320,6 +1489,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let output_animation_redraw_active = Rc::new(RefCell::new(HashMap::new()));
             let estimated_frame_callbacks =
                 Rc::new(RefCell::new(HashMap::<String, Instant>::new()));
+            let frame_clocks = Rc::new(RefCell::new(HashMap::<String, TtyFrameClock>::new()));
+            sync_tty_frame_clocks(&frame_clocks, outputs.borrow().as_slice());
             let composed_frame_cache = Rc::new(RefCell::new(HashMap::<String, GlesTexture>::new()));
             {
                 let mut pending = output_frame_pending.borrow_mut();
@@ -1339,6 +1510,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let output_frame_pending_for_dpms_input = output_frame_pending.clone();
             let output_frame_pending_for_dpms_timer = output_frame_pending.clone();
             let output_frame_pending_since_for_timer = output_frame_pending_since.clone();
+            let frame_clocks_for_notifier = frame_clocks.clone();
             let vblank_throttles = Rc::new(RefCell::new(HashMap::<String, VBlankThrottle>::new()));
             let vblank_throttles_for_notifier = vblank_throttles.clone();
             let first_vblank_logged =
@@ -1364,6 +1536,8 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let composed_frame_cache_for_timer = composed_frame_cache.clone();
             let estimated_frame_callbacks_for_redraw = estimated_frame_callbacks.clone();
             let estimated_frame_callbacks_for_timer = estimated_frame_callbacks.clone();
+            let frame_clocks_for_redraw = frame_clocks.clone();
+            let frame_clocks_for_timer = frame_clocks.clone();
             let scanout_signature_for_timer = scanout_signature.clone();
             let output_timer_tick_at = Rc::new(RefCell::new(HashMap::<String, Instant>::new()));
             let output_timer_tick_at_for_timer = output_timer_tick_at.clone();
@@ -1388,6 +1562,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 let output_frame_pending_for_notifier = output_frame_pending_for_notifier.clone();
                 let output_frame_pending_since_for_notifier =
                     output_frame_pending_since_for_notifier.clone();
+                let frame_clocks_for_notifier = frame_clocks_for_notifier.clone();
                 let vblank_throttles_for_notifier = vblank_throttles_for_notifier.clone();
                 let event_loop_handle_for_vblank = event_loop_handle_for_vblank.clone();
                 let redraw_ping_for_vblank = redraw_ping_for_vblank.clone();
@@ -1396,7 +1571,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 let frame_stats_for_notifier = frame_stats.clone();
                 ev.handle().insert_source(
                     notifier,
-                    move |event, metadata, _st| match event {
+                    move |event, metadata, st| match event {
                         DrmEvent::VBlank(crtc) => {
                         let now = Instant::now();
                         let timestamp = drm_vblank_timestamp(metadata.as_ref());
@@ -1436,14 +1611,28 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     let output_frame_pending_since_for_notifier =
                                         output_frame_pending_since_for_notifier.clone();
                                     let frame_stats_for_notifier = frame_stats_for_notifier.clone();
-                                    move |_state| {
+                                    let frame_clocks_for_notifier = frame_clocks_for_notifier.clone();
+                                    move |state| {
+                                        let presentation_time = monotonic_now_duration();
                                         present_tty_frame_feedback(
                                             throttled_output_name.as_str(),
                                             compositor.borrow_mut().frame_submitted(),
-                                            monotonic_now_duration(),
+                                            presentation_time,
                                             refresh_interval,
                                             sequence,
                                         );
+                                        let redraw_needed = frame_clocks_for_notifier
+                                            .borrow_mut()
+                                            .get_mut(throttled_output_name.as_str())
+                                            .is_some_and(|clock| {
+                                                clock.presented(presentation_time, Instant::now())
+                                            });
+                                        if redraw_needed {
+                                            state
+                                                .runtime
+                                                .tty_redraw_outputs
+                                                .insert(throttled_output_name.clone());
+                                        }
                                         if let Some(frame_stats) = &frame_stats_for_notifier {
                                             frame_stats.borrow_mut().completed_vblanks += 1;
                                         }
@@ -1466,6 +1655,13 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 refresh_interval,
                                 sequence,
                             );
+                            let redraw_needed = frame_clocks_for_notifier
+                                .borrow_mut()
+                                .get_mut(output_name.as_str())
+                                .is_some_and(|clock| clock.presented(timestamp, now));
+                            if redraw_needed {
+                                st.runtime.tty_redraw_outputs.insert(output_name.clone());
+                            }
                             if let Some(frame_stats) = &frame_stats_for_notifier {
                                 frame_stats.borrow_mut().completed_vblanks += 1;
                             }
@@ -1595,6 +1791,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         &backend_handle_for_redraw,
                         &outputs_for_redraw,
                         &output_frame_pending_for_redraw,
+                        &frame_clocks_for_redraw,
                         st,
                     );
                     if animation_redraw_active && animation_output_ready {
@@ -1629,6 +1826,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         &output_frame_pending_since,
                         &output_animation_redraw_active_for_redraw,
                         &estimated_frame_callbacks_for_redraw,
+                        &frame_clocks_for_redraw,
                         &composed_frame_cache_for_redraw,
                         &pointer_state_for_redraw,
                         &gpu_manager_for_redraw,
@@ -1972,10 +2170,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                         &output_frame_pending_for_dpms_timer,
                                         &output_frame_pending_since_for_timer,
                                         &output_animation_redraw_active,
+                                        &frame_clocks_for_timer,
                                         &scanout_signature_for_timer,
                                     );
                                 } else {
-                                    let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
                                     crate::bootstrap::apply_reloaded_tuning(
                                         st,
                                         next,
@@ -2073,10 +2271,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     &output_frame_pending_for_dpms_timer,
                                     &output_frame_pending_since_for_timer,
                                     &output_animation_redraw_active,
+                                    &frame_clocks_for_timer,
                                     &scanout_signature_for_timer,
                                 );
                             } else {
-                                let next = crate::bootstrap::preserve_viewport_section(&st.runtime.tuning, next);
                                 crate::bootstrap::apply_reloaded_tuning(
                                     st,
                                     next,
@@ -2120,6 +2318,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             &output_frame_pending_for_dpms_timer,
                             &output_frame_pending_since_for_timer,
                             &output_animation_redraw_active,
+                            &frame_clocks_for_timer,
                             &scanout_signature_for_timer,
                         );
                 } else {
@@ -2177,6 +2376,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 if any_tty_output_dpms_enabled(&dpms_enabled_for_timer.borrow()) {
                     send_due_estimated_frame_callbacks(
                         &estimated_frame_callbacks_for_timer,
+                        &frame_clocks_for_timer,
                         &output_frame_pending_for_dpms_timer,
                         st,
                         now,
@@ -2193,7 +2393,18 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         );
                     }
 
-                    if !due_outputs.is_empty() {
+                    let frame_callback_due_outputs: HashSet<String> = due_outputs
+                        .iter()
+                        .filter(|output_name| {
+                            crate::frame_loop::output_has_pending_frame_callbacks(
+                                st,
+                                output_name.as_str(),
+                            )
+                        })
+                        .cloned()
+                        .collect();
+
+                    if !due_outputs.is_empty() || !st.runtime.tty_redraw_outputs.is_empty() {
                         let animation_redraw_active = tty_animation_redraw_active(
                             st,
                             &outputs_for_timer,
@@ -2204,8 +2415,10 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             &backend_handle_for_timer,
                             &outputs_for_timer,
                             &output_frame_pending_for_dpms_timer,
+                            &frame_clocks_for_timer,
                             st,
                         );
+                        eligible_outputs.extend(frame_callback_due_outputs);
                         if animation_redraw_active {
                             eligible_outputs.extend(tty_ready_animation_redraw_outputs(
                                 st,
@@ -2233,6 +2446,7 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                 &output_frame_pending_since_for_timer,
                                 &output_animation_redraw_active,
                                 &estimated_frame_callbacks_for_timer,
+                                &frame_clocks_for_timer,
                                 &composed_frame_cache_for_timer,
                                 &pointer_state_for_timer,
                                 &gpu_manager_for_timer,

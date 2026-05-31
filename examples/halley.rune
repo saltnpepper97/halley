@@ -46,6 +46,8 @@ input:
   repeat-rate 30
   repeat-delay 500
   focus-mode "click"
+  # Raise clicked windows independently from focus mode. Hover focus does not imply raise.
+  raise-on-click true
   keyboard:
     layout "us"
     variant ""
@@ -122,8 +124,6 @@ field:
   # Maximum number of non-node windows allowed on the Field before decay takes over.
   # Set to 0 to disable decay entirely.
   active-windows-allowed 5
-  # How aggressively the camera pans to newly opened windows.
-  pan-to-new "if-needed"
   # Pinned windows/nodes stay locked in place and remain visible in Bearings.
   pins:
     corner "top-right"
@@ -141,6 +141,33 @@ field:
     max 1.35
     smooth true
     smooth-rate 12.5
+  end
+end
+
+# Placement controls initial window placement and the readable landmark layer.
+# Expanded windows always allow overlap with other expanded windows.
+placement:
+  expanded:
+    # Controls only initial spawn placement. It does not enable/disable overlap.
+    strategy "center"
+    fallback "center"
+    # `find-empty` is best-effort only and ignores expanded windows as blockers.
+    find-empty-mode "best-effort"
+  end
+
+  landmarks:
+    # Nodes, core nodes, and collapsed clusters remain non-overlapping map objects.
+    strategy "nearest-free"
+    normal-blocker "relocate"
+    pinned-blocker "preserve"
+  end
+
+  reveal:
+    enabled true
+    max-pan-px 360
+    animation-ms 180
+    # After placement, reveal the new active window if it would otherwise be awkward/offscreen.
+    pan-to-new "if-needed"
   end
 end
 
@@ -237,6 +264,7 @@ animations:
 
   maximize:
     enabled true
+    # Visual-only maximize/unmaximize tween; field geometry stays unchanged.
     duration-ms 240
   end
 
@@ -259,6 +287,13 @@ animations:
   stack:
     enabled true
     duration-ms 220
+  end
+
+  raise:
+    enabled true
+    duration-ms 140
+    scale 1.025
+    shadow-boost 0.18
   end
 end
 
@@ -418,7 +453,6 @@ rules:
   rule:
     app-id "firefox"
     title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
-    overlap-policy "all"
     spawn-placement "center"
     cluster-participation "float"
   end

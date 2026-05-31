@@ -118,6 +118,30 @@ impl<T: Deref<Target = Halley>> FocusStateController<T> {
             node_id.as_u64(),
         )
     }
+
+    fn active_surface_is_frontmost_on_monitor(&self, node_id: NodeId) -> bool {
+        let Some(target_monitor) = self.model.monitor_state.node_monitor.get(&node_id) else {
+            return false;
+        };
+        let target_rank = self.overlap_policy_stack_rank(node_id);
+        self.model
+            .field
+            .nodes()
+            .iter()
+            .filter(|&(id, node)| {
+                *id != node_id
+                    && node.kind == halley_core::field::NodeKind::Surface
+                    && node.state == halley_core::field::NodeState::Active
+                    && self.model.field.is_visible(*id)
+                    && self
+                        .model
+                        .monitor_state
+                        .node_monitor
+                        .get(id)
+                        .is_some_and(|monitor| monitor == target_monitor)
+            })
+            .all(|(&id, _)| self.overlap_policy_stack_rank(id) <= target_rank)
+    }
 }
 
 impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
@@ -349,7 +373,14 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
     }
 
     pub fn raise_overlap_policy_node(&mut self, node_id: NodeId) -> bool {
-        if !self.node_has_overlap_policy(node_id) {
+        if !self.model.field.node(node_id).is_some_and(|node| {
+            node.kind == halley_core::field::NodeKind::Surface
+                && node.state == halley_core::field::NodeState::Active
+                && self.model.field.is_visible(node_id)
+        }) {
+            return false;
+        }
+        if self.active_surface_is_frontmost_on_monitor(node_id) {
             return false;
         }
         self.model.focus_state.next_overlap_raise_order = self
@@ -362,6 +393,18 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
             .focus_state
             .overlap_raise_order
             .insert(node_id, order);
+        if self.runtime.tuning.raise_animation_enabled() {
+            let duration_ms = self.runtime.tuning.raise_animation_duration_ms();
+            let scale = self.runtime.tuning.raise_animation_scale();
+            let shadow_boost = self.runtime.tuning.raise_animation_shadow_boost();
+            self.ui.render_state.start_raise_animation(
+                node_id,
+                Instant::now(),
+                duration_ms,
+                scale,
+                shadow_boost,
+            );
+        }
         self.request_maintenance();
         true
     }
@@ -378,5 +421,83 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
             return None;
         }
         self.model.focus_state.recent_top_node
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use smithay::reexports::wayland_server::Display;
+
+    #[test]
+    fn raising_active_window_starts_raise_animation() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let node = state.model.field.spawn_surface(
+            "window",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 200.0 },
+        );
+        let _ = state
+            .model
+            .field
+            .set_state(node, halley_core::field::NodeState::Active);
+
+        assert!(state.raise_overlap_policy_node(node));
+
+        assert!(state.ui.render_state.raise_animations.contains_key(&node));
+    }
+
+    #[test]
+    fn raising_frontmost_window_does_not_restart_raise_animation() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let back = state.model.field.spawn_surface(
+            "back",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 200.0 },
+        );
+        let front = state.model.field.spawn_surface(
+            "front",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 200.0 },
+        );
+        for node in [back, front] {
+            state.assign_node_to_monitor(node, monitor.as_str());
+            let _ = state
+                .model
+                .field
+                .set_state(node, halley_core::field::NodeState::Active);
+        }
+
+        assert!(!state.raise_overlap_policy_node(front));
+        assert!(!state.ui.render_state.raise_animations.contains_key(&front));
+
+        assert!(state.raise_overlap_policy_node(back));
+        let order_after_raise = state.model.focus_state.next_overlap_raise_order;
+        let started_at = state
+            .ui
+            .render_state
+            .raise_animations
+            .get(&back)
+            .expect("raise animation")
+            .started_at;
+
+        assert!(!state.raise_overlap_policy_node(back));
+        assert_eq!(
+            state.model.focus_state.next_overlap_raise_order,
+            order_after_raise
+        );
+        assert_eq!(
+            state
+                .ui
+                .render_state
+                .raise_animations
+                .get(&back)
+                .expect("raise animation")
+                .started_at,
+            started_at
+        );
     }
 }

@@ -168,12 +168,40 @@ pub(crate) fn draw_debug_frame_to_target(
     cursor_image: Option<&smithay::input::pointer::CursorImageStatus>,
     frame_transform: Transform,
 ) -> Result<(), Box<dyn Error>> {
+    let prepared = prepare_debug_frame_state(st, size);
+
+    if crate::protocol::wayland::session_lock::session_lock_active(st) {
+        let scene = collect_debug_frame_scene(
+            renderer,
+            st,
+            size,
+            resize_preview,
+            hover_node,
+            preview_hover_node,
+            prepared.now,
+        );
+        let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
+        let mut frame = renderer.render(framebuffer, size, frame_transform)?;
+        frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
+        draw_debug_frame_scene(&mut frame, st, size, &prepared, &scene, hover_node)?;
+        let cursor_config = st.runtime.tuning.cursor.clone();
+        draw_cursor_layer(
+            &mut frame,
+            prepared.damage,
+            cursor_screen,
+            &cursor,
+            &mut st.platform.cursor_manager,
+            &cursor_config,
+        )?;
+        let _ = frame.finish()?;
+        return Ok(());
+    }
+
     ensure_node_circle_resources(renderer, st)?;
     ensure_window_texture_program(renderer, st);
     ensure_window_shadow_program(renderer, st);
     ensure_surface_clip_program(renderer, st);
 
-    let prepared = prepare_debug_frame_state(st, size);
     prewarm_visible_active_window_offscreen_caches(renderer, st, prepared.now);
 
     let scene = collect_debug_frame_scene(

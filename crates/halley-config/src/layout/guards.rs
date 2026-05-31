@@ -93,6 +93,9 @@ impl RuntimeTuning {
             self.animations.window_open.duration_ms.clamp(1, 10_000);
         self.animations.tile.duration_ms = self.animations.tile.duration_ms.clamp(1, 10_000);
         self.animations.stack.duration_ms = self.animations.stack.duration_ms.clamp(1, 10_000);
+        self.animations.raise.duration_ms = self.animations.raise.duration_ms.clamp(1, 10_000);
+        self.animations.raise.scale = self.animations.raise.scale.clamp(1.0, 1.2);
+        self.animations.raise.shadow_boost = self.animations.raise.shadow_boost.clamp(0.0, 1.0);
     }
 }
 
