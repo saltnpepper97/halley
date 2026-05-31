@@ -745,6 +745,10 @@ impl Halley {
         super::monitor::state::node_visible_on_current_monitor(self, id)
     }
 
+    pub(crate) fn node_assigned_to_current_monitor(&self, id: NodeId) -> bool {
+        super::monitor::state::node_assigned_to_current_monitor(self, id)
+    }
+
     #[allow(dead_code)]
     pub(crate) fn assign_node_to_current_monitor(&mut self, id: NodeId) {
         let monitor = self.model.monitor_state.current_monitor.clone();
@@ -1354,10 +1358,7 @@ impl Halley {
             })
     }
 
-    pub(crate) fn suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
-        super::fullscreen::system::fullscreen_controller(self).suspend_xdg_fullscreen(node_id, now)
-    }
-
+    #[cfg(test)]
     pub(crate) fn soft_suspend_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
         super::fullscreen::system::fullscreen_controller(self)
             .soft_suspend_xdg_fullscreen(node_id, now)

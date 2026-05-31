@@ -27,6 +27,14 @@ pub(crate) fn begin_resize(
     hit: HitNode,
     frame: ButtonFrame,
 ) {
+    if let Some(monitor) =
+        crate::compositor::workspace::state::maximize_session_monitor_for_node(st, hit.node_id)
+    {
+        let _ = crate::compositor::workspace::state::abort_maximize_session_for_monitor(
+            st,
+            monitor.as_str(),
+        );
+    }
     if !node_allows_interactive_resize(st, hit.node_id) {
         return;
     }

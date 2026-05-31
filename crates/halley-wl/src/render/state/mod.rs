@@ -180,6 +180,16 @@ impl RenderState {
         to: Vec2,
         now: Instant,
     ) {
+        self.start_landmark_slide_animation_at(node_id, from, to, now);
+    }
+
+    pub(crate) fn start_landmark_slide_animation_at(
+        &mut self,
+        node_id: NodeId,
+        from: Vec2,
+        to: Vec2,
+        started_at: Instant,
+    ) {
         if (from.x - to.x).abs() <= 0.5 && (from.y - to.y).abs() <= 0.5 {
             return;
         }
@@ -188,7 +198,7 @@ impl RenderState {
             LandmarkSlideAnimationState {
                 from,
                 to,
-                started_at: now,
+                started_at,
             },
         );
     }

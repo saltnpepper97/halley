@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.3.0] - 2026-05-30
 
 ### Added
 - Add `wp_presentation` support and send presentation feedback after TTY and winit frames so Wayland clients such as gamescope can receive frame timing instead of falling back to X11 behavior.
@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 - Add `field.pins.background-colour` for configuring the circular pin badge background independently from the pin glyph colour.
 - Add top-right config error overlays for startup, manual reload, IPC reload, and file-watch reload failures, including scrollable diagnostics, hover pause, right-click dismissal, wheel and shift-wheel scrolling, and configurable `overlays.error-colour` styling.
 - Add strict config validation diagnostics for unknown Halley keys and invalid literals, with path, line, source text, and suggestions when available.
+- Add a selectable `animations.window-close.style "fade"` close animation that fades captured closing windows without shrinking them.
+- Add visual-only maximize/unmaximize animation using `animations.maximize`, preserving field geometry while tweening the presented rect.
 
 ### Changed
 - Switch the field placement model so expanded windows may overlap other expanded windows while collapsed nodes and core landmarks remain non-overlapping map objects; pinned landmarks remain solid blockers during spawn, drag, and resize.
@@ -33,6 +35,7 @@ All notable changes to this project will be documented in this file.
 - Move pure overlap contact physics into `halley-core` so the Wayland compositor only wires it into runtime state.
 - Remove empty npm package manifests from the repository root.
 - Rename the default explicit field-drag pointer action from `field-jump` to `pan-field`, keeping `field-jump` and `drag-pan` as config aliases for compatibility.
+- Treat maximize and fullscreen as presentation states: they now preserve field geometry, do not shove other windows or pinned landmarks, and participate in normal focus/raise ordering so other windows can appear above them until the maximized/fullscreen window is explicitly raised again.
 
 ### Fixed
 - Keep window borders at the same z-depth as their owning window so a background window's border cannot draw over the foreground window.
@@ -42,7 +45,10 @@ All notable changes to this project will be documented in this file.
 - Make dragged collapsed nodes/cores slide along expanded-window edges and flip sides only after crossing the window midpoint instead of snapping into corners.
 - Draw active-window pin badges with the owning window's z-order, matching borders instead of staying globally above overlapping windows.
 - Preserve existing keyboard focus for overlay/popup text input instead of restoring last input focus on every unbound typing key.
-- End a monitor's active maximize session when an external active window is moved onto that monitor, so transferred windows cannot sit above a still-maximized target.
+- Keep maximized windows active when new or transferred windows overlap them, while allowing click raise, trail navigation, and focus cycling to bring maximized windows forward again through normal stacking.
+- Preserve the original active-window position for delayed manual collapses so the first collapse over another window visibly slides the resulting node out from under the blocker.
+- Apply the same collapsed-node placement and slide animation to automatic active-window-limit and focus-ring decay collapses.
+- Let active-window-limit collapse enforcement run during visual active-transition animations so the first automatic collapse resolves without waiting for later pointer movement.
 - Remove initial-spawn push-away authority so opening a new expanded window does not shove existing expanded windows out of the way.
 - Limit new-window reveal panning to the one case where a pinned landmark blocks the current spawn center.
 - Apply live config reloads directly and force active window render caches/full redraw after reload.
@@ -63,6 +69,7 @@ All notable changes to this project will be documented in this file.
 - Keep Steam's built-in startup/login overlap behavior from leaking onto the main Steam client by expiring the startup rule once the surface no longer matches the login window.
 - Route layer-shell commits through the monitor assigned to that layer surface so layer state updates no longer use the wrong active monitor context.
 - Throttle TTY redraws and frame callbacks per output so fullscreen/video timer frames and cursor motion avoid unnecessary cross-monitor redraw work.
+- Reduce per-output render work by filtering active surfaces before sorting/syncing them and scoping maximize animation redraws to the affected monitor.
 - Use the launch or window-rule spawn target monitor for initial `xdg_toplevel` configure bounds so new clients receive bounds for the output they will actually open on.
 - Prevent focus decay while spawn or open transitions are still active, avoiding premature collapse during window launch and reveal animations.
 - Preserve fullscreen and pointer state across monitor changes by separating soft fullscreen suspension from client fullscreen exits, refreshing pointer constraints from the last screen position, releasing constraints when crossing monitors, and keeping cursor surface output state current.
@@ -101,6 +108,7 @@ All notable changes to this project will be documented in this file.
 - Prevent right-click holds on empty field space from starting a camera pan.
 - Make overlap-policy windows stack like normal windows, drawing and hit-testing the clicked or newest overlapped window on top while hover focus does not raise it.
 - Animate unpinned collapsed nodes sliding out from under explicitly spawned or resized active windows while keeping logical overlap resolution immediate.
+- Delay manual-collapse node slide-out until the captured close animation finishes, so noding an overlapped behind window visibly slides the collapsed marker out instead of snapping under the closing snapshot.
 
 ## [v0.2.0] - 2026-04-28
 

@@ -46,3 +46,23 @@ overlays:
   borders true
   border-source "primary"
 end
+
+animations:
+  enabled true
+
+  maximize:
+    enabled true
+    duration-ms 240
+  end
+
+  window-open:
+    enabled true
+    duration-ms 620
+  end
+
+  window-close:
+    enabled true
+    duration-ms 270
+    style "shrink"
+  end
+end

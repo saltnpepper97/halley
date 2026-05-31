@@ -6,45 +6,17 @@ pub(super) fn exit_monitor_fullscreen_for_new_toplevel(
     monitor: &str,
     now: Instant,
 ) {
-    if let Some(existing) = st
-        .model
-        .fullscreen_state
-        .fullscreen_active_node
-        .get(monitor)
-        .copied()
-    {
-        st.exit_xdg_fullscreen(existing, now);
-    }
+    let _ = (st, monitor, now);
 }
 
 pub(super) fn exit_monitor_maximize_for_new_toplevel(st: &mut Halley, monitor: &str, now: Instant) {
-    let Some(target_id) =
-        crate::compositor::workspace::state::maximize_session_target_for_monitor(st, monitor)
-    else {
-        return;
-    };
-    let target_anchor = st
-        .model
-        .workspace_state
-        .maximize_sessions
-        .get(monitor)
-        .and_then(|session| session.node_snapshots.get(&target_id))
-        .copied();
-    if let Some(snapshot) = target_anchor {
-        st.spawn_monitor_state_mut(monitor).spawn_focus_override =
-            Some(crate::compositor::spawn::state::SpawnFocusOverride {
-                pos: snapshot.pos,
-                size: snapshot.size,
-            });
-    }
-    if crate::compositor::actions::window::restore_maximize_session_for_spawn(st, monitor, now) {
-        st.request_maintenance();
-    }
+    let _ = (st, monitor, now);
 }
 
 #[inline]
 pub(super) fn should_exit_monitor_maximize_for_new_toplevel(intent: &InitialWindowIntent) -> bool {
-    intent.effective_overlap_policy() == halley_config::InitialWindowOverlapPolicy::None
+    let _ = intent;
+    false
 }
 
 pub(super) fn exit_monitor_fullscreen_for_overlap_intent(
@@ -459,6 +431,22 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             .window_geometry
             .insert(node_id, window_geometry);
         if is_active_cluster_workspace_member(st, node_id) {
+            return;
+        }
+        if crate::compositor::workspace::state::node_in_maximize_session(st, node_id) {
+            st.model
+                .workspace_state
+                .last_active_size
+                .insert(node_id, new_size);
+            st.request_maintenance();
+            return;
+        }
+        if st.is_fullscreen_active(node_id) {
+            st.model
+                .workspace_state
+                .last_active_size
+                .insert(node_id, new_size);
+            st.request_maintenance();
             return;
         }
         let size_changed = st.model.field.node(node_id).is_some_and(|node| {

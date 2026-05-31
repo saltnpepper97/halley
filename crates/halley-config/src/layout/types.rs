@@ -133,6 +133,7 @@ impl TimedAnimationConfig {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WindowCloseAnimationStyle {
     Shrink,
+    Fade,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -448,12 +448,14 @@ fn draw_closing_window_animations(
             continue;
         };
 
-        let scale = match style {
+        let eased = crate::animation::ease_in_out_cubic(animation.progress);
+        let (scale, alpha) = match style {
             halley_config::WindowCloseAnimationStyle::Shrink => {
-                (1.0 - crate::animation::ease_in_out_cubic(animation.progress)).clamp(0.0, 1.0)
+                ((1.0 - eased).clamp(0.0, 1.0), 1.0)
             }
+            halley_config::WindowCloseAnimationStyle::Fade => (1.0, (1.0 - eased).clamp(0.0, 1.0)),
         };
-        if scale <= 0.001 {
+        if scale <= 0.001 || alpha <= 0.001 {
             continue;
         }
 
@@ -477,6 +479,7 @@ fn draw_closing_window_animations(
                 tex.geo_w *= scale;
                 tex.geo_h *= scale;
                 tex.corner_radius *= scale;
+                tex.alpha *= alpha;
                 tex
             })
             .collect::<Vec<_>>();
@@ -511,7 +514,7 @@ fn draw_closing_window_animations(
                         inner_offset_y: border_rect.inner_offset_y * scale,
                         inner_w: (border_rect.inner_w * scale).max(1.0),
                         inner_h: (border_rect.inner_h * scale).max(1.0),
-                        alpha: border_rect.alpha,
+                        alpha: border_rect.alpha * alpha,
                         border_px: border_rect.border_px * scale,
                         corner_radius: border_rect.corner_radius * scale,
                         inner_corner_radius: border_rect.inner_corner_radius * scale,

@@ -211,17 +211,17 @@ pub(crate) fn collect_active_surfaces(
 ) {
     let active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let mut resized_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
-    let mut fullscreen_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
+    let fullscreen_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let mut above_fullscreen_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut resized_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
-    let mut fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut above_fullscreen_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
-    let mut fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
+    let fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut above_fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture> = Vec::new();
     let mut popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
-    let mut fullscreen_popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
+    let fullscreen_popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut above_fullscreen_popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
     crate::animation::retain_live_cluster_tile_tracks(
@@ -297,7 +297,13 @@ pub(crate) fn collect_active_surfaces(
             let wl = t.wl_surface().clone();
             let key = wl.id();
             let node_id = st.model.surface_to_node.get(&key).copied()?;
-            node_surface_map.insert(node_id, wl.clone());
+            let node = st.model.field.node(node_id)?;
+            if node.state != halley_core::field::NodeState::Active
+                || !st.model.field.is_visible(node_id)
+                || !st.node_assigned_to_current_monitor(node_id)
+            {
+                return None;
+            }
             Some((node_id, wl))
         })
         .collect();
@@ -314,14 +320,14 @@ pub(crate) fn collect_active_surfaces(
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };
+        node_surface_map.insert(node_id, wl.clone());
         let stack_transition_pose = stack_transition_plan
             .as_ref()
             .and_then(|plan| plan.poses.get(&node_id).copied());
         let stack_member_rendered = stack_render_set.contains(&node_id);
         if node.state != halley_core::field::NodeState::Active
-            || (!stack_member_rendered
-                && (!st.model.field.is_visible(node_id)
-                    || !st.node_visible_on_current_monitor(node_id)))
+            || !st.model.field.is_visible(node_id)
+            || !st.node_assigned_to_current_monitor(node_id)
         {
             continue;
         }
@@ -332,6 +338,14 @@ pub(crate) fn collect_active_surfaces(
         let fullscreen_on_current_monitor = st
             .fullscreen_monitor_for_node(node_id)
             .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor);
+        let fullscreen_visual =
+            crate::compositor::fullscreen::system::fullscreen_visual_for_node_on_current_monitor(
+                st, node_id,
+            );
+        let maximized_visual =
+            crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+                st, node_id, now,
+            );
 
         let active_cluster_member = is_active_cluster_workspace_member(st, node_id);
         let dragging_this_node = st.input.interaction_state.drag_authority_node == Some(node_id);
@@ -398,9 +412,7 @@ pub(crate) fn collect_active_surfaces(
 
         // Fit scale for fullscreen windows that don't match the physical monitor resolution.
         let fit_scale = if fullscreen_on_current_monitor {
-            let sw = (output_clip.size.w as f32) / node_intrinsic.x.max(1.0);
-            let sh = (output_clip.size.h as f32) / node_intrinsic.y.max(1.0);
-            sw.min(sh).max(0.1) // aspect-correct fit
+            1.0
         } else if let Some(monitor) = st.fullscreen_monitor_for_node(node_id) {
             let (target_w, target_h) = st.fullscreen_target_size_for(monitor);
             let sw = (target_w as f32) / node_intrinsic.x.max(1.0);
@@ -421,11 +433,11 @@ pub(crate) fn collect_active_surfaces(
         } else {
             raise_anim.shadow_boost
         };
-        let render_scale = scale * cam_scale * fit_scale * raise_scale;
-
         let p = stack_transition_pose
             .map(|pose| pose.center)
             .or_else(|| tiling_tile_transition.map(|rect| rect.center))
+            .or_else(|| fullscreen_visual.map(|(center, _)| center))
+            .or_else(|| maximized_visual.map(|(center, _)| center))
             .unwrap_or(node_pos);
         let local_bbox = (
             bbox.loc.x as f32,
@@ -452,6 +464,18 @@ pub(crate) fn collect_active_surfaces(
         } else {
             frozen_tiling_geometry
                 .unwrap_or_else(|| window_geometry_for_node(st, node_id).unwrap_or(local_bbox))
+        };
+
+        let render_scale = if let Some((_, visual_size)) = fullscreen_visual {
+            let scale_x = visual_size.x * cam_scale / local_geo.2.max(1.0);
+            let scale_y = visual_size.y * cam_scale / local_geo.3.max(1.0);
+            scale_x.min(scale_y).max(0.001)
+        } else if let Some((_, visual_size)) = maximized_visual {
+            let scale_x = visual_size.x * cam_scale / local_geo.2.max(1.0);
+            let scale_y = visual_size.y * cam_scale / local_geo.3.max(1.0);
+            scale_x.min(scale_y).max(0.001)
+        } else {
+            scale * cam_scale * fit_scale * raise_scale
         };
 
         let (_cx, _cy, sx, sy, texture_rect, geometry_rect) =
@@ -829,8 +853,6 @@ pub(crate) fn collect_active_surfaces(
                             .extend(cropped);
                     } else if draw_above_fullscreen_this_node {
                         above_fullscreen_active_elements.extend(cropped);
-                    } else if fullscreen_on_current_monitor {
-                        fullscreen_active_elements.extend(cropped);
                     } else if draw_top_this_node {
                         resized_active_elements.extend(cropped);
                     } else {
@@ -973,8 +995,6 @@ pub(crate) fn collect_active_surfaces(
                                     .extend(cropped);
                             } else if draw_above_fullscreen_this_node {
                                 above_fullscreen_active_elements.extend(cropped);
-                            } else if fullscreen_on_current_monitor {
-                                fullscreen_active_elements.extend(cropped);
                             } else if draw_top_this_node {
                                 resized_active_elements.extend(cropped);
                             } else {
@@ -1215,8 +1235,6 @@ pub(crate) fn collect_active_surfaces(
                             .push(offscreen);
                     } else if draw_above_fullscreen_this_node {
                         above_fullscreen_offscreen_textures.push(offscreen);
-                    } else if fullscreen_on_current_monitor {
-                        fullscreen_offscreen_textures.push(offscreen);
                     } else if draw_top_this_node {
                         resized_offscreen_textures.push(offscreen);
                     } else {
@@ -1309,8 +1327,6 @@ pub(crate) fn collect_active_surfaces(
                     .extend(cropped);
             } else if draw_above_fullscreen_this_node {
                 above_fullscreen_active_elements.extend(cropped);
-            } else if fullscreen_on_current_monitor {
-                fullscreen_active_elements.extend(cropped);
             } else if draw_top_this_node {
                 resized_active_elements.extend(cropped);
             } else {
@@ -1381,8 +1397,6 @@ pub(crate) fn collect_active_surfaces(
                         };
                         if draw_above_fullscreen_this_node {
                             above_fullscreen_popup_offscreen_textures.push(offscreen_texture);
-                        } else if fullscreen_on_current_monitor {
-                            fullscreen_popup_offscreen_textures.push(offscreen_texture);
                         } else {
                             popup_offscreen_textures.push(offscreen_texture);
                         }
@@ -1422,8 +1436,6 @@ pub(crate) fn collect_active_surfaces(
 
         if draw_above_fullscreen_this_node {
             above_fullscreen_popup_elements.extend(popup_cropped);
-        } else if fullscreen_on_current_monitor {
-            fullscreen_popup_elements.extend(popup_cropped);
         } else {
             popup_elements.extend(popup_cropped);
         }

@@ -73,6 +73,40 @@ pub(crate) fn active_node_screen_rect(
         ));
     }
 
+    if let Some((center, size)) =
+        crate::compositor::fullscreen::system::fullscreen_visual_for_node_on_current_monitor(
+            st, node_id,
+        )
+    {
+        let (cx, cy) = world_to_screen(st, w, h, center.x, center.y);
+        let cam_scale = st.camera_render_scale();
+        let half_w = size.x * cam_scale * 0.5;
+        let half_h = size.y * cam_scale * 0.5;
+        return Some((
+            cx as f32 - half_w,
+            cy as f32 - half_h,
+            cx as f32 + half_w,
+            cy as f32 + half_h,
+        ));
+    }
+
+    if let Some((center, size)) =
+        crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+            st, node_id, now,
+        )
+    {
+        let (cx, cy) = world_to_screen(st, w, h, center.x, center.y);
+        let cam_scale = st.camera_render_scale();
+        let half_w = size.x * cam_scale * 0.5;
+        let half_h = size.y * cam_scale * 0.5;
+        return Some((
+            cx as f32 - half_w,
+            cy as f32 - half_h,
+            cx as f32 + half_w,
+            cy as f32 + half_h,
+        ));
+    }
+
     let xform = active_node_surface_transform_screen_details(st, w, h, node_id, now, None)?;
     let local_geo = active_node_visual_local_rect(st, node_id).or_else(|| {
         st.model.field.node(node_id).map(|n| {
@@ -150,63 +184,87 @@ pub(crate) fn active_node_surface_transform_screen_details(
         * fit_scale
         * cam_scale;
 
-    let (origin_x, origin_y, scale) =
-        if let Some(active_resize) = active_resize_geometry_screen(st, node_id, resize_preview) {
-            (
-                active_resize.surface_origin_x,
-                active_resize.surface_origin_y,
-                1.0f32,
+    let (origin_x, origin_y, scale) = if let Some(active_resize) =
+        active_resize_geometry_screen(st, node_id, resize_preview)
+    {
+        (
+            active_resize.surface_origin_x,
+            active_resize.surface_origin_y,
+            1.0f32,
+        )
+    } else {
+        let p = n.pos;
+        let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
+
+        let bbox_lx = st
+            .ui
+            .render_state
+            .cache
+            .bbox_loc
+            .get(&node_id)
+            .copied()
+            .unwrap_or((0.0, 0.0))
+            .0;
+        let bbox_ly = st
+            .ui
+            .render_state
+            .cache
+            .bbox_loc
+            .get(&node_id)
+            .copied()
+            .unwrap_or((0.0, 0.0))
+            .1;
+        let bbox_w = n.intrinsic_size.x.max(1.0);
+        let bbox_h = n.intrinsic_size.y.max(1.0);
+        let local_bbox = (bbox_lx, bbox_ly, bbox_w, bbox_h);
+        let (gx, gy, gw, gh) = st
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .get(&node_id)
+            .copied()
+            .map(|(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
+            .unwrap_or(local_bbox);
+
+        let (rx, ry, scale) = if let Some((center, visual_size)) =
+            crate::compositor::fullscreen::system::fullscreen_visual_for_node_on_current_monitor(
+                st, node_id,
+            ) {
+            let (cx, cy) = world_to_screen(st, w, h, center.x, center.y);
+            let scale_x = visual_size.x * cam_scale / gw.max(1.0);
+            let scale_y = visual_size.y * cam_scale / gh.max(1.0);
+            let visual_scale = scale_x.min(scale_y).max(0.001);
+            let rw = (gw * visual_scale).round() as i32;
+            let rh = (gh * visual_scale).round() as i32;
+            (cx - (rw / 2), cy - (rh / 2), visual_scale)
+        } else if let Some((center, visual_size)) =
+            crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+                st, node_id, now,
             )
+        {
+            let (cx, cy) = world_to_screen(st, w, h, center.x, center.y);
+            let scale_x = visual_size.x * cam_scale / gw.max(1.0);
+            let scale_y = visual_size.y * cam_scale / gh.max(1.0);
+            let visual_scale = scale_x.min(scale_y).max(0.001);
+            let rw = (gw * visual_scale).round() as i32;
+            let rh = (gh * visual_scale).round() as i32;
+            (cx - (rw / 2), cy - (rh / 2), visual_scale)
+        } else if st
+            .fullscreen_monitor_for_node(node_id)
+            .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor)
+        {
+            (0, 0, anim_scale)
         } else {
-            let p = n.pos;
-            let (cx, cy) = world_to_screen(st, w, h, p.x, p.y);
-
-            let bbox_lx = st
-                .ui
-                .render_state
-                .cache
-                .bbox_loc
-                .get(&node_id)
-                .copied()
-                .unwrap_or((0.0, 0.0))
-                .0;
-            let bbox_ly = st
-                .ui
-                .render_state
-                .cache
-                .bbox_loc
-                .get(&node_id)
-                .copied()
-                .unwrap_or((0.0, 0.0))
-                .1;
-            let bbox_w = n.intrinsic_size.x.max(1.0);
-            let bbox_h = n.intrinsic_size.y.max(1.0);
-            let local_bbox = (bbox_lx, bbox_ly, bbox_w, bbox_h);
-            let (gx, gy, gw, gh) = st
-                .ui
-                .render_state
-                .cache
-                .window_geometry
-                .get(&node_id)
-                .copied()
-                .map(|(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
-                .unwrap_or(local_bbox);
-
-            let (rx, ry) = if st
-                .fullscreen_monitor_for_node(node_id)
-                .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor)
-            {
-                (0, 0)
-            } else {
-                let rw = (gw * anim_scale).round() as i32;
-                let rh = (gh * anim_scale).round() as i32;
-                (cx - (rw / 2), cy - (rh / 2))
-            };
-            let origin_x = (rx as f32) - (gx * anim_scale).round();
-            let origin_y = (ry as f32) - (gy * anim_scale).round();
-
-            (origin_x, origin_y, anim_scale)
+            let rw = (gw * anim_scale).round() as i32;
+            let rh = (gh * anim_scale).round() as i32;
+            (cx - (rw / 2), cy - (rh / 2), anim_scale)
         };
+        let origin_x = (rx as f32) - (gx * scale).round();
+        let origin_y = (ry as f32) - (gy * scale).round();
+
+        (origin_x, origin_y, scale)
+    };
 
     Some(ActiveNodeSurfaceTransformScreen {
         origin_x,

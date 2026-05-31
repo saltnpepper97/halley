@@ -374,7 +374,7 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
         };
         if node.state != halley_core::field::NodeState::Active
             || !st.model.field.is_visible(node_id)
-            || !st.node_visible_on_current_monitor(node_id)
+            || !st.node_assigned_to_current_monitor(node_id)
             || node_requires_live_surface_render(st, node_id)
         {
             continue;

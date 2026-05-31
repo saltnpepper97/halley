@@ -275,4 +275,26 @@ end
         assert_eq!(out.animations.raise.scale, 1.025);
         assert_eq!(out.animations.raise.shadow_boost, 0.18);
     }
+
+    #[test]
+    fn window_close_style_accepts_fade() {
+        let cfg = RuneConfig::from_str(
+            r#"
+animations:
+  window-close:
+    style "fade"
+  end
+end
+"#,
+        )
+        .expect("animations config should parse");
+
+        let mut out = RuntimeTuning::default();
+        load_animations_section(&cfg, &mut out);
+
+        assert_eq!(
+            out.animations.window_close.style,
+            crate::layout::WindowCloseAnimationStyle::Fade
+        );
+    }
 }

@@ -116,7 +116,7 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
         if active_windows_allowed == 0 {
             return;
         }
-        if self.spawn_or_open_transition_active(now_ms) {
+        if self.spawn_placement_transition_active(now_ms) {
             return;
         }
         let companion = self.companion_surface_node(now_ms);
@@ -221,17 +221,16 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
                     let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
                     continue;
                 }
+                let now = Instant::now();
                 crate::compositor::workspace::state::start_active_to_node_close_animation(
-                    self,
-                    id,
-                    Instant::now(),
+                    self, id, now,
                 );
-                let _ = self.model.field.set_decay_level(id, DecayLevel::Cold);
+                let _ = crate::compositor::workspace::state::finish_auto_collapse(self, id, now);
             }
         }
     }
 
-    fn spawn_or_open_transition_active(&self, now_ms: u64) -> bool {
+    fn spawn_placement_transition_active(&self, now_ms: u64) -> bool {
         self.model.spawn_state.active_spawn_pan.is_some()
             || !self.model.spawn_state.pending_spawn_pan_queue.is_empty()
             || self.model.spawn_state.pending_pan_activate.is_some()
@@ -247,12 +246,6 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
                 .pending_tiled_insert_reveal_at_ms
                 .values()
                 .any(|&at_ms| at_ms > now_ms)
-            || self
-                .model
-                .workspace_state
-                .active_transitions
-                .values()
-                .any(|transition| transition.is_active(now_ms))
     }
 
     pub fn apply_single_surface_decay_policy(
@@ -332,12 +325,11 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
             .or_insert(now_ms);
 
         if now_ms.saturating_sub(outside_since_ms) >= delay_ms {
+            let now = Instant::now();
             crate::compositor::workspace::state::start_active_to_node_close_animation(
-                self,
-                id,
-                Instant::now(),
+                self, id, now,
             );
-            let _ = self.model.field.set_decay_level(id, DecayLevel::Cold);
+            let _ = crate::compositor::workspace::state::finish_auto_collapse(self, id, now);
         } else {
             let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
         }
@@ -530,6 +522,77 @@ mod tests {
     }
 
     #[test]
+    fn active_window_limit_collapse_places_node_out_from_under_active_window() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.field_active_windows_allowed = 1;
+        tuning.animations.window_close.enabled = false;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let keeper = state.model.field.spawn_surface(
+            "keeper",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let target = state.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        for id in [keeper, target] {
+            state.assign_node_to_monitor(id, monitor.as_str());
+            let _ = state
+                .model
+                .field
+                .set_state(id, halley_core::field::NodeState::Active);
+        }
+        state
+            .model
+            .focus_state
+            .monitor_focus
+            .insert(monitor.clone(), keeper);
+        let origin = state.model.field.node(target).expect("target").pos;
+
+        state.enforce_single_primary_active_unit();
+
+        let resolved = state.model.field.node(target).expect("target").pos;
+        assert_eq!(
+            state
+                .model
+                .field
+                .node(keeper)
+                .map(|node| node.state.clone()),
+            Some(halley_core::field::NodeState::Active)
+        );
+        assert_eq!(
+            state
+                .model
+                .field
+                .node(target)
+                .map(|node| node.state.clone()),
+            Some(halley_core::field::NodeState::Node)
+        );
+        assert_ne!(resolved, origin);
+        assert!(
+            !state
+                .model
+                .workspace_state
+                .manual_collapsed_nodes
+                .contains(&target)
+        );
+        let slide = state
+            .ui
+            .render_state
+            .landmark_slide_animations
+            .get(&target)
+            .expect("landmark slide animation");
+        assert_eq!(slide.from, origin);
+        assert_eq!(slide.to, resolved);
+    }
+
+    #[test]
     fn active_window_limit_waits_during_open_transition() {
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.field_active_windows_allowed = 1;
@@ -556,13 +619,11 @@ mod tests {
                 .field
                 .set_state(id, halley_core::field::NodeState::Active);
         }
-        state.model.workspace_state.active_transitions.insert(
-            second,
-            crate::compositor::workspace::state::ActiveTransition {
-                started_at_ms: 0,
-                duration_ms: u64::MAX,
-            },
-        );
+        state
+            .model
+            .spawn_state
+            .pending_spawn_activate_at_ms
+            .insert(second, u64::MAX);
 
         state.enforce_single_primary_active_unit();
 
@@ -573,6 +634,58 @@ mod tests {
         assert_eq!(
             state.model.field.node(second).map(|n| n.state.clone()),
             Some(halley_core::field::NodeState::Active)
+        );
+    }
+
+    #[test]
+    fn active_window_limit_does_not_wait_for_visual_active_transition() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.field_active_windows_allowed = 1;
+        tuning.animations.window_close.enabled = false;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let keeper = state.model.field.spawn_surface(
+            "keeper",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 100.0 },
+        );
+        let target = state.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 180.0, y: 0.0 },
+            Vec2 { x: 100.0, y: 100.0 },
+        );
+        for id in [keeper, target] {
+            state.assign_node_to_monitor(id, monitor.as_str());
+            let _ = state
+                .model
+                .field
+                .set_state(id, halley_core::field::NodeState::Active);
+        }
+        state
+            .model
+            .focus_state
+            .monitor_focus
+            .insert(monitor, keeper);
+        state.model.workspace_state.active_transitions.insert(
+            target,
+            crate::compositor::workspace::state::ActiveTransition {
+                started_at_ms: 0,
+                duration_ms: u64::MAX,
+            },
+        );
+
+        state.enforce_single_primary_active_unit();
+
+        assert_eq!(
+            state.model.field.node(keeper).map(|n| n.state.clone()),
+            Some(halley_core::field::NodeState::Active)
+        );
+        assert_eq!(
+            state.model.field.node(target).map(|n| n.state.clone()),
+            Some(halley_core::field::NodeState::Node)
         );
     }
 

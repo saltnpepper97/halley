@@ -283,12 +283,6 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
             self.apply_wayland_focus_state(None);
             return true;
         };
-        let target_monitor = self.monitor_for_node_or_current(target);
-        let origin_fullscreen = session.origin_focus.and_then(|node_id| {
-            self.is_fullscreen_active(node_id)
-                .then_some((node_id, self.monitor_for_node_or_current(node_id)))
-        });
-
         if Some(target) == session.origin_focus {
             if let Some(immersive) = session.immersive_origin.as_ref()
                 && immersive.node_id == target
@@ -301,19 +295,9 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
                 );
             }
             self.apply_wayland_focus_state(Some(target));
+            let _ = self.raise_overlap_policy_node(target);
             crate::compositor::interaction::pointer::center_pointer_on_node(self, target, now);
             return true;
-        }
-
-        if let Some(immersive) = session.immersive_origin.as_ref()
-            && self.is_fullscreen_active(immersive.node_id)
-            && immersive.monitor == target_monitor
-        {
-            self.suspend_xdg_fullscreen(immersive.node_id, now);
-        } else if let Some((origin_id, origin_monitor)) = origin_fullscreen
-            && origin_monitor == target_monitor
-        {
-            self.exit_xdg_fullscreen(origin_id, now);
         }
 
         let changed =
@@ -560,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn same_monitor_commit_exits_origin_fullscreen_for_normal_fullscreen() {
+    fn same_monitor_commit_keeps_origin_fullscreen_behind_target() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -590,12 +574,13 @@ mod tests {
         assert!(state.start_or_step_focus_cycle(FocusCycleBindingAction::Forward, now));
         assert!(state.commit_focus_cycle(now));
 
-        assert!(
-            !state
+        assert_eq!(
+            state
                 .model
                 .fullscreen_state
                 .fullscreen_active_node
-                .contains_key(current_monitor.as_str())
+                .get(current_monitor.as_str()),
+            Some(&fullscreen)
         );
         assert!(
             state
@@ -608,10 +593,13 @@ mod tests {
             state.model.focus_state.primary_interaction_focus,
             Some(other)
         );
+        assert!(
+            state.overlap_policy_stack_rank(other) > state.overlap_policy_stack_rank(fullscreen)
+        );
     }
 
     #[test]
-    fn same_monitor_commit_suspends_origin_fullscreen_for_immersive_session() {
+    fn same_monitor_commit_keeps_immersive_fullscreen_behind_target() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -659,24 +647,27 @@ mod tests {
         let now = Instant::now();
         assert!(state.commit_focus_cycle(now));
 
-        assert!(
-            !state
-                .model
-                .fullscreen_state
-                .fullscreen_active_node
-                .contains_key(current_monitor.as_str())
-        );
         assert_eq!(
             state
                 .model
                 .fullscreen_state
-                .fullscreen_suspended_node
+                .fullscreen_active_node
                 .get(current_monitor.as_str()),
             Some(&fullscreen)
+        );
+        assert!(
+            state
+                .model
+                .fullscreen_state
+                .fullscreen_suspended_node
+                .is_empty()
         );
         assert_eq!(
             state.model.focus_state.primary_interaction_focus,
             Some(other)
+        );
+        assert!(
+            state.overlap_policy_stack_rank(other) > state.overlap_policy_stack_rank(fullscreen)
         );
     }
 }

@@ -248,7 +248,7 @@ pub(super) fn collect_debug_frame_scene(
             let node = st.model.field.node(id)?;
             if !st.model.field.participates_in_field_view(id)
                 || !st.model.field.is_visible(id)
-                || !st.node_visible_on_current_monitor(id)
+                || !st.node_assigned_to_current_monitor(id)
             {
                 return None;
             }

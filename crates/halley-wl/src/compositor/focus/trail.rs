@@ -133,12 +133,6 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
         now: Instant,
     ) -> bool {
         let monitor = self.focused_monitor().to_string();
-        if crate::compositor::workspace::state::maximize_session_active_on_monitor(
-            self,
-            monitor.as_str(),
-        ) {
-            return false;
-        }
         if self
             .active_cluster_workspace_for_monitor(monitor.as_str())
             .is_some()
@@ -523,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn trail_navigation_is_disabled_while_maximized() {
+    fn trail_navigation_raises_windows_while_maximized() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
             .handle();
@@ -553,10 +547,11 @@ mod tests {
             )
         );
 
-        assert!(!state.navigate_window_trail(TrailDirection::Prev, now));
+        assert!(state.navigate_window_trail(TrailDirection::Prev, now));
         assert_eq!(
             state.model.focus_state.primary_interaction_focus,
-            Some(second)
+            Some(first)
         );
+        assert!(state.overlap_policy_stack_rank(first) > state.overlap_policy_stack_rank(second));
     }
 }
