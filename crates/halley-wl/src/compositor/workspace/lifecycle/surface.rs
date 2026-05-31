@@ -433,7 +433,14 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
         if is_active_cluster_workspace_member(st, node_id) {
             return;
         }
-        if crate::compositor::workspace::state::node_in_maximize_session(st, node_id) {
+        let pending_initial_reveal = st
+            .model
+            .spawn_state
+            .pending_initial_reveal
+            .contains(&node_id);
+        if !pending_initial_reveal
+            && crate::compositor::workspace::state::node_in_maximize_session(st, node_id)
+        {
             st.model
                 .workspace_state
                 .last_active_size
@@ -441,7 +448,7 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             st.request_maintenance();
             return;
         }
-        if st.is_fullscreen_active(node_id) {
+        if !pending_initial_reveal && st.is_fullscreen_active(node_id) {
             st.model
                 .workspace_state
                 .last_active_size
@@ -453,11 +460,6 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
             (node.intrinsic_size.x - new_size.x).abs() > 0.5
                 || (node.intrinsic_size.y - new_size.y).abs() > 0.5
         });
-        let pending_initial_reveal = st
-            .model
-            .spawn_state
-            .pending_initial_reveal
-            .contains(&node_id);
         if size_changed && st.input.interaction_state.resize_active != Some(node_id) {
             if let Some(node) = st.model.field.node_mut(node_id) {
                 node.intrinsic_size = new_size;

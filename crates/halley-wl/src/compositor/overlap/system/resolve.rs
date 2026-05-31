@@ -14,8 +14,9 @@ use crate::compositor::root::Halley;
 use super::{
     carry_overlap_node_direct, clamp_speed, collision_extents_for_node,
     layout_collision_extents_for_node, mixed_expanded_landmark_locks, node_is_landmark,
-    node_participates_in_overlap, nodes_share_overlap_group, non_overlap_gap_world,
-    physics_damping_per_sec, physics_inv_mass, required_sep_x, required_sep_y,
+    node_participates_in_drag_overlap, node_participates_in_overlap, nodes_share_overlap_group,
+    non_overlap_gap_world, physics_damping_per_sec, physics_inv_mass, required_sep_x,
+    required_sep_y,
 };
 
 fn resolve_static_surface_overlap(st: &mut Halley, ids: &[NodeId]) {
@@ -272,41 +273,28 @@ pub(crate) fn resolve_surface_overlap(st: &mut Halley) {
         return;
     }
 
-    let mut ids: Vec<NodeId> = st
-        .model
-        .field
-        .nodes()
-        .keys()
-        .copied()
-        .filter(|&id| node_participates_in_overlap(st, id) && node_is_landmark(st, id))
-        .collect();
-
-    if let Some(drag_id) = st.input.interaction_state.drag_authority_node
-        && node_participates_in_overlap(st, drag_id)
-        && !ids.contains(&drag_id)
-    {
-        ids.push(drag_id);
-    }
-
-    if let Some(drag_id) = st.input.interaction_state.drag_authority_node
-        && node_is_landmark(st, drag_id)
-    {
-        let active_windows = st
-            .model
+    let mut ids: Vec<NodeId> = if st.input.interaction_state.drag_authority_node.is_some() {
+        st.model
             .field
             .node_ids_all()
             .into_iter()
-            .filter(|&id| {
-                node_participates_in_overlap(st, id)
-                    && super::node_is_expanded_window(st, id)
-                    && nodes_share_overlap_group(st, drag_id, id)
-            })
-            .collect::<Vec<_>>();
-        for id in active_windows {
-            if !ids.contains(&id) {
-                ids.push(id);
-            }
-        }
+            .filter(|&id| node_participates_in_drag_overlap(st, id))
+            .collect()
+    } else {
+        st.model
+            .field
+            .nodes()
+            .keys()
+            .copied()
+            .filter(|&id| node_participates_in_overlap(st, id))
+            .collect()
+    };
+
+    if let Some(drag_id) = st.input.interaction_state.drag_authority_node
+        && node_participates_in_drag_overlap(st, drag_id)
+        && !ids.contains(&drag_id)
+    {
+        ids.push(drag_id);
     }
 
     if ids.is_empty() {

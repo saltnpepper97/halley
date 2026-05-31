@@ -47,6 +47,25 @@ fn node_participates_in_overlap(st: &Halley, id: NodeId) -> bool {
     !st.is_fullscreen_active(id) && overlap_read_context(st).node_participates_in_overlap(id)
 }
 
+fn node_participates_in_drag_overlap(st: &Halley, id: NodeId) -> bool {
+    if node_participates_in_overlap(st, id) {
+        return true;
+    }
+    if st.is_fullscreen_active(id) || !st.model.field.is_active_cluster_member(id) {
+        return false;
+    }
+    st.model.field.node(id).is_some_and(|n| {
+        st.model.field.is_visible(id)
+            && matches!(
+                n.state,
+                halley_core::field::NodeState::Active
+                    | halley_core::field::NodeState::Node
+                    | halley_core::field::NodeState::Core
+                    | halley_core::field::NodeState::Drifting
+            )
+    })
+}
+
 pub(crate) fn non_overlap_gap_world(st: &Halley) -> f32 {
     overlap_read_context(st).non_overlap_gap_world()
 }
@@ -89,26 +108,39 @@ fn mixed_expanded_landmark_locks(
     let b_expanded = node_is_expanded_window(st, b);
     let a_landmark = node_is_landmark(st, a);
     let b_landmark = node_is_landmark(st, b);
-    let physics_drag = st.runtime.tuning.physics_enabled;
     let drag_authority = st.input.interaction_state.drag_authority_node;
+    let drag_authority_expanded =
+        drag_authority.is_some_and(|drag_id| node_is_expanded_window(st, drag_id));
 
     if a_expanded && b_landmark {
         let b_pinned = st.model.field.node(b).is_some_and(|node| node.pinned);
-        if physics_drag && drag_authority == Some(b) {
+        if st.runtime.tuning.physics_enabled && drag_authority == Some(b) {
             return (a_locked, true);
         }
         if b_pinned {
             (a_locked, true)
+        } else if drag_authority_expanded {
+            if drag_authority == Some(a) || a_locked {
+                (true, b_locked)
+            } else {
+                (a_locked, true)
+            }
         } else {
             (true, b_locked)
         }
     } else if b_expanded && a_landmark {
         let a_pinned = st.model.field.node(a).is_some_and(|node| node.pinned);
-        if physics_drag && drag_authority == Some(a) {
+        if st.runtime.tuning.physics_enabled && drag_authority == Some(a) {
             return (true, b_locked);
         }
         if a_pinned {
             (true, b_locked)
+        } else if drag_authority_expanded {
+            if drag_authority == Some(b) || b_locked {
+                (a_locked, true)
+            } else {
+                (true, b_locked)
+            }
         } else {
             (a_locked, true)
         }

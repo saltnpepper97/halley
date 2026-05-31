@@ -5,9 +5,25 @@ use crate::compositor::root::Halley;
 use super::{
     CollisionExtents, carry_overlap_node_direct, collision_extents_for_node,
     mixed_expanded_landmark_locks, node_is_expanded_window, node_is_landmark,
-    node_participates_in_overlap, nodes_share_overlap_group, non_overlap_gap_world, required_sep_x,
-    required_sep_y,
+    node_participates_in_drag_overlap, node_participates_in_overlap, nodes_share_overlap_group,
+    non_overlap_gap_world, required_sep_x, required_sep_y,
 };
+
+fn carry_candidate_ids(st: &Halley) -> Vec<NodeId> {
+    if st.input.interaction_state.drag_authority_node.is_some() {
+        st.model.field.node_ids_all()
+    } else {
+        st.model.field.nodes().keys().copied().collect()
+    }
+}
+
+fn candidate_participates(st: &Halley, id: NodeId) -> bool {
+    if st.input.interaction_state.drag_authority_node.is_some() {
+        node_participates_in_drag_overlap(st, id)
+    } else {
+        node_participates_in_overlap(st, id)
+    }
+}
 
 pub(crate) fn carry_surface_non_overlap(
     st: &mut Halley,
@@ -44,14 +60,12 @@ fn clamp_against_locked_neighbors(st: &Halley, id: NodeId, to: Vec2) -> Vec2 {
     };
 
     for _ in 0..24 {
-        let locked_others: Vec<(NodeId, Vec2, CollisionExtents)> = st
-            .model
-            .field
-            .nodes()
-            .iter()
-            .filter_map(|(&oid, other)| {
+        let locked_others: Vec<(NodeId, Vec2, CollisionExtents)> = carry_candidate_ids(st)
+            .into_iter()
+            .filter_map(|oid| {
+                let other = st.model.field.node(oid)?;
                 if oid == id
-                    || !node_participates_in_overlap(st, oid)
+                    || !candidate_participates(st, oid)
                     || !nodes_share_overlap_group(st, id, oid)
                     || !(other.pinned
                         || st.input.interaction_state.resize_static_node == Some(oid)
@@ -119,9 +133,12 @@ fn clamp_landmark_sweep_against_expanded(
         return to;
     }
     let mut out = to;
-    for (&oid, other) in st.model.field.nodes() {
+    for oid in carry_candidate_ids(st) {
+        let Some(other) = st.model.field.node(oid) else {
+            continue;
+        };
         if oid == id
-            || !node_participates_in_overlap(st, oid)
+            || !candidate_participates(st, oid)
             || !nodes_share_overlap_group(st, id, oid)
             || !node_is_expanded_window(st, oid)
         {
@@ -203,14 +220,12 @@ fn carry_surface_no_overlap_split(st: &mut Halley, id: NodeId, to: Vec2) -> bool
     let mut mover_pos = clamp_landmark_sweep_against_expanded(st, id, n.pos, to, mover_ext, gap);
 
     for _ in 0..24 {
-        let others: Vec<(NodeId, Vec2, CollisionExtents, bool)> = st
-            .model
-            .field
-            .nodes()
-            .iter()
-            .filter_map(|(&oid, other)| {
+        let others: Vec<(NodeId, Vec2, CollisionExtents, bool)> = carry_candidate_ids(st)
+            .into_iter()
+            .filter_map(|oid| {
+                let other = st.model.field.node(oid)?;
                 if oid == id
-                    || !node_participates_in_overlap(st, oid)
+                    || !candidate_participates(st, oid)
                     || !nodes_share_overlap_group(st, id, oid)
                 {
                     return None;
@@ -339,14 +354,12 @@ fn carry_surface_no_overlap_clamped(st: &mut Halley, id: NodeId, to: Vec2) -> bo
     let mut mover_pos = clamp_landmark_sweep_against_expanded(st, id, n.pos, to, mover_ext, gap);
 
     for _ in 0..24 {
-        let others: Vec<(NodeId, Vec2, CollisionExtents)> = st
-            .model
-            .field
-            .nodes()
-            .iter()
-            .filter_map(|(&oid, other)| {
+        let others: Vec<(NodeId, Vec2, CollisionExtents)> = carry_candidate_ids(st)
+            .into_iter()
+            .filter_map(|oid| {
+                let other = st.model.field.node(oid)?;
                 if oid == id
-                    || !node_participates_in_overlap(st, oid)
+                    || !candidate_participates(st, oid)
                     || !nodes_share_overlap_group(st, id, oid)
                 {
                     return None;
