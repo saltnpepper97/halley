@@ -91,8 +91,8 @@ pub(crate) fn active_node_screen_rect(
     }
 
     if let Some((center, size)) =
-        crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor(
-            st, node_id,
+        crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+            st, node_id, now,
         )
     {
         let (cx, cy) = world_to_screen(st, w, h, center.x, center.y);
@@ -239,8 +239,8 @@ pub(crate) fn active_node_surface_transform_screen_details(
             let rh = (gh * visual_scale).round() as i32;
             (cx - (rw / 2), cy - (rh / 2), visual_scale)
         } else if let Some((center, visual_size)) =
-            crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor(
-                st, node_id,
+            crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+                st, node_id, now,
             )
         {
             let (cx, cy) = world_to_screen(st, w, h, center.x, center.y);

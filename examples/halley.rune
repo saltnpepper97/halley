@@ -264,6 +264,7 @@ animations:
 
   maximize:
     enabled true
+    # Visual-only maximize/unmaximize tween; field geometry stays unchanged.
     duration-ms 240
   end
 

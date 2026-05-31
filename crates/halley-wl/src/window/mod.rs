@@ -336,8 +336,8 @@ pub(crate) fn collect_active_surfaces(
                 st, node_id,
             );
         let maximized_visual =
-            crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor(
-                st, node_id,
+            crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+                st, node_id, now,
             );
 
         let active_cluster_member = is_active_cluster_workspace_member(st, node_id);

@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - Add top-right config error overlays for startup, manual reload, IPC reload, and file-watch reload failures, including scrollable diagnostics, hover pause, right-click dismissal, wheel and shift-wheel scrolling, and configurable `overlays.error-colour` styling.
 - Add strict config validation diagnostics for unknown Halley keys and invalid literals, with path, line, source text, and suggestions when available.
 - Add a selectable `animations.window-close.style "fade"` close animation that fades captured closing windows without shrinking them.
+- Add visual-only maximize/unmaximize animation using `animations.maximize`, preserving field geometry while tweening the presented rect.
 
 ### Changed
 - Switch the field placement model so expanded windows may overlap other expanded windows while collapsed nodes and core landmarks remain non-overlapping map objects; pinned landmarks remain solid blockers during spawn, drag, and resize.

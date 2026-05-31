@@ -394,7 +394,9 @@ mod tests {
     #[test]
     fn maximized_window_uses_normal_raise_order_for_hits() {
         let dh = Display::<Halley>::new().expect("display").handle();
-        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
 
         let maximized = st.model.field.spawn_surface(
             "maximized",

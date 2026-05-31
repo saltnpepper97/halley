@@ -596,6 +596,7 @@ animations:
 
   maximize:
     enabled true
+    # Visual-only maximize/unmaximize tween; field geometry stays unchanged.
     duration-ms 240
   end
 
@@ -945,7 +946,8 @@ mod tests {
             "  pins:\n    corner \"top-right\"\n    colour \"auto\"\n    background-colour \"auto\""
         ));
         assert!(rendered.contains("    size 1.0"));
-        assert!(rendered.contains("  maximize:\n    enabled true\n    duration-ms 240"));
+        assert!(rendered.contains("  maximize:\n    enabled true"));
+        assert!(rendered.contains("    duration-ms 240"));
         assert!(rendered.contains("  raise:\n    enabled true\n    duration-ms 140"));
         assert!(rendered.contains("  shadows:\n    window:"));
         assert!(rendered.contains("      colour \"#05030530\""));

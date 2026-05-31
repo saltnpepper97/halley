@@ -298,13 +298,17 @@ fn start_restore_maximize_session(
         (session.node_snapshots.clone(), session.camera)
     };
 
-    let _ = now;
     if state == crate::compositor::workspace::state::MaximizeSessionState::Restoring {
         crate::compositor::workspace::state::set_monitor_camera_target_snapshot(
             st, monitor, camera,
         );
     }
     for (node_id, snapshot) in &node_snapshots {
+        let from =
+            crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+                st, *node_id, now,
+            )
+            .unwrap_or_else(|| maximize_target_for_monitor(st, monitor));
         if let Some(node) = st.model.field.node_mut(*node_id) {
             node.pos = snapshot.pos;
             node.intrinsic_size = snapshot.size;
@@ -317,8 +321,24 @@ fn start_restore_maximize_session(
             snapshot.size.y.round() as i32,
         );
         st.set_last_active_size_now(*node_id, snapshot.size);
+        if st.runtime.tuning.maximize_animation_enabled() {
+            st.model.workspace_state.maximize_animation.insert(
+                *node_id,
+                crate::compositor::workspace::state::MaximizeAnimation {
+                    monitor: monitor.to_string(),
+                    from_pos: from.0,
+                    to_pos: snapshot.pos,
+                    from_size: from.1,
+                    to_size: snapshot.size,
+                    start_ms: st.now_ms(now),
+                    duration_ms: st.runtime.tuning.maximize_animation_duration_ms(),
+                },
+            );
+        }
     }
-    st.model.workspace_state.maximize_sessions.remove(monitor);
+    if !st.runtime.tuning.maximize_animation_enabled() {
+        st.model.workspace_state.maximize_sessions.remove(monitor);
+    }
     st.request_maintenance();
     true
 }
@@ -336,12 +356,39 @@ fn start_active_maximize_session(
     crate::compositor::workspace::state::reset_monitor_zoom_for_maximize(st, monitor);
 
     let _ = node_snapshots;
-    let (_, target_size) = maximize_target_for_monitor(st, monitor);
+    let (target_pos, target_size) = maximize_target_for_monitor(st, monitor);
+    let from =
+        crate::compositor::workspace::state::maximize_animation_visual_for_node_on_monitor_at(
+            st, target_id, monitor, now,
+        )
+        .or_else(|| {
+            st.model.field.node(target_id).map(|node| {
+                (
+                    node.pos,
+                    current_window_size_for_node(st, target_id).unwrap_or(node.intrinsic_size),
+                )
+            })
+        })
+        .unwrap_or((target_pos, target_size));
     st.request_toplevel_resize(
         target_id,
         target_size.x.round() as i32,
         target_size.y.round() as i32,
     );
+    if st.runtime.tuning.maximize_animation_enabled() {
+        st.model.workspace_state.maximize_animation.insert(
+            target_id,
+            crate::compositor::workspace::state::MaximizeAnimation {
+                monitor: monitor.to_string(),
+                from_pos: from.0,
+                to_pos: target_pos,
+                from_size: from.1,
+                to_size: target_size,
+                start_ms: st.now_ms(now),
+                duration_ms: st.runtime.tuning.maximize_animation_duration_ms(),
+            },
+        );
+    }
     st.set_recent_top_node(target_id, now + std::time::Duration::from_millis(1200));
     st.request_maintenance();
     true
@@ -366,15 +413,6 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
                     )
                 }
                 crate::compositor::workspace::state::MaximizeSessionState::Restoring => {
-                    if let Some(session) =
-                        st.model.workspace_state.maximize_sessions.get_mut(monitor)
-                    {
-                        session.state =
-                            crate::compositor::workspace::state::MaximizeSessionState::Active;
-                    }
-                    start_active_maximize_session(st, id, monitor, &existing.node_snapshots, now)
-                }
-                crate::compositor::workspace::state::MaximizeSessionState::SpawnRestoring => {
                     if let Some(session) =
                         st.model.workspace_state.maximize_sessions.get_mut(monitor)
                     {
@@ -890,7 +928,9 @@ mod tests {
     #[test]
     fn maximize_toggle_saves_restore_geometry_and_centers_target() {
         let dh = Display::<Halley>::new().expect("display").handle();
-        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
         let id = st.model.field.spawn_surface(
             "app",
             halley_core::field::Vec2 { x: 120.0, y: 140.0 },
@@ -936,6 +976,55 @@ mod tests {
             ),
             Some((target_pos, target_size))
         );
+    }
+
+    #[test]
+    fn maximize_animation_is_visual_only_and_preserves_field_geometry() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = true;
+        tuning.animations.maximize.duration_ms = 240;
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+        let id = st.model.field.spawn_surface(
+            "app",
+            halley_core::field::Vec2 { x: 120.0, y: 140.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, "monitor_a");
+
+        assert!(toggle_node_maximize_state(&mut st, id, now, "monitor_a"));
+
+        let node = st.model.field.node(id).expect("node");
+        assert_eq!(node.pos, halley_core::field::Vec2 { x: 120.0, y: 140.0 });
+        assert_eq!(
+            node.intrinsic_size,
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 }
+        );
+        assert!(
+            st.model
+                .workspace_state
+                .maximize_animation
+                .contains_key(&id)
+        );
+        assert_eq!(
+            crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+                &st, id, now
+            ),
+            Some((node.pos, node.intrinsic_size))
+        );
+
+        crate::compositor::workspace::state::tick_maximize_animation(
+            &mut st,
+            now + std::time::Duration::from_millis(260),
+        );
+        let node = st.model.field.node(id).expect("node");
+        assert_eq!(node.pos, halley_core::field::Vec2 { x: 120.0, y: 140.0 });
+        assert_eq!(
+            node.intrinsic_size,
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 }
+        );
+        assert!(st.model.workspace_state.maximize_animation.is_empty());
     }
 
     #[test]
@@ -1178,7 +1267,9 @@ mod tests {
     #[test]
     fn unmaximize_restores_camera_via_smooth_target() {
         let dh = Display::<Halley>::new().expect("display").handle();
-        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.maximize.enabled = false;
+        let mut st = Halley::new_for_test(&dh, tuning);
         st.model.zoom_ref_size = halley_core::field::Vec2 { x: 500.0, y: 375.0 };
         st.model.camera_target_view_size = st.model.zoom_ref_size;
         st.model.viewport.center = halley_core::field::Vec2 { x: 430.0, y: 280.0 };
