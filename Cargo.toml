@@ -12,7 +12,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 authors = ["Dustin Pilgrim <dustin.pilgrim1997@gmail.com>"]
 license = "GPL-3.0-only"
@@ -25,12 +25,12 @@ exclude = ["/.github", "/target", "/.idea", "/.vscode", "Cargo.lock"]
 
 [workspace.dependencies]
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
-halley-aperture = { path = "crates/halley-aperture", version = "0.3.1" }
-halley-capit = { path = "crates/halley-capit", version = "0.3.1" }
-halley-config = { path = "crates/halley-config", version = "0.3.1" }
-halley-core = { path = "crates/halley-core", version = "0.3.1" }
-halley-ipc = { path = "crates/halley-ipc", version = "0.3.1" }
-halley-wl = { path = "crates/halley-wl", version = "0.3.1" }
+halley-aperture = { path = "crates/halley-aperture", version = "0.3.2" }
+halley-capit = { path = "crates/halley-capit", version = "0.3.2" }
+halley-config = { path = "crates/halley-config", version = "0.3.2" }
+halley-core = { path = "crates/halley-core", version = "0.3.2" }
+halley-ipc = { path = "crates/halley-ipc", version = "0.3.2" }
+halley-wl = { path = "crates/halley-wl", version = "0.3.2" }
 
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 postcard = { version = "1.1.3", features = ["use-std"] }

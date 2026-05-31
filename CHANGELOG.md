@@ -11,6 +11,11 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Wait briefly for the close-animation capture before automatic active-to-node collapses, fixing the first overlapped auto-collapse snapping to a node while preserving immediate fallback for no-content windows.
 
+## [v0.3.2] - 2026-05-31
+
+### Fixed
+- Clear pending initial reveal state for tiled cluster members once committed geometry arrives, preventing focused terminals in tiled clusters from keeping stale rendered textures while input continues to reach the client.
+
 ## [v0.3.1] - 2026-05-31
 
 ### Fixed

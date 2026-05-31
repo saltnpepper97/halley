@@ -367,6 +367,64 @@ mod tests {
     }
 
     #[test]
+    fn pending_initial_reveal_clears_for_tiled_insert_after_committed_geometry() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let a = state.model.field.spawn_surface(
+            "A",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "B",
+            Vec2 { x: 120.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        for id in [a, b] {
+            state.assign_node_to_monitor(id, "monitor_a");
+        }
+
+        let cid = state.create_cluster(vec![a, b]).expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        let now = Instant::now();
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", now));
+
+        state.model.spawn_state.pending_initial_reveal.insert(b);
+        state
+            .model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .insert(b, state.now_ms(now) + 140);
+        state
+            .ui
+            .render_state
+            .cache
+            .window_geometry
+            .insert(b, (0.0, 0.0, 320.0, 240.0));
+        if let Some(node) = state.model.field.node_mut(b) {
+            node.visibility.set(Visibility::DETACHED, true);
+            node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, true);
+        }
+
+        assert!(surface::reveal_pending_initial_toplevel_if_ready(
+            &mut state, b, false, now
+        ));
+
+        assert!(!state.model.spawn_state.pending_initial_reveal.contains(&b));
+        assert!(
+            state
+                .model
+                .spawn_state
+                .pending_tiled_insert_reveal_at_ms
+                .contains_key(&b)
+        );
+    }
+
+    #[test]
     fn deferred_default_app_id_does_not_repick_initial_spawn_position() {
         let default_late_app_id = InitialWindowIntent {
             app_id: Some("kitty".to_string()),
