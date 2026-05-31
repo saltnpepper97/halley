@@ -196,7 +196,27 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
     if st.is_fullscreen_session_node(id) {
         return false;
     }
-    let _ = st.model.field.set_state(id, NodeState::Node);
+    finish_surface_collapse(st, id, now, pending.map(|pending| pending.origin_pos), true)
+}
+
+pub(crate) fn finish_auto_collapse(st: &mut Halley, id: NodeId, now: Instant) -> bool {
+    if st.is_fullscreen_session_node(id) {
+        return false;
+    }
+    finish_surface_collapse(st, id, now, None, false)
+}
+
+fn finish_surface_collapse(
+    st: &mut Halley,
+    id: NodeId,
+    now: Instant,
+    origin_pos: Option<Vec2>,
+    preserve_manual: bool,
+) -> bool {
+    let Some(current_pos) = st.model.field.node(id).map(|node| node.pos) else {
+        return false;
+    };
+
     let _ = st
         .model
         .field
@@ -205,26 +225,27 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
         .spawn_state
         .pending_spawn_activate_at_ms
         .remove(&id);
-    st.model.workspace_state.manual_collapsed_nodes.insert(id);
-    if let Some(current_pos) = st.model.field.node(id).map(|node| node.pos) {
-        let from = pending
-            .map(|pending| pending.origin_pos)
-            .unwrap_or(current_pos);
-        let _ = st.carry_surface_non_overlap(id, from, false);
-        if let Some(to) = st.model.field.node(id).map(|node| node.pos)
-            && ((from.x - to.x).abs() > 0.5 || (from.y - to.y).abs() > 0.5)
-        {
-            let slide_start = st
-                .ui
-                .render_state
-                .closing_window_animations
-                .get(&id)
-                .map(|anim| anim.started_at + Duration::from_millis(anim.duration_ms))
-                .unwrap_or(now);
-            st.ui
-                .render_state
-                .start_landmark_slide_animation_at(id, from, to, slide_start);
-        }
+    if preserve_manual {
+        st.model.workspace_state.manual_collapsed_nodes.insert(id);
+    } else {
+        st.model.workspace_state.manual_collapsed_nodes.remove(&id);
+    }
+
+    let from = origin_pos.unwrap_or(current_pos);
+    let _ = st.carry_surface_non_overlap(id, from, false);
+    if let Some(to) = st.model.field.node(id).map(|node| node.pos)
+        && ((from.x - to.x).abs() > 0.5 || (from.y - to.y).abs() > 0.5)
+    {
+        let slide_start = st
+            .ui
+            .render_state
+            .closing_window_animations
+            .get(&id)
+            .map(|anim| anim.started_at + Duration::from_millis(anim.duration_ms))
+            .unwrap_or(now);
+        st.ui
+            .render_state
+            .start_landmark_slide_animation_at(id, from, to, slide_start);
     }
 
     if st.model.focus_state.primary_interaction_focus == Some(id) {
@@ -233,6 +254,7 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
     if st.model.focus_state.pan_restore_active_focus == Some(id) {
         st.model.focus_state.pan_restore_active_focus = None;
     }
+    st.request_maintenance();
     true
 }
 

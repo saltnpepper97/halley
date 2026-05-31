@@ -47,6 +47,8 @@ All notable changes to this project will be documented in this file.
 - Preserve existing keyboard focus for overlay/popup text input instead of restoring last input focus on every unbound typing key.
 - Keep maximized windows active when new or transferred windows overlap them, while allowing click raise, trail navigation, and focus cycling to bring maximized windows forward again through normal stacking.
 - Preserve the original active-window position for delayed manual collapses so the first collapse over another window visibly slides the resulting node out from under the blocker.
+- Apply the same collapsed-node placement and slide animation to automatic active-window-limit and focus-ring decay collapses.
+- Let active-window-limit collapse enforcement run during visual active-transition animations so the first automatic collapse resolves without waiting for later pointer movement.
 - Remove initial-spawn push-away authority so opening a new expanded window does not shove existing expanded windows out of the way.
 - Limit new-window reveal panning to the one case where a pinned landmark blocks the current spawn center.
 - Apply live config reloads directly and force active window render caches/full redraw after reload.
