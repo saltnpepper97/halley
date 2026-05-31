@@ -41,6 +41,9 @@ rules:
   rule:
     app-id "firefox"
     title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
+    # Optional fixed initial size for matching windows.
+    #width 720
+    #height 520
     spawn-placement "center"
     cluster-participation "float"
   end

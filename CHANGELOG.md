@@ -2,10 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - TBD
+
+### Added
+- Add optional `width` and `height` window-rule keys for fixed initial sizes on matched windows.
+- Add configurable fullscreen entry animation via `animations.fullscreen`, including bootstrap migration and example config coverage, so browser videos such as YouTube tween into fullscreen instead of snapping.
+
+## [v0.3.1] - 2026-05-31
+
+### Fixed
+- Restore expanded-window and landmark transfer behavior during drag overlap resolution.
+- Restore initial reveal geometry updates for fullscreen/maximize-like surfaces, fixing game reveal behavior.
+
 ## [v0.3.0] - 2026-05-30
 
 ### Added
-- Add configurable fullscreen entry animation via `animations.fullscreen`, including bootstrap migration and example config coverage, so browser videos such as YouTube tween into fullscreen instead of snapping.
 - Add `wp_presentation` support and send presentation feedback after TTY and winit frames so Wayland clients such as gamescope can receive frame timing instead of falling back to X11 behavior.
 - Add a global `placement:` config block for expanded-window spawn strategy, landmark placement behavior, and post-placement reveal settings, with generated defaults and example configs updated for bootstrap migration.
 - Add `input.raise-on-click` so clicking a window can bring it forward independently from click/hover focus mode.

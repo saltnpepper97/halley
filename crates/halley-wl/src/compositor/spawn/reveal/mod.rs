@@ -100,6 +100,16 @@ pub(crate) fn initial_toplevel_size(
         };
     }
 
+    if !defer_rule_resolution
+        && !stack_mode_open
+        && let Some((width, height)) = intent.rule.initial_size
+    {
+        return InitialToplevelSize {
+            node_size: (width, height),
+            configure_size: Some((width, height)),
+        };
+    }
+
     let detected = detected_initial_toplevel_size(toplevel);
     let node_size = detected.unwrap_or_else(|| {
         (
@@ -426,6 +436,7 @@ mod tests {
                 overlap_policy,
                 spawn_placement,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
+                initial_size: None,
             },
             builtin_rule: None,
             matched_rule: true,

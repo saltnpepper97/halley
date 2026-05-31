@@ -14,6 +14,7 @@ pub(crate) struct ResolvedInitialWindowRule {
     pub(crate) overlap_policy: InitialWindowOverlapPolicy,
     pub(crate) spawn_placement: InitialWindowSpawnPlacement,
     pub(crate) cluster_participation: InitialWindowClusterParticipation,
+    pub(crate) initial_size: Option<(i32, i32)>,
 }
 
 impl Default for ResolvedInitialWindowRule {
@@ -22,6 +23,7 @@ impl Default for ResolvedInitialWindowRule {
             overlap_policy: InitialWindowOverlapPolicy::None,
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,
+            initial_size: None,
         }
     }
 }
@@ -38,6 +40,7 @@ fn default_initial_window_rule(st: &Halley) -> ResolvedInitialWindowRule {
         overlap_policy: InitialWindowOverlapPolicy::None,
         spawn_placement: default_expanded_spawn_placement(st),
         cluster_participation: InitialWindowClusterParticipation::Layout,
+        initial_size: None,
     }
 }
 
@@ -190,6 +193,9 @@ fn rule_match(st: &Halley, rule: &WindowRule) -> ResolvedInitialWindowRule {
             placement => placement,
         },
         cluster_participation: rule.cluster_participation,
+        initial_size: rule
+            .initial_size
+            .map(|(width, height)| (width.max(96) as i32, height.max(72) as i32)),
     }
 }
 
@@ -198,6 +204,7 @@ fn builtin_float_center_overlap_rule() -> ResolvedInitialWindowRule {
         overlap_policy: InitialWindowOverlapPolicy::All,
         spawn_placement: InitialWindowSpawnPlacement::Center,
         cluster_participation: InitialWindowClusterParticipation::Float,
+        initial_size: None,
     }
 }
 
@@ -403,6 +410,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::All,
                 spawn_placement: InitialWindowSpawnPlacement::Center,
                 cluster_participation: InitialWindowClusterParticipation::Float,
+                initial_size: None,
             },
             WindowRule {
                 app_ids: vec![WindowRulePattern::Exact("firefox".to_string())],
@@ -410,12 +418,13 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::None,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Layout,
+                initial_size: None,
             },
         ];
         let state = Halley::new_for_test(&dh, tuning);
 
         let matched = matching_window_rule(&state, Some("firefox"), None, false).expect("match");
-        assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::All);
+        assert_eq!(matched.overlap_policy, InitialWindowOverlapPolicy::None);
         assert_eq!(matched.spawn_placement, InitialWindowSpawnPlacement::Center);
     }
 
@@ -429,6 +438,7 @@ mod tests {
             overlap_policy: InitialWindowOverlapPolicy::All,
             spawn_placement: InitialWindowSpawnPlacement::Center,
             cluster_participation: InitialWindowClusterParticipation::Float,
+            initial_size: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -447,6 +457,7 @@ mod tests {
             overlap_policy: InitialWindowOverlapPolicy::None,
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,
+            initial_size: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -555,6 +566,7 @@ mod tests {
             overlap_policy: InitialWindowOverlapPolicy::All,
             spawn_placement: InitialWindowSpawnPlacement::Center,
             cluster_participation: InitialWindowClusterParticipation::Float,
+            initial_size: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -578,10 +590,31 @@ mod tests {
             overlap_policy: InitialWindowOverlapPolicy::All,
             spawn_placement: InitialWindowSpawnPlacement::Center,
             cluster_participation: InitialWindowClusterParticipation::Float,
+            initial_size: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
         assert!(matching_window_rule(&state, None, Some("File Upload - Firefox"), false).is_some());
+    }
+
+    #[test]
+    fn user_rule_initial_size_is_resolved_and_clamped() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = RuntimeTuning::default();
+        tuning.window_rules = vec![WindowRule {
+            app_ids: vec![WindowRulePattern::Exact("pavucontrol".to_string())],
+            titles: Vec::new(),
+            initial_size: Some((40, 50)),
+            overlap_policy: InitialWindowOverlapPolicy::None,
+            spawn_placement: InitialWindowSpawnPlacement::Center,
+            cluster_participation: InitialWindowClusterParticipation::Float,
+        }];
+        let state = Halley::new_for_test(&dh, tuning);
+
+        let matched =
+            matching_window_rule(&state, Some("pavucontrol"), None, false).expect("size rule");
+
+        assert_eq!(matched.initial_size, Some((96, 72)));
     }
 
     #[test]
@@ -610,6 +643,7 @@ mod tests {
             overlap_policy: InitialWindowOverlapPolicy::None,
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,
+            initial_size: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -637,6 +671,7 @@ mod tests {
             overlap_policy: InitialWindowOverlapPolicy::None,
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,
+            initial_size: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -684,6 +719,7 @@ mod tests {
             overlap_policy: InitialWindowOverlapPolicy::All,
             spawn_placement: InitialWindowSpawnPlacement::Center,
             cluster_participation: InitialWindowClusterParticipation::Float,
+            initial_size: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
         let intent = InitialWindowIntent {
@@ -789,6 +825,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::All,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Float,
+                initial_size: None,
             },
             builtin_rule: None,
             matched_rule: true,
@@ -807,6 +844,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::None,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Layout,
+                initial_size: None,
             },
             ..adjacent.clone()
         };

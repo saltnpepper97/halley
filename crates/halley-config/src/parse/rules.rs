@@ -7,6 +7,8 @@ use crate::layout::{
 struct PartialWindowRule {
     app_ids: Vec<WindowRulePattern>,
     titles: Vec<WindowRulePattern>,
+    width: Option<u32>,
+    height: Option<u32>,
     overlap_policy: Option<InitialWindowOverlapPolicy>,
     spawn_placement: Option<InitialWindowSpawnPlacement>,
     cluster_participation: Option<InitialWindowClusterParticipation>,
@@ -78,9 +80,24 @@ fn finalize_window_rule(rule: &PartialWindowRule, line_no: usize) -> Result<Wind
             "line {line_no}: rule is missing required matcher; add `app-id` and/or `title`"
         ));
     }
+    let initial_size = match (rule.width, rule.height) {
+        (Some(width), Some(height)) => Some((width.max(1), height.max(1))),
+        (Some(_), None) => {
+            return Err(format!(
+                "line {line_no}: rule has `width` without matching `height`"
+            ));
+        }
+        (None, Some(_)) => {
+            return Err(format!(
+                "line {line_no}: rule has `height` without matching `width`"
+            ));
+        }
+        (None, None) => None,
+    };
     Ok(WindowRule {
         app_ids: rule.app_ids.clone(),
         titles: rule.titles.clone(),
+        initial_size,
         overlap_policy: rule
             .overlap_policy
             .unwrap_or(InitialWindowOverlapPolicy::None),
@@ -114,6 +131,12 @@ fn parse_rule_entry(
         }
         "title" => {
             rule.titles = parse_rule_match_strings(value, line_no, "title")?;
+        }
+        "width" => {
+            rule.width = Some(parse_rule_dimension(value, line_no, "width")?);
+        }
+        "height" => {
+            rule.height = Some(parse_rule_dimension(value, line_no, "height")?);
         }
         "overlap-policy" | "overlap_policy" => {
             // Deprecated: expanded windows always allow overlap with other expanded
@@ -166,6 +189,15 @@ fn parse_rule_overlap_policy(
             "line {line_no}: unknown overlap-policy `{other}`; expected `none`, `parent-only`, or `all`"
         )),
     }
+}
+
+fn parse_rule_dimension(value: &str, line_no: usize, field_name: &str) -> Result<u32, String> {
+    value.trim().parse::<u32>().map_err(|err| {
+        format!(
+            "line {line_no}: invalid {field_name} `{}`: {err}",
+            value.trim()
+        )
+    })
 }
 
 fn parse_rule_spawn_placement(
@@ -301,4 +333,62 @@ fn parse_string_array_literal(
         ));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::layout::RuntimeTuning;
+
+    #[test]
+    fn rule_width_and_height_parse_as_initial_size() {
+        let tuning = RuntimeTuning::from_rune_str(
+            r#"
+rules:
+  rule:
+    app-id "pavucontrol"
+    width 420
+    height 640
+    spawn-placement "center"
+    cluster-participation "float"
+  end
+end
+"#,
+        )
+        .expect("config should parse");
+
+        assert_eq!(tuning.window_rules.len(), 1);
+        assert_eq!(tuning.window_rules[0].initial_size, Some((420, 640)));
+    }
+
+    #[test]
+    fn rule_width_requires_height() {
+        let tuning = RuntimeTuning::from_rune_str(
+            r#"
+rules:
+  rule:
+    app-id "pavucontrol"
+    width 420
+  end
+end
+"#,
+        );
+
+        assert!(tuning.is_none());
+    }
+
+    #[test]
+    fn rule_height_requires_width() {
+        let tuning = RuntimeTuning::from_rune_str(
+            r#"
+rules:
+  rule:
+    app-id "pavucontrol"
+    height 640
+  end
+end
+"#,
+        );
+
+        assert!(tuning.is_none());
+    }
 }

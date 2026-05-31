@@ -679,6 +679,7 @@ pub enum InitialWindowClusterParticipation {
 pub struct WindowRule {
     pub app_ids: Vec<WindowRulePattern>,
     pub titles: Vec<WindowRulePattern>,
+    pub initial_size: Option<(u32, u32)>,
     pub overlap_policy: InitialWindowOverlapPolicy,
     pub spawn_placement: InitialWindowSpawnPlacement,
     pub cluster_participation: InitialWindowClusterParticipation,

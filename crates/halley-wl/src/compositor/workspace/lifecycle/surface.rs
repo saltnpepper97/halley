@@ -250,9 +250,16 @@ fn maybe_apply_pending_initial_window_rule(
         cluster_local = true;
     }
 
+    let rule_size = if !cluster_local {
+        maybe_apply_deferred_rule_initial_size(st, node_id, &intent)
+    } else {
+        None
+    };
+
     if should_repick_deferred_initial_window_position(&intent)
         && !cluster_local
-        && let Some(size) = st.model.field.node(node_id).map(|node| node.intrinsic_size)
+        && let Some(size) =
+            rule_size.or_else(|| st.model.field.node(node_id).map(|node| node.intrinsic_size))
     {
         let (picked_monitor, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
         if intent.matched_rule && picked_monitor != monitor {
@@ -288,6 +295,41 @@ fn maybe_apply_pending_initial_window_rule(
     } else {
         let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, intent.is_transient, now);
     }
+}
+
+fn maybe_apply_deferred_rule_initial_size(
+    st: &mut Halley,
+    node_id: NodeId,
+    intent: &InitialWindowIntent,
+) -> Option<Vec2> {
+    let (width, height) = intent.rule.initial_size?;
+    let size = Vec2 {
+        x: width.max(96) as f32,
+        y: height.max(72) as f32,
+    };
+    let size_changed = st.model.field.node(node_id).is_some_and(|node| {
+        (node.intrinsic_size.x - size.x).abs() > 0.5 || (node.intrinsic_size.y - size.y).abs() > 0.5
+    });
+    if !size_changed {
+        return Some(size);
+    }
+    if let Some(node) = st.model.field.node_mut(node_id) {
+        node.intrinsic_size = size;
+        if node.state == halley_core::field::NodeState::Active {
+            node.footprint = size;
+        }
+    }
+    st.model
+        .workspace_state
+        .last_active_size
+        .insert(node_id, size);
+    st.ui
+        .render_state
+        .cache
+        .zoom_nominal_size
+        .insert(node_id, size);
+    st.request_toplevel_resize(node_id, width, height);
+    Some(size)
 }
 
 pub(super) fn should_repick_deferred_initial_window_position(intent: &InitialWindowIntent) -> bool {
