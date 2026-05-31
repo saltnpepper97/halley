@@ -52,6 +52,25 @@ pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning)
         out.animations.maximize.duration_ms,
     );
 
+    out.animations.fullscreen.enabled = pick_bool(
+        cfg,
+        &[
+            "animation.fullscreen.enabled",
+            "animations.fullscreen.enabled",
+        ],
+        out.animations.fullscreen.enabled,
+    );
+    out.animations.fullscreen.duration_ms = pick_u64(
+        cfg,
+        &[
+            "animation.fullscreen.duration-ms",
+            "animation.fullscreen.duration_ms",
+            "animations.fullscreen.duration-ms",
+            "animations.fullscreen.duration_ms",
+        ],
+        out.animations.fullscreen.duration_ms,
+    );
+
     out.animations.window_close.enabled = pick_bool(
         cfg,
         &[
@@ -198,6 +217,10 @@ animations:
     enabled true
     duration-ms 345
   end
+  fullscreen:
+    enabled true
+    duration-ms 456
+  end
   window-close:
     enabled true
     duration-ms 250
@@ -234,6 +257,8 @@ end
         assert_eq!(out.animations.smooth_resize.duration_ms, 120);
         assert!(out.animations.maximize.enabled);
         assert_eq!(out.animations.maximize.duration_ms, 345);
+        assert!(out.animations.fullscreen.enabled);
+        assert_eq!(out.animations.fullscreen.duration_ms, 456);
         assert!(out.animations.window_close.enabled);
         assert_eq!(out.animations.window_close.duration_ms, 250);
         assert_eq!(
@@ -258,6 +283,8 @@ end
         assert!(out.animations.enabled);
         assert!(out.animations.smooth_resize.enabled);
         assert_eq!(out.animations.smooth_resize.duration_ms, 90);
+        assert!(out.animations.fullscreen.enabled);
+        assert_eq!(out.animations.fullscreen.duration_ms, 240);
         assert!(out.animations.window_close.enabled);
         assert_eq!(out.animations.window_close.duration_ms, 250);
         assert_eq!(

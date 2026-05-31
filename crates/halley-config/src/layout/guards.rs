@@ -87,6 +87,8 @@ impl RuntimeTuning {
             self.animations.smooth_resize.duration_ms.clamp(1, 10_000);
         self.animations.maximize.duration_ms =
             self.animations.maximize.duration_ms.clamp(1, 10_000);
+        self.animations.fullscreen.duration_ms =
+            self.animations.fullscreen.duration_ms.clamp(1, 10_000);
         self.animations.window_close.duration_ms =
             self.animations.window_close.duration_ms.clamp(1, 10_000);
         self.animations.window_open.duration_ms =

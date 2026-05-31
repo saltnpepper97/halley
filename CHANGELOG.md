@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [v0.3.0] - 2026-05-30
 
 ### Added
+- Add configurable fullscreen entry animation via `animations.fullscreen`, including bootstrap migration and example config coverage, so browser videos such as YouTube tween into fullscreen instead of snapping.
 - Add `wp_presentation` support and send presentation feedback after TTY and winit frames so Wayland clients such as gamescope can receive frame timing instead of falling back to X11 behavior.
 - Add a global `placement:` config block for expanded-window spawn strategy, landmark placement behavior, and post-placement reveal settings, with generated defaults and example configs updated for bootstrap migration.
 - Add `input.raise-on-click` so clicking a window can bring it forward independently from click/hover focus mode.

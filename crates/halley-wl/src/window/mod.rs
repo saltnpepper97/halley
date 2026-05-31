@@ -339,9 +339,13 @@ pub(crate) fn collect_active_surfaces(
             .fullscreen_monitor_for_node(node_id)
             .is_some_and(|monitor| monitor == st.model.monitor_state.current_monitor);
         let fullscreen_visual =
-            crate::compositor::fullscreen::system::fullscreen_visual_for_node_on_current_monitor(
-                st, node_id,
+            crate::compositor::fullscreen::system::fullscreen_visual_for_node_on_current_monitor_at(
+                st, node_id, now,
             );
+        let fullscreen_visual_animating = crate::compositor::fullscreen::system::fullscreen_visual_animation_active_for_node_on_current_monitor_at(
+            st, node_id, now,
+        );
+        let exact_fullscreen_output = fullscreen_on_current_monitor && !fullscreen_visual_animating;
         let maximized_visual =
             crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
                 st, node_id, now,
@@ -493,7 +497,7 @@ pub(crate) fn collect_active_surfaces(
                 let rw = (render_geo_w * render_scale).round().max(1.0) as i32;
                 let rh = (render_geo_h * render_scale).round().max(1.0) as i32;
 
-                let (rx, ry, rw, rh) = if fullscreen_on_current_monitor {
+                let (rx, ry, rw, rh) = if exact_fullscreen_output {
                     (
                         output_clip.loc.x,
                         output_clip.loc.y,
@@ -795,7 +799,7 @@ pub(crate) fn collect_active_surfaces(
                         alpha,
                         Kind::Unspecified,
                     );
-                    let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
+                    let (tx, ty, tw, th) = if exact_fullscreen_output {
                         (
                             output_clip.loc.x,
                             output_clip.loc.y,
@@ -932,7 +936,7 @@ pub(crate) fn collect_active_surfaces(
                                 alpha,
                                 Kind::Unspecified,
                             );
-                            let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
+                            let (tx, ty, tw, th) = if exact_fullscreen_output {
                                 (
                                     output_clip.loc.x,
                                     output_clip.loc.y,
@@ -1276,7 +1280,7 @@ pub(crate) fn collect_active_surfaces(
                 alpha,
                 Kind::Unspecified,
             );
-            let (tx, ty, tw, th) = if fullscreen_on_current_monitor {
+            let (tx, ty, tw, th) = if exact_fullscreen_output {
                 (
                     output_clip.loc.x,
                     output_clip.loc.y,

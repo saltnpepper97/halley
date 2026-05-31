@@ -55,6 +55,11 @@ animations:
     duration-ms 240
   end
 
+  fullscreen:
+    enabled true
+    duration-ms 240
+  end
+
   window-open:
     enabled true
     duration-ms 620

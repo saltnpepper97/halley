@@ -147,6 +147,7 @@ impl ConfigSchema {
             "animations",
             "animations.smooth-resize",
             "animations.maximize",
+            "animations.fullscreen",
             "animations.window-close",
             "animations.window-open",
             "animations.tile",
@@ -189,6 +190,8 @@ impl ConfigSchema {
             "animations.smooth-resize.duration-ms",
             "animations.maximize.enabled",
             "animations.maximize.duration-ms",
+            "animations.fullscreen.enabled",
+            "animations.fullscreen.duration-ms",
             "animations.window-close.enabled",
             "animations.window-close.duration-ms",
             "animations.window-close.style",
@@ -434,6 +437,7 @@ fn numeric_scalar(path: &str) -> bool {
         path,
         "animations.smooth-resize.duration-ms"
             | "animations.maximize.duration-ms"
+            | "animations.fullscreen.duration-ms"
             | "animations.window-close.duration-ms"
             | "animations.window-open.duration-ms"
             | "animations.tile.duration-ms"
@@ -543,6 +547,7 @@ fn bool_scalar(path: &str) -> bool {
         "animations.enabled"
             | "animations.smooth-resize.enabled"
             | "animations.maximize.enabled"
+            | "animations.fullscreen.enabled"
             | "animations.window-close.enabled"
             | "animations.window-open.enabled"
             | "animations.tile.enabled"

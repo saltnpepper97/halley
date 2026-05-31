@@ -265,6 +265,101 @@ mod tests {
     }
 
     #[test]
+    fn fullscreen_enter_starts_visual_animation() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+        let fullscreen = state.model.field.spawn_surface(
+            "browser",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, "monitor_a");
+        let now = Instant::now();
+
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+
+        let anim = state
+            .model
+            .fullscreen_state
+            .fullscreen_scale_anim
+            .get(&fullscreen)
+            .expect("fullscreen animation");
+        assert_eq!(anim.monitor, "monitor_a");
+        assert_eq!(anim.from_pos, Vec2 { x: 140.0, y: 150.0 });
+        assert_eq!(anim.from_size, Vec2 { x: 320.0, y: 240.0 });
+        assert_eq!(anim.to_pos, Vec2 { x: 400.0, y: 300.0 });
+        assert_eq!(anim.to_size, Vec2 { x: 800.0, y: 600.0 });
+    }
+
+    #[test]
+    fn fullscreen_enter_respects_disabled_visual_animation() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = single_monitor_tuning();
+        tuning.animations.fullscreen.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let fullscreen = state.model.field.spawn_surface(
+            "browser",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, "monitor_a");
+
+        state.enter_xdg_fullscreen(fullscreen, None, Instant::now());
+
+        assert!(
+            !state
+                .model
+                .fullscreen_state
+                .fullscreen_scale_anim
+                .contains_key(&fullscreen)
+        );
+    }
+
+    #[test]
+    fn fullscreen_visual_interpolates_then_settles_on_output_rect() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
+        let fullscreen = state.model.field.spawn_surface(
+            "browser",
+            Vec2 { x: 140.0, y: 150.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(fullscreen, "monitor_a");
+        let now = Instant::now();
+
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+        let (start_pos, start_size) =
+            fullscreen_visual_for_node_on_current_monitor_at(&state, fullscreen, now)
+                .expect("start visual");
+        assert_eq!(start_pos, Vec2 { x: 140.0, y: 150.0 });
+        assert_eq!(start_size, Vec2 { x: 320.0, y: 240.0 });
+
+        let mid = now + std::time::Duration::from_millis(120);
+        let (mid_pos, mid_size) =
+            fullscreen_visual_for_node_on_current_monitor_at(&state, fullscreen, mid)
+                .expect("mid visual");
+        assert!(mid_pos.x > 140.0 && mid_pos.x < 400.0);
+        assert!(mid_size.x > 320.0 && mid_size.x < 800.0);
+
+        state.tick_fullscreen_motion(now + std::time::Duration::from_millis(260));
+        let (end_pos, end_size) = fullscreen_visual_for_node_on_current_monitor_at(
+            &state,
+            fullscreen,
+            now + std::time::Duration::from_millis(260),
+        )
+        .expect("end visual");
+        assert_eq!(end_pos, Vec2 { x: 400.0, y: 300.0 });
+        assert_eq!(end_size, Vec2 { x: 800.0, y: 600.0 });
+        assert!(
+            !state
+                .model
+                .fullscreen_state
+                .fullscreen_scale_anim
+                .contains_key(&fullscreen)
+        );
+    }
+
+    #[test]
     fn fullscreen_enter_clears_stale_bystander_restore_without_motion() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, single_monitor_tuning());
@@ -604,24 +699,36 @@ impl<T: DerefMut<Target = Halley>> DerefMut for FullscreenController<T> {
     }
 }
 
-pub(crate) fn fullscreen_entry_scale(st: &Halley, node_id: NodeId, now_ms: u64) -> f32 {
-    let Some(anim) = st
-        .model
-        .fullscreen_state
-        .fullscreen_scale_anim
-        .get(&node_id)
-        .copied()
-    else {
-        return 1.0;
-    };
-    let elapsed = now_ms.saturating_sub(anim.start_ms);
-    let t = (elapsed as f32 / anim.duration_ms.max(1) as f32).clamp(0.0, 1.0);
+fn fullscreen_animation_progress(start_ms: u64, duration_ms: u64, now_ms: u64) -> f32 {
+    let elapsed = now_ms.saturating_sub(start_ms);
+    let t = (elapsed as f32 / duration_ms.max(1) as f32).clamp(0.0, 1.0);
     let e = if t < 0.5 {
         4.0 * t * t * t
     } else {
         1.0 - (-2.0 * t + 2.0).powf(3.0) * 0.5
     };
-    0.94 + (1.0 - 0.94) * e
+    e
+}
+
+fn fullscreen_animation_rect(
+    st: &Halley,
+    anim: &crate::compositor::fullscreen::state::FullscreenScaleAnim,
+    now: Instant,
+) -> (Vec2, Vec2) {
+    let e = fullscreen_animation_progress(anim.start_ms, anim.duration_ms, st.now_ms(now));
+    let pos = Vec2 {
+        x: anim.from_pos.x + (anim.to_pos.x - anim.from_pos.x) * e,
+        y: anim.from_pos.y + (anim.to_pos.y - anim.from_pos.y) * e,
+    };
+    let size = Vec2 {
+        x: (anim.from_size.x + (anim.to_size.x - anim.from_size.x) * e).max(96.0),
+        y: (anim.from_size.y + (anim.to_size.y - anim.from_size.y) * e).max(72.0),
+    };
+    (pos, size)
+}
+
+pub(crate) fn fullscreen_entry_scale(_st: &Halley, _node_id: NodeId, _now_ms: u64) -> f32 {
+    1.0
 }
 
 pub(crate) fn fullscreen_monitor_for_node(st: &Halley, node_id: NodeId) -> Option<&str> {
@@ -640,6 +747,14 @@ pub(crate) fn fullscreen_visual_for_node_on_current_monitor(
     st: &Halley,
     node_id: NodeId,
 ) -> Option<(Vec2, Vec2)> {
+    fullscreen_visual_for_node_on_current_monitor_at(st, node_id, Instant::now())
+}
+
+pub(crate) fn fullscreen_visual_for_node_on_current_monitor_at(
+    st: &Halley,
+    node_id: NodeId,
+    now: Instant,
+) -> Option<(Vec2, Vec2)> {
     let monitor = st.model.monitor_state.current_monitor.as_str();
     (st.model
         .fullscreen_state
@@ -648,6 +763,15 @@ pub(crate) fn fullscreen_visual_for_node_on_current_monitor(
         .copied()
         == Some(node_id))
     .then(|| {
+        if let Some(anim) = st
+            .model
+            .fullscreen_state
+            .fullscreen_scale_anim
+            .get(&node_id)
+            .filter(|anim| anim.monitor == monitor)
+        {
+            return fullscreen_animation_rect(st, anim, now);
+        }
         st.model
             .monitor_state
             .monitors
@@ -655,6 +779,22 @@ pub(crate) fn fullscreen_visual_for_node_on_current_monitor(
             .map(|space| (space.viewport.center, space.viewport.size))
             .unwrap_or((st.model.viewport.center, st.model.viewport.size))
     })
+}
+
+pub(crate) fn fullscreen_visual_animation_active_for_node_on_current_monitor_at(
+    st: &Halley,
+    node_id: NodeId,
+    now: Instant,
+) -> bool {
+    let monitor = st.model.monitor_state.current_monitor.as_str();
+    st.model
+        .fullscreen_state
+        .fullscreen_scale_anim
+        .get(&node_id)
+        .is_some_and(|anim| {
+            anim.monitor == monitor
+                && st.now_ms(now) < anim.start_ms.saturating_add(anim.duration_ms.max(1))
+        })
 }
 
 pub(crate) fn is_fullscreen_session_node(st: &Halley, node_id: NodeId) -> bool {
@@ -1027,7 +1167,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         }
 
         let target_size = self.fullscreen_target_size_for(monitor_name.as_str());
-        let (viewport_center, _) = self.fullscreen_monitor_view(monitor_name.as_str());
+        let (viewport_center, viewport_size) = self.fullscreen_monitor_view(monitor_name.as_str());
         self.clear_non_target_fullscreen_restore_entries(&monitor_name, node_id);
 
         // One-time reset of the target monitor's zoom to 1.0. Do not hold or lock it.
@@ -1085,6 +1225,37 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
                 pinned: saved_pinned,
             },
         );
+        if self.runtime.tuning.fullscreen_animation_enabled() && !soft_resume {
+            let from = (self.model.monitor_state.current_monitor == monitor_name)
+                .then(|| {
+                    crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
+                        self,
+                        node_id,
+                        now,
+                    )
+                })
+                .flatten()
+                .unwrap_or((saved_pos, saved_size));
+            let start_ms = self.now_ms(now);
+            let duration_ms = self.runtime.tuning.fullscreen_animation_duration_ms();
+            self.model.fullscreen_state.fullscreen_scale_anim.insert(
+                node_id,
+                crate::compositor::fullscreen::state::FullscreenScaleAnim {
+                    monitor: monitor_name.clone(),
+                    from_pos: from.0,
+                    to_pos: viewport_center,
+                    from_size: from.1,
+                    to_size: viewport_size,
+                    start_ms,
+                    duration_ms,
+                },
+            );
+        } else {
+            self.model
+                .fullscreen_state
+                .fullscreen_scale_anim
+                .remove(&node_id);
+        }
         if !soft_resume {
             self.request_toplevel_fullscreen_state(node_id, true, output, Some(target_size));
         }
@@ -1175,7 +1346,9 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
     }
 
     pub(crate) fn tick_fullscreen_motion(&mut self, now: Instant) {
-        if self.model.fullscreen_state.fullscreen_motion.is_empty() {
+        if self.model.fullscreen_state.fullscreen_motion.is_empty()
+            && self.model.fullscreen_state.fullscreen_scale_anim.is_empty()
+        {
             return;
         }
 
@@ -1252,5 +1425,8 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             .fullscreen_state
             .fullscreen_scale_anim
             .retain(|_, anim| now_ms < anim.start_ms.saturating_add(anim.duration_ms));
+        if !self.model.fullscreen_state.fullscreen_scale_anim.is_empty() {
+            self.request_maintenance();
+        }
     }
 }
