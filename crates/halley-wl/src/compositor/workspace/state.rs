@@ -10,7 +10,7 @@ pub(crate) struct WorkspaceState {
     pub(crate) active_transitions: HashMap<NodeId, ActiveTransition>,
     pub(crate) primary_promote_cooldown_until_ms: HashMap<NodeId, u64>,
     pub(crate) manual_collapsed_nodes: HashSet<NodeId>,
-    pub(crate) pending_manual_collapses: HashMap<NodeId, PendingManualCollapse>,
+    pub(crate) pending_collapses: HashMap<NodeId, PendingCollapse>,
     pub(crate) pending_silent_close_until_ms: HashMap<NodeId, u64>,
     pub(crate) user_pinned_nodes: HashSet<NodeId>,
     pub(crate) maximize_sessions: HashMap<String, MaximizeSession>,
@@ -25,9 +25,11 @@ pub(crate) struct ActiveTransition {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct PendingManualCollapse {
+pub(crate) struct PendingCollapse {
     pub(crate) requested_at_ms: u64,
+    // Retry capture without losing where the active window originally collapsed from.
     pub(crate) origin_pos: Vec2,
+    pub(crate) preserve_manual: bool,
 }
 
 impl ActiveTransition {
@@ -78,7 +80,7 @@ pub(crate) struct MaximizeAnimation {
     pub(crate) duration_ms: u64,
 }
 
-const PENDING_MANUAL_COLLAPSE_MAX_WAIT_MS: u64 = 120;
+const PENDING_COLLAPSE_MAX_WAIT_MS: u64 = 120;
 
 pub fn mark_active_transition(st: &mut Halley, id: NodeId, now: Instant, duration_ms: u64) {
     if !st.runtime.tuning.animations_enabled() {
@@ -142,6 +144,8 @@ pub(crate) fn start_active_to_node_close_animation(
     };
     let duration_ms = st.runtime.tuning.window_close_duration_ms();
     let style = st.runtime.tuning.window_close_style();
+    // Close-to-node animation reuses the already-warmed offscreen cache. A first
+    // collapse can race that cache; callers should queue a pending collapse then.
     let Some((border_rects, offscreen_textures)) =
         crate::window::capture_closing_window_animation(st, monitor.as_str(), id)
     else {
@@ -165,7 +169,7 @@ pub(crate) fn start_active_to_node_close_animation(
     true
 }
 
-pub(crate) fn queue_pending_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) {
+fn queue_pending_collapse(st: &mut Halley, id: NodeId, now: Instant, preserve_manual: bool) {
     if st.is_fullscreen_session_node(id) {
         return;
     }
@@ -178,21 +182,39 @@ pub(crate) fn queue_pending_manual_collapse(st: &mut Halley, id: NodeId, now: In
         .unwrap_or(Vec2 { x: 0.0, y: 0.0 });
     st.model
         .workspace_state
-        .pending_manual_collapses
+        .pending_collapses
         .entry(id)
-        .or_insert(PendingManualCollapse {
+        .or_insert(PendingCollapse {
             requested_at_ms: now_ms,
             origin_pos,
+            preserve_manual,
         });
     st.request_maintenance();
 }
 
+pub(crate) fn queue_pending_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) {
+    queue_pending_collapse(st, id, now, true);
+}
+
+pub(crate) fn queue_pending_auto_collapse(st: &mut Halley, id: NodeId, now: Instant) {
+    queue_pending_collapse(st, id, now, false);
+}
+
+pub(crate) fn collapse_active_to_node_or_queue_auto(st: &mut Halley, id: NodeId, now: Instant) {
+    if !st.runtime.tuning.window_close_animation_enabled() {
+        let _ = finish_auto_collapse(st, id, now);
+        return;
+    }
+
+    if start_active_to_node_close_animation(st, id, now) {
+        let _ = finish_auto_collapse(st, id, now);
+    } else {
+        queue_pending_auto_collapse(st, id, now);
+    }
+}
+
 pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) -> bool {
-    let pending = st
-        .model
-        .workspace_state
-        .pending_manual_collapses
-        .remove(&id);
+    let pending = st.model.workspace_state.pending_collapses.remove(&id);
     if st.is_fullscreen_session_node(id) {
         return false;
     }
@@ -200,10 +222,17 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
 }
 
 pub(crate) fn finish_auto_collapse(st: &mut Halley, id: NodeId, now: Instant) -> bool {
+    let pending = st.model.workspace_state.pending_collapses.remove(&id);
     if st.is_fullscreen_session_node(id) {
         return false;
     }
-    finish_surface_collapse(st, id, now, None, false)
+    finish_surface_collapse(
+        st,
+        id,
+        now,
+        pending.map(|pending| pending.origin_pos),
+        pending.is_some_and(|pending| pending.preserve_manual),
+    )
 }
 
 fn finish_surface_collapse(
@@ -231,6 +260,8 @@ fn finish_surface_collapse(
         st.model.workspace_state.manual_collapsed_nodes.remove(&id);
     }
 
+    // Keep the pre-collapse origin so landmark slide starts where the active
+    // window was, not from the post-carry non-overlap position.
     let from = origin_pos.unwrap_or(current_pos);
     let _ = st.carry_surface_non_overlap(id, from, false);
     if let Some(to) = st.model.field.node(id).map(|node| node.pos)
@@ -258,12 +289,8 @@ fn finish_surface_collapse(
     true
 }
 
-pub(crate) fn process_pending_manual_collapses_for_monitor(
-    st: &mut Halley,
-    monitor: &str,
-    now: Instant,
-) {
-    if st.model.workspace_state.pending_manual_collapses.is_empty() {
+pub(crate) fn process_pending_collapses_for_monitor(st: &mut Halley, monitor: &str, now: Instant) {
+    if st.model.workspace_state.pending_collapses.is_empty() {
         return;
     }
 
@@ -271,7 +298,7 @@ pub(crate) fn process_pending_manual_collapses_for_monitor(
     let pending = st
         .model
         .workspace_state
-        .pending_manual_collapses
+        .pending_collapses
         .iter()
         .map(|(&id, pending)| (id, *pending))
         .collect::<Vec<_>>();
@@ -279,10 +306,7 @@ pub(crate) fn process_pending_manual_collapses_for_monitor(
     let mut needs_retry = false;
     for (id, pending) in pending {
         let Some(node) = st.model.field.node(id) else {
-            st.model
-                .workspace_state
-                .pending_manual_collapses
-                .remove(&id);
+            st.model.workspace_state.pending_collapses.remove(&id);
             continue;
         };
         if st
@@ -298,17 +322,20 @@ pub(crate) fn process_pending_manual_collapses_for_monitor(
             || node.state != NodeState::Active
             || !st.model.field.is_visible(id)
         {
-            st.model
-                .workspace_state
-                .pending_manual_collapses
-                .remove(&id);
+            st.model.workspace_state.pending_collapses.remove(&id);
             continue;
         }
 
         if start_active_to_node_close_animation(st, id, now)
-            || now_ms.saturating_sub(pending.requested_at_ms) >= PENDING_MANUAL_COLLAPSE_MAX_WAIT_MS
+            // A later frame may have warmed the window texture. Do not wait
+            // indefinitely; bad/no-content surfaces still need to collapse.
+            || now_ms.saturating_sub(pending.requested_at_ms) >= PENDING_COLLAPSE_MAX_WAIT_MS
         {
-            let _ = finish_manual_collapse(st, id, now);
+            if pending.preserve_manual {
+                let _ = finish_manual_collapse(st, id, now);
+            } else {
+                let _ = finish_auto_collapse(st, id, now);
+            }
         } else {
             needs_retry = true;
         }

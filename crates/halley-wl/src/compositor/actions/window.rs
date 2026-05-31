@@ -505,10 +505,7 @@ fn uncollapse_surface_node_for_action(
     now: Instant,
 ) {
     st.model.workspace_state.manual_collapsed_nodes.remove(&id);
-    st.model
-        .workspace_state
-        .pending_manual_collapses
-        .remove(&id);
+    st.model.workspace_state.pending_collapses.remove(&id);
     let _ = st
         .model
         .field
@@ -1472,11 +1469,11 @@ mod tests {
         assert!(
             st.model
                 .workspace_state
-                .pending_manual_collapses
+                .pending_collapses
                 .contains_key(&target)
         );
 
-        crate::compositor::workspace::state::process_pending_manual_collapses_for_monitor(
+        crate::compositor::workspace::state::process_pending_collapses_for_monitor(
             &mut st,
             monitor.as_str(),
             now + std::time::Duration::from_millis(140),

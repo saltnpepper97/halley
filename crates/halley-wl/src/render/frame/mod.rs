@@ -277,7 +277,7 @@ pub(crate) fn draw_debug_frame_to_target(
     )?;
 
     let _ = frame.finish()?;
-    crate::compositor::workspace::state::process_pending_manual_collapses_for_monitor(
+    crate::compositor::workspace::state::process_pending_collapses_for_monitor(
         st,
         current_monitor.as_str(),
         prepared.now,

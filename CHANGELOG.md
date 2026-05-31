@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 - Add optional `width` and `height` window-rule keys for fixed initial sizes on matched windows.
 - Add configurable fullscreen entry animation via `animations.fullscreen`, including bootstrap migration and example config coverage, so browser videos such as YouTube tween into fullscreen instead of snapping.
 
+### Fixed
+- Wait briefly for the close-animation capture before automatic active-to-node collapses, fixing the first overlapped auto-collapse snapping to a node while preserving immediate fallback for no-content windows.
+
 ## [v0.3.1] - 2026-05-31
 
 ### Fixed
