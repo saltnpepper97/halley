@@ -202,6 +202,14 @@ impl RuntimeTuning {
         self.animations.maximize.duration_ms.max(1)
     }
 
+    pub fn fullscreen_animation_enabled(&self) -> bool {
+        self.animations_enabled() && self.animations.fullscreen.enabled
+    }
+
+    pub fn fullscreen_animation_duration_ms(&self) -> u64 {
+        self.animations.fullscreen.duration_ms.max(1)
+    }
+
     pub fn window_close_animation_enabled(&self) -> bool {
         self.animations_enabled() && self.animations.window_close.enabled
     }
@@ -600,6 +608,12 @@ animations:
     duration-ms 240
   end
 
+  fullscreen:
+    enabled true
+    # Visual-only window-to-fullscreen tween for browser videos and apps.
+    duration-ms 240
+  end
+
   window-open:
     enabled true
     duration-ms 620
@@ -786,6 +800,9 @@ rules:
   rule:
     app-id "firefox"
     title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
+    # Optional fixed initial size for matching windows.
+    #width 720
+    #height 520
     spawn-placement "center"
     cluster-participation "float"
   end
@@ -917,6 +934,7 @@ mod tests {
             crate::layout::KeyboardConfig::default()
         );
         assert_eq!(tuning.animations.maximize.duration_ms, 240);
+        assert_eq!(tuning.animations.fullscreen.duration_ms, 240);
         assert_eq!(tuning.animations.raise.duration_ms, 140);
         assert_eq!(tuning.animations.raise.scale, 1.025);
     }
@@ -947,6 +965,7 @@ mod tests {
         ));
         assert!(rendered.contains("    size 1.0"));
         assert!(rendered.contains("  maximize:\n    enabled true"));
+        assert!(rendered.contains("  fullscreen:\n    enabled true"));
         assert!(rendered.contains("    duration-ms 240"));
         assert!(rendered.contains("  raise:\n    enabled true\n    duration-ms 140"));
         assert!(rendered.contains("  shadows:\n    window:"));

@@ -241,6 +241,7 @@ fn maybe_apply_pending_initial_window_rule(
             .spawn_state
             .pending_tiled_insert_reveal_at_ms
             .insert(node_id, reveal_at_ms);
+        st.request_window_animation_prewarm(node_id, now);
         if let Some(node) = st.model.field.node_mut(node_id) {
             node.visibility.set(Visibility::DETACHED, true);
             node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, true);
@@ -250,9 +251,16 @@ fn maybe_apply_pending_initial_window_rule(
         cluster_local = true;
     }
 
+    let rule_size = if !cluster_local {
+        maybe_apply_deferred_rule_initial_size(st, node_id, &intent)
+    } else {
+        None
+    };
+
     if should_repick_deferred_initial_window_position(&intent)
         && !cluster_local
-        && let Some(size) = st.model.field.node(node_id).map(|node| node.intrinsic_size)
+        && let Some(size) =
+            rule_size.or_else(|| st.model.field.node(node_id).map(|node| node.intrinsic_size))
     {
         let (picked_monitor, pos, _) = st.pick_spawn_position_with_intent(size, &intent);
         if intent.matched_rule && picked_monitor != monitor {
@@ -288,6 +296,41 @@ fn maybe_apply_pending_initial_window_rule(
     } else {
         let _ = reveal_pending_initial_toplevel_if_ready(st, node_id, intent.is_transient, now);
     }
+}
+
+fn maybe_apply_deferred_rule_initial_size(
+    st: &mut Halley,
+    node_id: NodeId,
+    intent: &InitialWindowIntent,
+) -> Option<Vec2> {
+    let (width, height) = intent.rule.initial_size?;
+    let size = Vec2 {
+        x: width.max(96) as f32,
+        y: height.max(72) as f32,
+    };
+    let size_changed = st.model.field.node(node_id).is_some_and(|node| {
+        (node.intrinsic_size.x - size.x).abs() > 0.5 || (node.intrinsic_size.y - size.y).abs() > 0.5
+    });
+    if !size_changed {
+        return Some(size);
+    }
+    if let Some(node) = st.model.field.node_mut(node_id) {
+        node.intrinsic_size = size;
+        if node.state == halley_core::field::NodeState::Active {
+            node.footprint = size;
+        }
+    }
+    st.model
+        .workspace_state
+        .last_active_size
+        .insert(node_id, size);
+    st.ui
+        .render_state
+        .cache
+        .zoom_nominal_size
+        .insert(node_id, size);
+    st.request_toplevel_resize(node_id, width, height);
+    Some(size)
 }
 
 pub(super) fn should_repick_deferred_initial_window_position(intent: &InitialWindowIntent) -> bool {
@@ -496,10 +539,18 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                     });
                 if active_cluster {
                     if let Some(monitor) = node_monitor {
-                        st.layout_active_cluster_workspace_for_monitor(
-                            monitor.as_str(),
-                            st.now_ms(now),
-                        );
+                        let tile_animation_active = crate::animation::cluster_tile_rect_for(
+                            &st.ui.render_state.cluster_tile_tracks,
+                            node_id,
+                            now,
+                        )
+                        .is_some();
+                        if !tile_animation_active {
+                            st.layout_active_cluster_workspace_for_monitor(
+                                monitor.as_str(),
+                                st.now_ms(now),
+                            );
+                        }
                     }
                 } else if !pending_initial_reveal && !finalized_initial_spawn {
                     st.resolve_overlap_now();
@@ -704,6 +755,7 @@ pub(super) fn ensure_node_for_surface_impl(
                 .spawn_state
                 .pending_tiled_insert_reveal_at_ms
                 .insert(id, st.now_ms(now).saturating_add(140));
+            st.request_window_animation_prewarm(id, now);
             if let Some(node) = st.model.field.node_mut(id) {
                 node.visibility.set(Visibility::DETACHED, true);
                 node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, true);
@@ -723,6 +775,9 @@ pub(super) fn ensure_node_for_surface_impl(
                 );
             let duration_ms = st.runtime.tuning.stack_animation_duration_ms();
             if st.runtime.tuning.stack_animation_enabled() {
+                for node_id in old_visible.iter().chain(new_visible.iter()).copied() {
+                    st.request_window_animation_prewarm(node_id, now);
+                }
                 st.ui.render_state.start_stack_cycle_transition(
                     monitor.as_str(),
                     halley_core::cluster_layout::ClusterCycleDirection::Prev,

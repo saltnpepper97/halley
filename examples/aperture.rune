@@ -15,7 +15,23 @@ aperture-peek:
 
   clock:
     font "CommitMono Nerd Font Bold"
-    size-px 80
     colour "#e8a1a7"
   end
+
+  # The clock has three size states. Larger states float in the corner and are
+  # sized to their text; the smallest is a fixed bar whose height is the top
+  # space the compositor reserves while clusters/maximize are active.
+  clock-large:                 # Normal  — floats, content-sized
+    size-px 80
+  end
+  clock-medium:                # Collapsed — floats, content-sized
+    size-px 44
+  end
+  clock-small:                 # Minimal — the reserved bar
+    size-px 26
+    height-px 32               # reserved top gap (clamped 14–72; >= the font)
+  end
+
+  # Back-compat: if the clock-large/medium/small blocks are omitted, the legacy
+  # `clock.size-px` drives the large size and medium/small derive from it.
 end

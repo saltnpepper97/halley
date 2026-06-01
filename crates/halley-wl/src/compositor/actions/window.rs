@@ -233,17 +233,13 @@ pub(crate) fn toggle_focused_pin_state(st: &mut Halley) -> bool {
     st.set_node_user_pinned(id, next)
 }
 
-fn field_viewport_for_monitor(st: &Halley, monitor: &str) -> halley_core::viewport::Viewport {
-    if st.model.monitor_state.current_monitor == monitor {
-        st.model.viewport
-    } else {
-        st.model
-            .monitor_state
-            .monitors
-            .get(monitor)
-            .map(|space| space.viewport)
-            .unwrap_or(st.model.viewport)
-    }
+fn maximize_viewport_for_monitor(st: &Halley, monitor: &str) -> halley_core::viewport::Viewport {
+    st.model
+        .monitor_state
+        .monitors
+        .get(monitor)
+        .map(|space| space.usable_viewport)
+        .unwrap_or(st.model.viewport)
 }
 
 fn current_window_size_for_node(st: &Halley, id: NodeId) -> Option<halley_core::field::Vec2> {
@@ -272,7 +268,7 @@ fn maximize_target_for_monitor(
     st: &Halley,
     monitor: &str,
 ) -> (halley_core::field::Vec2, halley_core::field::Vec2) {
-    let viewport = field_viewport_for_monitor(st, monitor);
+    let viewport = maximize_viewport_for_monitor(st, monitor);
     let inset =
         st.non_overlap_gap_world().max(0.0) + active_window_frame_pad_px(&st.runtime.tuning) as f32;
     (
@@ -303,7 +299,9 @@ fn start_restore_maximize_session(
             st, monitor, camera,
         );
     }
+    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
     for (node_id, snapshot) in &node_snapshots {
+        st.request_window_animation_prewarm(*node_id, now);
         let from =
             crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
                 st, *node_id, now,
@@ -354,6 +352,8 @@ fn start_active_maximize_session(
     now: Instant,
 ) -> bool {
     crate::compositor::workspace::state::reset_monitor_zoom_for_maximize(st, monitor);
+    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
+    st.request_window_animation_prewarm(target_id, now);
 
     let _ = node_snapshots;
     let (target_pos, target_size) = maximize_target_for_monitor(st, monitor);
@@ -419,6 +419,7 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
                         session.state =
                             crate::compositor::workspace::state::MaximizeSessionState::Active;
                     }
+                    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
                     start_active_maximize_session(st, id, monitor, &existing.node_snapshots, now)
                 }
             };
@@ -444,6 +445,7 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
             state: crate::compositor::workspace::state::MaximizeSessionState::Active,
         },
     );
+    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
 
     start_active_maximize_session(st, id, monitor, &node_snapshots, now)
 }
@@ -505,10 +507,7 @@ fn uncollapse_surface_node_for_action(
     now: Instant,
 ) {
     st.model.workspace_state.manual_collapsed_nodes.remove(&id);
-    st.model
-        .workspace_state
-        .pending_manual_collapses
-        .remove(&id);
+    st.model.workspace_state.pending_collapses.remove(&id);
     let _ = st
         .model
         .field
@@ -921,6 +920,35 @@ mod tests {
             halley_core::field::Vec2 {
                 x: 800.0 - inset * 2.0,
                 y: 600.0 - inset * 2.0,
+            }
+        );
+    }
+
+    #[test]
+    fn maximize_targets_reserved_usable_viewport() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let usable = halley_core::viewport::Viewport::new(
+            halley_core::field::Vec2 { x: 400.0, y: 320.0 },
+            halley_core::field::Vec2 { x: 800.0, y: 560.0 },
+        );
+        st.model
+            .monitor_state
+            .monitors
+            .get_mut("monitor_a")
+            .expect("monitor")
+            .usable_viewport = usable;
+
+        let (pos, size) = maximize_target_for_monitor(&st, "monitor_a");
+        let inset =
+            st.non_overlap_gap_world() + active_window_frame_pad_px(&st.runtime.tuning) as f32;
+
+        assert_eq!(pos, usable.center);
+        assert_eq!(
+            size,
+            halley_core::field::Vec2 {
+                x: 800.0 - inset * 2.0,
+                y: 560.0 - inset * 2.0,
             }
         );
     }
@@ -1472,11 +1500,11 @@ mod tests {
         assert!(
             st.model
                 .workspace_state
-                .pending_manual_collapses
+                .pending_collapses
                 .contains_key(&target)
         );
 
-        crate::compositor::workspace::state::process_pending_manual_collapses_for_monitor(
+        crate::compositor::workspace::state::process_pending_collapses_for_monitor(
             &mut st,
             monitor.as_str(),
             now + std::time::Duration::from_millis(140),

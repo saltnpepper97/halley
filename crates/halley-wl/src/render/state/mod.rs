@@ -19,6 +19,7 @@ use crate::overlay::{
 use crate::window::{ActiveBorderRect, OffscreenNodeTexture};
 
 const LANDMARK_SLIDE_DURATION_MS: u64 = 520;
+const ANIMATION_PREWARM_TTL_MS: u64 = 1_500;
 
 pub(crate) use cache::{
     ClusterCoreIconCache, NodeAppIconCacheEntry, NodeAppIconTexture, PinIconCache,
@@ -101,6 +102,11 @@ pub(crate) struct ClosingWindowAnimationSnapshot {
     pub(crate) kind: ClosingWindowAnimationKind,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AnimationPrewarmRequest {
+    pub(crate) until: Instant,
+}
+
 pub(crate) struct RenderState {
     pub animator: Animator,
 
@@ -117,6 +123,7 @@ pub(crate) struct RenderState {
     pub(crate) overlay_toast: HashMap<String, OverlayToastState>,
     pub(crate) overlay_exit_confirm: HashMap<String, ExitConfirmOverlayState>,
     pub(crate) closing_window_animations: HashMap<NodeId, ClosingWindowAnimationState>,
+    pub(crate) animation_prewarm_requests: HashMap<NodeId, AnimationPrewarmRequest>,
     pub(crate) stack_cycle_transition: HashMap<String, StackCycleTransitionState>,
     pub(crate) raise_animations: HashMap<NodeId, RaiseAnimationState>,
     pub(crate) landmark_slide_animations: HashMap<NodeId, LandmarkSlideAnimationState>,
@@ -126,6 +133,31 @@ pub(crate) struct RenderState {
 }
 
 impl RenderState {
+    pub(crate) fn request_window_animation_prewarm(&mut self, node_id: NodeId, now: Instant) {
+        let until = now
+            .checked_add(std::time::Duration::from_millis(ANIMATION_PREWARM_TTL_MS))
+            .unwrap_or(now);
+        self.animation_prewarm_requests
+            .entry(node_id)
+            .and_modify(|request| {
+                request.until = request.until.max(until);
+            })
+            .or_insert(AnimationPrewarmRequest { until });
+    }
+
+    pub(crate) fn requested_window_animation_prewarm_nodes(
+        &mut self,
+        now: Instant,
+    ) -> HashSet<NodeId> {
+        self.animation_prewarm_requests
+            .retain(|_, request| now <= request.until);
+        self.animation_prewarm_requests.keys().copied().collect()
+    }
+
+    pub(crate) fn finish_window_animation_prewarm(&mut self, node_id: NodeId) {
+        self.animation_prewarm_requests.remove(&node_id);
+    }
+
     pub(crate) fn start_closing_window_animation(
         &mut self,
         node_id: NodeId,

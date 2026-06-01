@@ -222,10 +222,9 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
                     continue;
                 }
                 let now = Instant::now();
-                crate::compositor::workspace::state::start_active_to_node_close_animation(
+                crate::compositor::workspace::state::collapse_active_to_node_or_queue_auto(
                     self, id, now,
                 );
-                let _ = crate::compositor::workspace::state::finish_auto_collapse(self, id, now);
             }
         }
     }
@@ -326,10 +325,9 @@ impl<T: DerefMut<Target = Halley>> FocusDecayController<T> {
 
         if now_ms.saturating_sub(outside_since_ms) >= delay_ms {
             let now = Instant::now();
-            crate::compositor::workspace::state::start_active_to_node_close_animation(
+            crate::compositor::workspace::state::collapse_active_to_node_or_queue_auto(
                 self, id, now,
             );
-            let _ = crate::compositor::workspace::state::finish_auto_collapse(self, id, now);
         } else {
             let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
         }
@@ -450,6 +448,24 @@ mod tests {
         );
 
         state.apply_single_surface_decay_policy(id, 130_000, 120_000, 30_000);
+        assert_eq!(
+            state.model.field.node(id).map(|n| n.decay),
+            Some(DecayLevel::Hot)
+        );
+        assert!(
+            state
+                .model
+                .workspace_state
+                .pending_collapses
+                .contains_key(&id)
+        );
+
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        crate::compositor::workspace::state::process_pending_collapses_for_monitor(
+            &mut state,
+            monitor.as_str(),
+            Instant::now() + std::time::Duration::from_millis(140),
+        );
         assert_eq!(
             state.model.field.node(id).map(|n| n.decay),
             Some(DecayLevel::Cold)
@@ -590,6 +606,73 @@ mod tests {
             .expect("landmark slide animation");
         assert_eq!(slide.from, origin);
         assert_eq!(slide.to, resolved);
+    }
+
+    #[test]
+    fn active_window_limit_waits_for_close_capture_before_auto_collapse() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.field_active_windows_allowed = 1;
+        tuning.animations.window_close.enabled = true;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let keeper = state.model.field.spawn_surface(
+            "keeper",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 420.0, y: 280.0 },
+        );
+        let target = state.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 220.0 },
+        );
+        for id in [keeper, target] {
+            state.assign_node_to_monitor(id, monitor.as_str());
+            let _ = state
+                .model
+                .field
+                .set_state(id, halley_core::field::NodeState::Active);
+        }
+        state
+            .model
+            .focus_state
+            .monitor_focus
+            .insert(monitor.clone(), keeper);
+        let now = Instant::now();
+
+        state.enforce_single_primary_active_unit();
+
+        assert_eq!(
+            state.model.field.node(target).map(|n| n.state.clone()),
+            Some(halley_core::field::NodeState::Active)
+        );
+        assert!(
+            state
+                .model
+                .workspace_state
+                .pending_collapses
+                .contains_key(&target)
+        );
+
+        crate::compositor::workspace::state::process_pending_collapses_for_monitor(
+            &mut state,
+            monitor.as_str(),
+            now + std::time::Duration::from_millis(140),
+        );
+
+        assert_eq!(
+            state.model.field.node(target).map(|n| n.state.clone()),
+            Some(halley_core::field::NodeState::Node)
+        );
+        assert!(
+            !state
+                .model
+                .workspace_state
+                .manual_collapsed_nodes
+                .contains(&target)
+        );
     }
 
     #[test]

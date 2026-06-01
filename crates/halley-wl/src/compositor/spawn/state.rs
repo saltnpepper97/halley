@@ -150,6 +150,33 @@ pub(crate) fn node_has_overlap_policy(st: &Halley, node_id: NodeId) -> bool {
         .is_some_and(|rule| rule.overlap_policy != InitialWindowOverlapPolicy::None)
 }
 
+pub(crate) fn node_floats_over_cluster(st: &Halley, node_id: NodeId) -> bool {
+    if matches!(
+        st.runtime.tuning.cluster_layout_kind(),
+        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
+    ) {
+        return false;
+    }
+    st.model
+        .spawn_state
+        .applied_window_rules
+        .get(&node_id)
+        .is_some_and(|rule| {
+            rule.cluster_participation == InitialWindowClusterParticipation::Float
+                || rule.overlap_policy != InitialWindowOverlapPolicy::None
+        })
+}
+
+pub(crate) fn node_floats_over_active_cluster(st: &Halley, node_id: NodeId) -> bool {
+    node_floats_over_cluster(st, node_id)
+        && st
+            .model
+            .monitor_state
+            .node_monitor
+            .get(&node_id)
+            .is_some_and(|monitor| st.active_cluster_workspace_for_monitor(monitor).is_some())
+}
+
 pub(crate) fn node_draws_above_fullscreen_on_monitor(
     st: &Halley,
     node_id: NodeId,

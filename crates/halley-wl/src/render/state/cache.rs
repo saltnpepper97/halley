@@ -65,6 +65,9 @@ pub(crate) struct NodeAppIconTexture {
 pub(crate) enum NodeAppIconCacheEntry {
     Ready(NodeAppIconTexture),
     Missing,
+    /// Resolution/decode has been handed to the background loader; renderers draw
+    /// the fallback glyph until a `drain` swaps this for `Ready`/`Missing`.
+    Pending,
 }
 
 #[derive(Default)]
@@ -96,6 +99,9 @@ pub(crate) struct PinIconCache {
 #[derive(Default)]
 pub(crate) struct RenderCacheState {
     pub(crate) node_app_icon_cache: HashMap<String, NodeAppIconCacheEntry>,
+    /// Background worker that resolves + decodes app icons off the render thread.
+    /// Lazily spawned on first cache miss (see `crate::render::app_icon`).
+    pub(crate) app_icon_loader: Option<crate::render::app_icon::AppIconLoader>,
     pub(crate) cluster_core_icon_cache: ClusterCoreIconCache,
     pub(crate) screenshot_menu_icon_cache: ScreenshotMenuIconCache,
     pub(crate) pin_icon_cache: PinIconCache,
@@ -154,12 +160,22 @@ impl RenderState {
         self.cache.window_offscreen_cache.clear();
     }
 
-    pub(crate) fn prune_window_offscreen_cache(&mut self, alive: &HashSet<NodeId>, now: Instant) {
+    pub(crate) fn prune_window_offscreen_cache(
+        &mut self,
+        alive: &HashSet<NodeId>,
+        keep_warm: &HashSet<NodeId>,
+        now: Instant,
+    ) {
         self.cache.window_offscreen_cache.retain(|id, cache| {
+            // Cluster members are kept warm regardless of the idle TTL so a
+            // collapse → later re-open is always a cache hit (no synchronous
+            // texture rebuild spike at open). Closed windows are still gated by
+            // `alive` and freed.
             alive.contains(id)
-                && cache
-                    .last_used_at
-                    .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5)
+                && (keep_warm.contains(id)
+                    || cache
+                        .last_used_at
+                        .is_none_or(|t| now.saturating_duration_since(t).as_secs() < 5))
         });
     }
 

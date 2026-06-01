@@ -42,6 +42,9 @@ const CLOCK_REDRAW_INTERVAL: Duration = Duration::from_secs(1);
 const ANIMATION_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const PEEK_PADDING_X_PX: u32 = 14;
 const PEEK_PADDING_Y_PX: u32 = 14;
+const MINIMAL_PADDING_X_PX: u32 = 10;
+const MINIMAL_PADDING_Y_PX: u32 = 4;
+const MINIMAL_TAB_CROP_PX: f32 = 7.0;
 
 pub fn run() -> Result<(), String> {
     let conn = Connection::connect_to_env().map_err(|err| format!("wayland connect: {err}"))?;
@@ -154,7 +157,6 @@ impl StandaloneAperture {
             );
             layer.set_anchor(anchor_for_corner(self.runtime.config().peek.corner));
             layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-            layer.set_exclusive_zone(0);
             layer.set_size(DEFAULT_SIZE.0, DEFAULT_SIZE.1);
             set_layer_margin(
                 &layer,
@@ -162,9 +164,10 @@ impl StandaloneAperture {
                 0,
                 NORMAL_RIGHT_MARGIN_PX,
             );
-            layer.commit();
             let mut runtime = ApertureRuntime::new(self.runtime.config().clone());
             runtime.jump_to_mode(self.mode_for_new_layer(output_name.as_deref()));
+            layer.set_exclusive_zone(0);
+            layer.commit();
             self.layers.push(LayerInstance {
                 surface: layer,
                 output_name,
@@ -303,7 +306,7 @@ impl StandaloneAperture {
             self.runtime.config().placement,
             output_name,
         )
-        .unwrap_or(ApertureMode::Hidden)
+        .unwrap_or_else(|| self.runtime.target_mode())
     }
 
     fn maybe_reload_config(&mut self) -> bool {
@@ -423,16 +426,34 @@ impl StandaloneAperture {
             };
 
             let has_text = text.is_some();
+            let is_minimal = layer.runtime.target_mode() == ApertureMode::Minimal;
+            let padding_x = peek_padding_x_for_mode(layer.runtime.target_mode());
+            let padding_y = peek_padding_y_for_mode(layer.runtime.target_mode());
+            // Minimal is the reserved bar: its height comes from config
+            // (`clock-small.height-px`) so the compositor can reserve it exactly,
+            // not from the measured text. `max` with the text box avoids clipping
+            // during the shrink animation; it settles to the configured height.
+            let small_height_px = layer.runtime.config().peek.clock.small_height_px.max(1);
             let (buffer_width, buffer_height) = if has_text {
-                (
-                    text_width + PEEK_PADDING_X_PX * 2,
-                    text_height + PEEK_PADDING_Y_PX * 2,
-                )
+                let text_box_h = text_height + padding_y * 2;
+                let h = if is_minimal {
+                    text_box_h.max(small_height_px)
+                } else {
+                    text_box_h
+                };
+                (text_width + padding_x * 2, h)
             } else {
                 (1, 1)
             };
+            // Center the clock vertically inside the Minimal bar; other states keep
+            // their top padding.
+            let text_offset_y = if is_minimal {
+                ((buffer_height as i32 - text_height as i32) / 2).max(0)
+            } else {
+                padding_y as i32
+            };
             let outer_margin = if has_text {
-                edge_margin.saturating_sub(PEEK_PADDING_Y_PX as i32)
+                edge_margin.saturating_sub(padding_y as i32)
             } else {
                 0
             };
@@ -444,6 +465,7 @@ impl StandaloneAperture {
                     .resize(needed)
                     .map_err(|err| format!("resize shm pool: {err}"))?;
             }
+            layer.surface.set_exclusive_zone(0);
             layer.surface.set_size(buffer_width, buffer_height);
             set_layer_margin(
                 &layer.surface,
@@ -463,20 +485,31 @@ impl StandaloneAperture {
             canvas.fill(0);
 
             if let Some(snapshot) = text.as_ref() {
-                fill_rounded_rect(
-                    canvas,
-                    buffer_width,
-                    buffer_height,
-                    layer.runtime.config().peek.radius_px,
-                    layer.runtime.config().peek.background,
-                    snapshot.alpha,
-                );
+                if layer.runtime.target_mode() == ApertureMode::Minimal {
+                    fill_clipped_top_tab_rect(
+                        canvas,
+                        buffer_width,
+                        buffer_height,
+                        layer.runtime.config().peek.radius_px,
+                        layer.runtime.config().peek.background,
+                        snapshot.alpha,
+                    );
+                } else {
+                    fill_rounded_rect(
+                        canvas,
+                        buffer_width,
+                        buffer_height,
+                        layer.runtime.config().peek.radius_px,
+                        layer.runtime.config().peek.background,
+                        snapshot.alpha,
+                    );
+                }
                 self.font_renderer.draw(
                     canvas,
                     buffer_width,
                     buffer_height,
-                    PEEK_PADDING_X_PX as i32,
-                    PEEK_PADDING_Y_PX as i32,
+                    padding_x as i32,
+                    text_offset_y,
                     snapshot.text.as_str(),
                     snapshot.font_px,
                     snapshot.alpha,
@@ -551,7 +584,7 @@ fn mode_for_output_in(
         AperturePlacement::Cursor => Some(fallback),
         AperturePlacement::Monitor | AperturePlacement::All => output_name
             .and_then(|name| modes.get(name).copied())
-            .or_else(|| modes.is_empty().then_some(fallback)),
+            .or(Some(fallback)),
     }
 }
 
@@ -574,6 +607,22 @@ fn set_layer_margin(layer: &LayerSurface, corner: PeekCorner, edge_margin: i32, 
     layer.set_margin(top, right, bottom, left);
 }
 
+fn peek_padding_x_for_mode(mode: ApertureMode) -> u32 {
+    if mode == ApertureMode::Minimal {
+        MINIMAL_PADDING_X_PX
+    } else {
+        PEEK_PADDING_X_PX
+    }
+}
+
+fn peek_padding_y_for_mode(mode: ApertureMode) -> u32 {
+    if mode == ApertureMode::Minimal {
+        MINIMAL_PADDING_Y_PX
+    } else {
+        PEEK_PADDING_Y_PX
+    }
+}
+
 fn fill_rounded_rect(
     canvas: &mut [u8],
     width: u32,
@@ -594,6 +643,43 @@ fn fill_rounded_rect(
             let px = x as f32 + 0.5 - size.0 * 0.5;
             let py = y as f32 + 0.5 - size.1 * 0.5;
             let dist = rounded_rect_sdf(px, py, size.0, size.1, radius);
+            let coverage = sdf_alpha(dist);
+            if coverage > 0.0 {
+                let offset = ((y * width + x) * 4) as usize;
+                blend_argb8888(
+                    &mut canvas[offset..offset + 4],
+                    color.r,
+                    color.g,
+                    color.b,
+                    alpha * coverage,
+                );
+            }
+        }
+    }
+}
+
+fn fill_clipped_top_tab_rect(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    radius_px: u32,
+    color: PeekBackgroundColor,
+    alpha: f32,
+) {
+    let alpha = (color.a * alpha).clamp(0.0, 1.0);
+    if alpha <= 0.0 {
+        return;
+    }
+
+    let rect_w = width.max(1) as f32;
+    let rect_h = height.max(1) as f32 + MINIMAL_TAB_CROP_PX;
+    let radius = (radius_px as f32).min(rect_w.min(rect_h) * 0.5);
+    let center_y = -MINIMAL_TAB_CROP_PX + rect_h * 0.5;
+    for y in 0..height {
+        for x in 0..width {
+            let px = x as f32 + 0.5 - rect_w * 0.5;
+            let py = y as f32 + 0.5 - center_y;
+            let dist = rounded_rect_sdf(px, py, rect_w, rect_h, radius);
             let coverage = sdf_alpha(dist);
             if coverage > 0.0 {
                 let offset = ((y * width + x) * 4) as usize;
@@ -1064,6 +1150,7 @@ fn map_ipc_mode(mode: halley_ipc::ApertureMode) -> ApertureMode {
     match mode {
         halley_ipc::ApertureMode::Normal => ApertureMode::Normal,
         halley_ipc::ApertureMode::Collapsed => ApertureMode::Collapsed,
+        halley_ipc::ApertureMode::Minimal => ApertureMode::Minimal,
         halley_ipc::ApertureMode::Hidden => ApertureMode::Hidden,
     }
 }

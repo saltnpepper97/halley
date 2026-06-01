@@ -394,12 +394,14 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
             .overlap_raise_order
             .insert(node_id, order);
         if self.runtime.tuning.raise_animation_enabled() {
+            let now = Instant::now();
+            self.request_window_animation_prewarm(node_id, now);
             let duration_ms = self.runtime.tuning.raise_animation_duration_ms();
             let scale = self.runtime.tuning.raise_animation_scale();
             let shadow_boost = self.runtime.tuning.raise_animation_shadow_boost();
             self.ui.render_state.start_raise_animation(
                 node_id,
-                Instant::now(),
+                now,
                 duration_ms,
                 scale,
                 shadow_boost,

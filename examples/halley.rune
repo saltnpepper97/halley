@@ -268,6 +268,12 @@ animations:
     duration-ms 240
   end
 
+  fullscreen:
+    enabled true
+    # Visual-only window-to-fullscreen tween for browser videos and apps.
+    duration-ms 240
+  end
+
   window-open:
     enabled true
     duration-ms 620
@@ -453,6 +459,9 @@ rules:
   rule:
     app-id "firefox"
     title [r"File Upload.*", r"Open File.*", r"Save File.*", r"Choose.*"]
+    # Optional fixed initial size for matching windows.
+    #width 720
+    #height 520
     spawn-placement "center"
     cluster-participation "float"
   end

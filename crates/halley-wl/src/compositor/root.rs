@@ -239,6 +239,10 @@ impl Halley {
                     monitors,
                     node_monitor: HashMap::new(),
                     layer_surface_monitor: HashMap::new(),
+                    layer_surface_namespace: HashMap::new(),
+                    aperture_layer_monitors: HashSet::new(),
+                    aperture_layer_heights: HashMap::new(),
+                    pending_workarea_refresh: HashSet::new(),
                     layer_surface_committed: HashSet::new(),
                     layer_surface_last_configured_size: HashMap::new(),
                     layer_keyboard_focus: None,
@@ -282,7 +286,7 @@ impl Halley {
                 workspace_state: WorkspaceState {
                     last_active_size: HashMap::new(),
                     manual_collapsed_nodes: HashSet::new(),
-                    pending_manual_collapses: HashMap::new(),
+                    pending_collapses: HashMap::new(),
                     pending_silent_close_until_ms: HashMap::new(),
                     user_pinned_nodes: HashSet::new(),
                     active_transitions: HashMap::new(),
@@ -339,6 +343,7 @@ impl Halley {
                     overlay_toast: HashMap::new(),
                     overlay_exit_confirm: HashMap::new(),
                     closing_window_animations: HashMap::new(),
+                    animation_prewarm_requests: HashMap::new(),
                     stack_cycle_transition: HashMap::new(),
                     raise_animations: HashMap::new(),
                     landmark_slide_animations: HashMap::new(),
@@ -457,6 +462,15 @@ impl Halley {
 
     pub(crate) fn apply_aperture_config(&mut self, config: crate::aperture::core::ApertureConfig) {
         self.aperture.apply_config(config);
+        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
+        self.request_maintenance();
+    }
+
+    pub(crate) fn request_window_animation_prewarm(&mut self, node_id: NodeId, now: Instant) {
+        self.ui
+            .render_state
+            .request_window_animation_prewarm(node_id, now);
+        self.request_maintenance();
     }
 
     pub(crate) fn node_user_pinned(&self, id: NodeId) -> bool {

@@ -19,6 +19,8 @@ use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::wayland::shell::xdg::PopupSurface;
 use smithay::wayland::shell::xdg::PositionerState;
 
+const APERTURE_LAYER_NAMESPACE: &str = "halley-aperture";
+
 #[derive(Clone)]
 pub(crate) struct LayerPlacement {
     pub wl_surface: WlSurface,
@@ -109,14 +111,47 @@ fn rectangle_fits_within(target: Rectangle<i32, Logical>, rect: Rectangle<i32, L
         && rect_bottom <= target_bottom
 }
 
+/// True when `monitor` has an active tiling cluster workspace. While locked, the
+/// cluster work area is frozen for the whole session: the aperture-driven
+/// reservation is established once at enter (via the forced refresh) and no later
+/// aperture-height commit is allowed to move `usable_viewport`. This eliminates
+/// both the mid-slide re-basing and the post-slide settle "snap" (see
+/// `refresh_monitor_usable_viewports`). The live height is still learned into
+/// `aperture_layer_heights` for the next enter; it just isn't applied mid-session.
+fn monitor_cluster_workarea_locked(st: &Halley, monitor: &str) -> bool {
+    st.active_cluster_workspace_for_monitor(monitor).is_some()
+        && matches!(
+            st.runtime.tuning.cluster_layout_kind(),
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+        )
+}
+
 pub(crate) fn refresh_monitor_usable_viewports(st: &mut Halley) {
+    refresh_monitor_usable_viewports_inner(st, None);
+}
+
+/// Like [`refresh_monitor_usable_viewports`] but force-applies the reservation for
+/// `force_monitor`, bypassing the active-cluster work-area lock for that one
+/// monitor. Called at cluster enter to write the session baseline (the cluster is
+/// already marked active at that point, so the lock would otherwise defer it).
+pub(crate) fn refresh_monitor_usable_viewport_forced(st: &mut Halley, force_monitor: &str) {
+    refresh_monitor_usable_viewports_inner(st, Some(force_monitor));
+}
+
+fn refresh_monitor_usable_viewports_inner(st: &mut Halley, force_monitor: Option<&str>) {
     let monitor_names: Vec<String> = st.model.monitor_state.monitors.keys().cloned().collect();
     for monitor_name in monitor_names {
         let Some(space) = st.model.monitor_state.monitors.get(&monitor_name).cloned() else {
             continue;
         };
-        let usable = layer_shell_usable_rect_for_monitor(st, &monitor_name);
-        let full = Rectangle::from_size((space.width, space.height).into());
+        let full: Rectangle<i32, Logical> =
+            Rectangle::from_size((space.width, space.height).into());
+        let mut usable = full;
+        let aperture_reserve = crate::aperture::small_reservation_px_for_monitor(st, &monitor_name);
+        if aperture_reserve > 0 {
+            usable.loc.y = aperture_reserve.clamp(0, full.size.h.saturating_sub(1));
+            usable.size.h = (full.size.h - usable.loc.y).max(1);
+        }
         let usable_viewport = if usable == full {
             space.viewport
         } else {
@@ -138,10 +173,45 @@ pub(crate) fn refresh_monitor_usable_viewports(st: &mut Halley) {
                 size,
             )
         };
+        // Freeze the cluster work area for the whole active tiling session:
+        // applying the aperture's animated reservation mid-session rewrites
+        // `usable_viewport`, which re-bases the in-flight tile easing (mid-slide
+        // stutter) and snaps the work area as the slide settles (the end-of-open
+        // top adjustment). The reservation is established once at enter via the
+        // forced refresh; any later aperture-height change is deferred (and only
+        // applied once the session ends — maintenance tick / cluster exit). The
+        // entering monitor is exempted so its baseline still gets written.
+        if usable_viewport != space.usable_viewport
+            && force_monitor != Some(monitor_name.as_str())
+            && monitor_cluster_workarea_locked(st, &monitor_name)
+        {
+            st.model
+                .monitor_state
+                .pending_workarea_refresh
+                .insert(monitor_name.clone());
+            if crate::perf::enabled() {
+                eventline::info!(
+                    "perf workarea_defer monitor={} old_top={:.1} new_top={:.1} (cluster_locked)",
+                    monitor_name,
+                    space.usable_viewport.center.y - space.usable_viewport.size.y * 0.5,
+                    usable_viewport.center.y - usable_viewport.size.y * 0.5,
+                );
+            }
+            continue;
+        }
+        st.model
+            .monitor_state
+            .pending_workarea_refresh
+            .remove(&monitor_name);
         if let Some(space_mut) = st.model.monitor_state.monitors.get_mut(&monitor_name) {
             space_mut.usable_viewport = usable_viewport;
         }
     }
+    // This runs on exactly the discrete transitions that can flip the aperture
+    // mode (cluster enter/exit, fullscreen, maximize, output reconfigure), and not
+    // in the per-frame path — so drop the cached modes here for an immediate
+    // re-derive on the next status poll.
+    st.aperture.invalidate_mode_cache();
 }
 
 fn restore_focus_after_layer_surface_close_for_monitor(
@@ -225,6 +295,13 @@ pub(crate) fn layer_surface_monitor_name(st: &Halley, surface: &WlSurface) -> St
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
 }
 
+pub(crate) fn aperture_layer_present_for_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .monitor_state
+        .aperture_layer_monitors
+        .contains(monitor)
+}
+
 fn register_layer_surface_impl(
     st: &mut Halley,
     surface: LayerSurface,
@@ -244,6 +321,10 @@ fn register_layer_surface_impl(
     };
 
     st.assign_layer_surface_to_monitor(surface.wl_surface(), assigned_monitor.clone());
+    st.model
+        .monitor_state
+        .layer_surface_namespace
+        .insert(surface.wl_surface().id(), namespace.clone());
 
     if let Some(requested_output) = output.as_ref() {
         for output in st.model.monitor_state.outputs.values() {
@@ -273,6 +354,35 @@ fn maybe_grant_layer_surface_focus_on_commit_impl(st: &mut Halley, surface: &WlS
         .monitor_state
         .layer_surface_committed
         .insert(surface.id());
+    if layer_surface_namespace(st, surface).as_deref() == Some(APERTURE_LAYER_NAMESPACE) {
+        let monitor = layer_surface_monitor_name(st, surface);
+        let height = aperture_layer_height_from_committed_surface(st, surface);
+        let newly_present = st
+            .model
+            .monitor_state
+            .aperture_layer_monitors
+            .insert(monitor.clone());
+        // Only learn the minimal-tab height while minimal is the intended mode for
+        // this monitor. Otherwise the Minimal→Normal close ramp — whose climbing
+        // heights stay within the accepted band for a while — overwrites the stored
+        // value last-wins with a too-large height, which FINAL-5 then freezes as a
+        // persistently oversized cluster gap. See `monitor_minimal_aperture_intended`.
+        let height_changed = crate::aperture::monitor_minimal_aperture_intended(st, &monitor)
+            && height
+                .and_then(|height| {
+                    crate::aperture::accepted_minimal_aperture_tab_height_px(st, height)
+                })
+                .is_some_and(|height| {
+                    st.model
+                        .monitor_state
+                        .aperture_layer_heights
+                        .insert(monitor.clone(), height)
+                        != Some(height)
+                });
+        if newly_present || height_changed {
+            refresh_monitor_usable_viewports(st);
+        }
+    }
 
     if !layer_surface_initial_configure_sent(surface) {
         let monitor = layer_surface_monitor_name(st, surface);
@@ -309,6 +419,11 @@ fn remove_layer_surface_impl(st: &mut Halley, surface: &LayerSurface) {
         .monitor_state
         .layer_surface_monitor
         .remove(&surface.wl_surface().id());
+    let removed_namespace = st
+        .model
+        .monitor_state
+        .layer_surface_namespace
+        .remove(&surface.wl_surface().id());
     st.model
         .monitor_state
         .layer_surface_committed
@@ -322,6 +437,19 @@ fn remove_layer_surface_impl(st: &mut Halley, surface: &LayerSurface) {
     }
     for output in st.model.monitor_state.outputs.values() {
         output.leave(surface.wl_surface());
+    }
+    if removed_namespace.as_deref() == Some(APERTURE_LAYER_NAMESPACE) {
+        if !aperture_layer_attached_to_monitor(st, removed_monitor.as_str()) {
+            st.model
+                .monitor_state
+                .aperture_layer_monitors
+                .remove(removed_monitor.as_str());
+            st.model
+                .monitor_state
+                .aperture_layer_heights
+                .remove(removed_monitor.as_str());
+        }
+        refresh_monitor_usable_viewports(st);
     }
     if !removed_focused_layer {
         return;
@@ -365,6 +493,40 @@ fn layer_cached_state(surface: &LayerSurface) -> LayerSurfaceCachedState {
             .get::<LayerSurfaceCachedState>()
             .current()
     })
+}
+
+fn layer_surface_namespace(st: &Halley, surface: &WlSurface) -> Option<String> {
+    st.model
+        .monitor_state
+        .layer_surface_namespace
+        .get(&surface.id())
+        .cloned()
+}
+
+fn aperture_layer_height_from_committed_surface(st: &Halley, surface: &WlSurface) -> Option<i32> {
+    st.platform
+        .wlr_layer_shell_state
+        .layer_surfaces()
+        .find_map(|layer| {
+            (layer.wl_surface().id() == surface.id()).then(|| layer_cached_state(&layer).size.h)
+        })
+}
+
+fn aperture_layer_attached_to_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .monitor_state
+        .layer_surface_namespace
+        .iter()
+        .any(|(id, namespace)| {
+            namespace == APERTURE_LAYER_NAMESPACE
+                && st.model.monitor_state.layer_surface_committed.contains(id)
+                && st
+                    .model
+                    .monitor_state
+                    .layer_surface_monitor
+                    .get(id)
+                    .is_some_and(|surface_monitor| surface_monitor == monitor)
+        })
 }
 
 pub(crate) fn configure_layer_shell_surfaces(st: &mut Halley, _output_size: Size<i32, Logical>) {
@@ -475,24 +637,6 @@ pub(crate) fn layer_shell_placements_for_monitor(
     }
 
     placements
-}
-
-pub(crate) fn layer_shell_usable_rect_for_monitor(
-    st: &Halley,
-    monitor_name: &str,
-) -> Rectangle<i32, Logical> {
-    let output_rect = Rectangle::from_size(layer_output_size_for_monitor(st, monitor_name));
-    let mut zone = output_rect;
-
-    for surface in layer_shell_surfaces_sorted(st) {
-        if layer_surface_monitor_name(st, surface.wl_surface()) != monitor_name {
-            continue;
-        }
-        let data = layer_cached_state(&surface);
-        let _ = compute_layer_placement(output_rect, &mut zone, data);
-    }
-
-    zone
 }
 
 fn layer_shell_surfaces_sorted(st: &Halley) -> Vec<LayerSurface> {

@@ -443,6 +443,7 @@ mod tests {
                 overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
                 spawn_placement: halley_config::InitialWindowSpawnPlacement::Center,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                initial_size: None,
             },
             ..default_late_app_id.clone()
         };
@@ -1036,6 +1037,7 @@ mod tests {
                 overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
                 spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
+                initial_size: None,
             },
             builtin_rule: None,
             matched_rule: true,
@@ -1114,6 +1116,7 @@ mod tests {
                 overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
                 spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
+                initial_size: None,
             },
             builtin_rule: None,
             matched_rule: false,
@@ -1147,6 +1150,7 @@ mod tests {
                 overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
                 spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
+                initial_size: None,
             },
             builtin_rule: None,
             matched_rule: true,

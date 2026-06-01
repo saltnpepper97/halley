@@ -2,10 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - TBD
+
+### Added
+- Add optional `width` and `height` window-rule keys for fixed initial sizes on matched windows.
+- Add configurable fullscreen entry animation via `animations.fullscreen`, including bootstrap migration and example config coverage, so browser videos such as YouTube tween into fullscreen instead of snapping.
+- Add an Aperture `Minimal` mode across IPC, compositor status, and the standalone clock so maximized windows and tiled cluster workspaces can use a compact top tab instead of the larger collapsed clock.
+- Add `HALLEY_WL_PERF`-gated slow-frame and cluster-workspace entry timing logs for diagnosing render hitches without hot-path timestamp overhead when disabled.
+
+### Changed
+- Render minimal Aperture as a clipped top tab with smaller clock sizing and tab-specific padding, while preserving normal and collapsed Aperture presentation.
+- Centralize animation offscreen prewarm requests so close, tile, stack, maximize, fullscreen, raise, active-transition, and slide animations can declare texture-cache needs through one path.
+- Keep first-collapse marker rendering non-blocking by skipping cold app-icon lookup/raster/import during frame rendering and falling back until the icon cache is already warm.
+- Use the reserved usable viewport for maximize targets and maximized visuals so top clearance reservations are honored consistently.
+- Soften window shadows with a Gaussian/error-function falloff for a more natural shadow tail.
+
+### Fixed
+- Wait briefly for the close-animation capture before automatic active-to-node collapses, fixing the first overlapped auto-collapse snapping to a node while preserving immediate fallback for no-content windows.
+- Reserve Aperture top clearance as a deficit against the user's configured field or tile gap instead of stacking extra padding on top of those gaps.
+- Base Aperture clearance on the actual minimal tab height plus a small after-gap, reject placeholder or expanded Aperture heights, and avoid phantom top gaps when `halley-aperture` is not running.
+- Refresh usable viewports when maximize, tiled cluster, layout mode, config, or Aperture sizing changes can affect the reserve, while avoiding unnecessary refreshes from irrelevant Aperture commits.
+- Prewarm requested animation textures for detached, pending, or off-current-monitor windows instead of relying only on the opportunistic visible-active-window cache pass.
+- Avoid relayouting active tiled cluster members while tile animations are in flight, preserving transition geometry until the animation completes.
+- Keep tiled transition rendering on stale offscreen caches when fresh captures are deferred, avoiding blank frames during tile movement.
+- Deduplicate repeated tiled `xdg_toplevel` configures during maintenance relayouts to reduce client lag and avoid serial churn crashes.
+- Detach active cluster members from their source cluster when monitor-transfer drags move them away, so the source layout recalculates without the missing window.
+- Absorb transferred standalone windows into the target monitor's active cluster layout by default, while keeping `cluster-participation "float"` and overlap-policy windows freely floating and resizable above the tiled cluster plane.
+- Restore stacking-cluster drag/drop behavior so hit-testing selects the visual top card, only that top card can be dragged out, in-stack drops snap back to the stack, outside drops detach or dissolve two-window stacks, and standalone windows dropped on an active stack rejoin at the top instead of floating over it.
+
 ## [v0.3.2] - 2026-05-31
 
 ### Fixed
 - Clear pending initial reveal state for tiled cluster members once committed geometry arrives, preventing focused terminals in tiled clusters from keeping stale rendered textures while input continues to reach the client.
+
+## [v0.3.1] - 2026-05-31
+
+### Fixed
+- Restore expanded-window and landmark transfer behavior during drag overlap resolution.
+- Restore initial reveal geometry updates for fullscreen/maximize-like surfaces, fixing game reveal behavior.
 
 ## [v0.3.0] - 2026-05-30
 

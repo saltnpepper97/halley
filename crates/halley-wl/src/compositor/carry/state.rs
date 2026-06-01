@@ -55,12 +55,13 @@ pub(crate) fn enforce_carry_zone_states(st: &mut crate::compositor::root::Halley
             FocusZone::Inside => DecayLevel::Cold,
             FocusZone::Outside => DecayLevel::Cold,
         };
-        if matches!(target, DecayLevel::Cold) {
-            crate::compositor::workspace::state::start_active_to_node_close_animation(
+        if matches!(target, DecayLevel::Cold) && n.state == halley_core::field::NodeState::Active {
+            crate::compositor::workspace::state::collapse_active_to_node_or_queue_auto(
                 st,
                 id,
                 Instant::now(),
             );
+            continue;
         }
         let _ = st.model.field.set_decay_level(id, target);
     }

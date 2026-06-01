@@ -105,10 +105,21 @@ fn snapshot_surface_geometry(
 
 pub(super) fn log_window_render_path(
     _st: &Halley,
-    _node_id: halley_core::field::NodeId,
-    _path: &str,
-    _detail: &str,
+    node_id: halley_core::field::NodeId,
+    path: &str,
+    detail: &str,
 ) {
+    // Only log the expensive paths. `offscreen-compose` (the cheap cached reuse)
+    // fires for every window every frame and churned the log into rapid rotation,
+    // evicting the very spike lines we needed to see.
+    if crate::perf::enabled() && path != "offscreen-compose" {
+        eventline::info!(
+            "perf render-path node={} path={} {}",
+            node_id.as_u64(),
+            path,
+            detail
+        );
+    }
 }
 
 pub(super) fn rect4_str(x: i32, y: i32, w: i32, h: i32) -> String {

@@ -202,8 +202,12 @@ pub(crate) fn draw_debug_frame_to_target(
     ensure_window_shadow_program(renderer, st);
     ensure_surface_clip_program(renderer, st);
 
+    let frame_perf_start = crate::perf::start();
+    let prewarm_start = crate::perf::start();
     prewarm_visible_active_window_offscreen_caches(renderer, st, prepared.now);
+    let prewarm_ms = prewarm_start.map(crate::perf::elapsed_ms);
 
+    let collect_start = crate::perf::start();
     let scene = collect_debug_frame_scene(
         renderer,
         st,
@@ -213,6 +217,9 @@ pub(crate) fn draw_debug_frame_to_target(
         preview_hover_node,
         prepared.now,
     );
+    let collect_ms = collect_start.map(crate::perf::elapsed_ms);
+    let resources_start = crate::perf::start();
+    crate::render::app_icon::drain_app_icon_jobs(renderer, st);
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
     if node_markers_need_app_icon_resources(st.runtime.tuning.node_show_app_icons) {
         ensure_cluster_core_icon_resources(renderer, st)?;
@@ -261,7 +268,9 @@ pub(crate) fn draw_debug_frame_to_target(
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_ui_text_resources(renderer, st)?;
+    let resources_ms = resources_start.map(crate::perf::elapsed_ms);
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
+    let draw_start = crate::perf::start();
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
 
@@ -277,7 +286,43 @@ pub(crate) fn draw_debug_frame_to_target(
     )?;
 
     let _ = frame.finish()?;
-    crate::compositor::workspace::state::process_pending_manual_collapses_for_monitor(
+    let draw_ms = draw_start.map(crate::perf::elapsed_ms);
+    if let Some(start) = frame_perf_start {
+        // Refresh-aware budget: a fixed 24ms threshold never fires on a 180Hz
+        // output (~5.6ms/frame), so the choppy cluster-open slide was invisible.
+        // Derive the budget from the current monitor's refresh rate.
+        let budget_ms = st
+            .runtime
+            .tuning
+            .tty_viewports
+            .iter()
+            .find(|vp| vp.enabled && vp.connector == current_monitor)
+            .and_then(|vp| vp.refresh_rate)
+            .map(|hz| (1000.0 / hz as f32 * 1.5).max(4.0))
+            .unwrap_or(16.0);
+        // During a cluster tile slide, log every frame regardless of budget so we
+        // capture the whole tween, not just the worst spike.
+        let tile_anim = crate::animation::cluster_tile_tracks_animating(
+            &st.ui.render_state.cluster_tile_tracks,
+            prepared.now,
+        );
+        let total_ms = crate::perf::elapsed_ms(start);
+        if total_ms > budget_ms || tile_anim {
+            eventline::warn!(
+                "perf frame took={:.2}ms budget={:.2} tile_anim={} (prewarm={:.2} collect={:.2} resources={:.2} draw={:.2}) toplevels={} render_nodes={}",
+                total_ms,
+                budget_ms,
+                tile_anim,
+                prewarm_ms.unwrap_or_default(),
+                collect_ms.unwrap_or_default(),
+                resources_ms.unwrap_or_default(),
+                draw_ms.unwrap_or_default(),
+                st.platform.xdg_shell_state.toplevel_surfaces().len(),
+                scene.render_nodes.len(),
+            );
+        }
+    }
+    crate::compositor::workspace::state::process_pending_collapses_for_monitor(
         st,
         current_monitor.as_str(),
         prepared.now,

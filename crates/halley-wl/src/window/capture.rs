@@ -353,6 +353,10 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
     st: &mut Halley,
     now: Instant,
 ) {
+    let requested_prewarm_nodes = st
+        .ui
+        .render_state
+        .requested_window_animation_prewarm_nodes(now);
     let mut wl_surfaces: Vec<_> = st
         .platform
         .xdg_shell_state
@@ -365,17 +369,66 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
         })
         .collect();
 
-    wl_surfaces.sort_by_key(|(id, _)| std::cmp::Reverse(id.as_u64()));
+    wl_surfaces.sort_by(|(left, _), (right, _)| {
+        requested_prewarm_nodes
+            .contains(right)
+            .cmp(&requested_prewarm_nodes.contains(left))
+            .then_with(|| right.as_u64().cmp(&left.as_u64()))
+    });
 
     for (node_id, wl) in wl_surfaces {
+        let requested = requested_prewarm_nodes.contains(&node_id);
+        if !requested
+            && crate::compositor::surface::is_active_cluster_workspace_member(st, node_id)
+            && crate::animation::cluster_tile_rect_for(
+                &st.ui.render_state.cluster_tile_tracks,
+                node_id,
+                now,
+            )
+            .is_some()
+        {
+            continue;
+        }
         let bbox = sync_node_size_from_surface(st, node_id, &wl);
         let Some(node) = st.model.field.node(node_id) else {
             continue;
         };
         if node.state != halley_core::field::NodeState::Active
-            || !st.model.field.is_visible(node_id)
-            || !st.node_assigned_to_current_monitor(node_id)
             || node_requires_live_surface_render(st, node_id)
+        {
+            continue;
+        }
+        if !requested
+            && (!st.model.field.is_visible(node_id)
+                || !st.node_assigned_to_current_monitor(node_id))
+        {
+            continue;
+        }
+
+        // While a tile-open/close transition is animating, freeze the offscreen
+        // texture. The slide scales this single capture (`use_offscreen_zoom`), so
+        // re-capturing on every intermediate size the client commits as it settles
+        // into the final tile is both wasted GPU work (grows to ~5ms/frame —
+        // enough to miss vblanks on a 180Hz output → the choppy slide) and the
+        // source of the mid-slide "displaced texture" (a lagging capture drawn
+        // against the moved geometry). Reuse the existing texture; the normal
+        // rebuild resumes once the transition settles.
+        let tile_transition_active = crate::animation::cluster_tile_rect_for(
+            &st.ui.render_state.cluster_tile_tracks,
+            node_id,
+            now,
+        )
+        .is_some();
+        if tile_transition_active
+            && st
+                .ui
+                .render_state
+                .cache
+                .window_offscreen_cache
+                .get(&node_id)
+                .is_some_and(|cache| {
+                    cache.texture.is_some() && cache.bbox.is_some() && cache.has_content
+                })
         {
             continue;
         }
@@ -418,6 +471,9 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
             cache.bbox = Some(offscreen.bbox);
             cache.has_content = offscreen.has_content;
             cache.mark_clean(now);
+            if cache.has_content {
+                st.ui.render_state.finish_window_animation_prewarm(node_id);
+            }
         }
     }
 }

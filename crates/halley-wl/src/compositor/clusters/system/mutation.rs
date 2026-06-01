@@ -151,12 +151,16 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                                 cluster_monitor.as_str(),
                             );
                         if self.runtime.tuning.stack_animation_enabled() {
+                            let transition_now = Instant::now();
+                            for node_id in old_visible.iter().chain(new_visible.iter()).copied() {
+                                self.request_window_animation_prewarm(node_id, transition_now);
+                            }
                             self.ui.render_state.start_stack_cycle_transition(
                                 cluster_monitor.as_str(),
                                 ClusterCycleDirection::Prev,
                                 old_visible.clone(),
                                 new_visible,
-                                Instant::now(),
+                                transition_now,
                                 duration_ms,
                             );
                             self.request_maintenance();
@@ -326,6 +330,9 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                                 cluster_monitor.as_str(),
                             );
                         if self.runtime.tuning.stack_animation_enabled() {
+                            for node_id in old_visible.iter().chain(new_visible.iter()).copied() {
+                                self.request_window_animation_prewarm(node_id, now);
+                            }
                             self.ui.render_state.start_stack_cycle_transition(
                                 cluster_monitor.as_str(),
                                 ClusterCycleDirection::Prev,

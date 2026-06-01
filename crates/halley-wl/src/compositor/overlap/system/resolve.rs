@@ -491,6 +491,7 @@ pub(crate) fn resolve_landmarks_overlapped_by_active_window(st: &mut Halley, win
         if let Some(to) = st.model.field.node(id).map(|node| node.pos)
             && ((from.x - to.x).abs() > 0.5 || (from.y - to.y).abs() > 0.5)
         {
+            st.request_window_animation_prewarm(id, now);
             st.ui
                 .render_state
                 .start_landmark_slide_animation(id, from, to, now);
@@ -534,7 +535,15 @@ pub(crate) fn request_toplevel_resize(st: &mut Halley, node_id: NodeId, width: i
             }
             st.apply_toplevel_tiled_hint(s);
         });
-        top.send_configure();
+        // Only emit a configure when the pending state actually differs from
+        // what the client was last sent. The cluster relayout runs on every
+        // maintenance tick and re-requests the same tile size until the client
+        // commits at the new size; an unconditional `send_configure()` here
+        // floods the client with thousands of identical configures (visible
+        // lag, and enough serial churn to trip the client's xdg_wm_base serial
+        // bookkeeping and crash it). `send_pending_configure()` is Smithay's
+        // built-in dedup and is a no-op when nothing changed.
+        top.send_pending_configure();
         break;
     }
 }

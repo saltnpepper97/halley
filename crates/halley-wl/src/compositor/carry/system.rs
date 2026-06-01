@@ -224,8 +224,9 @@ pub(crate) fn update_carry_state_preview_at(
             },
         }
     };
-    if matches!(target, DecayLevel::Cold) {
-        crate::compositor::workspace::state::start_active_to_node_close_animation(st, id, now);
+    if matches!(target, DecayLevel::Cold) && was_active {
+        crate::compositor::workspace::state::collapse_active_to_node_or_queue_auto(st, id, now);
+        return;
     }
     let _ = st.model.field.set_decay_level(id, target);
     let is_active = st

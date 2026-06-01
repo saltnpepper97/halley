@@ -177,6 +177,7 @@ pub struct AnimationsConfig {
     pub enabled: bool,
     pub smooth_resize: TimedAnimationConfig,
     pub maximize: TimedAnimationConfig,
+    pub fullscreen: TimedAnimationConfig,
     pub window_close: WindowCloseAnimationConfig,
     pub window_open: TimedAnimationConfig,
     pub tile: TimedAnimationConfig,
@@ -190,6 +191,7 @@ impl Default for AnimationsConfig {
             enabled: true,
             smooth_resize: TimedAnimationConfig::new(true, 90),
             maximize: TimedAnimationConfig::new(true, 240),
+            fullscreen: TimedAnimationConfig::new(true, 240),
             window_close: WindowCloseAnimationConfig::new(
                 true,
                 250,
@@ -677,6 +679,7 @@ pub enum InitialWindowClusterParticipation {
 pub struct WindowRule {
     pub app_ids: Vec<WindowRulePattern>,
     pub titles: Vec<WindowRulePattern>,
+    pub initial_size: Option<(u32, u32)>,
     pub overlap_policy: InitialWindowOverlapPolicy,
     pub spawn_placement: InitialWindowSpawnPlacement,
     pub cluster_participation: InitialWindowClusterParticipation,

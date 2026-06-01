@@ -21,8 +21,13 @@ pub(crate) struct FullscreenMotion {
     pub duration_ms: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct FullscreenScaleAnim {
+    pub monitor: String,
+    pub from_pos: Vec2,
+    pub to_pos: Vec2,
+    pub from_size: Vec2,
+    pub to_size: Vec2,
     pub start_ms: u64,
     pub duration_ms: u64,
 }

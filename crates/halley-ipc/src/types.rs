@@ -10,6 +10,7 @@ pub struct OutputsResponse {
 pub enum ApertureMode {
     Normal,
     Collapsed,
+    Minimal,
     Hidden,
 }
 
