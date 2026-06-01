@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crate::compositor::interaction::{HitNode, ResizeCtx};
 use crate::compositor::root::Halley;
-use crate::compositor::spawn::state::is_persistent_rule_top;
+use crate::compositor::spawn::state::{is_persistent_rule_top, node_floats_over_active_cluster};
 use crate::compositor::surface::active_stacking_visible_members_for_monitor;
 use crate::frame_loop::anim_style_for;
 use crate::input::active_node_screen_rect;
@@ -44,7 +44,13 @@ impl ActiveHitOrderingView {
         let mut persistent_top = HashSet::new();
         for hit in hits {
             let node_id = hit.node_id;
-            overlap_ranks.insert(node_id, st.overlap_policy_stack_rank(node_id));
+            let (rank, tie) = st.overlap_policy_stack_rank(node_id);
+            let rank = if node_floats_over_active_cluster(st, node_id) {
+                rank.saturating_add(1_u64 << 62)
+            } else {
+                rank
+            };
+            overlap_ranks.insert(node_id, (rank, tie));
             if st.node_draws_above_fullscreen_on_current_monitor(node_id) {
                 draws_above_fullscreen.insert(node_id);
             }

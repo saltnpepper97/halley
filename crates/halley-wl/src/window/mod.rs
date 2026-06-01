@@ -24,7 +24,7 @@ use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::monitor::layer_shell::layer_output_size_for_monitor;
 use crate::compositor::root::Halley;
-use crate::compositor::spawn::state::is_persistent_rule_top;
+use crate::compositor::spawn::state::{is_persistent_rule_top, node_floats_over_active_cluster};
 use crate::compositor::surface::{
     active_stacking_visible_members_for_monitor, is_active_cluster_workspace_member,
     window_geometry_for_node,
@@ -166,11 +166,24 @@ fn rect_covers_output(rect: (i32, i32, i32, i32), output: Rectangle<i32, Physica
 }
 
 fn active_surface_draw_rank(st: &Halley, node_id: NodeId) -> (u64, u64) {
-    st.overlap_policy_stack_rank(node_id)
+    let (rank, tie) = st.overlap_policy_stack_rank(node_id);
+    if node_floats_over_active_cluster(st, node_id) {
+        (rank.saturating_add(1_u64 << 62), tie)
+    } else {
+        (rank, tie)
+    }
 }
 
 fn overlap_policy_draw_order(st: &Halley, node_id: NodeId) -> i32 {
-    st.overlap_policy_stack_rank(node_id).0.min(i32::MAX as u64) as i32
+    let rank = st
+        .overlap_policy_stack_rank(node_id)
+        .0
+        .min((i32::MAX / 4) as u64) as i32;
+    if node_floats_over_active_cluster(st, node_id) {
+        i32::MAX / 2 + rank
+    } else {
+        rank
+    }
 }
 
 #[allow(clippy::type_complexity)]
@@ -1509,6 +1522,7 @@ mod tests {
     use crate::compositor::surface::stacking_render_order_map;
     use halley_core::field::NodeId;
     use halley_core::field::Vec2;
+    use std::time::Instant;
 
     #[test]
     fn stacking_render_order_keeps_front_card_last() {
@@ -1545,6 +1559,67 @@ mod tests {
         ids.sort_by_key(|&id| active_surface_draw_rank(&state, id));
 
         assert_eq!(ids, vec![old, newest, raised]);
+    }
+
+    #[test]
+    fn active_surface_draw_rank_keeps_cluster_float_above_layout_member() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let layout_a = state.model.field.spawn_surface(
+            "layout-a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let layout_b = state.model.field.spawn_surface(
+            "layout-b",
+            Vec2 { x: 360.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let floating = state.model.field.spawn_surface(
+            "floating",
+            Vec2 { x: 180.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        for id in [layout_a, layout_b, floating] {
+            state.assign_node_to_monitor(id, "monitor_a");
+        }
+        let cid = state
+            .create_cluster(vec![layout_a, layout_b])
+            .expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+        state.model.spawn_state.applied_window_rules.insert(
+            floating,
+            crate::compositor::spawn::state::AppliedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+                builtin_rule: None,
+            },
+        );
+
+        assert!(
+            active_surface_draw_rank(&state, floating) > active_surface_draw_rank(&state, layout_a)
+        );
     }
 
     #[test]

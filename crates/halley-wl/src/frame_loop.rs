@@ -380,7 +380,31 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
             (st.cluster_bloom_for_monitor(drag_monitor.as_str()) == Some(cid)).then_some(clamped)
         })
         .unwrap_or(desired_to);
+        let source_monitor = st.model.monitor_state.node_monitor.get(&node_id).cloned();
+        let monitor_changed = source_monitor.as_deref() != Some(drag_monitor.as_str());
+        let floats_over_cluster =
+            crate::compositor::spawn::state::node_floats_over_cluster(st, node_id);
+        if monitor_changed
+            && let Some(cid) = st.model.field.cluster_id_for_member_public(node_id)
+            && source_monitor.as_deref().is_some_and(|monitor| {
+                st.active_cluster_workspace_for_monitor(monitor) == Some(cid)
+            })
+            && let Some(pos) = st.model.field.node(node_id).map(|node| node.pos)
+        {
+            let _ = st.detach_member_from_cluster(cid, node_id, pos, now);
+        }
         st.assign_node_to_monitor(node_id, drag_monitor.as_str());
+        if monitor_changed
+            && !floats_over_cluster
+            && st
+                .model
+                .field
+                .cluster_id_for_member_public(node_id)
+                .is_none()
+            && let Some(cid) = st.active_cluster_workspace_for_monitor(drag_monitor.as_str())
+        {
+            let _ = st.absorb_node_into_cluster(cid, node_id, now);
+        }
         st.carry_surface_non_overlap(node_id, to, false)
     } else if !active_drag.edge_pan_eligible {
         crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
@@ -958,6 +982,7 @@ mod tests {
 
     fn multi_monitor_state() -> Halley {
         let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
         tuning.tty_viewports = vec![
             halley_config::ViewportOutputConfig {
                 connector: "left".to_string(),
@@ -991,6 +1016,51 @@ mod tests {
         Halley::new_for_test(&dh, tuning)
     }
 
+    fn set_active_transfer_drag(st: &mut Halley, node_id: NodeId, target_monitor: &str) {
+        st.input.interaction_state.drag_authority_node = Some(node_id);
+        st.input.interaction_state.active_drag =
+            Some(crate::compositor::interaction::state::ActiveDragState {
+                node_id,
+                allow_monitor_transfer: true,
+                edge_pan_eligible: false,
+                current_offset: Vec2 { x: 0.0, y: 0.0 },
+                pointer_monitor: target_monitor.to_string(),
+                pointer_workspace_size: (800, 600),
+                pointer_screen_local: (400.0, 300.0),
+                edge_pan_x: crate::compositor::interaction::DragAxisMode::Free,
+                edge_pan_y: crate::compositor::interaction::DragAxisMode::Free,
+                last_edge_pan_at: Instant::now(),
+            });
+    }
+
+    fn open_test_cluster(
+        st: &mut Halley,
+        monitor: &str,
+        labels: &[&str],
+    ) -> halley_core::cluster::ClusterId {
+        let members = labels
+            .iter()
+            .enumerate()
+            .map(|(index, label)| {
+                let id = st.model.field.spawn_surface(
+                    (*label).to_string(),
+                    Vec2 {
+                        x: 100.0 + index as f32 * 80.0,
+                        y: 100.0,
+                    },
+                    Vec2 { x: 320.0, y: 240.0 },
+                );
+                st.assign_node_to_monitor(id, monitor);
+                id
+            })
+            .collect::<Vec<_>>();
+        let cid = st.create_cluster(members).expect("cluster");
+        let core = st.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, monitor);
+        assert!(st.enter_cluster_workspace_by_core(core, monitor, Instant::now()));
+        cid
+    }
+
     #[test]
     fn camera_smoothing_only_marks_current_monitor_active() {
         let mut state = multi_monitor_state();
@@ -1001,6 +1071,83 @@ mod tests {
         let now = Instant::now();
         assert!(tty_output_animation_redraw_state(&state, "right", now).active);
         assert!(!tty_output_animation_redraw_state(&state, "left", now).active);
+    }
+
+    #[test]
+    fn monitor_transfer_moves_cluster_member_between_active_layouts() {
+        let mut state = multi_monitor_state();
+        let left_cid = open_test_cluster(&mut state, "left", &["left-a", "left-b", "left-c"]);
+        let right_cid = open_test_cluster(&mut state, "right", &["right-a", "right-b"]);
+        let moved = state.model.field.cluster(left_cid).unwrap().members()[2];
+
+        set_active_transfer_drag(&mut state, moved, "right");
+        tick_active_drag(&mut state, Instant::now());
+
+        assert!(!state.model.field.cluster(left_cid).unwrap().contains(moved));
+        assert!(
+            state
+                .model
+                .field
+                .cluster(right_cid)
+                .unwrap()
+                .contains(moved)
+        );
+        assert_eq!(
+            state
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&moved)
+                .map(String::as_str),
+            Some("right")
+        );
+    }
+
+    #[test]
+    fn monitor_transfer_keeps_float_rule_window_out_of_target_cluster() {
+        let mut state = multi_monitor_state();
+        let right_cid = open_test_cluster(&mut state, "right", &["right-a", "right-b"]);
+        let floating = state.model.field.spawn_surface(
+            "floating",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_monitor(floating, "left");
+        state.model.spawn_state.applied_window_rules.insert(
+            floating,
+            crate::compositor::spawn::state::AppliedInitialWindowRule {
+                overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
+                spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
+                cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                parent_node: None,
+                suppress_reveal_pan: true,
+                builtin_rule: None,
+            },
+        );
+
+        set_active_transfer_drag(&mut state, floating, "right");
+        tick_active_drag(&mut state, Instant::now());
+
+        assert!(
+            !state
+                .model
+                .field
+                .cluster(right_cid)
+                .unwrap()
+                .contains(floating)
+        );
+        assert!(crate::compositor::surface::node_allows_interactive_resize(
+            &state, floating
+        ));
+        assert_eq!(
+            state
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&floating)
+                .map(String::as_str),
+            Some("right")
+        );
     }
 
     #[test]

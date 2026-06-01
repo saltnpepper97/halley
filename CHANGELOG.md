@@ -26,6 +26,8 @@ All notable changes to this project will be documented in this file.
 - Avoid relayouting active tiled cluster members while tile animations are in flight, preserving transition geometry until the animation completes.
 - Keep tiled transition rendering on stale offscreen caches when fresh captures are deferred, avoiding blank frames during tile movement.
 - Deduplicate repeated tiled `xdg_toplevel` configures during maintenance relayouts to reduce client lag and avoid serial churn crashes.
+- Detach active cluster members from their source cluster when monitor-transfer drags move them away, so the source layout recalculates without the missing window.
+- Absorb transferred standalone windows into the target monitor's active cluster layout by default, while keeping `cluster-participation "float"` and overlap-policy windows freely floating and resizable above the tiled cluster plane.
 
 ## [v0.3.2] - 2026-05-31
 
