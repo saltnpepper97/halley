@@ -249,7 +249,17 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
         .retain(|id, _| {
             alive.contains(id) && st.ui.render_state.cluster_tile_tracks.contains_key(id)
         });
-    st.ui.render_state.prune_window_offscreen_cache(&alive, now);
+    // Keep every cluster member's offscreen texture warm (exempt from the idle
+    // TTL) so re-opening a collapsed cluster later never rebuilds its textures.
+    let cluster_members: HashSet<NodeId> = st
+        .model
+        .field
+        .clusters_iter()
+        .flat_map(|cluster| cluster.members().iter().copied())
+        .collect();
+    st.ui
+        .render_state
+        .prune_window_offscreen_cache(&alive, &cluster_members, now);
     st.ui.render_state.prune_ui_text_cache(now);
 }
 

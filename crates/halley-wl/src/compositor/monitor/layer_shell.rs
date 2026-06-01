@@ -150,6 +150,11 @@ pub(crate) fn refresh_monitor_usable_viewports(st: &mut Halley) {
             space_mut.usable_viewport = usable_viewport;
         }
     }
+    // This runs on exactly the discrete transitions that can flip the aperture
+    // mode (cluster enter/exit, fullscreen, maximize, output reconfigure), and not
+    // in the per-frame path — so drop the cached modes here for an immediate
+    // re-derive on the next status poll.
+    st.aperture.invalidate_mode_cache();
 }
 
 fn restore_focus_after_layer_surface_close_for_monitor(

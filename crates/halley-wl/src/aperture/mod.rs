@@ -45,6 +45,18 @@ impl ApertureState {
         self.runtime.config()
     }
 
+    pub(crate) fn cached_mode(&self, monitor: &str, now: Instant) -> Option<ApertureMode> {
+        self.runtime.cached_mode(monitor, now)
+    }
+
+    pub(crate) fn store_mode(&self, monitor: &str, mode: ApertureMode, now: Instant) {
+        self.runtime.store_mode(monitor, mode, now);
+    }
+
+    pub(crate) fn invalidate_mode_cache(&self) {
+        self.runtime.invalidate_mode_cache();
+    }
+
     pub(crate) fn snapshot_for_mode<F>(
         &self,
         mode: ApertureMode,
@@ -97,7 +109,6 @@ pub(crate) fn reload_aperture_config(st: &mut Halley, path: &Path, reason: &str)
 
 pub(crate) fn aperture_status(st: &Halley) -> ApertureStatusResponse {
     let monitor = st.model.monitor_state.current_monitor.clone();
-    let mode = derive_aperture_mode_for_monitor(st, monitor.as_str());
     let mut outputs: Vec<_> = st
         .model
         .monitor_state
@@ -110,14 +121,28 @@ pub(crate) fn aperture_status(st: &Halley) -> ApertureStatusResponse {
         .collect();
     outputs.sort_by(|a, b| a.output.cmp(&b.output));
 
+    // Reuse the current monitor's derived mode from the outputs list rather than
+    // deriving it a second time.
+    let mode = outputs
+        .iter()
+        .find(|output| output.output == monitor)
+        .map(|output| output.mode)
+        .unwrap_or_else(|| map_ipc_mode(derive_aperture_mode_for_monitor(st, monitor.as_str())));
+
     ApertureStatusResponse {
         output: Some(monitor),
-        mode: map_ipc_mode(mode),
+        mode,
         outputs,
     }
 }
 
 fn derive_aperture_mode_for_monitor(st: &Halley, monitor: &str) -> ApertureMode {
+    let now = Instant::now();
+    if let Some(mode) = st.aperture.cached_mode(monitor, now) {
+        return mode;
+    }
+
+    let perf_start = crate::perf::start();
     let output_size =
         crate::compositor::monitor::layer_shell::layer_output_size_for_monitor(st, monitor);
     let output_rect = Rect::new(
@@ -126,7 +151,17 @@ fn derive_aperture_mode_for_monitor(st: &Halley, monitor: &str) -> ApertureMode 
         output_size.w.max(1) as f32,
         output_size.h.max(1) as f32,
     );
-    derive_aperture_mode(st, monitor, output_rect, output_rect, 1.0)
+    let mode = derive_aperture_mode(st, monitor, output_rect, output_rect, 1.0);
+    st.aperture.store_mode(monitor, mode, now);
+    if let Some(start) = perf_start {
+        eventline::info!(
+            "perf aperture_derive monitor={} mode={:?} took={:.2}ms",
+            monitor,
+            mode,
+            crate::perf::elapsed_ms(start)
+        );
+    }
+    mode
 }
 
 fn map_ipc_mode(mode: ApertureMode) -> IpcApertureMode {

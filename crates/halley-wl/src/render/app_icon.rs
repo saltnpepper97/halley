@@ -1,6 +1,8 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::thread;
 
 use image::{RgbaImage, imageops};
 use resvg::{tiny_skia, usvg};
@@ -50,53 +52,102 @@ where
     Ok(())
 }
 
-fn ensure_app_icon_resource(
-    renderer: &mut GlesRenderer,
-    st: &mut Halley,
-    app_id: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if st
-        .ui
-        .render_state
-        .cache
-        .node_app_icon_cache
-        .contains_key(app_id)
-    {
-        return Ok(());
-    }
+/// Result handed back from the background app-icon worker. The slow part
+/// (filesystem lookup + image decode) runs off the render thread; only the GPU
+/// upload (`import_memory`) stays on it, drained by `drain_app_icon_jobs`.
+enum AppIconJobResult {
+    Loaded { app_id: String, raster: AppIconRaster },
+    Missing { app_id: String },
+}
 
-    let Some(icon_path) = resolve_app_icon_path(app_id) else {
+pub(crate) struct AppIconLoader {
+    jobs: Sender<String>,
+    results: Receiver<AppIconJobResult>,
+}
+
+impl AppIconLoader {
+    fn spawn() -> Self {
+        let (job_tx, job_rx) = channel::<String>();
+        let (res_tx, res_rx) = channel::<AppIconJobResult>();
+        thread::Builder::new()
+            .name("halley-app-icon".into())
+            .spawn(move || {
+                while let Ok(app_id) = job_rx.recv() {
+                    let result = match resolve_app_icon_path(&app_id)
+                        .and_then(|path| load_icon_raster(&path))
+                    {
+                        Some(raster) => AppIconJobResult::Loaded { app_id, raster },
+                        None => AppIconJobResult::Missing { app_id },
+                    };
+                    if res_tx.send(result).is_err() {
+                        break;
+                    }
+                }
+            })
+            .expect("spawn app-icon loader thread");
+        Self {
+            jobs: job_tx,
+            results: res_rx,
+        }
+    }
+}
+
+/// Import any app-icon rasters finished by the background loader. Runs once per
+/// frame on the GL thread (the only place `import_memory` is valid).
+pub(crate) fn drain_app_icon_jobs(renderer: &mut GlesRenderer, st: &mut Halley) {
+    let Some(loader) = st.ui.render_state.cache.app_icon_loader.as_ref() else {
+        return;
+    };
+    let mut finished = Vec::new();
+    while let Ok(result) = loader.results.try_recv() {
+        finished.push(result);
+    }
+    for result in finished {
+        let (app_id, entry) = match result {
+            AppIconJobResult::Loaded { app_id, raster } => {
+                let entry = match renderer.import_memory(
+                    &raster.pixels_rgba,
+                    Fourcc::Abgr8888,
+                    (raster.width, raster.height).into(),
+                    false,
+                ) {
+                    Ok(texture) => NodeAppIconCacheEntry::Ready(NodeAppIconTexture {
+                        texture,
+                        width: raster.width,
+                        height: raster.height,
+                    }),
+                    Err(_) => NodeAppIconCacheEntry::Missing,
+                };
+                (app_id, entry)
+            }
+            AppIconJobResult::Missing { app_id } => (app_id, NodeAppIconCacheEntry::Missing),
+        };
         st.ui
             .render_state
             .cache
             .node_app_icon_cache
-            .insert(app_id.to_string(), NodeAppIconCacheEntry::Missing);
+            .insert(app_id, entry);
+    }
+}
+
+fn ensure_app_icon_resource(
+    _renderer: &mut GlesRenderer,
+    st: &mut Halley,
+    app_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cache = &mut st.ui.render_state.cache;
+    // Ready/Missing/Pending all short-circuit: the icon is resolved or in flight.
+    if cache.node_app_icon_cache.contains_key(app_id) {
         return Ok(());
-    };
+    }
 
-    let entry = if let Some(raster) = load_icon_raster(&icon_path) {
-        match renderer.import_memory(
-            &raster.pixels_rgba,
-            Fourcc::Abgr8888,
-            (raster.width, raster.height).into(),
-            false,
-        ) {
-            Ok(texture) => NodeAppIconCacheEntry::Ready(NodeAppIconTexture {
-                texture,
-                width: raster.width,
-                height: raster.height,
-            }),
-            Err(_) => NodeAppIconCacheEntry::Missing,
-        }
-    } else {
-        NodeAppIconCacheEntry::Missing
-    };
-
-    st.ui
-        .render_state
-        .cache
+    // Mark in flight and hand the slow lookup/decode to the background worker so
+    // the render frame never blocks on a cold icon resolution (~1s on first use).
+    cache
         .node_app_icon_cache
-        .insert(app_id.to_string(), entry);
+        .insert(app_id.to_string(), NodeAppIconCacheEntry::Pending);
+    let loader = cache.app_icon_loader.get_or_insert_with(AppIconLoader::spawn);
+    let _ = loader.jobs.send(app_id.to_string());
 
     Ok(())
 }

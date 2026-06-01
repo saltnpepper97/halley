@@ -1,6 +1,8 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use chrono::{DateTime, Local, Timelike};
 use rune_cfg::RuneConfig;
@@ -262,10 +264,19 @@ pub(crate) struct ClockSnapshot {
     pub(crate) text_origin: Point,
 }
 
+/// Short TTL for the per-monitor derived-mode cache. `ApertureStatus` is a
+/// pull-only IPC request handled synchronously on the render loop, so an external
+/// client polling it (hardest while the mode is changing, e.g. a cluster opening)
+/// would otherwise re-run the full uncached derivation every poll and stall
+/// frames. Serving cached modes between recomputes caps that at ~10 Hz/monitor; a
+/// ≤100 ms mode-update latency is imperceptible.
+const MODE_CACHE_TTL: Duration = Duration::from_millis(100);
+
 #[derive(Clone, Debug)]
 pub(crate) struct ApertureRuntime {
     config: ApertureConfig,
     clock_text: String,
+    mode_cache: RefCell<HashMap<String, (ApertureMode, Instant)>>,
 }
 
 impl ApertureRuntime {
@@ -273,6 +284,7 @@ impl ApertureRuntime {
         let mut out = Self {
             config,
             clock_text: String::new(),
+            mode_cache: RefCell::new(HashMap::new()),
         };
         out.refresh_clock_text(SystemTime::now());
         out
@@ -284,6 +296,29 @@ impl ApertureRuntime {
 
     pub(crate) fn apply_config(&mut self, config: ApertureConfig) {
         self.config = config;
+        self.invalidate_mode_cache();
+    }
+
+    /// Returns the cached derived mode for `monitor` if it is younger than the TTL.
+    pub(crate) fn cached_mode(&self, monitor: &str, now: Instant) -> Option<ApertureMode> {
+        self.mode_cache
+            .borrow()
+            .get(monitor)
+            .filter(|(_, at)| now.saturating_duration_since(*at) < MODE_CACHE_TTL)
+            .map(|(mode, _)| *mode)
+    }
+
+    pub(crate) fn store_mode(&self, monitor: &str, mode: ApertureMode, now: Instant) {
+        self.mode_cache
+            .borrow_mut()
+            .insert(monitor.to_string(), (mode, now));
+    }
+
+    /// Drop cached modes so the next poll re-derives immediately. Called on the
+    /// discrete transitions that flip the mode (config reload, cluster
+    /// enter/exit) so those are reflected without waiting out the TTL.
+    pub(crate) fn invalidate_mode_cache(&self) {
+        self.mode_cache.borrow_mut().clear();
     }
 
     pub(crate) fn snapshot_for_mode<F>(

@@ -219,6 +219,7 @@ pub(crate) fn draw_debug_frame_to_target(
     );
     let collect_ms = collect_start.map(crate::perf::elapsed_ms);
     let resources_start = crate::perf::start();
+    crate::render::app_icon::drain_app_icon_jobs(renderer, st);
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
     if node_markers_need_app_icon_resources(st.runtime.tuning.node_show_app_icons) {
         ensure_cluster_core_icon_resources(renderer, st)?;
@@ -287,12 +288,31 @@ pub(crate) fn draw_debug_frame_to_target(
     let _ = frame.finish()?;
     let draw_ms = draw_start.map(crate::perf::elapsed_ms);
     if let Some(start) = frame_perf_start {
-        const FRAME_BUDGET_MS: f32 = 24.0;
+        // Refresh-aware budget: a fixed 24ms threshold never fires on a 180Hz
+        // output (~5.6ms/frame), so the choppy cluster-open slide was invisible.
+        // Derive the budget from the current monitor's refresh rate.
+        let budget_ms = st
+            .runtime
+            .tuning
+            .tty_viewports
+            .iter()
+            .find(|vp| vp.enabled && vp.connector == current_monitor)
+            .and_then(|vp| vp.refresh_rate)
+            .map(|hz| (1000.0 / hz as f32 * 1.5).max(4.0))
+            .unwrap_or(16.0);
+        // During a cluster tile slide, log every frame regardless of budget so we
+        // capture the whole tween, not just the worst spike.
+        let tile_anim = crate::animation::cluster_tile_tracks_animating(
+            &st.ui.render_state.cluster_tile_tracks,
+            prepared.now,
+        );
         let total_ms = crate::perf::elapsed_ms(start);
-        if total_ms > FRAME_BUDGET_MS {
+        if total_ms > budget_ms || tile_anim {
             eventline::warn!(
-                "perf slow frame took={:.2}ms (prewarm={:.2} collect={:.2} resources={:.2} draw={:.2}) toplevels={} render_nodes={}",
+                "perf frame took={:.2}ms budget={:.2} tile_anim={} (prewarm={:.2} collect={:.2} resources={:.2} draw={:.2}) toplevels={} render_nodes={}",
                 total_ms,
+                budget_ms,
+                tile_anim,
                 prewarm_ms.unwrap_or_default(),
                 collect_ms.unwrap_or_default(),
                 resources_ms.unwrap_or_default(),
