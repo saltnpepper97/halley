@@ -37,29 +37,50 @@ pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field
     })
 }
 
-fn return_active_stacking_member_to_layout(
-    st: &mut Halley,
+enum ActiveStackingMemberDrop {
+    ReturnToLayout(String),
+    Detach(halley_core::cluster::ClusterId),
+}
+
+fn active_stacking_member_drop(
+    st: &Halley,
     node_id: halley_core::field::NodeId,
-    now_ms: u64,
-) -> bool {
+    world_pos: halley_core::field::Vec2,
+) -> Option<ActiveStackingMemberDrop> {
     if !matches!(
         st.runtime.tuning.cluster_layout_kind(),
         halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
     ) {
-        return false;
+        return None;
     }
     let Some(cid) = st.model.field.cluster_id_for_member_public(node_id) else {
-        return false;
+        return None;
     };
-    let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id).cloned() else {
-        return false;
+    let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id) else {
+        return None;
     };
     if st.active_cluster_workspace_for_monitor(monitor.as_str()) != Some(cid) {
-        return false;
+        return None;
     }
 
-    st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), now_ms);
-    true
+    let Some(cluster) = st.model.field.cluster(cid) else {
+        return None;
+    };
+    let inside_stack = cluster.members().iter().copied().any(|member| {
+        st.active_cluster_tile_rect_for_member(monitor.as_str(), member)
+            .is_some_and(|rect| {
+                world_pos.x >= rect.x
+                    && world_pos.x <= rect.x + rect.w
+                    && world_pos.y >= rect.y
+                    && world_pos.y <= rect.y + rect.h
+            })
+    });
+
+    Some(if inside_stack {
+        ActiveStackingMemberDrop::ReturnToLayout(monitor.clone())
+    } else {
+        ActiveStackingMemberDrop::Detach(cid)
+    })
 }
 
 fn join_active_stacking_layout_at(
@@ -648,18 +669,90 @@ mod tests {
         };
 
         let mut ps = PointerState::default();
-        finish_pointer_drag(
-            &mut st,
-            &mut ps,
-            front,
-            true,
-            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
-            Instant::now(),
-        );
+        finish_pointer_drag(&mut st, &mut ps, front, true, original_pos, Instant::now());
 
         let final_pos = st.model.field.node(front).expect("front").pos;
         assert!((final_pos.x - original_pos.x).abs() <= 0.5);
         assert!((final_pos.y - original_pos.y).abs() <= 0.5);
+    }
+
+    #[test]
+    fn dropping_two_window_stack_member_outside_dissolves_cluster() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, stacking_tuning());
+        let members = open_stacking_cluster(&mut st, &["front", "back"]);
+        let front = members[0];
+        let cid = st
+            .model
+            .field
+            .cluster_id_for_member_public(front)
+            .expect("cluster");
+        let drop_pos = halley_core::field::Vec2 {
+            x: 5000.0,
+            y: 5000.0,
+        };
+
+        st.input.interaction_state.drag_authority_node = Some(front);
+        st.input.interaction_state.active_drag = Some(ActiveDragState {
+            node_id: front,
+            allow_monitor_transfer: true,
+            edge_pan_eligible: false,
+            current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            pointer_monitor: st.model.monitor_state.current_monitor.clone(),
+            pointer_workspace_size: (1600, 1200),
+            pointer_screen_local: (200.0, 120.0),
+            edge_pan_x: DragAxisMode::Free,
+            edge_pan_y: DragAxisMode::Free,
+            last_edge_pan_at: Instant::now(),
+        });
+
+        let mut ps = PointerState::default();
+        finish_pointer_drag(&mut st, &mut ps, front, true, drop_pos, Instant::now());
+
+        assert!(st.model.field.cluster(cid).is_none());
+        assert_eq!(st.model.field.cluster_id_for_member_public(front), None);
+        let final_pos = st.model.field.node(front).expect("front").pos;
+        assert!((final_pos.x - drop_pos.x).abs() <= 0.5);
+        assert!((final_pos.y - drop_pos.y).abs() <= 0.5);
+    }
+
+    #[test]
+    fn dropping_three_window_stack_member_outside_detaches_member() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, stacking_tuning());
+        let members = open_stacking_cluster(&mut st, &["front", "middle", "back"]);
+        let front = members[0];
+        let cid = st
+            .model
+            .field
+            .cluster_id_for_member_public(front)
+            .expect("cluster");
+        let drop_pos = halley_core::field::Vec2 {
+            x: 5000.0,
+            y: 5000.0,
+        };
+
+        st.input.interaction_state.drag_authority_node = Some(front);
+        st.input.interaction_state.active_drag = Some(ActiveDragState {
+            node_id: front,
+            allow_monitor_transfer: true,
+            edge_pan_eligible: false,
+            current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            pointer_monitor: st.model.monitor_state.current_monitor.clone(),
+            pointer_workspace_size: (1600, 1200),
+            pointer_screen_local: (200.0, 120.0),
+            edge_pan_x: DragAxisMode::Free,
+            edge_pan_y: DragAxisMode::Free,
+            last_edge_pan_at: Instant::now(),
+        });
+
+        let mut ps = PointerState::default();
+        finish_pointer_drag(&mut st, &mut ps, front, true, drop_pos, Instant::now());
+
+        let cluster = st.model.field.cluster(cid).expect("cluster");
+        assert_eq!(cluster.members().len(), 2);
+        assert!(!cluster.contains(front));
+        assert_eq!(st.model.field.cluster_id_for_member_public(front), None);
     }
 
     #[test]
@@ -825,10 +918,18 @@ pub(crate) fn finish_pointer_drag(
     } else {
         st.input.interaction_state.cluster_join_candidate = None;
     }
+    let active_stacking_drop =
+        started_active.then(|| active_stacking_member_drop(st, node_id, world_now));
     crate::compositor::carry::system::set_drag_authority_node(st, None);
     crate::compositor::carry::system::end_carry_state_tracking(st, node_id);
-    if started_active {
-        let _ = return_active_stacking_member_to_layout(st, node_id, now_ms);
+    match active_stacking_drop.flatten() {
+        Some(ActiveStackingMemberDrop::ReturnToLayout(monitor)) => {
+            st.layout_active_cluster_workspace_for_monitor(monitor.as_str(), now_ms);
+        }
+        Some(ActiveStackingMemberDrop::Detach(cid)) => {
+            let _ = st.detach_member_from_cluster(cid, node_id, world_now, now);
+        }
+        None => {}
     }
     if started_active {
         let _ = st.raise_overlap_policy_node(node_id);

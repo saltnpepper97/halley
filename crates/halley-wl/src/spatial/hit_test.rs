@@ -79,6 +79,15 @@ impl ActiveHitOrderingView {
             )
         })
         .then_with(|| {
+            match (
+                self.stack_ranks.get(&a.node_id),
+                self.stack_ranks.get(&b.node_id),
+            ) {
+                (Some(a_rank), Some(b_rank)) => a_rank.cmp(b_rank),
+                _ => Ordering::Equal,
+            }
+        })
+        .then_with(|| {
             let a_rank = self
                 .overlap_ranks
                 .get(&a.node_id)
@@ -90,17 +99,6 @@ impl ActiveHitOrderingView {
                 .copied()
                 .unwrap_or((0, b.node_id.as_u64()));
             b_rank.cmp(&a_rank)
-        })
-        .then_with(|| {
-            match (
-                self.stack_ranks.get(&a.node_id),
-                self.stack_ranks.get(&b.node_id),
-            ) {
-                (Some(a_rank), Some(b_rank)) => a_rank.cmp(b_rank),
-                (Some(_), None) => Ordering::Less,
-                (None, Some(_)) => Ordering::Greater,
-                (None, None) => Ordering::Equal,
-            }
         })
         .then_with(|| Reverse(a.node_id.as_u64()).cmp(&Reverse(b.node_id.as_u64())))
     }
@@ -276,6 +274,13 @@ mod tests {
         tuning
     }
 
+    fn single_monitor_stacking_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = single_monitor_tuning();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Stacking;
+        tuning.stacking_max_visible = 3;
+        tuning
+    }
+
     fn active_surface_hit_with_tuning(
         tuning: halley_config::RuntimeTuning,
     ) -> crate::compositor::interaction::HitNode {
@@ -395,6 +400,57 @@ mod tests {
             .expect("surface hit");
 
         assert_eq!(hit.node_id, raised);
+    }
+
+    #[test]
+    fn active_stack_hit_order_prefers_front_card_over_raise_rank() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_stacking_tuning());
+
+        let front = st.model.field.spawn_surface(
+            "front",
+            halley_core::field::Vec2 { x: 100.0, y: 100.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        let back = st.model.field.spawn_surface(
+            "back",
+            halley_core::field::Vec2 { x: 180.0, y: 100.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 240.0 },
+        );
+        for node_id in [front, back] {
+            st.assign_node_to_monitor(node_id, "monitor_a");
+        }
+        let cid = st.create_cluster(vec![front, back]).expect("cluster");
+        let core = st.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, "monitor_a");
+        assert!(st.enter_cluster_workspace_by_core(core, "monitor_a", Instant::now()));
+        st.model.focus_state.overlap_raise_order.insert(back, 100);
+
+        let now = Instant::now();
+        let front_rect =
+            active_node_screen_rect(&st, 800, 600, front, now, None).expect("front rect");
+        let back_rect = active_node_screen_rect(&st, 800, 600, back, now, None).expect("back rect");
+        let left = front_rect.0.max(back_rect.0);
+        let top = front_rect.1.max(back_rect.1);
+        let right = front_rect.2.min(back_rect.2);
+        let bottom = front_rect.3.min(back_rect.3);
+        assert!(right > left && bottom > top);
+
+        let hit = pick_hit_node_at(
+            &st,
+            800,
+            600,
+            (left + right) * 0.5,
+            (top + bottom) * 0.5,
+            now,
+            None,
+        )
+        .expect("surface hit");
+
+        assert_eq!(hit.node_id, front);
+        assert!(crate::input::pointer::motion::node_is_pointer_draggable(
+            &st, front
+        ));
     }
 
     #[test]
