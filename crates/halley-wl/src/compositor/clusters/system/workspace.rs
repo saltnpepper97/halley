@@ -116,12 +116,15 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         if self.active_cluster_workspace_for_monitor(monitor).is_some() {
             let _ = self.exit_cluster_workspace_for_monitor(monitor, now);
         }
+        let perf_start = crate::perf::start();
+        let plan_start = crate::perf::start();
         let Some(plan) = self
             .cluster_read_controller()
             .plan_enter_cluster_workspace(core_id, monitor)
         else {
             return false;
         };
+        let plan_ms = plan_start.map(crate::perf::elapsed_ms);
         let _ = self.sync_cluster_monitor(cid, Some(monitor));
         let previous_full_viewport = if self.model.monitor_state.current_monitor == monitor {
             self.model.viewport
@@ -185,7 +188,9 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         self.set_interaction_focus(None, 0, now);
         let now_ms = self.now_ms(now);
         crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
+        let layout_start = crate::perf::start();
         self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
+        let layout_ms = layout_start.map(crate::perf::elapsed_ms);
         if matches!(
             self.active_cluster_layout_kind(),
             ClusterWorkspaceLayoutKind::Stacking
@@ -204,7 +209,24 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         ) {
             let _ = self.focus_active_tiled_cluster_member_for_monitor(monitor, Some(0), now);
         }
+        let overflow_start = crate::perf::start();
         self.refresh_cluster_overflow_for_monitor(monitor, now_ms, false);
+        if let Some(start) = perf_start {
+            let members = self
+                .model
+                .field
+                .cluster(cid)
+                .map_or(0, |cluster| cluster.members().len());
+            eventline::info!(
+                "perf enter_cluster_workspace monitor={} members={} took={:.2}ms (plan={:.2} layout={:.2} overflow={:.2})",
+                monitor,
+                members,
+                crate::perf::elapsed_ms(start),
+                plan_ms.unwrap_or_default(),
+                layout_ms.unwrap_or_default(),
+                overflow_start.map(crate::perf::elapsed_ms).unwrap_or_default(),
+            );
+        }
         true
     }
 
@@ -338,6 +360,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                     now,
                     duration_ms,
                 );
+                self.request_window_animation_prewarm(placement.node_id, now);
             } else {
                 self.ui
                     .render_state

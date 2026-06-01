@@ -93,7 +93,7 @@ pub fn mark_active_transition(st: &mut Halley, id: NodeId, now: Instant, duratio
             duration_ms: duration_ms.max(1),
         },
     );
-    st.request_maintenance();
+    st.request_window_animation_prewarm(id, now);
 }
 
 pub fn active_transition_alpha(st: &Halley, id: NodeId, now: Instant) -> f32 {
@@ -142,6 +142,7 @@ pub(crate) fn start_active_to_node_close_animation(
     let Some(monitor) = st.model.monitor_state.node_monitor.get(&id).cloned() else {
         return false;
     };
+    st.request_window_animation_prewarm(id, now);
     let duration_ms = st.runtime.tuning.window_close_duration_ms();
     let style = st.runtime.tuning.window_close_style();
     // Close-to-node animation reuses the already-warmed offscreen cache. A first
@@ -161,6 +162,7 @@ pub(crate) fn start_active_to_node_close_animation(
         border_rects,
         offscreen_textures,
     );
+    st.ui.render_state.finish_window_animation_prewarm(id);
     st.ui
         .render_state
         .animator
@@ -189,7 +191,7 @@ fn queue_pending_collapse(st: &mut Halley, id: NodeId, now: Instant, preserve_ma
             origin_pos,
             preserve_manual,
         });
-    st.request_maintenance();
+    st.request_window_animation_prewarm(id, now);
 }
 
 pub(crate) fn queue_pending_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) {
@@ -218,7 +220,14 @@ pub(crate) fn finish_manual_collapse(st: &mut Halley, id: NodeId, now: Instant) 
     if st.is_fullscreen_session_node(id) {
         return false;
     }
-    finish_surface_collapse(st, id, now, pending.map(|pending| pending.origin_pos), true)
+    finish_surface_collapse(
+        st,
+        id,
+        now,
+        pending.map(|pending| pending.origin_pos),
+        true,
+        pending.is_some(),
+    )
 }
 
 pub(crate) fn finish_auto_collapse(st: &mut Halley, id: NodeId, now: Instant) -> bool {
@@ -232,6 +241,7 @@ pub(crate) fn finish_auto_collapse(st: &mut Halley, id: NodeId, now: Instant) ->
         now,
         pending.map(|pending| pending.origin_pos),
         pending.is_some_and(|pending| pending.preserve_manual),
+        pending.is_some(),
     )
 }
 
@@ -241,6 +251,7 @@ fn finish_surface_collapse(
     now: Instant,
     origin_pos: Option<Vec2>,
     preserve_manual: bool,
+    was_pending: bool,
 ) -> bool {
     let Some(current_pos) = st.model.field.node(id).map(|node| node.pos) else {
         return false;
@@ -267,13 +278,16 @@ fn finish_surface_collapse(
     if let Some(to) = st.model.field.node(id).map(|node| node.pos)
         && ((from.x - to.x).abs() > 0.5 || (from.y - to.y).abs() > 0.5)
     {
-        let slide_start = st
-            .ui
-            .render_state
-            .closing_window_animations
-            .get(&id)
-            .map(|anim| anim.started_at + Duration::from_millis(anim.duration_ms))
-            .unwrap_or(now);
+        let slide_start = if was_pending {
+            now
+        } else {
+            st.ui
+                .render_state
+                .closing_window_animations
+                .get(&id)
+                .map(|anim| anim.started_at + Duration::from_millis(anim.duration_ms))
+                .unwrap_or(now)
+        };
         st.ui
             .render_state
             .start_landmark_slide_animation_at(id, from, to, slide_start);

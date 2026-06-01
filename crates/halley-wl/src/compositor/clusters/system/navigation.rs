@@ -322,6 +322,9 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             crate::compositor::surface::active_stacking_visible_members_for_monitor(self, monitor);
         let duration_ms = self.runtime.tuning.stack_animation_duration_ms();
         if self.runtime.tuning.stack_animation_enabled() {
+            for node_id in old_visible.iter().chain(new_visible.iter()).copied() {
+                self.request_window_animation_prewarm(node_id, now);
+            }
             self.ui.render_state.start_stack_cycle_transition(
                 monitor,
                 direction,
@@ -470,6 +473,9 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                         self, monitor,
                     );
                 if let Some((old_visible, source_rects)) = tile_to_stack_transition {
+                    for node_id in old_visible.iter().chain(visible.iter()).copied() {
+                        self.request_window_animation_prewarm(node_id, now);
+                    }
                     self.ui
                         .render_state
                         .start_stack_cycle_transition_from_rects(

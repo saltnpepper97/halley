@@ -11,7 +11,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use crate::compositor::root::Halley;
 use crate::render::state::{NodeAppIconCacheEntry, NodeAppIconTexture};
 
-use super::node::{NodeSnapshot, node_markers_need_app_icon_resources};
+use super::node::NodeSnapshot;
 
 const NODE_ICON_RASTER_PX: u32 = 64;
 const ICON_WALK_MAX_DEPTH: usize = 6;
@@ -23,29 +23,14 @@ pub(crate) struct AppIconRaster {
 }
 
 pub(crate) fn ensure_node_app_icon_resources(
-    renderer: &mut GlesRenderer,
-    st: &mut Halley,
-    render_nodes: &[NodeSnapshot],
+    _renderer: &mut GlesRenderer,
+    _st: &mut Halley,
+    _render_nodes: &[NodeSnapshot],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if !node_markers_need_app_icon_resources(st.runtime.tuning.node_show_app_icons) {
-        return Ok(());
-    }
-
-    let node_ids = render_nodes
-        .iter()
-        .filter(|node| {
-            matches!(
-                node.state,
-                halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
-            ) && !st
-                .ui
-                .render_state
-                .closing_window_animations
-                .contains_key(&node.id)
-        })
-        .map(|node| node.id)
-        .collect::<Vec<_>>();
-    ensure_app_icon_resources_for_node_ids(renderer, st, node_ids.into_iter())
+    // Important: keep first-collapse marker rendering non-blocking. Cold icon
+    // lookup/raster/import here caused first collapse monitor blanking; draw
+    // fallback glyphs until another subsystem has already populated the cache.
+    Ok(())
 }
 
 pub(crate) fn ensure_app_icon_resources_for_node_ids<I>(

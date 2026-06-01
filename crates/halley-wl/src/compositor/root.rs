@@ -342,6 +342,7 @@ impl Halley {
                     overlay_toast: HashMap::new(),
                     overlay_exit_confirm: HashMap::new(),
                     closing_window_animations: HashMap::new(),
+                    animation_prewarm_requests: HashMap::new(),
                     stack_cycle_transition: HashMap::new(),
                     raise_animations: HashMap::new(),
                     landmark_slide_animations: HashMap::new(),
@@ -461,6 +462,13 @@ impl Halley {
     pub(crate) fn apply_aperture_config(&mut self, config: crate::aperture::core::ApertureConfig) {
         self.aperture.apply_config(config);
         crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
+        self.request_maintenance();
+    }
+
+    pub(crate) fn request_window_animation_prewarm(&mut self, node_id: NodeId, now: Instant) {
+        self.ui
+            .render_state
+            .request_window_animation_prewarm(node_id, now);
         self.request_maintenance();
     }
 

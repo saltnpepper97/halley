@@ -1226,6 +1226,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             },
         );
         if self.runtime.tuning.fullscreen_animation_enabled() && !soft_resume {
+            self.request_window_animation_prewarm(node_id, now);
             let from = (self.model.monitor_state.current_monitor == monitor_name)
                 .then(|| {
                     crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(

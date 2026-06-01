@@ -301,6 +301,7 @@ fn start_restore_maximize_session(
     }
     crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
     for (node_id, snapshot) in &node_snapshots {
+        st.request_window_animation_prewarm(*node_id, now);
         let from =
             crate::compositor::workspace::state::maximized_visual_for_node_on_current_monitor_at(
                 st, *node_id, now,
@@ -352,6 +353,7 @@ fn start_active_maximize_session(
 ) -> bool {
     crate::compositor::workspace::state::reset_monitor_zoom_for_maximize(st, monitor);
     crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
+    st.request_window_animation_prewarm(target_id, now);
 
     let _ = node_snapshots;
     let (target_pos, target_size) = maximize_target_for_monitor(st, monitor);

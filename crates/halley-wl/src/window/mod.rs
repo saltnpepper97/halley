@@ -775,6 +775,9 @@ pub(crate) fn collect_active_surfaces(
 
             if cache_miss {
                 if defer_offscreen_rebuild {
+                    if tiling_tile_transition.is_some() && !stale_cache_available {
+                        continue;
+                    }
                     log_window_render_path(
                         st,
                         node_id,

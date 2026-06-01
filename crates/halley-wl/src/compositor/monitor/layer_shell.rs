@@ -311,7 +311,7 @@ fn maybe_grant_layer_surface_focus_on_commit_impl(st: &mut Halley, surface: &WlS
                 st.model
                     .monitor_state
                     .aperture_layer_heights
-                    .insert(monitor, height)
+                    .insert(monitor.clone(), height)
                     != Some(height)
             });
         if newly_present || height_changed {

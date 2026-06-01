@@ -202,8 +202,12 @@ pub(crate) fn draw_debug_frame_to_target(
     ensure_window_shadow_program(renderer, st);
     ensure_surface_clip_program(renderer, st);
 
+    let frame_perf_start = crate::perf::start();
+    let prewarm_start = crate::perf::start();
     prewarm_visible_active_window_offscreen_caches(renderer, st, prepared.now);
+    let prewarm_ms = prewarm_start.map(crate::perf::elapsed_ms);
 
+    let collect_start = crate::perf::start();
     let scene = collect_debug_frame_scene(
         renderer,
         st,
@@ -213,6 +217,8 @@ pub(crate) fn draw_debug_frame_to_target(
         preview_hover_node,
         prepared.now,
     );
+    let collect_ms = collect_start.map(crate::perf::elapsed_ms);
+    let resources_start = crate::perf::start();
     ensure_node_app_icon_resources(renderer, st, &scene.render_nodes)?;
     if node_markers_need_app_icon_resources(st.runtime.tuning.node_show_app_icons) {
         ensure_cluster_core_icon_resources(renderer, st)?;
@@ -261,7 +267,9 @@ pub(crate) fn draw_debug_frame_to_target(
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_ui_text_resources(renderer, st)?;
+    let resources_ms = resources_start.map(crate::perf::elapsed_ms);
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
+    let draw_start = crate::perf::start();
     let mut frame = renderer.render(framebuffer, size, frame_transform)?;
     frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
 
@@ -277,6 +285,23 @@ pub(crate) fn draw_debug_frame_to_target(
     )?;
 
     let _ = frame.finish()?;
+    let draw_ms = draw_start.map(crate::perf::elapsed_ms);
+    if let Some(start) = frame_perf_start {
+        const FRAME_BUDGET_MS: f32 = 24.0;
+        let total_ms = crate::perf::elapsed_ms(start);
+        if total_ms > FRAME_BUDGET_MS {
+            eventline::warn!(
+                "perf slow frame took={:.2}ms (prewarm={:.2} collect={:.2} resources={:.2} draw={:.2}) toplevels={} render_nodes={}",
+                total_ms,
+                prewarm_ms.unwrap_or_default(),
+                collect_ms.unwrap_or_default(),
+                resources_ms.unwrap_or_default(),
+                draw_ms.unwrap_or_default(),
+                st.platform.xdg_shell_state.toplevel_surfaces().len(),
+                scene.render_nodes.len(),
+            );
+        }
+    }
     crate::compositor::workspace::state::process_pending_collapses_for_monitor(
         st,
         current_monitor.as_str(),

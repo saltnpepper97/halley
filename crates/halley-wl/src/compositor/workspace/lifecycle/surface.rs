@@ -241,6 +241,7 @@ fn maybe_apply_pending_initial_window_rule(
             .spawn_state
             .pending_tiled_insert_reveal_at_ms
             .insert(node_id, reveal_at_ms);
+        st.request_window_animation_prewarm(node_id, now);
         if let Some(node) = st.model.field.node_mut(node_id) {
             node.visibility.set(Visibility::DETACHED, true);
             node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, true);
@@ -538,10 +539,18 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                     });
                 if active_cluster {
                     if let Some(monitor) = node_monitor {
-                        st.layout_active_cluster_workspace_for_monitor(
-                            monitor.as_str(),
-                            st.now_ms(now),
-                        );
+                        let tile_animation_active = crate::animation::cluster_tile_rect_for(
+                            &st.ui.render_state.cluster_tile_tracks,
+                            node_id,
+                            now,
+                        )
+                        .is_some();
+                        if !tile_animation_active {
+                            st.layout_active_cluster_workspace_for_monitor(
+                                monitor.as_str(),
+                                st.now_ms(now),
+                            );
+                        }
                     }
                 } else if !pending_initial_reveal && !finalized_initial_spawn {
                     st.resolve_overlap_now();
@@ -746,6 +755,7 @@ pub(super) fn ensure_node_for_surface_impl(
                 .spawn_state
                 .pending_tiled_insert_reveal_at_ms
                 .insert(id, st.now_ms(now).saturating_add(140));
+            st.request_window_animation_prewarm(id, now);
             if let Some(node) = st.model.field.node_mut(id) {
                 node.visibility.set(Visibility::DETACHED, true);
                 node.visibility.set(Visibility::HIDDEN_BY_CLUSTER, true);
@@ -765,6 +775,9 @@ pub(super) fn ensure_node_for_surface_impl(
                 );
             let duration_ms = st.runtime.tuning.stack_animation_duration_ms();
             if st.runtime.tuning.stack_animation_enabled() {
+                for node_id in old_visible.iter().chain(new_visible.iter()).copied() {
+                    st.request_window_animation_prewarm(node_id, now);
+                }
                 st.ui.render_state.start_stack_cycle_transition(
                     monitor.as_str(),
                     halley_core::cluster_layout::ClusterCycleDirection::Prev,
