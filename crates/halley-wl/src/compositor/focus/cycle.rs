@@ -300,8 +300,20 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
             return true;
         }
 
-        let changed =
-            crate::compositor::actions::window::focus_or_reveal_surface_node(self, target, now);
+        let changed = if self
+            .model
+            .field
+            .cluster_id_for_member_public(target)
+            .is_some()
+        {
+            let changed = crate::compositor::actions::window::focus_surface_node_without_reveal(
+                self, target, now,
+            );
+            let _ = self.raise_overlap_policy_node(target);
+            changed
+        } else {
+            crate::compositor::actions::window::focus_or_reveal_surface_node(self, target, now)
+        };
         if changed {
             crate::compositor::interaction::pointer::center_pointer_on_node(self, target, now);
         }
@@ -467,6 +479,81 @@ mod tests {
             .expect("focus cycle session");
         assert!(session.candidates.contains(&left));
         assert!(session.candidates.contains(&right));
+    }
+
+    #[test]
+    fn commit_to_cluster_member_does_not_pan_to_reveal() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Tiling;
+        tuning.tty_viewports = vec![halley_config::ViewportOutputConfig {
+            connector: "monitor_a".to_string(),
+            enabled: true,
+            offset_x: 0,
+            offset_y: 0,
+            width: 800,
+            height: 600,
+            refresh_rate: None,
+            transform_degrees: 0,
+            vrr: halley_config::ViewportVrrMode::Off,
+            focus_ring: None,
+        }];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        let origin = state.model.field.spawn_surface(
+            "origin",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 160.0, y: 120.0 },
+        );
+        let cluster_a = state.model.field.spawn_surface(
+            "cluster-a",
+            Vec2 { x: 120.0, y: 0.0 },
+            Vec2 { x: 160.0, y: 120.0 },
+        );
+        let target = state.model.field.spawn_surface(
+            "target",
+            Vec2 { x: 240.0, y: 0.0 },
+            Vec2 { x: 160.0, y: 120.0 },
+        );
+        for id in [origin, cluster_a, target] {
+            state.assign_node_to_monitor(id, "monitor_a");
+        }
+        let cid = state
+            .create_cluster(vec![cluster_a, target])
+            .expect("cluster");
+        let core = state.collapse_cluster(cid).expect("core");
+        state.assign_node_to_monitor(core, "monitor_a");
+
+        let now = Instant::now();
+        assert!(state.enter_cluster_workspace_by_core(core, "monitor_a", now));
+        if let Some(node) = state.model.field.node_mut(target) {
+            node.pos = Vec2 {
+                x: 5_000.0,
+                y: 5_000.0,
+            };
+        }
+        let reveal_target = state
+            .minimal_reveal_center_for_surface_on_monitor("monitor_a", target)
+            .expect("reveal target");
+        assert_ne!(reveal_target, state.model.viewport.center);
+
+        state.set_interaction_focus(Some(origin), 30_000, now);
+        state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
+            candidates: vec![origin, target],
+            preview_index: 1,
+            origin_focus: Some(origin),
+            immersive_origin: None,
+            immersive_lock_released: false,
+        });
+        assert!(state.commit_focus_cycle(now));
+
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(target)
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_none());
     }
 
     #[test]

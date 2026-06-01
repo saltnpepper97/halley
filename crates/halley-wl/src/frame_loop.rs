@@ -404,7 +404,7 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
             let _ = st.detach_member_from_cluster(cid, node_id, pos, now);
         }
         st.assign_node_to_monitor(node_id, drag_monitor.as_str());
-        if monitor_changed
+        let absorbed_into_stack = if monitor_changed
             && !floats_over_cluster
             && st
                 .model
@@ -413,9 +413,19 @@ fn tick_active_drag(st: &mut Halley, now: Instant) {
                 .is_none()
             && let Some(cid) = st.active_cluster_workspace_for_monitor(drag_monitor.as_str())
         {
-            let _ = st.absorb_node_into_cluster(cid, node_id, now);
+            st.absorb_node_into_cluster(cid, node_id, now)
+                && matches!(
+                    st.runtime.tuning.cluster_layout_kind(),
+                    halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Stacking
+                )
+        } else {
+            false
+        };
+        if absorbed_into_stack {
+            true
+        } else {
+            st.carry_surface_non_overlap(node_id, to, false)
         }
-        st.carry_surface_non_overlap(node_id, to, false)
     } else if !active_drag.edge_pan_eligible {
         crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
         let drag_monitor = active_drag.pointer_monitor.clone();
@@ -1102,6 +1112,29 @@ mod tests {
                 .unwrap()
                 .contains(moved)
         );
+        assert_eq!(
+            state
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&moved)
+                .map(String::as_str),
+            Some("right")
+        );
+    }
+
+    #[test]
+    fn stacking_monitor_transfer_detaches_from_source_without_target_cluster() {
+        let mut state = multi_monitor_state();
+        state.runtime.tuning.cluster_default_layout = halley_config::ClusterDefaultLayout::Stacking;
+        let left_cid = open_test_cluster(&mut state, "left", &["left-a", "left-b", "left-c"]);
+        let moved = state.model.field.cluster(left_cid).unwrap().members()[0];
+
+        set_active_transfer_drag(&mut state, moved, "right");
+        tick_active_drag(&mut state, Instant::now());
+
+        assert!(!state.model.field.cluster(left_cid).unwrap().contains(moved));
+        assert_eq!(state.model.field.cluster_id_for_member_public(moved), None);
         assert_eq!(
             state
                 .model

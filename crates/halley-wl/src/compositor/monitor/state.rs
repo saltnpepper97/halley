@@ -53,6 +53,11 @@ pub(crate) struct MonitorState {
     pub(crate) layer_surface_namespace: HashMap<ObjectId, String>,
     pub(crate) aperture_layer_monitors: HashSet<String>,
     pub(crate) aperture_layer_heights: HashMap<String, i32>,
+    /// Monitors whose aperture-driven `usable_viewport` change has been deferred
+    /// because a cluster tile transition is animating there; flushed once the
+    /// slide settles so the work area never moves mid-slide. See
+    /// `refresh_monitor_usable_viewports`.
+    pub(crate) pending_workarea_refresh: HashSet<String>,
     pub(crate) layer_surface_committed: HashSet<ObjectId>,
     pub(crate) layer_surface_last_configured_size: HashMap<ObjectId, Size<i32, Logical>>,
     pub(crate) layer_keyboard_focus: Option<ObjectId>,

@@ -187,7 +187,9 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         self.model.cluster_state.cluster_bloom_open.remove(monitor);
         self.set_interaction_focus(None, 0, now);
         let now_ms = self.now_ms(now);
-        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
+        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewport_forced(
+            self, monitor,
+        );
         let layout_start = crate::perf::start();
         self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
         let layout_ms = layout_start.map(crate::perf::elapsed_ms);
@@ -224,7 +226,9 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 crate::perf::elapsed_ms(start),
                 plan_ms.unwrap_or_default(),
                 layout_ms.unwrap_or_default(),
-                overflow_start.map(crate::perf::elapsed_ms).unwrap_or_default(),
+                overflow_start
+                    .map(crate::perf::elapsed_ms)
+                    .unwrap_or_default(),
             );
         }
         true
@@ -448,10 +452,18 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return;
         };
         let Some(cluster) = self.model.field.cluster(cid) else {
+            // The cluster dissolved (e.g. its last window closed) while its
+            // workspace was still active. Drop the stale workspace entry and
+            // recompute the work area: with no active cluster the aperture
+            // reservation falls to zero, so the frozen top gap is released
+            // immediately instead of lingering (`refresh` re-checks the now-
+            // unlocked monitor). The explicit exit path already refreshes; this
+            // covers the implicit-dissolve path.
             self.model
                 .cluster_state
                 .active_cluster_workspaces
                 .remove(monitor);
+            crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
             return;
         };
         let members = cluster.members().to_vec();

@@ -8,10 +8,6 @@ use crate::geometry::{Point, Rect, Size};
 const HIDDEN_SLIDE_PX: f32 = 12.0;
 const NORMAL_MARGIN_PX: f32 = 18.0;
 const COLLAPSED_EDGE_PADDING_PX: f32 = 2.0;
-const MIN_COLLAPSED_FONT_PX: u32 = 12;
-const COLLAPSED_FONT_SCALE: f32 = 0.56;
-const MIN_MINIMAL_FONT_PX: u32 = 12;
-const MINIMAL_FONT_SCALE: f32 = 0.40;
 const MINIMAL_EDGE_PADDING_PX: f32 = 0.0;
 const SNAP_EPSILON: f32 = 0.01;
 
@@ -248,35 +244,23 @@ fn mode_targets(config: &ApertureConfig, mode: ApertureMode) -> ModeTargets {
         },
         ApertureMode::Collapsed => ModeTargets {
             alpha: 1.0,
-            font_px: collapsed_font_px(config.peek.clock.font_px) as f32,
+            font_px: config.peek.clock.medium_px.max(1) as f32,
             edge_padding_px: COLLAPSED_EDGE_PADDING_PX,
             hidden_mix: 0.0,
         },
         ApertureMode::Minimal => ModeTargets {
             alpha: 1.0,
-            font_px: minimal_font_px(config.peek.clock.font_px) as f32,
+            font_px: config.peek.clock.small_px.max(1) as f32,
             edge_padding_px: MINIMAL_EDGE_PADDING_PX,
             hidden_mix: 0.0,
         },
         ApertureMode::Hidden => ModeTargets {
             alpha: 0.0,
-            font_px: minimal_font_px(config.peek.clock.font_px) as f32,
+            font_px: config.peek.clock.small_px.max(1) as f32,
             edge_padding_px: MINIMAL_EDGE_PADDING_PX,
             hidden_mix: 1.0,
         },
     }
-}
-
-fn collapsed_font_px(normal_font_px: u32) -> u32 {
-    ((normal_font_px.max(1) as f32) * COLLAPSED_FONT_SCALE)
-        .round()
-        .max(MIN_COLLAPSED_FONT_PX as f32) as u32
-}
-
-fn minimal_font_px(normal_font_px: u32) -> u32 {
-    ((normal_font_px.max(1) as f32) * MINIMAL_FONT_SCALE)
-        .round()
-        .max(MIN_MINIMAL_FONT_PX as f32) as u32
 }
 
 fn advance_toward(current: f32, target: f32, dt: Duration, duration_s: f32) -> f32 {

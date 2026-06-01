@@ -426,12 +426,31 @@ impl StandaloneAperture {
             };
 
             let has_text = text.is_some();
+            let is_minimal = layer.runtime.target_mode() == ApertureMode::Minimal;
             let padding_x = peek_padding_x_for_mode(layer.runtime.target_mode());
             let padding_y = peek_padding_y_for_mode(layer.runtime.target_mode());
+            // Minimal is the reserved bar: its height comes from config
+            // (`clock-small.height-px`) so the compositor can reserve it exactly,
+            // not from the measured text. `max` with the text box avoids clipping
+            // during the shrink animation; it settles to the configured height.
+            let small_height_px = layer.runtime.config().peek.clock.small_height_px.max(1);
             let (buffer_width, buffer_height) = if has_text {
-                (text_width + padding_x * 2, text_height + padding_y * 2)
+                let text_box_h = text_height + padding_y * 2;
+                let h = if is_minimal {
+                    text_box_h.max(small_height_px)
+                } else {
+                    text_box_h
+                };
+                (text_width + padding_x * 2, h)
             } else {
                 (1, 1)
+            };
+            // Center the clock vertically inside the Minimal bar; other states keep
+            // their top padding.
+            let text_offset_y = if is_minimal {
+                ((buffer_height as i32 - text_height as i32) / 2).max(0)
+            } else {
+                padding_y as i32
             };
             let outer_margin = if has_text {
                 edge_margin.saturating_sub(padding_y as i32)
@@ -490,7 +509,7 @@ impl StandaloneAperture {
                     buffer_width,
                     buffer_height,
                     padding_x as i32,
-                    padding_y as i32,
+                    text_offset_y,
                     snapshot.text.as_str(),
                     snapshot.font_px,
                     snapshot.alpha,

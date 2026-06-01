@@ -242,6 +242,7 @@ impl Halley {
                     layer_surface_namespace: HashMap::new(),
                     aperture_layer_monitors: HashSet::new(),
                     aperture_layer_heights: HashMap::new(),
+                    pending_workarea_refresh: HashSet::new(),
                     layer_surface_committed: HashSet::new(),
                     layer_surface_last_configured_size: HashMap::new(),
                     layer_keyboard_focus: None,

@@ -56,8 +56,13 @@ where
 /// (filesystem lookup + image decode) runs off the render thread; only the GPU
 /// upload (`import_memory`) stays on it, drained by `drain_app_icon_jobs`.
 enum AppIconJobResult {
-    Loaded { app_id: String, raster: AppIconRaster },
-    Missing { app_id: String },
+    Loaded {
+        app_id: String,
+        raster: AppIconRaster,
+    },
+    Missing {
+        app_id: String,
+    },
 }
 
 pub(crate) struct AppIconLoader {
@@ -146,7 +151,9 @@ fn ensure_app_icon_resource(
     cache
         .node_app_icon_cache
         .insert(app_id.to_string(), NodeAppIconCacheEntry::Pending);
-    let loader = cache.app_icon_loader.get_or_insert_with(AppIconLoader::spawn);
+    let loader = cache
+        .app_icon_loader
+        .get_or_insert_with(AppIconLoader::spawn);
     let _ = loader.jobs.send(app_id.to_string());
 
     Ok(())

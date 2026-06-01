@@ -68,18 +68,62 @@ impl Default for PeekBackgroundColor {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClockConfig {
     pub font_family: String,
+    /// Normal ("large") state font size.
     pub font_px: u32,
+    /// Collapsed ("medium") state font size.
+    pub medium_px: u32,
+    /// Minimal ("small") state font size.
+    pub small_px: u32,
+    /// Minimal ("small") state reserved bar height. This is the top clearance the
+    /// compositor reserves for the aperture during clusters/maximize, so it is
+    /// clamped to bar-like sizes; the clock text is centered within it.
+    pub small_height_px: u32,
     pub color: ClockColor,
 }
 
 impl Default for ClockConfig {
     fn default() -> Self {
+        let font_px = 30;
+        let small_px = clock_small_default_px(font_px);
         Self {
             font_family: "monospace".to_string(),
-            font_px: 30,
+            font_px,
+            medium_px: clock_medium_default_px(font_px),
+            small_px,
+            small_height_px: clock_small_height_default_px(small_px),
             color: ClockColor::default(),
         }
     }
+}
+
+// Per-state clock size limits. The smallest state's height is what the compositor
+// reserves, so it is clamped to bar-like sizes.
+const CLOCK_LARGE_MIN_PX: u32 = 12;
+const CLOCK_LARGE_MAX_PX: u32 = 240;
+const CLOCK_MEDIUM_MIN_PX: u32 = 10;
+const CLOCK_MEDIUM_MAX_PX: u32 = 200;
+const CLOCK_SMALL_FONT_MIN_PX: u32 = 8;
+const CLOCK_SMALL_FONT_MAX_PX: u32 = 64;
+const CLOCK_SMALL_HEIGHT_MIN_PX: u32 = 14;
+const CLOCK_SMALL_HEIGHT_MAX_PX: u32 = 72;
+const CLOCK_MEDIUM_SCALE: f32 = 0.56;
+const CLOCK_SMALL_SCALE: f32 = 0.40;
+const CLOCK_SMALL_HEIGHT_PAD_PX: u32 = 8;
+
+fn clock_medium_default_px(large_px: u32) -> u32 {
+    ((large_px.max(1) as f32) * CLOCK_MEDIUM_SCALE)
+        .round()
+        .max(CLOCK_MEDIUM_MIN_PX as f32) as u32
+}
+
+fn clock_small_default_px(large_px: u32) -> u32 {
+    ((large_px.max(1) as f32) * CLOCK_SMALL_SCALE)
+        .round()
+        .max(CLOCK_SMALL_FONT_MIN_PX as f32) as u32
+}
+
+fn clock_small_height_default_px(small_px: u32) -> u32 {
+    small_px + CLOCK_SMALL_HEIGHT_PAD_PX
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -183,9 +227,13 @@ impl ApertureConfig {
         if out.peek.clock.font_family.is_empty() {
             out.peek.clock.font_family = ClockConfig::default().font_family;
         }
-        out.peek.clock.font_px = pick_u32(
+        // Normal / "large" font size. `clock-large.size-px` is preferred; the
+        // legacy `clock.size-px` is kept for back-compat.
+        let large_px = pick_u32(
             &cfg,
             &[
+                "aperture-peek.clock-large.size-px",
+                "aperture-peek.clock-large.size_px",
                 "aperture-peek.clock.size-px",
                 "aperture-peek.clock.size_px",
                 "aperture-peek.clock.font-px",
@@ -193,7 +241,40 @@ impl ApertureConfig {
             ],
             out.peek.clock.font_px,
         )
-        .max(1);
+        .clamp(CLOCK_LARGE_MIN_PX, CLOCK_LARGE_MAX_PX);
+        out.peek.clock.font_px = large_px;
+        // Collapsed / "medium" and Minimal / "small" font sizes. When a per-state
+        // block is absent they derive from the large size (back-compat).
+        out.peek.clock.medium_px = pick_u32(
+            &cfg,
+            &[
+                "aperture-peek.clock-medium.size-px",
+                "aperture-peek.clock-medium.size_px",
+            ],
+            clock_medium_default_px(large_px),
+        )
+        .clamp(CLOCK_MEDIUM_MIN_PX, CLOCK_MEDIUM_MAX_PX);
+        out.peek.clock.small_px = pick_u32(
+            &cfg,
+            &[
+                "aperture-peek.clock-small.size-px",
+                "aperture-peek.clock-small.size_px",
+            ],
+            clock_small_default_px(large_px),
+        )
+        .clamp(CLOCK_SMALL_FONT_MIN_PX, CLOCK_SMALL_FONT_MAX_PX);
+        // Minimal reserved bar height: clamped to bar-like sizes and never smaller
+        // than its own font so the clock fits inside it.
+        out.peek.clock.small_height_px = pick_u32(
+            &cfg,
+            &[
+                "aperture-peek.clock-small.height-px",
+                "aperture-peek.clock-small.height_px",
+            ],
+            clock_small_height_default_px(out.peek.clock.small_px),
+        )
+        .clamp(CLOCK_SMALL_HEIGHT_MIN_PX, CLOCK_SMALL_HEIGHT_MAX_PX)
+        .max(out.peek.clock.small_px);
         out.peek.clock.color = pick_clock_color(
             &cfg,
             &["aperture-peek.clock.colour", "aperture-peek.clock.color"],

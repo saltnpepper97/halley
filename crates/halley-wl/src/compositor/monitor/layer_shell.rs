@@ -111,7 +111,34 @@ fn rectangle_fits_within(target: Rectangle<i32, Logical>, rect: Rectangle<i32, L
         && rect_bottom <= target_bottom
 }
 
+/// True when `monitor` has an active tiling cluster workspace. While locked, the
+/// cluster work area is frozen for the whole session: the aperture-driven
+/// reservation is established once at enter (via the forced refresh) and no later
+/// aperture-height commit is allowed to move `usable_viewport`. This eliminates
+/// both the mid-slide re-basing and the post-slide settle "snap" (see
+/// `refresh_monitor_usable_viewports`). The live height is still learned into
+/// `aperture_layer_heights` for the next enter; it just isn't applied mid-session.
+fn monitor_cluster_workarea_locked(st: &Halley, monitor: &str) -> bool {
+    st.active_cluster_workspace_for_monitor(monitor).is_some()
+        && matches!(
+            st.runtime.tuning.cluster_layout_kind(),
+            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+        )
+}
+
 pub(crate) fn refresh_monitor_usable_viewports(st: &mut Halley) {
+    refresh_monitor_usable_viewports_inner(st, None);
+}
+
+/// Like [`refresh_monitor_usable_viewports`] but force-applies the reservation for
+/// `force_monitor`, bypassing the active-cluster work-area lock for that one
+/// monitor. Called at cluster enter to write the session baseline (the cluster is
+/// already marked active at that point, so the lock would otherwise defer it).
+pub(crate) fn refresh_monitor_usable_viewport_forced(st: &mut Halley, force_monitor: &str) {
+    refresh_monitor_usable_viewports_inner(st, Some(force_monitor));
+}
+
+fn refresh_monitor_usable_viewports_inner(st: &mut Halley, force_monitor: Option<&str>) {
     let monitor_names: Vec<String> = st.model.monitor_state.monitors.keys().cloned().collect();
     for monitor_name in monitor_names {
         let Some(space) = st.model.monitor_state.monitors.get(&monitor_name).cloned() else {
@@ -146,6 +173,36 @@ pub(crate) fn refresh_monitor_usable_viewports(st: &mut Halley) {
                 size,
             )
         };
+        // Freeze the cluster work area for the whole active tiling session:
+        // applying the aperture's animated reservation mid-session rewrites
+        // `usable_viewport`, which re-bases the in-flight tile easing (mid-slide
+        // stutter) and snaps the work area as the slide settles (the end-of-open
+        // top adjustment). The reservation is established once at enter via the
+        // forced refresh; any later aperture-height change is deferred (and only
+        // applied once the session ends — maintenance tick / cluster exit). The
+        // entering monitor is exempted so its baseline still gets written.
+        if usable_viewport != space.usable_viewport
+            && force_monitor != Some(monitor_name.as_str())
+            && monitor_cluster_workarea_locked(st, &monitor_name)
+        {
+            st.model
+                .monitor_state
+                .pending_workarea_refresh
+                .insert(monitor_name.clone());
+            if crate::perf::enabled() {
+                eventline::info!(
+                    "perf workarea_defer monitor={} old_top={:.1} new_top={:.1} (cluster_locked)",
+                    monitor_name,
+                    space.usable_viewport.center.y - space.usable_viewport.size.y * 0.5,
+                    usable_viewport.center.y - usable_viewport.size.y * 0.5,
+                );
+            }
+            continue;
+        }
+        st.model
+            .monitor_state
+            .pending_workarea_refresh
+            .remove(&monitor_name);
         if let Some(space_mut) = st.model.monitor_state.monitors.get_mut(&monitor_name) {
             space_mut.usable_viewport = usable_viewport;
         }
@@ -245,11 +302,6 @@ pub(crate) fn aperture_layer_present_for_monitor(st: &Halley, monitor: &str) -> 
         .contains(monitor)
 }
 
-pub(crate) fn aperture_minimal_tab_height_for_monitor(st: &Halley, monitor: &str) -> Option<f32> {
-    let height = *st.model.monitor_state.aperture_layer_heights.get(monitor)? as f32;
-    (height > 1.0).then_some(height)
-}
-
 fn register_layer_surface_impl(
     st: &mut Halley,
     surface: LayerSurface,
@@ -310,15 +362,23 @@ fn maybe_grant_layer_surface_focus_on_commit_impl(st: &mut Halley, surface: &WlS
             .monitor_state
             .aperture_layer_monitors
             .insert(monitor.clone());
-        let height_changed = height
-            .and_then(|height| crate::aperture::accepted_minimal_aperture_tab_height_px(st, height))
-            .is_some_and(|height| {
-                st.model
-                    .monitor_state
-                    .aperture_layer_heights
-                    .insert(monitor.clone(), height)
-                    != Some(height)
-            });
+        // Only learn the minimal-tab height while minimal is the intended mode for
+        // this monitor. Otherwise the Minimal→Normal close ramp — whose climbing
+        // heights stay within the accepted band for a while — overwrites the stored
+        // value last-wins with a too-large height, which FINAL-5 then freezes as a
+        // persistently oversized cluster gap. See `monitor_minimal_aperture_intended`.
+        let height_changed = crate::aperture::monitor_minimal_aperture_intended(st, &monitor)
+            && height
+                .and_then(|height| {
+                    crate::aperture::accepted_minimal_aperture_tab_height_px(st, height)
+                })
+                .is_some_and(|height| {
+                    st.model
+                        .monitor_state
+                        .aperture_layer_heights
+                        .insert(monitor.clone(), height)
+                        != Some(height)
+                });
         if newly_present || height_changed {
             refresh_monitor_usable_viewports(st);
         }

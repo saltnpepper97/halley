@@ -267,6 +267,15 @@ pub(crate) fn small_reservation_px_for_monitor(st: &Halley, monitor: &str) -> i3
     aperture_reserve_px_for_clearance(required_clearance_px, existing_gap_px)
 }
 
+/// True when a minimal aperture tab is the intended mode for `monitor` (an active
+/// tiling cluster workspace or a maximize session). Used to gate learning of the
+/// aperture's minimal-tab height: only commits made while minimal is intended are
+/// recorded, so the Minimal→Normal close ramp (which climbs back through the
+/// accepted height band) cannot pollute the stored value with a too-large height.
+pub(crate) fn monitor_minimal_aperture_intended(st: &Halley, monitor: &str) -> bool {
+    existing_minimal_layout_top_gap_px(st, monitor).is_some()
+}
+
 fn existing_minimal_layout_top_gap_px(st: &Halley, monitor: &str) -> Option<f32> {
     if crate::compositor::workspace::state::maximize_session_active_on_monitor(st, monitor) {
         return Some(st.runtime.tuning.non_overlap_gap_px.max(0.0));
@@ -285,15 +294,13 @@ fn existing_minimal_layout_top_gap_px(st: &Halley, monitor: &str) -> Option<f32>
     None
 }
 
-fn required_minimal_aperture_clearance_px(st: &Halley, monitor: &str) -> f32 {
-    let fallback_tab_height = fallback_minimal_aperture_tab_height_px(st);
-    let tab_height =
-        crate::compositor::monitor::layer_shell::aperture_minimal_tab_height_for_monitor(
-            st, monitor,
-        )
-        .unwrap_or(fallback_tab_height);
-
-    tab_height.max(1.0) + APERTURE_AFTER_GAP_PX
+fn required_minimal_aperture_clearance_px(st: &Halley, _monitor: &str) -> f32 {
+    // The Minimal state is the reserved bar; its height is an explicit config value
+    // (`clock-small.height-px`) that the client renders to. Reserving it directly
+    // makes the top clearance exact from the very first frame — no glyph
+    // measurement, no learned/cached guess, and it can't drift when sizes change.
+    let small_height_px = st.aperture_config().peek.clock.small_height_px.max(1) as f32;
+    small_height_px + APERTURE_AFTER_GAP_PX
 }
 
 pub(crate) fn accepted_minimal_aperture_tab_height_px(st: &Halley, height_px: i32) -> Option<i32> {
@@ -401,12 +408,14 @@ mod tests {
     }
 
     #[test]
-    fn required_clearance_uses_actual_minimal_tab_height() {
+    fn required_clearance_uses_config_small_bar_height() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
-        use_large_aperture_config(&mut st);
-        set_aperture_tab_height(&mut st, 22);
+        let mut config = ApertureConfig::default();
+        config.peek.clock.small_height_px = 22;
+        st.apply_aperture_config(config);
 
+        // Reservation = configured bar height + APERTURE_AFTER_GAP_PX (4).
         assert_eq!(required_minimal_aperture_clearance_px(&st, MONITOR), 26.0);
     }
 
@@ -420,18 +429,16 @@ mod tests {
     }
 
     #[test]
-    fn expanded_aperture_height_does_not_overwrite_cached_minimal_tab_height() {
+    fn committed_aperture_height_does_not_affect_reservation() {
+        // The reservation is driven purely by config (`clock-small.height-px`), so
+        // whatever height the client actually commits — even an expanded one — does
+        // not move the reserved bar.
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
-        use_large_aperture_config(&mut st);
-        set_aperture_tab_height(&mut st, 22);
-
-        if let Some(height) = accepted_minimal_aperture_tab_height_px(&st, 160) {
-            st.model
-                .monitor_state
-                .aperture_layer_heights
-                .insert(MONITOR.to_string(), height);
-        }
+        let mut config = ApertureConfig::default();
+        config.peek.clock.small_height_px = 22;
+        st.apply_aperture_config(config);
+        set_aperture_tab_height(&mut st, 160);
 
         assert_eq!(required_minimal_aperture_clearance_px(&st, MONITOR), 26.0);
     }

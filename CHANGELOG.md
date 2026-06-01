@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - Deduplicate repeated tiled `xdg_toplevel` configures during maintenance relayouts to reduce client lag and avoid serial churn crashes.
 - Detach active cluster members from their source cluster when monitor-transfer drags move them away, so the source layout recalculates without the missing window.
 - Absorb transferred standalone windows into the target monitor's active cluster layout by default, while keeping `cluster-participation "float"` and overlap-policy windows freely floating and resizable above the tiled cluster plane.
+- Restore stacking-cluster drag/drop behavior so only the top card can be dragged out, in-stack drops snap back to the stack, and standalone windows dropped on an active stack rejoin at the top instead of floating over it.
 
 ## [v0.3.2] - 2026-05-31
 
