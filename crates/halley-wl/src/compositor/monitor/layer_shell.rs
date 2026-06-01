@@ -19,6 +19,8 @@ use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::wayland::shell::xdg::PopupSurface;
 use smithay::wayland::shell::xdg::PositionerState;
 
+const APERTURE_LAYER_NAMESPACE: &str = "halley-aperture";
+
 #[derive(Clone)]
 pub(crate) struct LayerPlacement {
     pub wl_surface: WlSurface,
@@ -115,8 +117,14 @@ pub(crate) fn refresh_monitor_usable_viewports(st: &mut Halley) {
         let Some(space) = st.model.monitor_state.monitors.get(&monitor_name).cloned() else {
             continue;
         };
-        let usable = layer_shell_usable_rect_for_monitor(st, &monitor_name);
-        let full = Rectangle::from_size((space.width, space.height).into());
+        let full: Rectangle<i32, Logical> =
+            Rectangle::from_size((space.width, space.height).into());
+        let mut usable = full;
+        let aperture_reserve = crate::aperture::small_reservation_px_for_monitor(st, &monitor_name);
+        if aperture_reserve > 0 {
+            usable.loc.y = aperture_reserve.clamp(0, full.size.h.saturating_sub(1));
+            usable.size.h = (full.size.h - usable.loc.y).max(1);
+        }
         let usable_viewport = if usable == full {
             space.viewport
         } else {
@@ -225,6 +233,18 @@ pub(crate) fn layer_surface_monitor_name(st: &Halley, surface: &WlSurface) -> St
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
 }
 
+pub(crate) fn aperture_layer_present_for_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .monitor_state
+        .aperture_layer_monitors
+        .contains(monitor)
+}
+
+pub(crate) fn aperture_minimal_tab_height_for_monitor(st: &Halley, monitor: &str) -> Option<f32> {
+    let height = *st.model.monitor_state.aperture_layer_heights.get(monitor)? as f32;
+    (height > 1.0).then_some(height)
+}
+
 fn register_layer_surface_impl(
     st: &mut Halley,
     surface: LayerSurface,
@@ -244,6 +264,10 @@ fn register_layer_surface_impl(
     };
 
     st.assign_layer_surface_to_monitor(surface.wl_surface(), assigned_monitor.clone());
+    st.model
+        .monitor_state
+        .layer_surface_namespace
+        .insert(surface.wl_surface().id(), namespace.clone());
 
     if let Some(requested_output) = output.as_ref() {
         for output in st.model.monitor_state.outputs.values() {
@@ -273,6 +297,27 @@ fn maybe_grant_layer_surface_focus_on_commit_impl(st: &mut Halley, surface: &WlS
         .monitor_state
         .layer_surface_committed
         .insert(surface.id());
+    if layer_surface_namespace(st, surface).as_deref() == Some(APERTURE_LAYER_NAMESPACE) {
+        let monitor = layer_surface_monitor_name(st, surface);
+        let height = aperture_layer_height_from_committed_surface(st, surface);
+        let newly_present = st
+            .model
+            .monitor_state
+            .aperture_layer_monitors
+            .insert(monitor.clone());
+        let height_changed = height
+            .and_then(|height| crate::aperture::accepted_minimal_aperture_tab_height_px(st, height))
+            .is_some_and(|height| {
+                st.model
+                    .monitor_state
+                    .aperture_layer_heights
+                    .insert(monitor, height)
+                    != Some(height)
+            });
+        if newly_present || height_changed {
+            refresh_monitor_usable_viewports(st);
+        }
+    }
 
     if !layer_surface_initial_configure_sent(surface) {
         let monitor = layer_surface_monitor_name(st, surface);
@@ -309,6 +354,11 @@ fn remove_layer_surface_impl(st: &mut Halley, surface: &LayerSurface) {
         .monitor_state
         .layer_surface_monitor
         .remove(&surface.wl_surface().id());
+    let removed_namespace = st
+        .model
+        .monitor_state
+        .layer_surface_namespace
+        .remove(&surface.wl_surface().id());
     st.model
         .monitor_state
         .layer_surface_committed
@@ -322,6 +372,19 @@ fn remove_layer_surface_impl(st: &mut Halley, surface: &LayerSurface) {
     }
     for output in st.model.monitor_state.outputs.values() {
         output.leave(surface.wl_surface());
+    }
+    if removed_namespace.as_deref() == Some(APERTURE_LAYER_NAMESPACE) {
+        if !aperture_layer_attached_to_monitor(st, removed_monitor.as_str()) {
+            st.model
+                .monitor_state
+                .aperture_layer_monitors
+                .remove(removed_monitor.as_str());
+            st.model
+                .monitor_state
+                .aperture_layer_heights
+                .remove(removed_monitor.as_str());
+        }
+        refresh_monitor_usable_viewports(st);
     }
     if !removed_focused_layer {
         return;
@@ -365,6 +428,40 @@ fn layer_cached_state(surface: &LayerSurface) -> LayerSurfaceCachedState {
             .get::<LayerSurfaceCachedState>()
             .current()
     })
+}
+
+fn layer_surface_namespace(st: &Halley, surface: &WlSurface) -> Option<String> {
+    st.model
+        .monitor_state
+        .layer_surface_namespace
+        .get(&surface.id())
+        .cloned()
+}
+
+fn aperture_layer_height_from_committed_surface(st: &Halley, surface: &WlSurface) -> Option<i32> {
+    st.platform
+        .wlr_layer_shell_state
+        .layer_surfaces()
+        .find_map(|layer| {
+            (layer.wl_surface().id() == surface.id()).then(|| layer_cached_state(&layer).size.h)
+        })
+}
+
+fn aperture_layer_attached_to_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .monitor_state
+        .layer_surface_namespace
+        .iter()
+        .any(|(id, namespace)| {
+            namespace == APERTURE_LAYER_NAMESPACE
+                && st.model.monitor_state.layer_surface_committed.contains(id)
+                && st
+                    .model
+                    .monitor_state
+                    .layer_surface_monitor
+                    .get(id)
+                    .is_some_and(|surface_monitor| surface_monitor == monitor)
+        })
 }
 
 pub(crate) fn configure_layer_shell_surfaces(st: &mut Halley, _output_size: Size<i32, Logical>) {
@@ -475,24 +572,6 @@ pub(crate) fn layer_shell_placements_for_monitor(
     }
 
     placements
-}
-
-pub(crate) fn layer_shell_usable_rect_for_monitor(
-    st: &Halley,
-    monitor_name: &str,
-) -> Rectangle<i32, Logical> {
-    let output_rect = Rectangle::from_size(layer_output_size_for_monitor(st, monitor_name));
-    let mut zone = output_rect;
-
-    for surface in layer_shell_surfaces_sorted(st) {
-        if layer_surface_monitor_name(st, surface.wl_surface()) != monitor_name {
-            continue;
-        }
-        let data = layer_cached_state(&surface);
-        let _ = compute_layer_placement(output_rect, &mut zone, data);
-    }
-
-    zone
 }
 
 fn layer_shell_surfaces_sorted(st: &Halley) -> Vec<LayerSurface> {

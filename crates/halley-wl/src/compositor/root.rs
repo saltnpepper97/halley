@@ -239,6 +239,9 @@ impl Halley {
                     monitors,
                     node_monitor: HashMap::new(),
                     layer_surface_monitor: HashMap::new(),
+                    layer_surface_namespace: HashMap::new(),
+                    aperture_layer_monitors: HashSet::new(),
+                    aperture_layer_heights: HashMap::new(),
                     layer_surface_committed: HashSet::new(),
                     layer_surface_last_configured_size: HashMap::new(),
                     layer_keyboard_focus: None,
@@ -457,6 +460,8 @@ impl Halley {
 
     pub(crate) fn apply_aperture_config(&mut self, config: crate::aperture::core::ApertureConfig) {
         self.aperture.apply_config(config);
+        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
+        self.request_maintenance();
     }
 
     pub(crate) fn node_user_pinned(&self, id: NodeId) -> bool {

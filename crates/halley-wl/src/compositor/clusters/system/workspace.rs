@@ -184,6 +184,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         self.model.cluster_state.cluster_bloom_open.remove(monitor);
         self.set_interaction_focus(None, 0, now);
         let now_ms = self.now_ms(now);
+        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
         self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
         if matches!(
             self.active_cluster_layout_kind(),
@@ -252,6 +253,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .cluster_state
             .workspace_hidden_nodes
             .remove(monitor);
+        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
         self.clear_cluster_overflow_for_monitor(monitor);
         if self
             .input

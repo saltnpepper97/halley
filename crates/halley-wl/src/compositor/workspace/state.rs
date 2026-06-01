@@ -428,11 +428,12 @@ pub(crate) fn maximized_visual_for_node_on_current_monitor_at(
     if session.target_id != node_id || session.state != MaximizeSessionState::Active {
         return None;
     }
-    let viewport = if st.model.monitor_state.current_monitor == monitor {
-        st.model.viewport
-    } else {
-        st.model.monitor_state.monitors.get(monitor)?.viewport
-    };
+    let viewport = st
+        .model
+        .monitor_state
+        .monitors
+        .get(monitor)?
+        .usable_viewport;
     let inset = st.non_overlap_gap_world().max(0.0)
         + crate::window::active_window_frame_pad_px(&st.runtime.tuning) as f32;
     Some((
@@ -582,6 +583,7 @@ pub(crate) fn abort_maximize_session_for_monitor(st: &mut Halley, monitor: &str)
     let Some(session) = st.model.workspace_state.maximize_sessions.remove(monitor) else {
         return false;
     };
+    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
 
     apply_monitor_camera_snapshot(st, monitor, session.camera);
 

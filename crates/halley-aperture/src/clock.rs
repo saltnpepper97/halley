@@ -10,6 +10,9 @@ const NORMAL_MARGIN_PX: f32 = 18.0;
 const COLLAPSED_EDGE_PADDING_PX: f32 = 2.0;
 const MIN_COLLAPSED_FONT_PX: u32 = 12;
 const COLLAPSED_FONT_SCALE: f32 = 0.56;
+const MIN_MINIMAL_FONT_PX: u32 = 12;
+const MINIMAL_FONT_SCALE: f32 = 0.40;
+const MINIMAL_EDGE_PADDING_PX: f32 = 0.0;
 const SNAP_EPSILON: f32 = 0.01;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -249,10 +252,16 @@ fn mode_targets(config: &ApertureConfig, mode: ApertureMode) -> ModeTargets {
             edge_padding_px: COLLAPSED_EDGE_PADDING_PX,
             hidden_mix: 0.0,
         },
+        ApertureMode::Minimal => ModeTargets {
+            alpha: 1.0,
+            font_px: minimal_font_px(config.peek.clock.font_px) as f32,
+            edge_padding_px: MINIMAL_EDGE_PADDING_PX,
+            hidden_mix: 0.0,
+        },
         ApertureMode::Hidden => ModeTargets {
             alpha: 0.0,
-            font_px: collapsed_font_px(config.peek.clock.font_px) as f32,
-            edge_padding_px: COLLAPSED_EDGE_PADDING_PX,
+            font_px: minimal_font_px(config.peek.clock.font_px) as f32,
+            edge_padding_px: MINIMAL_EDGE_PADDING_PX,
             hidden_mix: 1.0,
         },
     }
@@ -262,6 +271,12 @@ fn collapsed_font_px(normal_font_px: u32) -> u32 {
     ((normal_font_px.max(1) as f32) * COLLAPSED_FONT_SCALE)
         .round()
         .max(MIN_COLLAPSED_FONT_PX as f32) as u32
+}
+
+fn minimal_font_px(normal_font_px: u32) -> u32 {
+    ((normal_font_px.max(1) as f32) * MINIMAL_FONT_SCALE)
+        .round()
+        .max(MIN_MINIMAL_FONT_PX as f32) as u32
 }
 
 fn advance_toward(current: f32, target: f32, dt: Duration, duration_s: f32) -> f32 {
@@ -334,6 +349,38 @@ mod tests {
 
         assert!(collapsed.font_px < normal.font_px);
         assert!(collapsed.bounds.y < normal.bounds.y);
+    }
+
+    #[test]
+    fn minimal_mode_is_smaller_than_collapsed() {
+        let runtime = ApertureRuntime::new(ApertureConfig::default());
+        let collapsed = runtime
+            .snapshot_for_mode(
+                ApertureMode::Collapsed,
+                Rect::new(0.0, 0.0, 1920.0, 1080.0),
+                Rect::new(0.0, 0.0, 1920.0, 1080.0),
+                1.0,
+                |font_px, _text| Size {
+                    w: font_px as f32 * 3.0,
+                    h: font_px as f32,
+                },
+            )
+            .expect("collapsed");
+        let minimal = runtime
+            .snapshot_for_mode(
+                ApertureMode::Minimal,
+                Rect::new(0.0, 0.0, 1920.0, 1080.0),
+                Rect::new(0.0, 0.0, 1920.0, 1080.0),
+                1.0,
+                |font_px, _text| Size {
+                    w: font_px as f32 * 3.0,
+                    h: font_px as f32,
+                },
+            )
+            .expect("minimal");
+
+        assert!(minimal.font_px < collapsed.font_px);
+        assert!(minimal.bounds.y <= collapsed.bounds.y);
     }
 
     #[test]

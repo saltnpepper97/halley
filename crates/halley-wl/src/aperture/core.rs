@@ -9,12 +9,16 @@ const NORMAL_MARGIN_PX: f32 = 18.0;
 const COLLAPSED_EDGE_PADDING_PX: f32 = 2.0;
 const MIN_COLLAPSED_FONT_PX: u32 = 12;
 const COLLAPSED_FONT_SCALE: f32 = 0.56;
+const MIN_MINIMAL_FONT_PX: u32 = 12;
+const MINIMAL_FONT_SCALE: f32 = 0.40;
+const MINIMAL_EDGE_PADDING_PX: f32 = 0.0;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum ApertureMode {
     #[default]
     Normal,
     Collapsed,
+    Minimal,
     Hidden,
 }
 
@@ -301,8 +305,9 @@ impl ApertureRuntime {
         let effective_scale = scale.max(0.25) as f32;
         let render_font_px = match mode {
             ApertureMode::Normal => self.config.peek.clock.font_px.max(1),
-            ApertureMode::Collapsed | ApertureMode::Hidden => {
-                collapsed_font_px(self.config.peek.clock.font_px)
+            ApertureMode::Collapsed => collapsed_font_px(self.config.peek.clock.font_px),
+            ApertureMode::Minimal | ApertureMode::Hidden => {
+                minimal_font_px(self.config.peek.clock.font_px)
             }
         };
         let render_font_px = (render_font_px as f32 * effective_scale).round().max(1.0) as u32;
@@ -319,7 +324,8 @@ impl ApertureRuntime {
         let side_margin = NORMAL_MARGIN_PX * effective_scale;
         let edge_padding = match mode {
             ApertureMode::Normal => NORMAL_MARGIN_PX,
-            ApertureMode::Collapsed | ApertureMode::Hidden => COLLAPSED_EDGE_PADDING_PX,
+            ApertureMode::Collapsed => COLLAPSED_EDGE_PADDING_PX,
+            ApertureMode::Minimal | ApertureMode::Hidden => MINIMAL_EDGE_PADDING_PX,
         } * effective_scale;
         let x = work_rect.right() - side_margin - text_size.w;
         let y = work_rect.y + edge_padding;
@@ -348,6 +354,12 @@ fn collapsed_font_px(normal_font_px: u32) -> u32 {
     ((normal_font_px.max(1) as f32) * COLLAPSED_FONT_SCALE)
         .round()
         .max(MIN_COLLAPSED_FONT_PX as f32) as u32
+}
+
+pub(crate) fn minimal_font_px(normal_font_px: u32) -> u32 {
+    ((normal_font_px.max(1) as f32) * MINIMAL_FONT_SCALE)
+        .round()
+        .max(MIN_MINIMAL_FONT_PX as f32) as u32
 }
 
 fn pick_u32(cfg: &RuneConfig, paths: &[&str], default: u32) -> u32 {

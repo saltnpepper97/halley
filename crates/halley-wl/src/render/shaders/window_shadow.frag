@@ -18,6 +18,17 @@ float rounded_rect_sdf(vec2 p, vec2 size, float radius) {
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
 }
 
+// Abramowitz & Stegun 7.1.26 approximation of the error function.
+// Max error ~1.5e-7, far more than enough for an 8-bit shadow.
+float erf_approx(float x) {
+    float s = sign(x);
+    float a = abs(x);
+    float t = 1.0 / (1.0 + 0.3275911 * a);
+    float y = 1.0 - (((((1.061405429 * t - 1.453152027) * t)
+        + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-a * a);
+    return s * y;
+}
+
 void main() {
     vec2 size = max(rect_size, vec2(1.0));
     vec2 caster = max(caster_size, vec2(1.0));
@@ -40,12 +51,23 @@ void main() {
         discard;
     }
 
-    // A Gaussian-like or exponential falloff looks much better than smoothstep (which is an S-curve).
-    // Shadows should drop off quickly near the caster and have a long, soft tail.
-    float t = clamp((outside_dist - outset) / (fade_end - outset), 0.0, 1.0);
-    
-    // A simple approximation for a soft, natural tail:
-    float falloff = pow(1.0 - t, 2.5);
+    // A real drop shadow is the caster shape convolved with a Gaussian, so the
+    // coverage at the geometric edge is ~50% and falls off along the Gaussian
+    // integral (the error function). This soft contact reads as a true shadow
+    // rather than a hard outline hugging the window border.
+    //
+    // Map the configured blur radius to a Gaussian sigma. blur_radius is the
+    // user-facing "softness"; sigma is the actual bell width. Keeping sigma at
+    // half the blur radius means the existing padded quad (pad = blur*3 in
+    // shadow.rs) always covers the visible tail, so no Rust changes are needed.
+    float sigma = max(blur * 0.5, 0.5);
+
+    // Signed distance past the spread band:
+    //   negative -> inside the spread band, coverage rises above 0.5 toward 1.0
+    //   zero     -> the (spread-expanded) edge, coverage is exactly 0.5
+    //   positive -> outside, coverage falls off following erfc
+    float d = dist - outset;
+    float falloff = 0.5 * (1.0 - erf_approx(d / (sigma * 1.41421356)));
 
     float a = shadow_color.a * alpha * falloff;
 

@@ -338,6 +338,7 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
         }
 
         self.runtime.tuning = tuning;
+        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(&mut **self);
         let repeat_changed = self.runtime.tuning.input.repeat_rate != prev_input.repeat_rate
             || self.runtime.tuning.input.repeat_delay != prev_input.repeat_delay;
         let keyboard_config_changed = self.runtime.tuning.input.keyboard != prev_input.keyboard;

@@ -7,9 +7,18 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Add optional `width` and `height` window-rule keys for fixed initial sizes on matched windows.
 - Add configurable fullscreen entry animation via `animations.fullscreen`, including bootstrap migration and example config coverage, so browser videos such as YouTube tween into fullscreen instead of snapping.
+- Add an Aperture `Minimal` mode across IPC, compositor status, and the standalone clock so maximized windows and tiled cluster workspaces can use a compact top tab instead of the larger collapsed clock.
+
+### Changed
+- Render minimal Aperture as a clipped top tab with smaller clock sizing and tab-specific padding, while preserving normal and collapsed Aperture presentation.
+- Use the reserved usable viewport for maximize targets and maximized visuals so top clearance reservations are honored consistently.
+- Soften window shadows with a Gaussian/error-function falloff for a more natural shadow tail.
 
 ### Fixed
 - Wait briefly for the close-animation capture before automatic active-to-node collapses, fixing the first overlapped auto-collapse snapping to a node while preserving immediate fallback for no-content windows.
+- Reserve Aperture top clearance as a deficit against the user's configured field or tile gap instead of stacking extra padding on top of those gaps.
+- Base Aperture clearance on the actual minimal tab height plus a small after-gap, reject placeholder or expanded Aperture heights, and avoid phantom top gaps when `halley-aperture` is not running.
+- Refresh usable viewports when maximize, tiled cluster, layout mode, config, or Aperture sizing changes can affect the reserve, while avoiding unnecessary refreshes from irrelevant Aperture commits.
 
 ## [v0.3.2] - 2026-05-31
 

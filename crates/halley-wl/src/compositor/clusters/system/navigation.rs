@@ -448,6 +448,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         }
 
         let now_ms = self.now_ms(now);
+        crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
         self.layout_active_cluster_workspace_for_monitor(monitor, now_ms);
 
         match self.runtime.tuning.cluster_layout_kind() {

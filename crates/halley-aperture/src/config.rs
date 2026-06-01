@@ -8,6 +8,7 @@ pub enum ApertureMode {
     #[default]
     Normal,
     Collapsed,
+    Minimal,
     Hidden,
 }
 
