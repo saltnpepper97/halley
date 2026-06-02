@@ -450,6 +450,7 @@ pub(crate) fn collect_hover_preview(
         let preview_state = st
             .ui
             .render_state
+            .view
             .node_preview_hover
             .entry(monitor.to_string())
             .or_default();

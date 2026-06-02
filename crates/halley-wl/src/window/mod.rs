@@ -240,13 +240,13 @@ pub(crate) fn collect_active_surfaces(
     let mut above_fullscreen_popup_elements: Vec<CroppedSurfaceElement> = Vec::new();
     let mut node_surface_map = HashMap::new();
     crate::animation::retain_live_cluster_tile_tracks(
-        &mut st.ui.render_state.cluster_tile_tracks,
+        &mut st.ui.render_state.window_animations.cluster_tile_tracks,
         &st.model.field,
         now,
     );
     if st.runtime.tuning.tile_animation_enabled()
         && crate::animation::cluster_tile_tracks_animating(
-            &st.ui.render_state.cluster_tile_tracks,
+            &st.ui.render_state.window_animations.cluster_tile_tracks,
             now,
         )
     {

@@ -38,8 +38,18 @@ fn monitor_overlay_requires_full_repaint_at(st: &Halley, monitor: &str, now_ms: 
             .cluster_overflow_promotion_anim
             .contains_key(monitor)
         || crate::compositor::interaction::state::bloom_pull_preview_active_for_monitor(st, monitor)
-        || st.ui.render_state.overlay_banner.contains_key(monitor)
-        || st.ui.render_state.overlay_toast.contains_key(monitor)
+        || st
+            .ui
+            .render_state
+            .overlays
+            .overlay_banner
+            .contains_key(monitor)
+        || st
+            .ui
+            .render_state
+            .overlays
+            .overlay_toast
+            .contains_key(monitor)
         || st
             .model
             .focus_state
@@ -56,6 +66,7 @@ fn monitor_overlay_requires_full_repaint_at(st: &Halley, monitor: &str, now_ms: 
         || st
             .ui
             .render_state
+            .overlays
             .overlay_exit_confirm
             .contains_key(monitor)
 }
@@ -90,7 +101,7 @@ pub(crate) fn tty_output_animation_redraw_state(
         .any(|&until| until > now_ms);
     let cluster_tile_active = st.runtime.tuning.tile_animation_enabled()
         && crate::animation::cluster_tile_tracks_animating(
-            &st.ui.render_state.cluster_tile_tracks,
+            &st.ui.render_state.window_animations.cluster_tile_tracks,
             now,
         );
     let close_window_active = st.runtime.tuning.window_close_animation_enabled()
@@ -102,6 +113,7 @@ pub(crate) fn tty_output_animation_redraw_state(
         && st
             .ui
             .render_state
+            .window_animations
             .stack_cycle_transition
             .get(monitor)
             .is_some_and(|transition| {
@@ -154,12 +166,14 @@ pub(crate) fn tty_output_animation_redraw_state(
         || st
             .ui
             .render_state
+            .view
             .cluster_bloom_mix
             .get(monitor)
             .is_some_and(|state| state.mix > 0.01)
         || st
             .ui
             .render_state
+            .view
             .bearings_mix
             .get(monitor)
             .is_some_and(|mix| *mix > 0.02);

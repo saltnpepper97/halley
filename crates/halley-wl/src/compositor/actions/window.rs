@@ -1465,6 +1465,7 @@ mod tests {
         assert!(
             st.ui
                 .render_state
+                .window_animations
                 .landmark_slide_animations
                 .contains_key(&target)
         );
@@ -1515,6 +1516,7 @@ mod tests {
         let slide = st
             .ui
             .render_state
+            .window_animations
             .landmark_slide_animations
             .get(&target)
             .expect("landmark slide animation");

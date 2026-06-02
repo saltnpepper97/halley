@@ -299,13 +299,19 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
     }
 
     fn clear_cluster_tile_animation_for_node(&mut self, node_id: NodeId) {
-        self.ui.render_state.cluster_tile_tracks.remove(&node_id);
         self.ui
             .render_state
+            .window_animations
+            .cluster_tile_tracks
+            .remove(&node_id);
+        self.ui
+            .render_state
+            .window_animations
             .cluster_tile_entry_pending
             .remove(&node_id);
         self.ui
             .render_state
+            .window_animations
             .cluster_tile_frozen_geometry
             .remove(&node_id);
     }
@@ -331,6 +337,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             let current_rect = if self
                 .ui
                 .render_state
+                .window_animations
                 .cluster_tile_entry_pending
                 .remove(&placement.node_id)
             {
@@ -350,6 +357,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             {
                 self.ui
                     .render_state
+                    .window_animations
                     .cluster_tile_frozen_geometry
                     .entry(placement.node_id)
                     .or_insert(geo);
@@ -357,7 +365,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             let duration_ms = self.runtime.tuning.tile_animation_duration_ms();
             if self.runtime.tuning.tile_animation_enabled() {
                 crate::animation::set_cluster_tile_target(
-                    &mut self.ui.render_state.cluster_tile_tracks,
+                    &mut self.ui.render_state.window_animations.cluster_tile_tracks,
                     current_rect,
                     placement.node_id,
                     placement.rect,
@@ -368,6 +376,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             } else {
                 self.ui
                     .render_state
+                    .window_animations
                     .cluster_tile_tracks
                     .remove(&placement.node_id);
             }

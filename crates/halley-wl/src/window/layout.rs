@@ -139,7 +139,7 @@ pub(super) fn resolve_window_render_layout(
         ))
     .then(|| {
         crate::animation::cluster_tile_rect_for(
-            &st.ui.render_state.cluster_tile_tracks,
+            &st.ui.render_state.window_animations.cluster_tile_tracks,
             node_id,
             now,
         )
@@ -148,6 +148,7 @@ pub(super) fn resolve_window_render_layout(
     let frozen_tiling_geometry = tiling_tile_transition.and_then(|_| {
         st.ui
             .render_state
+            .window_animations
             .cluster_tile_frozen_geometry
             .get(&node_id)
             .copied()

@@ -601,6 +601,7 @@ mod tests {
         let slide = state
             .ui
             .render_state
+            .window_animations
             .landmark_slide_animations
             .get(&target)
             .expect("landmark slide animation");

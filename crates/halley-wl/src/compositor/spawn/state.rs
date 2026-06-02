@@ -345,7 +345,11 @@ pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, n
             .spawn_state
             .pending_tiled_insert_reveal_at_ms
             .remove(&id);
-        st.ui.render_state.cluster_tile_entry_pending.insert(id);
+        st.ui
+            .render_state
+            .window_animations
+            .cluster_tile_entry_pending
+            .insert(id);
         let monitor = st
             .model
             .monitor_state

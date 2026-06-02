@@ -327,6 +327,7 @@ pub(crate) fn bearing_hit_test(
     let ui_mix = st
         .ui
         .render_state
+        .view
         .bearings_mix
         .get(monitor)
         .copied()

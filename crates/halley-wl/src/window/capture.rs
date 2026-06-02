@@ -383,7 +383,7 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
         if !requested
             && crate::compositor::surface::is_active_cluster_workspace_member(st, node_id)
             && crate::animation::cluster_tile_rect_for(
-                &st.ui.render_state.cluster_tile_tracks,
+                &st.ui.render_state.window_animations.cluster_tile_tracks,
                 node_id,
                 now,
             )
@@ -416,7 +416,7 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
         // against the moved geometry). Reuse the existing texture; the normal
         // rebuild resumes once the transition settles.
         let tile_transition_active = crate::animation::cluster_tile_rect_for(
-            &st.ui.render_state.cluster_tile_tracks,
+            &st.ui.render_state.window_animations.cluster_tile_tracks,
             node_id,
             now,
         )

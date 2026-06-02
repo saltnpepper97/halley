@@ -447,7 +447,14 @@ mod tests {
 
         assert!(state.raise_overlap_policy_node(node));
 
-        assert!(state.ui.render_state.raise_animations.contains_key(&node));
+        assert!(
+            state
+                .ui
+                .render_state
+                .window_animations
+                .raise_animations
+                .contains_key(&node)
+        );
     }
 
     #[test]
@@ -474,13 +481,21 @@ mod tests {
         }
 
         assert!(!state.raise_overlap_policy_node(front));
-        assert!(!state.ui.render_state.raise_animations.contains_key(&front));
+        assert!(
+            !state
+                .ui
+                .render_state
+                .window_animations
+                .raise_animations
+                .contains_key(&front)
+        );
 
         assert!(state.raise_overlap_policy_node(back));
         let order_after_raise = state.model.focus_state.next_overlap_raise_order;
         let started_at = state
             .ui
             .render_state
+            .window_animations
             .raise_animations
             .get(&back)
             .expect("raise animation")
@@ -495,6 +510,7 @@ mod tests {
             state
                 .ui
                 .render_state
+                .window_animations
                 .raise_animations
                 .get(&back)
                 .expect("raise animation")

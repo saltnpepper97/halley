@@ -221,7 +221,7 @@ pub(crate) fn tick_camera_smoothing(st: &mut Halley, now: Instant) {
     }
 
     let dt = now
-        .saturating_duration_since(st.ui.render_state.render_last_tick)
+        .saturating_duration_since(st.ui.render_state.telemetry.render_last_tick)
         .as_secs_f32()
         .clamp(1.0 / 240.0, 1.0 / 20.0);
     if !st.runtime.tuning.zoom_enabled {
@@ -499,7 +499,7 @@ mod tests {
         state.input.interaction_state.grabbed_edge_pan_active = true;
         state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
         state.model.camera_target_center = Vec2 { x: 120.0, y: 0.0 };
-        state.ui.render_state.render_last_tick = now - Duration::from_millis(16);
+        state.ui.render_state.telemetry.render_last_tick = now - Duration::from_millis(16);
 
         tick_camera_smoothing(&mut state, now);
 

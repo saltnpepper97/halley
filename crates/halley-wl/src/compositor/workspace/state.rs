@@ -283,6 +283,7 @@ fn finish_surface_collapse(
         } else {
             st.ui
                 .render_state
+                .window_animations
                 .closing_window_animations
                 .get(&id)
                 .map(|anim| anim.started_at + Duration::from_millis(anim.duration_ms))

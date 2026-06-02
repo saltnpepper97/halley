@@ -38,7 +38,7 @@ struct SurfaceFrameCallbackThrottle {
 use crate::window::ActiveBorderRect;
 
 pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
-    st.ui.render_state.render_last_tick = now;
+    st.ui.render_state.telemetry.render_last_tick = now;
     st.platform.popup_manager.cleanup();
     let alive: HashSet<NodeId> = st.model.field.node_ids_all().into_iter().collect();
     st.input
@@ -51,30 +51,44 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
         .retain(|id, _| alive.contains(id));
     st.ui
         .render_state
+        .view
         .node_hover_mix
         .retain(|id, _| alive.contains(id));
-    st.ui.render_state.node_preview_hover.retain(|_, state| {
-        state.node = state.node.filter(|id| alive.contains(id));
-        state.node.is_some() || state.mix > 0.002
-    });
-    st.ui.render_state.bearings_mix.retain(|monitor, mix| {
+    st.ui
+        .render_state
+        .view
+        .node_preview_hover
+        .retain(|_, state| {
+            state.node = state.node.filter(|id| alive.contains(id));
+            state.node.is_some() || state.mix > 0.002
+        });
+    st.ui.render_state.view.bearings_mix.retain(|monitor, mix| {
         st.model.monitor_state.monitors.contains_key(monitor) || *mix > 0.002
     });
     st.ui
         .render_state
+        .view
         .cluster_bloom_mix
         .retain(|monitor, state| {
             st.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
         });
     st.ui
         .render_state
+        .window_animations
         .cluster_tile_entry_pending
         .retain(|id| alive.contains(id));
     st.ui
         .render_state
+        .window_animations
         .cluster_tile_frozen_geometry
         .retain(|id, _| {
-            alive.contains(id) && st.ui.render_state.cluster_tile_tracks.contains_key(id)
+            alive.contains(id)
+                && st
+                    .ui
+                    .render_state
+                    .window_animations
+                    .cluster_tile_tracks
+                    .contains_key(id)
         });
     // Keep every cluster member's offscreen texture warm (exempt from the idle
     // TTL) so re-opening a collapsed cluster later never rebuilds its textures.
