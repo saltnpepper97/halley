@@ -37,6 +37,9 @@ const NODE_CIRCLE_SHADER: &str = include_str!("shaders/node_circle_shader.frag")
 const UI_RECT_ROUNDED_SHADER: &str = include_str!("shaders/ui_rect_rounded_shader.frag");
 const UI_RECT_SQUARE_SHADER: &str = include_str!("shaders/ui_rect_square_shader.frag");
 
+pub(crate) const NODE_ICON_FADE_DELAY_MS: u64 = 1000;
+pub(crate) const NODE_ICON_FADE_MS: u64 = 220;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -548,9 +551,6 @@ pub(crate) fn draw_node_markers(
     damage: Rectangle<i32, Physical>,
     now: Instant,
 ) -> Result<(), Box<dyn Error>> {
-    const NODE_ICON_FADE_DELAY_MS: u64 = 1000;
-    const NODE_ICON_FADE_MS: u64 = 220;
-
     for NodeSnapshot {
         id,
         state: node_state,

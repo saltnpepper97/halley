@@ -97,6 +97,7 @@ pub(crate) fn tty_output_animation_redraw_state(
     let now_ms = st.now_ms(now);
     let node_transition_active = st.runtime.tuning.animations_enabled()
         && st.ui.render_state.animator.has_active_animations(now);
+    let node_icon_fade_active = node_icon_fade_active_for_monitor(st, monitor, now);
     let active_transition_active = st.runtime.tuning.animations_enabled()
         && st
             .model
@@ -192,6 +193,7 @@ pub(crate) fn tty_output_animation_redraw_state(
             .get(monitor)
             .is_some_and(|mix| *mix > 0.02);
     let fade_related = node_transition_active
+        || node_icon_fade_active
         || active_transition_active
         || tiled_insert_reveal_active
         || spawn_activation_active
@@ -211,6 +213,38 @@ pub(crate) fn tty_output_animation_redraw_state(
         active,
         force_full_repaint: active,
     }
+}
+
+fn node_icon_fade_active_for_monitor(st: &Halley, monitor: &str, now: Instant) -> bool {
+    if !st.runtime.tuning.animations_enabled() {
+        return false;
+    }
+
+    let fade_until_ms = crate::render::NODE_ICON_FADE_DELAY_MS + crate::render::NODE_ICON_FADE_MS;
+    st.model.field.nodes().keys().copied().any(|id| {
+        let Some(node) = st.model.field.node(id) else {
+            return false;
+        };
+        if !matches!(
+            node.state,
+            halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+        ) || !st.model.field.participates_in_field_view(id)
+            || !st.model.field.is_visible(id)
+            || !st
+                .model
+                .monitor_state
+                .node_monitor
+                .get(&id)
+                .is_some_and(|node_monitor| node_monitor == monitor)
+        {
+            return false;
+        }
+
+        st.ui
+            .render_state
+            .anim_track_elapsed_for(id, node.state.clone(), now)
+            .is_some_and(|elapsed| (elapsed.as_millis() as u64) < fade_until_ms)
+    })
 }
 
 pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
@@ -1352,6 +1386,39 @@ mod tests {
             ) > 0.0,
             "active transition alpha should still be tracked when physics is disabled"
         );
+    }
+
+    #[test]
+    fn node_icon_fade_keeps_target_monitor_redrawing() {
+        let mut state = multi_monitor_state();
+        let start = Instant::now();
+        let id = state.model.field.spawn_surface(
+            "icon-fade".to_string(),
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_monitor(id, "right");
+        state
+            .ui
+            .render_state
+            .animator
+            .observe_field(&state.model.field, start);
+        let _ = state
+            .model
+            .field
+            .set_state(id, halley_core::field::NodeState::Node);
+        tick_animator_frame(&mut state, start + std::time::Duration::from_millis(16));
+
+        let during_icon_fade =
+            start + std::time::Duration::from_millis(crate::render::NODE_ICON_FADE_DELAY_MS + 40);
+        assert!(tty_output_animation_redraw_state(&state, "right", during_icon_fade).active);
+        assert!(!tty_output_animation_redraw_state(&state, "left", during_icon_fade).active);
+
+        let after_icon_fade = start
+            + std::time::Duration::from_millis(
+                crate::render::NODE_ICON_FADE_DELAY_MS + crate::render::NODE_ICON_FADE_MS + 80,
+            );
+        assert!(!tty_output_animation_redraw_state(&state, "right", after_icon_fade).active);
     }
 
     #[test]
