@@ -96,16 +96,27 @@ pub(crate) fn capture_closing_window_animation(
         ob.size.w.max(1) as f32,
         ob.size.h.max(1) as f32,
     ));
+    let maximized_visual =
+        crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
+            st,
+            node_id,
+            monitor,
+            Instant::now(),
+        );
+    let visual_pos = maximized_visual.map(|(pos, _)| pos).unwrap_or(node.pos);
     let (cx, cy) = world_to_screen_for_view(
         view_center,
         view_size,
         output_size.w,
         output_size.h,
-        node.pos.x,
-        node.pos.y,
+        visual_pos.x,
+        visual_pos.y,
     );
-    let gw = (local_geo.2 * render_scale).round().max(1.0) as i32;
-    let gh = (local_geo.3 * render_scale).round().max(1.0) as i32;
+    let (visual_w, visual_h) = maximized_visual
+        .map(|(_, size)| (size.x, size.y))
+        .unwrap_or((local_geo.2, local_geo.3));
+    let gw = (visual_w * render_scale).round().max(1.0) as i32;
+    let gh = (visual_h * render_scale).round().max(1.0) as i32;
     let gx = cx - (gw / 2);
     let gy = cy - (gh / 2);
     let fullscreen_on_monitor = st

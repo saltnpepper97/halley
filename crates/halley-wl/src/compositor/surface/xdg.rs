@@ -103,14 +103,6 @@ pub(crate) fn request_close_node_toplevel(
     st: &mut Halley,
     node_id: halley_core::field::NodeId,
 ) -> bool {
-    if crate::compositor::workspace::state::node_in_maximize_session(st, node_id)
-        && let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id).cloned()
-    {
-        let _ = crate::compositor::workspace::state::abort_maximize_session_for_monitor(
-            st,
-            monitor.as_str(),
-        );
-    }
     for top in st.platform.xdg_shell_state.toplevel_surfaces() {
         let wl = top.wl_surface();
         let key = wl.id();
@@ -156,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn close_request_immediately_aborts_maximize_session() {
+    fn close_request_preserves_maximize_session_until_destroy() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut tuning = halley_config::RuntimeTuning::default();
         tuning.animations.maximize.enabled = false;
@@ -193,7 +185,7 @@ mod tests {
         let _ = request_close_node_toplevel(&mut st, target);
 
         assert!(
-            !st.model
+            st.model
                 .workspace_state
                 .maximize_sessions
                 .contains_key(monitor.as_str())

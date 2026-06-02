@@ -518,6 +518,36 @@ mod tests {
     }
 
     #[test]
+    fn close_focus_restore_skips_pan_when_maximized() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.close_restore_pan = CloseRestorePanMode::Always;
+        tuning.animations.maximize.enabled = false;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let first = state.model.field.spawn_surface(
+            "first",
+            Vec2 { x: 640.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(first);
+
+        crate::compositor::actions::window::toggle_node_maximize_state(
+            &mut state, first, now, "default",
+        );
+
+        assert!(state.restore_focus_to_node_after_close("default", first, now, false));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(first)
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_none());
+    }
+
+    #[test]
     fn trail_navigation_raises_windows_while_maximized() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")

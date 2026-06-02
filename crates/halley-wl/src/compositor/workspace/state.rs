@@ -445,6 +445,15 @@ pub(crate) fn maximized_visual_for_node_on_current_monitor_at(
     now: Instant,
 ) -> Option<(Vec2, Vec2)> {
     let monitor = st.model.monitor_state.current_monitor.as_str();
+    maximized_visual_for_node_on_monitor_at(st, node_id, monitor, now)
+}
+
+pub(crate) fn maximized_visual_for_node_on_monitor_at(
+    st: &Halley,
+    node_id: NodeId,
+    monitor: &str,
+    now: Instant,
+) -> Option<(Vec2, Vec2)> {
     if let Some(rect) = maximize_animation_visual_for_node_on_monitor_at(st, node_id, monitor, now)
     {
         return Some(rect);

@@ -341,6 +341,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
                 );
             }
         }
+        crate::compositor::workspace::state::abort_maximize_session_for_node(st, id);
         let queued_promotion = capture_queued_overflow_promotion(st, id);
         let active_tiled_focus_restore = st
             .model
