@@ -105,6 +105,21 @@ impl Default for OverlayStyleConfig {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DebugConfig {
+    pub overlay_fps: bool,
+    pub show_ring_when_resizing: bool,
+}
+
+impl Default for DebugConfig {
+    fn default() -> Self {
+        Self {
+            overlay_fps: false,
+            show_ring_when_resizing: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AnimationToggleConfig {
     pub enabled: bool,
 }

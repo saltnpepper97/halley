@@ -11,11 +11,11 @@ use super::keybinds::{
 use super::rules::load_rules_section;
 use super::sections::{
     load_animations_section, load_autostart_section, load_bearings_section, load_clusters_section,
-    load_cursor_section, load_decay_section, load_decorations_section, load_env_section,
-    load_field_section, load_focus_ring_section, load_font_section, load_input_section,
-    load_keybind_sections, load_nodes_section, load_overlays_section, load_physics_section,
-    load_placement_section, load_screenshot_section, load_stacking_section, load_tile_section,
-    load_trail_section, load_viewport_section,
+    load_cursor_section, load_debug_section, load_decay_section, load_decorations_section,
+    load_env_section, load_field_section, load_focus_ring_section, load_font_section,
+    load_input_section, load_keybind_sections, load_nodes_section, load_overlays_section,
+    load_physics_section, load_placement_section, load_screenshot_section, load_stacking_section,
+    load_tile_section, load_trail_section, load_viewport_section,
 };
 use super::validate::validate_known_config_keys;
 
@@ -122,6 +122,7 @@ fn load_config_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     load_input_section(cfg, out);
     load_cursor_section(cfg, out);
     load_font_section(cfg, out);
+    load_debug_section(cfg, out);
     load_viewport_section(cfg, out);
     load_focus_ring_section(cfg, out);
     load_bearings_section(cfg, out);
@@ -536,6 +537,30 @@ end
                 b: 0x68 as f32 / 255.0,
             }
         );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn from_rune_file_validates_and_loads_debug_booleans() {
+        let dir = test_temp_dir("debug-booleans");
+        let config_path = dir.join("halley.rune");
+
+        std::fs::write(
+            &config_path,
+            r#"debug:
+  overlay-fps true
+  show-ring-when-resizing false
+end
+"#,
+        )
+        .unwrap();
+
+        let tuning = RuntimeTuning::from_rune_file(config_path.to_str().unwrap())
+            .expect("debug booleans should pass strict validation and load");
+
+        assert!(tuning.debug.overlay_fps);
+        assert!(!tuning.debug.show_ring_when_resizing);
 
         let _ = std::fs::remove_dir_all(dir);
     }

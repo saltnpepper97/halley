@@ -127,12 +127,39 @@ pub(crate) struct RenderState {
     pub(crate) stack_cycle_transition: HashMap<String, StackCycleTransitionState>,
     pub(crate) raise_animations: HashMap<NodeId, RaiseAnimationState>,
     pub(crate) landmark_slide_animations: HashMap<NodeId, LandmarkSlideAnimationState>,
+    pub(crate) fps_samplers: HashMap<String, FpsSamplerState>,
     pub(crate) gpu: RenderGpuState,
 
     pub(crate) render_last_tick: Instant,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FpsSamplerState {
+    sampled_at: Instant,
+    frames: u32,
+    fps: f32,
+}
+
 impl RenderState {
+    pub(crate) fn sample_fps_for_monitor(&mut self, monitor: &str, now: Instant) -> f32 {
+        let sampler = self
+            .fps_samplers
+            .entry(monitor.to_string())
+            .or_insert(FpsSamplerState {
+                sampled_at: now,
+                frames: 0,
+                fps: 0.0,
+            });
+        sampler.frames = sampler.frames.saturating_add(1);
+        let elapsed = now.saturating_duration_since(sampler.sampled_at);
+        if elapsed.as_millis() >= 250 {
+            sampler.fps = sampler.frames as f32 / elapsed.as_secs_f32().max(0.001);
+            sampler.frames = 0;
+            sampler.sampled_at = now;
+        }
+        sampler.fps
+    }
+
     pub(crate) fn request_window_animation_prewarm(&mut self, node_id: NodeId, now: Instant) {
         let until = now
             .checked_add(std::time::Duration::from_millis(ANIMATION_PREWARM_TTL_MS))

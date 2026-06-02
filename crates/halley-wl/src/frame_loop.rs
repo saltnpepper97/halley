@@ -46,6 +46,9 @@ fn monitor_overlay_requires_full_repaint_at(st: &Halley, monitor: &str, now_ms: 
     if now_ms < st.runtime.screenshot_full_repaint_until_ms {
         return true;
     }
+    if st.runtime.tuning.debug.overlay_fps {
+        return true;
+    }
     st.cluster_mode_active_for_monitor(monitor)
         || st
             .model

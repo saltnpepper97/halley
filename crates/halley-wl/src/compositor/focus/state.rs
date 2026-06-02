@@ -502,4 +502,57 @@ mod tests {
             started_at
         );
     }
+
+    #[test]
+    fn window_resize_does_not_show_focus_ring_preview() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let node = state.model.field.spawn_surface(
+            "window",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 200.0 },
+        );
+        state.input.interaction_state.resize_active = Some(node);
+
+        assert!(!state.should_draw_focus_ring_preview(state.runtime.started_at));
+    }
+
+    #[test]
+    fn focus_ring_config_resize_preview_follows_debug_config() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let mut next = state.runtime.tuning.clone();
+        next.focus_ring_rx += 80.0;
+        next.debug.show_ring_when_resizing = true;
+
+        state.apply_tuning(next);
+
+        assert!(state.should_draw_focus_ring_preview(Instant::now()));
+
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let mut next = state.runtime.tuning.clone();
+        next.focus_ring_rx += 80.0;
+        next.debug.show_ring_when_resizing = false;
+
+        state.apply_tuning(next);
+
+        assert!(!state.should_draw_focus_ring_preview(Instant::now()));
+    }
+
+    #[test]
+    fn disabling_focus_ring_resize_preview_clears_active_preview() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let mut next = state.runtime.tuning.clone();
+        next.focus_ring_rx += 80.0;
+        next.debug.show_ring_when_resizing = true;
+        state.apply_tuning(next);
+        assert!(state.should_draw_focus_ring_preview(Instant::now()));
+
+        let mut next = state.runtime.tuning.clone();
+        next.debug.show_ring_when_resizing = false;
+        state.apply_tuning(next);
+
+        assert!(!state.should_draw_focus_ring_preview(Instant::now()));
+    }
 }

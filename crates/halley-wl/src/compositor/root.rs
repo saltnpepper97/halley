@@ -348,6 +348,7 @@ impl Halley {
                     stack_cycle_transition: HashMap::new(),
                     raise_animations: HashMap::new(),
                     landmark_slide_animations: HashMap::new(),
+                    fps_samplers: HashMap::new(),
                     gpu: Default::default(),
                     render_last_tick: now,
                 },

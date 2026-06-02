@@ -11,7 +11,7 @@ pub use keybinds::{
 };
 pub use layout::{
     AnimationToggleConfig, AnimationsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
+    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
     DecorationBorderColor, DecorationsConfig, ExpandedPlacementConfig, ExpandedPlacementStrategy,
     FindEmptyMode, FontConfig, InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
     InitialWindowSpawnPlacement, InputConfig, InputFocusMode, KeyboardConfig,

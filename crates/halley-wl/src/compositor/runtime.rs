@@ -323,18 +323,23 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
             .collect();
         let now = Instant::now();
         let now_ms = self.now_ms(now);
-        for output_name in next_output_names {
-            if self
-                .runtime
-                .tuning
-                .focus_ring_for_output(output_name.as_str())
-                != tuning.focus_ring_for_output(output_name.as_str())
-            {
-                self.model.focus_state.focus_ring_preview_until_ms.insert(
-                    output_name,
-                    now_ms.saturating_add(crate::compositor::focus::state::FOCUS_RING_PREVIEW_MS),
-                );
+        if tuning.debug.show_ring_when_resizing {
+            for output_name in next_output_names {
+                if self
+                    .runtime
+                    .tuning
+                    .focus_ring_for_output(output_name.as_str())
+                    != tuning.focus_ring_for_output(output_name.as_str())
+                {
+                    self.model.focus_state.focus_ring_preview_until_ms.insert(
+                        output_name,
+                        now_ms
+                            .saturating_add(crate::compositor::focus::state::FOCUS_RING_PREVIEW_MS),
+                    );
+                }
             }
+        } else {
+            self.model.focus_state.focus_ring_preview_until_ms.clear();
         }
 
         self.runtime.tuning = tuning;

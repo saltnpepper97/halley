@@ -445,6 +445,23 @@ end
     }
 
     #[test]
+    fn updater_adds_missing_debug_section() {
+        let raw = r#"
+input:
+  repeat-rate 30
+end
+"#;
+
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        assert!(
+            updated.contains("debug:\n  overlay-fps false\n  show-ring-when-resizing true\nend")
+        );
+    }
+
+    #[test]
     fn updater_adds_missing_pin_defaults() {
         let raw = r#"
 field:
