@@ -31,6 +31,22 @@ use surface::{
 
 const CLUSTER_OVERFLOW_PROMOTION_ANIM_MS: u64 = 360;
 
+struct ToplevelDestroyFacts {
+    closing_id: Option<NodeId>,
+    closing_fullscreen: bool,
+    had_keyboard_focus: bool,
+    had_pointer_focus: bool,
+    focused_monitor: Option<String>,
+}
+
+struct CloseRestorePlan {
+    monitor: String,
+    target: NodeId,
+    suppress_restore_pan: bool,
+    now: Instant,
+    after_surface_drop: bool,
+}
+
 impl SurfaceLifecycleCtx<'_> {
     pub(crate) fn refresh_node_identity_for_surface(
         &mut self,
@@ -59,136 +75,189 @@ impl SurfaceLifecycleCtx<'_> {
     }
 
     pub(crate) fn on_toplevel_destroyed(&mut self, surface: ToplevelSurface) {
-        let st = &mut self.st;
-        let key = surface.wl_surface().id();
-        let closing_id = st.model.surface_to_node.get(&key).copied();
-        let closing_fullscreen = closing_id.is_some_and(|id| st.is_fullscreen_active(id));
-        let had_keyboard_focus = st
-            .platform
-            .seat
-            .get_keyboard()
-            .and_then(|kb| kb.current_focus())
-            .is_some_and(|focused| surface_tree_root(&focused).id() == key);
-        let had_pointer_focus = st
-            .platform
-            .seat
-            .get_pointer()
-            .and_then(|ptr| ptr.current_focus())
-            .is_some_and(|focused| surface_tree_root(&focused).id() == key);
-        let focused_monitor = st
-            .model
-            .surface_to_node
-            .get(&key)
-            .and_then(|id| st.model.monitor_state.node_monitor.get(id))
-            .cloned();
+        let st = &mut *self.st;
+        let facts = toplevel_destroy_facts(st, &surface);
 
-        if had_keyboard_focus || had_pointer_focus {
-            eventline::debug!(
-                "toplevel_destroyed with active focus (keyboard={} pointer={}); scheduling input state reset",
-                had_keyboard_focus,
-                had_pointer_focus
-            );
-            st.input.interaction_state.reset_input_state_requested = true;
-            if let Some(ref focused_monitor) = focused_monitor {
-                st.model.spawn_state.pending_spawn_monitor = Some(focused_monitor.clone());
-                eventline::debug!(
-                    "pending spawn monitor latched from destroyed toplevel: {}",
-                    focused_monitor
-                );
-            }
-        }
-
-        if had_keyboard_focus {
-            st.clear_keyboard_focus();
-        }
-
-        let mut deferred_close_restore = None;
-        if had_keyboard_focus
-            && st.runtime.tuning.close_restore_focus
-            && let (Some(closing_id), Some(focused_monitor)) =
-                (closing_id, focused_monitor.as_deref())
+        apply_toplevel_destroy_focus_cleanup(st, &facts);
+        let close_restore_plan = plan_toplevel_destroy_close_restore(st, &facts);
+        if let Some(plan) = close_restore_plan.as_ref()
+            && !plan.after_surface_drop
         {
-            let now = Instant::now();
-            let suppress_restore_pan =
-                st.node_has_overlap_policy(closing_id) || st.is_fullscreen_active(closing_id);
-            if closing_fullscreen {
-                if let Some(target) =
-                    non_cluster_close_restore_target(st, focused_monitor, closing_id)
-                {
-                    deferred_close_restore = Some((
-                        focused_monitor.to_string(),
-                        target,
-                        suppress_restore_pan,
-                        now,
-                    ));
-                }
-            } else if let Some(cid) = st.active_cluster_workspace_for_monitor(focused_monitor) {
-                if matches!(
-                    st.runtime.tuning.cluster_layout_kind(),
-                    halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
-                ) {
-                    // Tiled cluster close restore is handled after the member is actually removed so
-                    // we can focus the replacement tile in that slot.
-                } else {
-                    let mut next_to_focus = None;
-                    if let Some(cluster) = st.model.field.cluster(cid) {
-                        let members = cluster.members();
-                        if let Some(pos) = members.iter().position(|&id| id == closing_id) {
-                            if pos + 1 < members.len() {
-                                next_to_focus = Some(members[pos + 1]);
-                            } else if pos > 0 {
-                                next_to_focus = Some(members[pos - 1]);
-                            }
-                        }
-                    }
-
-                    if let Some(next) = next_to_focus {
-                        st.set_interaction_focus(Some(next), 30_000, now);
-                    } else if let Some(previous) =
-                        st.previous_window_from_trail_on_close(focused_monitor, closing_id)
-                    {
-                        st.set_interaction_focus(Some(previous), 30_000, now);
-                    } else if let Some(fallback) = st
-                        .last_focused_surface_node_for_monitor(focused_monitor)
-                        .filter(|&id| id != closing_id)
-                    {
-                        st.set_interaction_focus(Some(fallback), 30_000, now);
-                    }
-                }
-            } else if let Some(target) =
-                non_cluster_close_restore_target(st, focused_monitor, closing_id)
-            {
-                let _ = st.restore_focus_to_node_after_close(
-                    focused_monitor,
-                    target,
-                    now,
-                    suppress_restore_pan,
-                );
-            }
-        } else if had_keyboard_focus
-            && !st.runtime.tuning.close_restore_focus
-            && let Some(focused_monitor) = focused_monitor.as_deref()
-        {
-            st.model
-                .focus_state
-                .blocked_monitor_focus_restore
-                .insert(focused_monitor.to_string());
+            apply_close_restore_plan(st, plan);
         }
-        if had_pointer_focus {
+
+        if facts.had_pointer_focus {
             crate::compositor::interaction::pointer::clear_pointer_focus(st);
         }
 
         drop_surface_impl(st, surface.wl_surface());
 
-        if let Some((monitor, target, suppress_restore_pan, now)) = deferred_close_restore {
-            let _ = st.restore_focus_to_node_after_close(
-                monitor.as_str(),
-                target,
-                now,
-                suppress_restore_pan,
+        if let Some(plan) = close_restore_plan.as_ref()
+            && plan.after_surface_drop
+        {
+            apply_close_restore_plan(st, plan);
+        }
+    }
+}
+
+fn toplevel_destroy_facts(st: &Halley, surface: &ToplevelSurface) -> ToplevelDestroyFacts {
+    let key = surface.wl_surface().id();
+    let closing_id = st.model.surface_to_node.get(&key).copied();
+    let closing_fullscreen = closing_id.is_some_and(|id| st.is_fullscreen_active(id));
+    let had_keyboard_focus = st
+        .platform
+        .seat
+        .get_keyboard()
+        .and_then(|kb| kb.current_focus())
+        .is_some_and(|focused| surface_tree_root(&focused).id() == key);
+    let had_pointer_focus = st
+        .platform
+        .seat
+        .get_pointer()
+        .and_then(|ptr| ptr.current_focus())
+        .is_some_and(|focused| surface_tree_root(&focused).id() == key);
+    let focused_monitor = st
+        .model
+        .surface_to_node
+        .get(&key)
+        .and_then(|id| st.model.monitor_state.node_monitor.get(id))
+        .cloned();
+
+    ToplevelDestroyFacts {
+        closing_id,
+        closing_fullscreen,
+        had_keyboard_focus,
+        had_pointer_focus,
+        focused_monitor,
+    }
+}
+
+fn apply_toplevel_destroy_focus_cleanup(st: &mut Halley, facts: &ToplevelDestroyFacts) {
+    if facts.had_keyboard_focus || facts.had_pointer_focus {
+        eventline::debug!(
+            "toplevel_destroyed with active focus (keyboard={} pointer={}); scheduling input state reset",
+            facts.had_keyboard_focus,
+            facts.had_pointer_focus
+        );
+        st.input.interaction_state.reset_input_state_requested = true;
+        if let Some(ref focused_monitor) = facts.focused_monitor {
+            st.model.spawn_state.pending_spawn_monitor = Some(focused_monitor.clone());
+            eventline::debug!(
+                "pending spawn monitor latched from destroyed toplevel: {}",
+                focused_monitor
             );
         }
     }
+
+    if facts.had_keyboard_focus {
+        st.clear_keyboard_focus();
+    }
+}
+
+fn plan_toplevel_destroy_close_restore(
+    st: &mut Halley,
+    facts: &ToplevelDestroyFacts,
+) -> Option<CloseRestorePlan> {
+    if !facts.had_keyboard_focus {
+        return None;
+    }
+
+    if !st.runtime.tuning.close_restore_focus {
+        if let Some(focused_monitor) = facts.focused_monitor.as_deref() {
+            st.model
+                .focus_state
+                .blocked_monitor_focus_restore
+                .insert(focused_monitor.to_string());
+        }
+        return None;
+    }
+
+    let (Some(closing_id), Some(focused_monitor)) =
+        (facts.closing_id, facts.focused_monitor.as_deref())
+    else {
+        return None;
+    };
+    let now = Instant::now();
+    let suppress_restore_pan =
+        st.node_has_overlap_policy(closing_id) || st.is_fullscreen_active(closing_id);
+
+    if facts.closing_fullscreen {
+        return non_cluster_close_restore_target(st, focused_monitor, closing_id).map(|target| {
+            CloseRestorePlan {
+                monitor: focused_monitor.to_string(),
+                target,
+                suppress_restore_pan,
+                now,
+                after_surface_drop: true,
+            }
+        });
+    }
+
+    if let Some(cid) = st.active_cluster_workspace_for_monitor(focused_monitor) {
+        apply_non_tiled_cluster_close_focus_restore(st, cid, focused_monitor, closing_id, now);
+        return None;
+    }
+
+    non_cluster_close_restore_target(st, focused_monitor, closing_id).map(|target| {
+        CloseRestorePlan {
+            monitor: focused_monitor.to_string(),
+            target,
+            suppress_restore_pan,
+            now,
+            after_surface_drop: false,
+        }
+    })
+}
+
+fn apply_non_tiled_cluster_close_focus_restore(
+    st: &mut Halley,
+    cid: halley_core::cluster::ClusterId,
+    focused_monitor: &str,
+    closing_id: NodeId,
+    now: Instant,
+) {
+    if matches!(
+        st.runtime.tuning.cluster_layout_kind(),
+        halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+    ) {
+        // Tiled cluster close restore is handled after the member is actually removed so
+        // we can focus the replacement tile in that slot.
+        return;
+    }
+
+    let mut next_to_focus = None;
+    if let Some(cluster) = st.model.field.cluster(cid) {
+        let members = cluster.members();
+        if let Some(pos) = members.iter().position(|&id| id == closing_id) {
+            if pos + 1 < members.len() {
+                next_to_focus = Some(members[pos + 1]);
+            } else if pos > 0 {
+                next_to_focus = Some(members[pos - 1]);
+            }
+        }
+    }
+
+    if let Some(next) = next_to_focus {
+        st.set_interaction_focus(Some(next), 30_000, now);
+    } else if let Some(previous) =
+        st.previous_window_from_trail_on_close(focused_monitor, closing_id)
+    {
+        st.set_interaction_focus(Some(previous), 30_000, now);
+    } else if let Some(fallback) = st
+        .last_focused_surface_node_for_monitor(focused_monitor)
+        .filter(|&id| id != closing_id)
+    {
+        st.set_interaction_focus(Some(fallback), 30_000, now);
+    }
+}
+
+fn apply_close_restore_plan(st: &mut Halley, plan: &CloseRestorePlan) {
+    let _ = st.restore_focus_to_node_after_close(
+        plan.monitor.as_str(),
+        plan.target,
+        plan.now,
+        plan.suppress_restore_pan,
+    );
 }
 
 pub(crate) fn refresh_surface_identity(
