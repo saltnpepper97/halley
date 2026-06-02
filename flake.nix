@@ -28,18 +28,17 @@
             };
 
             buildInputs = with pkgs; [
-              pkg-config
-              libxkbcommon
               wayland
+              libxkbcommon
               libinput
-              libseat
-              xwayland
-              udev
+              seatd
+              mesa
+              libdisplay-info
+              libdrm
             ];
 
             nativeBuildInputs = with pkgs; [
               pkg-config
-              rustPlatform.bindgenHook
             ];
 
             postInstall = ''
@@ -70,12 +69,13 @@
             rustc
             rust-analyzer
             pkg-config
-            libxkbcommon
             wayland
+            libxkbcommon
             libinput
-            libseat
-            xwayland
-            udev
+            seatd
+            mesa
+            libdisplay-info
+            libdrm
             clippy
             rustfmt
           ];
