@@ -71,26 +71,61 @@ fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i3
     None
 }
 
+impl SpawnCtx<'_> {
+    pub(crate) fn needs_deferred_rule_recheck(&self, intent: &InitialWindowIntent) -> bool {
+        crate::compositor::spawn::rules::needs_deferred_rule_recheck(self.st, intent)
+    }
+
+    pub(crate) fn spawn_target_monitor_for_intent(&self, intent: &InitialWindowIntent) -> String {
+        self.st.spawn_target_monitor_for_intent(intent)
+    }
+
+    pub(crate) fn cluster_bloom_open_on_monitor(&self, monitor: &str) -> bool {
+        self.st
+            .model
+            .cluster_state
+            .cluster_bloom_open
+            .contains_key(monitor)
+    }
+
+    pub(crate) fn active_cluster_spawn_rect_for_new_member(
+        &self,
+        monitor: &str,
+    ) -> Option<halley_core::tiling::Rect> {
+        let cid = self.st.active_cluster_workspace_for_monitor(monitor)?;
+        self.st.cluster_spawn_rect_for_new_member(monitor, cid)
+    }
+
+    pub(crate) fn default_initial_toplevel_size(&self) -> (i32, i32) {
+        (
+            (self.st.model.viewport.size.x * 0.46).round() as i32,
+            (self.st.model.viewport.size.y * 0.42).round() as i32,
+        )
+    }
+
+    pub(crate) fn reveal_new_toplevel_node(
+        &mut self,
+        id: NodeId,
+        is_transient: bool,
+        now: Instant,
+    ) {
+        self.st.reveal_new_toplevel_node(id, is_transient, now);
+    }
+}
+
 pub(crate) fn initial_toplevel_size(
     ctx: &mut SpawnCtx<'_>,
     toplevel: &ToplevelSurface,
     intent: &InitialWindowIntent,
 ) -> InitialToplevelSize {
-    let st = &ctx.st;
-    let defer_rule_resolution =
-        crate::compositor::spawn::rules::needs_deferred_rule_recheck(st, intent);
-    let predicted_monitor = st.spawn_target_monitor_for_intent(intent);
-    let stack_mode_open = st
-        .model
-        .cluster_state
-        .cluster_bloom_open
-        .contains_key(predicted_monitor.as_str());
+    let defer_rule_resolution = ctx.needs_deferred_rule_recheck(intent);
+    let predicted_monitor = ctx.spawn_target_monitor_for_intent(intent);
+    let stack_mode_open = ctx.cluster_bloom_open_on_monitor(predicted_monitor.as_str());
     if !defer_rule_resolution
         && !stack_mode_open
         && intent.rule.cluster_participation
             == halley_config::InitialWindowClusterParticipation::Layout
-        && let Some(cid) = st.active_cluster_workspace_for_monitor(predicted_monitor.as_str())
-        && let Some(rect) = st.cluster_spawn_rect_for_new_member(predicted_monitor.as_str(), cid)
+        && let Some(rect) = ctx.active_cluster_spawn_rect_for_new_member(predicted_monitor.as_str())
     {
         let width = rect.w.max(64.0).round() as i32;
         let height = rect.h.max(64.0).round() as i32;
@@ -111,12 +146,7 @@ pub(crate) fn initial_toplevel_size(
     }
 
     let detected = detected_initial_toplevel_size(toplevel);
-    let node_size = detected.unwrap_or_else(|| {
-        (
-            (st.model.viewport.size.x * 0.46).round() as i32,
-            (st.model.viewport.size.y * 0.42).round() as i32,
-        )
-    });
+    let node_size = detected.unwrap_or_else(|| ctx.default_initial_toplevel_size());
 
     InitialToplevelSize {
         node_size,
@@ -130,7 +160,7 @@ pub(crate) fn reveal_new_toplevel_node(
     is_transient: bool,
     now: Instant,
 ) {
-    ctx.st.reveal_new_toplevel_node(id, is_transient, now);
+    ctx.reveal_new_toplevel_node(id, is_transient, now);
 }
 
 pub(crate) struct SpawnRevealController<T> {

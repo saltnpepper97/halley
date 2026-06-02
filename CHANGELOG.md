@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
 - Add a `debug:` config section with `overlay-fps` and `show-ring-when-resizing` toggles, including a legible top-left FPS HUD and control over focus-ring config-change previews.
 
 ### Changed
+- Extract frame-loop output activity and full-repaint decisions into a dedicated `frame_loop::activity` module so frame ticking, callbacks, and presentation feedback are separated from read-only redraw policy.
+- Replace direct `ctx.st` access in compositor context wrappers with named capability methods for spawn, surface lifecycle, layer shell, pointer, and fullscreen paths, narrowing context call sites ahead of deeper subsystem splits.
 - Extract active-window stack and per-window render layout resolution behind a `window::layout` boundary so surface collection consumes named layout data instead of deriving stack, tiling, fullscreen, maximize, resize, and scale policy inline.
 - Replace the active-window render collector's positional tuple with a named render plan so frame scene assembly depends on explicit window-layer fields instead of tuple ordering.
 - Render minimal Aperture as a clipped top tab with smaller clock sizing and tab-specific padding, while preserving normal and collapsed Aperture presentation.

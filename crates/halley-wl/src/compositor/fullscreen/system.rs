@@ -6,17 +6,32 @@ use std::ops::{Deref, DerefMut};
 use super::*;
 use crate::compositor::ctx::FullscreenCtx;
 
+impl FullscreenCtx<'_> {
+    pub(crate) fn enter_xdg_fullscreen(
+        &mut self,
+        node_id: NodeId,
+        output: Option<WlOutput>,
+        now: Instant,
+    ) {
+        self.st.enter_xdg_fullscreen(node_id, output, now);
+    }
+
+    pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {
+        self.st.exit_xdg_fullscreen(node_id, now);
+    }
+}
+
 pub(crate) fn enter_xdg_fullscreen(
     ctx: &mut FullscreenCtx<'_>,
     node_id: NodeId,
     output: Option<WlOutput>,
     now: Instant,
 ) {
-    ctx.st.enter_xdg_fullscreen(node_id, output, now);
+    ctx.enter_xdg_fullscreen(node_id, output, now);
 }
 
 pub(crate) fn exit_xdg_fullscreen(ctx: &mut FullscreenCtx<'_>, node_id: NodeId, now: Instant) {
-    ctx.st.exit_xdg_fullscreen(node_id, now);
+    ctx.exit_xdg_fullscreen(node_id, now);
 }
 
 pub(crate) fn on_seat_focus_changed(

@@ -105,13 +105,24 @@ impl Default for PointerState {
     }
 }
 
+impl PointerCtx<'_> {
+    pub(crate) fn apply_cursor_position_hint(
+        &mut self,
+        surface: &WlSurface,
+        pointer: &PointerHandle<Halley>,
+        location: smithay::utils::Point<f64, smithay::utils::Logical>,
+    ) {
+        apply_cursor_position_hint(self.st, surface, pointer, location);
+    }
+}
+
 pub(crate) fn cursor_position_hint(
     ctx: &mut PointerCtx<'_>,
     surface: &WlSurface,
     pointer: &PointerHandle<Halley>,
     location: smithay::utils::Point<f64, smithay::utils::Logical>,
 ) {
-    apply_cursor_position_hint(ctx.st, surface, pointer, location);
+    ctx.apply_cursor_position_hint(surface, pointer, location);
 }
 
 pub(crate) fn set_cursor_override_icon(st: &mut Halley, icon: Option<CursorIcon>) {

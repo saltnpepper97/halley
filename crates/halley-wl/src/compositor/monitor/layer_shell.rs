@@ -30,6 +30,33 @@ pub(crate) struct LayerPlacement {
     pub keyboard_interactivity: KeyboardInteractivity,
 }
 
+impl LayerShellCtx<'_> {
+    pub(crate) fn register_layer_surface(
+        &mut self,
+        surface: LayerSurface,
+        output: Option<WlOutput>,
+        layer: Layer,
+        namespace: String,
+    ) {
+        register_layer_surface_impl(self.st, surface, output, layer, namespace);
+    }
+
+    pub(crate) fn remove_layer_surface(&mut self, surface: &LayerSurface) {
+        remove_layer_surface_impl(self.st, surface);
+    }
+
+    pub(crate) fn maybe_grant_layer_surface_focus_on_commit(&mut self, surface: &WlSurface) {
+        maybe_grant_layer_surface_focus_on_commit_impl(self.st, surface);
+    }
+
+    pub(crate) fn layer_popup_constraint_target(
+        &self,
+        popup: &PopupSurface,
+    ) -> Option<Rectangle<i32, Logical>> {
+        layer_popup_constraint_target(self.st, popup)
+    }
+}
+
 pub(crate) fn register_layer_surface(
     ctx: &mut LayerShellCtx<'_>,
     surface: LayerSurface,
@@ -37,11 +64,11 @@ pub(crate) fn register_layer_surface(
     layer: Layer,
     namespace: String,
 ) {
-    register_layer_surface_impl(ctx.st, surface, output, layer, namespace);
+    ctx.register_layer_surface(surface, output, layer, namespace);
 }
 
 pub(crate) fn remove_layer_surface(ctx: &mut LayerShellCtx<'_>, surface: &LayerSurface) {
-    remove_layer_surface_impl(ctx.st, surface);
+    ctx.remove_layer_surface(surface);
 }
 
 #[allow(dead_code)]
@@ -49,7 +76,7 @@ pub(crate) fn maybe_grant_layer_surface_focus_on_commit(
     ctx: &mut LayerShellCtx<'_>,
     surface: &WlSurface,
 ) {
-    maybe_grant_layer_surface_focus_on_commit_impl(ctx.st, surface);
+    ctx.maybe_grant_layer_surface_focus_on_commit(surface);
 }
 
 pub(crate) fn constrain_layer_popup(
@@ -57,7 +84,7 @@ pub(crate) fn constrain_layer_popup(
     popup: &PopupSurface,
     positioner: PositionerState,
 ) {
-    let Some(target) = layer_popup_constraint_target(ctx.st, popup) else {
+    let Some(target) = ctx.layer_popup_constraint_target(popup) else {
         return;
     };
     let (constrained_positioner, geometry) = constrained_layer_popup_position(positioner, target);
