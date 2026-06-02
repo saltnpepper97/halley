@@ -352,7 +352,7 @@ fn start_active_maximize_session(
     now: Instant,
 ) -> bool {
     crate::compositor::workspace::state::reset_monitor_zoom_for_maximize(st, monitor);
-    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
+    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewport_forced(st, monitor);
     st.request_window_animation_prewarm(target_id, now);
 
     let _ = node_snapshots;
@@ -419,7 +419,6 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
                         session.state =
                             crate::compositor::workspace::state::MaximizeSessionState::Active;
                     }
-                    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
                     start_active_maximize_session(st, id, monitor, &existing.node_snapshots, now)
                 }
             };
@@ -445,8 +444,6 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
             state: crate::compositor::workspace::state::MaximizeSessionState::Active,
         },
     );
-    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
-
     start_active_maximize_session(st, id, monitor, &node_snapshots, now)
 }
 

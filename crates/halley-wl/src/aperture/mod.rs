@@ -201,26 +201,31 @@ fn derive_aperture_mode(
     }
 
     let render_state = &st.ui.render_state;
-    let windows = active_window_rects_for_monitor(st, monitor, Instant::now());
     let family = st.aperture_config().peek.clock.font_family.clone();
+    let mut measure = |font_px: u32, text: &str| {
+        let (w, h) = ui_text_size_px_in(render_state, family.as_str(), font_px, text);
+        Size {
+            w: w as f32,
+            h: h as f32,
+        }
+    };
+    // Window rects are only needed to test obstruction, and only when a snapshot
+    // for the candidate mode actually exists. Compute them at most once, lazily.
+    let mut windows: Option<Vec<Rect>> = None;
+
     let normal = st.aperture_snapshot_for_mode(
         ApertureMode::Normal,
         output_rect,
         work_area_rect,
         scale,
-        |font_px, text| {
-            let (w, h) = ui_text_size_px_in(render_state, family.as_str(), font_px, text);
-            Size {
-                w: w as f32,
-                h: h as f32,
-            }
-        },
+        &mut measure,
     );
-    if normal
-        .as_ref()
-        .is_some_and(|snapshot| !clock_obstructed(snapshot.bounds, &windows))
-    {
-        return ApertureMode::Normal;
+    if let Some(snapshot) = &normal {
+        let windows = windows
+            .get_or_insert_with(|| active_window_rects_for_monitor(st, monitor, Instant::now()));
+        if !clock_obstructed(snapshot.bounds, windows) {
+            return ApertureMode::Normal;
+        }
     }
 
     let collapsed = st.aperture_snapshot_for_mode(
@@ -228,19 +233,14 @@ fn derive_aperture_mode(
         output_rect,
         work_area_rect,
         scale,
-        |font_px, text| {
-            let (w, h) = ui_text_size_px_in(render_state, family.as_str(), font_px, text);
-            Size {
-                w: w as f32,
-                h: h as f32,
-            }
-        },
+        &mut measure,
     );
-    if collapsed
-        .as_ref()
-        .is_some_and(|snapshot| !clock_obstructed(snapshot.bounds, &windows))
-    {
-        return ApertureMode::Collapsed;
+    if let Some(snapshot) = &collapsed {
+        let windows = windows
+            .get_or_insert_with(|| active_window_rects_for_monitor(st, monitor, Instant::now()));
+        if !clock_obstructed(snapshot.bounds, windows) {
+            return ApertureMode::Collapsed;
+        }
     }
 
     ApertureMode::Minimal
@@ -500,6 +500,154 @@ mod tests {
         assert_eq!(node_top_px(&st, master), required as i32);
         assert_eq!(st.runtime.tuning.non_overlap_gap_px, original_field_gap);
         assert_eq!(st.runtime.tuning.tile_gaps_outer_px, original_tile_gap);
+    }
+
+    #[test]
+    fn field_maximize_freezes_aperture_workarea_after_baseline() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        set_aperture_tab_height(&mut st, 22);
+        let mut config = ApertureConfig::default();
+        config.peek.clock.small_height_px = 22;
+        st.apply_aperture_config(config.clone());
+
+        let required = required_minimal_aperture_clearance_px(&st, MONITOR).ceil();
+        st.runtime.tuning.non_overlap_gap_px = required - 10.0;
+        let id = st.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, MONITOR);
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                id,
+                Instant::now(),
+                MONITOR,
+            )
+        );
+        assert_eq!(usable_top_px(&st), 10);
+
+        config.peek.clock.small_height_px = 42;
+        st.apply_aperture_config(config);
+
+        assert_eq!(
+            usable_top_px(&st),
+            10,
+            "aperture commits must not rebase active field maximize work area"
+        );
+        assert!(
+            st.model
+                .monitor_state
+                .pending_workarea_refresh
+                .contains(MONITOR)
+        );
+    }
+
+    #[test]
+    fn leaving_field_maximize_applies_deferred_aperture_workarea() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        set_aperture_tab_height(&mut st, 22);
+        let mut config = ApertureConfig::default();
+        config.peek.clock.small_height_px = 22;
+        st.apply_aperture_config(config.clone());
+
+        let required = required_minimal_aperture_clearance_px(&st, MONITOR).ceil();
+        st.runtime.tuning.non_overlap_gap_px = required - 10.0;
+        let id = st.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, MONITOR);
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                id,
+                Instant::now(),
+                MONITOR,
+            )
+        );
+        config.peek.clock.small_height_px = 42;
+        st.apply_aperture_config(config);
+        assert_eq!(usable_top_px(&st), 10);
+
+        assert!(
+            crate::compositor::workspace::state::abort_maximize_session_for_monitor(
+                &mut st, MONITOR,
+            )
+        );
+
+        assert_eq!(usable_top_px(&st), 0);
+        assert!(
+            !st.model
+                .monitor_state
+                .pending_workarea_refresh
+                .contains(MONITOR)
+        );
+    }
+
+    #[test]
+    fn restoring_field_maximize_keeps_aperture_workarea_frozen() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        // Keep the session alive in `Restoring` state after the un-maximize toggle.
+        st.runtime.tuning.animations.enabled = true;
+        st.runtime.tuning.animations.maximize.enabled = true;
+        set_aperture_tab_height(&mut st, 22);
+        let mut config = ApertureConfig::default();
+        config.peek.clock.small_height_px = 22;
+        st.apply_aperture_config(config.clone());
+
+        let required = required_minimal_aperture_clearance_px(&st, MONITOR).ceil();
+        st.runtime.tuning.non_overlap_gap_px = required - 10.0;
+        let id = st.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, MONITOR);
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                id,
+                Instant::now(),
+                MONITOR,
+            )
+        );
+        assert_eq!(usable_top_px(&st), 10);
+
+        // A taller aperture commit must defer while the session is active.
+        config.peek.clock.small_height_px = 42;
+        st.apply_aperture_config(config);
+        assert_eq!(usable_top_px(&st), 10);
+
+        // Toggling off enters the restore animation; the work area must stay frozen
+        // until the session ends, not pop back as the window slides shut.
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                id,
+                Instant::now(),
+                MONITOR,
+            )
+        );
+        assert_eq!(
+            usable_top_px(&st),
+            10,
+            "restore animation must keep the aperture work area frozen"
+        );
+        assert!(
+            st.model
+                .monitor_state
+                .pending_workarea_refresh
+                .contains(MONITOR)
+        );
     }
 
     #[test]

@@ -148,19 +148,34 @@ fn rectangle_fits_within(target: Rectangle<i32, Logical>, rect: Rectangle<i32, L
         && rect_bottom <= target_bottom
 }
 
-/// True when `monitor` has an active tiling cluster workspace. While locked, the
-/// cluster work area is frozen for the whole session: the aperture-driven
-/// reservation is established once at enter (via the forced refresh) and no later
-/// aperture-height commit is allowed to move `usable_viewport`. This eliminates
-/// both the mid-slide re-basing and the post-slide settle "snap" (see
-/// `refresh_monitor_usable_viewports`). The live height is still learned into
-/// `aperture_layer_heights` for the next enter; it just isn't applied mid-session.
-fn monitor_cluster_workarea_locked(st: &Halley, monitor: &str) -> bool {
-    st.active_cluster_workspace_for_monitor(monitor).is_some()
+/// True when `monitor` is in a mode that needs a frozen work area. The
+/// aperture-driven reservation is established once through a forced refresh, and
+/// later aperture commits are deferred so in-flight layout animations keep a
+/// stable `usable_viewport` target.
+fn monitor_workarea_locked(st: &Halley, monitor: &str) -> bool {
+    let cluster_locked = st.active_cluster_workspace_for_monitor(monitor).is_some()
         && matches!(
             st.runtime.tuning.cluster_layout_kind(),
             halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
-        )
+        );
+    let maximize_locked =
+        crate::compositor::workspace::state::maximize_session_present_on_monitor(st, monitor);
+
+    cluster_locked || maximize_locked
+}
+
+/// True when at least one monitor with a deferred work-area refresh is currently
+/// unlocked, i.e. a [`refresh_monitor_usable_viewports`] pass would actually
+/// apply something. While a session stays locked the pending entry is re-inserted
+/// every pass, so the maintenance tick uses this to avoid re-running the full
+/// refresh (and invalidating the aperture mode cache) every frame for the whole
+/// session.
+pub(crate) fn any_pending_workarea_unlocked(st: &Halley) -> bool {
+    st.model
+        .monitor_state
+        .pending_workarea_refresh
+        .iter()
+        .any(|monitor| !monitor_workarea_locked(st, monitor))
 }
 
 pub(crate) fn refresh_monitor_usable_viewports(st: &mut Halley) {
@@ -210,17 +225,15 @@ fn refresh_monitor_usable_viewports_inner(st: &mut Halley, force_monitor: Option
                 size,
             )
         };
-        // Freeze the cluster work area for the whole active tiling session:
-        // applying the aperture's animated reservation mid-session rewrites
-        // `usable_viewport`, which re-bases the in-flight tile easing (mid-slide
-        // stutter) and snaps the work area as the slide settles (the end-of-open
-        // top adjustment). The reservation is established once at enter via the
-        // forced refresh; any later aperture-height change is deferred (and only
-        // applied once the session ends — maintenance tick / cluster exit). The
-        // entering monitor is exempted so its baseline still gets written.
+        // Freeze the work area for active layout sessions: applying the aperture's
+        // animated reservation mid-session rewrites `usable_viewport`, which
+        // re-bases in-flight tile/maximize easing. The reservation is established
+        // once at entry via forced refresh; later aperture-height changes are
+        // deferred until the session unlocks. The entering monitor is exempted so
+        // its baseline still gets written.
         if usable_viewport != space.usable_viewport
             && force_monitor != Some(monitor_name.as_str())
-            && monitor_cluster_workarea_locked(st, &monitor_name)
+            && monitor_workarea_locked(st, &monitor_name)
         {
             st.model
                 .monitor_state
@@ -228,7 +241,7 @@ fn refresh_monitor_usable_viewports_inner(st: &mut Halley, force_monitor: Option
                 .insert(monitor_name.clone());
             if crate::perf::enabled() {
                 eventline::info!(
-                    "perf workarea_defer monitor={} old_top={:.1} new_top={:.1} (cluster_locked)",
+                    "perf workarea_defer monitor={} old_top={:.1} new_top={:.1} (session_locked)",
                     monitor_name,
                     space.usable_viewport.center.y - space.usable_viewport.size.y * 0.5,
                     usable_viewport.center.y - usable_viewport.size.y * 0.5,

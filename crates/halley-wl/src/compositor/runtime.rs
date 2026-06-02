@@ -479,12 +479,14 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
                 self.layout_active_cluster_workspace_for_monitor(monitor.as_str(), now_ms);
             }
         }
-        // Flush any aperture work-area change deferred while a cluster session was
-        // active. `refresh` re-checks each monitor: a monitor whose cluster has
-        // exited applies its true reservation, while a still-active cluster stays
-        // locked (frozen for the whole session, so no end-of-slide snap). The set
-        // drains once the session ends.
-        if !self.model.monitor_state.pending_workarea_refresh.is_empty() {
+        // Flush any aperture work-area change deferred while a layout session was
+        // active. `refresh` re-checks each monitor: a monitor whose session has
+        // ended applies its true reservation, while a still-locked one stays
+        // frozen for the whole session (so no end-of-slide snap). Only run when a
+        // pending monitor is actually unlocked — otherwise the refresh would
+        // re-defer every entry and needlessly invalidate the aperture mode cache
+        // each tick for the whole session.
+        if crate::compositor::monitor::layer_shell::any_pending_workarea_unlocked(self) {
             crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(self);
         }
         if let Some(fid) = self.model.focus_state.primary_interaction_focus

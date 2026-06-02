@@ -404,6 +404,17 @@ pub(crate) fn maximize_session_active_on_monitor(st: &Halley, monitor: &str) -> 
         .is_some_and(|session| session.state == MaximizeSessionState::Active)
 }
 
+/// True while a maximize session exists on `monitor` in any state (`Active` or
+/// `Restoring`). Used to keep the work area frozen across the whole session,
+/// including the restore animation, so the aperture reservation settles once at
+/// the end instead of popping back as the window slides shut.
+pub(crate) fn maximize_session_present_on_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .workspace_state
+        .maximize_sessions
+        .contains_key(monitor)
+}
+
 pub(crate) fn maximize_session_target_for_monitor(st: &Halley, monitor: &str) -> Option<NodeId> {
     st.model
         .workspace_state
