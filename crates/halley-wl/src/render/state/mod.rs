@@ -156,6 +156,113 @@ pub(crate) struct FpsSamplerState {
 }
 
 impl RenderState {
+    pub(crate) fn set_render_last_tick(&mut self, now: Instant) {
+        self.telemetry.render_last_tick = now;
+    }
+
+    pub(crate) fn render_last_tick(&self) -> Instant {
+        self.telemetry.render_last_tick
+    }
+
+    pub(crate) fn retain_node_hover_mix<F>(&mut self, retain: F)
+    where
+        F: FnMut(&NodeId, &mut f32) -> bool,
+    {
+        self.view.node_hover_mix.retain(retain);
+    }
+
+    pub(crate) fn retain_node_preview_hover<F>(&mut self, retain: F)
+    where
+        F: FnMut(&String, &mut PreviewHoverState) -> bool,
+    {
+        self.view.node_preview_hover.retain(retain);
+    }
+
+    pub(crate) fn retain_bearings_mix<F>(&mut self, retain: F)
+    where
+        F: FnMut(&String, &mut f32) -> bool,
+    {
+        self.view.bearings_mix.retain(retain);
+    }
+
+    pub(crate) fn retain_cluster_bloom_mix<F>(&mut self, retain: F)
+    where
+        F: FnMut(&String, &mut ClusterBloomAnimState) -> bool,
+    {
+        self.view.cluster_bloom_mix.retain(retain);
+    }
+
+    pub(crate) fn cluster_tile_tracks(&self) -> &ClusterTileTracks {
+        &self.window_animations.cluster_tile_tracks
+    }
+
+    pub(crate) fn cluster_tile_tracks_mut(&mut self) -> &mut ClusterTileTracks {
+        &mut self.window_animations.cluster_tile_tracks
+    }
+
+    pub(crate) fn remove_cluster_tile_track(&mut self, node_id: NodeId) {
+        self.window_animations.cluster_tile_tracks.remove(&node_id);
+    }
+
+    pub(crate) fn clear_cluster_tile_animation_for_node(&mut self, node_id: NodeId) {
+        self.window_animations.cluster_tile_tracks.remove(&node_id);
+        self.window_animations
+            .cluster_tile_entry_pending
+            .remove(&node_id);
+        self.window_animations
+            .cluster_tile_frozen_geometry
+            .remove(&node_id);
+    }
+
+    pub(crate) fn remove_cluster_tile_entry_pending(&mut self, node_id: NodeId) -> bool {
+        self.window_animations
+            .cluster_tile_entry_pending
+            .remove(&node_id)
+    }
+
+    pub(crate) fn retain_cluster_tile_entry_pending<F>(&mut self, retain: F)
+    where
+        F: FnMut(&NodeId) -> bool,
+    {
+        self.window_animations
+            .cluster_tile_entry_pending
+            .retain(retain);
+    }
+
+    pub(crate) fn retain_cluster_tile_frozen_geometry<F>(&mut self, retain: F)
+    where
+        F: FnMut(&NodeId, &mut (f32, f32, f32, f32)) -> bool,
+    {
+        self.window_animations
+            .cluster_tile_frozen_geometry
+            .retain(retain);
+    }
+
+    pub(crate) fn cluster_tile_frozen_geometry(
+        &self,
+        node_id: NodeId,
+    ) -> Option<(f32, f32, f32, f32)> {
+        self.window_animations
+            .cluster_tile_frozen_geometry
+            .get(&node_id)
+            .copied()
+    }
+
+    pub(crate) fn remember_cluster_tile_frozen_geometry(
+        &mut self,
+        node_id: NodeId,
+        geometry: (f32, f32, f32, f32),
+    ) {
+        self.window_animations
+            .cluster_tile_frozen_geometry
+            .entry(node_id)
+            .or_insert(geometry);
+    }
+
+    pub(crate) fn overlay_toast_state(&self, monitor: &str) -> Option<&OverlayToastState> {
+        self.overlays.overlay_toast.get(monitor)
+    }
+
     pub(crate) fn sample_fps_for_monitor(&mut self, monitor: &str, now: Instant) -> f32 {
         let sampler = self
             .telemetry

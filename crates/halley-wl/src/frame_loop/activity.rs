@@ -101,7 +101,7 @@ pub(crate) fn tty_output_animation_redraw_state(
         .any(|&until| until > now_ms);
     let cluster_tile_active = st.runtime.tuning.tile_animation_enabled()
         && crate::animation::cluster_tile_tracks_animating(
-            &st.ui.render_state.window_animations.cluster_tile_tracks,
+            st.ui.render_state.cluster_tile_tracks(),
             now,
         );
     let close_window_active = st.runtime.tuning.window_close_animation_enabled()

@@ -13,10 +13,7 @@ pub(super) struct WindowRenderLayout {
     pub(super) exact_fullscreen_output: bool,
     pub(super) tiling_tile_transition: Option<crate::animation::ClusterTileAnimRect>,
     pub(super) active_resize: Option<crate::input::ActiveResizeGeometryScreen>,
-    pub(super) draw_top_this_node: bool,
-    pub(super) draw_above_fullscreen_this_node: bool,
-    pub(super) overlap_policy_stack_this_node: bool,
-    pub(super) overlap_policy_draw_order: i32,
+    pub(super) render_route: WindowRenderRoute,
     pub(super) live_surface_node: bool,
     pub(super) raise_shadow_boost: f32,
     pub(super) cam_scale: f32,
@@ -33,6 +30,23 @@ pub(super) struct WindowRenderLayout {
     pub(super) rule_opacity: f32,
     pub(super) animation_alpha: f32,
     pub(super) alpha: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WindowRenderRoute {
+    Stack { draw_order: i32 },
+    AboveFullscreenStack { draw_order: i32 },
+    AboveFullscreen,
+    Top,
+}
+
+impl WindowRenderRoute {
+    pub(super) fn popups_above_fullscreen(self) -> bool {
+        matches!(
+            self,
+            WindowRenderRoute::AboveFullscreen | WindowRenderRoute::AboveFullscreenStack { .. }
+        )
+    }
 }
 
 pub(super) fn build_stack_render_layout(
@@ -139,20 +153,14 @@ pub(super) fn resolve_window_render_layout(
         ))
     .then(|| {
         crate::animation::cluster_tile_rect_for(
-            &st.ui.render_state.window_animations.cluster_tile_tracks,
+            st.ui.render_state.cluster_tile_tracks(),
             node_id,
             now,
         )
     })
     .flatten();
-    let frozen_tiling_geometry = tiling_tile_transition.and_then(|_| {
-        st.ui
-            .render_state
-            .window_animations
-            .cluster_tile_frozen_geometry
-            .get(&node_id)
-            .copied()
-    });
+    let frozen_tiling_geometry = tiling_tile_transition
+        .and_then(|_| st.ui.render_state.cluster_tile_frozen_geometry(node_id));
     let transition_alpha =
         crate::compositor::workspace::state::active_transition_alpha(st, node_id, now);
     let anim = crate::frame_loop::anim_style_for(st, node_id, node_state, now);
@@ -167,6 +175,31 @@ pub(super) fn resolve_window_render_layout(
     let draw_above_fullscreen_this_node =
         st.node_draws_above_fullscreen_on_current_monitor(node_id);
     let overlap_policy_draw_order = overlap_policy_draw_order(st, node_id);
+    let render_route = if stack_member_rendered {
+        WindowRenderRoute::Stack {
+            draw_order: stack_layout
+                .draw_orders
+                .get(&node_id)
+                .copied()
+                .unwrap_or_default(),
+        }
+    } else if overlap_policy_stack_this_node && draw_above_fullscreen_this_node {
+        WindowRenderRoute::AboveFullscreenStack {
+            draw_order: overlap_policy_draw_order,
+        }
+    } else if overlap_policy_stack_this_node {
+        WindowRenderRoute::Stack {
+            draw_order: overlap_policy_draw_order,
+        }
+    } else if draw_above_fullscreen_this_node {
+        WindowRenderRoute::AboveFullscreen
+    } else if draw_top_this_node {
+        WindowRenderRoute::Top
+    } else {
+        WindowRenderRoute::Stack {
+            draw_order: overlap_policy_draw_order,
+        }
+    };
     let live_surface_node = node_requires_live_surface_render(st, node_id);
     let raise_anim = st.ui.render_state.raise_animation_for(node_id, now);
 
@@ -322,10 +355,7 @@ pub(super) fn resolve_window_render_layout(
         exact_fullscreen_output,
         tiling_tile_transition,
         active_resize,
-        draw_top_this_node,
-        draw_above_fullscreen_this_node,
-        overlap_policy_stack_this_node,
-        overlap_policy_draw_order,
+        render_route,
         live_surface_node,
         raise_shadow_boost,
         cam_scale,

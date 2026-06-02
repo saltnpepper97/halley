@@ -545,7 +545,7 @@ pub(super) fn note_commit(st: &mut Halley, surface: &WlSurface, now: Instant) {
                 if active_cluster {
                     if let Some(monitor) = node_monitor {
                         let tile_animation_active = crate::animation::cluster_tile_rect_for(
-                            &st.ui.render_state.window_animations.cluster_tile_tracks,
+                            st.ui.render_state.cluster_tile_tracks(),
                             node_id,
                             now,
                         )

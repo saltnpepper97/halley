@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
 - Add a `debug:` config section with `overlay-fps` and `show-ring-when-resizing` toggles, including a legible top-left FPS HUD and control over focus-ring config-change previews.
 
 ### Changed
+- Resolve active-window render routing in `window::layout` with a `WindowRenderRoute` so surface collection appends shadows, borders, badges, surfaces, textures, and popups through a layout-provided route instead of repeating stack/top/fullscreen routing checks.
+- Add focused `RenderState` accessors for tile animation state, overlay toast lookup, view-state retention, and render tick telemetry to reduce direct bucket access from frame, layout, cluster, overlay, and camera code.
 - Move spawn reveal pan state and immediate activation paths behind named `SpawnRevealController` capability methods, reducing direct spawn-state manipulation in the reveal flow without changing placement behavior.
 - Split toplevel-destroy surface lifecycle handling into focused fact collection, input/focus cleanup, close-restore planning, and restore application helpers while preserving existing teardown behavior.
 - Split `RenderState` into cohesive view, overlay, window-animation, telemetry, cache, and GPU buckets so render state ownership better matches subsystem responsibilities.

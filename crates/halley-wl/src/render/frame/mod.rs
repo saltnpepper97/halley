@@ -303,7 +303,7 @@ pub(crate) fn draw_debug_frame_to_target(
         // During a cluster tile slide, log every frame regardless of budget so we
         // capture the whole tween, not just the worst spike.
         let tile_anim = crate::animation::cluster_tile_tracks_animating(
-            &st.ui.render_state.window_animations.cluster_tile_tracks,
+            st.ui.render_state.cluster_tile_tracks(),
             prepared.now,
         );
         let total_ms = crate::perf::elapsed_ms(start);

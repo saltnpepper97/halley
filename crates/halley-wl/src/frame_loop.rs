@@ -38,9 +38,10 @@ struct SurfaceFrameCallbackThrottle {
 use crate::window::ActiveBorderRect;
 
 pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
-    st.ui.render_state.telemetry.render_last_tick = now;
+    st.ui.render_state.set_render_last_tick(now);
     st.platform.popup_manager.cleanup();
     let alive: HashSet<NodeId> = st.model.field.node_ids_all().into_iter().collect();
+    let live_monitors: HashSet<String> = st.model.monitor_state.monitors.keys().cloned().collect();
     st.input
         .interaction_state
         .physics_velocity
@@ -51,44 +52,33 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
         .retain(|id, _| alive.contains(id));
     st.ui
         .render_state
-        .view
-        .node_hover_mix
-        .retain(|id, _| alive.contains(id));
-    st.ui
-        .render_state
-        .view
-        .node_preview_hover
-        .retain(|_, state| {
-            state.node = state.node.filter(|id| alive.contains(id));
-            state.node.is_some() || state.mix > 0.002
-        });
-    st.ui.render_state.view.bearings_mix.retain(|monitor, mix| {
-        st.model.monitor_state.monitors.contains_key(monitor) || *mix > 0.002
+        .retain_node_hover_mix(|id, _| alive.contains(id));
+    st.ui.render_state.retain_node_preview_hover(|_, state| {
+        state.node = state.node.filter(|id| alive.contains(id));
+        state.node.is_some() || state.mix > 0.002
     });
     st.ui
         .render_state
-        .view
-        .cluster_bloom_mix
-        .retain(|monitor, state| {
-            st.model.monitor_state.monitors.contains_key(monitor) || state.mix > 0.002
+        .retain_bearings_mix(|monitor, mix| live_monitors.contains(monitor) || *mix > 0.002);
+    st.ui
+        .render_state
+        .retain_cluster_bloom_mix(|monitor, state| {
+            live_monitors.contains(monitor) || state.mix > 0.002
         });
     st.ui
         .render_state
-        .window_animations
-        .cluster_tile_entry_pending
-        .retain(|id| alive.contains(id));
+        .retain_cluster_tile_entry_pending(|id| alive.contains(id));
+    let live_cluster_tile_tracks: HashSet<NodeId> = st
+        .ui
+        .render_state
+        .cluster_tile_tracks()
+        .keys()
+        .copied()
+        .collect();
     st.ui
         .render_state
-        .window_animations
-        .cluster_tile_frozen_geometry
-        .retain(|id, _| {
-            alive.contains(id)
-                && st
-                    .ui
-                    .render_state
-                    .window_animations
-                    .cluster_tile_tracks
-                    .contains_key(id)
+        .retain_cluster_tile_frozen_geometry(|id, _| {
+            alive.contains(id) && live_cluster_tile_tracks.contains(id)
         });
     // Keep every cluster member's offscreen texture warm (exempt from the idle
     // TTL) so re-opening a collapsed cluster later never rebuilds its textures.
