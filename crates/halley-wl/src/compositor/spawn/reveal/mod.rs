@@ -22,7 +22,9 @@ use crate::compositor::root::Halley;
 use crate::compositor::spawn::read;
 use crate::compositor::spawn::read::RevealNewToplevelPlan;
 use crate::compositor::spawn::rules::{InitialWindowIntent, ResolvedInitialWindowRule};
-use crate::compositor::spawn::state::{MonitorSpawnState, SpawnState};
+use crate::compositor::spawn::state::{
+    ActiveSpawnPan, MonitorSpawnState, PendingSpawnPan, SpawnState,
+};
 use crate::window::active_window_frame_pad_px;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -186,36 +188,207 @@ impl<T: DerefMut<Target = Halley>> DerefMut for SpawnRevealController<T> {
 }
 
 impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
+    fn spawn_pan_active(&self) -> bool {
+        self.model.spawn_state.active_spawn_pan.is_some()
+    }
+
+    fn active_spawn_pan(&self) -> Option<ActiveSpawnPan> {
+        self.model.spawn_state.active_spawn_pan
+    }
+
+    fn set_active_spawn_pan(&mut self, active: ActiveSpawnPan) {
+        self.model.spawn_state.active_spawn_pan = Some(active);
+    }
+
+    fn clear_active_spawn_pan(&mut self) {
+        self.model.spawn_state.active_spawn_pan = None;
+    }
+
+    fn pop_pending_spawn_pan(&mut self) -> Option<PendingSpawnPan> {
+        self.model.spawn_state.pending_spawn_pan_queue.pop_front()
+    }
+
+    fn node_exists(&self, id: NodeId) -> bool {
+        self.model.field.node(id).is_some()
+    }
+
+    fn current_monitor_name(&self) -> String {
+        self.model.monitor_state.current_monitor.clone()
+    }
+
+    fn monitor_for_node(&self, id: NodeId) -> Option<String> {
+        self.model.monitor_state.node_monitor.get(&id).cloned()
+    }
+
+    fn monitor_for_node_or_current(&self, id: NodeId) -> String {
+        self.monitor_for_node(id)
+            .unwrap_or_else(|| self.current_monitor_name())
+    }
+
+    fn activate_node_monitor_for_spawn_pan(&mut self, node_id: NodeId) -> Option<String> {
+        let previous_monitor = self.current_monitor_name();
+        let Some(spawn_monitor) = self.monitor_for_node(node_id) else {
+            return None;
+        };
+        if spawn_monitor == previous_monitor {
+            return None;
+        }
+        let _ = self.activate_monitor(spawn_monitor.as_str());
+        Some(previous_monitor)
+    }
+
+    fn restore_spawn_pan_monitor(&mut self, previous_monitor: Option<String>) {
+        if let Some(previous_monitor) = previous_monitor {
+            let _ = self.activate_monitor(previous_monitor.as_str());
+        }
+    }
+
+    fn build_active_spawn_pan(node_id: NodeId, did_pan: bool, now_ms: u64) -> ActiveSpawnPan {
+        ActiveSpawnPan {
+            node_id,
+            pan_start_at_ms: now_ms.saturating_add(if did_pan {
+                Halley::VIEWPORT_PAN_PRELOAD_MS
+            } else {
+                0
+            }),
+            reveal_at_ms: now_ms.saturating_add(if did_pan {
+                Halley::VIEWPORT_PAN_PRELOAD_MS + Halley::VIEWPORT_PAN_DURATION_MS
+            } else {
+                0
+            }),
+        }
+    }
+
+    fn complete_due_pending_pan_activation(&mut self, now: Instant, now_ms: u64) {
+        let Some((id, at_ms)) = self.model.spawn_state.pending_pan_activate else {
+            return;
+        };
+        if now_ms < at_ms {
+            return;
+        }
+        self.model.spawn_state.pending_pan_activate = None;
+        if self.node_exists(id) {
+            self.set_interaction_focus(Some(id), 30_000, now);
+        }
+    }
+
+    fn viewport_pan_finished_for_spawn(&self, active: ActiveSpawnPan, now_ms: u64) -> bool {
+        now_ms >= active.reveal_at_ms
+            || (now_ms >= active.pan_start_at_ms
+                && self.input.interaction_state.viewport_pan_anim.is_none())
+    }
+
+    fn reveal_spawn_node(&mut self, id: NodeId) {
+        let _ = self.model.field.set_detached(id, false);
+        self.resolve_landmarks_overlapped_by_active_window(id);
+    }
+
+    fn remember_spawn_node_size(&mut self, id: NodeId) {
+        if let Some(intrinsic_size) = self.model.field.node(id).map(|n| n.intrinsic_size) {
+            self.model
+                .workspace_state
+                .last_active_size
+                .insert(id, intrinsic_size);
+        }
+    }
+
+    fn mark_spawn_node_hot(&mut self, id: NodeId) {
+        let _ = self.model.field.set_decay_level(id, DecayLevel::Hot);
+    }
+
+    fn mark_spawn_open_transition(&mut self, id: NodeId, now: Instant) {
+        let duration_ms = self.runtime.tuning.window_open_duration_ms();
+        if self.runtime.tuning.window_open_animation_enabled() {
+            crate::compositor::workspace::state::mark_active_transition(
+                &mut **self,
+                id,
+                now,
+                duration_ms,
+            );
+        }
+    }
+
+    fn remove_pending_spawn_activation(&mut self, id: NodeId) {
+        self.model
+            .spawn_state
+            .pending_spawn_activate_at_ms
+            .remove(&id);
+    }
+
+    fn suppress_next_focus_trail_record(&mut self) {
+        self.model.focus_state.suppress_trail_record_once = true;
+    }
+
+    fn activate_revealed_spawn_node(
+        &mut self,
+        id: NodeId,
+        now: Instant,
+        record_trail: bool,
+        set_recent_top: bool,
+    ) {
+        self.reveal_spawn_node(id);
+        if set_recent_top {
+            self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
+        }
+        if record_trail {
+            self.record_focus_trail_visit(id);
+            self.suppress_next_focus_trail_record();
+        }
+        self.set_interaction_focus(Some(id), 30_000, now);
+        self.remove_pending_spawn_activation(id);
+        self.mark_spawn_open_transition(id, now);
+    }
+
+    fn queue_spawn_pan(&mut self, id: NodeId, target_center: Vec2) {
+        let _ = self.model.field.set_detached(id, true);
+        self.remove_pending_spawn_activation(id);
+        self.model
+            .spawn_state
+            .pending_spawn_pan_queue
+            .push_back(PendingSpawnPan {
+                node_id: id,
+                target_center,
+            });
+    }
+
+    fn pending_tiled_insert_reveal(&self, id: NodeId) -> bool {
+        self.model
+            .spawn_state
+            .pending_tiled_insert_reveal_at_ms
+            .contains_key(&id)
+    }
+
+    fn pending_initial_reveal(&self, id: NodeId) -> bool {
+        self.model.spawn_state.pending_initial_reveal.contains(&id)
+    }
+
+    fn suppress_reveal_pan_rule(&self, id: NodeId) -> bool {
+        self.model
+            .spawn_state
+            .applied_window_rules
+            .get(&id)
+            .is_some_and(|rule| rule.suppress_reveal_pan)
+    }
+
+    fn node_is_local_active_cluster_member(&self, id: NodeId, monitor: &str) -> bool {
+        self.model
+            .field
+            .cluster_id_for_member_public(id)
+            .is_some_and(|cid| self.active_cluster_workspace_for_monitor(monitor) == Some(cid))
+    }
+
     pub(crate) fn maybe_start_pending_spawn_pan(&mut self, now: Instant) {
-        if self.model.spawn_state.active_spawn_pan.is_some() {
+        if self.spawn_pan_active() {
             return;
         }
 
         let now_ms = self.now_ms(now);
-        while let Some(next) = self.model.spawn_state.pending_spawn_pan_queue.pop_front() {
-            if self.model.field.node(next.node_id).is_none() {
+        while let Some(next) = self.pop_pending_spawn_pan() {
+            if !self.node_exists(next.node_id) {
                 continue;
             }
 
-            let prev_monitor = self.model.monitor_state.current_monitor.clone();
-            let needs_monitor_switch = self
-                .model
-                .monitor_state
-                .node_monitor
-                .get(&next.node_id)
-                .is_some_and(|m| *m != prev_monitor);
-
-            if needs_monitor_switch {
-                if let Some(spawn_monitor) = self
-                    .model
-                    .monitor_state
-                    .node_monitor
-                    .get(&next.node_id)
-                    .cloned()
-                {
-                    let _ = self.activate_monitor(spawn_monitor.as_str());
-                }
-            }
+            let previous_monitor = self.activate_node_monitor_for_spawn_pan(next.node_id);
 
             let did_pan = self.animate_viewport_center_to_delayed(
                 next.target_center,
@@ -223,25 +396,11 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
                 Halley::VIEWPORT_PAN_PRELOAD_MS,
             );
 
-            if needs_monitor_switch {
-                let _ = self.activate_monitor(prev_monitor.as_str());
-            }
+            self.restore_spawn_pan_monitor(previous_monitor);
 
-            let active = crate::compositor::spawn::state::ActiveSpawnPan {
-                node_id: next.node_id,
-                pan_start_at_ms: now_ms.saturating_add(if did_pan {
-                    Halley::VIEWPORT_PAN_PRELOAD_MS
-                } else {
-                    0
-                }),
-                reveal_at_ms: now_ms.saturating_add(if did_pan {
-                    Halley::VIEWPORT_PAN_PRELOAD_MS + Halley::VIEWPORT_PAN_DURATION_MS
-                } else {
-                    0
-                }),
-            };
+            let active = Self::build_active_spawn_pan(next.node_id, did_pan, now_ms);
             if did_pan {
-                self.model.spawn_state.active_spawn_pan = Some(active);
+                self.set_active_spawn_pan(active);
                 self.request_maintenance();
             } else {
                 self.reveal_completed_spawn_pan(active, now, now_ms);
@@ -251,72 +410,35 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
     }
 
     pub(crate) fn tick_pending_spawn_pan(&mut self, now: Instant, now_ms: u64) {
-        if let Some((id, at_ms)) = self.model.spawn_state.pending_pan_activate {
-            if now_ms >= at_ms {
-                self.model.spawn_state.pending_pan_activate = None;
-                if self.model.field.node(id).is_some() {
-                    self.set_interaction_focus(Some(id), 30_000, now);
-                }
-            }
-        }
+        self.complete_due_pending_pan_activation(now, now_ms);
 
-        let Some(active) = self.model.spawn_state.active_spawn_pan else {
+        let Some(active) = self.active_spawn_pan() else {
             self.maybe_start_pending_spawn_pan(now);
             return;
         };
 
-        if self.model.field.node(active.node_id).is_none() {
-            self.model.spawn_state.active_spawn_pan = None;
+        if !self.node_exists(active.node_id) {
+            self.clear_active_spawn_pan();
             self.maybe_start_pending_spawn_pan(now);
             return;
         }
 
-        let pan_finished = now_ms >= active.reveal_at_ms
-            || (now_ms >= active.pan_start_at_ms
-                && self.input.interaction_state.viewport_pan_anim.is_none());
-        if !pan_finished {
+        if !self.viewport_pan_finished_for_spawn(active, now_ms) {
             return;
         }
 
         self.reveal_completed_spawn_pan(active, now, now_ms);
-        self.model.spawn_state.active_spawn_pan = None;
+        self.clear_active_spawn_pan();
         self.maybe_start_pending_spawn_pan(now);
     }
 
-    fn reveal_completed_spawn_pan(
-        &mut self,
-        active: crate::compositor::spawn::state::ActiveSpawnPan,
-        now: Instant,
-        now_ms: u64,
-    ) {
-        let _ = self.model.field.set_detached(active.node_id, false);
-        self.resolve_landmarks_overlapped_by_active_window(active.node_id);
-        let _ = self
-            .model
-            .field
-            .set_decay_level(active.node_id, DecayLevel::Hot);
-        if let Some(intrinsic_size) = self
-            .model
-            .field
-            .node(active.node_id)
-            .map(|n| n.intrinsic_size)
-        {
-            self.model
-                .workspace_state
-                .last_active_size
-                .insert(active.node_id, intrinsic_size);
-        }
-        let duration_ms = self.runtime.tuning.window_open_duration_ms();
-        if self.runtime.tuning.window_open_animation_enabled() {
-            crate::compositor::workspace::state::mark_active_transition(
-                &mut **self,
-                active.node_id,
-                now,
-                duration_ms,
-            );
-        }
+    fn reveal_completed_spawn_pan(&mut self, active: ActiveSpawnPan, now: Instant, now_ms: u64) {
+        self.reveal_spawn_node(active.node_id);
+        self.mark_spawn_node_hot(active.node_id);
+        self.remember_spawn_node_size(active.node_id);
+        self.mark_spawn_open_transition(active.node_id, now);
         self.record_focus_trail_visit(active.node_id);
-        self.model.focus_state.suppress_trail_record_once = true;
+        self.suppress_next_focus_trail_record();
         self.model.spawn_state.pending_pan_activate = Some((active.node_id, now_ms + 16));
         self.request_maintenance();
     }
@@ -327,113 +449,29 @@ impl<T: DerefMut<Target = Halley>> SpawnRevealController<T> {
         is_transient: bool,
         now: Instant,
     ) {
-        let node_monitor = self
-            .model
-            .monitor_state
-            .node_monitor
-            .get(&id)
-            .cloned()
-            .unwrap_or_else(|| self.model.monitor_state.current_monitor.clone());
-        let cluster_local = self
-            .model
-            .field
-            .cluster_id_for_member_public(id)
-            .is_some_and(|cid| {
-                self.active_cluster_workspace_for_monitor(node_monitor.as_str()) == Some(cid)
-            });
-        if self
-            .model
-            .spawn_state
-            .pending_tiled_insert_reveal_at_ms
-            .contains_key(&id)
-        {
+        let node_monitor = self.monitor_for_node_or_current(id);
+        let cluster_local = self.node_is_local_active_cluster_member(id, node_monitor.as_str());
+        if self.pending_tiled_insert_reveal(id) {
             return;
         }
         if cluster_local {
-            let _ = self.model.field.set_detached(id, false);
-            self.resolve_landmarks_overlapped_by_active_window(id);
-            self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
-            self.set_interaction_focus(Some(id), 30_000, now);
-            self.model
-                .spawn_state
-                .pending_spawn_activate_at_ms
-                .remove(&id);
-            let duration_ms = self.runtime.tuning.window_open_duration_ms();
-            if self.runtime.tuning.window_open_animation_enabled() {
-                crate::compositor::workspace::state::mark_active_transition(
-                    &mut **self,
-                    id,
-                    now,
-                    duration_ms,
-                );
-            }
+            self.activate_revealed_spawn_node(id, now, false, true);
             return;
         }
-        if self.model.spawn_state.pending_initial_reveal.contains(&id) {
+        if self.pending_initial_reveal(id) {
             return;
         }
-        if self
-            .model
-            .spawn_state
-            .applied_window_rules
-            .get(&id)
-            .is_some_and(|rule| rule.suppress_reveal_pan)
-        {
-            let _ = self.model.field.set_detached(id, false);
-            self.resolve_landmarks_overlapped_by_active_window(id);
-            self.set_recent_top_node(id, now + std::time::Duration::from_millis(1200));
-            self.record_focus_trail_visit(id);
-            self.model.focus_state.suppress_trail_record_once = true;
-            self.set_interaction_focus(Some(id), 30_000, now);
-            self.model
-                .spawn_state
-                .pending_spawn_activate_at_ms
-                .remove(&id);
-            let duration_ms = self.runtime.tuning.window_open_duration_ms();
-            if self.runtime.tuning.window_open_animation_enabled() {
-                crate::compositor::workspace::state::mark_active_transition(
-                    &mut **self,
-                    id,
-                    now,
-                    duration_ms,
-                );
-            }
+        if self.suppress_reveal_pan_rule(id) {
+            self.activate_revealed_spawn_node(id, now, true, true);
             return;
         }
         match self.resolve_spawn_reveal_plan(id, is_transient) {
             RevealNewToplevelPlan::AlreadyQueued => {}
             RevealNewToplevelPlan::ActivateNow => {
-                let _ = self.model.field.set_detached(id, false);
-                self.resolve_landmarks_overlapped_by_active_window(id);
-                self.record_focus_trail_visit(id);
-                self.model.focus_state.suppress_trail_record_once = true;
-                self.set_interaction_focus(Some(id), 30_000, now);
-                self.model
-                    .spawn_state
-                    .pending_spawn_activate_at_ms
-                    .remove(&id);
-                let duration_ms = self.runtime.tuning.window_open_duration_ms();
-                if self.runtime.tuning.window_open_animation_enabled() {
-                    crate::compositor::workspace::state::mark_active_transition(
-                        &mut **self,
-                        id,
-                        now,
-                        duration_ms,
-                    );
-                }
+                self.activate_revealed_spawn_node(id, now, true, false);
             }
             RevealNewToplevelPlan::QueuePan { target_center } => {
-                let _ = self.model.field.set_detached(id, true);
-                self.model
-                    .spawn_state
-                    .pending_spawn_activate_at_ms
-                    .remove(&id);
-                self.model.spawn_state.pending_spawn_pan_queue.push_back(
-                    crate::compositor::spawn::state::PendingSpawnPan {
-                        node_id: id,
-                        target_center,
-                    },
-                );
+                self.queue_spawn_pan(id, target_center);
                 self.maybe_start_pending_spawn_pan(now);
             }
         }
