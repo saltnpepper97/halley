@@ -703,6 +703,62 @@ mod tests {
         assert_eq!(small_reservation_px_for_monitor(&st, MONITOR), 0);
         assert_eq!(usable_top_px(&st), 0);
     }
+
+    #[test]
+    fn collapsed_surface_obstruction_uses_marker_extents() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let id = st.model.field.spawn_surface(
+            "collapsed-firefox",
+            Vec2 { x: 160.0, y: 0.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 900.0,
+            },
+        );
+        st.assign_node_to_monitor(id, MONITOR);
+        let _ = st.model.field.set_state(id, NodeState::Node);
+
+        let (viewport, width, height) = {
+            let space = st
+                .model
+                .monitor_state
+                .monitors
+                .get(MONITOR)
+                .expect("monitor");
+            (space.viewport, space.width.max(1), space.height.max(1))
+        };
+        let now = Instant::now();
+        let rect = node_screen_rect_for_monitor(&st, id, viewport, width, height, now)
+            .expect("collapsed obstruction rect");
+        let node = st.model.field.node(id).expect("node");
+        let anim = crate::frame_loop::anim_style_for(&st, id, node.state.clone(), now);
+        let expected = crate::presentation::node_render_diameter_px(
+            &st,
+            node.intrinsic_size,
+            node.label.len(),
+            anim.scale,
+        )
+        .round()
+        .max(1.0);
+
+        assert_eq!(rect.w, expected);
+        assert_eq!(rect.h, expected);
+
+        let center_x = rect.x + rect.w * 0.5;
+        let center_y = rect.y + rect.h * 0.5;
+        let open_window_rect = Rect::new(center_x - 600.0, center_y - 450.0, 1200.0, 900.0);
+        let clock_bounds = Rect::new(rect.right() + 20.0, rect.y, 80.0, rect.h);
+
+        assert!(
+            clock_obstructed(clock_bounds, &[open_window_rect]),
+            "test setup should intersect the old open-window obstruction rect"
+        );
+        assert!(
+            !clock_obstructed(clock_bounds, &[rect]),
+            "collapsed nodes should only obstruct aperture with their marker extents"
+        );
+    }
 }
 
 fn clock_obstructed(clock_bounds: Rect, windows: &[Rect]) -> bool {
@@ -755,6 +811,7 @@ fn node_screen_rect_for_monitor(
     height: i32,
     now: Instant,
 ) -> Option<Rect> {
+    let node = st.model.field.node(node_id)?;
     if st.model.monitor_state.current_monitor
         == st
             .model
@@ -763,6 +820,7 @@ fn node_screen_rect_for_monitor(
             .get(&node_id)
             .map(String::as_str)
             .unwrap_or(st.model.monitor_state.current_monitor.as_str())
+        && node.state == NodeState::Active
     {
         if let Some((left, top, right, bottom)) =
             crate::input::active_node_screen_rect(st, width, height, node_id, now, None)
@@ -776,7 +834,6 @@ fn node_screen_rect_for_monitor(
         }
     }
 
-    let node = st.model.field.node(node_id)?;
     let view_w = viewport.size.x.max(1.0);
     let view_h = viewport.size.y.max(1.0);
     let nx = ((node.pos.x - viewport.center.x) / view_w) + 0.5;
@@ -784,20 +841,30 @@ fn node_screen_rect_for_monitor(
     let cx = nx * width as f32;
     let cy = ny * height as f32;
 
-    let (_, _, local_w, local_h) = st
-        .ui
-        .render_state
-        .cache
-        .window_geometry
-        .get(&node_id)
-        .copied()
-        .map(|(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
-        .unwrap_or((
-            0.0,
-            0.0,
-            node.intrinsic_size.x.max(1.0),
-            node.intrinsic_size.y.max(1.0),
-        ));
+    let (local_w, local_h) = if node.state == NodeState::Node {
+        let anim = crate::frame_loop::anim_style_for(st, node_id, node.state.clone(), now);
+        let diameter = crate::presentation::node_render_diameter_px(
+            st,
+            node.intrinsic_size,
+            node.label.len(),
+            anim.scale,
+        )
+        .round()
+        .max(1.0);
+        (diameter, diameter)
+    } else {
+        st.ui
+            .render_state
+            .cache
+            .window_geometry
+            .get(&node_id)
+            .copied()
+            .map(|(_, _, w, h)| (w.max(1.0), h.max(1.0)))
+            .unwrap_or((
+                node.intrinsic_size.x.max(1.0),
+                node.intrinsic_size.y.max(1.0),
+            ))
+    };
     let left = cx - (local_w * 0.5);
     let top = cy - (local_h * 0.5);
     Some(Rect::new(left, top, local_w, local_h))
