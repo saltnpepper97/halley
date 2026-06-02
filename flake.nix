@@ -61,36 +61,6 @@
             };
           };
 
-          halley-aperture = pkgs.rustPlatform.buildRustPackage rec {
-            pname = "halley-aperture";
-            version = "0.3.2";
-
-            src = self;
-            sourceRoot = "source/crates/halley-aperture";
-
-            cargoLock = {
-              lockFile = ../../Cargo.lock;
-            };
-
-            buildInputs = with pkgs; [
-              pkg-config
-              libxkbcommon
-              wayland
-            ];
-
-            nativeBuildInputs = with pkgs; [
-              pkg-config
-            ];
-
-            meta = with pkgs.lib; {
-              description = "A status bar and utility for the Halley Wayland compositor";
-              homepage = "https://github.com/CG-GeisT/halley";
-              license = licenses.gpl3Only;
-              maintainers = [];
-              platforms = platforms.linux;
-            };
-          };
-
           default = self.packages.${system}.halley;
         };
 
