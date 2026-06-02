@@ -208,6 +208,7 @@ pub(super) fn reconcile_surface_bindings(st: &mut Halley) {
                 key.clone(),
             );
             st.model.spawn_state.applied_window_rules.remove(&id);
+            st.model.spawn_state.live_window_opacity.remove(&id);
             st.model.spawn_state.pending_rule_rechecks.remove(&id);
             st.model.spawn_state.pending_initial_reveal.remove(&id);
             st.model.spawn_state.initial_spawn_placements.remove(&id);
@@ -403,6 +404,7 @@ pub(super) fn drop_surface_impl(st: &mut Halley, surface: &WlSurface) {
             .pending_tiled_insert_preserve_focus
             .remove(&id);
         st.model.spawn_state.applied_window_rules.remove(&id);
+        st.model.spawn_state.live_window_opacity.remove(&id);
         st.model.spawn_state.pending_rule_rechecks.remove(&id);
         st.model.spawn_state.pending_initial_reveal.remove(&id);
         st.model.spawn_state.initial_spawn_placements.remove(&id);

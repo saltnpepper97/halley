@@ -313,6 +313,7 @@ impl Halley {
                     pending_spawn_pan_queue: VecDeque::new(),
                     active_spawn_pan: None,
                     applied_window_rules: HashMap::new(),
+                    live_window_opacity: HashMap::new(),
                     pending_rule_rechecks: HashSet::new(),
                     pending_initial_reveal: HashSet::new(),
                     pending_initial_spawn_placement: None,

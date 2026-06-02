@@ -298,7 +298,21 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         )
     {
         let now = Instant::now();
-        let _ = crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now);
+        let core_pos =
+            st.model.field.node(node_id).and_then(|node| {
+                (node.kind == halley_core::field::NodeKind::Core).then_some(node.pos)
+            });
+        if let Some(core_pos) = core_pos {
+            if st.focused_monitor() != target_monitor {
+                st.focus_monitor_view(target_monitor.as_str(), now);
+            }
+            st.set_interaction_focus(Some(node_id), 30_000, now);
+            st.set_pan_restore_focus_target(node_id);
+            let _ = st.animate_viewport_center_to(core_pos, now);
+        } else {
+            let _ =
+                crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now);
+        }
         ps.panning = false;
         ctx.backend.request_redraw();
         return;

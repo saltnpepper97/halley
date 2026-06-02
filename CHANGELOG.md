@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - TBD
 
 ### Added
+- Add numeric `opacity` window-rule support using a `0.0` through `1.0` scale, applying matched opacity to window content, borders, shadows, popups, badges, close snapshots, and captures while blocking direct scanout for translucent windows.
 - Add optional `width` and `height` window-rule keys for fixed initial sizes on matched windows.
 - Add configurable fullscreen entry animation via `animations.fullscreen`, including bootstrap migration and example config coverage, so browser videos such as YouTube tween into fullscreen instead of snapping.
 - Add an Aperture `Minimal` mode across IPC, compositor status, and the standalone clock so maximized windows and tiled cluster workspaces can use a compact top tab instead of the larger collapsed clock.
@@ -18,6 +19,9 @@ All notable changes to this project will be documented in this file.
 - Soften window shadows with a Gaussian/error-function falloff for a more natural shadow tail.
 
 ### Fixed
+- Recompute live window-rule opacity for already-open windows on config reload and title/app-id refreshes, without reapplying placement or cluster behavior.
+- Restore async app icon loading for normal node markers so app icons can appear without depending on other overlays warming the icon cache first.
+- Let Bearings clicks on collapsed cluster core chips focus and center the core like other bearing targets without opening the cluster workspace.
 - Wait briefly for the close-animation capture before automatic active-to-node collapses, fixing the first overlapped auto-collapse snapping to a node while preserving immediate fallback for no-content windows.
 - Reserve Aperture top clearance as a deficit against the user's configured field or tile gap instead of stacking extra padding on top of those gaps.
 - Base Aperture clearance on the actual minimal tab height plus a small after-gap, reject placeholder or expanded Aperture heights, and avoid phantom top gaps when `halley-aperture` is not running.
@@ -28,7 +32,7 @@ All notable changes to this project will be documented in this file.
 - Deduplicate repeated tiled `xdg_toplevel` configures during maintenance relayouts to reduce client lag and avoid serial churn crashes.
 - Detach active cluster members from their source cluster when monitor-transfer drags move them away, so the source layout recalculates without the missing window.
 - Absorb transferred standalone windows into the target monitor's active cluster layout by default, while keeping `cluster-participation "float"` and overlap-policy windows freely floating and resizable above the tiled cluster plane.
-- Restore stacking-cluster drag/drop behavior so hit-testing selects the visual top card, only that top card can be dragged out, in-stack drops snap back to the stack, outside drops detach or dissolve two-window stacks, and standalone windows dropped on an active stack rejoin at the top instead of floating over it.
+- Restore stacking-cluster drag/drop behavior so hit-testing selects the visual top card, stack card extraction stays reliable after layout updates, only the top card can be dragged out, in-stack drops snap back to the stack, outside drops detach or dissolve two-window stacks, and standalone windows dropped on an active stack rejoin at the top instead of floating over it.
 
 ## [v0.3.2] - 2026-05-31
 

@@ -1062,6 +1062,10 @@ fn apply_tty_reload(
         st,
     );
 
+    if crate::compositor::spawn::state::recompute_all_node_rule_opacities(st) {
+        st.runtime.tty_redraw_all = true;
+    }
+
     if reason != "rescan" {
         let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
         run_autostart_commands(st, &reload_commands, wayland_display, "autostart");

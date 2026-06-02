@@ -254,6 +254,17 @@ fn matching_user_window_rule<'a>(
     })
 }
 
+pub(crate) fn user_window_rule_opacity_for_identity(
+    st: &Halley,
+    app_id: Option<&str>,
+    title: Option<&str>,
+) -> f32 {
+    matching_user_window_rule(st, app_id, title)
+        .and_then(|rule| rule.opacity)
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0)
+}
+
 fn matching_builtin_window_rule(
     app_id: Option<&str>,
     title: Option<&str>,

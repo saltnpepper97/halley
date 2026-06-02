@@ -147,6 +147,11 @@ pub(super) fn refresh_node_identity_for_surface(
         }
     }
 
+    if crate::compositor::spawn::state::recompute_node_rule_opacity(st, node_id) {
+        st.request_maintenance();
+        st.runtime.tty_redraw_all = true;
+    }
+
     let now = Instant::now();
     maybe_apply_pending_initial_window_rule(st, node_id, &root_surface, now);
 }
