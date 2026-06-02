@@ -60,21 +60,31 @@ pub(crate) fn constrain_layer_popup(
     let Some(target) = layer_popup_constraint_target(ctx.st, popup) else {
         return;
     };
-    let mut geometry = positioner.get_unconstrained_geometry(target);
+    let (constrained_positioner, geometry) = constrained_layer_popup_position(positioner, target);
+
+    popup.with_pending_state(|state| {
+        state.positioner = constrained_positioner;
+        state.geometry = geometry;
+    });
+}
+
+fn constrained_layer_popup_position(
+    positioner: PositionerState,
+    target: Rectangle<i32, Logical>,
+) -> (PositionerState, Rectangle<i32, Logical>) {
+    let mut constrained_positioner = positioner;
+    let mut geometry = constrained_positioner.get_unconstrained_geometry(target);
     if !rectangle_fits_within(target, geometry) {
-        let mut fallback_positioner = positioner;
-        fallback_positioner.constraint_adjustment |= smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::FlipX
+        constrained_positioner.constraint_adjustment |= smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::FlipX
             | smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::FlipY
             | smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::SlideX
             | smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::SlideY
             | smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::ResizeX
             | smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::ResizeY;
-        geometry = fallback_positioner.get_unconstrained_geometry(target);
+        geometry = constrained_positioner.get_unconstrained_geometry(target);
     }
 
-    popup.with_pending_state(|state| {
-        state.geometry = geometry;
-    });
+    (constrained_positioner, geometry)
 }
 
 fn layer_popup_constraint_target(
@@ -722,6 +732,8 @@ mod tests {
     use std::time::Instant;
 
     use halley_core::field::Vec2;
+    use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner;
+    use smithay::utils::{Logical, Rectangle, Size};
 
     use super::Halley;
 
@@ -818,6 +830,31 @@ mod tests {
             state.model.spawn_state.pending_spawn_monitor.as_deref(),
             Some("left")
         );
+    }
+
+    #[test]
+    fn constrained_layer_popup_position_preserves_adjusted_positioner() {
+        let positioner = super::PositionerState {
+            rect_size: Size::<i32, Logical>::from((200, 80)),
+            anchor_rect: Rectangle::<i32, Logical>::new((760, 560).into(), (20, 20).into()),
+            anchor_edges: xdg_positioner::Anchor::BottomRight,
+            gravity: xdg_positioner::Gravity::BottomRight,
+            ..Default::default()
+        };
+        let target = Rectangle::<i32, Logical>::new((0, 0).into(), (800, 600).into());
+
+        let (constrained_positioner, geometry) =
+            super::constrained_layer_popup_position(positioner, target);
+
+        assert!(constrained_positioner.constraint_adjustment.contains(
+            xdg_positioner::ConstraintAdjustment::FlipX
+                | xdg_positioner::ConstraintAdjustment::FlipY
+                | xdg_positioner::ConstraintAdjustment::SlideX
+                | xdg_positioner::ConstraintAdjustment::SlideY
+                | xdg_positioner::ConstraintAdjustment::ResizeX
+                | xdg_positioner::ConstraintAdjustment::ResizeY
+        ));
+        assert!(super::rectangle_fits_within(target, geometry));
     }
 }
 

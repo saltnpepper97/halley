@@ -5,6 +5,19 @@ use smithay::desktop::{PopupKind, find_popup_root_surface};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surface::WlSurface};
+use smithay::utils::{Logical, Rectangle};
+
+fn popup_positioner_geometry(positioner: PositionerState) -> Rectangle<i32, Logical> {
+    positioner.get_geometry()
+}
+
+fn configure_popup_position(st: &mut Halley, popup: &PopupSurface, positioner: PositionerState) {
+    popup.with_pending_state(|state| {
+        state.positioner = positioner;
+        state.geometry = popup_positioner_geometry(positioner);
+    });
+    super::handlers::constrain_layer_popup(st, popup, positioner);
+}
 
 impl XdgDecorationHandler for Halley {
     fn new_decoration(&mut self, toplevel: ToplevelSurface) {
@@ -129,7 +142,7 @@ impl XdgShellHandler for Halley {
             .platform
             .popup_manager
             .track_popup(PopupKind::from(popup.clone()));
-        super::handlers::constrain_layer_popup(self, &popup, positioner);
+        configure_popup_position(self, &popup, positioner);
         let _ = popup.send_configure();
     }
 
@@ -235,9 +248,9 @@ impl XdgShellHandler for Halley {
         positioner: PositionerState,
         token: u32,
     ) {
-        super::handlers::constrain_layer_popup(self, &surface, positioner);
+        configure_popup_position(self, &surface, positioner);
         surface.send_repositioned(token);
-        let _ = surface.send_configure();
+        self.request_maintenance();
     }
 
     fn popup_destroyed(&mut self, _surface: PopupSurface) {
@@ -273,6 +286,31 @@ impl XdgActivationHandler for Halley {
 }
 
 delegate_xdg_activation!(Halley);
+
+#[cfg(test)]
+mod tests {
+    use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner;
+    use smithay::utils::{Logical, Rectangle, Size};
+
+    use super::*;
+
+    #[test]
+    fn normal_popup_geometry_uses_client_positioner() {
+        let mut positioner = PositionerState {
+            rect_size: Size::<i32, Logical>::from((120, 48)),
+            anchor_rect: Rectangle::<i32, Logical>::new((24, 30).into(), (80, 20).into()),
+            anchor_edges: xdg_positioner::Anchor::BottomLeft,
+            gravity: xdg_positioner::Gravity::BottomRight,
+            ..Default::default()
+        };
+        positioner.offset = (7, 11).into();
+
+        let geometry = popup_positioner_geometry(positioner);
+
+        assert_eq!(geometry, positioner.get_geometry());
+        assert_ne!(geometry.loc, (0, 0).into());
+    }
+}
 
 impl WlrLayerShellHandler for Halley {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {

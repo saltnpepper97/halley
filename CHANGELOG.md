@@ -34,6 +34,7 @@ All notable changes to this project will be documented in this file.
 - Detach active cluster members from their source cluster when monitor-transfer drags move them away, so the source layout recalculates without the missing window.
 - Absorb transferred standalone windows into the target monitor's active cluster layout by default, while keeping `cluster-participation "float"` and overlap-policy windows freely floating and resizable above the tiled cluster plane.
 - Restore stacking-cluster drag/drop behavior so hit-testing selects the visual top card, stack card extraction stays reliable after layout updates, only the top card can be dragged out, in-stack drops snap back to the stack, outside drops detach or dissolve two-window stacks, and standalone windows dropped on an active stack rejoin at the top instead of floating over it.
+- Apply `xdg_popup` reposition geometry before acknowledging reposition requests, fixing Steam dropdown menus that could appear at the parent window's top-left with stale popup placement.
 
 ## [v0.3.2] - 2026-05-31
 
