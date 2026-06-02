@@ -9,12 +9,13 @@ use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface, XdgTople
 
 use crate::compositor::root::Halley;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ResolvedInitialWindowRule {
     pub(crate) overlap_policy: InitialWindowOverlapPolicy,
     pub(crate) spawn_placement: InitialWindowSpawnPlacement,
     pub(crate) cluster_participation: InitialWindowClusterParticipation,
     pub(crate) initial_size: Option<(i32, i32)>,
+    pub(crate) opacity: f32,
 }
 
 impl Default for ResolvedInitialWindowRule {
@@ -24,6 +25,7 @@ impl Default for ResolvedInitialWindowRule {
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,
             initial_size: None,
+            opacity: 1.0,
         }
     }
 }
@@ -41,10 +43,11 @@ fn default_initial_window_rule(st: &Halley) -> ResolvedInitialWindowRule {
         spawn_placement: default_expanded_spawn_placement(st),
         cluster_participation: InitialWindowClusterParticipation::Layout,
         initial_size: None,
+        opacity: 1.0,
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct InitialWindowIntent {
     pub(crate) app_id: Option<String>,
     pub(crate) title: Option<String>,
@@ -86,6 +89,7 @@ impl InitialWindowIntent {
             overlap_policy: effective_overlap_policy,
             spawn_placement: self.rule.spawn_placement,
             cluster_participation: self.rule.cluster_participation,
+            opacity: self.rule.opacity,
             parent_node: self.parent_node,
             suppress_reveal_pan: !matches!(
                 effective_spawn_placement,
@@ -196,6 +200,7 @@ fn rule_match(st: &Halley, rule: &WindowRule) -> ResolvedInitialWindowRule {
         initial_size: rule
             .initial_size
             .map(|(width, height)| (width.max(96) as i32, height.max(72) as i32)),
+        opacity: rule.opacity.unwrap_or(1.0),
     }
 }
 
@@ -205,6 +210,7 @@ fn builtin_float_center_overlap_rule() -> ResolvedInitialWindowRule {
         spawn_placement: InitialWindowSpawnPlacement::Center,
         cluster_participation: InitialWindowClusterParticipation::Float,
         initial_size: None,
+        opacity: 1.0,
     }
 }
 
@@ -411,6 +417,7 @@ mod tests {
                 spawn_placement: InitialWindowSpawnPlacement::Center,
                 cluster_participation: InitialWindowClusterParticipation::Float,
                 initial_size: None,
+                opacity: None,
             },
             WindowRule {
                 app_ids: vec![WindowRulePattern::Exact("firefox".to_string())],
@@ -419,6 +426,7 @@ mod tests {
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Layout,
                 initial_size: None,
+                opacity: None,
             },
         ];
         let state = Halley::new_for_test(&dh, tuning);
@@ -439,6 +447,7 @@ mod tests {
             spawn_placement: InitialWindowSpawnPlacement::Center,
             cluster_participation: InitialWindowClusterParticipation::Float,
             initial_size: None,
+            opacity: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -458,6 +467,7 @@ mod tests {
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,
             initial_size: None,
+            opacity: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -567,6 +577,7 @@ mod tests {
             spawn_placement: InitialWindowSpawnPlacement::Center,
             cluster_participation: InitialWindowClusterParticipation::Float,
             initial_size: None,
+            opacity: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -591,6 +602,7 @@ mod tests {
             spawn_placement: InitialWindowSpawnPlacement::Center,
             cluster_participation: InitialWindowClusterParticipation::Float,
             initial_size: None,
+            opacity: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -605,6 +617,7 @@ mod tests {
             app_ids: vec![WindowRulePattern::Exact("pavucontrol".to_string())],
             titles: Vec::new(),
             initial_size: Some((40, 50)),
+            opacity: None,
             overlap_policy: InitialWindowOverlapPolicy::None,
             spawn_placement: InitialWindowSpawnPlacement::Center,
             cluster_participation: InitialWindowClusterParticipation::Float,
@@ -615,6 +628,27 @@ mod tests {
             matching_window_rule(&state, Some("pavucontrol"), None, false).expect("size rule");
 
         assert_eq!(matched.initial_size, Some((96, 72)));
+    }
+
+    #[test]
+    fn user_rule_opacity_is_resolved() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = RuntimeTuning::default();
+        tuning.window_rules = vec![WindowRule {
+            app_ids: vec![WindowRulePattern::Exact("kitty".to_string())],
+            titles: Vec::new(),
+            initial_size: None,
+            opacity: Some(0.72),
+            overlap_policy: InitialWindowOverlapPolicy::None,
+            spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+            cluster_participation: InitialWindowClusterParticipation::Layout,
+        }];
+        let state = Halley::new_for_test(&dh, tuning);
+
+        let matched =
+            matching_window_rule(&state, Some("kitty"), None, false).expect("opacity rule");
+
+        assert_eq!(matched.opacity, 0.72);
     }
 
     #[test]
@@ -644,6 +678,7 @@ mod tests {
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,
             initial_size: None,
+            opacity: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -672,6 +707,7 @@ mod tests {
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,
             initial_size: None,
+            opacity: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -720,6 +756,7 @@ mod tests {
             spawn_placement: InitialWindowSpawnPlacement::Center,
             cluster_participation: InitialWindowClusterParticipation::Float,
             initial_size: None,
+            opacity: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
         let intent = InitialWindowIntent {
@@ -826,6 +863,7 @@ mod tests {
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Float,
                 initial_size: None,
+                opacity: 1.0,
             },
             builtin_rule: None,
             matched_rule: true,
@@ -845,6 +883,7 @@ mod tests {
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Layout,
                 initial_size: None,
+                opacity: 1.0,
             },
             ..adjacent.clone()
         };

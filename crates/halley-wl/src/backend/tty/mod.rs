@@ -940,6 +940,31 @@ fn apply_tty_reload(
 
     if reason == "rescan" && outputs_match(&outputs.borrow(), &rebuilt) {
         *scanout_signature.borrow_mut() = current_tty_output_signature(&rebuilt);
+        let output_names = active_output_names(outputs.borrow().as_slice());
+        let pending_outputs: Vec<String> = {
+            let pending = output_frame_pending.borrow();
+            output_names
+                .iter()
+                .filter(|output_name| pending.get(output_name.as_str()).copied().unwrap_or(false))
+                .cloned()
+                .collect()
+        };
+        if !pending_outputs.is_empty() {
+            let _ = release_pending_tty_outputs(
+                outputs,
+                output_frame_pending,
+                output_frame_pending_since,
+                pending_outputs.as_slice(),
+                "unchanged-output-rescan",
+            );
+        }
+        {
+            let mut pending_since = output_frame_pending_since.borrow_mut();
+            for output_name in &output_names {
+                pending_since.remove(output_name.as_str());
+            }
+        }
+        st.runtime.tty_redraw_outputs.extend(output_names);
         return false;
     }
 
@@ -2385,12 +2410,18 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     // On the first tick after DPMS wake, re-configure layer shell
                     // surfaces. Frame callbacks are sent only after a scanout frame queues.
                     if !dpms_just_woke_outputs_for_timer.borrow().is_empty() {
+                        let woke_outputs: Vec<String> = dpms_just_woke_outputs_for_timer
+                            .borrow()
+                            .iter()
+                            .cloned()
+                            .collect();
                         st.input.interaction_state.dpms_just_woke = false;
                         dpms_just_woke_outputs_for_timer.borrow_mut().clear();
                         crate::compositor::monitor::layer_shell::configure_layer_shell_surfaces(
                             st,
                             (1, 1).into(),
                         );
+                        st.runtime.tty_redraw_outputs.extend(woke_outputs);
                     }
 
                     let frame_callback_due_outputs: HashSet<String> = due_outputs

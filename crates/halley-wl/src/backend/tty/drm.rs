@@ -2027,6 +2027,9 @@ fn fullscreen_direct_scanout_candidate(
         Err((node_id, reason.to_string()))
     };
 
+    if crate::compositor::spawn::state::node_rule_opacity(st, node_id) < 0.999 {
+        return Some(blocked("window opacity requires composed rendering"));
+    }
     if st.output_transform_for(output_name) != Transform::Normal {
         return Some(blocked("output transform is not normal"));
     }

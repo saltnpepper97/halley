@@ -444,6 +444,7 @@ mod tests {
                 spawn_placement: halley_config::InitialWindowSpawnPlacement::Center,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
                 initial_size: None,
+                opacity: 1.0,
             },
             ..default_late_app_id.clone()
         };
@@ -1038,6 +1039,7 @@ mod tests {
                 spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
                 initial_size: None,
+                opacity: 1.0,
             },
             builtin_rule: None,
             matched_rule: true,
@@ -1117,6 +1119,7 @@ mod tests {
                 spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
                 initial_size: None,
+                opacity: 1.0,
             },
             builtin_rule: None,
             matched_rule: false,
@@ -1151,6 +1154,7 @@ mod tests {
                 spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
                 initial_size: None,
+                opacity: 1.0,
             },
             builtin_rule: None,
             matched_rule: true,

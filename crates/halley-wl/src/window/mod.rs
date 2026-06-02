@@ -24,7 +24,9 @@ use crate::animation::{active_surface_render_scale, ease_in_out_cubic, ease_out_
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::monitor::layer_shell::layer_output_size_for_monitor;
 use crate::compositor::root::Halley;
-use crate::compositor::spawn::state::{is_persistent_rule_top, node_floats_over_active_cluster};
+use crate::compositor::spawn::state::{
+    is_persistent_rule_top, node_floats_over_active_cluster, node_rule_opacity,
+};
 use crate::compositor::surface::{
     active_stacking_visible_members_for_monitor, is_active_cluster_workspace_member,
     window_geometry_for_node,
@@ -544,11 +546,13 @@ pub(crate) fn collect_active_surfaces(
             && rect_covers_output((gx, gy, gw.max(1), gh.max(1)), output_clip);
         let fullscreen_like_for_render = fullscreen_on_current_monitor || game_covers_output;
 
-        let alpha = (anim.alpha
+        let rule_opacity = node_rule_opacity(st, node_id);
+        let animation_alpha = (anim.alpha
             * live_ramp
             * stack_transition_pose.map(|pose| pose.alpha).unwrap_or(1.0)
             * tiling_tile_transition.map(|rect| rect.alpha).unwrap_or(1.0))
         .clamp(0.0, 1.0);
+        let alpha = (animation_alpha * rule_opacity).clamp(0.0, 1.0);
         let window_pin_badge = if st.node_user_pinned(node_id) && alpha > 0.01 {
             let radius = crate::render::pin_icon::scaled_pin_badge_radius(
                 st,
@@ -622,7 +626,7 @@ pub(crate) fn collect_active_surfaces(
             gy,
             gw.max(1),
             gh.max(1),
-            (alpha + raise_shadow_boost).clamp(0.0, 1.0),
+            ((animation_alpha + raise_shadow_boost).clamp(0.0, 1.0) * rule_opacity).clamp(0.0, 1.0),
             decoration_metrics,
             fullscreen_like_for_render,
         );
@@ -1611,6 +1615,7 @@ mod tests {
                 overlap_policy: halley_config::InitialWindowOverlapPolicy::None,
                 spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: true,
                 builtin_rule: None,

@@ -9,6 +9,7 @@ struct PartialWindowRule {
     titles: Vec<WindowRulePattern>,
     width: Option<u32>,
     height: Option<u32>,
+    opacity: Option<f32>,
     overlap_policy: Option<InitialWindowOverlapPolicy>,
     spawn_placement: Option<InitialWindowSpawnPlacement>,
     cluster_participation: Option<InitialWindowClusterParticipation>,
@@ -98,6 +99,7 @@ fn finalize_window_rule(rule: &PartialWindowRule, line_no: usize) -> Result<Wind
         app_ids: rule.app_ids.clone(),
         titles: rule.titles.clone(),
         initial_size,
+        opacity: rule.opacity,
         overlap_policy: rule
             .overlap_policy
             .unwrap_or(InitialWindowOverlapPolicy::None),
@@ -137,6 +139,9 @@ fn parse_rule_entry(
         }
         "height" => {
             rule.height = Some(parse_rule_dimension(value, line_no, "height")?);
+        }
+        "opacity" => {
+            rule.opacity = Some(parse_rule_opacity(value, line_no)?);
         }
         "overlap-policy" | "overlap_policy" => {
             // Deprecated: expanded windows always allow overlap with other expanded
@@ -198,6 +203,19 @@ fn parse_rule_dimension(value: &str, line_no: usize, field_name: &str) -> Result
             value.trim()
         )
     })
+}
+
+fn parse_rule_opacity(value: &str, line_no: usize) -> Result<f32, String> {
+    let trimmed = value.trim();
+    let opacity = trimmed
+        .parse::<f32>()
+        .map_err(|err| format!("line {line_no}: invalid opacity `{trimmed}`: {err}"))?;
+    if !(0.0..=1.0).contains(&opacity) {
+        return Err(format!(
+            "line {line_no}: opacity `{trimmed}` is out of range; expected 0.0 through 1.0"
+        ));
+    }
+    Ok(opacity)
 }
 
 fn parse_rule_spawn_placement(
@@ -358,6 +376,56 @@ end
 
         assert_eq!(tuning.window_rules.len(), 1);
         assert_eq!(tuning.window_rules[0].initial_size, Some((420, 640)));
+    }
+
+    #[test]
+    fn rule_opacity_parses() {
+        let tuning = RuntimeTuning::from_rune_str(
+            r#"
+rules:
+  rule:
+    app-id "kitty"
+    opacity 0.85
+  end
+end
+"#,
+        )
+        .expect("config should parse");
+
+        assert_eq!(tuning.window_rules.len(), 1);
+        assert_eq!(tuning.window_rules[0].opacity, Some(0.85));
+    }
+
+    #[test]
+    fn rule_opacity_rejects_percent_values() {
+        let tuning = RuntimeTuning::from_rune_str(
+            r#"
+rules:
+  rule:
+    app-id "kitty"
+    opacity 85%
+  end
+end
+"#,
+        );
+
+        assert!(tuning.is_none());
+    }
+
+    #[test]
+    fn rule_opacity_rejects_out_of_range_values() {
+        let tuning = RuntimeTuning::from_rune_str(
+            r#"
+rules:
+  rule:
+    app-id "kitty"
+    opacity 1.2
+  end
+end
+"#,
+        );
+
+        assert!(tuning.is_none());
     }
 
     #[test]

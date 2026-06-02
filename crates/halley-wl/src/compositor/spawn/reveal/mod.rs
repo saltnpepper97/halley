@@ -437,6 +437,7 @@ mod tests {
                 spawn_placement,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Layout,
                 initial_size: None,
+                opacity: 1.0,
             },
             builtin_rule: None,
             matched_rule: true,

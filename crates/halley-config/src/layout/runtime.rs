@@ -803,6 +803,8 @@ rules:
     # Optional fixed initial size for matching windows.
     #width 720
     #height 520
+    # Optional window opacity from 0.0 through 1.0.
+    #opacity 0.85
     spawn-placement "center"
     cluster-participation "float"
   end

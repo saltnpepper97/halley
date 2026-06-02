@@ -477,6 +477,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::All,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Layout,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: false,
                 builtin_rule: None,

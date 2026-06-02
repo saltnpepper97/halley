@@ -41,11 +41,12 @@ pub(crate) struct ActiveSpawnPan {
     pub reveal_at_ms: u64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct AppliedInitialWindowRule {
     pub(crate) overlap_policy: InitialWindowOverlapPolicy,
     pub(crate) spawn_placement: InitialWindowSpawnPlacement,
     pub(crate) cluster_participation: InitialWindowClusterParticipation,
+    pub(crate) opacity: f32,
     pub(crate) parent_node: Option<NodeId>,
     pub(crate) suppress_reveal_pan: bool,
     pub(crate) builtin_rule: Option<super::rules::BuiltinInitialWindowRule>,
@@ -148,6 +149,16 @@ pub(crate) fn node_has_overlap_policy(st: &Halley, node_id: NodeId) -> bool {
         .applied_window_rules
         .get(&node_id)
         .is_some_and(|rule| rule.overlap_policy != InitialWindowOverlapPolicy::None)
+}
+
+pub(crate) fn node_rule_opacity(st: &Halley, node_id: NodeId) -> f32 {
+    st.model
+        .spawn_state
+        .applied_window_rules
+        .get(&node_id)
+        .map(|rule| rule.opacity)
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0)
 }
 
 pub(crate) fn node_floats_over_cluster(st: &Halley, node_id: NodeId) -> bool {
@@ -393,6 +404,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::All,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: true,
                 builtin_rule: None,
@@ -441,6 +453,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::All,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: true,
                 builtin_rule: None,
@@ -470,6 +483,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::None,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: true,
                 builtin_rule: None,
@@ -495,6 +509,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::All,
                 spawn_placement: InitialWindowSpawnPlacement::Center,
                 cluster_participation: InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: true,
                 builtin_rule: Some(BuiltinInitialWindowRule::PictureInPicture),
@@ -502,5 +517,14 @@ mod tests {
         );
 
         assert!(is_persistent_rule_top(&st, id));
+    }
+
+    #[test]
+    fn node_rule_opacity_defaults_to_one() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = NodeId::new(1);
+
+        assert_eq!(node_rule_opacity(&st, id), 1.0);
     }
 }
