@@ -34,6 +34,7 @@ All notable changes to this project will be documented in this file.
 - Recompute live window-rule opacity for already-open windows on config reload and title/app-id refreshes, without reapplying placement or cluster behavior.
 - Keep maximized windows visually maximized while closing by preserving the maximize session through `xdg_toplevel.close`, capturing close animations from maximized geometry, and cleaning up maximize state after the surface is dropped.
 - Skip close-restore panning while a maximize session is present on the monitor, avoiding unnecessary viewport movement when focus is restored during maximized flows.
+- Make focus-cycle and trail navigation out of maximized or fullscreen sessions preserve the selected target's state: visible active windows are raised in place, offscreen active windows exit the presentation mode and pan to center, and collapsed nodes exit the presentation mode and center without uncollapsing.
 - Restore async app icon loading for normal node markers so app icons can appear without depending on other overlays warming the icon cache first.
 - Let Bearings clicks on collapsed cluster core chips focus and center the core like other bearing targets without opening the cluster workspace.
 - Wait briefly for the close-animation capture before automatic active-to-node collapses, fixing the first overlapped auto-collapse snapping to a node while preserving immediate fallback for no-content windows.
