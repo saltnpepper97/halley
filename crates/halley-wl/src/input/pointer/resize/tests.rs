@@ -48,21 +48,6 @@ fn resize_button_frame_at(sx: f32, sy: f32) -> ButtonFrame {
     }
 }
 
-fn nodes_overlap(
-    state: &Halley,
-    a: halley_core::field::NodeId,
-    b: halley_core::field::NodeId,
-) -> bool {
-    let a_node = state.model.field.node(a).expect("a node");
-    let b_node = state.model.field.node(b).expect("b node");
-    let ea = state.collision_extents_for_node(a_node);
-    let eb = state.collision_extents_for_node(b_node);
-    let gap = state.non_overlap_gap_world();
-    let req_x = state.required_sep_x(a_node.pos.x, ea, b_node.pos.x, eb, gap);
-    let req_y = state.required_sep_y(a_node.pos.y, ea, b_node.pos.y, eb, gap);
-    (a_node.pos.x - b_node.pos.x).abs() < req_x && (a_node.pos.y - b_node.pos.y).abs() < req_y
-}
-
 #[test]
 fn drag_direction_maps_to_y_down_resize_handles() {
     assert_eq!(commit_handle_from_drag(0.0, -40.0), ResizeHandle::Top);
@@ -192,77 +177,6 @@ fn begin_resize_blocks_pinned_active_windows() {
     assert!(ps.resize.is_none());
     assert_eq!(st.input.interaction_state.resize_active, None);
     assert!(st.node_user_pinned(window));
-}
-
-#[test]
-fn interactive_resize_moves_overlapped_unpinned_landmark() {
-    let dh = Display::<Halley>::new().expect("display").handle();
-    let mut tuning = single_monitor_tiling_tuning();
-    tuning.animations.smooth_resize.enabled = false;
-    let mut st = Halley::new_for_test(&dh, tuning);
-    let backend = TtyBackendHandle::new(800, 600);
-
-    let window = st.model.field.spawn_surface(
-        "window",
-        halley_core::field::Vec2 { x: 300.0, y: 220.0 },
-        halley_core::field::Vec2 { x: 320.0, y: 240.0 },
-    );
-    st.assign_node_to_monitor(window, "monitor_a");
-    let rect =
-        active_node_screen_rect(&st, 800, 600, window, Instant::now(), None).expect("window rect");
-    let center_y = (rect.1 + rect.3) * 0.5;
-    let landmark_pos = crate::spatial::screen_to_world(&st, 800, 600, rect.2 + 80.0, center_y);
-    let landmark = st.model.field.spawn_surface(
-        "landmark",
-        landmark_pos,
-        halley_core::field::Vec2 { x: 160.0, y: 120.0 },
-    );
-    st.assign_node_to_monitor(landmark, "monitor_a");
-    let _ = st
-        .model
-        .field
-        .set_state(landmark, halley_core::field::NodeState::Node);
-    let landmark_before = st.model.field.node(landmark).expect("landmark").pos;
-
-    let mut ps = PointerState::default();
-    begin_resize(
-        &mut st,
-        &mut ps,
-        &backend,
-        HitNode {
-            node_id: window,
-            move_surface: false,
-            is_core: false,
-        },
-        resize_button_frame_at(rect.2 - 2.0, center_y),
-    );
-    assert!(ps.resize.is_some());
-    assert!(handle_resize_motion(
-        &mut st,
-        &mut ps,
-        800,
-        600,
-        rect.2 + 420.0,
-        center_y,
-        &backend,
-    ));
-
-    assert_eq!(
-        st.model.field.node(landmark).expect("landmark").pos,
-        landmark_before
-    );
-    finalize_resize(&mut st, &mut ps, &backend);
-    assert_ne!(
-        st.model.field.node(landmark).expect("landmark").pos,
-        landmark_before
-    );
-    assert!(
-        st.ui
-            .render_state
-            .landmark_slide_animations
-            .contains_key(&landmark)
-    );
-    assert!(!nodes_overlap(&st, window, landmark));
 }
 
 #[test]

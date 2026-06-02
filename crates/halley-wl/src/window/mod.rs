@@ -14,7 +14,7 @@ use smithay::{
         gles::{GlesRenderer, GlesTexture},
     },
     desktop::{PopupManager, utils::bbox_from_surface_tree},
-    reexports::wayland_server::Resource,
+    reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
     utils::{Logical, Physical, Rectangle, Size},
     wayland::compositor::with_states,
     wayland::shell::xdg::SurfaceCachedState,
@@ -134,6 +134,33 @@ pub(crate) struct StackWindowDrawUnit {
     pub offscreen_textures: Vec<OffscreenNodeTexture>,
 }
 
+pub(crate) struct WindowRenderPlan {
+    pub(crate) active_elements: Vec<CroppedClippedSurfaceElement>,
+    pub(crate) resized_active_elements: Vec<CroppedClippedSurfaceElement>,
+    pub(crate) fullscreen_active_elements: Vec<CroppedClippedSurfaceElement>,
+    pub(crate) above_fullscreen_active_elements: Vec<CroppedClippedSurfaceElement>,
+    pub(crate) offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) resized_offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) above_fullscreen_offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) popup_offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) popup_elements: Vec<CroppedSurfaceElement>,
+    pub(crate) fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) fullscreen_popup_elements: Vec<CroppedSurfaceElement>,
+    pub(crate) above_fullscreen_popup_offscreen_textures: Vec<OffscreenNodeTexture>,
+    pub(crate) above_fullscreen_popup_elements: Vec<CroppedSurfaceElement>,
+    pub(crate) node_surface_map: HashMap<NodeId, WlSurface>,
+    pub(crate) stack_window_units: Vec<StackWindowDrawUnit>,
+    pub(crate) above_fullscreen_stack_window_units: Vec<StackWindowDrawUnit>,
+    pub(crate) shadow_rects: Vec<WindowShadowRect>,
+    pub(crate) resized_shadow_rects: Vec<WindowShadowRect>,
+    pub(crate) above_fullscreen_shadow_rects: Vec<WindowShadowRect>,
+    pub(crate) border_rects: Vec<ActiveBorderRect>,
+    pub(crate) resized_border_rects: Vec<ActiveBorderRect>,
+    pub(crate) above_fullscreen_border_rects: Vec<ActiveBorderRect>,
+    pub(crate) pin_badges: Vec<PinBadgeLayout>,
+}
+
 impl StackWindowDrawUnit {
     fn new(node_id: NodeId, draw_order: i32) -> Self {
         Self {
@@ -188,42 +215,13 @@ fn overlap_policy_draw_order(st: &Halley, node_id: NodeId) -> i32 {
     }
 }
 
-#[allow(clippy::type_complexity)]
 pub(crate) fn collect_active_surfaces(
     renderer: &mut GlesRenderer,
     st: &mut Halley,
     size: Size<i32, Physical>,
     resize_preview: Option<ResizeCtx>,
     now: Instant,
-) -> (
-    Vec<CroppedClippedSurfaceElement>,
-    Vec<CroppedClippedSurfaceElement>,
-    Vec<CroppedClippedSurfaceElement>,
-    Vec<CroppedClippedSurfaceElement>,
-    Vec<OffscreenNodeTexture>,
-    Vec<OffscreenNodeTexture>,
-    Vec<OffscreenNodeTexture>,
-    Vec<OffscreenNodeTexture>,
-    Vec<OffscreenNodeTexture>,
-    Vec<CroppedSurfaceElement>,
-    Vec<OffscreenNodeTexture>,
-    Vec<CroppedSurfaceElement>,
-    Vec<OffscreenNodeTexture>,
-    Vec<CroppedSurfaceElement>,
-    HashMap<
-        halley_core::field::NodeId,
-        smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
-    >,
-    Vec<StackWindowDrawUnit>,
-    Vec<StackWindowDrawUnit>,
-    Vec<WindowShadowRect>,
-    Vec<WindowShadowRect>,
-    Vec<WindowShadowRect>,
-    Vec<ActiveBorderRect>,
-    Vec<ActiveBorderRect>,
-    Vec<ActiveBorderRect>,
-    Vec<PinBadgeLayout>,
-) {
+) -> WindowRenderPlan {
     let active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let mut resized_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
     let fullscreen_active_elements: Vec<CroppedClippedSurfaceElement> = Vec::new();
@@ -1491,7 +1489,7 @@ pub(crate) fn collect_active_surfaces(
     above_fullscreen_stack_window_units
         .sort_by_key(|unit| (unit.draw_order, unit.node_id.as_u64()));
 
-    (
+    WindowRenderPlan {
         active_elements,
         resized_active_elements,
         fullscreen_active_elements,
@@ -1516,7 +1514,7 @@ pub(crate) fn collect_active_surfaces(
         resized_border_rects,
         above_fullscreen_border_rects,
         pin_badges,
-    )
+    }
 }
 
 #[cfg(test)]
