@@ -141,6 +141,7 @@ pub enum CompositorRequest {
         command: DpmsCommand,
         output: Option<String>,
     },
+    Version,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,4 +217,5 @@ pub enum Response {
     TrailList(TrailListResponse),
     BearingsStatus(BearingsStatusResponse),
     Error(IpcError),
+    Version(crate::types::VersionInfo),
 }

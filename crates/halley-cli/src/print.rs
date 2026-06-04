@@ -2,7 +2,7 @@ use halley_ipc::{
     ApertureStatusResponse, CaptureStatusResponse, ClusterInfo, ClusterLayoutKind,
     ClusterListResponse, ClusterSummary, IpcError, LogicalOutputInfo, NodeInfo, NodeListResponse,
     NodeProtocolFamily, NodeRelationInfo, NodeRole, OutputInfo, OutputStatus, OutputsResponse,
-    Response, TrailEntryInfo, TrailListResponse,
+    Response, TrailEntryInfo, TrailListResponse, VersionInfo,
 };
 
 pub(crate) fn print_response(response: Response) -> Result<(), String> {
@@ -15,6 +15,7 @@ pub(crate) fn print_response(response: Response) -> Result<(), String> {
             println!("reloaded");
             Ok(())
         }
+        Response::Version(info) => print_version(&info),
         Response::Outputs(outputs) => {
             print_outputs(outputs);
             Ok(())
@@ -85,6 +86,26 @@ fn print_aperture_status(status: &ApertureStatusResponse) {
     println!("mode: {:?}", status.mode);
     for output in &status.outputs {
         println!("{}: {:?}", output.output, output.mode);
+    }
+}
+
+fn print_version(info: &VersionInfo) -> Result<(), String> {
+    if wants_json() {
+        #[derive(serde::Serialize)]
+        struct VersionOutput<'a> {
+            halley: &'a str,
+            halleyctl: &'static str,
+            ipc_protocol: u32,
+        }
+
+        print_json(&VersionOutput {
+            halley: info.version.as_str(),
+            halleyctl: env!("CARGO_PKG_VERSION"),
+            ipc_protocol: info.ipc_protocol,
+        })
+    } else {
+        println!("halley {}", info.version);
+        Ok(())
     }
 }
 

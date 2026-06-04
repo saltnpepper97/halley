@@ -366,4 +366,5 @@ fn print_help_page(title: &str, usage: &[&str], commands: &[(&str, &str)]) {
     println!();
     println!("Options:");
     println!("  -h, --help  Show help");
+    println!("  -V, --version  Show running Halley version");
 }

@@ -8,7 +8,8 @@ use std::time::Instant;
 
 use halley_ipc::{
     BearingsRequest, BearingsStatusResponse, CaptureRequest, CaptureStatusResponse,
-    CompositorRequest, IpcError, NodeMoveDirection, Request, Response, StackRequest, TileRequest,
+    CompositorRequest, IPC_PROTOCOL_VERSION, IpcError, NodeMoveDirection, Request, Response,
+    StackRequest, TileRequest, VersionInfo,
 };
 
 use crate::compositor::root::Halley;
@@ -40,6 +41,10 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Compositor(CompositorRequest::Outputs) => Response::Error(IpcError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
+        Request::Compositor(CompositorRequest::Version) => Response::Version(VersionInfo {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            ipc_protocol: IPC_PROTOCOL_VERSION,
+        }),
         Request::Compositor(CompositorRequest::ApertureStatus) => {
             Response::ApertureStatus(crate::aperture::aperture_status(st))
         }

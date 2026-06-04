@@ -34,6 +34,13 @@ pub(crate) fn parse_request(args: &[String]) -> Result<ParseOutcome, UsageError>
         return Ok(ParseOutcome::Help(HelpTopic::Top));
     }
 
+    if args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "--version" | "-V"))
+    {
+        return parse_version_flag(args);
+    }
+
     match args[0].as_str() {
         "help" | "--help" | "-h" => Ok(ParseOutcome::Help(HelpTopic::Top)),
         "quit" => parse_leaf_command(
@@ -65,6 +72,23 @@ pub(crate) fn parse_request(args: &[String]) -> Result<ParseOutcome, UsageError>
             HelpTopic::Top,
         )),
     }
+}
+
+fn parse_version_flag(args: &[String]) -> Result<ParseOutcome, UsageError> {
+    for arg in args {
+        match arg.as_str() {
+            "--version" | "-V" | "--json" => {}
+            other => {
+                return Err(UsageError::new(
+                    format!("unexpected argument for --version: {other}"),
+                    HelpTopic::Top,
+                ));
+            }
+        }
+    }
+    Ok(ParseOutcome::Request(Request::Compositor(
+        CompositorRequest::Version,
+    )))
 }
 
 pub(crate) fn parse_leaf_command(
@@ -208,6 +232,27 @@ pub(crate) fn parse_selector_flags(
 #[cfg(test)]
 mod tests {
     use super::{ParseOutcome, parse_request};
+
+    #[test]
+    fn version_flag_parses() {
+        for args in [
+            vec!["--version".to_string()],
+            vec!["-V".to_string()],
+            vec!["--version".to_string(), "--json".to_string()],
+        ] {
+            let outcome = match parse_request(&args) {
+                Ok(outcome) => outcome,
+                Err(err) => panic!("version flag should parse: {}", err.message),
+            };
+
+            match outcome {
+                ParseOutcome::Request(halley_ipc::Request::Compositor(
+                    halley_ipc::CompositorRequest::Version,
+                )) => {}
+                _ => panic!("unexpected parse outcome"),
+            }
+        }
+    }
 
     #[test]
     fn stack_cycle_request_parses() {

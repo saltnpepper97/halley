@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use halley_ipc::{CaptureRequest, Request, Response, send_request};
+use halley_ipc::{CaptureRequest, CompositorRequest, IpcError, Request, Response, send_request};
 
 mod cmd;
 mod help;
@@ -17,6 +17,12 @@ fn main() {
         Ok(ParseOutcome::Request(request)) => match send_request(&request) {
             Ok(response) => {
                 let original_request = request.clone();
+                if version_request_rejected_by_old_compositor(&original_request, &response) {
+                    eprintln!(
+                        "halleyctl failed: the running Halley compositor does not support -V/--version yet; restart Halley after updating"
+                    );
+                    std::process::exit(1);
+                }
                 if let Err(err) = print_response(response.clone()) {
                     eprintln!("halleyctl failed: {err}");
                     std::process::exit(1);
@@ -32,6 +38,13 @@ fn main() {
                 }
             }
             Err(err) => {
+                if is_version_request(&request) && matches!(err, halley_ipc::CodecError::Decode(_))
+                {
+                    eprintln!(
+                        "halleyctl failed: the running Halley compositor does not support -V/--version yet; restart Halley after updating"
+                    );
+                    std::process::exit(1);
+                }
                 eprintln!("halleyctl failed to talk to halley: {err}");
                 std::process::exit(1);
             }
@@ -39,6 +52,19 @@ fn main() {
         Ok(ParseOutcome::Help(topic)) => print_help(topic),
         Err(err) => exit_usage(err),
     }
+}
+
+fn is_version_request(request: &Request) -> bool {
+    matches!(request, Request::Compositor(CompositorRequest::Version))
+}
+
+fn version_request_rejected_by_old_compositor(request: &Request, response: &Response) -> bool {
+    is_version_request(request)
+        && matches!(
+            response,
+            Response::Error(IpcError::InvalidRequest(message))
+                if message.contains("decode error") || message.contains("deserial")
+        )
 }
 
 fn capture_serial_from_response(response: &Response) -> Option<u64> {

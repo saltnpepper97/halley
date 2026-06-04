@@ -13,8 +13,8 @@ use std::time::Duration;
 use crate::bootstrap::common::halley_runtime_dir;
 use eventline::{error, info, warn};
 use halley_ipc::{
-    IpcError, OutputInfo, OutputsResponse, Request, Response, decode_request, encode_response,
-    read_frame, write_frame,
+    IPC_PROTOCOL_VERSION, IpcError, OutputInfo, OutputsResponse, Request, Response, VersionInfo,
+    decode_request, encode_response, read_frame, write_frame,
 };
 
 #[derive(Debug)]
@@ -179,6 +179,9 @@ fn handle_request(
     outputs: &Arc<Mutex<Vec<OutputInfo>>>,
 ) -> Response {
     match request {
+        Request::Compositor(halley_ipc::CompositorRequest::Version) => {
+            Response::Version(version_info())
+        }
         Request::Compositor(halley_ipc::CompositorRequest::Outputs) => match outputs.lock() {
             Ok(guard) => Response::Outputs(OutputsResponse {
                 outputs: guard.clone(),
@@ -200,6 +203,14 @@ fn handle_request(
         }
     }
 }
+
+fn version_info() -> VersionInfo {
+    VersionInfo {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        ipc_protocol: IPC_PROTOCOL_VERSION,
+    }
+}
+
 fn remove_stale_socket(path: &Path) -> io::Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
