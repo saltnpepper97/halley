@@ -258,7 +258,7 @@ fn pointer_focus_at_last_screen(
         resize_preview,
     );
     let location = if focus.as_ref().is_some_and(|(surface, _)| {
-        crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+        crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
             || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
     }) {
         (local_sx as f64, local_sy as f64).into()
@@ -281,7 +281,7 @@ fn pointer_contents_for_focus(
         .as_ref()
         .and_then(|id| st.model.surface_to_node.get(id).copied());
     let is_layer_surface = focus.is_some_and(|(surface, _)| {
-        crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+        crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
     });
     let is_session_lock_surface = focus.is_some_and(|(surface, _)| {
         crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)

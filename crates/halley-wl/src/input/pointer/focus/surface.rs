@@ -236,7 +236,8 @@ pub(crate) fn layer_surface_focus_for_screen(
         if block_non_overlay
             && !matches!(
                 placement.layer,
-                smithay::wayland::shell::wlr_layer::Layer::Overlay
+                smithay::wayland::shell::wlr_layer::Layer::Top
+                    | smithay::wayland::shell::wlr_layer::Layer::Overlay
             )
         {
             continue;
@@ -297,13 +298,15 @@ pub(crate) fn grabbed_layer_surface_focus(
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     Point<f64, Logical>,
 )> {
-    let monitor = crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface);
+    let root =
+        crate::compositor::monitor::layer_shell::layer_surface_root_for_surface(st, surface)?;
+    let monitor = crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, &root);
     let placement = crate::compositor::monitor::layer_shell::layer_shell_placements_for_monitor(
         st,
         monitor.as_str(),
     )
     .into_iter()
-    .find(|placement| placement.wl_surface == *surface)?;
+    .find(|placement| placement.wl_surface == root)?;
     Some((
         surface.clone(),
         Point::<f64, Logical>::from((placement.origin.x as f64, placement.origin.y as f64)),

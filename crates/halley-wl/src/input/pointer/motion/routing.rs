@@ -57,7 +57,9 @@ pub(super) fn compute_motion_routing(
         .get_pointer()
         .and_then(|pointer| pointer.is_grabbed().then_some(()))
         .and_then(|_| st.input.interaction_state.grabbed_layer_surface.clone())
-        .filter(|surface| crate::compositor::monitor::layer_shell::is_layer_surface(st, surface));
+        .filter(|surface| {
+            crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
+        });
 
     let drag_state = ps.drag.map(|drag| {
         let owner = st.monitor_for_node_or_current(drag.node_id);
@@ -206,7 +208,7 @@ pub(super) fn dispatch_pointer_motion(
             .and_then(|pointer| pointer.is_grabbed().then_some(()))
             .and_then(|_| st.input.interaction_state.grabbed_layer_surface.clone())
             .filter(|surface| {
-                crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+                crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
             });
 
         let resize_preview = ps.resize;
@@ -245,14 +247,14 @@ pub(super) fn dispatch_pointer_motion(
 
         desktop_hover = focus.is_none();
         hover_focus_blocked = focus.as_ref().is_some_and(|(surface, _)| {
-            crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+            crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
                 || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
         });
 
         let location = if locked_surface.is_some() {
             pointer.current_location()
         } else if focus.as_ref().is_some_and(|(surface, _)| {
-            crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+            crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
                 || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
         }) {
             (routing.local_sx as f64, routing.local_sy as f64).into()

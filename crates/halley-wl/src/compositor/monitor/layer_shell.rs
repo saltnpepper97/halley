@@ -742,6 +742,40 @@ pub(crate) fn is_layer_surface(st: &Halley, surface: &WlSurface) -> bool {
         .any(|layer| layer.wl_surface().id() == surface.id())
 }
 
+fn popup_parent_surface(popup: &PopupKind) -> Option<WlSurface> {
+    match popup {
+        PopupKind::Xdg(popup) => popup.get_parent_surface(),
+        PopupKind::InputMethod(popup) => popup.get_parent().map(|parent| parent.surface.clone()),
+    }
+}
+
+pub(crate) fn layer_surface_root_for_surface(
+    st: &Halley,
+    surface: &WlSurface,
+) -> Option<WlSurface> {
+    let mut current = surface.clone();
+    loop {
+        if is_layer_surface(st, &current) {
+            return Some(current);
+        }
+        if let Some(parent) = smithay::wayland::compositor::get_parent(&current) {
+            current = parent;
+            continue;
+        }
+        let Some(popup) = st.platform.popup_manager.find_popup(&current) else {
+            return None;
+        };
+        let Some(parent) = popup_parent_surface(&popup) else {
+            return None;
+        };
+        current = parent;
+    }
+}
+
+pub(crate) fn is_layer_surface_tree(st: &Halley, surface: &WlSurface) -> bool {
+    layer_surface_root_for_surface(st, surface).is_some()
+}
+
 pub(crate) fn reassert_layer_surface_keyboard_focus_if_drifted(st: &mut Halley) {
     let Some(desired_focus) = layer_focus_surface(st) else {
         st.model.monitor_state.layer_keyboard_focus = None;
