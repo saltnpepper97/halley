@@ -139,8 +139,12 @@ pub(crate) fn apply_reloaded_tuning(
     let live_camera = capture_live_camera_state(st);
     st.apply_tuning(next);
     restore_live_camera_state(st, live_camera);
+    let opacity_changed = crate::compositor::spawn::state::recompute_all_node_rule_opacities(st);
     st.ui.render_state.clear_window_offscreen_caches();
     st.request_maintenance();
+    if opacity_changed {
+        st.runtime.tty_redraw_all = true;
+    }
     // Clone to avoid borrow conflict when passing st mutably below.
     let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");

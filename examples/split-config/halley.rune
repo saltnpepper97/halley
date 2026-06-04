@@ -7,6 +7,12 @@ gather "theme.rune"
 gather "field.rune"
 gather "input.rune"
 
+# Debug-only compositor diagnostics.
+debug:
+  overlay-fps false
+  show-ring-when-resizing true
+end
+
 # Local values can override gathered defaults without replacing the whole section.
 field:
   pins:

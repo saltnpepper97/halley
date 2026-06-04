@@ -46,6 +46,7 @@ pub(crate) fn draw_overlay_hover_label(
     let preview_active = st
         .ui
         .render_state
+        .view
         .node_preview_hover
         .get(&target.monitor)
         .is_some_and(|state| state.node == Some(target.node_id) && state.mix > 0.0);

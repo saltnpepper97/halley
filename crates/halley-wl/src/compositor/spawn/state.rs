@@ -41,11 +41,12 @@ pub(crate) struct ActiveSpawnPan {
     pub reveal_at_ms: u64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct AppliedInitialWindowRule {
     pub(crate) overlap_policy: InitialWindowOverlapPolicy,
     pub(crate) spawn_placement: InitialWindowSpawnPlacement,
     pub(crate) cluster_participation: InitialWindowClusterParticipation,
+    pub(crate) opacity: f32,
     pub(crate) parent_node: Option<NodeId>,
     pub(crate) suppress_reveal_pan: bool,
     pub(crate) builtin_rule: Option<super::rules::BuiltinInitialWindowRule>,
@@ -116,6 +117,7 @@ pub(crate) struct SpawnState {
     pub(crate) pending_spawn_pan_queue: VecDeque<PendingSpawnPan>,
     pub(crate) active_spawn_pan: Option<ActiveSpawnPan>,
     pub(crate) applied_window_rules: HashMap<NodeId, AppliedInitialWindowRule>,
+    pub(crate) live_window_opacity: HashMap<NodeId, f32>,
     pub(crate) pending_rule_rechecks: HashSet<NodeId>,
     pub(crate) pending_initial_reveal: HashSet<NodeId>,
     pub(crate) pending_initial_spawn_placement: Option<InitialSpawnPlacement>,
@@ -148,6 +150,80 @@ pub(crate) fn node_has_overlap_policy(st: &Halley, node_id: NodeId) -> bool {
         .applied_window_rules
         .get(&node_id)
         .is_some_and(|rule| rule.overlap_policy != InitialWindowOverlapPolicy::None)
+}
+
+pub(crate) fn node_rule_opacity(st: &Halley, node_id: NodeId) -> f32 {
+    st.model
+        .spawn_state
+        .live_window_opacity
+        .get(&node_id)
+        .copied()
+        .or_else(|| {
+            st.model
+                .spawn_state
+                .applied_window_rules
+                .get(&node_id)
+                .map(|rule| rule.opacity)
+        })
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0)
+}
+
+pub(crate) fn recompute_node_rule_opacity(st: &mut Halley, node_id: NodeId) -> bool {
+    let Some(node) = st.model.field.node(node_id) else {
+        st.model.spawn_state.live_window_opacity.remove(&node_id);
+        return false;
+    };
+    if node.kind != halley_core::field::NodeKind::Surface {
+        st.model.spawn_state.live_window_opacity.remove(&node_id);
+        return false;
+    }
+
+    let title = node.label.clone();
+    let app_id = st.model.node_app_ids.get(&node_id).cloned();
+    let next = super::rules::user_window_rule_opacity_for_identity(
+        st,
+        app_id.as_deref(),
+        Some(title.as_str()),
+    );
+    let previous = st
+        .model
+        .spawn_state
+        .live_window_opacity
+        .insert(node_id, next)
+        .or_else(|| {
+            st.model
+                .spawn_state
+                .applied_window_rules
+                .get(&node_id)
+                .map(|rule| rule.opacity)
+        })
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0);
+
+    if (previous - next).abs() > f32::EPSILON {
+        if next < 0.999 || previous < 0.999 {
+            st.model
+                .fullscreen_state
+                .clear_direct_scanout_for_node(node_id);
+        }
+        return true;
+    }
+    false
+}
+
+pub(crate) fn recompute_all_node_rule_opacities(st: &mut Halley) -> bool {
+    let node_ids = st.model.field.node_ids_all();
+    let mut changed = false;
+    for node_id in node_ids.iter().copied() {
+        changed |= recompute_node_rule_opacity(st, node_id);
+    }
+    let live_nodes: HashSet<NodeId> = node_ids.into_iter().collect();
+    st.model
+        .spawn_state
+        .live_window_opacity
+        .retain(|node_id, _| live_nodes.contains(node_id));
+    changed
 }
 
 pub(crate) fn node_floats_over_cluster(st: &Halley, node_id: NodeId) -> bool {
@@ -269,7 +345,11 @@ pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, n
             .spawn_state
             .pending_tiled_insert_reveal_at_ms
             .remove(&id);
-        st.ui.render_state.cluster_tile_entry_pending.insert(id);
+        st.ui
+            .render_state
+            .window_animations
+            .cluster_tile_entry_pending
+            .insert(id);
         let monitor = st
             .model
             .monitor_state
@@ -347,6 +427,7 @@ pub(crate) fn process_pending_spawn_activations(st: &mut Halley, now: Instant, n
 mod tests {
     use super::*;
     use crate::compositor::spawn::rules::BuiltinInitialWindowRule;
+    use halley_config::WindowRulePattern;
     use smithay::reexports::wayland_server::Display;
 
     #[test]
@@ -393,6 +474,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::All,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: true,
                 builtin_rule: None,
@@ -441,6 +523,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::All,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: true,
                 builtin_rule: None,
@@ -470,6 +553,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::None,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: true,
                 builtin_rule: None,
@@ -495,6 +579,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::All,
                 spawn_placement: InitialWindowSpawnPlacement::Center,
                 cluster_participation: InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: true,
                 builtin_rule: Some(BuiltinInitialWindowRule::PictureInPicture),
@@ -502,5 +587,43 @@ mod tests {
         );
 
         assert!(is_persistent_rule_top(&st, id));
+    }
+
+    #[test]
+    fn node_rule_opacity_defaults_to_one() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let id = NodeId::new(1);
+
+        assert_eq!(node_rule_opacity(&st, id), 1.0);
+    }
+
+    #[test]
+    fn recompute_node_rule_opacity_updates_existing_node() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.window_rules = vec![halley_config::WindowRule {
+            app_ids: vec![WindowRulePattern::Exact("kitty".to_string())],
+            titles: Vec::new(),
+            initial_size: None,
+            opacity: Some(0.5),
+            overlap_policy: InitialWindowOverlapPolicy::None,
+            spawn_placement: InitialWindowSpawnPlacement::Adjacent,
+            cluster_participation: InitialWindowClusterParticipation::Layout,
+        }];
+        let mut st = Halley::new_for_test(&dh, tuning);
+        let id = st.model.field.spawn_surface(
+            "terminal",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.model.node_app_ids.insert(id, "kitty".to_string());
+
+        assert!(recompute_node_rule_opacity(&mut st, id));
+        assert_eq!(node_rule_opacity(&st, id), 0.5);
+
+        st.runtime.tuning.window_rules[0].opacity = Some(0.8);
+        assert!(recompute_all_node_rule_opacities(&mut st));
+        assert_eq!(node_rule_opacity(&st, id), 0.8);
     }
 }

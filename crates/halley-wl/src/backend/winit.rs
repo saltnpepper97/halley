@@ -215,6 +215,7 @@ fn apply_winit_reload(
     let live_camera = crate::bootstrap::capture_live_camera_state(st);
     st.apply_tuning(next);
     crate::bootstrap::restore_live_camera_state(st, live_camera);
+    crate::compositor::spawn::state::recompute_all_node_rule_opacities(st);
     st.ui.render_state.clear_window_offscreen_caches();
     st.request_maintenance();
     st.advertise_output(

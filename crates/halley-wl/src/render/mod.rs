@@ -42,7 +42,8 @@ pub(crate) use frame::{
     ensure_window_texture_program,
 };
 pub(crate) use node::{
-    ensure_node_circle_resources, node_app_icon_fallback_glyph, node_app_icon_texture_allowed,
+    NODE_ICON_FADE_DELAY_MS, NODE_ICON_FADE_MS, ensure_node_circle_resources,
+    node_app_icon_fallback_glyph, node_app_icon_texture_allowed,
 };
 pub(crate) use screenshot_icon::{
     screenshot_menu_background_color, screenshot_menu_highlight_color,

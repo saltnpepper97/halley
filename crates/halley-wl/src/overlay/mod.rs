@@ -6,6 +6,7 @@ mod cluster_naming;
 mod cluster_overflow;
 mod exit_confirm;
 mod focus_cycle;
+mod fps;
 mod hover_label;
 mod screenshot;
 mod selection_marker;
@@ -57,6 +58,7 @@ use chip::{
 use cluster_overflow::draw_overflow_member_chip;
 use exit_confirm::draw_exit_confirmation;
 use focus_cycle::draw_focus_cycle_switcher;
+use fps::draw_debug_fps_overlay;
 use text::{truncate_overlay_text, truncate_overlay_text_to_width, visible_overlay_text_window};
 use toast::draw_toast;
 
@@ -171,6 +173,7 @@ pub(crate) fn draw_monitor_hud(
     }
     draw_cluster_naming_dialog(frame, st, screen_w, screen_h, damage)?;
     draw_screenshot_overlay(frame, st, screen_w, screen_h, damage)?;
+    draw_debug_fps_overlay(frame, st, damage, now)?;
     Ok(())
 }
 

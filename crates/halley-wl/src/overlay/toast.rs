@@ -214,7 +214,7 @@ pub(crate) fn error_toast_hit_test(
     sx: f64,
     sy: f64,
 ) -> bool {
-    let Some(toast) = st.ui.render_state.overlay_toast.get(monitor) else {
+    let Some(toast) = st.ui.render_state.overlay_toast_state(monitor) else {
         return false;
     };
     if !matches!(toast.kind, OverlayToastKind::Error) {
@@ -244,7 +244,7 @@ pub(crate) fn scroll_error_toast(
     dx: i32,
     dy: i32,
 ) -> bool {
-    let Some(toast) = st.ui.render_state.overlay_toast.get(monitor) else {
+    let Some(toast) = st.ui.render_state.overlay_toast_state(monitor) else {
         return false;
     };
     if !matches!(toast.kind, OverlayToastKind::Error) {

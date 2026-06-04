@@ -123,6 +123,7 @@ impl ConfigSchema {
             "bearings",
             "clusters",
             "cursor",
+            "debug",
             "decay",
             "decorations",
             "env",
@@ -156,6 +157,7 @@ impl ConfigSchema {
             "bearings",
             "clusters",
             "cursor",
+            "debug",
             "decay",
             "decorations",
             "decorations.border",
@@ -221,6 +223,8 @@ impl ConfigSchema {
             "cursor.hide-when-typing",
             "cursor.hide-after-ms",
             "cursor.hide-after-inactive-ms",
+            "debug.overlay-fps",
+            "debug.show-ring-when-resizing",
             "decay.active-delay",
             "decay.inactive-delay",
             "decay.docked-offscreen-delay",
@@ -559,6 +563,8 @@ fn bool_scalar(path: &str) -> bool {
             | "clusters.show-icons"
             | "cursor.hide-while-typing"
             | "cursor.hide-when-typing"
+            | "debug.overlay-fps"
+            | "debug.show-ring-when-resizing"
             | "decorations.secondary-border.enabled"
             | "decorations.shadows.window.enabled"
             | "decorations.shadows.node.enabled"

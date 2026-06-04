@@ -9,6 +9,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::{Bind, Color32F, ExportMem, Frame, Offscreen, Renderer};
 use smithay::utils::{Buffer, Rectangle, Transform};
 
+use crate::compositor::spawn::state::node_rule_opacity;
 use crate::render::{
     draw_offscreen_textures, draw_window_borders, ensure_node_circle_resources,
     ensure_window_texture_program,
@@ -95,16 +96,27 @@ pub(crate) fn capture_closing_window_animation(
         ob.size.w.max(1) as f32,
         ob.size.h.max(1) as f32,
     ));
+    let maximized_visual =
+        crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
+            st,
+            node_id,
+            monitor,
+            Instant::now(),
+        );
+    let visual_pos = maximized_visual.map(|(pos, _)| pos).unwrap_or(node.pos);
     let (cx, cy) = world_to_screen_for_view(
         view_center,
         view_size,
         output_size.w,
         output_size.h,
-        node.pos.x,
-        node.pos.y,
+        visual_pos.x,
+        visual_pos.y,
     );
-    let gw = (local_geo.2 * render_scale).round().max(1.0) as i32;
-    let gh = (local_geo.3 * render_scale).round().max(1.0) as i32;
+    let (visual_w, visual_h) = maximized_visual
+        .map(|(_, size)| (size.x, size.y))
+        .unwrap_or((local_geo.2, local_geo.3));
+    let gw = (visual_w * render_scale).round().max(1.0) as i32;
+    let gh = (visual_h * render_scale).round().max(1.0) as i32;
     let gx = cx - (gw / 2);
     let gy = cy - (gh / 2);
     let fullscreen_on_monitor = st
@@ -174,9 +186,10 @@ pub(crate) fn capture_closing_window_animation(
             (local_geo.3 * src_scale_y).min(dst_h as f32).max(1.0),
         )
     };
+    let opacity = node_rule_opacity(st, node_id);
     let offscreen = OffscreenNodeTexture {
         texture,
-        alpha: 1.0,
+        alpha: opacity,
         corner_radius: decoration_metrics.content_corner_radius_px as f32,
         src_x,
         src_y,
@@ -202,7 +215,7 @@ pub(crate) fn capture_closing_window_animation(
         gy,
         gw.max(1),
         gh.max(1),
-        1.0,
+        opacity,
         render_scale,
         fullscreen_on_monitor,
     );
@@ -381,7 +394,7 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
         if !requested
             && crate::compositor::surface::is_active_cluster_workspace_member(st, node_id)
             && crate::animation::cluster_tile_rect_for(
-                &st.ui.render_state.cluster_tile_tracks,
+                st.ui.render_state.cluster_tile_tracks(),
                 node_id,
                 now,
             )
@@ -414,7 +427,7 @@ pub(crate) fn prewarm_visible_active_window_offscreen_caches(
         // against the moved geometry). Reuse the existing texture; the normal
         // rebuild resumes once the transition settles.
         let tile_transition_active = crate::animation::cluster_tile_rect_for(
-            &st.ui.render_state.cluster_tile_tracks,
+            st.ui.render_state.cluster_tile_tracks(),
             node_id,
             now,
         )

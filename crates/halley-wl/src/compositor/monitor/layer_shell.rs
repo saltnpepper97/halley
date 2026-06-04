@@ -30,6 +30,33 @@ pub(crate) struct LayerPlacement {
     pub keyboard_interactivity: KeyboardInteractivity,
 }
 
+impl LayerShellCtx<'_> {
+    pub(crate) fn register_layer_surface(
+        &mut self,
+        surface: LayerSurface,
+        output: Option<WlOutput>,
+        layer: Layer,
+        namespace: String,
+    ) {
+        register_layer_surface_impl(self.st, surface, output, layer, namespace);
+    }
+
+    pub(crate) fn remove_layer_surface(&mut self, surface: &LayerSurface) {
+        remove_layer_surface_impl(self.st, surface);
+    }
+
+    pub(crate) fn maybe_grant_layer_surface_focus_on_commit(&mut self, surface: &WlSurface) {
+        maybe_grant_layer_surface_focus_on_commit_impl(self.st, surface);
+    }
+
+    pub(crate) fn layer_popup_constraint_target(
+        &self,
+        popup: &PopupSurface,
+    ) -> Option<Rectangle<i32, Logical>> {
+        layer_popup_constraint_target(self.st, popup)
+    }
+}
+
 pub(crate) fn register_layer_surface(
     ctx: &mut LayerShellCtx<'_>,
     surface: LayerSurface,
@@ -37,11 +64,11 @@ pub(crate) fn register_layer_surface(
     layer: Layer,
     namespace: String,
 ) {
-    register_layer_surface_impl(ctx.st, surface, output, layer, namespace);
+    ctx.register_layer_surface(surface, output, layer, namespace);
 }
 
 pub(crate) fn remove_layer_surface(ctx: &mut LayerShellCtx<'_>, surface: &LayerSurface) {
-    remove_layer_surface_impl(ctx.st, surface);
+    ctx.remove_layer_surface(surface);
 }
 
 #[allow(dead_code)]
@@ -49,7 +76,7 @@ pub(crate) fn maybe_grant_layer_surface_focus_on_commit(
     ctx: &mut LayerShellCtx<'_>,
     surface: &WlSurface,
 ) {
-    maybe_grant_layer_surface_focus_on_commit_impl(ctx.st, surface);
+    ctx.maybe_grant_layer_surface_focus_on_commit(surface);
 }
 
 pub(crate) fn constrain_layer_popup(
@@ -57,24 +84,34 @@ pub(crate) fn constrain_layer_popup(
     popup: &PopupSurface,
     positioner: PositionerState,
 ) {
-    let Some(target) = layer_popup_constraint_target(ctx.st, popup) else {
+    let Some(target) = ctx.layer_popup_constraint_target(popup) else {
         return;
     };
-    let mut geometry = positioner.get_unconstrained_geometry(target);
+    let (constrained_positioner, geometry) = constrained_layer_popup_position(positioner, target);
+
+    popup.with_pending_state(|state| {
+        state.positioner = constrained_positioner;
+        state.geometry = geometry;
+    });
+}
+
+fn constrained_layer_popup_position(
+    positioner: PositionerState,
+    target: Rectangle<i32, Logical>,
+) -> (PositionerState, Rectangle<i32, Logical>) {
+    let mut constrained_positioner = positioner;
+    let mut geometry = constrained_positioner.get_unconstrained_geometry(target);
     if !rectangle_fits_within(target, geometry) {
-        let mut fallback_positioner = positioner;
-        fallback_positioner.constraint_adjustment |= smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::FlipX
+        constrained_positioner.constraint_adjustment |= smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::FlipX
             | smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::FlipY
             | smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::SlideX
             | smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::SlideY
             | smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::ResizeX
             | smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment::ResizeY;
-        geometry = fallback_positioner.get_unconstrained_geometry(target);
+        geometry = constrained_positioner.get_unconstrained_geometry(target);
     }
 
-    popup.with_pending_state(|state| {
-        state.geometry = geometry;
-    });
+    (constrained_positioner, geometry)
 }
 
 fn layer_popup_constraint_target(
@@ -111,19 +148,34 @@ fn rectangle_fits_within(target: Rectangle<i32, Logical>, rect: Rectangle<i32, L
         && rect_bottom <= target_bottom
 }
 
-/// True when `monitor` has an active tiling cluster workspace. While locked, the
-/// cluster work area is frozen for the whole session: the aperture-driven
-/// reservation is established once at enter (via the forced refresh) and no later
-/// aperture-height commit is allowed to move `usable_viewport`. This eliminates
-/// both the mid-slide re-basing and the post-slide settle "snap" (see
-/// `refresh_monitor_usable_viewports`). The live height is still learned into
-/// `aperture_layer_heights` for the next enter; it just isn't applied mid-session.
-fn monitor_cluster_workarea_locked(st: &Halley, monitor: &str) -> bool {
-    st.active_cluster_workspace_for_monitor(monitor).is_some()
+/// True when `monitor` is in a mode that needs a frozen work area. The
+/// aperture-driven reservation is established once through a forced refresh, and
+/// later aperture commits are deferred so in-flight layout animations keep a
+/// stable `usable_viewport` target.
+fn monitor_workarea_locked(st: &Halley, monitor: &str) -> bool {
+    let cluster_locked = st.active_cluster_workspace_for_monitor(monitor).is_some()
         && matches!(
             st.runtime.tuning.cluster_layout_kind(),
             halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
-        )
+        );
+    let maximize_locked =
+        crate::compositor::workspace::state::maximize_session_present_on_monitor(st, monitor);
+
+    cluster_locked || maximize_locked
+}
+
+/// True when at least one monitor with a deferred work-area refresh is currently
+/// unlocked, i.e. a [`refresh_monitor_usable_viewports`] pass would actually
+/// apply something. While a session stays locked the pending entry is re-inserted
+/// every pass, so the maintenance tick uses this to avoid re-running the full
+/// refresh (and invalidating the aperture mode cache) every frame for the whole
+/// session.
+pub(crate) fn any_pending_workarea_unlocked(st: &Halley) -> bool {
+    st.model
+        .monitor_state
+        .pending_workarea_refresh
+        .iter()
+        .any(|monitor| !monitor_workarea_locked(st, monitor))
 }
 
 pub(crate) fn refresh_monitor_usable_viewports(st: &mut Halley) {
@@ -173,17 +225,15 @@ fn refresh_monitor_usable_viewports_inner(st: &mut Halley, force_monitor: Option
                 size,
             )
         };
-        // Freeze the cluster work area for the whole active tiling session:
-        // applying the aperture's animated reservation mid-session rewrites
-        // `usable_viewport`, which re-bases the in-flight tile easing (mid-slide
-        // stutter) and snaps the work area as the slide settles (the end-of-open
-        // top adjustment). The reservation is established once at enter via the
-        // forced refresh; any later aperture-height change is deferred (and only
-        // applied once the session ends — maintenance tick / cluster exit). The
-        // entering monitor is exempted so its baseline still gets written.
+        // Freeze the work area for active layout sessions: applying the aperture's
+        // animated reservation mid-session rewrites `usable_viewport`, which
+        // re-bases in-flight tile/maximize easing. The reservation is established
+        // once at entry via forced refresh; later aperture-height changes are
+        // deferred until the session unlocks. The entering monitor is exempted so
+        // its baseline still gets written.
         if usable_viewport != space.usable_viewport
             && force_monitor != Some(monitor_name.as_str())
-            && monitor_cluster_workarea_locked(st, &monitor_name)
+            && monitor_workarea_locked(st, &monitor_name)
         {
             st.model
                 .monitor_state
@@ -191,7 +241,7 @@ fn refresh_monitor_usable_viewports_inner(st: &mut Halley, force_monitor: Option
                 .insert(monitor_name.clone());
             if crate::perf::enabled() {
                 eventline::info!(
-                    "perf workarea_defer monitor={} old_top={:.1} new_top={:.1} (cluster_locked)",
+                    "perf workarea_defer monitor={} old_top={:.1} new_top={:.1} (session_locked)",
                     monitor_name,
                     space.usable_viewport.center.y - space.usable_viewport.size.y * 0.5,
                     usable_viewport.center.y - usable_viewport.size.y * 0.5,
@@ -692,6 +742,40 @@ pub(crate) fn is_layer_surface(st: &Halley, surface: &WlSurface) -> bool {
         .any(|layer| layer.wl_surface().id() == surface.id())
 }
 
+fn popup_parent_surface(popup: &PopupKind) -> Option<WlSurface> {
+    match popup {
+        PopupKind::Xdg(popup) => popup.get_parent_surface(),
+        PopupKind::InputMethod(popup) => popup.get_parent().map(|parent| parent.surface.clone()),
+    }
+}
+
+pub(crate) fn layer_surface_root_for_surface(
+    st: &Halley,
+    surface: &WlSurface,
+) -> Option<WlSurface> {
+    let mut current = surface.clone();
+    loop {
+        if is_layer_surface(st, &current) {
+            return Some(current);
+        }
+        if let Some(parent) = smithay::wayland::compositor::get_parent(&current) {
+            current = parent;
+            continue;
+        }
+        let Some(popup) = st.platform.popup_manager.find_popup(&current) else {
+            return None;
+        };
+        let Some(parent) = popup_parent_surface(&popup) else {
+            return None;
+        };
+        current = parent;
+    }
+}
+
+pub(crate) fn is_layer_surface_tree(st: &Halley, surface: &WlSurface) -> bool {
+    layer_surface_root_for_surface(st, surface).is_some()
+}
+
 pub(crate) fn reassert_layer_surface_keyboard_focus_if_drifted(st: &mut Halley) {
     let Some(desired_focus) = layer_focus_surface(st) else {
         st.model.monitor_state.layer_keyboard_focus = None;
@@ -722,6 +806,8 @@ mod tests {
     use std::time::Instant;
 
     use halley_core::field::Vec2;
+    use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner;
+    use smithay::utils::{Logical, Rectangle, Size};
 
     use super::Halley;
 
@@ -818,6 +904,31 @@ mod tests {
             state.model.spawn_state.pending_spawn_monitor.as_deref(),
             Some("left")
         );
+    }
+
+    #[test]
+    fn constrained_layer_popup_position_preserves_adjusted_positioner() {
+        let positioner = super::PositionerState {
+            rect_size: Size::<i32, Logical>::from((200, 80)),
+            anchor_rect: Rectangle::<i32, Logical>::new((760, 560).into(), (20, 20).into()),
+            anchor_edges: xdg_positioner::Anchor::BottomRight,
+            gravity: xdg_positioner::Gravity::BottomRight,
+            ..Default::default()
+        };
+        let target = Rectangle::<i32, Logical>::new((0, 0).into(), (800, 600).into());
+
+        let (constrained_positioner, geometry) =
+            super::constrained_layer_popup_position(positioner, target);
+
+        assert!(constrained_positioner.constraint_adjustment.contains(
+            xdg_positioner::ConstraintAdjustment::FlipX
+                | xdg_positioner::ConstraintAdjustment::FlipY
+                | xdg_positioner::ConstraintAdjustment::SlideX
+                | xdg_positioner::ConstraintAdjustment::SlideY
+                | xdg_positioner::ConstraintAdjustment::ResizeX
+                | xdg_positioner::ConstraintAdjustment::ResizeY
+        ));
+        assert!(super::rectangle_fits_within(target, geometry));
     }
 }
 

@@ -11,7 +11,7 @@ use crate::keybinds::{
 
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
+    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
     DecorationsConfig, FontConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode,
     NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig, PlacementConfig,
     RuntimeTuning, ScreenshotConfig, ShapeStyle,
@@ -102,6 +102,7 @@ impl Default for RuntimeTuning {
             input: InputConfig::default(),
             cursor: CursorConfig::default(),
             font: FontConfig::default(),
+            debug: DebugConfig::default(),
             animations: AnimationsConfig::default(),
             overlay_style: OverlayStyleConfig::default(),
             screenshot: ScreenshotConfig::default(),

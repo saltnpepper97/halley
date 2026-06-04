@@ -107,37 +107,188 @@ pub(crate) struct AnimationPrewarmRequest {
     pub(crate) until: Instant,
 }
 
-pub(crate) struct RenderState {
-    pub animator: Animator,
-
-    pub(crate) cache: RenderCacheState,
+pub(crate) struct RenderViewState {
     pub(crate) node_hover_mix: HashMap<NodeId, f32>,
     pub(crate) node_preview_hover: HashMap<String, PreviewHoverState>,
     pub(crate) bearings_visible: bool,
     pub(crate) bearings_mix: HashMap<String, f32>,
-    pub(crate) cluster_tile_tracks: ClusterTileTracks,
-    pub(crate) cluster_tile_entry_pending: HashSet<NodeId>,
-    pub(crate) cluster_tile_frozen_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) cluster_bloom_mix: HashMap<String, ClusterBloomAnimState>,
+}
+
+pub(crate) struct RenderOverlayState {
     pub(crate) overlay_banner: HashMap<String, OverlayBannerState>,
     pub(crate) overlay_toast: HashMap<String, OverlayToastState>,
     pub(crate) overlay_exit_confirm: HashMap<String, ExitConfirmOverlayState>,
+}
+
+pub(crate) struct RenderWindowAnimationState {
+    pub(crate) cluster_tile_tracks: ClusterTileTracks,
+    pub(crate) cluster_tile_entry_pending: HashSet<NodeId>,
+    pub(crate) cluster_tile_frozen_geometry: HashMap<NodeId, (f32, f32, f32, f32)>,
     pub(crate) closing_window_animations: HashMap<NodeId, ClosingWindowAnimationState>,
     pub(crate) animation_prewarm_requests: HashMap<NodeId, AnimationPrewarmRequest>,
     pub(crate) stack_cycle_transition: HashMap<String, StackCycleTransitionState>,
     pub(crate) raise_animations: HashMap<NodeId, RaiseAnimationState>,
     pub(crate) landmark_slide_animations: HashMap<NodeId, LandmarkSlideAnimationState>,
-    pub(crate) gpu: RenderGpuState,
+}
 
+pub(crate) struct RenderTelemetryState {
+    pub(crate) fps_samplers: HashMap<String, FpsSamplerState>,
     pub(crate) render_last_tick: Instant,
 }
 
+pub(crate) struct RenderState {
+    pub animator: Animator,
+
+    pub(crate) cache: RenderCacheState,
+    pub(crate) view: RenderViewState,
+    pub(crate) overlays: RenderOverlayState,
+    pub(crate) window_animations: RenderWindowAnimationState,
+    pub(crate) gpu: RenderGpuState,
+    pub(crate) telemetry: RenderTelemetryState,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FpsSamplerState {
+    sampled_at: Instant,
+    frames: u32,
+    fps: f32,
+}
+
 impl RenderState {
+    pub(crate) fn set_render_last_tick(&mut self, now: Instant) {
+        self.telemetry.render_last_tick = now;
+    }
+
+    pub(crate) fn render_last_tick(&self) -> Instant {
+        self.telemetry.render_last_tick
+    }
+
+    pub(crate) fn retain_node_hover_mix<F>(&mut self, retain: F)
+    where
+        F: FnMut(&NodeId, &mut f32) -> bool,
+    {
+        self.view.node_hover_mix.retain(retain);
+    }
+
+    pub(crate) fn retain_node_preview_hover<F>(&mut self, retain: F)
+    where
+        F: FnMut(&String, &mut PreviewHoverState) -> bool,
+    {
+        self.view.node_preview_hover.retain(retain);
+    }
+
+    pub(crate) fn retain_bearings_mix<F>(&mut self, retain: F)
+    where
+        F: FnMut(&String, &mut f32) -> bool,
+    {
+        self.view.bearings_mix.retain(retain);
+    }
+
+    pub(crate) fn retain_cluster_bloom_mix<F>(&mut self, retain: F)
+    where
+        F: FnMut(&String, &mut ClusterBloomAnimState) -> bool,
+    {
+        self.view.cluster_bloom_mix.retain(retain);
+    }
+
+    pub(crate) fn cluster_tile_tracks(&self) -> &ClusterTileTracks {
+        &self.window_animations.cluster_tile_tracks
+    }
+
+    pub(crate) fn cluster_tile_tracks_mut(&mut self) -> &mut ClusterTileTracks {
+        &mut self.window_animations.cluster_tile_tracks
+    }
+
+    pub(crate) fn remove_cluster_tile_track(&mut self, node_id: NodeId) {
+        self.window_animations.cluster_tile_tracks.remove(&node_id);
+    }
+
+    pub(crate) fn clear_cluster_tile_animation_for_node(&mut self, node_id: NodeId) {
+        self.window_animations.cluster_tile_tracks.remove(&node_id);
+        self.window_animations
+            .cluster_tile_entry_pending
+            .remove(&node_id);
+        self.window_animations
+            .cluster_tile_frozen_geometry
+            .remove(&node_id);
+    }
+
+    pub(crate) fn remove_cluster_tile_entry_pending(&mut self, node_id: NodeId) -> bool {
+        self.window_animations
+            .cluster_tile_entry_pending
+            .remove(&node_id)
+    }
+
+    pub(crate) fn retain_cluster_tile_entry_pending<F>(&mut self, retain: F)
+    where
+        F: FnMut(&NodeId) -> bool,
+    {
+        self.window_animations
+            .cluster_tile_entry_pending
+            .retain(retain);
+    }
+
+    pub(crate) fn retain_cluster_tile_frozen_geometry<F>(&mut self, retain: F)
+    where
+        F: FnMut(&NodeId, &mut (f32, f32, f32, f32)) -> bool,
+    {
+        self.window_animations
+            .cluster_tile_frozen_geometry
+            .retain(retain);
+    }
+
+    pub(crate) fn cluster_tile_frozen_geometry(
+        &self,
+        node_id: NodeId,
+    ) -> Option<(f32, f32, f32, f32)> {
+        self.window_animations
+            .cluster_tile_frozen_geometry
+            .get(&node_id)
+            .copied()
+    }
+
+    pub(crate) fn remember_cluster_tile_frozen_geometry(
+        &mut self,
+        node_id: NodeId,
+        geometry: (f32, f32, f32, f32),
+    ) {
+        self.window_animations
+            .cluster_tile_frozen_geometry
+            .entry(node_id)
+            .or_insert(geometry);
+    }
+
+    pub(crate) fn overlay_toast_state(&self, monitor: &str) -> Option<&OverlayToastState> {
+        self.overlays.overlay_toast.get(monitor)
+    }
+
+    pub(crate) fn sample_fps_for_monitor(&mut self, monitor: &str, now: Instant) -> f32 {
+        let sampler = self
+            .telemetry
+            .fps_samplers
+            .entry(monitor.to_string())
+            .or_insert(FpsSamplerState {
+                sampled_at: now,
+                frames: 0,
+                fps: 0.0,
+            });
+        sampler.frames = sampler.frames.saturating_add(1);
+        let elapsed = now.saturating_duration_since(sampler.sampled_at);
+        if elapsed.as_millis() >= 250 {
+            sampler.fps = sampler.frames as f32 / elapsed.as_secs_f32().max(0.001);
+            sampler.frames = 0;
+            sampler.sampled_at = now;
+        }
+        sampler.fps
+    }
+
     pub(crate) fn request_window_animation_prewarm(&mut self, node_id: NodeId, now: Instant) {
         let until = now
             .checked_add(std::time::Duration::from_millis(ANIMATION_PREWARM_TTL_MS))
             .unwrap_or(now);
-        self.animation_prewarm_requests
+        self.window_animations
+            .animation_prewarm_requests
             .entry(node_id)
             .and_modify(|request| {
                 request.until = request.until.max(until);
@@ -149,13 +300,20 @@ impl RenderState {
         &mut self,
         now: Instant,
     ) -> HashSet<NodeId> {
-        self.animation_prewarm_requests
+        self.window_animations
+            .animation_prewarm_requests
             .retain(|_, request| now <= request.until);
-        self.animation_prewarm_requests.keys().copied().collect()
+        self.window_animations
+            .animation_prewarm_requests
+            .keys()
+            .copied()
+            .collect()
     }
 
     pub(crate) fn finish_window_animation_prewarm(&mut self, node_id: NodeId) {
-        self.animation_prewarm_requests.remove(&node_id);
+        self.window_animations
+            .animation_prewarm_requests
+            .remove(&node_id);
     }
 
     pub(crate) fn start_closing_window_animation(
@@ -171,7 +329,7 @@ impl RenderState {
         if border_rects.is_empty() && offscreen_textures.is_empty() {
             return;
         }
-        self.closing_window_animations.insert(
+        self.window_animations.closing_window_animations.insert(
             node_id,
             ClosingWindowAnimationState {
                 monitor: monitor.to_string(),
@@ -194,7 +352,7 @@ impl RenderState {
         scale: f32,
         shadow_boost: f32,
     ) {
-        self.raise_animations.insert(
+        self.window_animations.raise_animations.insert(
             node_id,
             RaiseAnimationState {
                 started_at: now,
@@ -225,7 +383,7 @@ impl RenderState {
         if (from.x - to.x).abs() <= 0.5 && (from.y - to.y).abs() <= 0.5 {
             return;
         }
-        self.landmark_slide_animations.insert(
+        self.window_animations.landmark_slide_animations.insert(
             node_id,
             LandmarkSlideAnimationState {
                 from,
@@ -242,14 +400,17 @@ impl RenderState {
         monitor: &str,
         now: Instant,
     ) -> bool {
-        self.landmark_slide_animations.iter().any(|(&id, anim)| {
-            (now.saturating_duration_since(anim.started_at).as_millis() as u64)
-                < LANDMARK_SLIDE_DURATION_MS
-                && field.is_visible(id)
-                && !node_monitor
-                    .get(&id)
-                    .is_some_and(|node_monitor| node_monitor != monitor)
-        })
+        self.window_animations
+            .landmark_slide_animations
+            .iter()
+            .any(|(&id, anim)| {
+                (now.saturating_duration_since(anim.started_at).as_millis() as u64)
+                    < LANDMARK_SLIDE_DURATION_MS
+                    && field.is_visible(id)
+                    && !node_monitor
+                        .get(&id)
+                        .is_some_and(|node_monitor| node_monitor != monitor)
+            })
     }
 
     pub(crate) fn landmark_slide_position(
@@ -258,12 +419,19 @@ impl RenderState {
         fallback: Vec2,
         now: Instant,
     ) -> Vec2 {
-        let Some(anim) = self.landmark_slide_animations.get(&node_id).copied() else {
+        let Some(anim) = self
+            .window_animations
+            .landmark_slide_animations
+            .get(&node_id)
+            .copied()
+        else {
             return fallback;
         };
         let elapsed_ms = now.saturating_duration_since(anim.started_at).as_millis() as u64;
         if elapsed_ms >= LANDMARK_SLIDE_DURATION_MS {
-            self.landmark_slide_animations.remove(&node_id);
+            self.window_animations
+                .landmark_slide_animations
+                .remove(&node_id);
             return fallback;
         }
         let t = (elapsed_ms as f32 / LANDMARK_SLIDE_DURATION_MS as f32).clamp(0.0, 1.0);
@@ -282,13 +450,17 @@ impl RenderState {
         monitor: &str,
         now: Instant,
     ) -> bool {
-        self.raise_animations.iter().any(|(&id, anim)| {
-            (now.saturating_duration_since(anim.started_at).as_millis() as u64) < anim.duration_ms
-                && field.is_visible(id)
-                && node_monitor
-                    .get(&id)
-                    .is_some_and(|node_monitor| node_monitor == monitor)
-        })
+        self.window_animations
+            .raise_animations
+            .iter()
+            .any(|(&id, anim)| {
+                (now.saturating_duration_since(anim.started_at).as_millis() as u64)
+                    < anim.duration_ms
+                    && field.is_visible(id)
+                    && node_monitor
+                        .get(&id)
+                        .is_some_and(|node_monitor| node_monitor == monitor)
+            })
     }
 
     pub(crate) fn raise_animation_for(
@@ -296,7 +468,12 @@ impl RenderState {
         node_id: NodeId,
         now: Instant,
     ) -> RaiseAnimationSnapshot {
-        let Some(anim) = self.raise_animations.get(&node_id).copied() else {
+        let Some(anim) = self
+            .window_animations
+            .raise_animations
+            .get(&node_id)
+            .copied()
+        else {
             return RaiseAnimationSnapshot {
                 scale: 1.0,
                 shadow_boost: 0.0,
@@ -304,7 +481,7 @@ impl RenderState {
         };
         let elapsed_ms = now.saturating_duration_since(anim.started_at).as_millis() as u64;
         if elapsed_ms >= anim.duration_ms {
-            self.raise_animations.remove(&node_id);
+            self.window_animations.raise_animations.remove(&node_id);
             return RaiseAnimationSnapshot {
                 scale: 1.0,
                 shadow_boost: 0.0,
@@ -328,7 +505,7 @@ impl RenderState {
         label: String,
         state: halley_core::field::NodeState,
     ) {
-        self.closing_window_animations.insert(
+        self.window_animations.closing_window_animations.insert(
             node_id,
             ClosingWindowAnimationState {
                 monitor: monitor.to_string(),
@@ -344,11 +521,14 @@ impl RenderState {
         monitor: &str,
         now: Instant,
     ) -> bool {
-        self.closing_window_animations.values().any(|state| {
-            state.monitor == monitor
-                && (now.saturating_duration_since(state.started_at).as_millis() as u64)
-                    < state.duration_ms
-        })
+        self.window_animations
+            .closing_window_animations
+            .values()
+            .any(|state| {
+                state.monitor == monitor
+                    && (now.saturating_duration_since(state.started_at).as_millis() as u64)
+                        < state.duration_ms
+            })
     }
 
     pub(crate) fn closing_window_animation_snapshots(
@@ -356,10 +536,14 @@ impl RenderState {
         monitor: &str,
         now: Instant,
     ) -> Vec<ClosingWindowAnimationSnapshot> {
-        self.closing_window_animations.retain(|_, state| {
-            (now.saturating_duration_since(state.started_at).as_millis() as u64) < state.duration_ms
-        });
-        self.closing_window_animations
+        self.window_animations
+            .closing_window_animations
+            .retain(|_, state| {
+                (now.saturating_duration_since(state.started_at).as_millis() as u64)
+                    < state.duration_ms
+            });
+        self.window_animations
+            .closing_window_animations
             .values()
             .filter(|state| state.monitor == monitor)
             .map(|state| {
@@ -403,10 +587,12 @@ impl RenderState {
         duration_ms: u64,
     ) {
         if old_visible == new_visible && source_rects.is_empty() {
-            self.stack_cycle_transition.remove(monitor);
+            self.window_animations
+                .stack_cycle_transition
+                .remove(monitor);
             return;
         }
-        self.stack_cycle_transition.insert(
+        self.window_animations.stack_cycle_transition.insert(
             monitor.to_string(),
             StackCycleTransitionState {
                 direction,
@@ -424,10 +610,16 @@ impl RenderState {
         monitor: &str,
         now: Instant,
     ) -> Option<StackCycleTransitionSnapshot> {
-        let state = self.stack_cycle_transition.get(monitor)?.clone();
+        let state = self
+            .window_animations
+            .stack_cycle_transition
+            .get(monitor)?
+            .clone();
         let elapsed_ms = now.saturating_duration_since(state.started_at).as_millis() as u64;
         if elapsed_ms >= state.duration_ms {
-            self.stack_cycle_transition.remove(monitor);
+            self.window_animations
+                .stack_cycle_transition
+                .remove(monitor);
             return None;
         }
         Some(StackCycleTransitionSnapshot {
@@ -450,7 +642,7 @@ impl RenderState {
 
     pub(crate) fn node_label_hover_mix(&mut self, id: NodeId, hovered: bool) -> f32 {
         let target = if hovered { 1.0 } else { 0.0 };
-        let mix = self.node_hover_mix.entry(id).or_insert(target);
+        let mix = self.view.node_hover_mix.entry(id).or_insert(target);
         let k = if hovered { 0.06 } else { 0.10 };
         *mix += (target - *mix) * k;
         if (*mix - target).abs() < 0.01 {
@@ -465,6 +657,7 @@ impl RenderState {
         hovered: Option<NodeId>,
     ) -> Option<(NodeId, f32)> {
         let state = self
+            .view
             .node_preview_hover
             .entry(monitor.to_string())
             .or_default();
@@ -488,26 +681,27 @@ impl RenderState {
     }
 
     pub(crate) fn bearings_visible(&self) -> bool {
-        self.bearings_visible
+        self.view.bearings_visible
     }
 
     pub(crate) fn set_bearings_visible(&mut self, visible: bool) -> bool {
-        if self.bearings_visible == visible {
+        if self.view.bearings_visible == visible {
             return false;
         }
-        self.bearings_visible = visible;
+        self.view.bearings_visible = visible;
         true
     }
 
     pub(crate) fn toggle_bearings_visible(&mut self) -> bool {
-        let next = !self.bearings_visible;
+        let next = !self.view.bearings_visible;
         self.set_bearings_visible(next);
         next
     }
 
     pub(crate) fn bearings_mix_for_monitor(&mut self, monitor: &str) -> f32 {
-        let target = if self.bearings_visible { 1.0 } else { 0.0 };
+        let target = if self.view.bearings_visible { 1.0 } else { 0.0 };
         let mix = self
+            .view
             .bearings_mix
             .entry(monitor.to_string())
             .or_insert(target);
@@ -531,6 +725,7 @@ impl RenderState {
         target_cluster: Option<ClusterId>,
     ) -> Option<ClusterBloomAnimSnapshot> {
         let state = self
+            .view
             .cluster_bloom_mix
             .entry(monitor.to_string())
             .or_default();
@@ -567,6 +762,7 @@ impl RenderState {
         actions: &[OverlayActionHint],
     ) {
         let state = self
+            .overlays
             .overlay_banner
             .entry(monitor.to_string())
             .or_insert_with(|| OverlayBannerState {
@@ -583,7 +779,7 @@ impl RenderState {
     }
 
     pub(crate) fn clear_persistent_mode_banner(&mut self, monitor: &str) {
-        if let Some(state) = self.overlay_banner.get_mut(monitor) {
+        if let Some(state) = self.overlays.overlay_banner.get_mut(monitor) {
             state.visible = false;
         }
     }
@@ -592,7 +788,7 @@ impl RenderState {
         &mut self,
         monitor: &str,
     ) -> Option<OverlayBannerSnapshot> {
-        let state = self.overlay_banner.get_mut(monitor)?;
+        let state = self.overlays.overlay_banner.get_mut(monitor)?;
         let target = if state.visible { 1.0 } else { 0.0 };
         let k = if target > 0.5 { 0.36 } else { 0.24 };
         state.mix += (target - state.mix) * k;
@@ -600,7 +796,7 @@ impl RenderState {
             state.mix = target;
         }
         if target <= 0.0 && state.mix <= 0.015 {
-            self.overlay_banner.remove(monitor);
+            self.overlays.overlay_banner.remove(monitor);
             return None;
         }
         Some(OverlayBannerSnapshot {
@@ -651,7 +847,11 @@ impl RenderState {
         duration_ms: u64,
         now_ms: u64,
     ) {
-        let toast = self.overlay_toast.entry(monitor.to_string()).or_default();
+        let toast = self
+            .overlays
+            .overlay_toast
+            .entry(monitor.to_string())
+            .or_default();
         toast.message = Some(message.to_string());
         toast.kind = kind;
         toast.duration_ms = duration_ms.max(1);
@@ -672,7 +872,7 @@ impl RenderState {
         max_x: i32,
         max_y: i32,
     ) -> bool {
-        let Some(toast) = self.overlay_toast.get_mut(monitor) else {
+        let Some(toast) = self.overlays.overlay_toast.get_mut(monitor) else {
             return false;
         };
         if !matches!(toast.kind, OverlayToastKind::Error) || toast.message.is_none() {
@@ -690,7 +890,7 @@ impl RenderState {
         hovered: bool,
         now_ms: u64,
     ) {
-        let Some(toast) = self.overlay_toast.get_mut(monitor) else {
+        let Some(toast) = self.overlays.overlay_toast.get_mut(monitor) else {
             return;
         };
         if !matches!(toast.kind, OverlayToastKind::Error) || toast.message.is_none() {
@@ -704,13 +904,13 @@ impl RenderState {
     }
 
     pub(crate) fn dismiss_overlay_error_toast(&mut self, monitor: &str) -> bool {
-        let Some(toast) = self.overlay_toast.get(monitor) else {
+        let Some(toast) = self.overlays.overlay_toast.get(monitor) else {
             return false;
         };
         if !matches!(toast.kind, OverlayToastKind::Error) {
             return false;
         }
-        self.overlay_toast.remove(monitor).is_some()
+        self.overlays.overlay_toast.remove(monitor).is_some()
     }
 
     pub(crate) fn overlay_toast_snapshot(
@@ -718,7 +918,7 @@ impl RenderState {
         monitor: &str,
         now_ms: u64,
     ) -> Option<OverlayToastSnapshot> {
-        let toast = self.overlay_toast.get_mut(monitor)?;
+        let toast = self.overlays.overlay_toast.get_mut(monitor)?;
         let target = if toast.message.is_some()
             && (now_ms < toast.visible_until_ms
                 || (matches!(toast.kind, OverlayToastKind::Error) && toast.hovered))
@@ -733,7 +933,7 @@ impl RenderState {
             toast.mix = target;
         }
         if target <= 0.0 && toast.mix <= 0.015 {
-            self.overlay_toast.remove(monitor);
+            self.overlays.overlay_toast.remove(monitor);
             return None;
         }
         Some(OverlayToastSnapshot {
@@ -747,6 +947,7 @@ impl RenderState {
 
     pub(crate) fn show_exit_confirm(&mut self, monitor: &str) {
         let exit_confirm = self
+            .overlays
             .overlay_exit_confirm
             .entry(monitor.to_string())
             .or_default();
@@ -757,13 +958,14 @@ impl RenderState {
     }
 
     pub(crate) fn clear_exit_confirm(&mut self, monitor: &str) {
-        if let Some(exit_confirm) = self.overlay_exit_confirm.get_mut(monitor) {
+        if let Some(exit_confirm) = self.overlays.overlay_exit_confirm.get_mut(monitor) {
             exit_confirm.visible = false;
         }
     }
 
     pub(crate) fn exit_confirm_visible(&self) -> bool {
-        self.overlay_exit_confirm
+        self.overlays
+            .overlay_exit_confirm
             .values()
             .any(|state| state.visible)
     }
@@ -772,7 +974,7 @@ impl RenderState {
         &mut self,
         monitor: &str,
     ) -> Option<ExitConfirmOverlaySnapshot> {
-        let exit_confirm = self.overlay_exit_confirm.get_mut(monitor)?;
+        let exit_confirm = self.overlays.overlay_exit_confirm.get_mut(monitor)?;
         let target = if exit_confirm.visible { 1.0 } else { 0.0 };
         let k = if target > 0.5 { 0.34 } else { 0.24 };
         exit_confirm.mix += (target - exit_confirm.mix) * k;
@@ -780,7 +982,7 @@ impl RenderState {
             exit_confirm.mix = target;
         }
         if target <= 0.0 && exit_confirm.mix <= 0.015 {
-            self.overlay_exit_confirm.remove(monitor);
+            self.overlays.overlay_exit_confirm.remove(monitor);
             return None;
         }
         Some(ExitConfirmOverlaySnapshot {

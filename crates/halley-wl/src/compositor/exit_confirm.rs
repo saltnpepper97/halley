@@ -47,6 +47,7 @@ impl<T: DerefMut<Target = Halley>> ExitConfirmController<T> {
         let mut monitors: Vec<String> = self
             .ui
             .render_state
+            .overlays
             .overlay_exit_confirm
             .keys()
             .cloned()

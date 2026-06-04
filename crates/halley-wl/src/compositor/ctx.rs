@@ -6,23 +6,23 @@ pub(crate) struct FocusCtx<'a> {
 }
 
 pub(crate) struct SpawnCtx<'a> {
-    pub(crate) st: &'a mut Halley,
+    pub(in crate::compositor) st: &'a mut Halley,
 }
 
 pub(crate) struct SurfaceLifecycleCtx<'a> {
-    pub(crate) st: &'a mut Halley,
+    pub(in crate::compositor) st: &'a mut Halley,
 }
 
 pub(crate) struct LayerShellCtx<'a> {
-    pub(crate) st: &'a mut Halley,
+    pub(in crate::compositor) st: &'a mut Halley,
 }
 
 pub(crate) struct PointerCtx<'a> {
-    pub(crate) st: &'a mut Halley,
+    pub(in crate::compositor) st: &'a mut Halley,
 }
 
 pub(crate) struct FullscreenCtx<'a> {
-    pub(crate) st: &'a mut Halley,
+    pub(in crate::compositor) st: &'a mut Halley,
 }
 
 pub(crate) fn focus_ctx(st: &Halley) -> FocusCtx<'_> {

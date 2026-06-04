@@ -5,6 +5,12 @@ pub struct OutputsResponse {
     pub outputs: Vec<OutputInfo>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionInfo {
+    pub version: String,
+    pub ipc_protocol: u32,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ApertureMode {

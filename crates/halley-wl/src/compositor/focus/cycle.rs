@@ -312,7 +312,9 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
             let _ = self.raise_overlap_policy_node(target);
             changed
         } else {
-            crate::compositor::actions::window::focus_or_reveal_surface_node(self, target, now)
+            crate::compositor::actions::window::focus_from_presentation_navigation(
+                self, target, now,
+            ) || crate::compositor::actions::window::focus_or_reveal_surface_node(self, target, now)
         };
         if changed {
             crate::compositor::interaction::pointer::center_pointer_on_node(self, target, now);
@@ -552,6 +554,324 @@ mod tests {
         assert_eq!(
             state.model.focus_state.primary_interaction_focus,
             Some(target)
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_none());
+    }
+
+    #[test]
+    fn commit_from_maximize_to_collapsed_node_centers_without_uncollapsing() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.maximize.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let maximized = state.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let collapsed = state.model.field.spawn_surface(
+            "collapsed",
+            Vec2 { x: 2_400.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(maximized);
+        state.assign_node_to_current_monitor(collapsed);
+        let _ = state
+            .model
+            .field
+            .set_state(collapsed, halley_core::field::NodeState::Node);
+        state
+            .model
+            .workspace_state
+            .manual_collapsed_nodes
+            .insert(collapsed);
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state, maximized, now, "default",
+            )
+        );
+        state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
+            candidates: vec![maximized, collapsed],
+            preview_index: 1,
+            origin_focus: Some(maximized),
+            immersive_origin: None,
+            immersive_lock_released: false,
+        });
+
+        assert!(state.commit_focus_cycle(now));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(collapsed)
+        );
+        assert_eq!(
+            state.model.field.node(collapsed).expect("collapsed").state,
+            halley_core::field::NodeState::Node
+        );
+        assert!(
+            state
+                .model
+                .workspace_state
+                .manual_collapsed_nodes
+                .contains(&collapsed)
+        );
+        assert!(
+            !state
+                .model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("default")
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_some());
+    }
+
+    #[test]
+    fn commit_from_fullscreen_to_collapsed_node_centers_without_uncollapsing() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.fullscreen.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let collapsed = state.model.field.spawn_surface(
+            "collapsed",
+            Vec2 { x: 2_400.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(fullscreen);
+        state.assign_node_to_current_monitor(collapsed);
+        let _ = state
+            .model
+            .field
+            .set_state(collapsed, halley_core::field::NodeState::Node);
+        state
+            .model
+            .workspace_state
+            .manual_collapsed_nodes
+            .insert(collapsed);
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+        state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
+            candidates: vec![fullscreen, collapsed],
+            preview_index: 1,
+            origin_focus: Some(fullscreen),
+            immersive_origin: None,
+            immersive_lock_released: false,
+        });
+
+        assert!(state.commit_focus_cycle(now));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(collapsed)
+        );
+        assert_eq!(
+            state.model.field.node(collapsed).expect("collapsed").state,
+            halley_core::field::NodeState::Node
+        );
+        assert!(!state.is_fullscreen_active(fullscreen));
+        assert!(state.input.interaction_state.viewport_pan_anim.is_some());
+    }
+
+    #[test]
+    fn commit_from_maximize_to_visible_active_window_keeps_maximize_and_raises() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.maximize.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let maximized = state.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let visible = state.model.field.spawn_surface(
+            "visible",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(maximized);
+        state.assign_node_to_current_monitor(visible);
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state, maximized, now, "default",
+            )
+        );
+        state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
+            candidates: vec![maximized, visible],
+            preview_index: 1,
+            origin_focus: Some(maximized),
+            immersive_origin: None,
+            immersive_lock_released: false,
+        });
+
+        assert!(state.commit_focus_cycle(now));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(visible)
+        );
+        assert!(
+            state
+                .model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("default")
+        );
+        assert!(
+            state.overlap_policy_stack_rank(visible) > state.overlap_policy_stack_rank(maximized)
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_none());
+    }
+
+    #[test]
+    fn commit_from_maximize_to_offscreen_active_window_exits_and_centers() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.maximize.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let maximized = state.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let offscreen = state.model.field.spawn_surface(
+            "offscreen",
+            Vec2 { x: 2_400.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(maximized);
+        state.assign_node_to_current_monitor(offscreen);
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state, maximized, now, "default",
+            )
+        );
+        state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
+            candidates: vec![maximized, offscreen],
+            preview_index: 1,
+            origin_focus: Some(maximized),
+            immersive_origin: None,
+            immersive_lock_released: false,
+        });
+
+        assert!(state.commit_focus_cycle(now));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(offscreen)
+        );
+        assert_eq!(
+            state.model.field.node(offscreen).expect("offscreen").state,
+            halley_core::field::NodeState::Active
+        );
+        assert!(
+            !state
+                .model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("default")
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_some());
+    }
+
+    #[test]
+    fn commit_from_fullscreen_to_offscreen_active_window_exits_and_centers() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.fullscreen.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let offscreen = state.model.field.spawn_surface(
+            "offscreen",
+            Vec2 { x: 2_400.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(fullscreen);
+        state.assign_node_to_current_monitor(offscreen);
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+        state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
+            candidates: vec![fullscreen, offscreen],
+            preview_index: 1,
+            origin_focus: Some(fullscreen),
+            immersive_origin: None,
+            immersive_lock_released: false,
+        });
+
+        assert!(state.commit_focus_cycle(now));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(offscreen)
+        );
+        assert_eq!(
+            state.model.field.node(offscreen).expect("offscreen").state,
+            halley_core::field::NodeState::Active
+        );
+        assert!(!state.is_fullscreen_active(fullscreen));
+        assert!(state.input.interaction_state.viewport_pan_anim.is_some());
+    }
+
+    #[test]
+    fn commit_from_fullscreen_to_visible_active_window_exits_without_panning() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.fullscreen.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let fullscreen = state.model.field.spawn_surface(
+            "fullscreen",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let visible = state.model.field.spawn_surface(
+            "visible",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(fullscreen);
+        state.assign_node_to_current_monitor(visible);
+        state.enter_xdg_fullscreen(fullscreen, None, now);
+        state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
+            candidates: vec![fullscreen, visible],
+            preview_index: 1,
+            origin_focus: Some(fullscreen),
+            immersive_origin: None,
+            immersive_lock_released: false,
+        });
+
+        assert!(state.commit_focus_cycle(now));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(visible)
+        );
+        assert!(!state.is_fullscreen_active(fullscreen));
+        assert!(
+            state.overlap_policy_stack_rank(visible) > state.overlap_policy_stack_rank(fullscreen)
         );
         assert!(state.input.interaction_state.viewport_pan_anim.is_none());
     }

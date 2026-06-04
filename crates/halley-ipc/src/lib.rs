@@ -18,8 +18,10 @@ pub use types::{
     CaptureStatusResponse, ClusterInfo, ClusterLayoutKind, ClusterListResponse, ClusterOutputGroup,
     ClusterSummary, LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse,
     NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo, NodeRole, NodeState, OutputInfo,
-    OutputStatus, OutputsResponse, TrailEntryInfo, TrailListResponse,
+    OutputStatus, OutputsResponse, TrailEntryInfo, TrailListResponse, VersionInfo,
 };
+
+pub const IPC_PROTOCOL_VERSION: u32 = 1;
 
 use std::env;
 use std::io;

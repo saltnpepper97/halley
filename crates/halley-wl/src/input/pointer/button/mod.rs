@@ -114,8 +114,13 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         && let Some((surface, _)) = layer_focus.as_ref()
     {
         st.input.interaction_state.grabbed_layer_surface = Some(surface.clone());
-        let monitor =
-            crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface);
+        let monitor_surface =
+            crate::compositor::monitor::layer_shell::layer_surface_root_for_surface(st, surface)
+                .unwrap_or_else(|| surface.clone());
+        let monitor = crate::compositor::monitor::layer_shell::layer_surface_monitor_name(
+            st,
+            &monitor_surface,
+        );
         st.model.spawn_state.pending_spawn_monitor = Some(monitor.clone());
         debug!(
             "pending spawn monitor latched from layer press: {}",
@@ -298,7 +303,21 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         )
     {
         let now = Instant::now();
-        let _ = crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now);
+        let core_pos =
+            st.model.field.node(node_id).and_then(|node| {
+                (node.kind == halley_core::field::NodeKind::Core).then_some(node.pos)
+            });
+        if let Some(core_pos) = core_pos {
+            if st.focused_monitor() != target_monitor {
+                st.focus_monitor_view(target_monitor.as_str(), now);
+            }
+            st.set_interaction_focus(Some(node_id), 30_000, now);
+            st.set_pan_restore_focus_target(node_id);
+            let _ = st.animate_viewport_center_to(core_pos, now);
+        } else {
+            let _ =
+                crate::compositor::actions::window::focus_or_reveal_surface_node(st, node_id, now);
+        }
         ps.panning = false;
         ctx.backend.request_redraw();
         return;
@@ -653,8 +672,22 @@ pub(super) fn dispatch_pointer_button(
         .interaction_state
         .grabbed_layer_surface
         .clone()
-        .filter(|surface| crate::compositor::monitor::layer_shell::is_layer_surface(st, surface));
-    let mut focus = if let Some(surface) = grabbed_layer_surface {
+        .filter(|surface| {
+            crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
+        });
+    let layer_press = matches!(button_state, smithay::backend::input::ButtonState::Pressed)
+        && grabbed_layer_surface.is_some();
+    let mut focus = if layer_press {
+        pointer_focus_for_screen(
+            st,
+            frame.ws_w,
+            frame.ws_h,
+            frame.sx,
+            frame.sy,
+            std::time::Instant::now(),
+            resize_preview,
+        )
+    } else if let Some(surface) = grabbed_layer_surface {
         grabbed_layer_surface_focus(st, &surface)
     } else if let Some(surface) = locked_surface.clone() {
         Some((surface, pointer.current_location()))
@@ -692,7 +725,7 @@ pub(super) fn dispatch_pointer_button(
     let location = if locked_surface.is_some() {
         pointer.current_location()
     } else if focus.as_ref().is_some_and(|(surface, _)| {
-        crate::compositor::monitor::layer_shell::is_layer_surface(st, surface)
+        crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
             || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
     }) {
         (frame.sx as f64, frame.sy as f64).into()

@@ -13,7 +13,7 @@ use crate::keybinds::{CompositorBinding, Keybinds, LaunchBinding, PointerBinding
 use super::paths::{absolutize_path, default_config_path, global_config_path};
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig,
+    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
     DecorationsConfig, FocusRingConfig, FontConfig, InputConfig, NodeBackgroundColorMode,
     NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
     PlacementConfig, ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle,
@@ -96,6 +96,7 @@ pub struct RuntimeTuning {
     pub input: InputConfig,
     pub cursor: CursorConfig,
     pub font: FontConfig,
+    pub debug: DebugConfig,
     pub animations: AnimationsConfig,
     pub overlay_style: OverlayStyleConfig,
     pub screenshot: ScreenshotConfig,
@@ -447,6 +448,12 @@ end
 # Use an absolute path or an env-expanded path like `$env.HOME/...`.
 screenshot:
   directory "$env.HOME/Pictures/Screenshots/"
+end
+
+# Debug-only compositor diagnostics.
+debug:
+  overlay-fps false
+  show-ring-when-resizing true
 end
 
 "##;
@@ -803,6 +810,8 @@ rules:
     # Optional fixed initial size for matching windows.
     #width 720
     #height 520
+    # Optional window opacity from 0.0 through 1.0.
+    #opacity 0.85
     spawn-placement "center"
     cluster-participation "float"
   end
@@ -929,6 +938,8 @@ mod tests {
         assert_eq!(tuning.field_active_windows_allowed, 5);
         assert_eq!(tuning.input.repeat_rate, 30);
         assert_eq!(tuning.input.repeat_delay, 500);
+        assert!(!tuning.debug.overlay_fps);
+        assert!(tuning.debug.show_ring_when_resizing);
         assert_eq!(
             tuning.input.keyboard,
             crate::layout::KeyboardConfig::default()
@@ -977,6 +988,9 @@ mod tests {
                 .contains("input:\n  repeat-rate 30\n  repeat-delay 500\n  focus-mode \"click\"")
         );
         assert!(rendered.contains("  raise-on-click true"));
+        assert!(
+            rendered.contains("debug:\n  overlay-fps false\n  show-ring-when-resizing true\nend")
+        );
         assert!(rendered.contains(
             "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end\nend"
         ));

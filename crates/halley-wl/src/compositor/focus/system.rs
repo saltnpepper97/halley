@@ -981,6 +981,7 @@ mod tests {
                 overlap_policy: halley_config::InitialWindowOverlapPolicy::All,
                 spawn_placement: halley_config::InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: halley_config::InitialWindowClusterParticipation::Float,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: true,
                 builtin_rule: None,

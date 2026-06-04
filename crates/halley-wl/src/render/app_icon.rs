@@ -25,14 +25,17 @@ pub(crate) struct AppIconRaster {
 }
 
 pub(crate) fn ensure_node_app_icon_resources(
-    _renderer: &mut GlesRenderer,
-    _st: &mut Halley,
-    _render_nodes: &[NodeSnapshot],
+    renderer: &mut GlesRenderer,
+    st: &mut Halley,
+    render_nodes: &[NodeSnapshot],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Important: keep first-collapse marker rendering non-blocking. Cold icon
-    // lookup/raster/import here caused first collapse monitor blanking; draw
-    // fallback glyphs until another subsystem has already populated the cache.
-    Ok(())
+    if matches!(
+        st.runtime.tuning.node_show_app_icons,
+        halley_config::NodeDisplayPolicy::Off
+    ) {
+        return Ok(());
+    }
+    ensure_app_icon_resources_for_node_ids(renderer, st, render_nodes.iter().map(|node| node.id))
 }
 
 pub(crate) fn ensure_app_icon_resources_for_node_ids<I>(
@@ -107,6 +110,9 @@ pub(crate) fn drain_app_icon_jobs(renderer: &mut GlesRenderer, st: &mut Halley) 
     while let Ok(result) = loader.results.try_recv() {
         finished.push(result);
     }
+    if finished.is_empty() {
+        return;
+    }
     for result in finished {
         let (app_id, entry) = match result {
             AppIconJobResult::Loaded { app_id, raster } => {
@@ -133,6 +139,8 @@ pub(crate) fn drain_app_icon_jobs(renderer: &mut GlesRenderer, st: &mut Halley) 
             .node_app_icon_cache
             .insert(app_id, entry);
     }
+    st.request_maintenance();
+    st.runtime.tty_redraw_all = true;
 }
 
 fn ensure_app_icon_resource(

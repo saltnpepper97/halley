@@ -69,6 +69,12 @@ screenshot:
   background-color "auto"
 end
 
+# Debug-only compositor diagnostics.
+debug:
+  overlay-fps false
+  show-ring-when-resizing true
+end
+
 # A viewport represents one monitor/output.
 # On first tty launch Halley writes the detected outputs here for you.
 # If you want to manage monitors manually later, edit this section.

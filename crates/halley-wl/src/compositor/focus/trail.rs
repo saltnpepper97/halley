@@ -95,22 +95,34 @@ impl<T: DerefMut<Target = Halley>> FocusTrailController<T> {
         self.model.focus_state.suppress_trail_record_once = true;
         let moved = match node.state {
             halley_core::field::NodeState::Active => {
-                let restoring_suspended_fullscreen = self
-                    .model
-                    .fullscreen_state
-                    .fullscreen_suspended_node
-                    .values()
-                    .any(|&nid| nid == id);
-                self.set_interaction_focus(Some(id), 30_000, now);
-                let _ = self.raise_overlap_policy_node(id);
-                if restoring_suspended_fullscreen {
+                if crate::compositor::actions::window::focus_from_presentation_navigation(
+                    self, id, now,
+                ) {
                     true
                 } else {
-                    self.animate_viewport_center_to(node.pos, now)
+                    let restoring_suspended_fullscreen = self
+                        .model
+                        .fullscreen_state
+                        .fullscreen_suspended_node
+                        .values()
+                        .any(|&nid| nid == id);
+                    self.set_interaction_focus(Some(id), 30_000, now);
+                    let _ = self.raise_overlap_policy_node(id);
+                    if restoring_suspended_fullscreen {
+                        true
+                    } else {
+                        self.animate_viewport_center_to(node.pos, now)
+                    }
                 }
             }
             halley_core::field::NodeState::Node => {
-                crate::compositor::actions::window::promote_node_level(self, id, now)
+                if crate::compositor::actions::window::focus_from_presentation_navigation(
+                    self, id, now,
+                ) {
+                    true
+                } else {
+                    crate::compositor::actions::window::promote_node_level(self, id, now)
+                }
             }
             _ => false,
         };
@@ -477,6 +489,7 @@ mod tests {
                 overlap_policy: InitialWindowOverlapPolicy::All,
                 spawn_placement: InitialWindowSpawnPlacement::Adjacent,
                 cluster_participation: InitialWindowClusterParticipation::Layout,
+                opacity: 1.0,
                 parent_node: None,
                 suppress_reveal_pan: false,
                 builtin_rule: None,
@@ -517,6 +530,36 @@ mod tests {
     }
 
     #[test]
+    fn close_focus_restore_skips_pan_when_maximized() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.close_restore_pan = CloseRestorePanMode::Always;
+        tuning.animations.maximize.enabled = false;
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let first = state.model.field.spawn_surface(
+            "first",
+            Vec2 { x: 640.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(first);
+
+        crate::compositor::actions::window::toggle_node_maximize_state(
+            &mut state, first, now, "default",
+        );
+
+        assert!(state.restore_focus_to_node_after_close("default", first, now, false));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(first)
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_none());
+    }
+
+    #[test]
     fn trail_navigation_raises_windows_while_maximized() {
         let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
             .expect("display")
@@ -553,5 +596,70 @@ mod tests {
             Some(first)
         );
         assert!(state.overlap_policy_stack_rank(first) > state.overlap_policy_stack_rank(second));
+    }
+
+    #[test]
+    fn trail_navigation_from_maximize_to_collapsed_node_centers_without_uncollapsing() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.maximize.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let maximized = state.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let collapsed = state.model.field.spawn_surface(
+            "collapsed",
+            Vec2 { x: 2_400.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(maximized);
+        state.assign_node_to_current_monitor(collapsed);
+        let _ = state
+            .model
+            .field
+            .set_state(collapsed, halley_core::field::NodeState::Node);
+        state
+            .model
+            .workspace_state
+            .manual_collapsed_nodes
+            .insert(collapsed);
+        state.set_interaction_focus(Some(collapsed), 30_000, now);
+        state.set_interaction_focus(Some(maximized), 30_000, now);
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state, maximized, now, "default",
+            )
+        );
+
+        assert!(state.navigate_window_trail(TrailDirection::Prev, now));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(collapsed)
+        );
+        assert_eq!(
+            state.model.field.node(collapsed).expect("collapsed").state,
+            halley_core::field::NodeState::Node
+        );
+        assert!(
+            state
+                .model
+                .workspace_state
+                .manual_collapsed_nodes
+                .contains(&collapsed)
+        );
+        assert!(
+            !state
+                .model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("default")
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_some());
     }
 }

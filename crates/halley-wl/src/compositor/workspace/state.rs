@@ -283,6 +283,7 @@ fn finish_surface_collapse(
         } else {
             st.ui
                 .render_state
+                .window_animations
                 .closing_window_animations
                 .get(&id)
                 .map(|anim| anim.started_at + Duration::from_millis(anim.duration_ms))
@@ -403,6 +404,17 @@ pub(crate) fn maximize_session_active_on_monitor(st: &Halley, monitor: &str) -> 
         .is_some_and(|session| session.state == MaximizeSessionState::Active)
 }
 
+/// True while a maximize session exists on `monitor` in any state (`Active` or
+/// `Restoring`). Used to keep the work area frozen across the whole session,
+/// including the restore animation, so the aperture reservation settles once at
+/// the end instead of popping back as the window slides shut.
+pub(crate) fn maximize_session_present_on_monitor(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .workspace_state
+        .maximize_sessions
+        .contains_key(monitor)
+}
+
 pub(crate) fn maximize_session_target_for_monitor(st: &Halley, monitor: &str) -> Option<NodeId> {
     st.model
         .workspace_state
@@ -433,6 +445,15 @@ pub(crate) fn maximized_visual_for_node_on_current_monitor_at(
     now: Instant,
 ) -> Option<(Vec2, Vec2)> {
     let monitor = st.model.monitor_state.current_monitor.as_str();
+    maximized_visual_for_node_on_monitor_at(st, node_id, monitor, now)
+}
+
+pub(crate) fn maximized_visual_for_node_on_monitor_at(
+    st: &Halley,
+    node_id: NodeId,
+    monitor: &str,
+    now: Instant,
+) -> Option<(Vec2, Vec2)> {
     if let Some(rect) = maximize_animation_visual_for_node_on_monitor_at(st, node_id, monitor, now)
     {
         return Some(rect);

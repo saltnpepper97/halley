@@ -155,6 +155,83 @@ pub(crate) fn focus_or_reveal_surface_node(
     }
 }
 
+pub(crate) fn focus_from_presentation_navigation(
+    st: &mut Halley,
+    node_id: halley_core::field::NodeId,
+    now: Instant,
+) -> bool {
+    let Some(node) = st.model.field.node(node_id).cloned() else {
+        return false;
+    };
+    if node.kind != halley_core::field::NodeKind::Surface {
+        return false;
+    }
+
+    let target_monitor = st.monitor_for_node_or_current(node_id);
+    let maximized_on_target =
+        crate::compositor::workspace::state::maximize_session_target_for_monitor(
+            st,
+            target_monitor.as_str(),
+        );
+    let fullscreen_on_target = st
+        .model
+        .fullscreen_state
+        .fullscreen_active_node
+        .get(target_monitor.as_str())
+        .copied();
+    let presentation_target = maximized_on_target.or(fullscreen_on_target);
+    let Some(presentation_id) = presentation_target else {
+        return false;
+    };
+    if presentation_id == node_id {
+        return false;
+    }
+
+    let target_visible = st.surface_is_fully_visible_on_monitor(target_monitor.as_str(), node_id);
+    if node.state == halley_core::field::NodeState::Active
+        && target_visible
+        && fullscreen_on_target.is_none()
+    {
+        st.set_interaction_focus(Some(node_id), 30_000, now);
+        let _ = st.raise_overlap_policy_node(node_id);
+        return true;
+    }
+
+    if crate::compositor::workspace::state::maximize_session_target_for_monitor(
+        st,
+        target_monitor.as_str(),
+    )
+    .is_some()
+    {
+        let _ = crate::compositor::workspace::state::abort_maximize_session_for_monitor(
+            st,
+            target_monitor.as_str(),
+        );
+    }
+    if let Some(fullscreen_id) = st
+        .model
+        .fullscreen_state
+        .fullscreen_active_node
+        .get(target_monitor.as_str())
+        .copied()
+    {
+        st.exit_xdg_fullscreen(fullscreen_id, now);
+    }
+
+    if st.focused_monitor() != target_monitor {
+        st.focus_monitor_view(target_monitor.as_str(), now);
+    }
+    st.set_interaction_focus(Some(node_id), 30_000, now);
+    if node.state == halley_core::field::NodeState::Active {
+        let _ = st.raise_overlap_policy_node(node_id);
+        if target_visible {
+            return true;
+        }
+    }
+    let _ = st.animate_viewport_center_to_on_monitor(target_monitor.as_str(), node.pos, now);
+    true
+}
+
 pub(crate) fn focus_surface_node_without_reveal(
     st: &mut Halley,
     node_id: halley_core::field::NodeId,
@@ -352,7 +429,7 @@ fn start_active_maximize_session(
     now: Instant,
 ) -> bool {
     crate::compositor::workspace::state::reset_monitor_zoom_for_maximize(st, monitor);
-    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
+    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewport_forced(st, monitor);
     st.request_window_animation_prewarm(target_id, now);
 
     let _ = node_snapshots;
@@ -419,7 +496,6 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
                         session.state =
                             crate::compositor::workspace::state::MaximizeSessionState::Active;
                     }
-                    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
                     start_active_maximize_session(st, id, monitor, &existing.node_snapshots, now)
                 }
             };
@@ -445,8 +521,6 @@ fn start_maximize_session(st: &mut Halley, id: NodeId, monitor: &str, now: Insta
             state: crate::compositor::workspace::state::MaximizeSessionState::Active,
         },
     );
-    crate::compositor::monitor::layer_shell::refresh_monitor_usable_viewports(st);
-
     start_active_maximize_session(st, id, monitor, &node_snapshots, now)
 }
 
@@ -1465,6 +1539,7 @@ mod tests {
         assert!(
             st.ui
                 .render_state
+                .window_animations
                 .landmark_slide_animations
                 .contains_key(&target)
         );
@@ -1515,6 +1590,7 @@ mod tests {
         let slide = st
             .ui
             .render_state
+            .window_animations
             .landmark_slide_animations
             .get(&target)
             .expect("landmark slide animation");

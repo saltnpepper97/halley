@@ -202,6 +202,9 @@ impl<'a> FocusReadContext<'a> {
         {
             return CloseRestorePanPlan::None;
         }
+        if crate::compositor::workspace::state::maximize_session_present_on_monitor(st, monitor) {
+            return CloseRestorePanPlan::None;
+        }
         if !self.tuning.close_restore_focus {
             return CloseRestorePanPlan::None;
         }

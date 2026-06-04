@@ -5,12 +5,25 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - TBD
 
 ### Added
+- Add numeric `opacity` window-rule support using a `0.0` through `1.0` scale, applying matched opacity to window content, borders, shadows, popups, badges, close snapshots, and captures while blocking direct scanout for translucent windows.
 - Add optional `width` and `height` window-rule keys for fixed initial sizes on matched windows.
 - Add configurable fullscreen entry animation via `animations.fullscreen`, including bootstrap migration and example config coverage, so browser videos such as YouTube tween into fullscreen instead of snapping.
 - Add an Aperture `Minimal` mode across IPC, compositor status, and the standalone clock so maximized windows and tiled cluster workspaces can use a compact top tab instead of the larger collapsed clock.
 - Add `HALLEY_WL_PERF`-gated slow-frame and cluster-workspace entry timing logs for diagnosing render hitches without hot-path timestamp overhead when disabled.
+- Add a `debug:` config section with `overlay-fps` and `show-ring-when-resizing` toggles, including a legible top-left FPS HUD and control over focus-ring config-change previews.
 
 ### Changed
+- Freeze Aperture work-area updates for the whole field maximize session — through both the enter and restore animations — after applying the initial reservation baseline, matching cluster workspace behavior and avoiding mid-animation `usable_viewport` re-basing (and the un-maximize top-strip pop) on lower-refresh displays. The deferred-flush maintenance pass now only runs when a pending monitor is actually unlocked, so a locked session no longer re-runs the work-area refresh or invalidates the Aperture mode cache every frame.
+- Resolve active-window render routing in `window::layout` with a `WindowRenderRoute` so surface collection appends shadows, borders, badges, surfaces, textures, and popups through a layout-provided route instead of repeating stack/top/fullscreen routing checks.
+- Add focused `RenderState` accessors for tile animation state, overlay toast lookup, view-state retention, and render tick telemetry to reduce direct bucket access from frame, layout, cluster, overlay, and camera code.
+- Move spawn reveal pan state and immediate activation paths behind named `SpawnRevealController` capability methods, reducing direct spawn-state manipulation in the reveal flow without changing placement behavior.
+- Split toplevel-destroy surface lifecycle handling into focused fact collection, input/focus cleanup, close-restore planning, and restore application helpers while preserving existing teardown behavior.
+- Split `RenderState` into cohesive view, overlay, window-animation, telemetry, cache, and GPU buckets so render state ownership better matches subsystem responsibilities.
+- Extract frame-loop output activity and full-repaint decisions into a dedicated `frame_loop::activity` module so frame ticking, callbacks, and presentation feedback are separated from read-only redraw policy.
+- Move the frame-loop module root from `frame_loop.rs` to `frame_loop/mod.rs`, keeping it colocated with its `frame_loop/` submodules.
+- Replace direct `ctx.st` access in compositor context wrappers with named capability methods for spawn, surface lifecycle, layer shell, pointer, and fullscreen paths, narrowing context call sites ahead of deeper subsystem splits.
+- Extract active-window stack and per-window render layout resolution behind a `window::layout` boundary so surface collection consumes named layout data instead of deriving stack, tiling, fullscreen, maximize, resize, and scale policy inline.
+- Replace the active-window render collector's positional tuple with a named render plan so frame scene assembly depends on explicit window-layer fields instead of tuple ordering.
 - Render minimal Aperture as a clipped top tab with smaller clock sizing and tab-specific padding, while preserving normal and collapsed Aperture presentation.
 - Centralize animation offscreen prewarm requests so close, tile, stack, maximize, fullscreen, raise, active-transition, and slide animations can declare texture-cache needs through one path.
 - Keep first-collapse marker rendering non-blocking by skipping cold app-icon lookup/raster/import during frame rendering and falling back until the icon cache is already warm.
@@ -18,6 +31,12 @@ All notable changes to this project will be documented in this file.
 - Soften window shadows with a Gaussian/error-function falloff for a more natural shadow tail.
 
 ### Fixed
+- Recompute live window-rule opacity for already-open windows on config reload and title/app-id refreshes, without reapplying placement or cluster behavior.
+- Keep maximized windows visually maximized while closing by preserving the maximize session through `xdg_toplevel.close`, capturing close animations from maximized geometry, and cleaning up maximize state after the surface is dropped.
+- Skip close-restore panning while a maximize session is present on the monitor, avoiding unnecessary viewport movement when focus is restored during maximized flows.
+- Make focus-cycle and trail navigation out of maximized or fullscreen sessions preserve the selected target's state: visible active windows are raised in place, offscreen active windows exit the presentation mode and pan to center, and collapsed nodes exit the presentation mode and center without uncollapsing.
+- Restore async app icon loading for normal node markers so app icons can appear without depending on other overlays warming the icon cache first.
+- Let Bearings clicks on collapsed cluster core chips focus and center the core like other bearing targets without opening the cluster workspace.
 - Wait briefly for the close-animation capture before automatic active-to-node collapses, fixing the first overlapped auto-collapse snapping to a node while preserving immediate fallback for no-content windows.
 - Reserve Aperture top clearance as a deficit against the user's configured field or tile gap instead of stacking extra padding on top of those gaps.
 - Base Aperture clearance on the actual minimal tab height plus a small after-gap, reject placeholder or expanded Aperture heights, and avoid phantom top gaps when `halley-aperture` is not running.
@@ -28,7 +47,8 @@ All notable changes to this project will be documented in this file.
 - Deduplicate repeated tiled `xdg_toplevel` configures during maintenance relayouts to reduce client lag and avoid serial churn crashes.
 - Detach active cluster members from their source cluster when monitor-transfer drags move them away, so the source layout recalculates without the missing window.
 - Absorb transferred standalone windows into the target monitor's active cluster layout by default, while keeping `cluster-participation "float"` and overlap-policy windows freely floating and resizable above the tiled cluster plane.
-- Restore stacking-cluster drag/drop behavior so hit-testing selects the visual top card, only that top card can be dragged out, in-stack drops snap back to the stack, outside drops detach or dissolve two-window stacks, and standalone windows dropped on an active stack rejoin at the top instead of floating over it.
+- Restore stacking-cluster drag/drop behavior so hit-testing selects the visual top card, stack card extraction stays reliable after layout updates, only the top card can be dragged out, in-stack drops snap back to the stack, outside drops detach or dissolve two-window stacks, and standalone windows dropped on an active stack rejoin at the top instead of floating over it.
+- Apply `xdg_popup` reposition geometry before acknowledging reposition requests, fixing Steam dropdown menus that could appear at the parent window's top-left with stale popup placement.
 
 ## [v0.3.2] - 2026-05-31
 

@@ -201,26 +201,31 @@ fn derive_aperture_mode(
     }
 
     let render_state = &st.ui.render_state;
-    let windows = active_window_rects_for_monitor(st, monitor, Instant::now());
     let family = st.aperture_config().peek.clock.font_family.clone();
+    let mut measure = |font_px: u32, text: &str| {
+        let (w, h) = ui_text_size_px_in(render_state, family.as_str(), font_px, text);
+        Size {
+            w: w as f32,
+            h: h as f32,
+        }
+    };
+    // Window rects are only needed to test obstruction, and only when a snapshot
+    // for the candidate mode actually exists. Compute them at most once, lazily.
+    let mut windows: Option<Vec<Rect>> = None;
+
     let normal = st.aperture_snapshot_for_mode(
         ApertureMode::Normal,
         output_rect,
         work_area_rect,
         scale,
-        |font_px, text| {
-            let (w, h) = ui_text_size_px_in(render_state, family.as_str(), font_px, text);
-            Size {
-                w: w as f32,
-                h: h as f32,
-            }
-        },
+        &mut measure,
     );
-    if normal
-        .as_ref()
-        .is_some_and(|snapshot| !clock_obstructed(snapshot.bounds, &windows))
-    {
-        return ApertureMode::Normal;
+    if let Some(snapshot) = &normal {
+        let windows = windows
+            .get_or_insert_with(|| active_window_rects_for_monitor(st, monitor, Instant::now()));
+        if !clock_obstructed(snapshot.bounds, windows) {
+            return ApertureMode::Normal;
+        }
     }
 
     let collapsed = st.aperture_snapshot_for_mode(
@@ -228,19 +233,14 @@ fn derive_aperture_mode(
         output_rect,
         work_area_rect,
         scale,
-        |font_px, text| {
-            let (w, h) = ui_text_size_px_in(render_state, family.as_str(), font_px, text);
-            Size {
-                w: w as f32,
-                h: h as f32,
-            }
-        },
+        &mut measure,
     );
-    if collapsed
-        .as_ref()
-        .is_some_and(|snapshot| !clock_obstructed(snapshot.bounds, &windows))
-    {
-        return ApertureMode::Collapsed;
+    if let Some(snapshot) = &collapsed {
+        let windows = windows
+            .get_or_insert_with(|| active_window_rects_for_monitor(st, monitor, Instant::now()));
+        if !clock_obstructed(snapshot.bounds, windows) {
+            return ApertureMode::Collapsed;
+        }
     }
 
     ApertureMode::Minimal
@@ -503,6 +503,154 @@ mod tests {
     }
 
     #[test]
+    fn field_maximize_freezes_aperture_workarea_after_baseline() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        set_aperture_tab_height(&mut st, 22);
+        let mut config = ApertureConfig::default();
+        config.peek.clock.small_height_px = 22;
+        st.apply_aperture_config(config.clone());
+
+        let required = required_minimal_aperture_clearance_px(&st, MONITOR).ceil();
+        st.runtime.tuning.non_overlap_gap_px = required - 10.0;
+        let id = st.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, MONITOR);
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                id,
+                Instant::now(),
+                MONITOR,
+            )
+        );
+        assert_eq!(usable_top_px(&st), 10);
+
+        config.peek.clock.small_height_px = 42;
+        st.apply_aperture_config(config);
+
+        assert_eq!(
+            usable_top_px(&st),
+            10,
+            "aperture commits must not rebase active field maximize work area"
+        );
+        assert!(
+            st.model
+                .monitor_state
+                .pending_workarea_refresh
+                .contains(MONITOR)
+        );
+    }
+
+    #[test]
+    fn leaving_field_maximize_applies_deferred_aperture_workarea() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        set_aperture_tab_height(&mut st, 22);
+        let mut config = ApertureConfig::default();
+        config.peek.clock.small_height_px = 22;
+        st.apply_aperture_config(config.clone());
+
+        let required = required_minimal_aperture_clearance_px(&st, MONITOR).ceil();
+        st.runtime.tuning.non_overlap_gap_px = required - 10.0;
+        let id = st.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, MONITOR);
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                id,
+                Instant::now(),
+                MONITOR,
+            )
+        );
+        config.peek.clock.small_height_px = 42;
+        st.apply_aperture_config(config);
+        assert_eq!(usable_top_px(&st), 10);
+
+        assert!(
+            crate::compositor::workspace::state::abort_maximize_session_for_monitor(
+                &mut st, MONITOR,
+            )
+        );
+
+        assert_eq!(usable_top_px(&st), 0);
+        assert!(
+            !st.model
+                .monitor_state
+                .pending_workarea_refresh
+                .contains(MONITOR)
+        );
+    }
+
+    #[test]
+    fn restoring_field_maximize_keeps_aperture_workarea_frozen() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        // Keep the session alive in `Restoring` state after the un-maximize toggle.
+        st.runtime.tuning.animations.enabled = true;
+        st.runtime.tuning.animations.maximize.enabled = true;
+        set_aperture_tab_height(&mut st, 22);
+        let mut config = ApertureConfig::default();
+        config.peek.clock.small_height_px = 22;
+        st.apply_aperture_config(config.clone());
+
+        let required = required_minimal_aperture_clearance_px(&st, MONITOR).ceil();
+        st.runtime.tuning.non_overlap_gap_px = required - 10.0;
+        let id = st.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, MONITOR);
+
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                id,
+                Instant::now(),
+                MONITOR,
+            )
+        );
+        assert_eq!(usable_top_px(&st), 10);
+
+        // A taller aperture commit must defer while the session is active.
+        config.peek.clock.small_height_px = 42;
+        st.apply_aperture_config(config);
+        assert_eq!(usable_top_px(&st), 10);
+
+        // Toggling off enters the restore animation; the work area must stay frozen
+        // until the session ends, not pop back as the window slides shut.
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                id,
+                Instant::now(),
+                MONITOR,
+            )
+        );
+        assert_eq!(
+            usable_top_px(&st),
+            10,
+            "restore animation must keep the aperture work area frozen"
+        );
+        assert!(
+            st.model
+                .monitor_state
+                .pending_workarea_refresh
+                .contains(MONITOR)
+        );
+    }
+
+    #[test]
     fn existing_gap_that_fits_tab_adds_no_reserve() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
@@ -554,6 +702,62 @@ mod tests {
 
         assert_eq!(small_reservation_px_for_monitor(&st, MONITOR), 0);
         assert_eq!(usable_top_px(&st), 0);
+    }
+
+    #[test]
+    fn collapsed_surface_obstruction_uses_marker_extents() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        let id = st.model.field.spawn_surface(
+            "collapsed-firefox",
+            Vec2 { x: 160.0, y: 0.0 },
+            Vec2 {
+                x: 1200.0,
+                y: 900.0,
+            },
+        );
+        st.assign_node_to_monitor(id, MONITOR);
+        let _ = st.model.field.set_state(id, NodeState::Node);
+
+        let (viewport, width, height) = {
+            let space = st
+                .model
+                .monitor_state
+                .monitors
+                .get(MONITOR)
+                .expect("monitor");
+            (space.viewport, space.width.max(1), space.height.max(1))
+        };
+        let now = Instant::now();
+        let rect = node_screen_rect_for_monitor(&st, id, viewport, width, height, now)
+            .expect("collapsed obstruction rect");
+        let node = st.model.field.node(id).expect("node");
+        let anim = crate::frame_loop::anim_style_for(&st, id, node.state.clone(), now);
+        let expected = crate::presentation::node_render_diameter_px(
+            &st,
+            node.intrinsic_size,
+            node.label.len(),
+            anim.scale,
+        )
+        .round()
+        .max(1.0);
+
+        assert_eq!(rect.w, expected);
+        assert_eq!(rect.h, expected);
+
+        let center_x = rect.x + rect.w * 0.5;
+        let center_y = rect.y + rect.h * 0.5;
+        let open_window_rect = Rect::new(center_x - 600.0, center_y - 450.0, 1200.0, 900.0);
+        let clock_bounds = Rect::new(rect.right() + 20.0, rect.y, 80.0, rect.h);
+
+        assert!(
+            clock_obstructed(clock_bounds, &[open_window_rect]),
+            "test setup should intersect the old open-window obstruction rect"
+        );
+        assert!(
+            !clock_obstructed(clock_bounds, &[rect]),
+            "collapsed nodes should only obstruct aperture with their marker extents"
+        );
     }
 }
 
@@ -607,6 +811,7 @@ fn node_screen_rect_for_monitor(
     height: i32,
     now: Instant,
 ) -> Option<Rect> {
+    let node = st.model.field.node(node_id)?;
     if st.model.monitor_state.current_monitor
         == st
             .model
@@ -615,6 +820,7 @@ fn node_screen_rect_for_monitor(
             .get(&node_id)
             .map(String::as_str)
             .unwrap_or(st.model.monitor_state.current_monitor.as_str())
+        && node.state == NodeState::Active
     {
         if let Some((left, top, right, bottom)) =
             crate::input::active_node_screen_rect(st, width, height, node_id, now, None)
@@ -628,7 +834,6 @@ fn node_screen_rect_for_monitor(
         }
     }
 
-    let node = st.model.field.node(node_id)?;
     let view_w = viewport.size.x.max(1.0);
     let view_h = viewport.size.y.max(1.0);
     let nx = ((node.pos.x - viewport.center.x) / view_w) + 0.5;
@@ -636,20 +841,30 @@ fn node_screen_rect_for_monitor(
     let cx = nx * width as f32;
     let cy = ny * height as f32;
 
-    let (_, _, local_w, local_h) = st
-        .ui
-        .render_state
-        .cache
-        .window_geometry
-        .get(&node_id)
-        .copied()
-        .map(|(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
-        .unwrap_or((
-            0.0,
-            0.0,
-            node.intrinsic_size.x.max(1.0),
-            node.intrinsic_size.y.max(1.0),
-        ));
+    let (local_w, local_h) = if node.state == NodeState::Node {
+        let anim = crate::frame_loop::anim_style_for(st, node_id, node.state.clone(), now);
+        let diameter = crate::presentation::node_render_diameter_px(
+            st,
+            node.intrinsic_size,
+            node.label.len(),
+            anim.scale,
+        )
+        .round()
+        .max(1.0);
+        (diameter, diameter)
+    } else {
+        st.ui
+            .render_state
+            .cache
+            .window_geometry
+            .get(&node_id)
+            .copied()
+            .map(|(_, _, w, h)| (w.max(1.0), h.max(1.0)))
+            .unwrap_or((
+                node.intrinsic_size.x.max(1.0),
+                node.intrinsic_size.y.max(1.0),
+            ))
+    };
     let left = cx - (local_w * 0.5);
     let top = cy - (local_h * 0.5);
     Some(Rect::new(left, top, local_w, local_h))
