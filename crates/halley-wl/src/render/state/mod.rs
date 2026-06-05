@@ -80,6 +80,8 @@ pub(crate) enum ClosingWindowAnimationKind {
         style: WindowCloseAnimationStyle,
         border_rects: Vec<ActiveBorderRect>,
         offscreen_textures: Vec<OffscreenNodeTexture>,
+        start_scale: f32,
+        start_alpha: f32,
     },
     Node {
         pos: Vec2,
@@ -325,6 +327,8 @@ impl RenderState {
         style: WindowCloseAnimationStyle,
         border_rects: Vec<ActiveBorderRect>,
         offscreen_textures: Vec<OffscreenNodeTexture>,
+        start_scale: f32,
+        start_alpha: f32,
     ) {
         if border_rects.is_empty() && offscreen_textures.is_empty() {
             return;
@@ -339,6 +343,8 @@ impl RenderState {
                     style,
                     border_rects,
                     offscreen_textures,
+                    start_scale,
+                    start_alpha,
                 },
             },
         );

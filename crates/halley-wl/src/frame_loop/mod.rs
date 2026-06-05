@@ -125,6 +125,7 @@ pub(crate) fn tick_animator_frame(st: &mut Halley, now: Instant) {
 pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     let now_ms = st.now_ms(now);
     st.tick_viewport_pan_animation(now_ms);
+    crate::compositor::actions::window::tick_pending_maximize(st, now);
     let _ = st.process_pending_cluster_slot_transition_for_current_monitor(now);
     st.tick_pending_spawn_pan(now, now_ms);
     crate::compositor::workspace::state::tick_maximize_animation(st, now);
@@ -1075,6 +1076,8 @@ mod tests {
                 border_color: Color32F::new(1.0, 1.0, 1.0, 1.0),
             }],
             Vec::new(),
+            1.0,
+            1.0,
         );
 
         assert!(tty_output_animation_redraw_state(&state, "right", start).active);

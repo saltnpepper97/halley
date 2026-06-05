@@ -65,8 +65,30 @@ pub(crate) fn capture_closing_window_animation(
     st: &Halley,
     monitor: &str,
     node_id: NodeId,
-) -> Option<(Vec<ActiveBorderRect>, Vec<OffscreenNodeTexture>)> {
+) -> Option<(Vec<ActiveBorderRect>, Vec<OffscreenNodeTexture>, f32, f32)> {
     let node = st.model.field.node(node_id)?;
+    // The open grow-in is driven by the active-transition system (not the Animator). Capture the
+    // window's live render scale/alpha so the close tween continues from its current on-screen
+    // size instead of snapping to full size first. Mirrors window/layout.rs.
+    let now = Instant::now();
+    let anim = crate::frame_loop::anim_style_for(st, node_id, node.state.clone(), now);
+    let transition_alpha =
+        crate::compositor::workspace::state::active_transition_alpha(st, node_id, now);
+    let open_scale = crate::animation::active_surface_render_scale(
+        anim.scale,
+        st.active_zoom_lock_scale(),
+        node.intrinsic_size.x,
+        node.intrinsic_size.y,
+        transition_alpha,
+    );
+    let live_ramp = if transition_alpha > 0.0 {
+        crate::animation::ease_out_back((1.0 - transition_alpha).clamp(0.0, 1.0), 1.42)
+            .clamp(0.0, 1.08)
+    } else {
+        let live_t = ((anim.scale - 0.44) / (1.0 - 0.44)).clamp(0.0, 1.0);
+        crate::animation::ease_in_out_cubic(live_t).clamp(0.0, 1.0)
+    };
+    let open_alpha = (anim.alpha * live_ramp).clamp(0.0, 1.0);
     let cache = st
         .ui
         .render_state
@@ -98,10 +120,7 @@ pub(crate) fn capture_closing_window_animation(
     ));
     let maximized_visual =
         crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
-            st,
-            node_id,
-            monitor,
-            Instant::now(),
+            st, node_id, monitor, now,
         );
     let visual_pos = maximized_visual.map(|(pos, _)| pos).unwrap_or(node.pos);
     let (cx, cy) = world_to_screen_for_view(
@@ -220,7 +239,7 @@ pub(crate) fn capture_closing_window_animation(
         fullscreen_on_monitor,
     );
 
-    Some((border_rects, vec![offscreen]))
+    Some((border_rects, vec![offscreen], open_scale, open_alpha))
 }
 
 pub(crate) fn capture_window_to_png_via_renderer(
@@ -237,7 +256,7 @@ pub(crate) fn capture_window_to_png_via_renderer(
         ensure_window_texture_program(renderer, st);
         prewarm_visible_active_window_offscreen_caches(renderer, st, now);
 
-        let (mut border_rects, mut offscreen_textures) =
+        let (mut border_rects, mut offscreen_textures, _, _) =
             capture_closing_window_animation(st, monitor, node_id).ok_or_else(|| {
                 io::Error::other(format!(
                     "unable to prepare window capture for node {} on {monitor}",

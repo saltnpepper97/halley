@@ -443,17 +443,23 @@ fn draw_closing_window_animations(
             style,
             border_rects,
             offscreen_textures,
+            start_scale,
+            start_alpha,
         } = &animation.kind
         else {
             continue;
         };
 
         let eased = crate::animation::ease_in_out_cubic(animation.progress);
+        // Fold in the window's live scale/alpha at close time so the tween continues seamlessly
+        // from the open animation instead of snapping to full size.
         let (scale, alpha) = match style {
             halley_config::WindowCloseAnimationStyle::Shrink => {
-                ((1.0 - eased).clamp(0.0, 1.0), 1.0)
+                (start_scale * (1.0 - eased).clamp(0.0, 1.0), *start_alpha)
             }
-            halley_config::WindowCloseAnimationStyle::Fade => (1.0, (1.0 - eased).clamp(0.0, 1.0)),
+            halley_config::WindowCloseAnimationStyle::Fade => {
+                (*start_scale, start_alpha * (1.0 - eased).clamp(0.0, 1.0))
+            }
         };
         if scale <= 0.001 || alpha <= 0.001 {
             continue;
