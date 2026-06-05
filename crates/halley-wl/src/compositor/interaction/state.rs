@@ -70,6 +70,12 @@ pub(crate) struct ViewportPanAnim {
 }
 
 #[derive(Clone)]
+pub(crate) struct PendingMaximize {
+    pub(crate) node_id: NodeId,
+    pub(crate) focused_monitor: String,
+}
+
+#[derive(Clone)]
 pub(crate) struct ActiveDragState {
     pub(crate) node_id: NodeId,
     pub(crate) allow_monitor_transfer: bool,
@@ -245,6 +251,9 @@ pub(crate) struct InteractionState {
     pub(crate) smoothed_render_pos: HashMap<NodeId, Vec2>,
     pub(crate) viewport_pan_anim: Option<ViewportPanAnim>,
     pub(crate) pan_dominant_until_ms: u64,
+    /// Maximize requested mid-trail; deferred until `viewport_pan_anim` finishes so the pan
+    /// plays out first and the two animations stay sequential rather than simultaneous.
+    pub(crate) pending_maximize: Option<PendingMaximize>,
     pub(crate) active_drag: Option<ActiveDragState>,
     pub(crate) cluster_join_candidate: Option<ClusterJoinCandidate>,
     pub(crate) bloom_pull_preview: Option<BloomPullPreview>,

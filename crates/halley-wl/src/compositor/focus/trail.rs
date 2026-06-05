@@ -662,4 +662,68 @@ mod tests {
         );
         assert!(state.input.interaction_state.viewport_pan_anim.is_some());
     }
+
+    #[test]
+    fn maximize_during_trail_pan_defers_until_pan_completes() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let now = Instant::now();
+
+        let near = state.model.field.spawn_surface(
+            "near",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let far = state.model.field.spawn_surface(
+            "far",
+            Vec2 { x: 2_400.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(near);
+        state.assign_node_to_current_monitor(far);
+
+        // Trail history: focus far then near, with the camera parked on `near`.
+        state.set_interaction_focus(Some(far), 30_000, now);
+        state.set_interaction_focus(Some(near), 30_000, now);
+        state.model.viewport.center = Vec2 { x: 0.0, y: 0.0 };
+
+        // Trail back to `far` — starts a camera pan toward far.pos.
+        assert!(state.navigate_window_trail(TrailDirection::Prev, now));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(far)
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_some());
+
+        // Maximize mid-pan: it must be deferred, not applied, so the pan can play out first.
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state, far, now, "default",
+            )
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_some());
+        assert!(state.input.interaction_state.pending_maximize.is_some());
+        assert!(
+            !state
+                .model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("default")
+        );
+
+        // Once the pan completes, the deferred maximize runs.
+        state.tick_viewport_pan_animation(state.now_ms(now) + 1_000);
+        assert!(state.input.interaction_state.viewport_pan_anim.is_none());
+        crate::compositor::actions::window::tick_pending_maximize(&mut state, now);
+        assert!(state.input.interaction_state.pending_maximize.is_none());
+        assert!(
+            state
+                .model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("default")
+        );
+    }
 }

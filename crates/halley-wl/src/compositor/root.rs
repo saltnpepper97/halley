@@ -384,6 +384,7 @@ impl Halley {
                     smoothed_render_pos: HashMap::new(),
                     viewport_pan_anim: None,
                     pan_dominant_until_ms: 0,
+                    pending_maximize: None,
                     active_drag: None,
                     cluster_join_candidate: None,
                     bloom_pull_preview: None,

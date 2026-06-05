@@ -556,6 +556,17 @@ pub(crate) fn toggle_node_maximize_state(
         return false;
     }
 
+    // If a trail/camera pan is in flight, let it finish first and run the maximize afterwards so
+    // the two animations stay sequential (pan, then maximize) instead of snapping simultaneously.
+    if st.input.interaction_state.viewport_pan_anim.is_some() {
+        st.input.interaction_state.pending_maximize =
+            Some(crate::compositor::interaction::state::PendingMaximize {
+                node_id: id,
+                focused_monitor: focused_monitor.to_string(),
+            });
+        return true;
+    }
+
     let maximize_resume_monitor =
         crate::compositor::workspace::state::take_maximize_resume_for_node(st, id);
     let monitor = maximize_resume_monitor.unwrap_or_else(|| {
@@ -573,6 +584,18 @@ pub(crate) fn toggle_node_maximize_state(
 
     st.set_interaction_focus(Some(id), 30_000, now);
     start_maximize_session(st, id, monitor.as_str(), now)
+}
+
+/// Run a maximize that was deferred while a trail/camera pan was animating. Once the pan has
+/// cleared, re-enter `toggle_node_maximize_state` so the camera is already settled on the target.
+pub(crate) fn tick_pending_maximize(st: &mut Halley, now: Instant) {
+    if st.input.interaction_state.viewport_pan_anim.is_some() {
+        return;
+    }
+    let Some(pending) = st.input.interaction_state.pending_maximize.take() else {
+        return;
+    };
+    let _ = toggle_node_maximize_state(st, pending.node_id, now, pending.focused_monitor.as_str());
 }
 
 fn uncollapse_surface_node_for_action(

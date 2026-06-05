@@ -147,7 +147,7 @@ pub(crate) fn start_active_to_node_close_animation(
     let style = st.runtime.tuning.window_close_style();
     // Close-to-node animation reuses the already-warmed offscreen cache. A first
     // collapse can race that cache; callers should queue a pending collapse then.
-    let Some((border_rects, offscreen_textures)) =
+    let Some((border_rects, offscreen_textures, start_scale, start_alpha)) =
         crate::window::capture_closing_window_animation(st, monitor.as_str(), id)
     else {
         return false;
@@ -161,6 +161,8 @@ pub(crate) fn start_active_to_node_close_animation(
         style,
         border_rects,
         offscreen_textures,
+        start_scale,
+        start_alpha,
     );
     st.ui.render_state.finish_window_animation_prewarm(id);
     st.ui
