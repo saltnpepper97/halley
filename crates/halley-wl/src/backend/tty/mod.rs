@@ -1151,8 +1151,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             }
             eprintln!("halley-wl tty: logging initialized");
 
+            let resolved_config_path = RuntimeTuning::resolved_config_path();
             let (seat_name, drm_probe, libinput_backend, libinput_context, session_notifier) = {
-                let config_path = RuntimeTuning::config_path();
+                let config_path = resolved_config_path.path.to_string_lossy().to_string();
                 let tuning = RuntimeTuning::load_from_path(config_path.as_str());
                 let (tty_session, session_notifier) = LibSeatSession::new().map_err(|err| {
                     io::Error::other(format!("failed to initialize libseat session: {:?}", err))
@@ -1184,10 +1185,12 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
             let mut display: Display<Halley> = Display::new()?;
             let dh = display.handle();
 
-            crate::bootstrap::ensure_default_user_config(Some(&bootstrap_tty_viewports(
-                drm_probe.outputs.as_slice(),
-            )));
-            let config_path = Rc::new(RuntimeTuning::config_path());
+            let resolved_config_path = crate::bootstrap::ensure_resolved_default_user_config(
+                resolved_config_path,
+                Some(&bootstrap_tty_viewports(drm_probe.outputs.as_slice())),
+            );
+            let config_source = resolved_config_path.source;
+            let config_path = Rc::new(resolved_config_path.path.to_string_lossy().to_string());
             let aperture_config_path = Rc::new(crate::aperture::default_aperture_config_path());
             let (tuning, startup_config_error) =
                 crate::bootstrap::load_startup_tuning(config_path.as_str());
@@ -1200,7 +1203,17 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                     config_path.as_str()
                 );
             }
-            info!("config path: {}", config_path.as_str());
+            info!(
+                "config: using {} {}",
+                config_source.as_str(),
+                config_path.as_str()
+            );
+            info!(
+                "keyboard config: layout={} variant={} options={}",
+                tuning.input.keyboard.layout,
+                tuning.input.keyboard.variant,
+                tuning.input.keyboard.options
+            );
             if !aperture_config_path.as_path().exists() {
                 warn!(
                     "aperture config file not found at {}; using built-in defaults",

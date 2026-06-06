@@ -389,6 +389,24 @@ mod tests {
     }
 
     #[test]
+    fn jump_to_minimal_mode_settles_immediately() {
+        let mut runtime = ApertureRuntime::new(ApertureConfig::default());
+        runtime.set_mode(ApertureMode::Collapsed);
+        runtime.update(Duration::from_millis(16), SystemTime::UNIX_EPOCH);
+
+        runtime.jump_to_mode(ApertureMode::Minimal);
+
+        let presentation = runtime.presentation();
+        let targets = mode_targets(runtime.config(), ApertureMode::Minimal);
+        assert_eq!(runtime.target_mode(), ApertureMode::Minimal);
+        assert!(!runtime.animation_active());
+        assert_eq!(presentation.alpha, targets.alpha);
+        assert_eq!(presentation.font_px, targets.font_px);
+        assert_eq!(presentation.edge_padding_px, targets.edge_padding_px);
+        assert_eq!(presentation.hidden_mix, targets.hidden_mix);
+    }
+
+    #[test]
     fn apply_config_updates_style_without_touching_mode() {
         let mut runtime = ApertureRuntime::new(ApertureConfig::default());
         runtime.set_mode(ApertureMode::Hidden);

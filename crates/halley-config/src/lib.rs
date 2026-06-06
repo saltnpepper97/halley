@@ -11,17 +11,17 @@ pub use keybinds::{
 };
 pub use layout::{
     AnimationToggleConfig, AnimationsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
-    DecorationBorderColor, DecorationsConfig, ExpandedPlacementConfig, ExpandedPlacementStrategy,
-    FindEmptyMode, FontConfig, InitialWindowClusterParticipation, InitialWindowOverlapPolicy,
-    InitialWindowSpawnPlacement, InputConfig, InputFocusMode, KeyboardConfig,
-    LandmarkPlacementConfig, LandmarkPlacementStrategy, NodeBackgroundColorMode,
+    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, ConfigPathSource,
+    CursorConfig, DebugConfig, DecorationBorderColor, DecorationsConfig, ExpandedPlacementConfig,
+    ExpandedPlacementStrategy, FindEmptyMode, FontConfig, InitialWindowClusterParticipation,
+    InitialWindowOverlapPolicy, InitialWindowSpawnPlacement, InputConfig, InputFocusMode,
+    KeyboardConfig, LandmarkPlacementConfig, LandmarkPlacementStrategy, NodeBackgroundColorMode,
     NodeBorderColorMode, NodeDisplayPolicy, NormalBlockerPolicy, OverlayBorderSource,
     OverlayColorMode, OverlayShape, OverlayStyleConfig, PanToNewMode, PinBadgeCorner,
     PinnedBlockerPolicy, PinsConfig, PlacementConfig, PlacementRevealConfig, PrimaryBorderConfig,
-    RaiseAnimationConfig, RuntimeTuning, ScreenshotConfig, SecondaryBorderConfig, ShadowColor,
-    ShadowLayerConfig, ShadowsConfig, ShapeStyle, TimedAnimationConfig, ViewportOutputConfig,
-    ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle, WindowRule,
-    WindowRulePattern,
+    RaiseAnimationConfig, ResolvedConfigPath, RuntimeTuning, ScreenshotConfig,
+    SecondaryBorderConfig, ShadowColor, ShadowLayerConfig, ShadowsConfig, ShapeStyle,
+    TimedAnimationConfig, ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig,
+    WindowCloseAnimationStyle, WindowRule, WindowRulePattern,
 };
 pub use parse::{ConfigLoadDiagnostic, gather_dependencies_for_file};

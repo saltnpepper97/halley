@@ -251,8 +251,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let mut display: Display<Halley> = Display::new()?;
             let dh = display.handle();
 
-            crate::bootstrap::ensure_default_user_config(None);
-            let config_path = Rc::new(RuntimeTuning::config_path());
+            let resolved_config_path = crate::bootstrap::ensure_default_user_config(None);
+            let config_source = resolved_config_path.source;
+            let config_path = Rc::new(resolved_config_path.path.to_string_lossy().to_string());
             let aperture_config_path = Rc::new(crate::aperture::default_aperture_config_path());
             let (tuning, startup_config_error) =
                 crate::bootstrap::load_startup_tuning(config_path.as_str());
@@ -265,7 +266,17 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     config_path.as_str()
                 );
             }
-            info!("config path: {}", config_path.as_str());
+            info!(
+                "config: using {} {}",
+                config_source.as_str(),
+                config_path.as_str()
+            );
+            info!(
+                "keyboard config: layout={} variant={} options={}",
+                tuning.input.keyboard.layout,
+                tuning.input.keyboard.variant,
+                tuning.input.keyboard.options
+            );
             if !aperture_config_path.as_path().exists() {
                 warn!(
                     "aperture config file not found at {}; using built-in defaults",

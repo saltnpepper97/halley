@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use halley_config::{ConfigLoadDiagnostic, RuntimeTuning, ViewportOutputConfig};
+use halley_config::{
+    ConfigLoadDiagnostic, ConfigPathSource, ResolvedConfigPath, RuntimeTuning, ViewportOutputConfig,
+};
 
 use eventline::{
     FileSetup, LogLevel, LogPolicy, RunHeader, Setup, debug, enable_console_color,
@@ -249,52 +251,84 @@ pub(crate) fn viewport_section_changed(prev: &RuntimeTuning, next: &RuntimeTunin
     normalized_tty_viewports(prev) != normalized_tty_viewports(next)
 }
 
-pub(crate) fn ensure_default_user_config(tty_viewports: Option<&[ViewportOutputConfig]>) {
-    if env::var("HALLEY_WL_CONFIG").is_ok() {
-        return;
-    }
+pub(crate) fn ensure_default_user_config(
+    tty_viewports: Option<&[ViewportOutputConfig]>,
+) -> ResolvedConfigPath {
+    let resolved = RuntimeTuning::resolved_config_path();
+    ensure_resolved_default_user_config(resolved, tty_viewports)
+}
 
-    let home_path = PathBuf::from(RuntimeTuning::default_home_config_path());
-    if home_path.exists() {
-        let raw = match fs::read_to_string(&home_path) {
-            Ok(raw) => raw,
-            Err(err) => {
+pub(crate) fn ensure_resolved_default_user_config(
+    resolved: ResolvedConfigPath,
+    tty_viewports: Option<&[ViewportOutputConfig]>,
+) -> ResolvedConfigPath {
+    match default_user_config_action(resolved.source) {
+        DefaultUserConfigAction::Skip => {}
+        DefaultUserConfigAction::BackfillUser => {
+            backfill_existing_user_config(resolved.path.as_path(), tty_viewports.unwrap_or(&[]));
+        }
+        DefaultUserConfigAction::CreateUser => {
+            create_default_user_config(resolved.path.as_path(), tty_viewports.unwrap_or(&[]));
+        }
+    }
+    resolved
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DefaultUserConfigAction {
+    Skip,
+    BackfillUser,
+    CreateUser,
+}
+
+fn default_user_config_action(source: ConfigPathSource) -> DefaultUserConfigAction {
+    match source {
+        ConfigPathSource::Explicit | ConfigPathSource::System => DefaultUserConfigAction::Skip,
+        ConfigPathSource::User => DefaultUserConfigAction::BackfillUser,
+        ConfigPathSource::GeneratedUser => DefaultUserConfigAction::CreateUser,
+    }
+}
+
+fn backfill_existing_user_config(home_path: &Path, tty_viewports: &[ViewportOutputConfig]) {
+    let raw = match fs::read_to_string(home_path) {
+        Ok(raw) => raw,
+        Err(err) => {
+            warn!(
+                "bootstrap: failed to read existing config {}: {}",
+                home_path.display(),
+                err
+            );
+            return;
+        }
+    };
+
+    match RuntimeTuning::update_user_config_text(&raw, tty_viewports) {
+        Ok(Some(updated)) => {
+            if let Err(err) = fs::write(home_path, updated) {
                 warn!(
-                    "bootstrap: failed to read existing config {}: {}",
+                    "bootstrap: failed to update existing config {}: {}",
                     home_path.display(),
                     err
                 );
-                return;
-            }
-        };
-
-        match RuntimeTuning::update_user_config_text(&raw, tty_viewports.unwrap_or(&[])) {
-            Ok(Some(updated)) => {
-                if let Err(err) = fs::write(&home_path, updated) {
-                    warn!(
-                        "bootstrap: failed to update existing config {}: {}",
-                        home_path.display(),
-                        err
-                    );
-                } else {
-                    info!(
-                        "bootstrap: updated existing config {} with missing template entries",
-                        home_path.display()
-                    );
-                }
-            }
-            Ok(None) => {}
-            Err(err) => {
-                warn!(
-                    "bootstrap: skipped config update for {}: {}",
-                    home_path.display(),
-                    err
+            } else {
+                info!(
+                    "bootstrap: updated existing config {} with missing template entries",
+                    home_path.display()
                 );
             }
         }
-        return;
+        Ok(None) => {}
+        Err(err) => {
+            warn!(
+                "bootstrap: skipped config update for {}: {}",
+                home_path.display(),
+                err
+            );
+        }
     }
+}
 
+fn create_default_user_config(home_path: &Path, tty_viewports: &[ViewportOutputConfig]) {
     let Some(parent) = home_path.parent() else {
         warn!(
             "bootstrap: unable to determine config directory for {}",
@@ -311,8 +345,8 @@ pub(crate) fn ensure_default_user_config(tty_viewports: Option<&[ViewportOutputC
         return;
     }
 
-    let rendered = RuntimeTuning::render_fresh_config(tty_viewports.unwrap_or(&[]));
-    if let Err(err) = fs::write(&home_path, rendered) {
+    let rendered = RuntimeTuning::render_fresh_config(tty_viewports);
+    if let Err(err) = fs::write(home_path, rendered) {
         warn!(
             "bootstrap: failed to write {} from internal template: {}",
             home_path.display(),
@@ -325,6 +359,43 @@ pub(crate) fn ensure_default_user_config(tty_viewports: Option<&[ViewportOutputC
         "bootstrap: wrote {} using internal template",
         home_path.display()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_config_does_not_create_or_backfill_home_config() {
+        assert_eq!(
+            default_user_config_action(ConfigPathSource::Explicit),
+            DefaultUserConfigAction::Skip
+        );
+    }
+
+    #[test]
+    fn system_config_does_not_create_home_config() {
+        assert_eq!(
+            default_user_config_action(ConfigPathSource::System),
+            DefaultUserConfigAction::Skip
+        );
+    }
+
+    #[test]
+    fn existing_user_config_is_backfilled() {
+        assert_eq!(
+            default_user_config_action(ConfigPathSource::User),
+            DefaultUserConfigAction::BackfillUser
+        );
+    }
+
+    #[test]
+    fn user_config_is_created_only_when_no_config_exists() {
+        assert_eq!(
+            default_user_config_action(ConfigPathSource::GeneratedUser),
+            DefaultUserConfigAction::CreateUser
+        );
+    }
 }
 
 pub fn run() -> Result<(), Box<dyn Error>> {

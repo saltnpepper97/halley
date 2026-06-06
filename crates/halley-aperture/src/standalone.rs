@@ -291,7 +291,11 @@ impl StandaloneAperture {
                 mode_for_output_in(&modes, fallback, placement, layer.output_name.as_deref())
                     .unwrap_or_else(|| layer.runtime.target_mode());
             if layer.runtime.target_mode() != mode {
-                layer.runtime.set_mode(mode);
+                if mode == ApertureMode::Minimal {
+                    layer.runtime.jump_to_mode(mode);
+                } else {
+                    layer.runtime.set_mode(mode);
+                }
                 layer.last_tick = now;
                 changed = true;
             }
