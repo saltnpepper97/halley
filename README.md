@@ -209,7 +209,7 @@ Defaults follow Halley's shipped fresh-config template.
 
 ## Configuration
 
-On first launch Halley bootstraps `~/.config/halley/halley.rune` for you from an internal fully documented template, inserting detected tty monitors into the `viewport` section. Normal config precedence is `~/.config/halley/halley.rune`, then `/etc/halley/halley.rune`, then bundled internal defaults.
+On first launch Halley bootstraps `~/.config/halley/halley.rune` for you from an internal fully documented template, inserting detected tty monitors into the `viewport` section. Normal config precedence is `--config`/`-c`, then `HALLEY_WL_CONFIG`, then `~/.config/halley/halley.rune`, then `/etc/halley/halley.rune`, then generated user config/internal defaults. Use `halley --config /path/to/halley.rune` or `halley -c /path/to/halley.rune` to force a specific file.
 
 Handled by `crates/halley-config`. Covers input settings like repeat/focus mode, keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
 

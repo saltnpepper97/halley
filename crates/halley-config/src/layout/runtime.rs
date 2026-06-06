@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::env;
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use halley_core::cluster_layout::ClusterWorkspaceLayoutKind;
@@ -19,6 +19,31 @@ use super::{
     PlacementConfig, ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle,
     WindowRule,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigPathSource {
+    Explicit,
+    User,
+    System,
+    GeneratedUser,
+}
+
+impl ConfigPathSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConfigPathSource::Explicit => "explicit",
+            ConfigPathSource::User => "user",
+            ConfigPathSource::System => "system",
+            ConfigPathSource::GeneratedUser => "generated user",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedConfigPath {
+    pub path: PathBuf,
+    pub source: ConfigPathSource,
+}
 
 #[derive(Clone, Debug)]
 pub struct RuntimeTuning {
@@ -109,6 +134,12 @@ impl RuntimeTuning {
 
     pub fn global_config_path() -> String {
         global_config_path().to_string_lossy().to_string()
+    }
+
+    pub fn explicit_config_path_from_env() -> Option<PathBuf> {
+        env::var("HALLEY_WL_CONFIG")
+            .ok()
+            .and_then(|path| explicit_config_path_from_value(path.as_str()))
     }
 
     pub fn internal_config_template() -> String {
@@ -264,22 +295,22 @@ impl RuntimeTuning {
     }
 
     pub fn config_path() -> String {
-        match env::var("HALLEY_WL_CONFIG") {
-            Ok(path) => absolutize_path(&path).to_string_lossy().to_string(),
-            Err(_) => {
-                let home = default_config_path();
-                if Path::new(&home).exists() {
-                    home.to_string_lossy().to_string()
-                } else {
-                    let global = global_config_path();
-                    if Path::new(&global).exists() {
-                        global.to_string_lossy().to_string()
-                    } else {
-                        home.to_string_lossy().to_string()
-                    }
-                }
-            }
-        }
+        Self::resolved_config_path()
+            .path
+            .to_string_lossy()
+            .to_string()
+    }
+
+    pub fn resolved_config_path() -> ResolvedConfigPath {
+        let user_path = default_config_path();
+        let system_path = global_config_path();
+        resolve_config_path_from_inputs(
+            env::var("HALLEY_WL_CONFIG").ok().as_deref(),
+            user_path.exists(),
+            system_path.exists(),
+            user_path,
+            system_path,
+        )
     }
 
     pub fn load() -> Self {
@@ -378,6 +409,45 @@ impl RuntimeTuning {
             self.zoom_smooth,
             self.zoom_smooth_rate,
         )
+    }
+}
+
+fn explicit_config_path_from_value(value: &str) -> Option<PathBuf> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| absolutize_path(trimmed))
+}
+
+pub(crate) fn resolve_config_path_from_inputs(
+    explicit: Option<&str>,
+    user_exists: bool,
+    system_exists: bool,
+    user_path: PathBuf,
+    system_path: PathBuf,
+) -> ResolvedConfigPath {
+    if let Some(path) = explicit.and_then(explicit_config_path_from_value) {
+        return ResolvedConfigPath {
+            path,
+            source: ConfigPathSource::Explicit,
+        };
+    }
+
+    if user_exists {
+        return ResolvedConfigPath {
+            path: user_path,
+            source: ConfigPathSource::User,
+        };
+    }
+
+    if system_exists {
+        return ResolvedConfigPath {
+            path: system_path,
+            source: ConfigPathSource::System,
+        };
+    }
+
+    ResolvedConfigPath {
+        path: user_path,
+        source: ConfigPathSource::GeneratedUser,
     }
 }
 
@@ -915,6 +985,78 @@ fn render_viewport_section(tty_viewports: &[ViewportOutputConfig]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    fn resolved(
+        explicit: Option<&str>,
+        user_exists: bool,
+        system_exists: bool,
+    ) -> ResolvedConfigPath {
+        resolve_config_path_from_inputs(
+            explicit,
+            user_exists,
+            system_exists,
+            PathBuf::from("/home/test/.config/halley/halley.rune"),
+            PathBuf::from("/etc/halley/halley.rune"),
+        )
+    }
+
+    #[test]
+    fn explicit_config_wins_over_env_home_and_system() {
+        let out = resolved(Some("/tmp/test-halley.rune"), true, true);
+
+        assert_eq!(out.source, ConfigPathSource::Explicit);
+        assert_eq!(out.path, PathBuf::from("/tmp/test-halley.rune"));
+    }
+
+    #[test]
+    fn non_empty_env_config_wins_over_home_and_system() {
+        let out = resolved(Some("/tmp/env-halley.rune"), true, true);
+
+        assert_eq!(out.source, ConfigPathSource::Explicit);
+        assert_eq!(out.path, PathBuf::from("/tmp/env-halley.rune"));
+    }
+
+    #[test]
+    fn empty_env_config_is_ignored() {
+        let out = resolved(Some("   "), true, true);
+
+        assert_eq!(out.source, ConfigPathSource::User);
+        assert_eq!(
+            out.path,
+            PathBuf::from("/home/test/.config/halley/halley.rune")
+        );
+    }
+
+    #[test]
+    fn home_config_wins_over_system_config() {
+        let out = resolved(None, true, true);
+
+        assert_eq!(out.source, ConfigPathSource::User);
+        assert_eq!(
+            out.path,
+            PathBuf::from("/home/test/.config/halley/halley.rune")
+        );
+    }
+
+    #[test]
+    fn system_config_is_used_when_home_config_is_missing() {
+        let out = resolved(None, false, true);
+
+        assert_eq!(out.source, ConfigPathSource::System);
+        assert_eq!(out.path, PathBuf::from("/etc/halley/halley.rune"));
+    }
+
+    #[test]
+    fn user_config_is_generation_target_when_no_config_exists() {
+        let out = resolved(None, false, false);
+
+        assert_eq!(out.source, ConfigPathSource::GeneratedUser);
+        assert_eq!(
+            out.path,
+            PathBuf::from("/home/test/.config/halley/halley.rune")
+        );
+    }
 
     #[test]
     fn total_window_border_footprint_includes_secondary_border_when_enabled() {
