@@ -704,14 +704,15 @@ pub(super) fn dispatch_pointer_button(
     };
 
     if locked_surface.is_none()
-        && let Some((surface, _)) = focus.as_ref()
-        && let Some(constrained) =
-            crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
-                st, surface,
+        && let Some(current_focus) = focus.as_ref().cloned()
+        && let Some(constrained_focus) =
+            crate::compositor::interaction::pointer::constrained_focus_in_hierarchy(
+                st,
+                &current_focus,
             )
-        && constrained != *surface
+        && constrained_focus.0 != current_focus.0
     {
-        focus = Some((constrained, pointer.current_location()));
+        focus = Some(constrained_focus);
     }
 
     let motion_serial = SERIAL_COUNTER.next_serial();

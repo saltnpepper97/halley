@@ -83,17 +83,9 @@ pub(crate) fn button_frame_for_monitor(
             crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface)
         });
     let pointer_monitor = st.monitor_for_screen(sx, sy);
-    let mut constrained_monitor =
+    let constrained_monitor =
         crate::compositor::interaction::pointer::active_constrained_pointer_surface(st)
-            .map(|(surface, _)| st.monitor_for_surface_or_current(&surface));
-    if constrained_monitor.as_ref().is_some_and(|monitor| {
-        pointer_monitor
-            .as_ref()
-            .is_some_and(|pointer_monitor| pointer_monitor != monitor)
-    }) {
-        crate::compositor::interaction::pointer::release_active_pointer_constraint(st);
-        constrained_monitor = None;
-    }
+            .map(|(surface, _)| st.monitor_for_constrained_surface_or_current(&surface));
     let target_monitor = constrained_monitor
         .or(grabbed_layer_surface_monitor)
         .or(pointer_monitor)

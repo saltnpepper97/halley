@@ -39,18 +39,8 @@ pub(super) fn compute_motion_routing(
     sy: f32,
     allow_unbounded_screen: bool,
 ) -> MotionRoutingContext {
-    let mut constrained_surface_info =
+    let constrained_surface_info =
         crate::compositor::interaction::pointer::active_constrained_pointer_surface(st);
-    if let Some((surface, _)) = constrained_surface_info.as_ref() {
-        let constrained_monitor = st.monitor_for_surface_or_current(surface);
-        if st
-            .monitor_for_screen(raw_sx, raw_sy)
-            .is_some_and(|pointer_monitor| pointer_monitor != constrained_monitor)
-        {
-            crate::compositor::interaction::pointer::release_active_pointer_constraint(st);
-            constrained_surface_info = None;
-        }
-    }
     let grabbed_layer_surface = st
         .platform
         .seat
@@ -77,7 +67,7 @@ pub(super) fn compute_motion_routing(
 
     let constrained_surface_monitor = constrained_surface_info
         .as_ref()
-        .and_then(|(surface, _)| Some(st.monitor_for_surface_or_current(surface)));
+        .map(|(surface, _)| st.monitor_for_constrained_surface_or_current(surface));
     let grabbed_layer_surface_monitor = grabbed_layer_surface.as_ref().map(|surface| {
         crate::compositor::monitor::layer_shell::layer_surface_monitor_name(st, surface)
     });
@@ -229,14 +219,15 @@ pub(super) fn dispatch_pointer_motion(
         };
 
         if locked_surface.is_none()
-            && let Some((surface, _)) = focus.as_ref()
-            && let Some(constrained) =
-                crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
-                    st, surface,
+            && let Some(current_focus) = focus.as_ref().cloned()
+            && let Some(constrained_focus) =
+                crate::compositor::interaction::pointer::constrained_focus_in_hierarchy(
+                    st,
+                    &current_focus,
                 )
-            && constrained != *surface
+            && constrained_focus.0 != current_focus.0
         {
-            focus = Some((constrained, pointer.current_location()));
+            focus = Some(constrained_focus);
         }
 
         crate::compositor::interaction::pointer::update_pointer_contents_from_focus(

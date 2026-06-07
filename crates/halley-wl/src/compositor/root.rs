@@ -734,11 +734,11 @@ impl Halley {
         super::monitor::state::monitor_for_node_or_current(self, node_id)
     }
 
-    pub(crate) fn monitor_for_surface_or_current(
+    pub(crate) fn monitor_for_constrained_surface_or_current(
         &self,
         surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     ) -> String {
-        super::monitor::state::monitor_for_surface_or_current(self, surface)
+        super::monitor::state::monitor_for_constrained_surface_or_current(self, surface)
     }
 
     pub(crate) fn monitor_for_screen_or_current(&self, sx: f32, sy: f32) -> String {

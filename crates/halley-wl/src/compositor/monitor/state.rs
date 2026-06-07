@@ -203,6 +203,14 @@ pub(crate) fn monitor_for_surface_or_current(st: &Halley, surface: &WlSurface) -
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
 }
 
+pub(crate) fn monitor_for_constrained_surface_or_current(
+    st: &Halley,
+    surface: &WlSurface,
+) -> String {
+    monitor_for_surface(st, surface)
+        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
+}
+
 pub(crate) fn monitor_for_screen_or_current(st: &Halley, sx: f32, sy: f32) -> String {
     monitor_for_screen(st, sx, sy).unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
 }
