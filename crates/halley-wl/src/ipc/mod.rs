@@ -1,15 +1,17 @@
 mod cluster;
 mod monitor;
 mod node;
+#[cfg(feature = "rail")]
+mod rail;
 mod trail;
 mod view;
 
 use std::time::Instant;
 
-use halley_ipc::{
-    BearingsRequest, BearingsStatusResponse, CaptureRequest, CaptureStatusResponse,
-    CompositorRequest, IPC_PROTOCOL_VERSION, IpcError, NodeMoveDirection, Request, Response,
-    StackRequest, TileRequest, VersionInfo,
+use halley_api::{
+    ApiError, BearingsRequest, BearingsStatusResponse, CaptureRequest, CaptureStatusResponse,
+    CompositorRequest, HALLEY_API_VERSION, NodeMoveDirection, Request, Response,
+    StackCycleDirection, StackRequest, TileRequest, VersionInfo,
 };
 
 use crate::compositor::root::Halley;
@@ -18,6 +20,8 @@ use crate::compositor::screenshot::screenshot_controller;
 use self::cluster::handle_cluster_request;
 use self::monitor::handle_monitor_request;
 use self::node::handle_node_request;
+#[cfg(feature = "rail")]
+use self::rail::handle_rail_request;
 use self::trail::handle_trail_request;
 use self::view::IpcView;
 
@@ -38,12 +42,18 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Stack(request) => handle_stack_request(st, request),
         Request::Tile(request) => handle_tile_request(st, request),
         Request::Cluster(request) => handle_cluster_request(st, request),
-        Request::Compositor(CompositorRequest::Outputs) => Response::Error(IpcError::Unsupported(
+        #[cfg(feature = "rail")]
+        Request::Rail(request) => handle_rail_request(st, request),
+        #[cfg(not(feature = "rail"))]
+        Request::Rail(_) => Response::Error(ApiError::Unsupported(
+            "rail support is disabled in this build".into(),
+        )),
+        Request::Compositor(CompositorRequest::Outputs) => Response::Error(ApiError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
         Request::Compositor(CompositorRequest::Version) => Response::Version(VersionInfo {
             version: env!("CARGO_PKG_VERSION").to_string(),
-            ipc_protocol: IPC_PROTOCOL_VERSION,
+            ipc_protocol: HALLEY_API_VERSION,
         }),
         Request::Compositor(CompositorRequest::ApertureStatus) => {
             Response::ApertureStatus(crate::aperture::aperture_status(st))
@@ -51,7 +61,7 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Compositor(CompositorRequest::Quit)
         | Request::Compositor(CompositorRequest::Reload)
         | Request::Compositor(CompositorRequest::Dpms { .. }) => Response::Error(
-            IpcError::Unsupported("backend request not handled here".into()),
+            ApiError::Unsupported("backend request not handled here".into()),
         ),
     }
 }
@@ -66,7 +76,7 @@ fn handle_capture_request(st: &mut Halley, request: CaptureRequest) -> Response 
             ) {
                 Response::CaptureStatus(capture_status_response(st))
             } else {
-                Response::Error(IpcError::Unsupported(
+                Response::Error(ApiError::Unsupported(
                     "screenshot session is already active".into(),
                 ))
             }
@@ -135,17 +145,17 @@ fn handle_stack_request(st: &mut Halley, request: StackRequest) -> Response {
                 let now = Instant::now();
                 focus_output_if_needed(st, monitor.as_str(), now);
                 let direction = match direction {
-                    halley_ipc::StackCycleDirection::Forward => {
+                    StackCycleDirection::Forward => {
                         halley_core::cluster_layout::ClusterCycleDirection::Next
                     }
-                    halley_ipc::StackCycleDirection::Backward => {
+                    StackCycleDirection::Backward => {
                         halley_core::cluster_layout::ClusterCycleDirection::Prev
                     }
                 };
                 if st.cycle_active_stack_for_monitor(monitor.as_str(), direction, now) {
                     Ok(())
                 } else {
-                    Err(IpcError::Unsupported(format!(
+                    Err(ApiError::Unsupported(format!(
                         "stack layout is not active on output {}",
                         monitor
                     )))
@@ -180,7 +190,7 @@ fn handle_tile_request(st: &mut Halley, request: TileRequest) -> Response {
         if ok {
             Ok(())
         } else {
-            Err(IpcError::Unsupported(format!(
+            Err(ApiError::Unsupported(format!(
                 "tiled layout is not active or no tile exists {} on output {}",
                 if swap { "to swap" } else { "to focus" },
                 monitor
@@ -192,11 +202,11 @@ fn handle_tile_request(st: &mut Halley, request: TileRequest) -> Response {
     }
 }
 
-fn resolve_output_context(st: &Halley, output: Option<&str>) -> Result<String, IpcError> {
+fn resolve_output_context(st: &Halley, output: Option<&str>) -> Result<String, ApiError> {
     IpcView::from_halley(st).resolve_output_context(output)
 }
 
-fn validate_output<'a>(st: &Halley, output: &'a str) -> Result<&'a str, IpcError> {
+fn validate_output<'a>(st: &Halley, output: &'a str) -> Result<&'a str, ApiError> {
     IpcView::from_halley(st).validate_output(output)?;
     Ok(output)
 }
@@ -352,10 +362,10 @@ mod tests {
 
         let result = resolve_node_selector(
             &state,
-            Some(&halley_ipc::NodeSelector::Title("kitty".into())),
+            Some(&halley_api::NodeSelector::Title("kitty".into())),
             None,
         );
-        assert!(matches!(result, Err(IpcError::Ambiguous(_))));
+        assert!(matches!(result, Err(ApiError::Ambiguous(_))));
     }
 
     #[test]
@@ -394,7 +404,7 @@ mod tests {
         state.focus_monitor_view("left", Instant::now());
 
         assert_eq!(
-            adjacent_monitor(&state, halley_ipc::MonitorFocusDirection::Right).as_deref(),
+            adjacent_monitor(&state, halley_api::MonitorFocusDirection::Right).as_deref(),
             Some("right")
         );
     }
@@ -442,7 +452,7 @@ mod tests {
 
         let response = handle_request(
             &mut state,
-            halley_ipc::Request::Cluster(halley_ipc::ClusterRequest::Slot {
+            halley_api::Request::Cluster(halley_api::ClusterRequest::Slot {
                 slot: 1,
                 output: None,
             }),
@@ -461,14 +471,14 @@ mod tests {
 
         let first = handle_request(
             &mut state,
-            halley_ipc::Request::Cluster(halley_ipc::ClusterRequest::Slot {
+            halley_api::Request::Cluster(halley_api::ClusterRequest::Slot {
                 slot: 1,
                 output: None,
             }),
         );
         let second = handle_request(
             &mut state,
-            halley_ipc::Request::Cluster(halley_ipc::ClusterRequest::Slot {
+            halley_api::Request::Cluster(halley_api::ClusterRequest::Slot {
                 slot: 1,
                 output: None,
             }),
@@ -492,7 +502,7 @@ mod tests {
 
         let response = handle_request(
             &mut state,
-            halley_ipc::Request::Cluster(halley_ipc::ClusterRequest::Slot {
+            halley_api::Request::Cluster(halley_api::ClusterRequest::Slot {
                 slot: 0,
                 output: None,
             }),
@@ -500,7 +510,7 @@ mod tests {
 
         assert!(matches!(
             response,
-            Response::Error(IpcError::InvalidRequest(_))
+            Response::Error(ApiError::InvalidRequest(_))
         ));
     }
 
@@ -514,12 +524,12 @@ mod tests {
 
         let response = handle_request(
             &mut state,
-            halley_ipc::Request::Cluster(halley_ipc::ClusterRequest::Slot {
+            halley_api::Request::Cluster(halley_api::ClusterRequest::Slot {
                 slot: 1,
                 output: None,
             }),
         );
 
-        assert!(matches!(response, Response::Error(IpcError::NotFound(_))));
+        assert!(matches!(response, Response::Error(ApiError::NotFound(_))));
     }
 }

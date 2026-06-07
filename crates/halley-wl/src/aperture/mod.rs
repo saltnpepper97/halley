@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use eventline::{debug, warn};
-use halley_ipc::{ApertureMode as IpcApertureMode, ApertureOutputStatus, ApertureStatusResponse};
+use halley_api::{ApertureMode as IpcApertureMode, ApertureOutputStatus, ApertureStatusResponse};
 
 use crate::compositor::root::Halley;
 use crate::text::ui_text_size_px_in;

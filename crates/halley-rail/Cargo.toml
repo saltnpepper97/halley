@@ -1,10 +1,10 @@
 [package]
-name = "halley-aperture"
+name = "halley-rail"
 version = "0.1.0"
 edition.workspace = true
 authors.workspace = true
 publish = false
-description = "A status bar and utility for the Halley Wayland compositor."
+description = "A process/navigation rail for the Halley Wayland compositor."
 license.workspace = true
 readme.workspace = true
 repository.workspace = true
@@ -13,16 +13,17 @@ categories.workspace = true
 exclude.workspace = true
 
 [dependencies]
-chrono.workspace = true
-fontdb = "0.23.0"
 halley-api.workspace = true
+halley-config.workspace = true
 halley-ipc.workspace = true
+fontdb = "0.23.0"
+image.workspace = true
+resvg = "0.47.0"
 rusttype = "0.9.3"
-rune-cfg.workspace = true
 rustix = { version = "1.1.4", features = ["event"] }
 smithay-client-toolkit.workspace = true
 wayland-client.workspace = true
 
 [[bin]]
-name = "halley-aperture"
+name = "halley-rail"
 path = "src/main.rs"

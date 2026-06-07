@@ -1,4 +1,4 @@
-use halley_ipc::{Request, TileRequest};
+use halley_api::{Request, TileRequest};
 
 use crate::help::HelpTopic;
 use crate::parse::{

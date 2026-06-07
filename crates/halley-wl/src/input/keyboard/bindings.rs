@@ -10,6 +10,10 @@ use crate::compositor::interaction::ModState;
 use crate::compositor::monitor::camera::camera_controller;
 use crate::compositor::root::Halley;
 use crate::compositor::surface::request_close_focused_toplevel;
+use halley_api::{
+    MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, NodeMoveDirection, Request,
+    Response, TrailDirection,
+};
 use halley_config::keybinds::{is_pointer_button_code, is_wheel_code};
 use halley_config::{
     BearingsBindingAction, ClusterBindingAction, CompositorBindingAction, CompositorBindingScope,
@@ -17,7 +21,6 @@ use halley_config::{
     NodeBindingAction, RuntimeTuning, StackBindingAction, StackCycleDirection, TileBindingAction,
     TrailBindingAction,
 };
-use halley_ipc::NodeMoveDirection;
 use std::time::Instant;
 
 fn spawn_launch_binding(st: &mut Halley, command: &str, wayland_display: &str) -> bool {
@@ -249,47 +252,30 @@ pub(crate) fn apply_compositor_action_press(
             st.activate_cluster_slot_on_current_monitor(slot, Instant::now())
         }
         CompositorBindingAction::Trail(TrailBindingAction::Prev) => {
-            crate::compositor::actions::window::step_window_trail(
-                st,
-                halley_ipc::TrailDirection::Prev,
-            )
+            crate::compositor::actions::window::step_window_trail(st, TrailDirection::Prev)
         }
         CompositorBindingAction::Trail(TrailBindingAction::Next) => {
-            crate::compositor::actions::window::step_window_trail(
-                st,
-                halley_ipc::TrailDirection::Next,
-            )
+            crate::compositor::actions::window::step_window_trail(st, TrailDirection::Next)
         }
         CompositorBindingAction::Monitor(MonitorBindingAction::Focus(target)) => {
             let target = match target {
                 MonitorBindingTarget::Direction(DirectionalAction::Left) => {
-                    halley_ipc::MonitorFocusTarget::Direction(
-                        halley_ipc::MonitorFocusDirection::Left,
-                    )
+                    MonitorFocusTarget::Direction(MonitorFocusDirection::Left)
                 }
                 MonitorBindingTarget::Direction(DirectionalAction::Right) => {
-                    halley_ipc::MonitorFocusTarget::Direction(
-                        halley_ipc::MonitorFocusDirection::Right,
-                    )
+                    MonitorFocusTarget::Direction(MonitorFocusDirection::Right)
                 }
                 MonitorBindingTarget::Direction(DirectionalAction::Up) => {
-                    halley_ipc::MonitorFocusTarget::Direction(halley_ipc::MonitorFocusDirection::Up)
+                    MonitorFocusTarget::Direction(MonitorFocusDirection::Up)
                 }
                 MonitorBindingTarget::Direction(DirectionalAction::Down) => {
-                    halley_ipc::MonitorFocusTarget::Direction(
-                        halley_ipc::MonitorFocusDirection::Down,
-                    )
+                    MonitorFocusTarget::Direction(MonitorFocusDirection::Down)
                 }
-                MonitorBindingTarget::Output(output) => {
-                    halley_ipc::MonitorFocusTarget::Output(output)
-                }
+                MonitorBindingTarget::Output(output) => MonitorFocusTarget::Output(output),
             };
             matches!(
-                crate::ipc::handle_request(
-                    st,
-                    halley_ipc::Request::Monitor(halley_ipc::MonitorRequest::Focus(target)),
-                ),
-                halley_ipc::Response::Ok
+                crate::ipc::handle_request(st, Request::Monitor(MonitorRequest::Focus(target)),),
+                Response::Ok
             )
         }
         CompositorBindingAction::Bearings(BearingsBindingAction::Show) => {

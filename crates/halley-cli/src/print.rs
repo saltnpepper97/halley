@@ -1,8 +1,9 @@
-use halley_ipc::{
-    ApertureStatusResponse, CaptureStatusResponse, ClusterInfo, ClusterLayoutKind,
-    ClusterListResponse, ClusterSummary, IpcError, LogicalOutputInfo, NodeInfo, NodeListResponse,
+use halley_api::{
+    ApertureStatusResponse, ApiError, CaptureStatusResponse, ClusterInfo, ClusterLayoutKind,
+    ClusterListResponse, ClusterSummary, LogicalOutputInfo, NodeInfo, NodeListResponse,
     NodeProtocolFamily, NodeRelationInfo, NodeRole, OutputInfo, OutputStatus, OutputsResponse,
-    Response, TrailEntryInfo, TrailListResponse, VersionInfo,
+    RailOutputSnapshot, RailStatusResponse, RailVisibility, Response, TrailEntryInfo,
+    TrailListResponse, VersionInfo,
 };
 
 pub(crate) fn print_response(response: Response) -> Result<(), String> {
@@ -76,6 +77,14 @@ pub(crate) fn print_response(response: Response) -> Result<(), String> {
             println!("{}", if status.visible { "visible" } else { "hidden" });
             Ok(())
         }
+        Response::RailStatus(status) => {
+            if wants_json() {
+                print_json(&status)
+            } else {
+                print_rail_status(&status);
+                Ok(())
+            }
+        }
         Response::Error(err) => Err(format_ipc_error(&err)),
     }
 }
@@ -119,13 +128,13 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<(), String> {
     Ok(())
 }
 
-fn format_ipc_error(err: &IpcError) -> String {
+fn format_ipc_error(err: &ApiError) -> String {
     match err {
-        IpcError::InvalidRequest(message)
-        | IpcError::NotFound(message)
-        | IpcError::Ambiguous(message)
-        | IpcError::Unsupported(message)
-        | IpcError::Internal(message) => message.clone(),
+        ApiError::InvalidRequest(message)
+        | ApiError::NotFound(message)
+        | ApiError::Ambiguous(message)
+        | ApiError::Unsupported(message)
+        | ApiError::Internal(message) => message.clone(),
     }
 }
 
@@ -138,6 +147,47 @@ fn print_capture_status(status: &CaptureStatusResponse) {
         println!("capture active");
     } else {
         println!("capture idle");
+    }
+}
+
+fn print_rail_status(status: &RailStatusResponse) {
+    let output = status.output.as_deref().unwrap_or("(all)");
+    println!("output: {output}");
+    if status.outputs.is_empty() {
+        println!("No rail outputs.");
+        return;
+    }
+    for output in &status.outputs {
+        print_rail_output(output);
+    }
+}
+
+fn print_rail_output(output: &RailOutputSnapshot) {
+    println!("{}", output.output);
+    println!(
+        "  visibility: {}",
+        format_rail_visibility(output.visibility)
+    );
+    println!("  items: {}", output.items.len());
+    if output.items.is_empty() {
+        println!("  entries: (none)");
+        return;
+    }
+    println!("  entries:");
+    for item in &output.items {
+        let marker = if item.focused {
+            "*"
+        } else if item.pinned {
+            "+"
+        } else {
+            "-"
+        };
+        println!("    {marker} {}  {}", item.node_id, item.title);
+        if let Some(app_id) = &item.app_id {
+            println!("      app: {app_id}");
+        }
+        println!("      pinned: {}", item.pinned);
+        println!("      focused: {}", item.focused);
     }
 }
 
@@ -447,12 +497,23 @@ fn format_status(status: OutputStatus) -> &'static str {
     }
 }
 
+fn format_rail_visibility(visibility: RailVisibility) -> &'static str {
+    match visibility {
+        RailVisibility::Visible => "visible",
+        RailVisibility::HiddenEmpty => "hidden-empty",
+        RailVisibility::HiddenFullscreen => "hidden-fullscreen",
+        RailVisibility::HiddenMaximized => "hidden-maximized",
+        RailVisibility::HiddenObstructed => "hidden-obstructed",
+        RailVisibility::HiddenTiledCluster => "hidden-tiled-cluster",
+    }
+}
+
 fn format_node_state(node: &NodeInfo) -> &'static str {
     match node.state {
-        halley_ipc::NodeState::Active => "active",
-        halley_ipc::NodeState::Drifting => "drifting",
-        halley_ipc::NodeState::Node => "node",
-        halley_ipc::NodeState::Core => "core",
+        halley_api::NodeState::Active => "active",
+        halley_api::NodeState::Drifting => "drifting",
+        halley_api::NodeState::Node => "node",
+        halley_api::NodeState::Core => "core",
     }
 }
 

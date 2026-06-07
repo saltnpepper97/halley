@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use halley_ipc::{IpcError, MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, Response};
+use halley_api::{ApiError, MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, Response};
 
 use crate::compositor::root::Halley;
 
@@ -21,7 +21,7 @@ pub(super) fn handle_monitor_request(st: &mut Halley, request: MonitorRequest) -
 fn resolve_monitor_focus_target(
     st: &Halley,
     target: &MonitorFocusTarget,
-) -> Result<String, IpcError> {
+) -> Result<String, ApiError> {
     let view = IpcView::from_halley(st);
     match target {
         MonitorFocusTarget::Output(output) => {
@@ -30,7 +30,7 @@ fn resolve_monitor_focus_target(
         }
         MonitorFocusTarget::Direction(direction) => {
             view.adjacent_monitor(*direction).ok_or_else(|| {
-                IpcError::NotFound(format!(
+                ApiError::NotFound(format!(
                     "no {} output adjacent to {}",
                     monitor_direction_label(*direction),
                     view.focused_monitor()

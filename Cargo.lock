@@ -1006,16 +1006,24 @@ dependencies = [
 
 [[package]]
 name = "halley-aperture"
-version = "0.3.2"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "fontdb",
+ "halley-api",
  "halley-ipc",
  "rune-cfg",
  "rustix 1.1.4",
  "rusttype",
  "smithay-client-toolkit 0.20.0",
  "wayland-client",
+]
+
+[[package]]
+name = "halley-api"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1034,6 +1042,7 @@ dependencies = [
 name = "halley-cli"
 version = "0.3.2"
 dependencies = [
+ "halley-api",
  "halley-ipc",
  "serde",
  "serde_json",
@@ -1056,8 +1065,24 @@ version = "0.3.2"
 name = "halley-ipc"
 version = "0.3.2"
 dependencies = [
+ "halley-api",
  "postcard",
- "serde",
+]
+
+[[package]]
+name = "halley-rail"
+version = "0.1.0"
+dependencies = [
+ "fontdb",
+ "halley-api",
+ "halley-config",
+ "halley-ipc",
+ "image",
+ "resvg",
+ "rustix 1.1.4",
+ "rusttype",
+ "smithay-client-toolkit 0.20.0",
+ "wayland-client",
 ]
 
 [[package]]
@@ -1069,6 +1094,7 @@ dependencies = [
  "cosmic-text",
  "eventline",
  "glam",
+ "halley-api",
  "halley-capit",
  "halley-config",
  "halley-core",

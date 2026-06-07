@@ -50,17 +50,17 @@ pub(crate) fn ensure_screenshot_menu_icon_resources(
 
 pub(crate) fn screenshot_menu_icon_texture(
     st: &Halley,
-    mode: halley_ipc::CaptureMode,
+    mode: halley_api::CaptureMode,
     active: bool,
 ) -> Option<&NodeAppIconTexture> {
     let cache = &st.ui.render_state.cache.screenshot_menu_icon_cache;
     match (mode, active) {
-        (halley_ipc::CaptureMode::Region, true) => cache.region_active.as_ref(),
-        (halley_ipc::CaptureMode::Region, false) => cache.region_inactive.as_ref(),
-        (halley_ipc::CaptureMode::Screen, true) => cache.screen_active.as_ref(),
-        (halley_ipc::CaptureMode::Screen, false) => cache.screen_inactive.as_ref(),
-        (halley_ipc::CaptureMode::Window, true) => cache.window_active.as_ref(),
-        (halley_ipc::CaptureMode::Window, false) => cache.window_inactive.as_ref(),
+        (halley_api::CaptureMode::Region, true) => cache.region_active.as_ref(),
+        (halley_api::CaptureMode::Region, false) => cache.region_inactive.as_ref(),
+        (halley_api::CaptureMode::Screen, true) => cache.screen_active.as_ref(),
+        (halley_api::CaptureMode::Screen, false) => cache.screen_inactive.as_ref(),
+        (halley_api::CaptureMode::Window, true) => cache.window_active.as_ref(),
+        (halley_api::CaptureMode::Window, false) => cache.window_inactive.as_ref(),
         _ => None,
     }
 }

@@ -33,6 +33,39 @@ pub struct ApertureOutputStatus {
     pub mode: ApertureMode,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RailVisibility {
+    Visible,
+    HiddenEmpty,
+    HiddenFullscreen,
+    HiddenMaximized,
+    HiddenObstructed,
+    HiddenTiledCluster,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RailItemInfo {
+    pub node_id: u64,
+    pub title: String,
+    pub app_id: Option<String>,
+    pub pinned: bool,
+    pub focused: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RailOutputSnapshot {
+    pub output: String,
+    pub visibility: RailVisibility,
+    pub items: Vec<RailItemInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RailStatusResponse {
+    pub output: Option<String>,
+    pub outputs: Vec<RailOutputSnapshot>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputInfo {
     pub name: String,
@@ -111,9 +144,6 @@ pub struct NodeRelationInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeInfo {
-    /// Stable session-scoped node id. Halley does not recycle node ids during
-    /// a compositor run, so scripts can safely correlate parent/transient
-    /// relationships against this handle.
     pub id: u64,
     pub title: String,
     pub app_id: Option<String>,

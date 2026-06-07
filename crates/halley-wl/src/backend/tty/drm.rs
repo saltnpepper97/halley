@@ -4,7 +4,7 @@ use std::ffi::CStr;
 
 use crate::compositor::interaction::ResizeCtx;
 use crate::protocol::wayland::portal;
-use halley_ipc::{ModeInfo, OutputInfo, OutputStatus};
+use halley_api::{ModeInfo, OutputInfo, OutputStatus};
 
 use smithay::backend::allocator::{Format, Fourcc, Modifier};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};

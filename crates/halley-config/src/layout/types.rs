@@ -578,6 +578,70 @@ pub struct BearingsConfig {
     pub fade_distance: f32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RailPlacement {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RailSizingMode {
+    Fixed,
+    GrowToContent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RailObstructionBehavior {
+    AutoHide,
+    StayOnTop,
+    StayUnder,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RailConfig {
+    pub enabled: bool,
+    pub placement: RailPlacement,
+    pub background_color: OverlayColorMode,
+    pub foreground_color: OverlayColorMode,
+    pub divider_color: OverlayColorMode,
+    pub offset_x: i32,
+    pub offset_y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub sizing: RailSizingMode,
+    pub icon_size: i32,
+    pub gap: i32,
+    pub padding: i32,
+    pub radius: i32,
+    pub pinned_separator: bool,
+    pub obstruction: RailObstructionBehavior,
+}
+
+impl Default for RailConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            placement: RailPlacement::Down,
+            background_color: OverlayColorMode::Auto,
+            foreground_color: OverlayColorMode::Auto,
+            divider_color: OverlayColorMode::Auto,
+            offset_x: 0,
+            offset_y: 18,
+            width: 0,
+            height: 56,
+            sizing: RailSizingMode::GrowToContent,
+            icon_size: 34,
+            gap: 8,
+            padding: 10,
+            radius: 18,
+            pinned_separator: true,
+            obstruction: RailObstructionBehavior::AutoHide,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CursorConfig {
     pub theme: String,

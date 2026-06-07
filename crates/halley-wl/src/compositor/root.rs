@@ -1057,7 +1057,7 @@ impl Halley {
 
     pub(crate) fn navigate_window_trail(
         &mut self,
-        direction: halley_ipc::TrailDirection,
+        direction: halley_api::TrailDirection,
         now: Instant,
     ) -> bool {
         super::focus::trail::focus_trail_controller(self).navigate_window_trail(direction, now)

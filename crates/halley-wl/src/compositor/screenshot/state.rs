@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 
+use halley_api::CaptureMode;
 use halley_capit::CaptureCrop;
 use halley_core::field::NodeId;
-use halley_ipc::CaptureMode;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ScreenshotSessionState {

@@ -1,7 +1,8 @@
 use std::time::Instant;
 
-use halley_ipc::{
-    IpcError, Response, TrailEntryInfo, TrailListResponse, TrailRequest, TrailTarget,
+use halley_api::{
+    ApiError, Response, TrailDirection, TrailEntryInfo, TrailListResponse, TrailRequest,
+    TrailTarget,
 };
 
 use crate::compositor::root::Halley;
@@ -17,10 +18,10 @@ pub(super) fn handle_trail_request(st: &mut Halley, request: TrailRequest) -> Re
         TrailRequest::Prev { output } => {
             match resolve_output_context(st, output.as_deref()).and_then(|monitor| {
                 focus_output_if_needed(st, monitor.as_str(), Instant::now());
-                if st.navigate_window_trail(halley_ipc::TrailDirection::Prev, Instant::now()) {
+                if st.navigate_window_trail(TrailDirection::Prev, Instant::now()) {
                     Ok(())
                 } else {
-                    Err(IpcError::NotFound(format!(
+                    Err(ApiError::NotFound(format!(
                         "no previous trail entry on output {}",
                         monitor
                     )))
@@ -33,10 +34,10 @@ pub(super) fn handle_trail_request(st: &mut Halley, request: TrailRequest) -> Re
         TrailRequest::Next { output } => {
             match resolve_output_context(st, output.as_deref()).and_then(|monitor| {
                 focus_output_if_needed(st, monitor.as_str(), Instant::now());
-                if st.navigate_window_trail(halley_ipc::TrailDirection::Next, Instant::now()) {
+                if st.navigate_window_trail(TrailDirection::Next, Instant::now()) {
                     Ok(())
                 } else {
-                    Err(IpcError::NotFound(format!(
+                    Err(ApiError::NotFound(format!(
                         "no next trail entry on output {}",
                         monitor
                     )))
@@ -59,7 +60,7 @@ pub(super) fn handle_trail_request(st: &mut Halley, request: TrailRequest) -> Re
     }
 }
 
-fn list_trail(st: &mut Halley, output: Option<&str>) -> Result<TrailListResponse, IpcError> {
+fn list_trail(st: &mut Halley, output: Option<&str>) -> Result<TrailListResponse, ApiError> {
     let output = resolve_output_context(st, output)?;
     let snapshot = {
         let trail = st.model.focus_state.focus_trail.get(output.as_str());
@@ -95,7 +96,7 @@ fn goto_trail_target(
     target: TrailTarget,
     output: Option<&str>,
     now: Instant,
-) -> Result<(), IpcError> {
+) -> Result<(), ApiError> {
     let output = resolve_output_context(st, output)?;
     focus_output_if_needed(st, output.as_str(), now);
     let node_id = match target {
@@ -106,7 +107,7 @@ fn goto_trail_target(
             .get_mut(output.as_str())
             .and_then(|trail| trail.seek_to_index(index))
             .ok_or_else(|| {
-                IpcError::NotFound(format!(
+                ApiError::NotFound(format!(
                     "trail entry {} not found on output {}",
                     index, output
                 ))
@@ -120,7 +121,7 @@ fn goto_trail_target(
                 .get_mut(output.as_str())
                 .is_some_and(|trail| trail.seek_to_node(node_id));
             if !found {
-                return Err(IpcError::NotFound(format!(
+                return Err(ApiError::NotFound(format!(
                     "node {} is not present in the trail for output {}",
                     node_id.as_u64(),
                     output

@@ -1,11 +1,11 @@
 use crate::compositor::root::Halley;
 use crate::window::active_window_frame_pad_px;
 use eventline::debug;
+use halley_api::{NodeMoveDirection, TrailDirection};
 use halley_config::{ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode};
 use halley_core::decay::DecayLevel;
 use halley_core::field::NodeId;
 use halley_core::viewport::FocusZone;
-use halley_ipc::{NodeMoveDirection, TrailDirection};
 use std::time::Instant;
 
 pub(crate) fn promote_node_level(

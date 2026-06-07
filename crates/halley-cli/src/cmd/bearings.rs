@@ -1,4 +1,4 @@
-use halley_ipc::{BearingsRequest, Request};
+use halley_api::{BearingsRequest, Request};
 
 use crate::help::HelpTopic;
 use crate::parse::{ParseOutcome, UsageError, parse_leaf_command};

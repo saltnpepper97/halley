@@ -1,9 +1,9 @@
 [package]
-name = "halley-ipc"
-version.workspace = true
+name = "halley-api"
+version = "0.1.0"
 edition.workspace = true
 authors.workspace = true
-description = "Inter-process communication protocol for the Halley Wayland compositor."
+description = "Public API types for Halley compositor clients and tools."
 license.workspace = true
 readme.workspace = true
 repository.workspace = true
@@ -12,5 +12,4 @@ categories.workspace = true
 exclude.workspace = true
 
 [dependencies]
-halley-api.workspace = true
-postcard.workspace = true
+serde.workspace = true

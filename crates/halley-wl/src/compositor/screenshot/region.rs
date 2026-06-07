@@ -1,8 +1,8 @@
 use std::time::Instant;
 
+use halley_api::CaptureMode;
 use halley_capit::CaptureCrop;
 use halley_core::field::NodeId;
-use halley_ipc::CaptureMode;
 
 use crate::compositor::root::Halley;
 use crate::compositor::screenshot::state::{ScreenshotRegionDragMode, ScreenshotRegionResizeDir};

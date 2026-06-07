@@ -1,32 +1,17 @@
 pub mod codec;
 pub mod error;
-pub mod protocol;
-pub mod types;
 
 pub use codec::{
     decode_request, decode_response, encode_request, encode_response, read_frame, write_frame,
 };
-pub use error::{CodecError, IpcError};
-pub use protocol::{
-    BearingsRequest, CaptureMode, CaptureRequest, ClusterRequest, ClusterTarget, CompositorRequest,
-    DpmsCommand, MonitorFocusDirection, MonitorFocusTarget, MonitorRequest, NodeMoveDirection,
-    NodeRequest, NodeSelector, Request, Response, StackCycleDirection, StackRequest, TileRequest,
-    TrailDirection, TrailRequest, TrailTarget,
-};
-pub use types::{
-    ApertureMode, ApertureOutputStatus, ApertureStatusResponse, BearingsStatusResponse,
-    CaptureStatusResponse, ClusterInfo, ClusterLayoutKind, ClusterListResponse, ClusterOutputGroup,
-    ClusterSummary, LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse,
-    NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo, NodeRole, NodeState, OutputInfo,
-    OutputStatus, OutputsResponse, TrailEntryInfo, TrailListResponse, VersionInfo,
-};
-
-pub const IPC_PROTOCOL_VERSION: u32 = 1;
+pub use error::CodecError;
 
 use std::env;
 use std::io;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+
+use halley_api::{Request, Response};
 
 pub fn default_socket_path() -> io::Result<PathBuf> {
     let runtime_dir = env::var_os("XDG_RUNTIME_DIR")

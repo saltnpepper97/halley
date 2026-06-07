@@ -16,8 +16,8 @@ use super::{
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
     DecorationsConfig, FocusRingConfig, FontConfig, InputConfig, NodeBackgroundColorMode,
     NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
-    PlacementConfig, ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle,
-    WindowRule,
+    PlacementConfig, RailConfig, ScreenshotConfig, ShapeStyle, ViewportOutputConfig,
+    WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -69,6 +69,7 @@ pub struct RuntimeTuning {
     pub click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode,
     pub click_collapsed_pan: ClickCollapsedPanMode,
     pub bearings: BearingsConfig,
+    pub rail: RailConfig,
 
     pub cluster_distance_px: f32,
     pub cluster_dwell_ms: u64,
@@ -475,6 +476,7 @@ const INTERNAL_CONFIG_PREFIX: &str = r##"@author "Dustin Pilgrim"
 autostart:
   # Common examples you may want later:
   #once "waybar"
+  #once "halley-rail"
 
   #once "mako"
   #once "gessod"
@@ -638,6 +640,29 @@ bearings:
   show-icons true
   show-pinned true
   fade-distance 1200
+end
+
+# Rail is Halley's per-monitor process/navigation bar.
+# It shows alive windows on the current monitor; Lens remains the launcher.
+rail:
+  enabled true
+  # "up", "down", "left", or "right".
+  placement "down"
+  background-colour "auto"
+  foreground-colour "auto"
+  divider-colour "auto"
+  offset-x 0
+  offset-y 18
+  # In grow-to-content mode, 0 means uncapped on the growth axis.
+  width 0
+  height 56
+  sizing "grow-to-content"
+  icon-size 34
+  gap 8
+  padding 10
+  radius 18
+  pinned-separator true
+  obstruction "auto-hide"
 end
 
 # Clusters are Halley's workspace-like grouping system.

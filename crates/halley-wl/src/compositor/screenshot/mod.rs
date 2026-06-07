@@ -6,8 +6,8 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::time::Instant;
 
+use halley_api::CaptureMode;
 use halley_capit::{capture_crop_to_png, default_output_path_in};
-use halley_ipc::CaptureMode;
 
 use super::root::Halley;
 use region::{

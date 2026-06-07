@@ -1,8 +1,8 @@
 use std::error::Error;
 
+use halley_api::CaptureMode;
 use halley_capit::CaptureCrop;
 use halley_config::RuntimeTuning;
-use halley_ipc::CaptureMode;
 use smithay::{
     backend::renderer::{
         Color32F, Texture,

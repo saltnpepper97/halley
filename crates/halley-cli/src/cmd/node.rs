@@ -1,4 +1,4 @@
-use halley_ipc::{NodeRequest, Request};
+use halley_api::{NodeRequest, Request};
 
 use crate::help::HelpTopic;
 use crate::parse::{
