@@ -1,4 +1,4 @@
-use halley_ipc::{
+use halley_api::{
     CompositorRequest, DpmsCommand, MonitorFocusDirection, MonitorFocusTarget, NodeMoveDirection,
     NodeSelector, Request, TrailTarget,
 };
@@ -246,8 +246,8 @@ mod tests {
             };
 
             match outcome {
-                ParseOutcome::Request(halley_ipc::Request::Compositor(
-                    halley_ipc::CompositorRequest::Version,
+                ParseOutcome::Request(halley_api::Request::Compositor(
+                    halley_api::CompositorRequest::Version,
                 )) => {}
                 _ => panic!("unexpected parse outcome"),
             }
@@ -267,10 +267,10 @@ mod tests {
         };
 
         match outcome {
-            ParseOutcome::Request(halley_ipc::Request::Stack(
-                halley_ipc::StackRequest::Cycle { direction, output },
+            ParseOutcome::Request(halley_api::Request::Stack(
+                halley_api::StackRequest::Cycle { direction, output },
             )) => {
-                assert_eq!(direction, halley_ipc::StackCycleDirection::Forward);
+                assert_eq!(direction, halley_api::StackCycleDirection::Forward);
                 assert_eq!(output, None);
             }
             _ => panic!("unexpected parse outcome"),
@@ -286,11 +286,11 @@ mod tests {
         };
 
         match outcome {
-            ParseOutcome::Request(halley_ipc::Request::Tile(halley_ipc::TileRequest::Focus {
+            ParseOutcome::Request(halley_api::Request::Tile(halley_api::TileRequest::Focus {
                 direction,
                 output,
             })) => {
-                assert!(matches!(direction, halley_ipc::NodeMoveDirection::Left));
+                assert!(matches!(direction, halley_api::NodeMoveDirection::Left));
                 assert_eq!(output, None);
             }
             _ => panic!("unexpected parse outcome"),
@@ -310,8 +310,8 @@ mod tests {
         };
 
         match outcome {
-            ParseOutcome::Request(halley_ipc::Request::Cluster(
-                halley_ipc::ClusterRequest::LayoutCycle { output },
+            ParseOutcome::Request(halley_api::Request::Cluster(
+                halley_api::ClusterRequest::LayoutCycle { output },
             )) => {
                 assert_eq!(output, None);
             }
@@ -334,8 +334,8 @@ mod tests {
         };
 
         match outcome {
-            ParseOutcome::Request(halley_ipc::Request::Cluster(
-                halley_ipc::ClusterRequest::Slot { slot, output },
+            ParseOutcome::Request(halley_api::Request::Cluster(
+                halley_api::ClusterRequest::Slot { slot, output },
             )) => {
                 assert_eq!(slot, 10);
                 assert_eq!(output.as_deref(), Some("DP-1"));
@@ -353,8 +353,8 @@ mod tests {
         };
 
         match outcome {
-            ParseOutcome::Request(halley_ipc::Request::Cluster(
-                halley_ipc::ClusterRequest::List { output },
+            ParseOutcome::Request(halley_api::Request::Cluster(
+                halley_api::ClusterRequest::List { output },
             )) => {
                 assert_eq!(output, None);
             }
@@ -371,8 +371,8 @@ mod tests {
         };
 
         match outcome {
-            ParseOutcome::Request(halley_ipc::Request::Cluster(
-                halley_ipc::ClusterRequest::Inspect { target, output },
+            ParseOutcome::Request(halley_api::Request::Cluster(
+                halley_api::ClusterRequest::Inspect { target, output },
             )) => {
                 assert!(target.is_none());
                 assert_eq!(output, None);
@@ -394,10 +394,10 @@ mod tests {
         };
 
         match outcome {
-            ParseOutcome::Request(halley_ipc::Request::Cluster(
-                halley_ipc::ClusterRequest::Inspect { target, output },
+            ParseOutcome::Request(halley_api::Request::Cluster(
+                halley_api::ClusterRequest::Inspect { target, output },
             )) => {
-                assert!(matches!(target, Some(halley_ipc::ClusterTarget::Id(2))));
+                assert!(matches!(target, Some(halley_api::ClusterTarget::Id(2))));
                 assert_eq!(output, None);
             }
             _ => panic!("unexpected parse outcome"),

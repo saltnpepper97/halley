@@ -1,7 +1,7 @@
 use super::*;
+use halley_api::TrailDirection;
 use halley_core::decay::DecayLevel;
 use halley_core::trail::Trail;
-use halley_ipc::TrailDirection;
 use std::ops::{Deref, DerefMut};
 
 pub(crate) struct FocusTrailController<T> {

@@ -19,9 +19,10 @@ pub use layout::{
     NodeBorderColorMode, NodeDisplayPolicy, NormalBlockerPolicy, OverlayBorderSource,
     OverlayColorMode, OverlayShape, OverlayStyleConfig, PanToNewMode, PinBadgeCorner,
     PinnedBlockerPolicy, PinsConfig, PlacementConfig, PlacementRevealConfig, PrimaryBorderConfig,
-    RaiseAnimationConfig, ResolvedConfigPath, RuntimeTuning, ScreenshotConfig,
-    SecondaryBorderConfig, ShadowColor, ShadowLayerConfig, ShadowsConfig, ShapeStyle,
-    TimedAnimationConfig, ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig,
-    WindowCloseAnimationStyle, WindowRule, WindowRulePattern,
+    RailConfig, RailObstructionBehavior, RailPlacement, RailSizingMode, RaiseAnimationConfig,
+    ResolvedConfigPath, RuntimeTuning, ScreenshotConfig, SecondaryBorderConfig, ShadowColor,
+    ShadowLayerConfig, ShadowsConfig, ShapeStyle, TimedAnimationConfig, ViewportOutputConfig,
+    ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle, WindowRule,
+    WindowRulePattern,
 };
 pub use parse::{ConfigLoadDiagnostic, gather_dependencies_for_file};

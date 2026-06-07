@@ -13,6 +13,7 @@ exclude.workspace = true
 
 [dependencies]
 halley-capit.workspace = true
+halley-api.workspace = true
 halley-config.workspace = true
 halley-core.workspace = true
 halley-ipc.workspace = true
@@ -63,3 +64,8 @@ image.workspace = true
 resvg = "0.47.0"
 regex = "1.12.3"
 cosmic-text = { version = "0.18.2", features = ["swash"] }
+
+[features]
+default = ["aperture", "rail"]
+aperture = []
+rail = []

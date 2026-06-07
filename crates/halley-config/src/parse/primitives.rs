@@ -8,7 +8,8 @@ use crate::layout::{
     FindEmptyMode, FocusRingConfig, InputFocusMode, LandmarkPlacementStrategy,
     NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, NormalBlockerPolicy,
     OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode, PinBadgeCorner,
-    PinnedBlockerPolicy, ShadowColor, ShapeStyle, WindowCloseAnimationStyle,
+    PinnedBlockerPolicy, RailObstructionBehavior, RailPlacement, RailSizingMode, ShadowColor,
+    ShapeStyle, WindowCloseAnimationStyle,
 };
 
 pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -213,6 +214,54 @@ pub(crate) fn pick_cluster_default_layout(
     match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
         "tiling" | "tile" => ClusterDefaultLayout::Tiling,
         "stacking" | "stack" => ClusterDefaultLayout::Stacking,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_rail_placement(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: RailPlacement,
+) -> RailPlacement {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "up" | "top" => RailPlacement::Up,
+        "down" | "bottom" => RailPlacement::Down,
+        "left" => RailPlacement::Left,
+        "right" => RailPlacement::Right,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_rail_sizing_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: RailSizingMode,
+) -> RailSizingMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "fixed" => RailSizingMode::Fixed,
+        "grow-to-content" | "grow_to_content" | "content" => RailSizingMode::GrowToContent,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_rail_obstruction_behavior(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: RailObstructionBehavior,
+) -> RailObstructionBehavior {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "auto-hide" | "auto_hide" | "hide" => RailObstructionBehavior::AutoHide,
+        "stay-on-top" | "stay_on_top" | "top" => RailObstructionBehavior::StayOnTop,
+        "stay-under" | "stay_under" | "under" => RailObstructionBehavior::StayUnder,
         _ => default,
     }
 }

@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::error::IpcError;
+use crate::error::ApiError;
 use crate::types::{
     BearingsStatusResponse, ClusterInfo, ClusterListResponse, NodeInfo, NodeListResponse,
-    OutputsResponse, TrailListResponse,
+    OutputsResponse, RailStatusResponse, TrailListResponse,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -132,6 +132,14 @@ pub enum CaptureRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RailRequest {
+    Status { output: Option<String> },
+    FocusReveal { node_id: u64 },
+    TogglePin { node_id: u64 },
+    Close { node_id: u64 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompositorRequest {
     Quit,
     Reload,
@@ -201,6 +209,7 @@ pub enum Request {
     Stack(StackRequest),
     Tile(TileRequest),
     Cluster(ClusterRequest),
+    Rail(RailRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,6 +225,7 @@ pub enum Response {
     ClusterInfo(ClusterInfo),
     TrailList(TrailListResponse),
     BearingsStatus(BearingsStatusResponse),
-    Error(IpcError),
+    RailStatus(RailStatusResponse),
+    Error(ApiError),
     Version(crate::types::VersionInfo),
 }

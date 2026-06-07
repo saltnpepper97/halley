@@ -1,0 +1,26 @@
+rail:
+  enabled true
+
+  # "up", "down", "left", or "right".
+  placement "left"
+
+  background-colour "auto"
+  foreground-colour "auto"
+  divider-colour "auto"
+
+  offset-x 12
+  offset-y 0
+
+  # For left/right, width is the rail thickness. Height 0 lets it grow to content.
+  width 56
+  height 0
+  sizing "grow-to-content"
+
+  icon-size 34
+  gap 8
+  padding 10
+  radius 18
+
+  pinned-separator true
+  obstruction "auto-hide"
+end

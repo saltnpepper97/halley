@@ -1,4 +1,4 @@
-use halley_ipc::{MonitorRequest, Request};
+use halley_api::{MonitorRequest, Request};
 
 use crate::help::HelpTopic;
 use crate::parse::{ParseOutcome, UsageError, contains_help_flag, parse_monitor_focus_target};

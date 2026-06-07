@@ -9,7 +9,10 @@ use crate::backend::interface::{
 use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::PointerState;
 use crate::compositor::monitor::camera::camera_controller;
-use halley_ipc::{LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus};
+use halley_api::{
+    ApiError, CompositorRequest, LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus, Request,
+    Response,
+};
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 
@@ -747,12 +750,12 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 });
 
                 drain_ipc_commands(|request| match request {
-                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Quit) => {
+                    Request::Compositor(CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
                         exit_confirm_controller(&mut *st).show();
-                        halley_ipc::Response::Ok
+                        Response::Ok
                     }
-                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Reload) => {
+                    Request::Compositor(CompositorRequest::Reload) => {
                         let _ = crate::aperture::reload_aperture_config(
                             st,
                             aperture_config_path_for_timer.as_path(),
@@ -789,9 +792,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                         }
                         debug!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
                         debug!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
-                        halley_ipc::Response::Reloaded
+                        Response::Reloaded
                     }
-                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
+                    Request::Compositor(CompositorRequest::Dpms {
                         command,
                         output,
                     }) => {
@@ -800,7 +803,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                             "ipc: ignoring tty-only dpms command on winit backend: {:?} ({})",
                             command, target
                         );
-                        halley_ipc::Response::Error(halley_ipc::IpcError::Unsupported(
+                        Response::Error(ApiError::Unsupported(
                             "dpms is only supported on the tty backend".into(),
                         ))
                     }

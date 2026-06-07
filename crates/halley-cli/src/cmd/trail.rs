@@ -1,4 +1,4 @@
-use halley_ipc::{Request, TrailRequest};
+use halley_api::{Request, TrailRequest};
 
 use crate::help::HelpTopic;
 use crate::parse::{

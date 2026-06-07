@@ -13,3 +13,8 @@ exclude.workspace = true
 
 [dependencies]
 halley-wl.workspace = true
+
+[features]
+default = ["aperture", "rail"]
+aperture = ["halley-wl/aperture"]
+rail = ["halley-wl/rail"]

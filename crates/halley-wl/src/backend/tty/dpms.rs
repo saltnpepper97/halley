@@ -71,7 +71,7 @@ pub(crate) fn apply_tty_dpms_command(
     drm_devices: &Rc<RefCell<Vec<TtyDrmDevice>>>,
     active_modes: &Rc<RefCell<HashMap<String, drm_control::Mode>>>,
     dpms_enabled: &Rc<RefCell<HashMap<String, bool>>>,
-    command: halley_ipc::DpmsCommand,
+    command: halley_api::DpmsCommand,
     output: Option<&str>,
     outputs: &Rc<RefCell<Vec<TtyDrmOutput>>>,
     tuning: &RuntimeTuning,
@@ -100,9 +100,9 @@ pub(crate) fn apply_tty_dpms_command(
     };
 
     let target_enabled = match command {
-        halley_ipc::DpmsCommand::On => true,
-        halley_ipc::DpmsCommand::Off => false,
-        halley_ipc::DpmsCommand::Toggle => {
+        halley_api::DpmsCommand::On => true,
+        halley_api::DpmsCommand::Off => false,
+        halley_api::DpmsCommand::Toggle => {
             let current = dpms_enabled.borrow();
             !target_outputs
                 .iter()
@@ -207,7 +207,7 @@ pub(crate) fn wake_tty_dpms_on_input(
         drm_devices,
         active_modes,
         dpms_enabled,
-        halley_ipc::DpmsCommand::On,
+        halley_api::DpmsCommand::On,
         if wake_all { None } else { Some(output) },
         outputs,
         tuning,

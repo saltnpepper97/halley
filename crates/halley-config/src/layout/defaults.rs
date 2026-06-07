@@ -13,7 +13,7 @@ use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
     DecorationsConfig, FontConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode,
-    NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig, PlacementConfig,
+    NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig, PlacementConfig, RailConfig,
     RuntimeTuning, ScreenshotConfig, ShapeStyle,
 };
 
@@ -50,6 +50,7 @@ impl Default for RuntimeTuning {
                 show_pinned: true,
                 fade_distance: 1200.0,
             },
+            rail: RailConfig::default(),
 
             cluster_distance_px: 280.0,
             cluster_dwell_ms: 900,

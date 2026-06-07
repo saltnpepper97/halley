@@ -247,7 +247,7 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
                 .interaction_state
                 .screenshot_session
                 .as_ref()
-                .is_some_and(|session| session.mode == halley_ipc::CaptureMode::Menu);
+                .is_some_and(|session| session.mode == halley_api::CaptureMode::Menu);
             if Some(code) == escape {
                 crate::compositor::interaction::state::trap_modal_key_release(st, code);
                 if menu_mode {

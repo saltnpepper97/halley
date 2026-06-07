@@ -2181,12 +2181,12 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                 });
 
                 drain_ipc_commands(|request| match request {
-                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Quit) => {
+                    halley_api::Request::Compositor(halley_api::CompositorRequest::Quit) => {
                         info!("ipc: quit requested");
                         exit_confirm_controller(&mut *st).show();
-                        halley_ipc::Response::Ok
+                        halley_api::Response::Ok
                     }
-                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Reload) => {
+                    halley_api::Request::Compositor(halley_api::CompositorRequest::Reload) => {
                         let _ = crate::aperture::reload_aperture_config(
                             st,
                             aperture_config_path_for_timer.as_path(),
@@ -2235,9 +2235,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                         }
                         debug!("resolved keybinds: {}", st.runtime.tuning.keybinds_resolved_summary());
                         debug!("resolved zoom: {}", st.runtime.tuning.zoom_resolved_summary());
-                        halley_ipc::Response::Reloaded
+                        halley_api::Response::Reloaded
                     }
-                    halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::Dpms {
+                    halley_api::Request::Compositor(halley_api::CompositorRequest::Dpms {
                         command,
                         output,
                     }) => {
@@ -2255,9 +2255,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             st,
                         );
                         if changed {
-                            halley_ipc::Response::Ok
+                            halley_api::Response::Ok
                         } else {
-                            halley_ipc::Response::Error(halley_ipc::IpcError::NotFound(
+                            halley_api::Response::Error(halley_api::ApiError::NotFound(
                                 "dpms request made no change".into(),
                             ))
                         }

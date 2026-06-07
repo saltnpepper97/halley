@@ -1,4 +1,4 @@
-use halley_ipc::{ClusterRequest, ClusterTarget, Request};
+use halley_api::{ClusterRequest, ClusterTarget, Request};
 
 use crate::help::HelpTopic;
 use crate::parse::{ParseOutcome, UsageError, contains_help_flag, parse_output_option};

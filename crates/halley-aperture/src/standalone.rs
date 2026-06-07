@@ -9,6 +9,7 @@ use halley_aperture::{
     ApertureConfig, ApertureMode, AperturePlacement, ApertureRuntime, ClockColor,
     PeekBackgroundColor, PeekCorner, Rect, Size,
 };
+use halley_api::{ApertureMode as IpcApertureMode, CompositorRequest, Request, Response};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rusttype::{Font, PositionedGlyph, Scale, point};
 use smithay_client_toolkit::{
@@ -250,11 +251,10 @@ impl StandaloneAperture {
         let previous_output = self.desired_output_name.clone();
         let previous_modes = self.status_modes.clone();
         let previous_mode = self.runtime.target_mode();
-        let request =
-            halley_ipc::Request::Compositor(halley_ipc::CompositorRequest::ApertureStatus);
+        let request = Request::Compositor(CompositorRequest::ApertureStatus);
         let response = halley_ipc::send_request(&request);
         let (output, mode, modes) = match response {
-            Ok(halley_ipc::Response::ApertureStatus(status)) => {
+            Ok(Response::ApertureStatus(status)) => {
                 let modes = status
                     .outputs
                     .into_iter()
@@ -1150,12 +1150,12 @@ fn blend_argb8888(dst: &mut [u8], r: f32, g: f32, b: f32, a: f32) {
     dst[3] = (out_a.clamp(0.0, 1.0) * 255.0).round() as u8;
 }
 
-fn map_ipc_mode(mode: halley_ipc::ApertureMode) -> ApertureMode {
+fn map_ipc_mode(mode: IpcApertureMode) -> ApertureMode {
     match mode {
-        halley_ipc::ApertureMode::Normal => ApertureMode::Normal,
-        halley_ipc::ApertureMode::Collapsed => ApertureMode::Collapsed,
-        halley_ipc::ApertureMode::Minimal => ApertureMode::Minimal,
-        halley_ipc::ApertureMode::Hidden => ApertureMode::Hidden,
+        IpcApertureMode::Normal => ApertureMode::Normal,
+        IpcApertureMode::Collapsed => ApertureMode::Collapsed,
+        IpcApertureMode::Minimal => ApertureMode::Minimal,
+        IpcApertureMode::Hidden => ApertureMode::Hidden,
     }
 }
 

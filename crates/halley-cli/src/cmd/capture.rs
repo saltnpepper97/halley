@@ -1,4 +1,4 @@
-use halley_ipc::{CaptureMode, CaptureRequest, Request};
+use halley_api::{CaptureMode, CaptureRequest, Request};
 
 use crate::help::HelpTopic;
 use crate::parse::{ParseOutcome, UsageError};

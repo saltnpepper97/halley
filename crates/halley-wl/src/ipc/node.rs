@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
 use std::time::Instant;
 
-use halley_core::field::{NodeId, NodeKind as FieldNodeKind, NodeState as FieldNodeState};
-use halley_ipc::{
-    IpcError, NodeInfo, NodeKind, NodeListResponse, NodeMoveDirection, NodeOutputGroup,
+use halley_api::{
+    ApiError, NodeInfo, NodeKind, NodeListResponse, NodeMoveDirection, NodeOutputGroup,
     NodeProtocolFamily, NodeRelationInfo, NodeRequest, NodeRole, NodeSelector, NodeState, Response,
 };
+use halley_core::field::{NodeId, NodeKind as FieldNodeKind, NodeState as FieldNodeState};
 use smithay::desktop::PopupManager;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::wayland::compositor::with_states;
@@ -55,7 +55,7 @@ pub(super) fn handle_node_request(st: &mut Halley, request: NodeRequest) -> Resp
                     if request_close_node_toplevel(st, id) {
                         Response::Ok
                     } else {
-                        Response::Error(IpcError::NotFound(format!(
+                        Response::Error(ApiError::NotFound(format!(
                             "node {} does not have a closeable toplevel surface",
                             id.as_u64()
                         )))
@@ -67,7 +67,7 @@ pub(super) fn handle_node_request(st: &mut Halley, request: NodeRequest) -> Resp
     }
 }
 
-fn list_nodes(st: &Halley, output: Option<&str>) -> Result<NodeListResponse, IpcError> {
+fn list_nodes(st: &Halley, output: Option<&str>) -> Result<NodeListResponse, ApiError> {
     let outputs: Vec<String> = match output {
         Some(name) => vec![validate_output(st, name)?.to_string()],
         None => sorted_outputs(st),
@@ -85,9 +85,9 @@ fn list_nodes(st: &Halley, output: Option<&str>) -> Result<NodeListResponse, Ipc
     Ok(NodeListResponse { outputs: groups })
 }
 
-pub(super) fn focus_node(st: &mut Halley, id: NodeId, now: Instant) -> Result<(), IpcError> {
+pub(super) fn focus_node(st: &mut Halley, id: NodeId, now: Instant) -> Result<(), ApiError> {
     if !node_is_queryable_surface(st, id) {
-        return Err(IpcError::NotFound(format!(
+        return Err(ApiError::NotFound(format!(
             "node {} is not available",
             id.as_u64()
         )));
@@ -97,14 +97,14 @@ pub(super) fn focus_node(st: &mut Halley, id: NodeId, now: Instant) -> Result<()
         .field
         .node(id)
         .cloned()
-        .ok_or_else(|| IpcError::NotFound(format!("node {} is not available", id.as_u64())))?;
+        .ok_or_else(|| ApiError::NotFound(format!("node {} is not available", id.as_u64())))?;
     let output = st
         .model
         .monitor_state
         .node_monitor
         .get(&id)
         .cloned()
-        .ok_or_else(|| IpcError::NotFound(format!("node {} has no output", id.as_u64())))?;
+        .ok_or_else(|| ApiError::NotFound(format!("node {} has no output", id.as_u64())))?;
     focus_output_if_needed(st, output.as_str(), now);
     match node.state {
         FieldNodeState::Active | FieldNodeState::Drifting => {
@@ -116,13 +116,13 @@ pub(super) fn focus_node(st: &mut Halley, id: NodeId, now: Instant) -> Result<()
             if promote_node_level(st, id, now) {
                 Ok(())
             } else {
-                Err(IpcError::Internal(format!(
+                Err(ApiError::Internal(format!(
                     "failed to focus node {}",
                     id.as_u64()
                 )))
             }
         }
-        FieldNodeState::Core => Err(IpcError::Unsupported(format!(
+        FieldNodeState::Core => Err(ApiError::Unsupported(format!(
             "node {} is a core node and cannot be focused via node commands",
             id.as_u64()
         ))),
@@ -133,13 +133,13 @@ fn move_node_direction(
     st: &mut Halley,
     id: NodeId,
     direction: NodeMoveDirection,
-) -> Result<(), IpcError> {
+) -> Result<(), ApiError> {
     let node = st
         .model
         .field
         .node(id)
         .cloned()
-        .ok_or_else(|| IpcError::NotFound(format!("node {} not found", id.as_u64())))?;
+        .ok_or_else(|| ApiError::NotFound(format!("node {} not found", id.as_u64())))?;
     let step = 80.0;
     let (dx, dy) = match direction {
         NodeMoveDirection::Left => (-step, 0.0),
@@ -162,7 +162,7 @@ fn move_node_direction(
     if moved {
         Ok(())
     } else {
-        Err(IpcError::Internal(format!(
+        Err(ApiError::Internal(format!(
             "failed to move node {}",
             id.as_u64()
         )))
@@ -173,7 +173,7 @@ pub(super) fn resolve_node_selector(
     st: &Halley,
     selector: Option<&NodeSelector>,
     output: Option<&str>,
-) -> Result<NodeId, IpcError> {
+) -> Result<NodeId, ApiError> {
     let requested_output = output.map(|name| validate_output(st, name)).transpose()?;
     match selector {
         None => resolve_default_node(st, requested_output.as_deref()),
@@ -210,34 +210,34 @@ pub(super) fn resolve_node_selector(
     }
 }
 
-fn resolve_default_node(st: &Halley, output: Option<&str>) -> Result<NodeId, IpcError> {
+fn resolve_default_node(st: &Halley, output: Option<&str>) -> Result<NodeId, ApiError> {
     let output = output.unwrap_or_else(|| st.focused_monitor());
     resolve_focused_node(st, Some(output))
         .or_else(|_| {
             st.last_focused_surface_node_for_monitor(output)
                 .filter(|&id| node_is_queryable_surface(st, id))
                 .ok_or_else(|| {
-                    IpcError::NotFound(format!("no last-focused node on output {output}"))
+                    ApiError::NotFound(format!("no last-focused node on output {output}"))
                 })
         })
         .or_else(|_| resolve_latest_node(st, Some(output)))
 }
 
-fn resolve_focused_node(st: &Halley, output: Option<&str>) -> Result<NodeId, IpcError> {
+fn resolve_focused_node(st: &Halley, output: Option<&str>) -> Result<NodeId, ApiError> {
     let output = output.unwrap_or_else(|| st.focused_monitor());
     st.model
         .focus_state
         .primary_interaction_focus
         .filter(|&id| node_matches_output(st, id, output) && node_is_queryable_surface(st, id))
-        .ok_or_else(|| IpcError::NotFound(format!("no focused node on output {output}")))
+        .ok_or_else(|| ApiError::NotFound(format!("no focused node on output {output}")))
 }
 
-fn resolve_latest_node(st: &Halley, output: Option<&str>) -> Result<NodeId, IpcError> {
+fn resolve_latest_node(st: &Halley, output: Option<&str>) -> Result<NodeId, ApiError> {
     let output = output.unwrap_or_else(|| st.focused_monitor());
     surface_nodes_on_output(st, output)
         .into_iter()
         .max_by_key(|id| id.as_u64())
-        .ok_or_else(|| IpcError::NotFound(format!("no nodes on output {output}")))
+        .ok_or_else(|| ApiError::NotFound(format!("no nodes on output {output}")))
 }
 
 fn resolve_node_match<F>(
@@ -245,7 +245,7 @@ fn resolve_node_match<F>(
     output: Option<&str>,
     label: &str,
     predicate: F,
-) -> Result<NodeId, IpcError>
+) -> Result<NodeId, ApiError>
 where
     F: Fn(NodeId) -> bool,
 {
@@ -255,10 +255,10 @@ where
         .collect();
     match candidates.as_slice() {
         [id] => Ok(*id),
-        [] => Err(IpcError::NotFound(format!(
+        [] => Err(ApiError::NotFound(format!(
             "no node matched selector {label}"
         ))),
-        many => Err(IpcError::Ambiguous(format!(
+        many => Err(ApiError::Ambiguous(format!(
             "selector {label} matched multiple nodes: {}",
             many.iter()
                 .map(|id| format!(

@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 
 use crate::error::CodecError;
-use crate::protocol::{Request, Response};
+use halley_api::{Request, Response};
 
 const MAX_FRAME_LEN: u32 = 1024 * 1024; // 1 MiB
 

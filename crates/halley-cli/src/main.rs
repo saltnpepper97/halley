@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
-use halley_ipc::{CaptureRequest, CompositorRequest, IpcError, Request, Response, send_request};
+use halley_api::{ApiError, CaptureRequest, CompositorRequest, Request, Response};
+use halley_ipc::send_request;
 
 mod cmd;
 mod help;
@@ -62,7 +63,7 @@ fn version_request_rejected_by_old_compositor(request: &Request, response: &Resp
     is_version_request(request)
         && matches!(
             response,
-            Response::Error(IpcError::InvalidRequest(message))
+            Response::Error(ApiError::InvalidRequest(message))
                 if message.contains("decode error") || message.contains("deserial")
         )
 }

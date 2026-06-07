@@ -1,4 +1,4 @@
-use halley_ipc::{Request, StackCycleDirection, StackRequest};
+use halley_api::{Request, StackCycleDirection, StackRequest};
 
 use crate::help::HelpTopic;
 use crate::parse::{ParseOutcome, UsageError, contains_help_flag, parse_output_option};

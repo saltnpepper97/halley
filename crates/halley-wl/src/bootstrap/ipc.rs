@@ -12,10 +12,11 @@ use std::time::Duration;
 
 use crate::bootstrap::common::halley_runtime_dir;
 use eventline::{error, info, warn};
-use halley_ipc::{
-    IPC_PROTOCOL_VERSION, IpcError, OutputInfo, OutputsResponse, Request, Response, VersionInfo,
-    decode_request, encode_response, read_frame, write_frame,
+use halley_api::{
+    ApiError, CompositorRequest, HALLEY_API_VERSION, OutputInfo, OutputsResponse, Request,
+    Response, VersionInfo,
 };
+use halley_ipc::{decode_request, encode_response, read_frame, write_frame};
 
 #[derive(Debug)]
 pub struct RuntimeIpcRequest {
@@ -148,7 +149,7 @@ fn handle_client(
 ) -> io::Result<()> {
     let response = match read_frame(stream).and_then(|bytes| decode_request(&bytes)) {
         Ok(request) => handle_request(request, request_tx, outputs),
-        Err(err) => Response::Error(IpcError::InvalidRequest(err.to_string())),
+        Err(err) => Response::Error(ApiError::InvalidRequest(err.to_string())),
     };
 
     let response_bytes = encode_response(&response).map_err(io::Error::other)?;
@@ -179,24 +180,22 @@ fn handle_request(
     outputs: &Arc<Mutex<Vec<OutputInfo>>>,
 ) -> Response {
     match request {
-        Request::Compositor(halley_ipc::CompositorRequest::Version) => {
-            Response::Version(version_info())
-        }
-        Request::Compositor(halley_ipc::CompositorRequest::Outputs) => match outputs.lock() {
+        Request::Compositor(CompositorRequest::Version) => Response::Version(version_info()),
+        Request::Compositor(CompositorRequest::Outputs) => match outputs.lock() {
             Ok(guard) => Response::Outputs(OutputsResponse {
                 outputs: guard.clone(),
             }),
-            Err(err) => Response::Error(IpcError::Internal(err.to_string())),
+            Err(err) => Response::Error(ApiError::Internal(err.to_string())),
         },
         request => {
             let (reply_tx, reply_rx) = mpsc::channel();
             let envelope = RuntimeIpcRequest { request, reply_tx };
             if let Err(err) = request_tx.send(envelope) {
-                return Response::Error(IpcError::Internal(err.to_string()));
+                return Response::Error(ApiError::Internal(err.to_string()));
             }
             match reply_rx.recv_timeout(Duration::from_secs(2)) {
                 Ok(response) => response,
-                Err(err) => Response::Error(IpcError::Internal(format!(
+                Err(err) => Response::Error(ApiError::Internal(format!(
                     "timed out waiting for compositor response: {err}"
                 ))),
             }
@@ -207,7 +206,7 @@ fn handle_request(
 fn version_info() -> VersionInfo {
     VersionInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        ipc_protocol: IPC_PROTOCOL_VERSION,
+        ipc_protocol: HALLEY_API_VERSION,
     }
 }
 

@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use halley_ipc::{IpcError, MonitorFocusDirection};
+use halley_api::{ApiError, MonitorFocusDirection};
 
 use crate::compositor::root::Halley;
 
@@ -45,15 +45,15 @@ impl IpcView {
         self.focused_monitor.as_str()
     }
 
-    pub(super) fn validate_output(&self, output: &str) -> Result<(), IpcError> {
+    pub(super) fn validate_output(&self, output: &str) -> Result<(), ApiError> {
         self.monitors
             .iter()
             .any(|monitor| monitor.name == output)
             .then_some(())
-            .ok_or_else(|| IpcError::NotFound(format!("output {output} not found")))
+            .ok_or_else(|| ApiError::NotFound(format!("output {output} not found")))
     }
 
-    pub(super) fn resolve_output_context(&self, output: Option<&str>) -> Result<String, IpcError> {
+    pub(super) fn resolve_output_context(&self, output: Option<&str>) -> Result<String, ApiError> {
         match output {
             Some(name) => {
                 self.validate_output(name)?;

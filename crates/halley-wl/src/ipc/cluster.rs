@@ -1,9 +1,9 @@
+use halley_api::{
+    ApiError, ClusterInfo, ClusterLayoutKind, ClusterListResponse, ClusterOutputGroup,
+    ClusterRequest, ClusterSummary, ClusterTarget, Response,
+};
 use halley_core::cluster::ClusterId;
 use halley_core::cluster_layout::ClusterWorkspaceLayoutKind as CoreClusterLayoutKind;
-use halley_ipc::{
-    ClusterInfo, ClusterLayoutKind, ClusterListResponse, ClusterOutputGroup, ClusterRequest,
-    ClusterSummary, ClusterTarget, IpcError, Response,
-};
 use std::time::Instant;
 
 use crate::compositor::clusters::state::ClusterNameRecord;
@@ -32,7 +32,7 @@ pub(super) fn handle_cluster_request(st: &mut Halley, request: ClusterRequest) -
                 if st.cycle_active_cluster_layout_for_monitor(monitor.as_str(), now) {
                     Ok(())
                 } else {
-                    Err(IpcError::Unsupported(format!(
+                    Err(ApiError::Unsupported(format!(
                         "no active cluster workspace on output {}",
                         monitor
                     )))
@@ -51,9 +51,9 @@ pub(super) fn handle_cluster_request(st: &mut Halley, request: ClusterRequest) -
     }
 }
 
-fn activate_cluster_slot(st: &mut Halley, slot: u8, output: Option<&str>) -> Result<(), IpcError> {
+fn activate_cluster_slot(st: &mut Halley, slot: u8, output: Option<&str>) -> Result<(), ApiError> {
     if !(1..=10).contains(&slot) {
-        return Err(IpcError::InvalidRequest(format!(
+        return Err(ApiError::InvalidRequest(format!(
             "cluster slot must be between 1 and 10, got {slot}"
         )));
     }
@@ -63,7 +63,7 @@ fn activate_cluster_slot(st: &mut Halley, slot: u8, output: Option<&str>) -> Res
         .cluster_slot_cluster_for_monitor(monitor.as_str(), slot)
         .is_some();
     if !exists {
-        return Err(IpcError::NotFound(format!(
+        return Err(ApiError::NotFound(format!(
             "no cluster in slot {slot} on output {monitor}"
         )));
     }
@@ -73,7 +73,7 @@ fn activate_cluster_slot(st: &mut Halley, slot: u8, output: Option<&str>) -> Res
     if st.activate_cluster_slot_on_current_monitor(slot, now) {
         Ok(())
     } else {
-        Err(IpcError::Unsupported(format!(
+        Err(ApiError::Unsupported(format!(
             "failed to activate cluster slot {slot} on output {monitor}"
         )))
     }
@@ -82,7 +82,7 @@ fn activate_cluster_slot(st: &mut Halley, slot: u8, output: Option<&str>) -> Res
 pub(super) fn list_clusters(
     st: &Halley,
     output: Option<&str>,
-) -> Result<ClusterListResponse, IpcError> {
+) -> Result<ClusterListResponse, ApiError> {
     let outputs: Vec<String> = match output {
         Some(name) => vec![validate_output(st, name)?.to_string()],
         None => sorted_outputs(st),
@@ -108,7 +108,7 @@ pub(super) fn inspect_cluster(
     st: &Halley,
     target: Option<&ClusterTarget>,
     output: Option<&str>,
-) -> Result<ClusterInfo, IpcError> {
+) -> Result<ClusterInfo, ApiError> {
     let cid = resolve_cluster_target(st, target, output)?;
     cluster_info(st, cid)
 }
@@ -117,7 +117,7 @@ fn resolve_cluster_target(
     st: &Halley,
     target: Option<&ClusterTarget>,
     output: Option<&str>,
-) -> Result<ClusterId, IpcError> {
+) -> Result<ClusterId, ApiError> {
     match target {
         Some(ClusterTarget::Id(raw)) => {
             let cid = ClusterId::new(*raw);
@@ -125,13 +125,13 @@ fn resolve_cluster_target(
                 .field
                 .cluster(cid)
                 .map(|_| cid)
-                .ok_or_else(|| IpcError::NotFound(format!("cluster {} not found", cid.as_u64())))
+                .ok_or_else(|| ApiError::NotFound(format!("cluster {} not found", cid.as_u64())))
         }
         Some(ClusterTarget::Current) | None => {
             let monitor = resolve_output_context(st, output)?;
             st.active_cluster_workspace_for_monitor(monitor.as_str())
                 .ok_or_else(|| {
-                    IpcError::NotFound(format!("no active cluster workspace on output {}", monitor))
+                    ApiError::NotFound(format!("no active cluster workspace on output {}", monitor))
                 })
         }
     }
@@ -151,12 +151,12 @@ fn cluster_summary(st: &Halley, cid: ClusterId) -> Option<ClusterSummary> {
     })
 }
 
-fn cluster_info(st: &Halley, cid: ClusterId) -> Result<ClusterInfo, IpcError> {
+fn cluster_info(st: &Halley, cid: ClusterId) -> Result<ClusterInfo, ApiError> {
     let cluster = st
         .model
         .field
         .cluster(cid)
-        .ok_or_else(|| IpcError::NotFound(format!("cluster {} not found", cid.as_u64())))?;
+        .ok_or_else(|| ApiError::NotFound(format!("cluster {} not found", cid.as_u64())))?;
     let focused_member_index = st
         .model
         .focus_state
