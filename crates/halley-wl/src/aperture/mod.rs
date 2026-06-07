@@ -189,17 +189,6 @@ fn derive_aperture_mode(
         return ApertureMode::Hidden;
     }
 
-    if crate::compositor::workspace::state::maximize_session_active_on_monitor(st, monitor)
-        || (crate::compositor::clusters::system::active_cluster_workspace_for_monitor(st, monitor)
-            .is_some()
-            && matches!(
-                st.runtime.tuning.cluster_layout_kind(),
-                halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
-            ))
-    {
-        return ApertureMode::Minimal;
-    }
-
     let render_state = &st.ui.render_state;
     let family = st.aperture_config().peek.clock.font_family.clone();
     let mut measure = |font_px: u32, text: &str| {
@@ -213,37 +202,95 @@ fn derive_aperture_mode(
     // for the candidate mode actually exists. Compute them at most once, lazily.
     let mut windows: Option<Vec<Rect>> = None;
 
-    let normal = st.aperture_snapshot_for_mode(
+    let minimal_intended =
+        crate::compositor::workspace::state::maximize_session_active_on_monitor(st, monitor)
+            || (crate::compositor::clusters::system::active_cluster_workspace_for_monitor(
+                st, monitor,
+            )
+            .is_some()
+                && matches!(
+                    st.runtime.tuning.cluster_layout_kind(),
+                    halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
+                ));
+    if minimal_intended {
+        return unobstructed_aperture_mode(
+            st,
+            monitor,
+            ApertureMode::Minimal,
+            output_rect,
+            work_area_rect,
+            scale,
+            &mut measure,
+            &mut windows,
+        )
+        .unwrap_or(ApertureMode::Hidden);
+    }
+
+    if let Some(mode) = unobstructed_aperture_mode(
+        st,
+        monitor,
         ApertureMode::Normal,
         output_rect,
         work_area_rect,
         scale,
         &mut measure,
-    );
-    if let Some(snapshot) = &normal {
-        let windows = windows
-            .get_or_insert_with(|| active_window_rects_for_monitor(st, monitor, Instant::now()));
-        if !clock_obstructed(snapshot.bounds, windows) {
-            return ApertureMode::Normal;
-        }
+        &mut windows,
+    ) {
+        return mode;
     }
 
-    let collapsed = st.aperture_snapshot_for_mode(
+    if let Some(mode) = unobstructed_aperture_mode(
+        st,
+        monitor,
         ApertureMode::Collapsed,
         output_rect,
         work_area_rect,
         scale,
         &mut measure,
-    );
-    if let Some(snapshot) = &collapsed {
-        let windows = windows
-            .get_or_insert_with(|| active_window_rects_for_monitor(st, monitor, Instant::now()));
-        if !clock_obstructed(snapshot.bounds, windows) {
-            return ApertureMode::Collapsed;
-        }
+        &mut windows,
+    ) {
+        return mode;
     }
 
-    ApertureMode::Minimal
+    unobstructed_aperture_mode(
+        st,
+        monitor,
+        ApertureMode::Minimal,
+        output_rect,
+        work_area_rect,
+        scale,
+        &mut measure,
+        &mut windows,
+    )
+    .unwrap_or(ApertureMode::Hidden)
+}
+
+fn unobstructed_aperture_mode<F>(
+    st: &Halley,
+    monitor: &str,
+    mode: ApertureMode,
+    output_rect: Rect,
+    work_area_rect: Rect,
+    scale: f64,
+    measure: &mut F,
+    windows: &mut Option<Vec<Rect>>,
+) -> Option<ApertureMode>
+where
+    F: FnMut(u32, &str) -> Size,
+{
+    let snapshot =
+        st.aperture_snapshot_for_mode(mode, output_rect, work_area_rect, scale, measure)?;
+    let windows =
+        windows.get_or_insert_with(|| active_window_rects_for_monitor(st, monitor, Instant::now()));
+    unobstructed_aperture_mode_for_bounds(mode, snapshot.bounds, windows)
+}
+
+fn unobstructed_aperture_mode_for_bounds(
+    mode: ApertureMode,
+    bounds: Rect,
+    windows: &[Rect],
+) -> Option<ApertureMode> {
+    (!clock_obstructed(bounds, windows)).then_some(mode)
 }
 
 pub(crate) fn small_reservation_px_for_monitor(st: &Halley, monitor: &str) -> i32 {
@@ -349,6 +396,34 @@ mod tests {
             focus_ring: None,
         }];
         tuning
+    }
+
+    fn two_monitor_tuning() -> halley_config::RuntimeTuning {
+        let mut tuning = single_monitor_tuning();
+        tuning
+            .tty_viewports
+            .push(halley_config::ViewportOutputConfig {
+                connector: "monitor_b".to_string(),
+                enabled: true,
+                offset_x: 800,
+                offset_y: 0,
+                width: 800,
+                height: 600,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            });
+        tuning
+    }
+
+    fn test_output_rect() -> Rect {
+        Rect::new(0.0, 0.0, 800.0, 600.0)
+    }
+
+    fn derive_test_mode(st: &Halley, monitor: &str) -> ApertureMode {
+        let rect = test_output_rect();
+        derive_aperture_mode(st, monitor, rect, rect, 1.0)
     }
 
     fn usable_top_px(st: &Halley) -> i32 {
@@ -702,6 +777,98 @@ mod tests {
 
         assert_eq!(small_reservation_px_for_monitor(&st, MONITOR), 0);
         assert_eq!(usable_top_px(&st), 0);
+    }
+
+    #[test]
+    fn minimal_mode_hides_when_even_small_tab_is_obstructed() {
+        let clock = Rect::new(760.0, 0.0, 30.0, 16.0);
+        let blocker = Rect::new(0.0, 0.0, 800.0, 600.0);
+
+        assert_eq!(
+            unobstructed_aperture_mode_for_bounds(ApertureMode::Minimal, clock, &[blocker]),
+            None
+        );
+    }
+
+    #[test]
+    fn minimal_mode_survives_when_small_tab_is_unobstructed() {
+        let clock = Rect::new(760.0, 0.0, 30.0, 16.0);
+        let blocker = Rect::new(0.0, 64.0, 800.0, 536.0);
+
+        assert_eq!(
+            unobstructed_aperture_mode_for_bounds(ApertureMode::Minimal, clock, &[blocker]),
+            Some(ApertureMode::Minimal)
+        );
+    }
+
+    #[test]
+    fn aperture_hides_only_on_obstructed_monitor() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, two_monitor_tuning());
+
+        let blocker = st.model.field.spawn_surface(
+            "blocker",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 {
+                x: 2000.0,
+                y: 2000.0,
+            },
+        );
+        st.assign_node_to_monitor(blocker, MONITOR);
+
+        assert_eq!(derive_test_mode(&st, MONITOR), ApertureMode::Hidden);
+        assert_ne!(derive_test_mode(&st, "monitor_b"), ApertureMode::Hidden);
+    }
+
+    #[test]
+    fn maximized_mode_keeps_minimal_when_small_tab_is_unobstructed() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        set_aperture_tab_height(&mut st, 22);
+
+        let id = st.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(id, MONITOR);
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut st,
+                id,
+                Instant::now(),
+                MONITOR,
+            )
+        );
+
+        assert_eq!(derive_test_mode(&st, MONITOR), ApertureMode::Minimal);
+    }
+
+    #[test]
+    fn tiled_cluster_mode_keeps_minimal_when_small_tab_is_unobstructed() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+        set_aperture_tab_height(&mut st, 22);
+        let now = Instant::now();
+
+        let master = st.model.field.spawn_surface(
+            "master",
+            Vec2 { x: 100.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let stack = st.model.field.spawn_surface(
+            "stack",
+            Vec2 { x: 500.0, y: 100.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        st.assign_node_to_monitor(master, MONITOR);
+        st.assign_node_to_monitor(stack, MONITOR);
+        let cid = st.create_cluster(vec![master, stack]).expect("cluster");
+        let core = st.collapse_cluster(cid).expect("core");
+        st.assign_node_to_monitor(core, MONITOR);
+        assert!(st.enter_cluster_workspace_by_core(core, MONITOR, now));
+
+        assert_eq!(derive_test_mode(&st, MONITOR), ApertureMode::Minimal);
     }
 
     #[test]

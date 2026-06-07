@@ -691,10 +691,7 @@ mod tests {
 
         // Trail back to `far` — starts a camera pan toward far.pos.
         assert!(state.navigate_window_trail(TrailDirection::Prev, now));
-        assert_eq!(
-            state.model.focus_state.primary_interaction_focus,
-            Some(far)
-        );
+        assert_eq!(state.model.focus_state.primary_interaction_focus, Some(far));
         assert!(state.input.interaction_state.viewport_pan_anim.is_some());
 
         // Maximize mid-pan: it must be deferred, not applied, so the pan can play out first.

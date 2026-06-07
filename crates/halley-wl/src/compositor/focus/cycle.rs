@@ -312,9 +312,48 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
             let _ = self.raise_overlap_policy_node(target);
             changed
         } else {
-            crate::compositor::actions::window::focus_from_presentation_navigation(
-                self, target, now,
-            ) || crate::compositor::actions::window::focus_or_reveal_surface_node(self, target, now)
+            let target_monitor = self.monitor_for_node_or_current(target);
+            if crate::compositor::workspace::state::maximize_session_target_for_monitor(
+                self,
+                target_monitor.as_str(),
+            ) == Some(target)
+            {
+                let changed = crate::compositor::actions::window::focus_surface_node_without_reveal(
+                    self, target, now,
+                );
+                let _ = self.raise_overlap_policy_node(target);
+                changed
+            } else if self
+                .model
+                .fullscreen_state
+                .fullscreen_active_node
+                .get(target_monitor.as_str())
+                .copied()
+                .filter(|&fullscreen_id| fullscreen_id != target)
+                .is_some_and(|fullscreen_id| {
+                    !self
+                        .model
+                        .fullscreen_state
+                        .fullscreen_restore
+                        .contains_key(&fullscreen_id)
+                })
+                && self.model.field.node(target).is_some_and(|node| {
+                    node.state == halley_core::field::NodeState::Active
+                        && self.surface_is_fully_visible_on_monitor(target_monitor.as_str(), target)
+                })
+            {
+                let changed = crate::compositor::actions::window::focus_surface_node_without_reveal(
+                    self, target, now,
+                );
+                let _ = self.raise_overlap_policy_node(target);
+                changed
+            } else {
+                crate::compositor::actions::window::focus_from_presentation_navigation(
+                    self, target, now,
+                ) || crate::compositor::actions::window::focus_or_reveal_surface_node(
+                    self, target, now,
+                )
+            }
         };
         if changed {
             crate::compositor::interaction::pointer::center_pointer_on_node(self, target, now);
@@ -731,6 +770,58 @@ mod tests {
         );
         assert!(
             state.overlap_policy_stack_rank(visible) > state.overlap_policy_stack_rank(maximized)
+        );
+        assert!(state.input.interaction_state.viewport_pan_anim.is_none());
+    }
+
+    #[test]
+    fn commit_to_maximized_target_focuses_without_panning() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.animations.maximize.enabled = false;
+        let mut state = Halley::new_for_test(&dh, tuning);
+        let now = Instant::now();
+
+        let maximized = state.model.field.spawn_surface(
+            "maximized",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        let other = state.model.field.spawn_surface(
+            "other",
+            Vec2 { x: 2_400.0, y: 0.0 },
+            Vec2 { x: 320.0, y: 240.0 },
+        );
+        state.assign_node_to_current_monitor(maximized);
+        state.assign_node_to_current_monitor(other);
+        assert!(
+            crate::compositor::actions::window::toggle_node_maximize_state(
+                &mut state, maximized, now, "default",
+            )
+        );
+        state.set_interaction_focus(Some(other), 30_000, now);
+        state.input.interaction_state.viewport_pan_anim = None;
+        state.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
+            candidates: vec![other, maximized],
+            preview_index: 1,
+            origin_focus: Some(other),
+            immersive_origin: None,
+            immersive_lock_released: false,
+        });
+
+        assert!(state.commit_focus_cycle(now));
+        assert_eq!(
+            state.model.focus_state.primary_interaction_focus,
+            Some(maximized)
+        );
+        assert!(
+            state
+                .model
+                .workspace_state
+                .maximize_sessions
+                .contains_key("default")
         );
         assert!(state.input.interaction_state.viewport_pan_anim.is_none());
     }

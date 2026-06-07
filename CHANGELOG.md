@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - TBD
 
 ### Added
+- Add `halley -h` / `halley --help` output documenting config selection and session startup options.
+- Add `halley -c` / `halley --config` support for selecting an explicit config file, with CLI config taking precedence over `HALLEY_WL_CONFIG`.
 - Add numeric `opacity` window-rule support using a `0.0` through `1.0` scale, applying matched opacity to window content, borders, shadows, popups, badges, close snapshots, and captures while blocking direct scanout for translucent windows.
 - Add optional `width` and `height` window-rule keys for fixed initial sizes on matched windows.
 - Add configurable fullscreen entry animation via `animations.fullscreen`, including bootstrap migration and example config coverage, so browser videos such as YouTube tween into fullscreen instead of snapping.
@@ -13,6 +15,8 @@ All notable changes to this project will be documented in this file.
 - Add a `debug:` config section with `overlay-fps` and `show-ring-when-resizing` toggles, including a legible top-left FPS HUD and control over focus-ring config-change previews.
 
 ### Changed
+- Keep `halley-session` as the recommended public full-session launcher while documenting `halley --session` as a session-wrapper, packager, and service-file flag.
+- Resolve the effective Halley config path once at startup and reuse it for reload/watch behavior, with precedence of explicit config, `HALLEY_WL_CONFIG`, user config, system config, then generated user config/internal defaults.
 - Freeze Aperture work-area updates for the whole field maximize session — through both the enter and restore animations — after applying the initial reservation baseline, matching cluster workspace behavior and avoiding mid-animation `usable_viewport` re-basing (and the un-maximize top-strip pop) on lower-refresh displays. The deferred-flush maintenance pass now only runs when a pending monitor is actually unlocked, so a locked session no longer re-runs the work-area refresh or invalidates the Aperture mode cache every frame.
 - Resolve active-window render routing in `window::layout` with a `WindowRenderRoute` so surface collection appends shadows, borders, badges, surfaces, textures, and popups through a layout-provided route instead of repeating stack/top/fullscreen routing checks.
 - Add focused `RenderState` accessors for tile animation state, overlay toast lookup, view-state retention, and render tick telemetry to reduce direct bucket access from frame, layout, cluster, overlay, and camera code.
@@ -31,6 +35,9 @@ All notable changes to this project will be documented in this file.
 - Soften window shadows with a Gaussian/error-function falloff for a more natural shadow tail.
 
 ### Fixed
+- Avoid auto-creating `~/.config/halley/halley.rune` when `/etc/halley/halley.rune` exists, preventing system configs from being shadowed on first startup.
+- Treat empty or whitespace-only `HALLEY_WL_CONFIG` as unset.
+- Snap `halley-aperture` transitions into Minimal mode immediately so maximize work-area reservation and Aperture layer size stay in sync.
 - Recompute live window-rule opacity for already-open windows on config reload and title/app-id refreshes, without reapplying placement or cluster behavior.
 - Keep maximized windows visually maximized while closing by preserving the maximize session through `xdg_toplevel.close`, capturing close animations from maximized geometry, and cleaning up maximize state after the surface is dropped.
 - Skip close-restore panning while a maximize session is present on the monitor, avoiding unnecessary viewport movement when focus is restored during maximized flows.

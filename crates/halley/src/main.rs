@@ -2,9 +2,14 @@ use std::ffi::OsString;
 
 fn main() {
     let args = match CliArgs::parse(std::env::args_os().skip(1)) {
-        Ok(args) => args,
+        Ok(ParseResult::Run(args)) => args,
+        Ok(ParseResult::Help) => {
+            print_help();
+            return;
+        }
         Err(err) => {
             eprintln!("halley: {err}");
+            eprintln!("Try 'halley --help' for usage.");
             std::process::exit(2);
         }
     };
@@ -31,11 +36,20 @@ struct CliArgs {
     config: Option<OsString>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum ParseResult {
+    Run(CliArgs),
+    Help,
+}
+
 impl CliArgs {
-    fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self, String> {
+    fn parse(args: impl IntoIterator<Item = OsString>) -> Result<ParseResult, String> {
         let mut out = Self::default();
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
+            if arg == "--help" || arg == "-h" {
+                return Ok(ParseResult::Help);
+            }
             if arg == "--session" {
                 out.session = true;
                 continue;
@@ -64,8 +78,22 @@ impl CliArgs {
             return Err(format!("unknown argument {}", arg.to_string_lossy()));
         }
 
-        Ok(out)
+        Ok(ParseResult::Run(out))
     }
+}
+
+fn print_help() {
+    println!(
+        "Halley spatial Wayland compositor\n\
+\n\
+Usage: halley [OPTIONS]\n\
+\n\
+Options:\n\
+  -c, --config <PATH>  Use a specific config file\n\
+  -h, --help           Show this help\n\
+      --session        Run as a full desktop session; kept for session wrappers\n\
+                       and services. Normal users should launch halley-session."
+    );
 }
 
 #[cfg(test)]
@@ -80,20 +108,21 @@ mod tests {
     fn parses_long_config_with_space() {
         assert_eq!(
             CliArgs::parse(os(&["--config", "/tmp/halley.rune"])).unwrap(),
-            CliArgs {
+            ParseResult::Run(CliArgs {
                 session: false,
                 config: Some(OsString::from("/tmp/halley.rune")),
-            }
+            })
         );
     }
 
     #[test]
     fn parses_long_config_with_equals() {
         assert_eq!(
-            CliArgs::parse(os(&["--config=/tmp/halley.rune"]))
-                .unwrap()
-                .config,
-            Some(OsString::from("/tmp/halley.rune"))
+            CliArgs::parse(os(&["--config=/tmp/halley.rune"])).unwrap(),
+            ParseResult::Run(CliArgs {
+                session: false,
+                config: Some(OsString::from("/tmp/halley.rune")),
+            })
         );
     }
 
@@ -101,10 +130,21 @@ mod tests {
     fn parses_short_config_and_session() {
         assert_eq!(
             CliArgs::parse(os(&["--session", "-c", "/tmp/halley.rune"])).unwrap(),
-            CliArgs {
+            ParseResult::Run(CliArgs {
                 session: true,
                 config: Some(OsString::from("/tmp/halley.rune")),
-            }
+            })
         );
+    }
+
+    #[test]
+    fn parses_help_flags() {
+        assert_eq!(CliArgs::parse(os(&["--help"])).unwrap(), ParseResult::Help);
+        assert_eq!(CliArgs::parse(os(&["-h"])).unwrap(), ParseResult::Help);
+    }
+
+    #[test]
+    fn unknown_arg_errors() {
+        assert!(CliArgs::parse(os(&["session"])).is_err());
     }
 }
