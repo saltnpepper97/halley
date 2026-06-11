@@ -1,6 +1,8 @@
 use super::*;
 
-use crate::compositor::clusters::state::{ClusterNameRecord, ClusterNamingPromptState};
+use crate::compositor::clusters::state::{
+    ClusterFinalizeDraftState, ClusterNameRecord, ClusterNamingPromptState,
+};
 use crate::compositor::interaction::state::{
     ClusterNamePromptRepeatAction, ClusterNamePromptRepeatState,
 };
@@ -232,6 +234,125 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
 }
 
 impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
+    fn open_cluster_name_prompt_for_monitor(
+        &mut self,
+        monitor: &str,
+        name_hint: Option<&str>,
+        select_all: bool,
+    ) -> bool {
+        let generated_generic_name = format!(
+            "Cluster {}",
+            self.next_generic_cluster_slot_for_monitor(monitor, None)
+        );
+        let input = name_hint
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| generated_generic_name.clone());
+        let char_len = prompt_char_len(input.as_str());
+        let selection_anchor_char = if select_all { 0 } else { char_len };
+        self.model.cluster_state.cluster_name_prompt.insert(
+            monitor.to_string(),
+            ClusterNamingPromptState {
+                generated_generic_name,
+                input,
+                caret_char: char_len,
+                selection_anchor_char,
+                selection_focus_char: char_len,
+                scroll_char: 0,
+                confirm_hover_mix: 0.0,
+            },
+        );
+        self.begin_modal_keyboard_capture();
+        cluster_name_prompt_banner(self, monitor);
+        true
+    }
+
+    pub(crate) fn open_lens_cluster_finalize_draft(
+        &mut self,
+        monitor: &str,
+        name_hint: Option<String>,
+        app_ids: Vec<String>,
+        running_node_ids: Vec<NodeId>,
+        now: Instant,
+    ) -> bool {
+        let selected = running_node_ids
+            .into_iter()
+            .filter(|node_id| {
+                self.model.field.node(*node_id).is_some_and(|node| {
+                    node.kind == halley_core::field::NodeKind::Surface
+                        && node.state != halley_core::field::NodeState::Core
+                        && self.model.field.is_visible(*node_id)
+                })
+            })
+            .collect::<std::collections::HashSet<_>>();
+        self.model
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .insert(monitor.to_string(), selected.clone());
+        self.model.cluster_state.cluster_finalize_drafts.insert(
+            monitor.to_string(),
+            ClusterFinalizeDraftState {
+                app_ids: normalized_draft_app_ids(app_ids),
+                selected_node_ids: selected,
+            },
+        );
+        let select_all = name_hint
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(str::is_empty);
+        let opened =
+            self.open_cluster_name_prompt_for_monitor(monitor, name_hint.as_deref(), select_all);
+        if opened {
+            self.request_maintenance();
+        } else {
+            self.model
+                .cluster_state
+                .cluster_finalize_drafts
+                .remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_mode_selected_nodes
+                .remove(monitor);
+        }
+        let _ = now;
+        opened
+    }
+
+    pub(crate) fn maybe_add_node_to_lens_cluster_finalize_draft(
+        &mut self,
+        monitor: &str,
+        node_id: NodeId,
+        app_id: &str,
+    ) -> bool {
+        let app_id = app_id.trim();
+        if app_id.is_empty() {
+            return false;
+        }
+        let Some(draft) = self
+            .model
+            .cluster_state
+            .cluster_finalize_drafts
+            .get_mut(monitor)
+        else {
+            return false;
+        };
+        if !draft_app_ids_match(&draft.app_ids, app_id) {
+            return false;
+        }
+        if !draft.selected_node_ids.insert(node_id) {
+            return false;
+        }
+        self.model
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .entry(monitor.to_string())
+            .or_default()
+            .insert(node_id);
+        self.request_maintenance();
+        true
+    }
+
     fn record_cluster_slot_for_monitor(&mut self, cid: ClusterId, monitor: &str) {
         let target_monitor = monitor.to_string();
         let already_on_target = self
@@ -356,26 +477,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return false;
         }
 
-        let generated_generic_name = format!(
-            "Cluster {}",
-            self.next_generic_cluster_slot_for_monitor(monitor.as_str(), None)
-        );
-        let char_len = prompt_char_len(generated_generic_name.as_str());
-        self.model.cluster_state.cluster_name_prompt.insert(
-            monitor.clone(),
-            ClusterNamingPromptState {
-                generated_generic_name: generated_generic_name.clone(),
-                input: generated_generic_name,
-                caret_char: char_len,
-                selection_anchor_char: 0,
-                selection_focus_char: char_len,
-                scroll_char: 0,
-                confirm_hover_mix: 0.0,
-            },
-        );
-        self.begin_modal_keyboard_capture();
-        cluster_name_prompt_banner(self, monitor.as_str());
-        true
+        let _ = now;
+        self.open_cluster_name_prompt_for_monitor(monitor.as_str(), None, true)
     }
 
     pub(crate) fn cancel_cluster_name_prompt_for_monitor(&mut self, monitor: &str) -> bool {
@@ -409,6 +512,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             cluster_mode_selection_banner(self, monitor);
         }
         if removed {
+            self.model
+                .cluster_state
+                .cluster_finalize_drafts
+                .remove(monitor);
             let focused_surface = self
                 .last_input_surface_node_for_monitor(monitor)
                 .or(self.last_input_surface_node());
@@ -694,6 +801,10 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         });
         if created.is_some() {
             self.model.cluster_state.cluster_name_prompt.remove(monitor);
+            self.model
+                .cluster_state
+                .cluster_finalize_drafts
+                .remove(monitor);
             let _ = self
                 .cluster_mutation_controller()
                 .exit_cluster_mode(monitor);
@@ -706,4 +817,29 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         }
         false
     }
+}
+
+fn normalized_draft_app_ids(app_ids: Vec<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    for app_id in app_ids {
+        let app_id = app_id.trim();
+        if app_id.is_empty() {
+            continue;
+        }
+        let folded = app_id.to_ascii_lowercase();
+        if !out.iter().any(|existing: &String| existing == &folded) {
+            out.push(folded);
+        }
+    }
+    out
+}
+
+fn draft_app_ids_match(app_ids: &[String], app_id: &str) -> bool {
+    let folded = app_id.to_ascii_lowercase();
+    app_ids.iter().any(|candidate| {
+        candidate == &folded
+            || folded.ends_with(candidate)
+            || candidate.ends_with(&folded)
+            || folded.rsplit(['.', '/']).next() == Some(candidate.as_str())
+    })
 }

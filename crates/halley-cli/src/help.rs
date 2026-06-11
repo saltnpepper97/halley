@@ -37,6 +37,7 @@ pub(crate) enum HelpTopic {
     Tile,
     TileFocus,
     TileSwap,
+    Gamescope,
 }
 
 pub(crate) fn exit_usage(error: UsageError) -> ! {
@@ -67,6 +68,7 @@ pub(crate) fn print_help(topic: HelpTopic) {
                 ("cluster", "Cluster workspace actions"),
                 ("stack", "Stack layout actions"),
                 ("tile", "Tile layout actions"),
+                ("gamescope", "Wrap a game launch in gamescope"),
             ],
         ),
         HelpTopic::Quit => print_help_page(
@@ -345,6 +347,27 @@ pub(crate) fn print_help(topic: HelpTopic) {
                 "left|right|up|down",
                 "Direction of the adjacent visible tile",
             )],
+        ),
+        HelpTopic::Gamescope => print_help_page(
+            "halleyctl gamescope",
+            &[
+                "halleyctl gamescope run [--app-id ID] -- <command…>",
+                "halleyctl gamescope print [--app-id ID] -- <command…>",
+            ],
+            &[
+                (
+                    "run",
+                    "Wrap and exec the game command in gamescope per the `gamescope:` config (use in Steam launch options: `halleyctl gamescope run -- %command%`)",
+                ),
+                (
+                    "print",
+                    "Print the resolved gamescope command without running it",
+                ),
+                (
+                    "--app-id ID",
+                    "Override the matched app id (otherwise read from SteamAppId/SteamGameId)",
+                ),
+            ],
         ),
     }
 }

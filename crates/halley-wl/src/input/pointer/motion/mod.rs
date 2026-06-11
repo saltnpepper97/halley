@@ -146,6 +146,11 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         }
     };
 
+    // While a game holds the pointer (lock/confine), never reveal Halley's own
+    // overlays over it (config-gated via `gamescope.suppress-overlays`).
+    let suppress_game_overlays = st.runtime.tuning.gamescope.suppress_overlays
+        && crate::compositor::interaction::pointer::pointer_holds_game_constraint(&*st);
+
     let p = routing.world;
     let drag_mod_ok = modifier_active(&mods, st.runtime.tuning.keybinds.modifier)
         || matches!(
@@ -296,7 +301,7 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
             ctx.backend.request_redraw();
             return;
         }
-        if ps.drag.is_none() && ps.resize.is_none() {
+        if ps.drag.is_none() && ps.resize.is_none() && !suppress_game_overlays {
             let queue_hover = crate::overlay::cluster_overflow_icon_hit_test(
                 &crate::overlay::OverlayView::from_halley(st),
                 monitor.as_str(),

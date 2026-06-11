@@ -34,6 +34,7 @@ keybinds:
   "$var.mod+return" "open-terminal"
   "$var.mod+d" "fuzzel"
   "$var.mod+q" "close-focused"
+  "$var.mod+f" "toggle-fullscreen"
   "$var.mod+p" "toggle-focused-pin"
 
   "$var.mod+leftmouse" "move-window"
@@ -53,4 +54,9 @@ rules:
     spawn-placement "center"
     cluster-participation "float"
   end
+end
+
+debug:
+  overlay-fps false
+  show-ring-when-resizing true
 end

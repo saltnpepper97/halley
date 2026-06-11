@@ -14,9 +14,9 @@ use super::paths::{absolutize_path, default_config_path, global_config_path};
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
-    DecorationsConfig, FocusRingConfig, FontConfig, InputConfig, NodeBackgroundColorMode,
-    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
-    PlacementConfig, RailConfig, ScreenshotConfig, ShapeStyle, ViewportOutputConfig,
+    DecorationsConfig, FocusRingConfig, FontConfig, GamescopeConfig, InputConfig,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
+    PanToNewMode, PinsConfig, PlacementConfig, ScreenshotConfig, ShapeStyle, ViewportOutputConfig,
     WindowCloseAnimationStyle, WindowRule,
 };
 
@@ -69,7 +69,6 @@ pub struct RuntimeTuning {
     pub click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode,
     pub click_collapsed_pan: ClickCollapsedPanMode,
     pub bearings: BearingsConfig,
-    pub rail: RailConfig,
 
     pub cluster_distance_px: f32,
     pub cluster_dwell_ms: u64,
@@ -126,6 +125,7 @@ pub struct RuntimeTuning {
     pub animations: AnimationsConfig,
     pub overlay_style: OverlayStyleConfig,
     pub screenshot: ScreenshotConfig,
+    pub gamescope: GamescopeConfig,
     pub env: HashMap<String, String>,
 }
 impl RuntimeTuning {
@@ -476,7 +476,6 @@ const INTERNAL_CONFIG_PREFIX: &str = r##"@author "Dustin Pilgrim"
 autostart:
   # Common examples you may want later:
   #once "waybar"
-  #once "halley-rail"
 
   #once "mako"
   #once "gessod"
@@ -642,29 +641,6 @@ bearings:
   fade-distance 1200
 end
 
-# Rail is Halley's per-monitor process/navigation bar.
-# It shows alive windows on the current monitor; Lens remains the launcher.
-rail:
-  enabled true
-  # "up", "down", "left", or "right".
-  placement "down"
-  background-colour "auto"
-  foreground-colour "auto"
-  divider-colour "auto"
-  offset-x 0
-  offset-y 18
-  # In grow-to-content mode, 0 means uncapped on the growth axis.
-  width 0
-  height 56
-  sizing "grow-to-content"
-  icon-size 34
-  gap 8
-  padding 10
-  radius 18
-  pinned-separator true
-  obstruction "auto-hide"
-end
-
 # Clusters are Halley's workspace-like grouping system.
 # Unlike traditional workspaces, clusters live in the field.
 clusters:
@@ -814,6 +790,7 @@ keybinds:
   "$var.mod+shift+r" "reload"
   "$var.mod+n" "toggle-state"
   "$var.mod+m" "maximize-focused"
+  "$var.mod+f" "toggle-fullscreen"
   "$var.mod+p" "toggle-focused-pin"
   "$var.mod+q" "close-focused"
 
@@ -910,6 +887,37 @@ rules:
     spawn-placement "center"
     cluster-participation "float"
   end
+end
+
+# Gamescope integration. When enabled, `halleyctl gamescope run -- %command%`
+# (used in a game's Steam launch options) wraps the game in a nested gamescope
+# session sized to the selected monitor. The `gamescope` binary is an optional
+# runtime dependency; if it is missing the game still launches unwrapped.
+gamescope:
+  enabled true
+  # Monitor to size the session to: "focused", "cursor", "primary", or a connector name.
+  monitor "focused"
+  # "auto" resolves from the selected monitor; or set explicit pixel values.
+  output-width "auto"
+  output-height "auto"
+  game-width "auto"
+  game-height "auto"
+  refresh "auto"
+  # Fullscreen wins if both fullscreen and borderless are true.
+  fullscreen true
+  borderless false
+  # While a gamescope game holds the pointer, keep Halley's UI out of its way.
+  suppress-overlays true
+  passthrough-pointer-lock true
+  bypass-spatial-camera true
+
+  # Per-game profiles match by `app-id` and inherit the globals above.
+  # Set `enabled false` to opt a game out of wrapping.
+  #game:
+  #  name "Deep Rock Galactic"
+  #  app-id "steam_app_548430"
+  #  enabled true
+  #end
 end
 "##;
 
@@ -1161,6 +1169,8 @@ mod tests {
         assert!(rendered.contains(
             "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end\nend"
         ));
+        // Rail is archived; it must not be embedded in halley.rune.
+        assert!(!rendered.contains("\nrail:"));
     }
 
     #[test]

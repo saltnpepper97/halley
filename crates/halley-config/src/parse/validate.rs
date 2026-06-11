@@ -130,13 +130,13 @@ impl ConfigSchema {
             "field",
             "focus-ring",
             "font",
+            "gamescope",
             "input",
             "keybinds",
             "nodes",
             "overlays",
             "placement",
             "physics",
-            "rail",
             "rules",
             "screenshot",
             "stacking",
@@ -144,7 +144,8 @@ impl ConfigSchema {
             "trail",
             "viewport",
         ]);
-        let ignored_sections = HashSet::from(["autostart", "env", "keybinds", "rules"]);
+        let ignored_sections =
+            HashSet::from(["autostart", "env", "gamescope", "keybinds", "rules"]);
         let sections = HashSet::from([
             "animations",
             "animations.smooth-resize",
@@ -181,7 +182,6 @@ impl ConfigSchema {
             "placement.landmarks",
             "placement.reveal",
             "physics",
-            "rail",
             "screenshot",
             "stacking",
             "tile",
@@ -351,36 +351,6 @@ impl ConfigSchema {
             "placement.reveal.pan-to-new",
             "physics.enabled",
             "physics.damping",
-            "rail.enabled",
-            "rail.placement",
-            "rail.background-colour",
-            "rail.background-color",
-            "rail.bg-colour",
-            "rail.bg-color",
-            "rail.foreground-colour",
-            "rail.foreground-color",
-            "rail.fg-colour",
-            "rail.fg-color",
-            "rail.text-colour",
-            "rail.text-color",
-            "rail.divider-colour",
-            "rail.divider-color",
-            "rail.separator-colour",
-            "rail.separator-color",
-            "rail.offset-x",
-            "rail.offset-y",
-            "rail.width",
-            "rail.height",
-            "rail.sizing",
-            "rail.sizing-mode",
-            "rail.icon-size",
-            "rail.gap",
-            "rail.padding",
-            "rail.radius",
-            "rail.radius-px",
-            "rail.pinned-separator",
-            "rail.obstruction",
-            "rail.obstruction-behavior",
             "screenshot.directory",
             "screenshot.output-directory",
             "screenshot.highlight-colour",
@@ -539,15 +509,6 @@ fn numeric_scalar(path: &str) -> bool {
             | "placement.reveal.max-pan-px"
             | "placement.reveal.animation-ms"
             | "physics.damping"
-            | "rail.offset-x"
-            | "rail.offset-y"
-            | "rail.width"
-            | "rail.height"
-            | "rail.icon-size"
-            | "rail.gap"
-            | "rail.padding"
-            | "rail.radius"
-            | "rail.radius-px"
             | "stacking.max-visible"
             | "stacking.visible-limit"
             | "tile.gaps-inner"
@@ -618,8 +579,6 @@ fn bool_scalar(path: &str) -> bool {
             | "overlays.borders"
             | "placement.reveal.enabled"
             | "physics.enabled"
-            | "rail.enabled"
-            | "rail.pinned-separator"
             | "tile.new-on-top"
             | "tile.queue-show-icons"
             | "tile.show-queue-icons"
@@ -679,21 +638,6 @@ fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
         "placement.reveal.pan-to-new" => {
             Some(&["never", "if-needed", "if_needed", "always", "true", "false"])
         }
-        "rail.placement" => Some(&["up", "top", "down", "bottom", "left", "right"]),
-        "rail.sizing" | "rail.sizing-mode" => {
-            Some(&["fixed", "grow-to-content", "grow_to_content", "content"])
-        }
-        "rail.obstruction" | "rail.obstruction-behavior" => Some(&[
-            "auto-hide",
-            "auto_hide",
-            "hide",
-            "stay-on-top",
-            "stay_on_top",
-            "top",
-            "stay-under",
-            "stay_under",
-            "under",
-        ]),
         "animations.window-close.style" => Some(&["shrink", "fade"]),
         path if viewport_output_path(path)
             .is_some_and(|rest| rest == "vrr" || rest == "variable-refresh-rate") =>
@@ -739,20 +683,6 @@ fn color_scalar(path: &str) -> bool {
             | "overlays.text-color"
             | "overlays.error-colour"
             | "overlays.error-color"
-            | "rail.background-colour"
-            | "rail.background-color"
-            | "rail.bg-colour"
-            | "rail.bg-color"
-            | "rail.foreground-colour"
-            | "rail.foreground-color"
-            | "rail.fg-colour"
-            | "rail.fg-color"
-            | "rail.text-colour"
-            | "rail.text-color"
-            | "rail.divider-colour"
-            | "rail.divider-color"
-            | "rail.separator-colour"
-            | "rail.separator-color"
             | "screenshot.highlight-colour"
             | "screenshot.highlight-color"
             | "screenshot.background-colour"

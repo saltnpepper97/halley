@@ -535,6 +535,33 @@ pub(crate) fn toggle_focused_maximize_node_state(st: &mut Halley) -> bool {
     toggle_node_maximize_state(st, id, now, focused_monitor.as_str())
 }
 
+pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
+    let now = Instant::now();
+    let focused_monitor = st.focused_monitor().to_string();
+
+    let Some(id) = focused_surface_node_for_action(st, focused_monitor.as_str()) else {
+        return false;
+    };
+
+    let Some(node) = st.model.field.node(id).cloned() else {
+        return false;
+    };
+    if node.kind != halley_core::field::NodeKind::Surface {
+        return false;
+    }
+
+    if st.is_fullscreen_active(id) {
+        st.exit_xdg_fullscreen(id, now);
+        return true;
+    }
+
+    if node.state == halley_core::field::NodeState::Node {
+        uncollapse_surface_node_for_action(st, id, now);
+    }
+    st.enter_xdg_fullscreen(id, None, now);
+    true
+}
+
 pub(crate) fn toggle_node_maximize_state(
     st: &mut Halley,
     id: halley_core::field::NodeId,

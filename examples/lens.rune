@@ -1,0 +1,92 @@
+@description "Halley Lens configuration"
+
+lens:
+  placeholder "Search apps, nodes, clusters, actions..."
+  width 760
+  max-results 12
+  visible-results 8
+  fuzzy true
+  show-section-labels true
+  icons true
+  icon-size 28
+  icon-theme "auto"
+  icon-search-depth 5
+  keyboard-interactivity "exclusive"
+  close-on-focus-loss false
+  close-on-click-away false
+  alt-number-jump true
+
+  position:
+    anchor "center"
+    offset-x 0
+    offset-y 0
+  end
+
+  rounding:
+    panel 18
+    dropdown 14
+    search 12
+    row 12
+    badge 10
+    draft 10
+  end
+
+  colors:
+    panel "#151720ee"
+    panel-border "#2b3248cc"
+    dropdown "#151720ee"
+    dropdown-border "#2b3248cc"
+    search "#090b12d8"
+    row-selected "#2e4575ea"
+    divider "#2b324899"
+    text "#f2f5ff"
+    subtext "#9ea7bf"
+    hint "#858fa8"
+    accent "#8fb5ff"
+    badge "#334875f2"
+    danger "#eb9a8f"
+  end
+
+  ui:
+    top-margin 96
+    padding 20
+    dropdown-gap 0
+    dropdown-padding 10
+    search-height 60
+    draft-height 36
+    row-height 64
+    row-gap 6
+    section-height 22
+    footer-height 0
+    font "sans-serif"
+    search-font-size 22
+    badge-font-size 15
+    title-font-size 17
+    subtitle-font-size 13
+    hint-font-size 12
+  end
+
+  modes:
+    apps true
+    clusters true
+    nodes true
+    actions true
+    config true
+  end
+
+  providers [
+    "apps"
+    "clusters"
+    "nodes"
+    "actions"
+  ]
+
+  shortcuts:
+    close "Escape"
+    actions "Tab"
+    select "Space"
+    launch "Enter"
+    create "Ctrl+Enter"
+    remove-mode "Backspace"
+  end
+end

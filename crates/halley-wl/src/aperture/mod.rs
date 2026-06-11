@@ -8,14 +8,13 @@ use eventline::{debug, warn};
 use halley_api::{ApertureMode as IpcApertureMode, ApertureOutputStatus, ApertureStatusResponse};
 
 use crate::compositor::root::Halley;
-use crate::text::ui_text_size_px_in;
 
-use halley_core::field::{NodeId, NodeKind, NodeState};
+#[cfg(test)]
+use halley_core::field::{NodeId, NodeState};
+#[cfg(test)]
 use halley_core::viewport::Viewport;
 
-use self::core::{
-    ApertureConfig, ApertureMode, ApertureRuntime, ClockSnapshot, Rect, Size, minimal_font_px,
-};
+use self::core::{ApertureConfig, ApertureMode, ApertureRuntime, Rect, minimal_font_px};
 
 const MINIMAL_TAB_PADDING_Y_PX: f32 = 4.0;
 const MINIMAL_TAB_HEIGHT_TOLERANCE_PX: f32 = 12.0;
@@ -55,21 +54,6 @@ impl ApertureState {
 
     pub(crate) fn invalidate_mode_cache(&self) {
         self.runtime.invalidate_mode_cache();
-    }
-
-    pub(crate) fn snapshot_for_mode<F>(
-        &self,
-        mode: ApertureMode,
-        output_rect: Rect,
-        work_area_rect: Rect,
-        scale: f64,
-        measure_text: F,
-    ) -> Option<ClockSnapshot>
-    where
-        F: FnMut(u32, &str) -> Size,
-    {
-        self.runtime
-            .snapshot_for_mode(mode, output_rect, work_area_rect, scale, measure_text)
     }
 }
 
@@ -167,7 +151,6 @@ fn derive_aperture_mode_for_monitor(st: &Halley, monitor: &str) -> ApertureMode 
 fn map_ipc_mode(mode: ApertureMode) -> IpcApertureMode {
     match mode {
         ApertureMode::Normal => IpcApertureMode::Normal,
-        ApertureMode::Collapsed => IpcApertureMode::Collapsed,
         ApertureMode::Minimal => IpcApertureMode::Minimal,
         ApertureMode::Hidden => IpcApertureMode::Hidden,
     }
@@ -176,115 +159,34 @@ fn map_ipc_mode(mode: ApertureMode) -> IpcApertureMode {
 fn derive_aperture_mode(
     st: &Halley,
     monitor: &str,
-    output_rect: Rect,
-    work_area_rect: Rect,
-    scale: f64,
+    _output_rect: Rect,
+    _work_area_rect: Rect,
+    _scale: f64,
 ) -> ApertureMode {
     if st
         .model
         .fullscreen_state
         .fullscreen_active_node
-        .contains_key(monitor)
+        .get(monitor)
+        .is_some_and(|node_id| crate::window::node_is_game_like(st, *node_id))
     {
         return ApertureMode::Hidden;
     }
 
-    let render_state = &st.ui.render_state;
-    let family = st.aperture_config().peek.clock.font_family.clone();
-    let mut measure = |font_px: u32, text: &str| {
-        let (w, h) = ui_text_size_px_in(render_state, family.as_str(), font_px, text);
-        Size {
-            w: w as f32,
-            h: h as f32,
-        }
-    };
-    // Window rects are only needed to test obstruction, and only when a snapshot
-    // for the candidate mode actually exists. Compute them at most once, lazily.
-    let mut windows: Option<Vec<Rect>> = None;
-
     let minimal_intended =
         crate::compositor::workspace::state::maximize_session_active_on_monitor(st, monitor)
-            || (crate::compositor::clusters::system::active_cluster_workspace_for_monitor(
+            || crate::compositor::clusters::system::active_cluster_workspace_for_monitor(
                 st, monitor,
             )
-            .is_some()
-                && matches!(
-                    st.runtime.tuning.cluster_layout_kind(),
-                    halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
-                ));
+            .is_some();
     if minimal_intended {
-        return unobstructed_aperture_mode(
-            st,
-            monitor,
-            ApertureMode::Minimal,
-            output_rect,
-            work_area_rect,
-            scale,
-            &mut measure,
-            &mut windows,
-        )
-        .unwrap_or(ApertureMode::Hidden);
+        return ApertureMode::Minimal;
     }
 
-    if let Some(mode) = unobstructed_aperture_mode(
-        st,
-        monitor,
-        ApertureMode::Normal,
-        output_rect,
-        work_area_rect,
-        scale,
-        &mut measure,
-        &mut windows,
-    ) {
-        return mode;
-    }
-
-    if let Some(mode) = unobstructed_aperture_mode(
-        st,
-        monitor,
-        ApertureMode::Collapsed,
-        output_rect,
-        work_area_rect,
-        scale,
-        &mut measure,
-        &mut windows,
-    ) {
-        return mode;
-    }
-
-    unobstructed_aperture_mode(
-        st,
-        monitor,
-        ApertureMode::Minimal,
-        output_rect,
-        work_area_rect,
-        scale,
-        &mut measure,
-        &mut windows,
-    )
-    .unwrap_or(ApertureMode::Hidden)
+    ApertureMode::Normal
 }
 
-fn unobstructed_aperture_mode<F>(
-    st: &Halley,
-    monitor: &str,
-    mode: ApertureMode,
-    output_rect: Rect,
-    work_area_rect: Rect,
-    scale: f64,
-    measure: &mut F,
-    windows: &mut Option<Vec<Rect>>,
-) -> Option<ApertureMode>
-where
-    F: FnMut(u32, &str) -> Size,
-{
-    let snapshot =
-        st.aperture_snapshot_for_mode(mode, output_rect, work_area_rect, scale, measure)?;
-    let windows =
-        windows.get_or_insert_with(|| active_window_rects_for_monitor(st, monitor, Instant::now()));
-    unobstructed_aperture_mode_for_bounds(mode, snapshot.bounds, windows)
-}
-
+#[cfg(test)]
 fn unobstructed_aperture_mode_for_bounds(
     mode: ApertureMode,
     bounds: Rect,
@@ -330,10 +232,6 @@ fn existing_minimal_layout_top_gap_px(st: &Halley, monitor: &str) -> Option<f32>
 
     if crate::compositor::clusters::system::active_cluster_workspace_for_monitor(st, monitor)
         .is_some()
-        && matches!(
-            st.runtime.tuning.cluster_layout_kind(),
-            halley_core::cluster_layout::ClusterWorkspaceLayoutKind::Tiling
-        )
     {
         return Some(st.runtime.tuning.tile_gaps_outer_px.max(0.0));
     }
@@ -802,22 +700,44 @@ mod tests {
     }
 
     #[test]
-    fn aperture_hides_only_on_obstructed_monitor() {
+    fn game_fullscreen_hides_only_on_that_monitor() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, two_monitor_tuning());
 
-        let blocker = st.model.field.spawn_surface(
-            "blocker",
-            Vec2 { x: 0.0, y: 0.0 },
-            Vec2 {
-                x: 2000.0,
-                y: 2000.0,
-            },
+        let game = st.model.field.spawn_surface(
+            "game",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
         );
-        st.assign_node_to_monitor(blocker, MONITOR);
+        st.assign_node_to_monitor(game, MONITOR);
+        st.model.node_app_ids.insert(game, "steam_app_42".into());
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(MONITOR.to_string(), game);
 
         assert_eq!(derive_test_mode(&st, MONITOR), ApertureMode::Hidden);
         assert_ne!(derive_test_mode(&st, "monitor_b"), ApertureMode::Hidden);
+    }
+
+    #[test]
+    fn non_game_fullscreen_keeps_field_underlay_mode() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+
+        let video = st.model.field.spawn_surface(
+            "video",
+            Vec2 { x: 400.0, y: 300.0 },
+            Vec2 { x: 800.0, y: 600.0 },
+        );
+        st.assign_node_to_monitor(video, MONITOR);
+        st.model.node_app_ids.insert(video, "firefox".into());
+        st.model
+            .fullscreen_state
+            .fullscreen_active_node
+            .insert(MONITOR.to_string(), video);
+
+        assert_eq!(derive_test_mode(&st, MONITOR), ApertureMode::Normal);
     }
 
     #[test]
@@ -928,6 +848,7 @@ mod tests {
     }
 }
 
+#[cfg(test)]
 fn clock_obstructed(clock_bounds: Rect, windows: &[Rect]) -> bool {
     windows
         .iter()
@@ -935,41 +856,7 @@ fn clock_obstructed(clock_bounds: Rect, windows: &[Rect]) -> bool {
         .any(|window| rects_intersect(clock_bounds, window))
 }
 
-fn active_window_rects_for_monitor(st: &Halley, monitor: &str, now: Instant) -> Vec<Rect> {
-    let Some(space) = st.model.monitor_state.monitors.get(monitor) else {
-        return Vec::new();
-    };
-    let width = space.width.max(1);
-    let height = space.height.max(1);
-
-    st.model
-        .field
-        .nodes()
-        .iter()
-        .filter_map(|(&node_id, node)| {
-            aperture_obstruction_candidate(st, node_id, node, monitor).then_some(node_id)
-        })
-        .filter_map(|node_id| {
-            node_screen_rect_for_monitor(st, node_id, space.viewport, width, height, now)
-        })
-        .collect()
-}
-
-fn aperture_obstruction_candidate(
-    st: &Halley,
-    node_id: NodeId,
-    node: &halley_core::field::Node,
-    monitor: &str,
-) -> bool {
-    node.kind == NodeKind::Surface
-        && matches!(
-            node.state,
-            NodeState::Active | NodeState::Drifting | NodeState::Node
-        )
-        && st.model.field.is_visible(node_id)
-        && node_belongs_to_monitor(st, node_id, monitor)
-}
-
+#[cfg(test)]
 fn node_screen_rect_for_monitor(
     st: &Halley,
     node_id: NodeId,
@@ -1037,16 +924,7 @@ fn node_screen_rect_for_monitor(
     Some(Rect::new(left, top, local_w, local_h))
 }
 
-fn node_belongs_to_monitor(st: &Halley, node_id: NodeId, monitor: &str) -> bool {
-    st.model
-        .monitor_state
-        .node_monitor
-        .get(&node_id)
-        .map(|owner| owner.as_str())
-        .unwrap_or(st.model.monitor_state.current_monitor.as_str())
-        == monitor
-}
-
+#[cfg(test)]
 fn rects_intersect(a: Rect, b: Rect) -> bool {
     a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
 }

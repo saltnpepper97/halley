@@ -654,6 +654,29 @@ pub(crate) fn active_constrained_pointer_surface(st: &Halley) -> Option<(WlSurfa
     active_pointer_constraint(st).map(|constraint| (constraint.surface, constraint.locked))
 }
 
+/// True when the pointer currently holds an active lock/confine on a game-like
+/// surface (a `steam_app_*` toplevel, or any surface that is fullscreen on an
+/// output). Used to suppress Halley's own overlay reveals (cluster overflow,
+/// etc.) while a game owns the pointer, so they cannot pop over the game —
+/// windowed or fullscreen.
+pub(crate) fn pointer_holds_game_constraint(st: &Halley) -> bool {
+    let Some(constraint) = active_pointer_constraint(st) else {
+        return false;
+    };
+    let mut root = constraint.surface;
+    while let Some(parent) = get_parent(&root) {
+        root = parent;
+    }
+    st.model
+        .surface_to_node
+        .get(&root.id())
+        .copied()
+        .is_some_and(|node| {
+            crate::window::node_is_game_like(st, node)
+                || st.fullscreen_monitor_for_node(node).is_some()
+        })
+}
+
 pub(crate) fn active_pointer_constraint(st: &Halley) -> Option<ActivePointerConstraint> {
     let pointer = st.platform.seat.get_pointer()?;
     let focus = pointer.current_focus()?;

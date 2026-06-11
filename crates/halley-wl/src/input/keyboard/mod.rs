@@ -74,6 +74,7 @@ fn handle_focus_cycle_session_input<B: crate::backend::interface::BackendView>(
     } else {
         None
     };
+    let forward_modifier_release = !pressed && is_modifier_keycode(code);
 
     if let Some(keyboard) = st.platform.seat.get_keyboard() {
         let serial = SERIAL_COUNTER.next_serial();
@@ -87,8 +88,20 @@ fn handle_focus_cycle_session_input<B: crate::backend::interface::BackendView>(
             },
             serial,
             now_millis_u32(),
-            |_, _, _| FilterResult::Intercept(()),
+            |_, _, _| {
+                if forward_modifier_release {
+                    FilterResult::Forward
+                } else {
+                    FilterResult::Intercept(())
+                }
+            },
         );
+    }
+
+    if !pressed {
+        let mut ms = ctx.mod_state.borrow_mut();
+        ms.intercepted_keys.remove(&code);
+        ms.intercepted_compositor_actions.remove(&code);
     }
 
     if pressed {

@@ -12,9 +12,9 @@ use crate::keybinds::{
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
-    DecorationsConfig, FontConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode,
-    NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig, PlacementConfig, RailConfig,
-    RuntimeTuning, ScreenshotConfig, ShapeStyle,
+    DecorationsConfig, FontConfig, GamescopeConfig, InputConfig, NodeBackgroundColorMode,
+    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
+    PlacementConfig, RuntimeTuning, ScreenshotConfig, ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -50,7 +50,6 @@ impl Default for RuntimeTuning {
                 show_pinned: true,
                 fade_distance: 1200.0,
             },
-            rail: RailConfig::default(),
 
             cluster_distance_px: 280.0,
             cluster_dwell_ms: 900,
@@ -107,6 +106,7 @@ impl Default for RuntimeTuning {
             animations: AnimationsConfig::default(),
             overlay_style: OverlayStyleConfig::default(),
             screenshot: ScreenshotConfig::default(),
+            gamescope: GamescopeConfig::default(),
             env: HashMap::new(),
         }
     }
@@ -161,6 +161,12 @@ pub fn default_compositor_bindings(modifier: KeyModifiers) -> Vec<CompositorBind
             modifiers: modifier,
             key: key("m"),
             action: CompositorBindingAction::MaximizeFocusedWindow,
+        },
+        CompositorBinding {
+            scope: CompositorBindingScope::Field,
+            modifiers: modifier,
+            key: key("f"),
+            action: CompositorBindingAction::ToggleFullscreen,
         },
         CompositorBinding {
             scope: CompositorBindingScope::Field,

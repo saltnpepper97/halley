@@ -1,8 +1,6 @@
 mod cluster;
 mod monitor;
 mod node;
-#[cfg(feature = "rail")]
-mod rail;
 mod trail;
 mod view;
 
@@ -10,8 +8,8 @@ use std::time::Instant;
 
 use halley_api::{
     ApiError, BearingsRequest, BearingsStatusResponse, CaptureRequest, CaptureStatusResponse,
-    CompositorRequest, HALLEY_API_VERSION, NodeMoveDirection, Request, Response,
-    StackCycleDirection, StackRequest, TileRequest, VersionInfo,
+    CompositorRequest, GamescopeTargetResponse, HALLEY_API_VERSION, NodeMoveDirection, Request,
+    Response, StackCycleDirection, StackRequest, TileRequest, VersionInfo,
 };
 
 use crate::compositor::root::Halley;
@@ -20,8 +18,6 @@ use crate::compositor::screenshot::screenshot_controller;
 use self::cluster::handle_cluster_request;
 use self::monitor::handle_monitor_request;
 use self::node::handle_node_request;
-#[cfg(feature = "rail")]
-use self::rail::handle_rail_request;
 use self::trail::handle_trail_request;
 use self::view::IpcView;
 
@@ -42,12 +38,6 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Stack(request) => handle_stack_request(st, request),
         Request::Tile(request) => handle_tile_request(st, request),
         Request::Cluster(request) => handle_cluster_request(st, request),
-        #[cfg(feature = "rail")]
-        Request::Rail(request) => handle_rail_request(st, request),
-        #[cfg(not(feature = "rail"))]
-        Request::Rail(_) => Response::Error(ApiError::Unsupported(
-            "rail support is disabled in this build".into(),
-        )),
         Request::Compositor(CompositorRequest::Outputs) => Response::Error(ApiError::Unsupported(
             "outputs are handled by the ipc listener".into(),
         )),
@@ -58,12 +48,69 @@ pub(crate) fn handle_request(st: &mut Halley, request: Request) -> Response {
         Request::Compositor(CompositorRequest::ApertureStatus) => {
             Response::ApertureStatus(crate::aperture::aperture_status(st))
         }
+        Request::Compositor(CompositorRequest::GamescopeTarget { selector }) => {
+            gamescope_target_response(st, selector.as_str())
+        }
         Request::Compositor(CompositorRequest::Quit)
         | Request::Compositor(CompositorRequest::Reload)
         | Request::Compositor(CompositorRequest::Dpms { .. }) => Response::Error(
             ApiError::Unsupported("backend request not handled here".into()),
         ),
     }
+}
+
+/// Resolve a gamescope monitor selector to that monitor's current dimensions,
+/// computed live so `cursor`/`focused` are never stale.
+fn gamescope_target_response(st: &Halley, selector: &str) -> Response {
+    use crate::compositor::monitor::state::{focused_monitor, interaction_monitor};
+
+    let monitors = &st.model.monitor_state.monitors;
+    let name: String = match selector.trim() {
+        "" | "focused" => focused_monitor(st).to_string(),
+        "cursor" => interaction_monitor(st).to_string(),
+        "primary" => monitors
+            .iter()
+            .find(|(_, space)| space.offset_x == 0 && space.offset_y == 0)
+            .map(|(name, _)| name.clone())
+            .unwrap_or_else(|| focused_monitor(st).to_string()),
+        other => {
+            if monitors.contains_key(other) {
+                other.to_string()
+            } else {
+                return Response::Error(ApiError::Unsupported(format!(
+                    "unknown gamescope monitor selector `{other}`"
+                )));
+            }
+        }
+    };
+
+    let (width, height, refresh_hz) = st
+        .model
+        .monitor_state
+        .outputs
+        .get(name.as_str())
+        .and_then(|output| output.current_mode())
+        .map(|mode| {
+            let refresh = (mode.refresh > 0).then_some(mode.refresh as f64 / 1000.0);
+            (
+                mode.size.w.max(0) as u32,
+                mode.size.h.max(0) as u32,
+                refresh,
+            )
+        })
+        .or_else(|| {
+            monitors
+                .get(name.as_str())
+                .map(|space| (space.width.max(0) as u32, space.height.max(0) as u32, None))
+        })
+        .unwrap_or((0, 0, None));
+
+    Response::GamescopeTarget(GamescopeTargetResponse {
+        output: name,
+        width,
+        height,
+        refresh_hz,
+    })
 }
 
 fn handle_capture_request(st: &mut Halley, request: CaptureRequest) -> Response {

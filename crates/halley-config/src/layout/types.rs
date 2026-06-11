@@ -570,76 +570,74 @@ impl FocusRingConfig {
     }
 }
 
+/// Top-level `gamescope:` configuration: global defaults plus repeated per-game
+/// `game:` profiles. Games are wrapped at launch by `halleyctl gamescope run`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GamescopeConfig {
+    pub enabled: bool,
+    /// Monitor selector: `focused`, `cursor`, `primary`, or a connector name.
+    pub monitor: String,
+    /// Dimension/refresh values are `"auto"` (resolve from the selected monitor)
+    /// or a numeric string.
+    pub output_width: String,
+    pub output_height: String,
+    pub game_width: String,
+    pub game_height: String,
+    pub refresh: String,
+    pub fullscreen: bool,
+    pub borderless: bool,
+    pub suppress_overlays: bool,
+    pub passthrough_pointer_lock: bool,
+    pub bypass_spatial_camera: bool,
+    pub games: Vec<GamescopeGameProfile>,
+}
+
+/// A per-game `game:` profile. Every field except the match keys is optional and
+/// inherits the global [`GamescopeConfig`] default when unset.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GamescopeGameProfile {
+    pub name: Option<String>,
+    pub app_id: Option<String>,
+    pub enabled: Option<bool>,
+    pub monitor: Option<String>,
+    pub output_width: Option<String>,
+    pub output_height: Option<String>,
+    pub game_width: Option<String>,
+    pub game_height: Option<String>,
+    pub refresh: Option<String>,
+    pub fullscreen: Option<bool>,
+    pub borderless: Option<bool>,
+    pub suppress_overlays: Option<bool>,
+    pub passthrough_pointer_lock: Option<bool>,
+    pub bypass_spatial_camera: Option<bool>,
+}
+
+impl Default for GamescopeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            monitor: "focused".to_string(),
+            output_width: "auto".to_string(),
+            output_height: "auto".to_string(),
+            game_width: "auto".to_string(),
+            game_height: "auto".to_string(),
+            refresh: "auto".to_string(),
+            fullscreen: true,
+            borderless: false,
+            suppress_overlays: true,
+            passthrough_pointer_lock: true,
+            bypass_spatial_camera: true,
+            games: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BearingsConfig {
     pub show_distance: bool,
     pub show_icons: bool,
     pub show_pinned: bool,
     pub fade_distance: f32,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RailPlacement {
-    Up,
-    Down,
-    Left,
-    Right,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RailSizingMode {
-    Fixed,
-    GrowToContent,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RailObstructionBehavior {
-    AutoHide,
-    StayOnTop,
-    StayUnder,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RailConfig {
-    pub enabled: bool,
-    pub placement: RailPlacement,
-    pub background_color: OverlayColorMode,
-    pub foreground_color: OverlayColorMode,
-    pub divider_color: OverlayColorMode,
-    pub offset_x: i32,
-    pub offset_y: i32,
-    pub width: i32,
-    pub height: i32,
-    pub sizing: RailSizingMode,
-    pub icon_size: i32,
-    pub gap: i32,
-    pub padding: i32,
-    pub radius: i32,
-    pub pinned_separator: bool,
-    pub obstruction: RailObstructionBehavior,
-}
-
-impl Default for RailConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            placement: RailPlacement::Down,
-            background_color: OverlayColorMode::Auto,
-            foreground_color: OverlayColorMode::Auto,
-            divider_color: OverlayColorMode::Auto,
-            offset_x: 0,
-            offset_y: 18,
-            width: 0,
-            height: 56,
-            sizing: RailSizingMode::GrowToContent,
-            icon_size: 34,
-            gap: 8,
-            padding: 10,
-            radius: 18,
-            pinned_separator: true,
-            obstruction: RailObstructionBehavior::AutoHide,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

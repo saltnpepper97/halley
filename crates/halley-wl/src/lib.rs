@@ -124,10 +124,6 @@ pub(crate) mod overlay;
 pub(crate) mod perf;
 pub(crate) mod presentation;
 pub(crate) mod protocol;
-#[cfg(feature = "rail")]
-pub(crate) mod rail;
-#[cfg(not(feature = "rail"))]
-pub(crate) mod rail {}
 pub mod render;
 pub(crate) mod spatial;
 pub(crate) mod text;

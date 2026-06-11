@@ -268,6 +268,7 @@ impl Halley {
                     cluster_form_state: ClusterFormationState::default(),
                     cluster_names: HashMap::new(),
                     cluster_name_prompt: HashMap::new(),
+                    cluster_finalize_drafts: HashMap::new(),
                     active_cluster_workspaces: HashMap::new(),
                     cluster_bloom_open: HashMap::new(),
                     cluster_mode_selected_nodes: HashMap::new(),
@@ -578,21 +579,6 @@ impl Halley {
 
     pub(crate) fn aperture_config(&self) -> &crate::aperture::core::ApertureConfig {
         self.aperture.config()
-    }
-
-    pub(crate) fn aperture_snapshot_for_mode<F>(
-        &self,
-        mode: crate::aperture::core::ApertureMode,
-        output_rect: crate::aperture::core::Rect,
-        work_area_rect: crate::aperture::core::Rect,
-        scale: f64,
-        measure_text: F,
-    ) -> Option<crate::aperture::core::ClockSnapshot>
-    where
-        F: FnMut(u32, &str) -> crate::aperture::core::Size,
-    {
-        self.aperture
-            .snapshot_for_mode(mode, output_rect, work_area_rect, scale, measure_text)
     }
 
     pub(crate) fn focus_ctx(&self) -> super::ctx::FocusCtx<'_> {

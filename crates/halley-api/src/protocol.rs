@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
 use crate::types::{
-    BearingsStatusResponse, ClusterInfo, ClusterListResponse, NodeInfo, NodeListResponse,
-    OutputsResponse, RailStatusResponse, TrailListResponse,
+    BearingsStatusResponse, ClusterDraftRequest, ClusterInfo, ClusterListResponse, NodeInfo,
+    NodeListResponse, OutputsResponse, TrailListResponse,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -105,6 +105,14 @@ pub enum ClusterRequest {
         target: Option<ClusterTarget>,
         output: Option<String>,
     },
+    Open {
+        target: ClusterTarget,
+        output: Option<String>,
+    },
+    OpenFinalizeDraft {
+        draft: ClusterDraftRequest,
+        output: Option<String>,
+    },
     LayoutCycle {
         output: Option<String>,
     },
@@ -132,14 +140,6 @@ pub enum CaptureRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RailRequest {
-    Status { output: Option<String> },
-    FocusReveal { node_id: u64 },
-    TogglePin { node_id: u64 },
-    Close { node_id: u64 },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompositorRequest {
     Quit,
     Reload,
@@ -150,6 +150,11 @@ pub enum CompositorRequest {
         output: Option<String>,
     },
     Version,
+    /// Resolve a gamescope monitor selector (`focused`, `cursor`, `primary`, or a
+    /// connector name) to that monitor's current dimensions, computed live.
+    GamescopeTarget {
+        selector: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,7 +214,6 @@ pub enum Request {
     Stack(StackRequest),
     Tile(TileRequest),
     Cluster(ClusterRequest),
-    Rail(RailRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -225,7 +229,7 @@ pub enum Response {
     ClusterInfo(ClusterInfo),
     TrailList(TrailListResponse),
     BearingsStatus(BearingsStatusResponse),
-    RailStatus(RailStatusResponse),
     Error(ApiError),
     Version(crate::types::VersionInfo),
+    GamescopeTarget(crate::types::GamescopeTargetResponse),
 }

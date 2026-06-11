@@ -226,7 +226,6 @@ impl<T: DerefMut<Target = Halley>> FocusCycleController<T> {
                 })
             });
 
-            self.begin_modal_keyboard_capture();
             self.input.interaction_state.focus_cycle_session = Some(FocusCycleSession {
                 candidates,
                 preview_index: 0,
@@ -458,6 +457,36 @@ mod tests {
             trail_before_len
         );
         assert_eq!(state.focus_cycle_preview_node(), Some(b));
+    }
+
+    #[test]
+    fn focus_cycle_start_does_not_reset_keyboard_focus() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+
+        let a = state.model.field.spawn_surface(
+            "a",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        let b = state.model.field.spawn_surface(
+            "b",
+            Vec2 { x: 300.0, y: 0.0 },
+            Vec2 { x: 120.0, y: 90.0 },
+        );
+        state.assign_node_to_current_monitor(a);
+        state.assign_node_to_current_monitor(b);
+
+        let now = Instant::now();
+        state.set_interaction_focus(Some(a), 30_000, now);
+        state.input.interaction_state.reset_input_state_requested = false;
+
+        assert!(state.start_or_step_focus_cycle(FocusCycleBindingAction::Forward, now));
+
+        assert!(state.focus_cycle_session_active());
+        assert!(!state.input.interaction_state.reset_input_state_requested);
     }
 
     #[test]

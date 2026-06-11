@@ -1,10 +1,10 @@
 [package]
-name = "halley-rail"
+name = "halley-lens"
 version = "0.1.0"
 edition.workspace = true
 authors.workspace = true
 publish = false
-description = "A process/navigation rail for the Halley Wayland compositor."
+description = "Search and action launcher for the Halley Wayland compositor."
 license.workspace = true
 readme.workspace = true
 repository.workspace = true
@@ -13,17 +13,18 @@ categories.workspace = true
 exclude.workspace = true
 
 [dependencies]
-halley-api.workspace = true
-halley-config.workspace = true
-halley-ipc.workspace = true
+calloop = "0.14"
+calloop-wayland-source = "0.4"
 fontdb = "0.23.0"
+halley-api.workspace = true
+halley-ipc.workspace = true
 image.workspace = true
 resvg = "0.47.0"
 rusttype = "0.9.3"
-rustix = { version = "1.1.4", features = ["event"] }
+rune-cfg.workspace = true
 smithay-client-toolkit.workspace = true
 wayland-client.workspace = true
 
 [[bin]]
-name = "halley-rail"
+name = "halley-lens"
 path = "src/main.rs"

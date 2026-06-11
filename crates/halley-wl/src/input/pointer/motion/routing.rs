@@ -242,12 +242,22 @@ pub(super) fn dispatch_pointer_motion(
                 || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
         });
 
+        // A gamescope-managed window fills its output and expects a 1:1 input
+        // mapping; bypass the spatial camera scale for it (config-gated). This is
+        // a no-op when the camera is unscaled, so it cannot regress normal output.
+        let bypass_spatial_camera = st.runtime.tuning.gamescope.bypass_spatial_camera
+            && focus
+                .as_ref()
+                .is_some_and(|(surface, _)| crate::window::surface_is_gamescope(st, surface));
+
         let location = if locked_surface.is_some() {
             pointer.current_location()
-        } else if focus.as_ref().is_some_and(|(surface, _)| {
-            crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
-                || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
-        }) {
+        } else if bypass_spatial_camera
+            || focus.as_ref().is_some_and(|(surface, _)| {
+                crate::compositor::monitor::layer_shell::is_layer_surface_tree(st, surface)
+                    || crate::protocol::wayland::session_lock::is_session_lock_surface(st, surface)
+            })
+        {
             (routing.local_sx as f64, routing.local_sy as f64).into()
         } else {
             let cam_scale = st.camera_render_scale() as f64;

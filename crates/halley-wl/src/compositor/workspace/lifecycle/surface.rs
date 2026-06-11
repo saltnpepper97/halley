@@ -124,7 +124,15 @@ pub(super) fn refresh_node_identity_for_surface(
 
     match app_id {
         Some(app_id) => {
-            st.model.node_app_ids.insert(node_id, app_id);
+            st.model.node_app_ids.insert(node_id, app_id.clone());
+            if let Some(monitor) = st.model.monitor_state.node_monitor.get(&node_id).cloned() {
+                let _ = crate::compositor::clusters::system::cluster_system_controller(&mut *st)
+                    .maybe_add_node_to_lens_cluster_finalize_draft(
+                        monitor.as_str(),
+                        node_id,
+                        app_id.as_str(),
+                    );
+            }
         }
         None => {
             st.model.node_app_ids.remove(&node_id);

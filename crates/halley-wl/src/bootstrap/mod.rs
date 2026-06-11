@@ -262,7 +262,8 @@ pub(crate) fn ensure_resolved_default_user_config(
     resolved: ResolvedConfigPath,
     tty_viewports: Option<&[ViewportOutputConfig]>,
 ) -> ResolvedConfigPath {
-    match default_user_config_action(resolved.source) {
+    let action = default_user_config_action(resolved.source);
+    match action {
         DefaultUserConfigAction::Skip => {}
         DefaultUserConfigAction::BackfillUser => {
             backfill_existing_user_config(resolved.path.as_path(), tty_viewports.unwrap_or(&[]));

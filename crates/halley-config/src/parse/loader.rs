@@ -13,8 +13,8 @@ use super::sections::{
     load_animations_section, load_autostart_section, load_bearings_section, load_clusters_section,
     load_cursor_section, load_debug_section, load_decay_section, load_decorations_section,
     load_env_section, load_field_section, load_focus_ring_section, load_font_section,
-    load_input_section, load_keybind_sections, load_nodes_section, load_overlays_section,
-    load_physics_section, load_placement_section, load_rail_section, load_screenshot_section,
+    load_gamescope_section, load_input_section, load_keybind_sections, load_nodes_section,
+    load_overlays_section, load_physics_section, load_placement_section, load_screenshot_section,
     load_stacking_section, load_tile_section, load_trail_section, load_viewport_section,
 };
 use super::validate::validate_known_config_keys;
@@ -102,6 +102,9 @@ impl RuntimeTuning {
         load_rules_section(raw, &mut out).map_err(|err| {
             diagnostic_from_message(path, raw, format!("rules parse error: {err}"))
         })?;
+        load_gamescope_section(raw, &mut out).map_err(|err| {
+            diagnostic_from_message(path, raw, format!("gamescope parse error: {err}"))
+        })?;
         load_config_sections(cfg, &mut out);
         load_keybind_sections(cfg, &mut out).map_err(|err| {
             diagnostic_from_message(path, raw, format!("keybind parse error: {err}"))
@@ -126,7 +129,6 @@ fn load_config_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     load_viewport_section(cfg, out);
     load_focus_ring_section(cfg, out);
     load_bearings_section(cfg, out);
-    load_rail_section(cfg, out);
     load_trail_section(cfg, out);
     load_nodes_section(cfg, out);
     load_clusters_section(cfg, out);

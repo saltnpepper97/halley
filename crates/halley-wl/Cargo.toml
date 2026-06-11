@@ -66,6 +66,5 @@ regex = "1.12.3"
 cosmic-text = { version = "0.18.2", features = ["swash"] }
 
 [features]
-default = ["aperture", "rail"]
+default = ["aperture"]
 aperture = []
-rail = []
