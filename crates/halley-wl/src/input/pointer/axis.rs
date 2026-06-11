@@ -267,14 +267,13 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
                 now,
                 resize_preview,
             ) {
-                if let Some(constrained) =
-                    crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
-                        st, &focus.0,
+                if let Some(constrained_focus) =
+                    crate::compositor::interaction::pointer::constrained_focus_in_hierarchy(
+                        st, &focus,
                     )
-                    && constrained != focus.0
+                    && constrained_focus.0 != focus.0
                 {
-                    focus.0 = constrained;
-                    focus.1 = pointer.current_location();
+                    focus = constrained_focus;
                 }
 
                 if locked_surface.is_none() {

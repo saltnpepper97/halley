@@ -343,6 +343,32 @@ fn related_surface_origin(
     None
 }
 
+pub(crate) fn constrained_focus_in_hierarchy(
+    st: &Halley,
+    focus: &(WlSurface, Point<f64, Logical>),
+) -> Option<(WlSurface, Point<f64, Logical>)> {
+    let constrained = find_constrained_surface_in_hierarchy(st, &focus.0)?;
+    let origin = related_surface_origin(&focus.0, focus.1, &constrained)?;
+    Some((constrained, origin))
+}
+
+pub(crate) fn current_pointer_focus_with_origin(
+    st: &mut Halley,
+    pointer: &PointerHandle<Halley>,
+    now: Instant,
+) -> Option<(WlSurface, Point<f64, Logical>)> {
+    let focused = pointer.current_focus()?;
+    if let Some((surface_id, x, y)) = st.input.interaction_state.pointer_surface_origin.as_ref()
+        && *surface_id == focused.id()
+    {
+        return Some((focused, (*x, *y).into()));
+    }
+
+    let (focus, _, _) = pointer_focus_at_last_screen(st, None, now)?;
+    let (surface, origin) = focus?;
+    (surface == focused).then_some((surface, origin))
+}
+
 pub(crate) fn retarget_pointer_focus_for_constraint(
     st: &mut Halley,
     surface: &WlSurface,
@@ -364,7 +390,7 @@ pub(crate) fn retarget_pointer_focus_for_constraint(
         pointer.frame(st);
     }
     let focus = (surface.clone(), origin);
-    let monitor = st.monitor_for_surface_or_current(surface);
+    let monitor = st.monitor_for_constrained_surface_or_current(surface);
     update_pointer_contents_from_focus(st, monitor, Some(&focus));
     Some(origin)
 }
@@ -558,11 +584,15 @@ pub(crate) fn apply_cursor_position_hint(
         st.end_temporary_render_monitor(previous_monitor);
         return;
     };
+    let Some(surface_offset) = surface_offset_to_ancestor(surface, &root) else {
+        st.end_temporary_render_monitor(previous_monitor);
+        return;
+    };
 
-    let sx =
-        (xform.origin_x + location.x as f32 * xform.scale).clamp(0.0, (ws_w.max(1) - 1) as f32);
-    let sy =
-        (xform.origin_y + location.y as f32 * xform.scale).clamp(0.0, (ws_h.max(1) - 1) as f32);
+    let sx = (xform.origin_x + (surface_offset.x + location.x) as f32 * xform.scale)
+        .clamp(0.0, (ws_w.max(1) - 1) as f32);
+    let sy = (xform.origin_y + (surface_offset.y + location.y) as f32 * xform.scale)
+        .clamp(0.0, (ws_h.max(1) - 1) as f32);
     let (global_sx, global_sy) = st
         .model
         .monitor_state
@@ -622,6 +652,29 @@ pub(crate) fn release_active_pointer_constraint(st: &mut Halley) -> bool {
 
 pub(crate) fn active_constrained_pointer_surface(st: &Halley) -> Option<(WlSurface, bool)> {
     active_pointer_constraint(st).map(|constraint| (constraint.surface, constraint.locked))
+}
+
+/// True when the pointer currently holds an active lock/confine on a game-like
+/// surface (a `steam_app_*` toplevel, or any surface that is fullscreen on an
+/// output). Used to suppress Halley's own overlay reveals (cluster overflow,
+/// etc.) while a game owns the pointer, so they cannot pop over the game —
+/// windowed or fullscreen.
+pub(crate) fn pointer_holds_game_constraint(st: &Halley) -> bool {
+    let Some(constraint) = active_pointer_constraint(st) else {
+        return false;
+    };
+    let mut root = constraint.surface;
+    while let Some(parent) = get_parent(&root) {
+        root = parent;
+    }
+    st.model
+        .surface_to_node
+        .get(&root.id())
+        .copied()
+        .is_some_and(|node| {
+            crate::window::node_is_game_like(st, node)
+                || st.fullscreen_monitor_for_node(node).is_some()
+        })
 }
 
 pub(crate) fn active_pointer_constraint(st: &Halley) -> Option<ActivePointerConstraint> {

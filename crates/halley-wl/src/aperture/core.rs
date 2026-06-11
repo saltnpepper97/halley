@@ -7,13 +7,10 @@ use std::time::{Duration, Instant, SystemTime};
 use chrono::{DateTime, Local, Timelike};
 use rune_cfg::RuneConfig;
 
-const NORMAL_MARGIN_PX: f32 = 18.0;
-const COLLAPSED_EDGE_PADDING_PX: f32 = 2.0;
 const MIN_COLLAPSED_FONT_PX: u32 = 12;
 const COLLAPSED_FONT_SCALE: f32 = 0.56;
 const MIN_MINIMAL_FONT_PX: u32 = 12;
 const MINIMAL_FONT_SCALE: f32 = 0.40;
-const MINIMAL_EDGE_PADDING_PX: f32 = 0.0;
 
 // Per-state clock size limits (mirror of `halley-aperture` config.rs). The
 // smallest state's height is what the compositor reserves, so it is clamped to
@@ -32,7 +29,6 @@ const CLOCK_SMALL_HEIGHT_PAD_PX: u32 = 8;
 pub(crate) enum ApertureMode {
     #[default]
     Normal,
-    Collapsed,
     Minimal,
     Hidden,
 }
@@ -281,18 +277,6 @@ impl ApertureConfig {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct Point {
-    pub(crate) x: f32,
-    pub(crate) y: f32,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct Size {
-    pub(crate) w: f32,
-    pub(crate) h: f32,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Rect {
     pub(crate) x: f32,
     pub(crate) y: f32,
@@ -305,27 +289,15 @@ impl Rect {
         Self { x, y, w, h }
     }
 
+    #[cfg(test)]
     pub(crate) fn right(self) -> f32 {
         self.x + self.w
     }
 
+    #[cfg(test)]
     pub(crate) fn bottom(self) -> f32 {
         self.y + self.h
     }
-
-    pub(crate) fn is_empty(self) -> bool {
-        self.w <= 0.0 || self.h <= 0.0
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ClockSnapshot {
-    pub(crate) text: String,
-    pub(crate) font_family: String,
-    pub(crate) font_px: u32,
-    pub(crate) alpha: f32,
-    pub(crate) bounds: Rect,
-    pub(crate) text_origin: Point,
 }
 
 /// Short TTL for the per-monitor derived-mode cache. `ApertureStatus` is a
@@ -383,62 +355,6 @@ impl ApertureRuntime {
     /// enter/exit) so those are reflected without waiting out the TTL.
     pub(crate) fn invalidate_mode_cache(&self) {
         self.mode_cache.borrow_mut().clear();
-    }
-
-    pub(crate) fn snapshot_for_mode<F>(
-        &self,
-        mode: ApertureMode,
-        output_rect: Rect,
-        work_area_rect: Rect,
-        scale: f64,
-        mut measure_text: F,
-    ) -> Option<ClockSnapshot>
-    where
-        F: FnMut(u32, &str) -> Size,
-    {
-        let text = self.clock_text.clone();
-        if text.is_empty() {
-            return None;
-        }
-
-        let effective_scale = scale.max(0.25) as f32;
-        let render_font_px = match mode {
-            ApertureMode::Normal => self.config.peek.clock.font_px.max(1),
-            ApertureMode::Collapsed => self.config.peek.clock.medium_px.max(1),
-            ApertureMode::Minimal | ApertureMode::Hidden => self.config.peek.clock.small_px.max(1),
-        };
-        let render_font_px = (render_font_px as f32 * effective_scale).round().max(1.0) as u32;
-        let text_size = measure_text(render_font_px, text.as_str());
-        if text_size.w <= 0.0 || text_size.h <= 0.0 {
-            return None;
-        }
-
-        let work_rect = if work_area_rect.is_empty() {
-            output_rect
-        } else {
-            work_area_rect
-        };
-        let side_margin = NORMAL_MARGIN_PX * effective_scale;
-        let edge_padding = match mode {
-            ApertureMode::Normal => NORMAL_MARGIN_PX,
-            ApertureMode::Collapsed => COLLAPSED_EDGE_PADDING_PX,
-            ApertureMode::Minimal | ApertureMode::Hidden => MINIMAL_EDGE_PADDING_PX,
-        } * effective_scale;
-        let x = work_rect.right() - side_margin - text_size.w;
-        let y = work_rect.y + edge_padding;
-
-        if mode == ApertureMode::Hidden {
-            return None;
-        }
-
-        Some(ClockSnapshot {
-            text,
-            font_family: self.config.peek.clock.font_family.clone(),
-            font_px: render_font_px,
-            alpha: 1.0,
-            bounds: Rect::new(x, y, text_size.w, text_size.h),
-            text_origin: Point { x, y },
-        })
     }
 
     fn refresh_clock_text(&mut self, now: SystemTime) {

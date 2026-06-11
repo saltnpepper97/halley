@@ -152,7 +152,7 @@ impl StandaloneAperture {
             let layer = self.layer_shell.create_layer_surface(
                 qh,
                 surface,
-                Layer::Top,
+                Layer::Bottom,
                 Some(CLOCK_NAMESPACE),
                 output.as_ref(),
             );

@@ -2,8 +2,7 @@ use halley_api::{
     ApertureStatusResponse, ApiError, CaptureStatusResponse, ClusterInfo, ClusterLayoutKind,
     ClusterListResponse, ClusterSummary, LogicalOutputInfo, NodeInfo, NodeListResponse,
     NodeProtocolFamily, NodeRelationInfo, NodeRole, OutputInfo, OutputStatus, OutputsResponse,
-    RailOutputSnapshot, RailStatusResponse, RailVisibility, Response, TrailEntryInfo,
-    TrailListResponse, VersionInfo,
+    Response, TrailEntryInfo, TrailListResponse, VersionInfo,
 };
 
 pub(crate) fn print_response(response: Response) -> Result<(), String> {
@@ -77,11 +76,18 @@ pub(crate) fn print_response(response: Response) -> Result<(), String> {
             println!("{}", if status.visible { "visible" } else { "hidden" });
             Ok(())
         }
-        Response::RailStatus(status) => {
+        Response::GamescopeTarget(target) => {
             if wants_json() {
-                print_json(&status)
+                print_json(&target)
             } else {
-                print_rail_status(&status);
+                let refresh = target
+                    .refresh_hz
+                    .map(|hz| format!(" @ {hz:.2}Hz"))
+                    .unwrap_or_default();
+                println!(
+                    "{}: {}x{}{}",
+                    target.output, target.width, target.height, refresh
+                );
                 Ok(())
             }
         }
@@ -147,47 +153,6 @@ fn print_capture_status(status: &CaptureStatusResponse) {
         println!("capture active");
     } else {
         println!("capture idle");
-    }
-}
-
-fn print_rail_status(status: &RailStatusResponse) {
-    let output = status.output.as_deref().unwrap_or("(all)");
-    println!("output: {output}");
-    if status.outputs.is_empty() {
-        println!("No rail outputs.");
-        return;
-    }
-    for output in &status.outputs {
-        print_rail_output(output);
-    }
-}
-
-fn print_rail_output(output: &RailOutputSnapshot) {
-    println!("{}", output.output);
-    println!(
-        "  visibility: {}",
-        format_rail_visibility(output.visibility)
-    );
-    println!("  items: {}", output.items.len());
-    if output.items.is_empty() {
-        println!("  entries: (none)");
-        return;
-    }
-    println!("  entries:");
-    for item in &output.items {
-        let marker = if item.focused {
-            "*"
-        } else if item.pinned {
-            "+"
-        } else {
-            "-"
-        };
-        println!("    {marker} {}  {}", item.node_id, item.title);
-        if let Some(app_id) = &item.app_id {
-            println!("      app: {app_id}");
-        }
-        println!("      pinned: {}", item.pinned);
-        println!("      focused: {}", item.focused);
     }
 }
 
@@ -494,17 +459,6 @@ fn format_status(status: OutputStatus) -> &'static str {
         OutputStatus::Connected => "connected",
         OutputStatus::Disconnected => "disconnected",
         OutputStatus::Unknown => "unknown",
-    }
-}
-
-fn format_rail_visibility(visibility: RailVisibility) -> &'static str {
-    match visibility {
-        RailVisibility::Visible => "visible",
-        RailVisibility::HiddenEmpty => "hidden-empty",
-        RailVisibility::HiddenFullscreen => "hidden-fullscreen",
-        RailVisibility::HiddenMaximized => "hidden-maximized",
-        RailVisibility::HiddenObstructed => "hidden-obstructed",
-        RailVisibility::HiddenTiledCluster => "hidden-tiled-cluster",
     }
 }
 

@@ -98,6 +98,16 @@ fn merge_non_keybind_sections(existing: &mut ParsedScope, template: &ParsedScope
         if template_section.name == "keybinds" {
             continue;
         }
+        // `gamescope:` carries user-owned per-game `game:` blocks, so it is
+        // inject-if-absent only: add the template section for users who lack it,
+        // but never rewrite an existing one.
+        if template_section.name == "gamescope" {
+            if find_section_mut(existing, "gamescope").is_none() {
+                existing.items.push(template_item.clone());
+                changed = true;
+            }
+            continue;
+        }
         if !should_merge_top_level_section(template_section.name.as_str()) {
             continue;
         }
@@ -354,6 +364,7 @@ fn keybind_candidates() -> &'static [(&'static str, &'static str)] {
         ("alt+tab", "cycle-focus"),
         ("alt+shift+tab", "cycle-focus-backward"),
         ("$var.mod+m", "maximize-focused"),
+        ("$var.mod+f", "toggle-fullscreen"),
         ("$var.mod+p", "toggle-focused-pin"),
         ("$var.mod+1", "cluster slot 1"),
         ("$var.mod+2", "cluster slot 2"),
@@ -459,6 +470,32 @@ end
         assert!(
             updated.contains("debug:\n  overlay-fps false\n  show-ring-when-resizing true\nend")
         );
+    }
+
+    #[test]
+    fn updater_injects_gamescope_when_absent() {
+        let raw = "field:\n  gap 20.0\nend\n";
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+        assert!(updated.contains("gamescope:"));
+        assert!(updated.contains("enabled true"));
+    }
+
+    #[test]
+    fn updater_preserves_existing_gamescope_section() {
+        // A user with their own gamescope section (and per-game profile) must not
+        // have it rewritten by the updater.
+        let raw = "gamescope:\n  enabled false\n  game:\n    app-id \"steam_app_42\"\n    enabled false\n  end\nend\n";
+        let result =
+            RuntimeTuning::update_user_config_text(raw, &[]).expect("config should update");
+        if let Some(updated) = result {
+            // If other sections were injected, the user's gamescope block is intact.
+            assert!(updated.contains("enabled false"));
+            assert!(updated.contains("steam_app_42"));
+            // The template's `enabled true` default did not overwrite the user's.
+            assert_eq!(updated.matches("gamescope:").count(), 1);
+        }
     }
 
     #[test]

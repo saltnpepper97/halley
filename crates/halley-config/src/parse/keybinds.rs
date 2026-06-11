@@ -248,6 +248,15 @@ fn apply_explicit_binding(
                 CompositorBindingAction::MaximizeFocusedWindow,
             );
         }
+        "toggle_fullscreen" | "toggle-fullscreen" | "fullscreen" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Field,
+                mods,
+                key,
+                CompositorBindingAction::ToggleFullscreen,
+            );
+        }
         "toggle_pin" | "toggle-pin" | "pin_toggle" | "pin-toggle" | "toggle_focused_pin"
         | "toggle-focused-pin" => {
             upsert_compositor_binding(
@@ -838,6 +847,20 @@ end
         assert!(out.compositor_bindings.iter().any(|binding| {
             binding.scope == CompositorBindingScope::Field
                 && binding.action == CompositorBindingAction::MaximizeFocusedWindow
+        }));
+    }
+
+    #[test]
+    fn fullscreen_keyword_parses_as_field_action() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+
+        let bindings = vec![("mod+f".to_string(), "toggle-fullscreen".to_string())];
+        assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+
+        assert!(out.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Field
+                && binding.action == CompositorBindingAction::ToggleFullscreen
         }));
     }
 

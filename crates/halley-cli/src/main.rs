@@ -50,6 +50,7 @@ fn main() {
                 std::process::exit(1);
             }
         },
+        Ok(ParseOutcome::Gamescope(invocation)) => cmd::gamescope::run(invocation),
         Ok(ParseOutcome::Help(topic)) => print_help(topic),
         Err(err) => exit_usage(err),
     }

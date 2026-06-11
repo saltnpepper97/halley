@@ -1,9 +1,10 @@
 use halley_api::{
-    ApiError, ClusterInfo, ClusterLayoutKind, ClusterListResponse, ClusterOutputGroup,
-    ClusterRequest, ClusterSummary, ClusterTarget, Response,
+    ApiError, ClusterDraftRequest, ClusterInfo, ClusterLayoutKind, ClusterListResponse,
+    ClusterOutputGroup, ClusterRequest, ClusterSummary, ClusterTarget, Response,
 };
 use halley_core::cluster::ClusterId;
 use halley_core::cluster_layout::ClusterWorkspaceLayoutKind as CoreClusterLayoutKind;
+use halley_core::field::NodeId;
 use std::time::Instant;
 
 use crate::compositor::clusters::state::ClusterNameRecord;
@@ -22,6 +23,18 @@ pub(super) fn handle_cluster_request(st: &mut Halley, request: ClusterRequest) -
         ClusterRequest::Inspect { target, output } => {
             match inspect_cluster(st, target.as_ref(), output.as_deref()) {
                 Ok(cluster) => Response::ClusterInfo(cluster),
+                Err(err) => Response::Error(err),
+            }
+        }
+        ClusterRequest::Open { target, output } => {
+            match open_cluster(st, &target, output.as_deref()) {
+                Ok(()) => Response::Ok,
+                Err(err) => Response::Error(err),
+            }
+        }
+        ClusterRequest::OpenFinalizeDraft { draft, output } => {
+            match open_finalize_draft(st, draft, output.as_deref()) {
+                Ok(()) => Response::Ok,
                 Err(err) => Response::Error(err),
             }
         }
@@ -48,6 +61,74 @@ pub(super) fn handle_cluster_request(st: &mut Halley, request: ClusterRequest) -
                 Err(err) => Response::Error(err),
             }
         }
+    }
+}
+
+fn open_cluster(
+    st: &mut Halley,
+    target: &ClusterTarget,
+    output: Option<&str>,
+) -> Result<(), ApiError> {
+    let cid = resolve_cluster_target(st, Some(target), output)?;
+    let monitor = output
+        .map(|name| validate_output(st, name).map(str::to_string))
+        .transpose()?
+        .or_else(|| preferred_monitor_for_cluster(st, cid, None))
+        .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    let now = Instant::now();
+    focus_output_if_needed(st, monitor.as_str(), now);
+    let core = st
+        .model
+        .field
+        .cluster(cid)
+        .and_then(|cluster| cluster.core)
+        .or_else(|| st.collapse_cluster(cid));
+    let Some(core) = core else {
+        return Err(ApiError::Unsupported(format!(
+            "cluster {} cannot be opened because it has no core node",
+            cid.as_u64()
+        )));
+    };
+    if crate::compositor::clusters::system::cluster_system_controller(st)
+        .enter_cluster_workspace_by_core(core, monitor.as_str(), now)
+    {
+        Ok(())
+    } else {
+        Err(ApiError::Unsupported(format!(
+            "failed to open cluster {} on output {}",
+            cid.as_u64(),
+            monitor
+        )))
+    }
+}
+
+fn open_finalize_draft(
+    st: &mut Halley,
+    draft: ClusterDraftRequest,
+    output: Option<&str>,
+) -> Result<(), ApiError> {
+    let monitor = resolve_output_context(st, output)?;
+    let running_node_ids = draft
+        .running_node_ids
+        .into_iter()
+        .map(NodeId::new)
+        .collect::<Vec<_>>();
+    let now = Instant::now();
+    focus_output_if_needed(st, monitor.as_str(), now);
+    if crate::compositor::clusters::system::cluster_system_controller(st)
+        .open_lens_cluster_finalize_draft(
+            monitor.as_str(),
+            draft.name_hint,
+            draft.app_ids,
+            running_node_ids,
+            now,
+        )
+    {
+        Ok(())
+    } else {
+        Err(ApiError::Unsupported(format!(
+            "failed to open cluster finalize draft on output {monitor}"
+        )))
     }
 }
 

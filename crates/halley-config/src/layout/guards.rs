@@ -40,14 +40,6 @@ impl RuntimeTuning {
             shadow.color.a = shadow.color.a.clamp(0.0, 1.0);
         }
         self.bearings.fade_distance = self.bearings.fade_distance.clamp(120.0, 100_000.0);
-        self.rail.offset_x = self.rail.offset_x.clamp(-16_000, 16_000);
-        self.rail.offset_y = self.rail.offset_y.clamp(-16_000, 16_000);
-        self.rail.width = self.rail.width.clamp(0, 16_000);
-        self.rail.height = self.rail.height.clamp(0, 16_000);
-        self.rail.icon_size = self.rail.icon_size.clamp(12, 256);
-        self.rail.gap = self.rail.gap.clamp(0, 256);
-        self.rail.padding = self.rail.padding.clamp(0, 256);
-        self.rail.radius = self.rail.radius.clamp(0, 512);
 
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);
         self.cluster_dwell_ms = self.cluster_dwell_ms.clamp(0, 30_000);

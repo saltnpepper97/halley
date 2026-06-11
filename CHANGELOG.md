@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - TBD
 
 ### Added
+- Add a `mod+f` keybind that toggles compositor-initiated fullscreen on the focused window, configurable via the `toggle-fullscreen` action keyword, with bootstrap backfill and example config coverage.
 - Add `halley -h` / `halley --help` output documenting config selection and session startup options.
 - Add `halley -c` / `halley --config` support for selecting an explicit config file, with CLI config taking precedence over `HALLEY_WL_CONFIG`.
 - Add numeric `opacity` window-rule support using a `0.0` through `1.0` scale, applying matched opacity to window content, borders, shadows, popups, badges, close snapshots, and captures while blocking direct scanout for translucent windows.
@@ -13,6 +14,10 @@ All notable changes to this project will be documented in this file.
 - Add an Aperture `Minimal` mode across IPC, compositor status, and the standalone clock so maximized windows and tiled cluster workspaces can use a compact top tab instead of the larger collapsed clock.
 - Add `HALLEY_WL_PERF`-gated slow-frame and cluster-workspace entry timing logs for diagnosing render hitches without hot-path timestamp overhead when disabled.
 - Add a `debug:` config section with `overlay-fps` and `show-ring-when-resizing` toggles, including a legible top-left FPS HUD and control over focus-ring config-change previews.
+- Add Halley Lens, a standalone command palette for apps, nodes, clusters, actions, and config search, with slash modes, configurable UI, and cluster draft handoff support.
+- Add first-class Gamescope integration through a top-level `gamescope:` config section, including global defaults, repeated per-game profiles, and per-game opt-outs, wired through `halleyctl gamescope run -- <command>` for use in Steam launch options.
+- Add automatic Gamescope resolution selection from the selected Halley viewport (`monitor` selector `focused`/`cursor`/`primary`/connector), so matching games launch with monitor-sized output and game dimensions by default.
+- Add clear diagnostics when Gamescope is enabled but the `gamescope` binary is unavailable, falling back to launching the game unwrapped instead of blocking it.
 
 ### Changed
 - Keep `halley-session` as the recommended public full-session launcher while documenting `halley --session` as a session-wrapper, packager, and service-file flag.
@@ -33,8 +38,11 @@ All notable changes to this project will be documented in this file.
 - Keep first-collapse marker rendering non-blocking by skipping cold app-icon lookup/raster/import during frame rendering and falling back until the icon cache is already warm.
 - Use the reserved usable viewport for maximize targets and maximized visuals so top clearance reservations are honored consistently.
 - Soften window shadows with a Gaussian/error-function falloff for a more natural shadow tail.
+- Treat Gamescope-managed games (and `steam_app_*` windows) as contained sessions: while they hold a pointer lock/confine, Halley suppresses its own overlay reveals so desktop UI cannot pop over the game (config-gated via `gamescope.suppress-overlays`).
+- Archive the experimental rail app and remove its public IPC surface ahead of Lens work.
 
 ### Fixed
+- Avoid spatial-camera input remapping for Gamescope-managed pointer surfaces (config-gated via `gamescope.bypass-spatial-camera`) so the nested game receives a 1:1 pointer mapping while normal output and buffer scale handling are preserved.
 - Avoid auto-creating `~/.config/halley/halley.rune` when `/etc/halley/halley.rune` exists, preventing system configs from being shadowed on first startup.
 - Treat empty or whitespace-only `HALLEY_WL_CONFIG` as unset.
 - Snap `halley-aperture` transitions into Minimal mode immediately so maximize work-area reservation and Aperture layer size stay in sync.

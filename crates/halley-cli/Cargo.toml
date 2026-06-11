@@ -17,6 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 halley-api.workspace = true
+halley-config.workspace = true
 halley-ipc.workspace = true
 serde.workspace = true
 serde_json = "1.0"

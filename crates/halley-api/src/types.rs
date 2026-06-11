@@ -11,6 +11,16 @@ pub struct VersionInfo {
     pub ipc_protocol: u32,
 }
 
+/// Resolved dimensions for a gamescope monitor selector. `width`/`height` are the
+/// monitor's current physical mode; `refresh_hz` is its refresh rate when known.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GamescopeTargetResponse {
+    pub output: String,
+    pub width: u32,
+    pub height: u32,
+    pub refresh_hz: Option<f64>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ApertureMode {
@@ -35,35 +45,43 @@ pub struct ApertureOutputStatus {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub enum RailVisibility {
-    Visible,
-    HiddenEmpty,
-    HiddenFullscreen,
-    HiddenMaximized,
-    HiddenObstructed,
-    HiddenTiledCluster,
+pub enum LensResultKind {
+    PinnedNode,
+    Node,
+    Cluster,
+    App,
+    Action,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClusterDraftSource {
+    HalleyLens,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RailItemInfo {
-    pub node_id: u64,
+pub struct ClusterDraftRequest {
+    pub name_hint: Option<String>,
+    pub app_ids: Vec<String>,
+    pub running_node_ids: Vec<u64>,
+    pub source: ClusterDraftSource,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LensSearchResult {
+    pub id: String,
+    pub action_id: String,
+    pub kind: LensResultKind,
     pub title: String,
-    pub app_id: Option<String>,
+    pub subtitle: Option<String>,
     pub pinned: bool,
-    pub focused: bool,
+    pub score: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RailOutputSnapshot {
-    pub output: String,
-    pub visibility: RailVisibility,
-    pub items: Vec<RailItemInfo>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RailStatusResponse {
-    pub output: Option<String>,
-    pub outputs: Vec<RailOutputSnapshot>,
+pub struct LensSearchResponse {
+    pub query: String,
+    pub results: Vec<LensSearchResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,6 +171,7 @@ pub struct NodeInfo {
     pub visible: bool,
     pub focused: bool,
     pub latest: bool,
+    pub pinned: bool,
     pub role: NodeRole,
     pub protocol_family: NodeProtocolFamily,
     pub modal: bool,

@@ -6,6 +6,12 @@ use halley_core::field::{NodeId, Vec2};
 use halley_core::tiling::Rect;
 use halley_core::viewport::Viewport;
 
+#[derive(Clone, Debug)]
+pub(crate) struct ClusterFinalizeDraftState {
+    pub(crate) app_ids: Vec<String>,
+    pub(crate) selected_node_ids: HashSet<NodeId>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ClusterOverflowPromotionAnim {
     pub(crate) member_id: NodeId,
@@ -44,6 +50,7 @@ pub(crate) struct ClusterState {
     pub(crate) cluster_form_state: ClusterFormationState,
     pub(crate) cluster_names: HashMap<ClusterId, ClusterNameRecord>,
     pub(crate) cluster_name_prompt: HashMap<String, ClusterNamingPromptState>,
+    pub(crate) cluster_finalize_drafts: HashMap<String, ClusterFinalizeDraftState>,
     pub(crate) active_cluster_workspaces: HashMap<String, ClusterId>,
     pub(crate) cluster_bloom_open: HashMap<String, ClusterId>,
     pub(crate) cluster_mode_selected_nodes: HashMap<String, HashSet<NodeId>>,

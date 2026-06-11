@@ -308,6 +308,7 @@ pub(super) fn node_info(st: &Halley, id: NodeId) -> NodeInfo {
         visible: st.model.field.is_visible(id),
         focused: st.model.focus_state.primary_interaction_focus == Some(id),
         latest,
+        pinned: st.node_user_pinned(id),
         role: metadata.role,
         protocol_family: metadata.protocol_family,
         modal: metadata.modal,

@@ -268,6 +268,7 @@ impl Halley {
                     cluster_form_state: ClusterFormationState::default(),
                     cluster_names: HashMap::new(),
                     cluster_name_prompt: HashMap::new(),
+                    cluster_finalize_drafts: HashMap::new(),
                     active_cluster_workspaces: HashMap::new(),
                     cluster_bloom_open: HashMap::new(),
                     cluster_mode_selected_nodes: HashMap::new(),
@@ -580,21 +581,6 @@ impl Halley {
         self.aperture.config()
     }
 
-    pub(crate) fn aperture_snapshot_for_mode<F>(
-        &self,
-        mode: crate::aperture::core::ApertureMode,
-        output_rect: crate::aperture::core::Rect,
-        work_area_rect: crate::aperture::core::Rect,
-        scale: f64,
-        measure_text: F,
-    ) -> Option<crate::aperture::core::ClockSnapshot>
-    where
-        F: FnMut(u32, &str) -> crate::aperture::core::Size,
-    {
-        self.aperture
-            .snapshot_for_mode(mode, output_rect, work_area_rect, scale, measure_text)
-    }
-
     pub(crate) fn focus_ctx(&self) -> super::ctx::FocusCtx<'_> {
         super::ctx::focus_ctx(self)
     }
@@ -734,11 +720,11 @@ impl Halley {
         super::monitor::state::monitor_for_node_or_current(self, node_id)
     }
 
-    pub(crate) fn monitor_for_surface_or_current(
+    pub(crate) fn monitor_for_constrained_surface_or_current(
         &self,
         surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     ) -> String {
-        super::monitor::state::monitor_for_surface_or_current(self, surface)
+        super::monitor::state::monitor_for_constrained_surface_or_current(self, surface)
     }
 
     pub(crate) fn monitor_for_screen_or_current(&self, sx: f32, sy: f32) -> String {

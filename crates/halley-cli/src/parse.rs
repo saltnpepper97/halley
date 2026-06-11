@@ -5,14 +5,16 @@ use halley_api::{
 
 use crate::cmd::{
     bearings::parse_bearings_request, capture::parse_capture_request,
-    cluster::parse_cluster_request, monitor::parse_monitor_request, node::parse_node_request,
-    stack::parse_stack_request, tile::parse_tile_request, trail::parse_trail_request,
+    cluster::parse_cluster_request, gamescope::parse_gamescope_request,
+    monitor::parse_monitor_request, node::parse_node_request, stack::parse_stack_request,
+    tile::parse_tile_request, trail::parse_trail_request,
 };
 use crate::help::HelpTopic;
 
 pub(crate) enum ParseOutcome {
     Request(Request),
     Help(HelpTopic),
+    Gamescope(crate::cmd::gamescope::GamescopeInvocation),
 }
 
 pub(crate) struct UsageError {
@@ -32,6 +34,12 @@ impl UsageError {
 pub(crate) fn parse_request(args: &[String]) -> Result<ParseOutcome, UsageError> {
     if args.is_empty() {
         return Ok(ParseOutcome::Help(HelpTopic::Top));
+    }
+
+    // Handle `gamescope` before the global version scan so flags inside the
+    // wrapped game command (e.g. `-- proton --version`) are not misread.
+    if args[0] == "gamescope" {
+        return parse_gamescope_request(&args[1..]);
     }
 
     if args

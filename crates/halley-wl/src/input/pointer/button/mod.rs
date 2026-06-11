@@ -127,6 +127,18 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
             monitor
         );
     }
+    if matches!(button_state, ButtonState::Pressed) {
+        let press_on_lens = layer_focus.as_ref().is_some_and(|(surface, _)| {
+            crate::compositor::monitor::layer_shell::is_lens_layer_surface(st, surface)
+        });
+        if !press_on_lens {
+            let closed = crate::compositor::monitor::layer_shell::close_any_lens_layer(st);
+            debug!("lens dismiss check: press_on_lens={press_on_lens} closed_lens={closed}");
+            if closed {
+                return;
+            }
+        }
+    }
     let world_now = frame.world_now;
     let mods = ctx.mod_state.borrow().clone();
     let cluster_pointer_action = match button_state {
@@ -704,14 +716,15 @@ pub(super) fn dispatch_pointer_button(
     };
 
     if locked_surface.is_none()
-        && let Some((surface, _)) = focus.as_ref()
-        && let Some(constrained) =
-            crate::compositor::interaction::pointer::find_constrained_surface_in_hierarchy(
-                st, surface,
+        && let Some(current_focus) = focus.as_ref().cloned()
+        && let Some(constrained_focus) =
+            crate::compositor::interaction::pointer::constrained_focus_in_hierarchy(
+                st,
+                &current_focus,
             )
-        && constrained != *surface
+        && constrained_focus.0 != current_focus.0
     {
-        focus = Some((constrained, pointer.current_location()));
+        focus = Some(constrained_focus);
     }
 
     let motion_serial = SERIAL_COUNTER.next_serial();

@@ -20,6 +20,7 @@ use smithay::wayland::shell::xdg::PopupSurface;
 use smithay::wayland::shell::xdg::PositionerState;
 
 const APERTURE_LAYER_NAMESPACE: &str = "halley-aperture";
+const HALLEY_LENS_LAYER_NAMESPACE: &str = "halley-lens";
 
 #[derive(Clone)]
 pub(crate) struct LayerPlacement {
@@ -733,6 +734,61 @@ pub(crate) fn focus_layer_surface(st: &mut Halley, surface: &WlSurface) -> bool 
         return false;
     };
     apply_layer_surface_focus(st, surface, interactivity)
+}
+
+/// Returns true if `surface` (or its layer-surface root, for subsurfaces/popups)
+/// is the lens overlay.
+pub(crate) fn is_lens_layer_surface(st: &Halley, surface: &WlSurface) -> bool {
+    let Some(root) = layer_surface_root_for_surface(st, surface) else {
+        return false;
+    };
+    st.model
+        .monitor_state
+        .layer_surface_namespace
+        .get(&root.id())
+        .is_some_and(|namespace| namespace == HALLEY_LENS_LAYER_NAMESPACE)
+}
+
+/// Closes any open lens overlay, regardless of which monitor it lives on. Used
+/// for click-away dismissal — like Spotlight, clicking anywhere outside the lens
+/// closes it. Returns true if a lens was closed.
+pub(crate) fn close_any_lens_layer(st: &mut Halley) -> bool {
+    if let Some(focus_id) = st.model.monitor_state.layer_keyboard_focus.clone() {
+        let focused_lens = st
+            .model
+            .monitor_state
+            .layer_surface_namespace
+            .get(&focus_id)
+            .is_some_and(|namespace| namespace == HALLEY_LENS_LAYER_NAMESPACE);
+        if focused_lens {
+            if let Some(layer) = st
+                .platform
+                .wlr_layer_shell_state
+                .layer_surfaces()
+                .find(|layer| layer.wl_surface().id() == focus_id)
+            {
+                layer.send_close();
+                return true;
+            }
+            st.model.monitor_state.layer_keyboard_focus = None;
+        }
+    }
+
+    let Some(layer) = layer_shell_surfaces_sorted(st)
+        .into_iter()
+        .rev()
+        .find(|layer| {
+            st.model
+                .monitor_state
+                .layer_surface_namespace
+                .get(&layer.wl_surface().id())
+                .is_some_and(|namespace| namespace == HALLEY_LENS_LAYER_NAMESPACE)
+        })
+    else {
+        return false;
+    };
+    layer.send_close();
+    true
 }
 
 pub(crate) fn is_layer_surface(st: &Halley, surface: &WlSurface) -> bool {

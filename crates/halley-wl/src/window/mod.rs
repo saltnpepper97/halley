@@ -177,11 +177,35 @@ impl StackWindowDrawUnit {
     }
 }
 
+/// A nested gamescope window (gamescope sets its toplevel `app_id` to
+/// `gamescope`). Such a window hosts a game, so Halley treats it as game-like.
+pub(crate) fn node_is_gamescope(st: &Halley, node_id: NodeId) -> bool {
+    st.model
+        .node_app_ids
+        .get(&node_id)
+        .is_some_and(|app_id| app_id.eq_ignore_ascii_case("gamescope"))
+}
+
 pub(crate) fn node_is_game_like(st: &Halley, node_id: NodeId) -> bool {
     st.model
         .node_app_ids
         .get(&node_id)
         .is_some_and(|app_id| app_id.starts_with("steam_app_"))
+        || node_is_gamescope(st, node_id)
+}
+
+/// Whether `surface` (or any ancestor) belongs to a gamescope-managed node.
+pub(crate) fn surface_is_gamescope(st: &Halley, surface: &WlSurface) -> bool {
+    let mut current = surface.clone();
+    loop {
+        if let Some(node) = st.model.surface_to_node.get(&current.id()).copied() {
+            return node_is_gamescope(st, node);
+        }
+        match smithay::wayland::compositor::get_parent(&current) {
+            Some(parent) => current = parent,
+            None => return false,
+        }
+    }
 }
 
 pub(crate) fn node_requires_live_surface_render(st: &Halley, node_id: NodeId) -> bool {
