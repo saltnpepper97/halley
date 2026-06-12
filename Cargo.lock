@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "halley"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "halley-wl",
 ]
@@ -1135,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "halley-capit"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "image",
  "memmap2",
@@ -1147,7 +1147,7 @@ dependencies = [
 
 [[package]]
 name = "halley-cli"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "halley-api",
  "halley-config",
@@ -1158,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "halley-config"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "halley-core",
  "regex",
@@ -1167,11 +1167,11 @@ dependencies = [
 
 [[package]]
 name = "halley-core"
-version = "0.3.2"
+version = "0.4.0"
 
 [[package]]
 name = "halley-ipc"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "halley-api",
  "postcard",
@@ -1196,7 +1196,7 @@ dependencies = [
 
 [[package]]
 name = "halley-wl"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "calloop 0.14.4",
  "chrono",
