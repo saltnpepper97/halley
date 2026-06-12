@@ -2,7 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - TBD
+## [v0.5.0] - TBD
+
+### Added
+- TBD
+
+### Changed
+- TBD
+
+### Fixed
+- TBD
+
+## [v0.4.0] - 2026-06-12
 
 ### Added
 - Add a `mod+f` keybind that toggles compositor-initiated fullscreen on the focused window, configurable via the `toggle-fullscreen` action keyword, with bootstrap backfill and example config coverage.
