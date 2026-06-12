@@ -60,9 +60,17 @@ pub enum ClusterDraftSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ClusterDraftAppLaunch {
+    pub app_id: String,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ClusterDraftRequest {
     pub name_hint: Option<String>,
     pub app_ids: Vec<String>,
+    #[serde(default)]
+    pub app_launches: Vec<ClusterDraftAppLaunch>,
     pub running_node_ids: Vec<u64>,
     pub source: ClusterDraftSource,
 }

@@ -32,6 +32,7 @@ pub(crate) struct RuntimeState {
     pub(crate) pending_drm_syncobj_surfaces: Arc<Mutex<Vec<ObjectId>>>,
     pub(crate) activation: ActivationRuntimeState,
     pub(crate) spawned_children: Vec<std::process::Child>,
+    pub(crate) wayland_display: Option<String>,
 }
 
 pub(crate) struct RuntimeController<T> {

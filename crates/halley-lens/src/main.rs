@@ -412,10 +412,8 @@ impl LensApp {
                 nodes, clusters
             ));
             let (mode, query) = self.effective_search();
-            if matches!(
-                mode,
-                LensMode::General | LensMode::Nodes | LensMode::Clusters
-            ) && !query.trim().is_empty()
+            if matches!(mode, LensMode::Nodes | LensMode::Clusters)
+                || (mode == LensMode::General && !query.trim().is_empty())
             {
                 self.refresh_results();
                 self.mark_redraw();

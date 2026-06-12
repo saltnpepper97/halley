@@ -326,6 +326,145 @@ fn cluster_mode_confirm_opens_name_prompt_before_creating() {
 }
 
 #[test]
+fn lens_finalize_prompt_selects_existing_matching_apps_without_banner() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let now = Instant::now();
+
+    let first = st.model.field.spawn_surface(
+        "Firefox",
+        Vec2 { x: 160.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    let second = st.model.field.spawn_surface(
+        "Firefox Settings",
+        Vec2 { x: 460.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    st.assign_node_to_monitor(first, "monitor_a");
+    st.assign_node_to_monitor(second, "monitor_a");
+    st.model.node_app_ids.insert(first, "firefox".to_string());
+    st.model
+        .node_app_ids
+        .insert(second, "org.mozilla.firefox".to_string());
+
+    assert!(
+        cluster_system_controller(&mut st).open_lens_cluster_finalize_draft(
+            "monitor_a",
+            Some("Browser".to_string()),
+            vec!["org.mozilla.firefox.desktop".to_string()],
+            Vec::new(),
+            Vec::new(),
+            now,
+        )
+    );
+    assert!(
+        !st.ui
+            .render_state
+            .overlays
+            .overlay_banner
+            .contains_key("monitor_a")
+    );
+    assert_eq!(
+        st.model
+            .cluster_state
+            .cluster_mode_selected_nodes
+            .get("monitor_a")
+            .map(|nodes| nodes.len()),
+        Some(2)
+    );
+
+    assert!(
+        cluster_system_controller(&mut st)
+            .confirm_cluster_name_prompt_for_monitor("monitor_a", now,)
+    );
+    assert_eq!(st.model.field.cluster_ids().len(), 1);
+    assert!(
+        !st.model
+            .cluster_state
+            .cluster_name_prompt
+            .contains_key("monitor_a")
+    );
+}
+
+#[test]
+fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let now = Instant::now();
+
+    assert!(
+        cluster_system_controller(&mut st).open_lens_cluster_finalize_draft(
+            "monitor_a",
+            Some("Work".to_string()),
+            vec!["alpha.desktop".to_string(), "beta.desktop".to_string()],
+            vec![
+                crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                    app_id: "alpha.desktop".to_string(),
+                    command: "true".to_string(),
+                },
+                crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                    app_id: "beta.desktop".to_string(),
+                    command: "true".to_string(),
+                },
+            ],
+            Vec::new(),
+            now,
+        )
+    );
+    assert!(
+        cluster_system_controller(&mut st)
+            .confirm_cluster_name_prompt_for_monitor("monitor_a", now,)
+    );
+    assert!(
+        st.model
+            .cluster_state
+            .pending_lens_cluster_builds
+            .contains_key("monitor_a")
+    );
+    assert_eq!(st.model.field.cluster_ids().len(), 0);
+
+    let alpha = st.model.field.spawn_surface(
+        "Alpha",
+        Vec2 { x: 160.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    let beta = st.model.field.spawn_surface(
+        "Beta",
+        Vec2 { x: 460.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    st.assign_node_to_monitor(alpha, "monitor_a");
+    st.assign_node_to_monitor(beta, "monitor_a");
+
+    assert!(
+        cluster_system_controller(&mut st).maybe_add_node_to_lens_cluster_finalize_draft(
+            "monitor_a",
+            alpha,
+            "alpha",
+        )
+    );
+    assert_eq!(st.model.field.cluster_ids().len(), 0);
+    assert!(
+        cluster_system_controller(&mut st).maybe_add_node_to_lens_cluster_finalize_draft(
+            "monitor_a",
+            beta,
+            "beta",
+        )
+    );
+
+    assert_eq!(st.model.field.cluster_ids().len(), 1);
+    assert!(
+        !st.model
+            .cluster_state
+            .pending_lens_cluster_builds
+            .contains_key("monitor_a")
+    );
+    assert!(st.model.field.cluster_id_for_member_public(alpha).is_some());
+    assert!(st.model.field.cluster_id_for_member_public(beta).is_some());
+}
+
+#[test]
 fn custom_cluster_name_stays_unique_and_survives_monitor_move() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, dual_monitor_tuning());

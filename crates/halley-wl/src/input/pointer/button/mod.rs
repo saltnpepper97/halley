@@ -154,7 +154,8 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         )
     ) || ps.drag.is_some()
         || ps.resize.is_some();
-    let prompt_monitor = st.model.monitor_state.current_monitor.clone();
+    let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
+        .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
     if handle_screenshot_pointer_button(
         st,
         ctx,
@@ -172,8 +173,7 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
     ) {
         return;
     }
-    if crate::compositor::clusters::system::cluster_system_controller(&*st)
-        .cluster_name_prompt_active_for_monitor(prompt_monitor.as_str())
+    if let Some(prompt_monitor) = prompt_monitor
         && !cluster_pointer_passthrough
     {
         ps.world = world_now;

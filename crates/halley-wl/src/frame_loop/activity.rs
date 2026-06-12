@@ -71,6 +71,65 @@ fn monitor_overlay_requires_full_repaint_at(st: &Halley, monitor: &str, now_ms: 
             .contains_key(monitor)
 }
 
+fn monitor_overlay_animation_active_at(st: &Halley, monitor: &str, now_ms: u64) -> bool {
+    if now_ms < st.runtime.screenshot_full_repaint_until_ms || st.runtime.tuning.debug.overlay_fps {
+        return true;
+    }
+    st.cluster_mode_active_for_monitor(monitor)
+        || st
+            .model
+            .cluster_state
+            .cluster_bloom_open
+            .contains_key(monitor)
+        || st
+            .model
+            .cluster_state
+            .cluster_overflow_visible_until_ms
+            .get(monitor)
+            .is_some_and(|visible_until_ms| *visible_until_ms > now_ms)
+        || st
+            .model
+            .cluster_state
+            .cluster_overflow_promotion_anim
+            .contains_key(monitor)
+        || crate::compositor::interaction::state::bloom_pull_preview_active_for_monitor(st, monitor)
+        || st
+            .ui
+            .render_state
+            .overlays
+            .overlay_banner
+            .contains_key(monitor)
+        || st
+            .ui
+            .render_state
+            .overlays
+            .overlay_toast
+            .contains_key(monitor)
+        || st
+            .model
+            .focus_state
+            .focus_ring_preview_until_ms
+            .get(monitor)
+            .is_some_and(|until_ms| *until_ms > now_ms)
+        || st.input.interaction_state.focus_cycle_session.is_some()
+        || cluster_name_prompt_hover_animating(st, monitor)
+        || screenshot_controller(st).screenshot_session_active()
+        || st
+            .ui
+            .render_state
+            .overlays
+            .overlay_exit_confirm
+            .contains_key(monitor)
+}
+
+fn cluster_name_prompt_hover_animating(st: &Halley, monitor: &str) -> bool {
+    st.model
+        .cluster_state
+        .cluster_name_prompt
+        .get(monitor)
+        .is_some_and(|prompt| prompt.confirm_hover_mix > 0.015 && prompt.confirm_hover_mix < 0.985)
+}
+
 pub(crate) fn tty_output_animation_redraw_state(
     st: &Halley,
     monitor: &str,
@@ -162,7 +221,7 @@ pub(crate) fn tty_output_animation_redraw_state(
             || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
             || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
             || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05);
-    let overlay_active = monitor_overlay_requires_full_repaint_at(st, monitor, now_ms)
+    let overlay_active = monitor_overlay_animation_active_at(st, monitor, now_ms)
         || st
             .ui
             .render_state

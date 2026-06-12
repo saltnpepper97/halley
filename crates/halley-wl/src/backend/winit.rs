@@ -370,6 +370,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             let xwayland_watch_tokens_for_timer = xwayland_watch_tokens.clone();
             let _signal = ev.get_signal();
             let mut state = Halley::new(&dh, ev.handle(), tuning.clone());
+            state.runtime.wayland_display = Some(sock_name.clone());
             state.apply_aperture_config(aperture_config);
             state.platform.seat.add_pointer();
             super::initialize_seat_keyboard(&mut state);

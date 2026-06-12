@@ -407,7 +407,7 @@ pub(crate) fn draw_cluster_naming_dialog(
             &visuals,
             layout.input_rect,
             12.0,
-            visuals.palette.key_fill.alpha(0.98),
+            visuals.palette.key_fill.alpha(1.0),
             true,
             damage,
             1.0,

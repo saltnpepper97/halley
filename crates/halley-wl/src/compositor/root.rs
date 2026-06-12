@@ -269,6 +269,7 @@ impl Halley {
                     cluster_names: HashMap::new(),
                     cluster_name_prompt: HashMap::new(),
                     cluster_finalize_drafts: HashMap::new(),
+                    pending_lens_cluster_builds: HashMap::new(),
                     active_cluster_workspaces: HashMap::new(),
                     cluster_bloom_open: HashMap::new(),
                     cluster_mode_selected_nodes: HashMap::new(),
@@ -433,6 +434,7 @@ impl Halley {
                 pending_drm_syncobj_surfaces: Arc::new(Mutex::new(Vec::new())),
                 activation: Default::default(),
                 spawned_children: Vec::new(),
+                wayland_display: None,
             },
         };
         out.ui

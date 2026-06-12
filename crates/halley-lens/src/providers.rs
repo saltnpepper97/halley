@@ -6,8 +6,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 use halley_api::{
-    ApiError, ClusterDraftRequest, ClusterDraftSource, ClusterRequest, ClusterTarget,
-    CompositorRequest, NodeKind, NodeRequest, NodeSelector, Request, Response,
+    ApiError, ClusterDraftAppLaunch, ClusterDraftRequest, ClusterDraftSource, ClusterRequest,
+    ClusterTarget, CompositorRequest, NodeKind, NodeRequest, NodeSelector, Request, Response,
 };
 
 use crate::config::{LensConfig, default_config_path};
@@ -49,7 +49,6 @@ struct CachedNode {
     id: u64,
     title: String,
     subtitle: String,
-    app_id: String,
     search_text: String,
     pinned: bool,
 }
@@ -141,7 +140,9 @@ impl ProviderIndex {
                 .then_with(|| a.section.cmp(&b.section))
                 .then_with(|| a.title.cmp(&b.title))
         });
-        let max_results = if ctx.mode == LensMode::Apps && ctx.query_lower.is_empty() {
+        let max_results = if matches!(ctx.mode, LensMode::Apps | LensMode::Clusters)
+            && ctx.query_lower.is_empty()
+        {
             usize::MAX
         } else {
             ctx.max_results
@@ -250,17 +251,17 @@ impl ProviderIndex {
         launch_exec(app.exec.as_str(), app.terminal, self.terminal.as_str())
     }
 
-    pub fn app_is_running(&self, app_id: &str, nodes: &[u64]) -> bool {
-        let _ = nodes;
-        if self.live_loaded {
-            return self
-                .nodes
-                .iter()
-                .any(|node| !node.app_id.is_empty() && app_id_matches(&node.app_id, app_id));
-        }
-        running_app_ids()
+    fn draft_app_launches(&self, app_ids: &[String]) -> Vec<ClusterDraftAppLaunch> {
+        app_ids
             .iter()
-            .any(|running| app_id_matches(running, app_id))
+            .filter_map(|app_id| {
+                let app = self.apps.iter().find(|app| app.id == *app_id)?;
+                Some(ClusterDraftAppLaunch {
+                    app_id: app.id.clone(),
+                    command: app_launch_command(app, self.terminal.as_str()),
+                })
+            })
+            .collect()
     }
 }
 
@@ -289,7 +290,6 @@ fn load_nodes() -> Vec<CachedNode> {
                 id: node.id,
                 title,
                 subtitle: format!("{app_label} on {output}"),
-                app_id,
                 search_text,
                 pinned: node.pinned,
             });
@@ -437,6 +437,7 @@ pub fn materialize_cluster_draft(
     let request = ClusterDraftRequest {
         name_hint: (!name_hint.is_empty()).then(|| name_hint.to_string()),
         app_ids: draft.app_ids.clone(),
+        app_launches: index.draft_app_launches(&draft.app_ids),
         running_node_ids: draft.running_node_ids.clone(),
         source: ClusterDraftSource::HalleyLens,
     };
@@ -446,14 +447,15 @@ pub fn materialize_cluster_draft(
             output: None,
         },
     )))?;
-    for app_id in &draft.app_ids {
-        if !index.app_is_running(app_id, &draft.running_node_ids)
-            && let Err(err) = index.launch_app(app_id)
-        {
-            eprintln!("halley-lens: failed to launch staged app {app_id}: {err}");
-        }
-    }
     Ok(())
+}
+
+fn app_launch_command(app: &DesktopApp, terminal_command: &str) -> String {
+    if app.terminal {
+        format!("{} {}", terminal_command.trim(), app.exec)
+    } else {
+        app.exec.clone()
+    }
 }
 
 fn expect_ok(response: Result<Response, halley_ipc::CodecError>) -> Result<(), String> {
@@ -655,21 +657,52 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn running_app_ids() -> Vec<String> {
-    let Ok(Response::NodeList(list)) =
-        halley_ipc::send_request(&Request::Node(NodeRequest::List { output: None }))
-    else {
-        return Vec::new();
-    };
-    list.outputs
-        .into_iter()
-        .flat_map(|group| group.nodes)
-        .filter_map(|node| node.app_id)
-        .collect()
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn app_id_matches(running: &str, staged: &str) -> bool {
-    let running = running.to_ascii_lowercase();
-    let staged = staged.to_ascii_lowercase();
-    running == staged || running.ends_with(&staged) || staged.ends_with(&running)
+    #[test]
+    fn cluster_mode_empty_query_keeps_all_stageable_results() {
+        let index = ProviderIndex {
+            apps: (0..5)
+                .map(|idx| DesktopApp {
+                    id: format!("app-{idx}"),
+                    name: format!("App {idx}"),
+                    comment: None,
+                    icon_name: None,
+                    exec: "true".into(),
+                    terminal: false,
+                    search_text: format!("app {idx}"),
+                })
+                .collect(),
+            nodes: (0..5)
+                .map(|idx| CachedNode {
+                    id: idx,
+                    title: format!("Node {idx}"),
+                    subtitle: "window on monitor".into(),
+                    search_text: format!("node {idx}"),
+                    pinned: false,
+                })
+                .collect(),
+            clusters: Vec::new(),
+            live_loaded: true,
+            live_rx: None,
+            terminal: String::new(),
+        };
+        let results = index.search(&SearchContext {
+            mode: LensMode::Clusters,
+            query: String::new(),
+            query_lower: String::new(),
+            max_results: 3,
+            draft_count: 0,
+        });
+
+        assert_eq!(results.len(), 10);
+        assert!(results.iter().any(|result| result.section == "Apps"));
+        assert!(
+            results
+                .iter()
+                .any(|result| result.section == "Running Nodes")
+        );
+    }
 }

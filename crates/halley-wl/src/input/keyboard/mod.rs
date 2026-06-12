@@ -290,10 +290,9 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
         return;
     }
 
-    let prompt_monitor = st.model.monitor_state.current_monitor.clone();
-    if crate::compositor::clusters::system::cluster_system_controller(&*st)
-        .cluster_name_prompt_active_for_monitor(prompt_monitor.as_str())
-    {
+    let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
+        .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
+    if let Some(prompt_monitor) = prompt_monitor {
         let mut repeated_char = None;
         if let Some(keyboard) = st.platform.seat.get_keyboard() {
             let _ = keyboard.input::<(), _>(

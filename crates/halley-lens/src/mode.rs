@@ -135,6 +135,18 @@ mod tests {
     }
 
     #[test]
+    fn effective_query_detects_cluster_prefixes_with_empty_filter() {
+        assert_eq!(
+            effective_mode_query(LensMode::General, "cluster"),
+            (LensMode::Clusters, String::new())
+        );
+        assert_eq!(
+            effective_mode_query(LensMode::General, "clusters firefox"),
+            (LensMode::Clusters, "firefox".into())
+        );
+    }
+
+    #[test]
     fn unknown_slash_command_stays_general_text() {
         assert_eq!(
             parse_initial_mode("/wat test"),
