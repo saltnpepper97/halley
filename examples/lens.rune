@@ -11,6 +11,7 @@ lens:
   icon-size 28
   icon-theme "auto"
   icon-search-depth 5
+  terminal "x-terminal-emulator -e"
   keyboard-interactivity "exclusive"
   close-on-focus-loss false
   close-on-click-away false

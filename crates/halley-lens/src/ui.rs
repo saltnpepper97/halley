@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
 
 use fontdb::{Database, Family, Query, Stretch, Style, Weight};
 use image::{RgbaImage, imageops};
@@ -9,7 +11,7 @@ use rusttype::{Font, PositionedGlyph, Scale, point};
 
 use crate::config::LensConfig;
 use crate::mode::{LensMode, ModeInputState};
-use crate::model::{ClusterDraft, LensResult, LensResultKind};
+use crate::model::{ClusterDraft, LensResult};
 
 #[derive(Clone, Copy)]
 pub struct Color(pub f32, pub f32, pub f32, pub f32);
@@ -26,6 +28,7 @@ pub struct Rect {
 pub struct View<'a> {
     pub config: &'a LensConfig,
     pub input: &'a ModeInputState,
+    pub mode: LensMode,
     pub results: &'a [LensResult],
     pub selected: usize,
     pub scroll_offset: usize,
@@ -46,7 +49,7 @@ pub fn surface_height(view: View<'_>) -> i32 {
     }
 
     height += ui.dropdown_gap + ui.dropdown_padding * 2;
-    if view.input.mode == LensMode::Clusters && view.draft.count() > 0 {
+    if view.mode == LensMode::Clusters && view.draft.count() > 0 {
         height += ui.draft_height + ui.row_gap;
     }
 
@@ -67,6 +70,7 @@ pub fn surface_height(view: View<'_>) -> i32 {
     if rows > 0 {
         height += section_budget + rows * ui.row_height + (rows - 1).max(0) * ui.row_gap;
     }
+    height += list_bottom_padding(view.config);
     if ui.footer_height > 0 {
         height += ui.row_gap + ui.footer_height;
     }
@@ -76,7 +80,11 @@ pub fn surface_height(view: View<'_>) -> i32 {
 fn dropdown_visible(view: View<'_>) -> bool {
     !view.input.query.trim().is_empty()
         || view.input.mode != LensMode::General
-        || (view.input.mode == LensMode::Clusters && view.draft.count() > 0)
+        || (view.mode == LensMode::Clusters && view.draft.count() > 0)
+}
+
+fn list_bottom_padding(config: &LensConfig) -> i32 {
+    config.ui.row_gap.max(8)
 }
 
 fn visible_section_count(view: View<'_>) -> usize {
@@ -123,7 +131,7 @@ pub fn result_index_at(view: View<'_>, width: u32, height: u32, sx: f64, sy: f64
         return None;
     }
     let mut y = panel.y + ui.search_height + ui.dropdown_gap + ui.dropdown_padding;
-    if view.input.mode == LensMode::Clusters && view.draft.count() > 0 {
+    if view.mode == LensMode::Clusters && view.draft.count() > 0 {
         y += ui.draft_height + ui.row_gap;
     }
     let mut last_section = "";
@@ -186,6 +194,9 @@ impl FontRenderer {
     }
 
     fn measure(&self, text: &str, px: u32) -> (i32, i32) {
+        if text.is_empty() {
+            return (0, px as i32);
+        }
         let scale = Scale::uniform(px as f32);
         let v = self.font.v_metrics(scale);
         let glyphs: Vec<_> = self
@@ -196,6 +207,66 @@ impl FontRenderer {
             return (px as i32, px as i32);
         };
         ((bounds.2 - bounds.0).max(1), (bounds.3 - bounds.1).max(1))
+    }
+
+    fn fit_text(&self, text: &str, px: u32, max_width: i32) -> String {
+        if max_width <= 0 || text.is_empty() {
+            return String::new();
+        }
+        if self.measure(text, px).0 <= max_width {
+            return text.to_string();
+        }
+        let ellipsis = "...";
+        let ellipsis_width = self.measure(ellipsis, px).0;
+        if ellipsis_width > max_width {
+            return String::new();
+        }
+
+        let mut fitted = String::new();
+        for ch in text.chars() {
+            fitted.push(ch);
+            let candidate = format!("{}{}", fitted.trim_end(), ellipsis);
+            if self.measure(candidate.as_str(), px).0 > max_width {
+                fitted.pop();
+                break;
+            }
+        }
+
+        if fitted.is_empty() {
+            ellipsis.to_string()
+        } else {
+            format!("{}{}", fitted.trim_end(), ellipsis)
+        }
+    }
+
+    fn fit_text_tail(&self, text: &str, px: u32, max_width: i32) -> String {
+        if max_width <= 0 || text.is_empty() {
+            return String::new();
+        }
+        if self.measure(text, px).0 <= max_width {
+            return text.to_string();
+        }
+        let ellipsis = "...";
+        let ellipsis_width = self.measure(ellipsis, px).0;
+        if ellipsis_width > max_width {
+            return String::new();
+        }
+
+        let mut fitted = String::new();
+        for ch in text.chars().rev() {
+            fitted.insert(0, ch);
+            let candidate = format!("{ellipsis}{fitted}");
+            if self.measure(candidate.as_str(), px).0 > max_width {
+                fitted.remove(0);
+                break;
+            }
+        }
+
+        if fitted.is_empty() {
+            ellipsis.to_string()
+        } else {
+            format!("{ellipsis}{fitted}")
+        }
     }
 
     fn draw(
@@ -237,13 +308,73 @@ impl FontRenderer {
             });
         }
     }
+
+    /// Constant line height (ascent + |descent|) for the font at `px`, independent of the
+    /// glyphs in any particular string. Use for vertical centering so text does not jump as
+    /// ascenders/descenders (e.g. `y`, `g`) come and go.
+    fn v_line_height(&self, px: u32) -> i32 {
+        let scale = Scale::uniform(px as f32);
+        let v = self.font.v_metrics(scale);
+        (v.ascent - v.descent).ceil().max(1.0) as i32
+    }
+
+    /// Draw `text` with a stable baseline: `top_y` is the top of the line box (the ascent line),
+    /// so vertical glyph positions depend only on the font metrics, never on which characters are
+    /// present. The leftmost ink is aligned to `x`. Use for live-edited single-line text.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_line(
+        &self,
+        canvas: &mut [u8],
+        width: u32,
+        height: u32,
+        x: i32,
+        top_y: i32,
+        text: &str,
+        px: u32,
+        color: Color,
+    ) {
+        let scale = Scale::uniform(px as f32);
+        let v = self.font.v_metrics(scale);
+        let glyphs: Vec<_> = self
+            .font
+            .layout(text, scale, point(0.0, v.ascent))
+            .collect();
+        let x_min = glyphs
+            .iter()
+            .filter_map(|g| g.pixel_bounding_box())
+            .map(|bb| bb.min.x)
+            .min()
+            .unwrap_or(0);
+        for glyph in glyphs {
+            let Some(bb) = glyph.pixel_bounding_box() else {
+                continue;
+            };
+            glyph.draw(|gx, gy, coverage| {
+                let px = x + bb.min.x - x_min + gx as i32;
+                let py = top_y + bb.min.y + gy as i32;
+                if px < 0 || py < 0 || px >= width as i32 || py >= height as i32 {
+                    return;
+                }
+                let offset = ((py as u32 * width + px as u32) * 4) as usize;
+                blend(
+                    canvas,
+                    offset,
+                    Color(color.0, color.1, color.2, color.3 * coverage),
+                );
+            });
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct IconCache {
     entries: HashMap<String, Option<IconRaster>>,
     index: HashMap<String, IconIndexEntry>,
+    roots: Vec<PathBuf>,
     target_size: u32,
+    search_depth: usize,
+    indexed: bool,
+    index_rx: Option<Receiver<HashMap<String, IconIndexEntry>>>,
 }
 
 struct IconRaster {
@@ -262,9 +393,55 @@ impl IconCache {
     pub fn new(config: &LensConfig) -> Self {
         Self {
             entries: HashMap::new(),
-            index: build_icon_index(config),
+            index: HashMap::new(),
+            roots: if config.icons {
+                icon_roots(config)
+            } else {
+                Vec::new()
+            },
             target_size: config.icon_size.max(1),
+            search_depth: config.icon_search_depth,
+            indexed: !config.icons,
+            index_rx: None,
         }
+    }
+
+    pub fn needs_index(&self) -> bool {
+        !self.indexed && self.index_rx.is_none()
+    }
+
+    pub fn has_pending_index(&self) -> bool {
+        self.index_rx.is_some()
+    }
+
+    pub fn start_index(&mut self) {
+        if !self.needs_index() {
+            return;
+        }
+        let roots = self.roots.clone();
+        let search_depth = self.search_depth;
+        let target_size = self.target_size;
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(build_icon_index(
+                roots.as_slice(),
+                search_depth,
+                target_size,
+            ));
+        });
+        self.index_rx = Some(rx);
+    }
+
+    pub fn finish_index_if_ready(&mut self) -> Option<usize> {
+        let rx = self.index_rx.as_ref()?;
+        let Ok(index) = rx.try_recv() else {
+            return None;
+        };
+        self.index = index;
+        self.indexed = true;
+        self.index_rx = None;
+        self.entries.retain(|_, raster| raster.is_some());
+        Some(self.index.len())
     }
 
     fn load(&mut self, name: &str) -> Option<&IconRaster> {
@@ -291,11 +468,20 @@ impl IconCache {
         if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
             push_icon_candidate(&mut candidates, stem.to_string());
         }
-        candidates.into_iter().find_map(|candidate| {
-            self.index
-                .get(&candidate.to_ascii_lowercase())
-                .map(|entry| entry.path.clone())
-        })
+        if self.indexed {
+            candidates.iter().find_map(|candidate| {
+                self.index
+                    .get(&candidate.to_ascii_lowercase())
+                    .map(|entry| entry.path.clone())
+            })
+        } else {
+            find_direct_icon(
+                self.roots.as_slice(),
+                candidates.as_slice(),
+                self.target_size,
+                self.search_depth,
+            )
+        }
     }
 }
 
@@ -386,7 +572,7 @@ pub fn draw_palette(
 
     let mut y = dropdown_y + ui.dropdown_padding;
 
-    if view.input.mode == LensMode::Clusters && view.draft.count() > 0 {
+    if view.mode == LensMode::Clusters && view.draft.count() > 0 {
         draw_draft_summary(canvas, width, height, font, view, panel, y);
         y += ui.draft_height + ui.row_gap;
     }
@@ -405,7 +591,6 @@ struct Palette {
     subtext: Color,
     hint: Color,
     accent: Color,
-    badge: Color,
     danger: Color,
 }
 
@@ -424,7 +609,6 @@ impl Palette {
             subtext: parse_color(&config.colors.subtext, Color(0.62, 0.66, 0.76, 0.95)),
             hint: parse_color(&config.colors.hint, Color(0.52, 0.58, 0.70, 0.9)),
             accent: parse_color(&config.colors.accent, Color(0.62, 0.74, 1.0, 1.0)),
-            badge: parse_color(&config.colors.badge, Color(0.20, 0.28, 0.46, 0.95)),
             danger: parse_color(&config.colors.danger, Color(0.92, 0.62, 0.56, 0.95)),
         }
     }
@@ -461,53 +645,29 @@ fn draw_search_box(
         corners,
         colors.search,
     );
-    let mut text_x = panel.x + pad;
-    if let Some(label) = input.mode.label() {
-        let badge = format!("{label} ×");
-        let (bw, bh) = font.measure(&badge, ui.badge_font_size);
-        let badge_h = (bh + 12).min(ui.search_height - 12).max(28);
-        let badge_y = y + (ui.search_height - badge_h) / 2;
-        fill_rounded_rect(
-            canvas,
-            width,
-            height,
-            panel.x + pad,
-            badge_y,
-            bw + 22,
-            badge_h,
-            config.rounding.badge,
-            colors.badge,
-        );
-        font.draw(
-            canvas,
-            width,
-            height,
-            panel.x + pad + 11,
-            badge_y + (badge_h - bh) / 2,
-            &badge,
-            ui.badge_font_size,
-            colors.text,
-        );
-        text_x = panel.x + pad + bw + 32;
-    }
+    let text_x = panel.x + pad;
+    let _ = input.mode;
+    let text_right = panel.x + panel.w - pad;
+    let text_width = (text_right - text_x).max(0);
     let placeholder = if input.query.is_empty() {
-        config.placeholder.as_str()
+        font.fit_text(config.placeholder.as_str(), ui.search_font_size, text_width)
     } else {
-        input.query.as_str()
+        font.fit_text_tail(input.query.as_str(), ui.search_font_size, text_width)
     };
     let color = if input.query.is_empty() {
         colors.hint
     } else {
         colors.text
     };
-    let (_, th) = font.measure(placeholder, ui.search_font_size);
-    font.draw(
+    let line_h = font.v_line_height(ui.search_font_size);
+    let top_y = y + (ui.search_height - line_h) / 2;
+    font.draw_line(
         canvas,
         width,
         height,
         text_x,
-        y + (ui.search_height - th) / 2,
-        placeholder,
+        top_y,
+        placeholder.as_str(),
         ui.search_font_size,
         color,
     );
@@ -643,7 +803,7 @@ fn draw_result_row(
         );
     }
 
-    if view.input.mode == LensMode::Clusters && view.draft.contains_result(result) {
+    if view.mode == LensMode::Clusters && view.draft.contains_result(result) {
         let (_, check_h) = font.measure("✓", ui.hint_font_size + 3);
         font.draw(
             canvas,
@@ -660,53 +820,19 @@ fn draw_result_row(
     let icon_size = view.config.icon_size as i32;
     let icon_x = panel.x + pad + 28;
     let icon_y = y + (ui.row_height - icon_size) / 2;
-    draw_result_icon(
-        canvas,
-        width,
-        height,
-        font,
-        icon_cache,
-        view.config,
-        result,
-        icon_x,
-        icon_y,
-    );
-
-    let text_x = icon_x + icon_size + 16;
-    let (_, title_h) = font.measure(result.title.as_str(), ui.title_font_size);
-    let subtitle_h = result
-        .subtitle
-        .as_ref()
-        .map(|subtitle| font.measure(subtitle, ui.subtitle_font_size).1)
-        .unwrap_or(0);
-    let text_block_h = if subtitle_h > 0 {
-        title_h + 7 + subtitle_h
-    } else {
-        title_h
-    };
-    let title_y = y + (ui.row_height - text_block_h) / 2;
-    font.draw(
-        canvas,
-        width,
-        height,
-        text_x,
-        title_y,
-        result.title.as_str(),
-        ui.title_font_size,
-        colors.text,
-    );
-    if let Some(subtitle) = &result.subtitle {
-        font.draw(
+    if view.config.icons {
+        draw_result_icon(
             canvas,
             width,
             height,
-            text_x,
-            title_y + title_h + 7,
-            subtitle.as_str(),
-            ui.subtitle_font_size,
-            colors.subtext,
+            icon_cache,
+            view.config,
+            result,
+            icon_x,
+            icon_y,
         );
     }
+
     let visible_index = index.saturating_sub(view.scroll_offset);
     let alt_hint = (view.config.alt_number_jump && visible_index < 10).then(|| {
         if visible_index == 9 {
@@ -716,13 +842,67 @@ fn draw_result_row(
         }
     });
     let hint = alt_hint.as_deref().or(result.shortcut_hint.as_deref());
-    if let Some(hint) = hint {
-        let (hint_w, hint_h) = font.measure(hint, ui.hint_font_size);
+    let hint_metrics = hint.map(|hint| (hint, font.measure(hint, ui.hint_font_size)));
+    let hint_x = hint_metrics
+        .map(|(_, (hint_w, _))| panel.x + panel.w - pad - 14 - hint_w)
+        .unwrap_or(panel.x + panel.w - pad - 14);
+
+    let text_x = if view.config.icons {
+        icon_x + icon_size + 16
+    } else {
+        icon_x
+    };
+    let text_right = hint_metrics
+        .map(|_| hint_x - 18)
+        .unwrap_or(panel.x + panel.w - pad - 14);
+    let text_width = (text_right - text_x).max(0);
+    let title = font.fit_text(result.title.as_str(), ui.title_font_size, text_width);
+    let subtitle = result
+        .subtitle
+        .as_ref()
+        .map(|subtitle| font.fit_text(subtitle.as_str(), ui.subtitle_font_size, text_width));
+    let (_, title_h) = font.measure(title.as_str(), ui.title_font_size);
+    let subtitle_h = subtitle
+        .as_deref()
+        .filter(|subtitle| !subtitle.is_empty())
+        .map(|subtitle| font.measure(subtitle, ui.subtitle_font_size).1)
+        .unwrap_or(0);
+    let text_block_h = if subtitle_h > 0 {
+        title_h + 7 + subtitle_h
+    } else {
+        title_h
+    };
+    let title_y = y + (ui.row_height - text_block_h) / 2;
+    if !title.is_empty() {
         font.draw(
             canvas,
             width,
             height,
-            panel.x + panel.w - pad - 14 - hint_w,
+            text_x,
+            title_y,
+            title.as_str(),
+            ui.title_font_size,
+            colors.text,
+        );
+    }
+    if let Some(subtitle) = subtitle.as_deref().filter(|subtitle| !subtitle.is_empty()) {
+        font.draw(
+            canvas,
+            width,
+            height,
+            text_x,
+            title_y + title_h + 7,
+            subtitle,
+            ui.subtitle_font_size,
+            colors.subtext,
+        );
+    }
+    if let Some((hint, (_, hint_h))) = hint_metrics {
+        font.draw(
+            canvas,
+            width,
+            height,
+            hint_x,
             y + (ui.row_height - hint_h) / 2,
             hint,
             ui.hint_font_size,
@@ -736,48 +916,21 @@ fn draw_result_icon(
     canvas: &mut [u8],
     width: u32,
     height: u32,
-    font: &FontRenderer,
     icon_cache: &mut IconCache,
     config: &LensConfig,
     result: &LensResult,
     x: i32,
     y: i32,
 ) {
-    let colors = Palette::from_config(config);
+    // Only render a resolvable raster icon; results without an icon render nothing (no
+    // placeholder glyph).
     let size = config.icon_size as i32;
     if config.icons
         && let Some(name) = result.icon_name.as_deref()
         && let Some(raster) = icon_cache.load(name)
     {
         draw_raster(canvas, width, height, raster, x, y, size, size);
-        return;
     }
-
-    let glyph = match result.kind {
-        LensResultKind::App => "▣",
-        LensResultKind::Cluster | LensResultKind::CreateCluster => "◈",
-        LensResultKind::Node => {
-            if result.is_field_pinned {
-                "⌖"
-            } else {
-                "●"
-            }
-        }
-        LensResultKind::Action => "⚙",
-        LensResultKind::Config => "◇",
-    };
-    let font_size = (config.icon_size + 2).clamp(16, 48);
-    let (gw, gh) = font.measure(glyph, font_size);
-    font.draw(
-        canvas,
-        width,
-        height,
-        x + (size - gw) / 2,
-        y + (size - gh) / 2,
-        glyph,
-        font_size,
-        colors.accent,
-    );
 }
 
 fn draw_footer(
@@ -806,10 +959,10 @@ fn draw_footer(
             colors.danger,
         );
     }
-    let create_hint = if view.draft.app_ids.is_empty() {
+    let create_hint = if view.draft.count() == 0 {
         "Ctrl+Enter Create"
     } else {
-        "Ctrl+Enter Launch apps & finalize draft"
+        "Ctrl+Enter Finalize draft"
     };
     let footer = format!("Enter Open    Space Select    Tab Actions    {create_hint}    Esc Close");
     let (_, footer_h) = font.measure(&footer, ui.hint_font_size);
@@ -892,55 +1045,48 @@ fn fill_rounded_rect_corners(
     let y0 = y.max(0);
     let x1 = (x + w).min(width as i32);
     let y1 = (y + h).min(height as i32);
-    let r = radius.min(w / 2).min(h / 2).max(0);
-    let r2 = r * r;
+    let r = radius.min(w / 2).min(h / 2).max(0) as f32;
+    // Arc centres for each rounded corner (in pixel space).
+    let left_c = x as f32 + r;
+    let right_c = (x + w) as f32 - r;
+    let top_c = y as f32 + r;
+    let bottom_c = (y + h) as f32 - r;
     let (top_left, top_right, bottom_right, bottom_left) = corners;
     for py in y0..y1 {
         for px in x0..x1 {
-            let left_corner = px < x + r;
-            let right_corner = px >= x + w - r;
-            let top_corner = py < y + r;
-            let bottom_corner = py >= y + h - r;
-            let rounded = if left_corner && top_corner {
-                top_left
-            } else if right_corner && top_corner {
-                top_right
-            } else if right_corner && bottom_corner {
-                bottom_right
-            } else if left_corner && bottom_corner {
-                bottom_left
+            // Sample at the pixel centre for sub-pixel coverage.
+            let cx = px as f32 + 0.5;
+            let cy = py as f32 + 0.5;
+            let left = cx < left_c;
+            let right = cx > right_c;
+            let top = cy < top_c;
+            let bottom = cy > bottom_c;
+            let (arc, rounded) = if left && top {
+                ((left_c, top_c), top_left)
+            } else if right && top {
+                ((right_c, top_c), top_right)
+            } else if right && bottom {
+                ((right_c, bottom_c), bottom_right)
+            } else if left && bottom {
+                ((left_c, bottom_c), bottom_left)
             } else {
-                false
+                ((0.0, 0.0), false)
             };
-            if !rounded {
-                blend(
-                    canvas,
-                    ((py as u32 * width + px as u32) * 4) as usize,
-                    color,
-                );
+            // Straight interior, or a square (non-rounded) corner: full coverage.
+            let coverage = if !rounded {
+                1.0
+            } else {
+                let dist = ((cx - arc.0).powi(2) + (cy - arc.1).powi(2)).sqrt();
+                (r + 0.5 - dist).clamp(0.0, 1.0)
+            };
+            if coverage <= 0.0 {
                 continue;
             }
-            let dx = if left_corner {
-                x + r - px
-            } else if right_corner {
-                px - (x + w - r - 1)
-            } else {
-                0
-            };
-            let dy = if top_corner {
-                y + r - py
-            } else if bottom_corner {
-                py - (y + h - r - 1)
-            } else {
-                0
-            };
-            if dx > 0 && dy > 0 && dx * dx + dy * dy > r2 {
-                continue;
-            }
-            blend(
+            blend_coverage(
                 canvas,
                 ((py as u32 * width + px as u32) * 4) as usize,
                 color,
+                coverage,
             );
         }
     }
@@ -979,6 +1125,12 @@ fn draw_raster(
             );
         }
     }
+}
+
+/// Source-over blend with the source alpha scaled by `coverage` (0..1) for anti-aliased edges.
+fn blend_coverage(canvas: &mut [u8], offset: usize, color: Color, coverage: f32) {
+    let Color(r, g, b, a) = color;
+    blend(canvas, offset, Color(r, g, b, a * coverage.clamp(0.0, 1.0)));
 }
 
 fn blend(canvas: &mut [u8], offset: usize, color: Color) {
@@ -1061,11 +1213,15 @@ fn themed_icon_root(root: PathBuf, config: &LensConfig) -> Option<PathBuf> {
     themed.is_dir().then_some(themed)
 }
 
-fn build_icon_index(config: &LensConfig) -> HashMap<String, IconIndexEntry> {
+fn build_icon_index(
+    roots: &[PathBuf],
+    search_depth: usize,
+    target_size: u32,
+) -> HashMap<String, IconIndexEntry> {
     let mut index = HashMap::<String, IconIndexEntry>::new();
-    for root in icon_roots(config) {
-        walk_files(root.as_path(), config.icon_search_depth, &mut |path| {
-            let Some((key, score)) = icon_index_candidate(path, config.icon_size) else {
+    for root in roots {
+        walk_icon_files(root.as_path(), search_depth, &mut |path| {
+            let Some((key, score)) = icon_index_candidate(path, target_size) else {
                 return;
             };
             let entry = IconIndexEntry {
@@ -1087,11 +1243,126 @@ fn build_icon_index(config: &LensConfig) -> HashMap<String, IconIndexEntry> {
 fn icon_index_candidate(path: &Path, target_size: u32) -> Option<(String, i32)> {
     let stem = path.file_stem()?.to_str()?.to_ascii_lowercase();
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    if !matches!(ext.as_str(), "svg" | "png" | "jpg" | "jpeg") {
+        return None;
+    }
+    Some((stem, icon_path_score(path, target_size)))
+}
+
+fn walk_icon_files(dir: &Path, depth: usize, f: &mut impl FnMut(&Path)) {
+    if depth == 0 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_icon_files(path.as_path(), depth - 1, f);
+        } else {
+            f(path.as_path());
+        }
+    }
+}
+
+fn find_direct_icon(
+    roots: &[PathBuf],
+    candidates: &[String],
+    target_size: u32,
+    search_depth: usize,
+) -> Option<PathBuf> {
+    let mut best: Option<(i32, PathBuf)> = None;
+    for root in roots {
+        for lookup_root in direct_icon_roots(root.as_path(), search_depth) {
+            for candidate in candidates {
+                for path in direct_icon_candidates(lookup_root.as_path(), candidate, target_size) {
+                    if !path.is_file() {
+                        continue;
+                    }
+                    let score = icon_path_score(path.as_path(), target_size);
+                    let replace = best.as_ref().is_none_or(|(best_score, best_path)| {
+                        score < *best_score || (score == *best_score && path < *best_path)
+                    });
+                    if replace {
+                        best = Some((score, path));
+                    }
+                }
+            }
+        }
+    }
+    best.map(|(_, path)| path)
+}
+
+fn direct_icon_roots(root: &Path, search_depth: usize) -> Vec<PathBuf> {
+    let mut roots = vec![root.to_path_buf()];
+    if search_depth <= 1 {
+        return roots;
+    }
+    let Ok(entries) = fs::read_dir(root) else {
+        return roots;
+    };
+    roots.extend(
+        entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir()),
+    );
+    roots
+}
+
+fn direct_icon_candidates(root: &Path, name: &str, target_size: u32) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let filenames = icon_filenames(name);
+    let size_dir = format!("{}x{}", target_size, target_size);
+    let dirs = [
+        root.to_path_buf(),
+        root.join("apps"),
+        root.join("scalable"),
+        root.join("scalable/apps"),
+        root.join(size_dir.as_str()),
+        root.join(format!("{size_dir}/apps")),
+        root.join("48x48/apps"),
+        root.join("64x64/apps"),
+        root.join("128x128/apps"),
+        root.join("256x256/apps"),
+        root.join("hicolor/scalable/apps"),
+        root.join(format!("hicolor/{size_dir}/apps")),
+        root.join("hicolor/48x48/apps"),
+        root.join("hicolor/64x64/apps"),
+        root.join("hicolor/128x128/apps"),
+        root.join("hicolor/256x256/apps"),
+    ];
+    for dir in dirs {
+        for filename in &filenames {
+            paths.push(dir.join(filename));
+        }
+    }
+    paths
+}
+
+fn icon_filenames(name: &str) -> Vec<String> {
+    let path = Path::new(name);
+    if path.extension().is_some() {
+        return vec![name.to_string()];
+    }
+    ["svg", "png", "jpg", "jpeg"]
+        .into_iter()
+        .map(|ext| format!("{name}.{ext}"))
+        .collect()
+}
+
+fn icon_path_score(path: &Path, target_size: u32) -> i32 {
+    let ext = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     let format_score = match ext.as_str() {
         "svg" => 0,
         "png" => 20,
         "jpg" | "jpeg" => 40,
-        _ => return None,
+        _ => 80,
     };
     let size_score = icon_size_hint(path)
         .map(|size| (size as i32 - target_size as i32).abs())
@@ -1101,7 +1372,7 @@ fn icon_index_candidate(path: &Path, target_size: u32) -> Option<(String, i32)> 
     } else {
         0
     };
-    Some((stem, format_score + size_score + theme_score))
+    format_score + size_score + theme_score
 }
 
 fn icon_size_hint(path: &Path) -> Option<u32> {
@@ -1117,23 +1388,6 @@ fn icon_size_hint(path: &Path) -> Option<u32> {
         }
     }
     None
-}
-
-fn walk_files(dir: &Path, depth: usize, f: &mut impl FnMut(&Path)) {
-    if depth == 0 {
-        return;
-    }
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk_files(path.as_path(), depth - 1, f);
-        } else {
-            f(path.as_path());
-        }
-    }
 }
 
 fn load_icon(path: &Path, target_size: u32) -> Option<IconRaster> {
@@ -1170,11 +1424,10 @@ fn normalize_icon_canvas(source: RgbaImage, target_size: u32) -> RgbaImage {
 
 fn load_svg_icon(path: &Path, target_size: u32) -> Option<IconRaster> {
     let target_size = target_size.max(1);
-    let mut options = usvg::Options {
+    let options = usvg::Options {
         resources_dir: path.parent().map(Path::to_path_buf),
         ..usvg::Options::default()
     };
-    options.fontdb_mut().load_system_fonts();
     let data = fs::read(path).ok()?;
     let tree = usvg::Tree::from_data(&data, &options).ok()?;
     let svg_size = tree.size().to_int_size();

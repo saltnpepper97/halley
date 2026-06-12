@@ -241,12 +241,6 @@ impl<T: Deref<Target = Halley>> SpawnRevealController<T> {
             + SPAWN_CONTACT_MARGIN
     }
 
-    #[cfg(test)]
-    pub(crate) fn spawn_star_step(&self, size: Vec2) -> f32 {
-        self.spawn_star_step_x(size)
-            .max(self.spawn_star_step_y(size))
-    }
-
     pub(crate) fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
         let step_x = self.spawn_star_step_x(size);
         let step_y = self.spawn_star_step_y(size);

@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Add `HALLEY_WL_PERF`-gated slow-frame and cluster-workspace entry timing logs for diagnosing render hitches without hot-path timestamp overhead when disabled.
 - Add a `debug:` config section with `overlay-fps` and `show-ring-when-resizing` toggles, including a legible top-left FPS HUD and control over focus-ring config-change previews.
 - Add Halley Lens, a standalone command palette for apps, nodes, clusters, actions, and config search, with slash modes, configurable UI, and cluster draft handoff support.
+- Add a Halley Lens `terminal` config key for launching `.desktop` apps that require a terminal.
 - Add first-class Gamescope integration through a top-level `gamescope:` config section, including global defaults, repeated per-game profiles, and per-game opt-outs, wired through `halleyctl gamescope run -- <command>` for use in Steam launch options.
 - Add automatic Gamescope resolution selection from the selected Halley viewport (`monitor` selector `focused`/`cursor`/`primary`/connector), so matching games launch with monitor-sized output and game dimensions by default.
 - Add clear diagnostics when Gamescope is enabled but the `gamescope` binary is unavailable, falling back to launching the game unwrapped instead of blocking it.
@@ -42,6 +43,8 @@ All notable changes to this project will be documented in this file.
 - Archive the experimental rail app and remove its public IPC surface ahead of Lens work.
 
 ### Fixed
+- Make Halley Lens startup and general search responsive by removing synchronous icon indexing, caching live IPC snapshots outside keystroke search, and precomputing app search text.
+- Restore broader Halley Lens icon coverage with background indexing, support live provider prefixes such as `action open` without badges, show all apps for an empty Apps search, keep cluster draft staging explicit to `cluster`/`/cluster` searches, and ellipsize overlong search text from the left so the latest input remains visible.
 - Avoid spatial-camera input remapping for Gamescope-managed pointer surfaces (config-gated via `gamescope.bypass-spatial-camera`) so the nested game receives a 1:1 pointer mapping while normal output and buffer scale handling are preserved.
 - Avoid auto-creating `~/.config/halley/halley.rune` when `/etc/halley/halley.rune` exists, preventing system configs from being shadowed on first startup.
 - Treat empty or whitespace-only `HALLEY_WL_CONFIG` as unset.

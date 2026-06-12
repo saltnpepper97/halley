@@ -9,38 +9,35 @@ pub enum LensMode {
     Config,
 }
 
-impl LensMode {
-    pub fn label(self) -> Option<&'static str> {
-        match self {
-            Self::General => None,
-            Self::Apps => Some("Apps"),
-            Self::Clusters => Some("Clusters"),
-            Self::Nodes => Some("Nodes"),
-            Self::Actions => Some("Actions"),
-            Self::Config => Some("Config"),
-        }
-    }
-}
-
-pub fn mode_from_token(token: &str) -> Option<LensMode> {
+fn prefix_mode_from_token(token: &str) -> Option<LensMode> {
     match token.trim().to_ascii_lowercase().as_str() {
-        "/app" | "/apps" | "/a" => Some(LensMode::Apps),
-        "/cluster" | "/clusters" | "/c" => Some(LensMode::Clusters),
-        "/node" | "/nodes" | "/n" => Some(LensMode::Nodes),
-        "/action" | "/actions" => Some(LensMode::Actions),
-        "/config" => Some(LensMode::Config),
+        "app" | "apps" | "/app" | "/apps" | "/a" => Some(LensMode::Apps),
+        "cluster" | "clusters" | "/cluster" | "/clusters" | "/c" => Some(LensMode::Clusters),
+        "node" | "nodes" | "/node" | "/nodes" | "/n" => Some(LensMode::Nodes),
+        "action" | "actions" | "/action" | "/actions" => Some(LensMode::Actions),
+        "config" | "/config" => Some(LensMode::Config),
         _ => None,
     }
 }
 
 pub fn parse_initial_mode(raw: &str) -> (LensMode, String) {
-    let trimmed = raw.trim_start();
+    (LensMode::General, raw.trim().to_string())
+}
+
+pub fn effective_mode_query(mode: LensMode, query: &str) -> (LensMode, String) {
+    if mode != LensMode::General {
+        return (mode, query.trim().to_string());
+    }
+    let trimmed = query.trim_start();
     let Some((token, rest)) = trimmed.split_once(char::is_whitespace) else {
-        return (LensMode::General, raw.trim().to_string());
+        return match prefix_mode_from_token(trimmed) {
+            Some(mode) => (mode, String::new()),
+            None => (LensMode::General, query.trim().to_string()),
+        };
     };
-    match mode_from_token(token) {
+    match prefix_mode_from_token(token) {
         Some(mode) => (mode, rest.trim_start().to_string()),
-        None => (LensMode::General, raw.trim().to_string()),
+        None => (LensMode::General, query.trim().to_string()),
     }
 }
 
@@ -65,13 +62,6 @@ impl ModeInputState {
 
     pub fn insert_text(&mut self, text: &str) {
         self.query.push_str(text);
-        if self.query.starts_with('/')
-            && let Some((token, rest)) = self.query.split_once(char::is_whitespace)
-            && let Some(mode) = mode_from_token(token)
-        {
-            self.mode = mode;
-            self.query = rest.trim_start().to_string();
-        }
     }
 }
 
@@ -83,14 +73,18 @@ mod tests {
     fn parses_required_modes() {
         let cases = [
             ("release", LensMode::General, "release"),
-            ("/cluster release", LensMode::Clusters, "release"),
-            ("/clusters release", LensMode::Clusters, "release"),
-            ("/c release", LensMode::Clusters, "release"),
-            ("/node systemd", LensMode::Nodes, "systemd"),
-            ("/n systemd", LensMode::Nodes, "systemd"),
-            ("/app firefox", LensMode::Apps, "firefox"),
-            ("/a firefox", LensMode::Apps, "firefox"),
-            ("/config lens", LensMode::Config, "lens"),
+            ("/cluster release", LensMode::General, "/cluster release"),
+            ("/clusters release", LensMode::General, "/clusters release"),
+            ("/c release", LensMode::General, "/c release"),
+            ("/node systemd", LensMode::General, "/node systemd"),
+            ("/n systemd", LensMode::General, "/n systemd"),
+            ("/app firefox", LensMode::General, "/app firefox"),
+            ("/app", LensMode::General, "/app"),
+            ("/a firefox", LensMode::General, "/a firefox"),
+            ("/a", LensMode::General, "/a"),
+            ("/c", LensMode::General, "/c"),
+            ("/n", LensMode::General, "/n"),
+            ("/config lens", LensMode::General, "/config lens"),
         ];
         for (raw, mode, query) in cases {
             assert_eq!(parse_initial_mode(raw), (mode, query.to_string()));
@@ -125,8 +119,19 @@ mod tests {
             query: String::new(),
         };
         state.insert_text("/app firefox");
-        assert_eq!(state.mode, LensMode::Apps);
-        assert_eq!(state.query, "firefox");
+        assert_eq!(state.mode, LensMode::Nodes);
+        assert_eq!(state.query, "/app firefox");
+    }
+
+    #[test]
+    fn effective_query_detects_mode_prefixes() {
+        let mut state = ModeInputState::default();
+        state.insert_text("action open");
+        assert_eq!(state.mode, LensMode::General);
+        assert_eq!(
+            effective_mode_query(state.mode, state.query.as_str()),
+            (LensMode::Actions, "open".into())
+        );
     }
 
     #[test]

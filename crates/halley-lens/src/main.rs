@@ -4,10 +4,12 @@ mod model;
 mod providers;
 mod ui;
 
+use std::time::{Duration, Instant};
+
 use calloop::{EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
 use config::{LensConfig, default_config_path};
-use mode::{LensMode, ModeInputState, parse_initial_mode};
+use mode::{LensMode, ModeInputState, effective_mode_query, parse_initial_mode};
 use model::{ClusterDraft, LensAction, LensResult, LensResultKind};
 use providers::{ProviderIndex, SearchContext, activate_result, materialize_cluster_draft};
 use smithay_client_toolkit::{
@@ -51,13 +53,22 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
+    let start = Instant::now();
     let config_path = default_config_path();
     let config = LensConfig::load(config_path.as_path())?;
+    perf_elapsed("config load", start);
     let initial_raw = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
     let (initial_mode, initial_query) = parse_initial_mode(initial_raw.as_str());
-    let font = FontRenderer::new(config.ui.font.as_str())?;
-    let index = ProviderIndex::load();
 
+    let start = Instant::now();
+    let font = FontRenderer::new(config.ui.font.as_str())?;
+    perf_elapsed("font load", start);
+
+    let start = Instant::now();
+    let index = ProviderIndex::load(&config);
+    perf_elapsed("desktop app index", start);
+
+    let start = Instant::now();
     let conn = Connection::connect_to_env().map_err(|err| format!("wayland connect: {err}"))?;
     let (globals, event_queue) =
         registry_queue_init(&conn).map_err(|err| format!("registry init: {err}"))?;
@@ -68,6 +79,8 @@ fn run() -> Result<(), String> {
     let layer_shell =
         LayerShell::bind(&globals, &qh).map_err(|err| format!("bind layer shell: {err}"))?;
     let shm = Shm::bind(&globals, &qh).map_err(|err| format!("bind shm: {err}"))?;
+    perf_elapsed("wayland init", start);
+
     let surface = compositor.create_surface(&qh);
     let layer =
         layer_shell.create_layer_surface(&qh, surface, Layer::Overlay, Some(NAMESPACE), None);
@@ -81,7 +94,10 @@ fn run() -> Result<(), String> {
     layer.commit();
     let pool = SlotPool::new((width * height * 4) as usize, &shm)
         .map_err(|err| format!("slot pool: {err}"))?;
+
+    let start = Instant::now();
     let icon_cache = IconCache::new(&config);
+    perf_elapsed("icon cache init", start);
 
     let mut event_loop: EventLoop<'static, LensApp> =
         EventLoop::try_new().map_err(|err| format!("event loop: {err}"))?;
@@ -105,6 +121,7 @@ fn run() -> Result<(), String> {
         keyboard_focused: false,
         had_keyboard_focus: false,
         configured: false,
+        prefetched_live: false,
         needs_redraw: false,
         width,
         height,
@@ -123,16 +140,32 @@ fn run() -> Result<(), String> {
         modifiers: Modifiers::default(),
         status: None,
     };
-    app.refresh_results();
+    if app.input.mode != LensMode::General || !app.input.query.trim().is_empty() {
+        app.refresh_results();
+    } else {
+        perf(format_args!("skip hidden empty-startup search"));
+    }
 
     while !app.exit {
-        if let Err(err) = event_loop.dispatch(None, &mut app) {
+        let timeout = app.background_poll_interval();
+        if let Err(err) = event_loop.dispatch(timeout, &mut app) {
             app.debug(format_args!("event dispatch error: {err}"));
             return Err(format!("event dispatch: {err}"));
         }
+        app.poll_background_jobs();
         app.flush_redraw();
     }
     Ok(())
+}
+
+fn perf(args: std::fmt::Arguments<'_>) {
+    if std::env::var_os("HALLEY_LENS_PERF").is_some() {
+        eprintln!("halley-lens perf: {args}");
+    }
+}
+
+fn perf_elapsed(label: &str, start: Instant) {
+    perf(format_args!("{label}: {:.2?}", start.elapsed()));
 }
 
 fn keyboard_interactivity(config: &LensConfig) -> KeyboardInteractivity {
@@ -199,6 +232,7 @@ struct LensApp {
     keyboard_focused: bool,
     had_keyboard_focus: bool,
     configured: bool,
+    prefetched_live: bool,
     needs_redraw: bool,
     width: u32,
     height: u32,
@@ -217,31 +251,66 @@ struct LensApp {
 
 impl LensApp {
     fn refresh_results(&mut self) {
-        if self.input.mode == LensMode::Clusters {
-            let hint = self.input.query.trim();
+        let start = Instant::now();
+        let (mode, query) = self.effective_search();
+        if mode == LensMode::Clusters {
+            let hint = query.trim();
             self.draft.name_hint = (!hint.is_empty()).then(|| hint.to_string());
         }
+        self.ensure_live_snapshot();
         let ctx = SearchContext {
-            mode: self.input.mode,
-            query: self.input.query.clone(),
+            mode,
+            query: query.clone(),
+            query_lower: query.trim().to_ascii_lowercase(),
             max_results: self.config.max_results,
+            draft_count: self.draft.count(),
         };
         self.results = self.index.search(&ctx);
         if self.selected >= self.results.len() {
             self.selected = self.results.len().saturating_sub(1);
         }
+        perf(format_args!(
+            "search mode={:?} query_len={} results={} elapsed={:.2?}",
+            mode,
+            query.len(),
+            self.results.len(),
+            start.elapsed()
+        ));
+    }
+
+    fn effective_search(&self) -> (LensMode, String) {
+        effective_mode_query(self.input.mode, self.input.query.as_str())
+    }
+
+    fn ensure_live_snapshot(&mut self) {
+        if !self.live_results_needed() || !self.index.needs_live_refresh() {
+            return;
+        }
+        let start = Instant::now();
+        self.index.start_live_refresh();
+        perf(format_args!(
+            "live ipc refresh started elapsed={:.2?}",
+            start.elapsed()
+        ));
+    }
+
+    fn live_results_needed(&self) -> bool {
+        let (mode, _) = self.effective_search();
+        matches!(mode, LensMode::Nodes | LensMode::Clusters)
     }
 
     fn draw(&mut self) -> Result<(), String> {
         if !self.configured {
             return Ok(());
         }
+        let start = Instant::now();
         let stride = self.width as i32 * 4;
         self.debug(format_args!(
             "draw size={}x{} stride={}",
             self.width, self.height, stride
         ));
         let scroll_offset = self.scroll_offset();
+        let (mode, _) = self.effective_search();
         let (buffer, canvas) = self
             .pool
             .create_buffer(
@@ -260,6 +329,7 @@ impl LensApp {
             View {
                 config: &self.config,
                 input: &self.input,
+                mode,
                 results: &self.results,
                 selected: self.selected,
                 scroll_offset,
@@ -274,6 +344,7 @@ impl LensApp {
             .attach_to(self.layer.wl_surface())
             .map_err(|err| format!("attach buffer: {err}"))?;
         self.layer.commit();
+        perf_elapsed("draw", start);
         Ok(())
     }
 
@@ -304,6 +375,59 @@ impl LensApp {
         }
         self.needs_redraw = false;
         self.redraw();
+        self.prefetch_live_after_first_draw();
+        self.index_icons_after_first_draw();
+    }
+
+    fn prefetch_live_after_first_draw(&mut self) {
+        if self.prefetched_live || !self.index.needs_live_refresh() {
+            return;
+        }
+        self.prefetched_live = true;
+        let start = Instant::now();
+        self.index.start_live_refresh();
+        perf(format_args!(
+            "live ipc prefetch started elapsed={:.2?}",
+            start.elapsed()
+        ));
+    }
+
+    fn index_icons_after_first_draw(&mut self) {
+        if self.icon_cache.needs_index() {
+            self.icon_cache.start_index();
+            perf(format_args!("icon index started"));
+        }
+        self.poll_icon_index();
+    }
+
+    fn poll_background_jobs(&mut self) {
+        self.poll_live_refresh();
+        self.poll_icon_index();
+    }
+
+    fn poll_live_refresh(&mut self) {
+        if let Some((nodes, clusters)) = self.index.finish_live_refresh_if_ready() {
+            perf(format_args!(
+                "live ipc prefetch ready nodes={} clusters={}",
+                nodes, clusters
+            ));
+            let (mode, query) = self.effective_search();
+            if matches!(
+                mode,
+                LensMode::General | LensMode::Nodes | LensMode::Clusters
+            ) && !query.trim().is_empty()
+            {
+                self.refresh_results();
+                self.mark_redraw();
+            }
+        }
+    }
+
+    fn poll_icon_index(&mut self) {
+        if let Some(count) = self.icon_cache.finish_index_if_ready() {
+            perf(format_args!("icon index entries={count} ready"));
+            self.mark_redraw();
+        }
     }
 
     fn desired_surface_height(&self) -> u32 {
@@ -352,6 +476,7 @@ impl LensApp {
         View {
             config: &self.config,
             input: &self.input,
+            mode: self.effective_search().0,
             results: &self.results,
             selected: self.selected,
             scroll_offset: self.scroll_offset(),
@@ -361,15 +486,13 @@ impl LensApp {
     }
 
     fn toggle_selected(&mut self) {
-        if self.input.mode != LensMode::Clusters {
-            return;
-        }
         let Some(result) = self.selected_result().cloned() else {
             return;
         };
         if matches!(result.kind, LensResultKind::App | LensResultKind::Node) {
             self.draft.toggle_result(&result);
             self.status = None;
+            self.refresh_results();
         }
     }
 
@@ -377,14 +500,14 @@ impl LensApp {
         let Some(result) = self.selected_result().cloned() else {
             return;
         };
-        if self.input.mode == LensMode::Clusters {
-            if matches!(result.action, LensAction::CreateCluster) {
-                self.materialize_draft();
-                return;
-            }
+        if matches!(result.action, LensAction::CreateCluster) {
+            self.materialize_draft();
+            return;
+        }
+        let (mode, _) = self.effective_search();
+        if mode == LensMode::Clusters {
             if matches!(result.kind, LensResultKind::App | LensResultKind::Node) {
-                self.draft.toggle_result(&result);
-                self.status = None;
+                self.toggle_selected();
                 return;
             }
         }
@@ -395,7 +518,16 @@ impl LensApp {
     }
 
     fn materialize_draft(&mut self) {
-        match materialize_cluster_draft(&self.index, &self.draft, self.input.query.as_str()) {
+        let (mode, query) = self.effective_search();
+        if mode != LensMode::Clusters {
+            self.status = Some("Use cluster search before finalizing a draft".into());
+            return;
+        }
+        if self.draft.count() == 0 {
+            self.status = Some("Select apps or nodes with Space before finalizing".into());
+            return;
+        }
+        match materialize_cluster_draft(&self.index, &self.draft, query.as_str()) {
             Ok(()) => self.exit("cluster-draft"),
             Err(err) => self.status = Some(err),
         }
@@ -412,13 +544,32 @@ impl LensApp {
         }
     }
 
+    fn background_poll_interval(&self) -> Option<Duration> {
+        self.has_background_jobs()
+            .then_some(Duration::from_millis(16))
+    }
+
+    fn has_background_jobs(&self) -> bool {
+        self.index.has_pending_live_refresh() || self.icon_cache.has_pending_index()
+    }
+
     fn handle_text(&mut self, text: &str) {
-        if text == " " && self.input.mode == LensMode::Clusters {
+        let (mode, query) = self.effective_search();
+        if text == " "
+            && mode == LensMode::Clusters
+            && !query.trim().is_empty()
+            && self.selected_is_stageable()
+        {
             self.toggle_selected();
             return;
         }
         self.input.insert_text(text);
         self.refresh_results();
+    }
+
+    fn selected_is_stageable(&self) -> bool {
+        self.selected_result()
+            .is_some_and(|result| matches!(result.kind, LensResultKind::App | LensResultKind::Node))
     }
 
     fn handle_key(&mut self, event: KeyEvent) {
@@ -442,7 +593,12 @@ impl LensApp {
             Keysym::Home => self.jump_to_edge(false),
             Keysym::End => self.jump_to_edge(true),
             Keysym::Tab => {
-                self.input.mode = LensMode::Actions;
+                if self.input.query.trim().is_empty() {
+                    self.input.query = "action ".into();
+                } else {
+                    self.input.query = format!("action {}", self.input.query.trim_start());
+                }
+                self.input.mode = LensMode::General;
                 self.refresh_results();
             }
             Keysym::BackSpace => {

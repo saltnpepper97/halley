@@ -2,13 +2,15 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
 
 use halley_api::{
     ApiError, ClusterDraftRequest, ClusterDraftSource, ClusterRequest, ClusterTarget,
     CompositorRequest, NodeKind, NodeRequest, NodeSelector, Request, Response,
 };
 
-use crate::config::default_config_path;
+use crate::config::{LensConfig, default_config_path};
 use crate::mode::LensMode;
 use crate::model::{ClusterDraft, LensAction, LensResult, LensResultKind, mode_allows};
 
@@ -16,12 +18,19 @@ use crate::model::{ClusterDraft, LensAction, LensResult, LensResultKind, mode_al
 pub struct SearchContext {
     pub mode: LensMode,
     pub query: String,
+    pub query_lower: String,
     pub max_results: usize,
+    pub draft_count: usize,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct ProviderIndex {
     apps: Vec<DesktopApp>,
+    nodes: Vec<CachedNode>,
+    clusters: Vec<CachedCluster>,
+    live_loaded: bool,
+    live_rx: Option<Receiver<(Vec<CachedNode>, Vec<CachedCluster>)>>,
+    terminal: String,
 }
 
 #[derive(Clone, Debug)]
@@ -30,16 +39,70 @@ pub struct DesktopApp {
     pub name: String,
     pub comment: Option<String>,
     pub icon_name: Option<String>,
-    pub startup_wm_class: Option<String>,
     pub exec: String,
     pub terminal: bool,
+    search_text: String,
+}
+
+#[derive(Clone, Debug)]
+struct CachedNode {
+    id: u64,
+    title: String,
+    subtitle: String,
+    app_id: String,
+    search_text: String,
+    pinned: bool,
+}
+
+#[derive(Clone, Debug)]
+struct CachedCluster {
+    id: u64,
+    title: String,
+    subtitle: String,
+    search_text: String,
 }
 
 impl ProviderIndex {
-    pub fn load() -> Self {
+    pub fn load(config: &LensConfig) -> Self {
         Self {
             apps: load_desktop_apps(),
+            nodes: Vec::new(),
+            clusters: Vec::new(),
+            live_loaded: false,
+            live_rx: None,
+            terminal: config.terminal.trim().to_string(),
         }
+    }
+
+    pub fn needs_live_refresh(&self) -> bool {
+        !self.live_loaded && self.live_rx.is_none()
+    }
+
+    pub fn has_pending_live_refresh(&self) -> bool {
+        self.live_rx.is_some()
+    }
+
+    pub fn start_live_refresh(&mut self) {
+        if !self.needs_live_refresh() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send((load_nodes(), load_clusters()));
+        });
+        self.live_rx = Some(rx);
+    }
+
+    pub fn finish_live_refresh_if_ready(&mut self) -> Option<(usize, usize)> {
+        let rx = self.live_rx.as_ref()?;
+        let Ok((nodes, clusters)) = rx.try_recv() else {
+            return None;
+        };
+        self.nodes = nodes;
+        self.clusters = clusters;
+        self.live_loaded = true;
+        self.live_rx = None;
+        Some((self.nodes.len(), self.clusters.len()))
     }
 
     pub fn search(&self, ctx: &SearchContext) -> Vec<LensResult> {
@@ -54,10 +117,10 @@ impl ProviderIndex {
             ctx.mode,
             LensMode::General | LensMode::Nodes | LensMode::Clusters
         ) {
-            results.extend(search_nodes(ctx));
+            results.extend(self.search_nodes(ctx));
         }
         if matches!(ctx.mode, LensMode::General | LensMode::Clusters) {
-            results.extend(search_clusters(ctx));
+            results.extend(self.search_clusters(ctx));
         }
         if matches!(ctx.mode, LensMode::General | LensMode::Actions) {
             results.extend(search_actions(ctx));
@@ -66,7 +129,7 @@ impl ProviderIndex {
             results.extend(search_config(ctx));
         }
 
-        if ctx.mode == LensMode::Clusters {
+        if ctx.mode == LensMode::Clusters && ctx.draft_count > 0 {
             results.push(create_cluster_result(ctx.query.as_str()));
         }
 
@@ -78,8 +141,13 @@ impl ProviderIndex {
                 .then_with(|| a.section.cmp(&b.section))
                 .then_with(|| a.title.cmp(&b.title))
         });
-        if results.len() > ctx.max_results {
-            results.truncate(ctx.max_results);
+        let max_results = if ctx.mode == LensMode::Apps && ctx.query_lower.is_empty() {
+            usize::MAX
+        } else {
+            ctx.max_results
+        };
+        if results.len() > max_results {
+            results.truncate(max_results);
         }
         results
     }
@@ -88,14 +156,7 @@ impl ProviderIndex {
         self.apps
             .iter()
             .filter_map(|app| {
-                let haystack = format!(
-                    "{} {} {} {}",
-                    app.name,
-                    app.id,
-                    app.comment.as_deref().unwrap_or_default(),
-                    app.startup_wm_class.as_deref().unwrap_or_default()
-                );
-                let score = match_score(ctx.query.as_str(), haystack.as_str())?;
+                let score = match_score(ctx.query_lower.as_str(), app.search_text.as_str())?;
                 Some(LensResult {
                     section: if ctx.mode == LensMode::Clusters {
                         "Apps"
@@ -125,118 +186,142 @@ impl ProviderIndex {
             .collect()
     }
 
+    fn search_nodes(&self, ctx: &SearchContext) -> Vec<LensResult> {
+        self.nodes
+            .iter()
+            .filter_map(|node| {
+                let mut score = match_score(ctx.query_lower.as_str(), node.search_text.as_str())?;
+                if node.pinned {
+                    score += 1000.0;
+                }
+                Some(LensResult {
+                    section: if ctx.mode == LensMode::Clusters {
+                        "Running Nodes"
+                    } else {
+                        "Nodes"
+                    }
+                    .into(),
+                    title: node.title.clone(),
+                    subtitle: Some(node.subtitle.clone()),
+                    icon_name: None,
+                    kind: LensResultKind::Node,
+                    score,
+                    is_field_pinned: node.pinned,
+                    shortcut_hint: Some(
+                        if ctx.mode == LensMode::Clusters {
+                            "Space stage"
+                        } else {
+                            "Enter open"
+                        }
+                        .into(),
+                    ),
+                    action: LensAction::FocusNode { id: node.id },
+                })
+            })
+            .collect()
+    }
+
+    fn search_clusters(&self, ctx: &SearchContext) -> Vec<LensResult> {
+        self.clusters
+            .iter()
+            .filter_map(|cluster| {
+                let score = match_score(ctx.query_lower.as_str(), cluster.search_text.as_str())?;
+                Some(LensResult {
+                    section: "Existing Clusters".into(),
+                    title: cluster.title.clone(),
+                    subtitle: Some(cluster.subtitle.clone()),
+                    icon_name: None,
+                    kind: LensResultKind::Cluster,
+                    score: score + 20.0,
+                    is_field_pinned: false,
+                    shortcut_hint: Some("Enter open".into()),
+                    action: LensAction::OpenCluster { id: cluster.id },
+                })
+            })
+            .collect()
+    }
+
     pub fn launch_app(&self, app_id: &str) -> Result<(), String> {
         let app = self
             .apps
             .iter()
             .find(|app| app.id == app_id)
             .ok_or_else(|| format!("app `{app_id}` not found"))?;
-        launch_exec(app.exec.as_str(), app.terminal)
+        launch_exec(app.exec.as_str(), app.terminal, self.terminal.as_str())
     }
 
     pub fn app_is_running(&self, app_id: &str, nodes: &[u64]) -> bool {
         let _ = nodes;
+        if self.live_loaded {
+            return self
+                .nodes
+                .iter()
+                .any(|node| !node.app_id.is_empty() && app_id_matches(&node.app_id, app_id));
+        }
         running_app_ids()
             .iter()
             .any(|running| app_id_matches(running, app_id))
     }
 }
 
-fn search_nodes(ctx: &SearchContext) -> Vec<LensResult> {
+fn load_nodes() -> Vec<CachedNode> {
     let Ok(Response::NodeList(list)) =
         halley_ipc::send_request(&Request::Node(NodeRequest::List { output: None }))
     else {
         return Vec::new();
     };
-    let mut results = Vec::new();
+    let mut nodes = Vec::new();
     for group in list.outputs {
+        let output = group.output;
         for node in group.nodes {
             if node.kind != NodeKind::Surface || !node.visible {
                 continue;
             }
-            let haystack = format!(
-                "{} {} {}",
-                node.title,
-                node.app_id.as_deref().unwrap_or_default(),
-                group.output
-            );
-            let Some(mut score) = match_score(ctx.query.as_str(), haystack.as_str()) else {
-                continue;
+            let title = node.title;
+            let app_id = node.app_id.unwrap_or_default();
+            let app_label = if app_id.is_empty() {
+                "window"
+            } else {
+                app_id.as_str()
             };
-            if node.pinned {
-                score += 1000.0;
-            }
-            results.push(LensResult {
-                section: if ctx.mode == LensMode::Clusters {
-                    "Running Nodes"
-                } else {
-                    "Nodes"
-                }
-                .into(),
-                title: node.title,
-                subtitle: Some(format!(
-                    "{} on {}",
-                    node.app_id.unwrap_or_else(|| "window".into()),
-                    group.output
-                )),
-                icon_name: None,
-                kind: LensResultKind::Node,
-                score,
-                is_field_pinned: node.pinned,
-                shortcut_hint: Some(
-                    if ctx.mode == LensMode::Clusters {
-                        "Space stage"
-                    } else {
-                        "Enter open"
-                    }
-                    .into(),
-                ),
-                action: LensAction::FocusNode { id: node.id },
+            let search_text = format!("{title} {app_id} {output}").to_ascii_lowercase();
+            nodes.push(CachedNode {
+                id: node.id,
+                title,
+                subtitle: format!("{app_label} on {output}"),
+                app_id,
+                search_text,
+                pinned: node.pinned,
             });
         }
     }
-    results
+    nodes
 }
 
-fn search_clusters(ctx: &SearchContext) -> Vec<LensResult> {
+fn load_clusters() -> Vec<CachedCluster> {
     let Ok(Response::ClusterList(list)) =
         halley_ipc::send_request(&Request::Cluster(ClusterRequest::List { output: None }))
     else {
         return Vec::new();
     };
-    let mut results = Vec::new();
+    let mut clusters = Vec::new();
     for group in list.outputs {
+        let output = group.output;
         for cluster in group.clusters {
             let title = cluster
                 .name
-                .clone()
                 .unwrap_or_else(|| format!("Cluster {}", cluster.id));
-            let haystack = format!(
-                "{} {} {}",
+            let slot = cluster.slot.map(|s| s.to_string()).unwrap_or_default();
+            let search_text = format!("{title} {slot} {output}").to_ascii_lowercase();
+            clusters.push(CachedCluster {
+                id: cluster.id,
                 title,
-                cluster.slot.map(|s| s.to_string()).unwrap_or_default(),
-                group.output
-            );
-            let Some(score) = match_score(ctx.query.as_str(), haystack.as_str()) else {
-                continue;
-            };
-            results.push(LensResult {
-                section: "Existing Clusters".into(),
-                title,
-                subtitle: Some(format!(
-                    "{} members on {}",
-                    cluster.member_count, group.output
-                )),
-                icon_name: None,
-                kind: LensResultKind::Cluster,
-                score: score + 20.0,
-                is_field_pinned: false,
-                shortcut_hint: Some("Enter open".into()),
-                action: LensAction::OpenCluster { id: cluster.id },
+                subtitle: format!("{} members on {}", cluster.member_count, output),
+                search_text,
             });
         }
     }
-    results
+    clusters
 }
 
 fn create_cluster_result(query: &str) -> LensResult {
@@ -251,7 +336,7 @@ fn create_cluster_result(query: &str) -> LensResult {
         subtitle: Some("Open Cluster Finalize popup".into()),
         icon_name: None,
         kind: LensResultKind::CreateCluster,
-        score: 900.0,
+        score: 0.0,
         is_field_pinned: false,
         shortcut_hint: Some("Ctrl+Enter".into()),
         action: LensAction::CreateCluster,
@@ -278,7 +363,11 @@ fn search_actions(ctx: &SearchContext) -> Vec<LensResult> {
     actions
         .into_iter()
         .filter_map(|(_id, title, subtitle, action)| {
-            match_score(ctx.query.as_str(), title).map(|score| LensResult {
+            match_score(
+                ctx.query_lower.as_str(),
+                title.to_ascii_lowercase().as_str(),
+            )
+            .map(|score| LensResult {
                 section: "Actions".into(),
                 title: title.into(),
                 subtitle: Some(subtitle.into()),
@@ -295,7 +384,7 @@ fn search_actions(ctx: &SearchContext) -> Vec<LensResult> {
 
 fn search_config(ctx: &SearchContext) -> Vec<LensResult> {
     let path = default_config_path();
-    match_score(ctx.query.as_str(), "lens config").map_or_else(Vec::new, |score| {
+    match_score(ctx.query_lower.as_str(), "lens config").map_or_else(Vec::new, |score| {
         vec![LensResult {
             section: "Config".into(),
             title: "Lens config".into(),
@@ -330,9 +419,11 @@ pub fn activate_result(index: &ProviderIndex, result: &LensResult) -> Result<(),
         LensAction::ReloadConfig => expect_ok(halley_ipc::send_request(&Request::Compositor(
             CompositorRequest::Reload,
         ))),
-        LensAction::OpenPath { path } => {
-            launch_exec(format!("xdg-open {}", shell_quote(path)).as_str(), false)
-        }
+        LensAction::OpenPath { path } => launch_exec(
+            format!("xdg-open {}", shell_quote(path)).as_str(),
+            false,
+            index.terminal.as_str(),
+        ),
         LensAction::CreateCluster => Ok(()),
     }
 }
@@ -384,19 +475,17 @@ fn format_api_error(err: &ApiError) -> String {
     }
 }
 
-fn match_score(query: &str, haystack: &str) -> Option<f64> {
-    let query = query.trim().to_ascii_lowercase();
-    if query.is_empty() {
+fn match_score(query_lower: &str, haystack_lower: &str) -> Option<f64> {
+    if query_lower.is_empty() {
         return Some(1.0);
     }
-    let haystack = haystack.to_ascii_lowercase();
-    if haystack == query {
+    if haystack_lower == query_lower {
         return Some(300.0);
     }
-    if haystack.contains(&query) {
-        return Some(200.0 - haystack.find(&query).unwrap_or(0) as f64);
+    if haystack_lower.contains(query_lower) {
+        return Some(200.0 - haystack_lower.find(query_lower).unwrap_or(0) as f64);
     }
-    fuzzy_match(query.as_str(), haystack.as_str()).map(|score| 100.0 + score)
+    fuzzy_match(query_lower, haystack_lower).map(|score| 100.0 + score)
 }
 
 fn fuzzy_match(query: &str, haystack: &str) -> Option<f64> {
@@ -478,17 +567,27 @@ fn parse_desktop_app(path: &Path) -> Option<DesktopApp> {
         return None;
     }
     let id = path.file_stem()?.to_string_lossy().into_owned();
+    let name = name?;
+    let exec = exec?;
+    let search_text = format!(
+        "{} {} {} {}",
+        name,
+        id,
+        comment.as_deref().unwrap_or_default(),
+        startup_wm_class.as_deref().unwrap_or_default()
+    )
+    .to_ascii_lowercase();
     let icon_name = icon_name
         .or_else(|| startup_wm_class.clone())
         .or_else(|| Some(id.clone()));
     Some(DesktopApp {
         id,
-        name: name?,
+        name,
         comment,
         icon_name,
-        startup_wm_class,
-        exec: exec?,
+        exec,
         terminal,
+        search_text,
     })
 }
 
@@ -535,9 +634,9 @@ fn unescape(value: &str) -> String {
         .replace("\\\\", "\\")
 }
 
-fn launch_exec(command: &str, terminal: bool) -> Result<(), String> {
+fn launch_exec(command: &str, terminal: bool, terminal_command: &str) -> Result<(), String> {
     let command = if terminal {
-        format!("x-terminal-emulator -e {command}")
+        format!("{} {command}", terminal_command.trim())
     } else {
         command.to_string()
     };
