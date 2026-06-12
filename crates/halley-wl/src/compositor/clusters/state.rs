@@ -6,10 +6,26 @@ use halley_core::field::{NodeId, Vec2};
 use halley_core::tiling::Rect;
 use halley_core::viewport::Viewport;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClusterFinalizeAppLaunch {
+    pub(crate) app_id: String,
+    pub(crate) command: String,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ClusterFinalizeDraftState {
     pub(crate) app_ids: Vec<String>,
+    pub(crate) app_launches: Vec<ClusterFinalizeAppLaunch>,
     pub(crate) selected_node_ids: HashSet<NodeId>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingLensClusterBuildState {
+    pub(crate) selected_node_ids: HashSet<NodeId>,
+    pub(crate) app_launches: Vec<ClusterFinalizeAppLaunch>,
+    pub(crate) name_record: ClusterNameRecord,
+    pub(crate) expected_members: usize,
+    pub(crate) launched: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +67,7 @@ pub(crate) struct ClusterState {
     pub(crate) cluster_names: HashMap<ClusterId, ClusterNameRecord>,
     pub(crate) cluster_name_prompt: HashMap<String, ClusterNamingPromptState>,
     pub(crate) cluster_finalize_drafts: HashMap<String, ClusterFinalizeDraftState>,
+    pub(crate) pending_lens_cluster_builds: HashMap<String, PendingLensClusterBuildState>,
     pub(crate) active_cluster_workspaces: HashMap<String, ClusterId>,
     pub(crate) cluster_bloom_open: HashMap<String, ClusterId>,
     pub(crate) cluster_mode_selected_nodes: HashMap<String, HashSet<NodeId>>,

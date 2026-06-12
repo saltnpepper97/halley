@@ -1,12 +1,13 @@
 use super::*;
 
 use crate::compositor::clusters::state::{
-    ClusterFinalizeDraftState, ClusterNameRecord, ClusterNamingPromptState,
+    ClusterFinalizeAppLaunch, ClusterFinalizeDraftState, ClusterNameRecord,
+    ClusterNamingPromptState, PendingLensClusterBuildState,
 };
 use crate::compositor::interaction::state::{
     ClusterNamePromptRepeatAction, ClusterNamePromptRepeatState,
 };
-use halley_core::field::NodeId;
+use halley_core::field::{NodeId, NodeKind, NodeState};
 
 pub(super) fn cluster_mode_selection_banner(
     controller: &mut impl DerefMut<Target = Halley>,
@@ -168,6 +169,22 @@ impl<T: Deref<Target = Halley>> ClusterSystemController<T> {
             .contains_key(monitor)
     }
 
+    pub(crate) fn active_cluster_name_prompt_monitor(&self, preferred: &str) -> Option<String> {
+        if self.cluster_name_prompt_active_for_monitor(preferred) {
+            return Some(preferred.to_string());
+        }
+        (self.model.cluster_state.cluster_name_prompt.len() == 1)
+            .then(|| {
+                self.model
+                    .cluster_state
+                    .cluster_name_prompt
+                    .keys()
+                    .next()
+                    .cloned()
+            })
+            .flatten()
+    }
+
     pub(crate) fn cluster_name_record(&self, cid: ClusterId) -> Option<&ClusterNameRecord> {
         self.model.cluster_state.cluster_names.get(&cid)
     }
@@ -239,6 +256,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         monitor: &str,
         name_hint: Option<&str>,
         select_all: bool,
+        show_banner: bool,
     ) -> bool {
         let generated_generic_name = format!(
             "Cluster {}",
@@ -264,7 +282,11 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             },
         );
         self.begin_modal_keyboard_capture();
-        cluster_name_prompt_banner(self, monitor);
+        if show_banner {
+            cluster_name_prompt_banner(self, monitor);
+        } else {
+            self.ui.render_state.remove_persistent_mode_banner(monitor);
+        }
         true
     }
 
@@ -273,19 +295,47 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         monitor: &str,
         name_hint: Option<String>,
         app_ids: Vec<String>,
+        app_launches: Vec<ClusterFinalizeAppLaunch>,
         running_node_ids: Vec<NodeId>,
         now: Instant,
     ) -> bool {
-        let selected = running_node_ids
+        let app_launches = normalized_draft_app_launches(app_launches);
+        let mut app_ids = normalized_draft_app_ids(app_ids);
+        for launch in &app_launches {
+            let folded = launch.app_id.trim().to_ascii_lowercase();
+            if !folded.is_empty() && !app_ids.iter().any(|existing| existing == &folded) {
+                app_ids.push(folded);
+            }
+        }
+        let mut selected = running_node_ids
             .into_iter()
             .filter(|node_id| {
                 self.model.field.node(*node_id).is_some_and(|node| {
-                    node.kind == halley_core::field::NodeKind::Surface
-                        && node.state != halley_core::field::NodeState::Core
+                    node.kind == NodeKind::Surface
+                        && node.state != NodeState::Core
                         && self.model.field.is_visible(*node_id)
                 })
             })
             .collect::<std::collections::HashSet<_>>();
+        for (&node_id, node) in self.model.field.nodes() {
+            if node.kind != NodeKind::Surface
+                || node.state == NodeState::Core
+                || !self.model.field.is_visible(node_id)
+                || self
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&node_id)
+                    .is_none_or(|node_monitor| node_monitor != monitor)
+            {
+                continue;
+            }
+            if let Some(app_id) = self.model.node_app_ids.get(&node_id)
+                && draft_app_ids_match(&app_ids, app_id)
+            {
+                selected.insert(node_id);
+            }
+        }
         self.model
             .cluster_state
             .cluster_mode_selected_nodes
@@ -293,7 +343,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         self.model.cluster_state.cluster_finalize_drafts.insert(
             monitor.to_string(),
             ClusterFinalizeDraftState {
-                app_ids: normalized_draft_app_ids(app_ids),
+                app_ids,
+                app_launches,
                 selected_node_ids: selected,
             },
         );
@@ -301,8 +352,12 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .as_deref()
             .map(str::trim)
             .is_none_or(str::is_empty);
-        let opened =
-            self.open_cluster_name_prompt_for_monitor(monitor, name_hint.as_deref(), select_all);
+        let opened = self.open_cluster_name_prompt_for_monitor(
+            monitor,
+            name_hint.as_deref(),
+            select_all,
+            false,
+        );
         if opened {
             self.request_maintenance();
         } else {
@@ -329,6 +384,35 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         if app_id.is_empty() {
             return false;
         }
+        if let Some(build) = self
+            .model
+            .cluster_state
+            .pending_lens_cluster_builds
+            .get_mut(monitor)
+        {
+            let app_ids = build
+                .app_launches
+                .iter()
+                .map(|launch| launch.app_id.clone())
+                .collect::<Vec<_>>();
+            if !draft_app_ids_match(&app_ids, app_id) {
+                return false;
+            }
+            if !build.selected_node_ids.insert(node_id) {
+                return false;
+            }
+            self.model
+                .spawn_state
+                .pending_initial_reveal
+                .remove(&node_id);
+            let _ = self.model.field.set_detached(node_id, true);
+            let completed = self.try_complete_pending_lens_cluster_build(monitor, Instant::now());
+            if !completed {
+                self.request_maintenance();
+            }
+            return true;
+        }
+
         let Some(draft) = self
             .model
             .cluster_state
@@ -340,17 +424,17 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         if !draft_app_ids_match(&draft.app_ids, app_id) {
             return false;
         }
-        if !draft.selected_node_ids.insert(node_id) {
-            return false;
-        }
+        let inserted = draft.selected_node_ids.insert(node_id);
         self.model
             .cluster_state
             .cluster_mode_selected_nodes
             .entry(monitor.to_string())
             .or_default()
             .insert(node_id);
-        self.request_maintenance();
-        true
+        if inserted {
+            self.request_maintenance();
+        }
+        inserted
     }
 
     fn record_cluster_slot_for_monitor(&mut self, cid: ClusterId, monitor: &str) {
@@ -478,7 +562,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         }
 
         let _ = now;
-        self.open_cluster_name_prompt_for_monitor(monitor.as_str(), None, true)
+        self.open_cluster_name_prompt_for_monitor(monitor.as_str(), None, true, true)
     }
 
     pub(crate) fn cancel_cluster_name_prompt_for_monitor(&mut self, monitor: &str) -> bool {
@@ -746,6 +830,187 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         handled
     }
 
+    fn prompt_name_record(
+        &self,
+        monitor: &str,
+        prompt: &ClusterNamingPromptState,
+    ) -> ClusterNameRecord {
+        let submitted = prompt.input.trim();
+        let reserved_generic = parse_reserved_generic_cluster_name(submitted).is_some();
+        let exact_default = submitted.eq_ignore_ascii_case(prompt.generated_generic_name.as_str());
+        if submitted.is_empty() || exact_default || reserved_generic {
+            ClusterNameRecord::Generic {
+                slot: self.next_generic_cluster_slot_for_monitor(monitor, None),
+            }
+        } else {
+            ClusterNameRecord::Custom {
+                name: self.resolve_unique_custom_cluster_name(submitted, None),
+            }
+        }
+    }
+
+    fn selected_has_matching_app(
+        &self,
+        selected_nodes: &std::collections::HashSet<NodeId>,
+        app_id: &str,
+    ) -> bool {
+        selected_nodes.iter().any(|node_id| {
+            self.model
+                .node_app_ids
+                .get(node_id)
+                .is_some_and(|node_app_id| draft_app_ids_match(&[app_id.to_string()], node_app_id))
+        })
+    }
+
+    fn pending_lens_expected_members(
+        &self,
+        selected_nodes: &std::collections::HashSet<NodeId>,
+        app_launches: &[ClusterFinalizeAppLaunch],
+    ) -> usize {
+        let missing_launches = app_launches
+            .iter()
+            .filter(|launch| {
+                !self.selected_has_matching_app(selected_nodes, launch.app_id.as_str())
+            })
+            .count();
+        (selected_nodes.len() + missing_launches).max(2)
+    }
+
+    fn start_pending_lens_cluster_build(
+        &mut self,
+        monitor: &str,
+        draft: ClusterFinalizeDraftState,
+        name_record: ClusterNameRecord,
+        now: Instant,
+    ) -> bool {
+        let expected_members = self
+            .pending_lens_expected_members(&draft.selected_node_ids, draft.app_launches.as_slice());
+        self.model.cluster_state.cluster_name_prompt.remove(monitor);
+        self.model
+            .cluster_state
+            .cluster_finalize_drafts
+            .remove(monitor);
+        let _ = self
+            .cluster_mutation_controller()
+            .exit_cluster_mode(monitor);
+        self.ui.render_state.clear_persistent_mode_banner(monitor);
+        self.model.cluster_state.pending_lens_cluster_builds.insert(
+            monitor.to_string(),
+            PendingLensClusterBuildState {
+                selected_node_ids: draft.selected_node_ids,
+                app_launches: draft.app_launches,
+                name_record,
+                expected_members,
+                launched: false,
+            },
+        );
+        if self.try_complete_pending_lens_cluster_build(monitor, now) {
+            return true;
+        }
+        self.launch_pending_lens_cluster_apps(monitor, now);
+        let now_ms = self.now_ms(now);
+        self.ui.render_state.show_overlay_toast(
+            monitor,
+            "Building cluster\nLaunching staged apps",
+            3000,
+            now_ms,
+        );
+        self.request_maintenance();
+        true
+    }
+
+    fn launch_pending_lens_cluster_apps(&mut self, monitor: &str, now: Instant) {
+        let (selected, launches) = {
+            let Some(build) = self
+                .model
+                .cluster_state
+                .pending_lens_cluster_builds
+                .get_mut(monitor)
+            else {
+                return;
+            };
+            if build.launched {
+                return;
+            }
+            build.launched = true;
+            (build.selected_node_ids.clone(), build.app_launches.clone())
+        };
+
+        let wayland_display = self
+            .runtime
+            .wayland_display
+            .clone()
+            .or_else(|| std::env::var("WAYLAND_DISPLAY").ok())
+            .unwrap_or_default();
+        self.model.spawn_state.pending_spawn_monitor = Some(monitor.to_string());
+        for launch in launches {
+            if self.selected_has_matching_app(&selected, launch.app_id.as_str()) {
+                continue;
+            }
+            if launch.command.trim().is_empty() {
+                continue;
+            }
+            if let Some(child) = crate::input::keyboard::spawn::spawn_command(
+                launch.command.as_str(),
+                wayland_display.as_str(),
+                &self.runtime.tuning.cursor,
+                None,
+                "lens cluster app",
+            ) {
+                self.runtime.spawned_children.push(child);
+            }
+        }
+        let _ = now;
+    }
+
+    fn try_complete_pending_lens_cluster_build(&mut self, monitor: &str, now: Instant) -> bool {
+        let Some(build) = self
+            .model
+            .cluster_state
+            .pending_lens_cluster_builds
+            .get(monitor)
+            .cloned()
+        else {
+            return false;
+        };
+        if build.selected_node_ids.len() < build.expected_members
+            || build.selected_node_ids.len() < 2
+        {
+            return false;
+        }
+        let members =
+            self.order_cluster_creation_members(build.selected_node_ids.iter().copied().collect());
+        for member in &members {
+            let _ = self.model.field.set_detached(*member, false);
+        }
+        let now_ms = self.now_ms(now);
+        let created = self.create_cluster(members).ok().and_then(|cid| {
+            self.model
+                .cluster_state
+                .cluster_names
+                .insert(cid, build.name_record.clone());
+            let core = self.collapse_cluster(cid);
+            if let Some(core_id) = core {
+                self.assign_node_to_monitor(core_id, monitor);
+                let _ = self.sync_cluster_name_for_monitor(cid, monitor);
+                let _ = self.model.field.touch(core_id, now_ms);
+                self.set_interaction_focus(Some(core_id), 30_000, now);
+            }
+            core
+        });
+        if created.is_none() {
+            return false;
+        }
+        self.model
+            .cluster_state
+            .pending_lens_cluster_builds
+            .remove(monitor);
+        self.ui
+            .render_state
+            .show_overlay_toast(monitor, "Cluster ready", 1800, now_ms);
+        true
+    }
+
     pub(crate) fn confirm_cluster_name_prompt_for_monitor(
         &mut self,
         monitor: &str,
@@ -765,25 +1030,41 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .cluster_state
             .cluster_mode_selected_nodes
             .get(monitor)
+            .cloned()
         else {
             return false;
         };
+        let draft = self
+            .model
+            .cluster_state
+            .cluster_finalize_drafts
+            .get(monitor)
+            .cloned();
+        let name_record = self.prompt_name_record(monitor, &prompt);
+        if let Some(draft) = draft.clone()
+            && !draft.app_launches.is_empty()
+        {
+            return self.start_pending_lens_cluster_build(monitor, draft, name_record, now);
+        }
         if selected_nodes.len() < 2 {
+            if self
+                .model
+                .cluster_state
+                .cluster_finalize_drafts
+                .contains_key(monitor)
+            {
+                let now_ms = self.now_ms(now);
+                self.ui.render_state.show_overlay_toast(
+                    monitor,
+                    "Waiting for staged apps\nNeed at least two windows",
+                    3000,
+                    now_ms,
+                );
+                return true;
+            }
             return false;
         }
         let members = self.order_cluster_creation_members(selected_nodes.iter().copied().collect());
-        let submitted = prompt.input.trim();
-        let reserved_generic = parse_reserved_generic_cluster_name(submitted).is_some();
-        let exact_default = submitted.eq_ignore_ascii_case(prompt.generated_generic_name.as_str());
-        let name_record = if submitted.is_empty() || exact_default || reserved_generic {
-            ClusterNameRecord::Generic {
-                slot: self.next_generic_cluster_slot_for_monitor(monitor, None),
-            }
-        } else {
-            ClusterNameRecord::Custom {
-                name: self.resolve_unique_custom_cluster_name(submitted, None),
-            }
-        };
         let now_ms = self.now_ms(now);
         let created = self.create_cluster(members).ok().and_then(|cid| {
             self.model
@@ -834,12 +1115,41 @@ fn normalized_draft_app_ids(app_ids: Vec<String>) -> Vec<String> {
     out
 }
 
+fn normalized_draft_app_launches(
+    app_launches: Vec<ClusterFinalizeAppLaunch>,
+) -> Vec<ClusterFinalizeAppLaunch> {
+    let mut out = Vec::new();
+    for launch in app_launches {
+        let app_id = launch.app_id.trim().to_ascii_lowercase();
+        let command = launch.command.trim().to_string();
+        if app_id.is_empty() || command.is_empty() {
+            continue;
+        }
+        if out
+            .iter()
+            .any(|existing: &ClusterFinalizeAppLaunch| existing.app_id == app_id)
+        {
+            continue;
+        }
+        out.push(ClusterFinalizeAppLaunch { app_id, command });
+    }
+    out
+}
+
 fn draft_app_ids_match(app_ids: &[String], app_id: &str) -> bool {
     let folded = app_id.to_ascii_lowercase();
     app_ids.iter().any(|candidate| {
         candidate == &folded
             || folded.ends_with(candidate)
             || candidate.ends_with(&folded)
-            || folded.rsplit(['.', '/']).next() == Some(candidate.as_str())
+            || compact_app_match_token(folded.as_str()) == compact_app_match_token(candidate)
     })
+}
+
+fn compact_app_match_token(value: &str) -> Option<&str> {
+    value
+        .trim_end_matches(".desktop")
+        .rsplit(['.', '/'])
+        .next()
+        .filter(|token| !token.is_empty())
 }

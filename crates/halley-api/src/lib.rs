@@ -11,12 +11,12 @@ pub use protocol::{
 };
 pub use types::{
     ApertureMode, ApertureOutputStatus, ApertureStatusResponse, BearingsStatusResponse,
-    CaptureStatusResponse, ClusterDraftRequest, ClusterDraftSource, ClusterInfo, ClusterLayoutKind,
-    ClusterListResponse, ClusterOutputGroup, ClusterSummary, GamescopeTargetResponse,
-    LensResultKind, LensSearchResponse, LensSearchResult, LogicalOutputInfo, ModeInfo, NodeInfo,
-    NodeKind, NodeListResponse, NodeOutputGroup, NodeProtocolFamily, NodeRelationInfo, NodeRole,
-    NodeState, OutputInfo, OutputStatus, OutputsResponse, TrailEntryInfo, TrailListResponse,
-    VersionInfo,
+    CaptureStatusResponse, ClusterDraftAppLaunch, ClusterDraftRequest, ClusterDraftSource,
+    ClusterInfo, ClusterLayoutKind, ClusterListResponse, ClusterOutputGroup, ClusterSummary,
+    GamescopeTargetResponse, LensResultKind, LensSearchResponse, LensSearchResult,
+    LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup,
+    NodeProtocolFamily, NodeRelationInfo, NodeRole, NodeState, OutputInfo, OutputStatus,
+    OutputsResponse, TrailEntryInfo, TrailListResponse, VersionInfo,
 };
 
 pub const HALLEY_API_VERSION: u32 = 1;

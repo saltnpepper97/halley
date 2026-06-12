@@ -790,6 +790,10 @@ impl RenderState {
         }
     }
 
+    pub(crate) fn remove_persistent_mode_banner(&mut self, monitor: &str) {
+        self.overlays.overlay_banner.remove(monitor);
+    }
+
     pub(crate) fn persistent_mode_banner_snapshot(
         &mut self,
         monitor: &str,

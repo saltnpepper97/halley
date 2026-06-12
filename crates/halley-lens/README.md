@@ -14,39 +14,33 @@ You can also seed an initial query:
 halley-lens /cluster release
 ```
 
-## Slash Modes
+## Search Prefixes
 
-Lens searches everything by default. Slash tokens switch to a mode and become a removable badge in the search field.
+Lens searches everything by default. Prefixing the query with a provider name filters results without changing the search text into a badge.
 
 Supported modes:
 
 ```text
-/app /apps /a
-/cluster /clusters /c
-/node /nodes /n
-/action /actions
-/config
+app /app /apps /a
+cluster /cluster /clusters /c
+node /node /nodes /n
+action /actions
+config /config
 ```
 
 Example:
 
 ```text
-/cluster release
+cluster release
 ```
 
-becomes:
-
-```text
-[Clusters ×] release
-```
-
-Backspace with an empty query removes the badge and returns to general mode.
+searches clusters for `release` while leaving the full text visible in the search field.
 
 ## Cluster Drafts
 
-In cluster mode, `Space` stages or unstages apps and running nodes. This is side-effect-free.
+In `cluster`/`/cluster` searches, `Space` stages or unstages the selected app or running node. This is side-effect-free. Outside cluster searches, Space is normal search text.
 
-`Ctrl+Enter` or activating `Create cluster: <query>` materializes the draft:
+After at least one item is staged in cluster mode, `Ctrl+Enter` or activating `Create cluster: <query>` materializes the draft:
 
 ```text
 Cluster Draft: release · 3 selected
@@ -82,6 +76,7 @@ lens:
   icon-size 28
   icon-theme "auto"
   icon-search-depth 5
+  terminal "x-terminal-emulator -e"
   keyboard-interactivity "exclusive" # exclusive | on-demand
   close-on-focus-loss false
   close-on-click-away false
@@ -138,6 +133,8 @@ end
 
 `max-results` controls how many results Lens computes. `visible-results` controls how many rows are visible at once; keyboard selection scrolls through the full result set.
 
-App icons are read from `.desktop` `Icon=` entries and resolved from common XDG icon locations. Lens builds an icon index once at launch, then uses cached lookups while drawing. PNG, JPEG, and SVG icons are supported. Missing icons fall back to built-in glyphs.
+App icons are read from `.desktop` `Icon=` entries and resolved lazily from common XDG icon locations while drawing visible rows. Lens builds a broader icon index only after the first draw, then refreshes cached misses. PNG, JPEG, and SVG icons are supported. Missing icons fall back to built-in glyphs.
+
+`terminal` is prepended to `.desktop` apps with `Terminal=true`, so terminal apps such as `micro` or `nvim` open in the configured terminal.
 
 Mouse support includes hover selection, row click activation, and wheel navigation inside the Lens panel. Empty general search shows only the rounded search bar; typing or entering a slash mode expands a connected results body below it. Keyboard navigation supports held direction keys, Left/Right, PageUp/PageDown, Home/End, and Alt+1 through Alt+0 visible-row activation.

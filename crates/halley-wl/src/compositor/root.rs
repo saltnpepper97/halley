@@ -269,6 +269,7 @@ impl Halley {
                     cluster_names: HashMap::new(),
                     cluster_name_prompt: HashMap::new(),
                     cluster_finalize_drafts: HashMap::new(),
+                    pending_lens_cluster_builds: HashMap::new(),
                     active_cluster_workspaces: HashMap::new(),
                     cluster_bloom_open: HashMap::new(),
                     cluster_mode_selected_nodes: HashMap::new(),
@@ -433,6 +434,7 @@ impl Halley {
                 pending_drm_syncobj_surfaces: Arc::new(Mutex::new(Vec::new())),
                 activation: Default::default(),
                 spawned_children: Vec::new(),
+                wayland_display: None,
             },
         };
         out.ui
@@ -1432,11 +1434,6 @@ impl Halley {
     }
 
     #[cfg(test)]
-    pub(crate) fn spawn_star_step(&self, size: Vec2) -> f32 {
-        super::spawn::reveal::spawn_reveal_controller(self).spawn_star_step(size)
-    }
-
-    #[cfg(test)]
     pub(crate) fn star_candidate_offsets(&self, size: Vec2) -> Vec<Vec2> {
         super::spawn::reveal::spawn_reveal_controller(self).star_candidate_offsets(size)
     }
@@ -1553,16 +1550,6 @@ impl Halley {
     ) -> bool {
         super::clusters::system::cluster_system_controller(self)
             .enter_cluster_workspace_by_core(core_id, monitor, now)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn exit_cluster_workspace_for_monitor(
-        &mut self,
-        monitor: &str,
-        now: Instant,
-    ) -> bool {
-        super::clusters::system::cluster_system_controller(self)
-            .exit_cluster_workspace_for_monitor(monitor, now)
     }
 
     pub fn open_cluster_bloom_for_monitor(

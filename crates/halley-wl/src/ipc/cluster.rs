@@ -1,6 +1,7 @@
 use halley_api::{
-    ApiError, ClusterDraftRequest, ClusterInfo, ClusterLayoutKind, ClusterListResponse,
-    ClusterOutputGroup, ClusterRequest, ClusterSummary, ClusterTarget, Response,
+    ApiError, ClusterDraftAppLaunch, ClusterDraftRequest, ClusterInfo, ClusterLayoutKind,
+    ClusterListResponse, ClusterOutputGroup, ClusterRequest, ClusterSummary, ClusterTarget,
+    Response,
 };
 use halley_core::cluster::ClusterId;
 use halley_core::cluster_layout::ClusterWorkspaceLayoutKind as CoreClusterLayoutKind;
@@ -120,6 +121,7 @@ fn open_finalize_draft(
             monitor.as_str(),
             draft.name_hint,
             draft.app_ids,
+            draft_app_launches(draft.app_launches),
             running_node_ids,
             now,
         )
@@ -130,6 +132,20 @@ fn open_finalize_draft(
             "failed to open cluster finalize draft on output {monitor}"
         )))
     }
+}
+
+fn draft_app_launches(
+    app_launches: Vec<ClusterDraftAppLaunch>,
+) -> Vec<crate::compositor::clusters::state::ClusterFinalizeAppLaunch> {
+    app_launches
+        .into_iter()
+        .map(
+            |launch| crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                app_id: launch.app_id,
+                command: launch.command,
+            },
+        )
+        .collect()
 }
 
 fn activate_cluster_slot(st: &mut Halley, slot: u8, output: Option<&str>) -> Result<(), ApiError> {

@@ -198,10 +198,9 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
         return;
     }
 
-    let prompt_monitor = st.model.monitor_state.current_monitor.clone();
-    if crate::compositor::clusters::system::cluster_system_controller(&*st)
-        .cluster_name_prompt_active_for_monitor(prompt_monitor.as_str())
-    {
+    let prompt_monitor = crate::compositor::clusters::system::cluster_system_controller(&*st)
+        .active_cluster_name_prompt_monitor(st.model.monitor_state.current_monitor.as_str());
+    if let Some(prompt_monitor) = prompt_monitor {
         let prompt_hit = if routing.monitor == prompt_monitor {
             crate::overlay::cluster_naming_dialog_hit_test(
                 st,

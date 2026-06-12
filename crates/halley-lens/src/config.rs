@@ -14,6 +14,7 @@ pub struct LensConfig {
     pub icon_size: u32,
     pub icon_search_depth: usize,
     pub icon_theme: String,
+    pub terminal: String,
     pub keyboard_interactivity: String,
     pub close_on_focus_loss: bool,
     pub close_on_click_away: bool,
@@ -102,6 +103,7 @@ impl Default for LensConfig {
             icon_size: 28,
             icon_search_depth: 5,
             icon_theme: "auto".into(),
+            terminal: "x-terminal-emulator -e".into(),
             keyboard_interactivity: "exclusive".into(),
             close_on_focus_loss: false,
             close_on_click_away: false,
@@ -225,6 +227,7 @@ impl LensConfig {
             .get_or::<u32>("lens.icon-search-depth", out.icon_search_depth as u32)
             .clamp(1, 8) as usize;
         out.icon_theme = cfg.get_or("lens.icon-theme", out.icon_theme.clone());
+        out.terminal = cfg.get_or("lens.terminal", out.terminal.clone());
         out.keyboard_interactivity = cfg.get_or(
             "lens.keyboard-interactivity",
             out.keyboard_interactivity.clone(),
@@ -346,6 +349,9 @@ fn validate(config: &LensConfig) -> Result<(), String> {
     }
     if config.max_results == 0 {
         return Err("lens.max-results must be greater than zero".into());
+    }
+    if config.terminal.trim().is_empty() {
+        return Err("lens.terminal must not be empty".into());
     }
     if config.visible_results == 0 || config.visible_results > config.max_results {
         return Err("lens.visible-results must be between 1 and lens.max-results".into());
