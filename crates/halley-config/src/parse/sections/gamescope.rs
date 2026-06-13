@@ -124,10 +124,6 @@ fn parse_global_entry(
         "refresh" => config.refresh = parse_value_string(value),
         "fullscreen" => config.fullscreen = parse_bool(value, line_no, key)?,
         "borderless" => config.borderless = parse_bool(value, line_no, key)?,
-        // Deprecated with rail removal. Keep parsing old user configs as a no-op.
-        "suppress-rail" => {
-            let _ = parse_bool(value, line_no, key)?;
-        }
         "suppress-overlays" => config.suppress_overlays = parse_bool(value, line_no, key)?,
         "passthrough-pointer-lock" => {
             config.passthrough_pointer_lock = parse_bool(value, line_no, key)?
@@ -160,10 +156,6 @@ fn parse_game_entry(
         "refresh" => game.refresh = Some(parse_value_string(value)),
         "fullscreen" => game.fullscreen = Some(parse_bool(value, line_no, key)?),
         "borderless" => game.borderless = Some(parse_bool(value, line_no, key)?),
-        // Deprecated with rail removal. Keep parsing old user configs as a no-op.
-        "suppress-rail" => {
-            let _ = parse_bool(value, line_no, key)?;
-        }
         "suppress-overlays" => game.suppress_overlays = Some(parse_bool(value, line_no, key)?),
         "passthrough-pointer-lock" => {
             game.passthrough_pointer_lock = Some(parse_bool(value, line_no, key)?)
@@ -207,7 +199,6 @@ gamescope:
   output-height "auto"
   fullscreen false
   borderless true
-  suppress-rail false
   suppress-overlays false
 end
 "#,

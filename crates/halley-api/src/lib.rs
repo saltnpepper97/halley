@@ -19,4 +19,4 @@ pub use types::{
     OutputsResponse, TrailEntryInfo, TrailListResponse, VersionInfo,
 };
 
-pub const HALLEY_API_VERSION: u32 = 1;
+pub const HALLEY_API_VERSION: u32 = 2;

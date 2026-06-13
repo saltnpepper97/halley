@@ -1169,7 +1169,6 @@ mod tests {
         assert!(rendered.contains(
             "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end\nend"
         ));
-        // Rail is archived; it must not be embedded in halley.rune.
         assert!(!rendered.contains("\nrail:"));
     }
 
