@@ -220,6 +220,30 @@ pub(crate) struct FocusCycleSession {
     pub(crate) immersive_lock_released: bool,
 }
 
+impl FocusCycleSession {
+    /// The candidate slots the switcher actually shows: the preview-centered
+    /// window plus up to `radius` neighbours on each side, as `(offset, node)`
+    /// pairs ordered left → right (offset 0 is the centered/selected card).
+    /// Shared by the overlay (layout) and the preview prewarm/keep-warm passes so
+    /// they always agree on which windows are on screen.
+    pub(crate) fn visible_slots(&self, radius: i32) -> Vec<(i32, NodeId)> {
+        let len = self.candidates.len() as i32;
+        if len == 0 {
+            return Vec::new();
+        }
+        let visible_count = len.min(radius * 2 + 1).max(1);
+        let left_count = (visible_count - 1) / 2;
+        let right_count = visible_count - 1 - left_count;
+        let preview = self.preview_index as i32;
+        (-left_count..=right_count)
+            .map(|offset| {
+                let idx = (preview + offset).rem_euclid(len) as usize;
+                (offset, self.candidates[idx])
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct PointerContents {
     pub(crate) monitor: Option<String>,

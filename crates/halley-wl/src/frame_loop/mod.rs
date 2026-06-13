@@ -82,15 +82,25 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
         });
     // Keep every cluster member's offscreen texture warm (exempt from the idle
     // TTL) so re-opening a collapsed cluster later never rebuilds its textures.
-    let cluster_members: HashSet<NodeId> = st
+    // Also keep the alt+tab switcher's on-screen preview cards warm for the life
+    // of the session so their captured textures aren't pruned mid-cycle.
+    let mut keep_warm: HashSet<NodeId> = st
         .model
         .field
         .clusters_iter()
         .flat_map(|cluster| cluster.members().iter().copied())
         .collect();
+    if let Some(session) = st.input.interaction_state.focus_cycle_session.as_ref() {
+        keep_warm.extend(
+            session
+                .visible_slots(crate::overlay::FOCUS_CYCLE_VISIBLE_RADIUS)
+                .into_iter()
+                .map(|(_, node_id)| node_id),
+        );
+    }
     st.ui
         .render_state
-        .prune_window_offscreen_cache(&alive, &cluster_members, now);
+        .prune_window_offscreen_cache(&alive, &keep_warm, now);
     st.ui.render_state.prune_ui_text_cache(now);
 }
 

@@ -480,7 +480,10 @@ pub(crate) fn init_logging() -> Result<(), Box<dyn Error>> {
         if let Err(err) = pollster::block_on(eventline::setup(Setup {
             verbose: true,
             level: Some(shared_level),
+            console_level: None,
+            file_level: None,
             file,
+            journal_retention: None,
         })) {
             warn!("failed to configure logging: {}", err);
         }
