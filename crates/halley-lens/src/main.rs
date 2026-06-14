@@ -278,6 +278,14 @@ impl LensApp {
         ));
     }
 
+    /// Refresh results after the user changed the query by typing. The highlight
+    /// snaps back to the first entry; a stationary cursor emits no motion event, so
+    /// it only moves again once the mouse is physically dragged over another row.
+    fn refresh_results_typed(&mut self) {
+        self.refresh_results();
+        self.selected = 0;
+    }
+
     fn effective_search(&self) -> (LensMode, String) {
         effective_mode_query(self.input.mode, self.input.query.as_str())
     }
@@ -403,6 +411,9 @@ impl LensApp {
     fn poll_background_jobs(&mut self) {
         self.poll_live_refresh();
         self.poll_icon_index();
+        if self.icon_cache.poll_decodes() {
+            self.mark_redraw();
+        }
     }
 
     fn poll_live_refresh(&mut self) {
@@ -548,7 +559,9 @@ impl LensApp {
     }
 
     fn has_background_jobs(&self) -> bool {
-        self.index.has_pending_live_refresh() || self.icon_cache.has_pending_index()
+        self.index.has_pending_live_refresh()
+            || self.icon_cache.has_pending_index()
+            || self.icon_cache.has_pending_decodes()
     }
 
     fn handle_text(&mut self, text: &str) {
@@ -562,7 +575,7 @@ impl LensApp {
             return;
         }
         self.input.insert_text(text);
-        self.refresh_results();
+        self.refresh_results_typed();
     }
 
     fn selected_is_stageable(&self) -> bool {
@@ -597,11 +610,11 @@ impl LensApp {
                     self.input.query = format!("action {}", self.input.query.trim_start());
                 }
                 self.input.mode = LensMode::General;
-                self.refresh_results();
+                self.refresh_results_typed();
             }
             Keysym::BackSpace => {
                 self.input.backspace();
-                self.refresh_results();
+                self.refresh_results_typed();
             }
             Keysym::Return | Keysym::KP_Enter => {
                 if self.modifiers.ctrl {

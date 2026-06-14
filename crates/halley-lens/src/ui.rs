@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time::UNIX_EPOCH;
 
 use fontdb::{Database, Family, Query, Stretch, Style, Weight};
 use image::{RgbaImage, imageops};
@@ -368,13 +370,26 @@ impl FontRenderer {
 
 #[derive(Default)]
 pub struct IconCache {
-    entries: HashMap<String, Option<IconRaster>>,
+    entries: HashMap<String, IconSlot>,
     index: HashMap<String, IconIndexEntry>,
     roots: Vec<PathBuf>,
     target_size: u32,
     search_depth: usize,
     indexed: bool,
     index_rx: Option<Receiver<HashMap<String, IconIndexEntry>>>,
+    decode_tx: Option<Sender<(String, PathBuf)>>,
+    decode_rx: Option<Receiver<(String, Option<IconRaster>)>>,
+    pending_decodes: usize,
+    cache_path: Option<PathBuf>,
+    cache_fingerprint: String,
+}
+
+/// State of a single icon in the in-memory cache. Decoding happens on a worker thread,
+/// so a freshly requested icon is `Pending` until its raster arrives.
+enum IconSlot {
+    Pending,
+    Ready(IconRaster),
+    Missing,
 }
 
 struct IconRaster {
@@ -391,18 +406,44 @@ struct IconIndexEntry {
 
 impl IconCache {
     pub fn new(config: &LensConfig) -> Self {
+        let roots = if config.icons {
+            icon_roots(config)
+        } else {
+            Vec::new()
+        };
+        let target_size = config.icon_size.max(1);
+        let search_depth = config.icon_search_depth;
+        let cache_path = icon_index_cache_path();
+        let cache_fingerprint = index_fingerprint(
+            roots.as_slice(),
+            config.icon_theme.as_str(),
+            target_size,
+            search_depth,
+        );
+        // A valid on-disk index lets us skip the directory walk entirely and treat the
+        // cache as ready before the first draw — no cold-start window.
+        let cached_index = config
+            .icons
+            .then(|| {
+                cache_path
+                    .as_ref()
+                    .and_then(|path| load_index_cache(path, cache_fingerprint.as_str()))
+            })
+            .flatten();
+        let indexed = !config.icons || cached_index.is_some();
         Self {
             entries: HashMap::new(),
-            index: HashMap::new(),
-            roots: if config.icons {
-                icon_roots(config)
-            } else {
-                Vec::new()
-            },
-            target_size: config.icon_size.max(1),
-            search_depth: config.icon_search_depth,
-            indexed: !config.icons,
+            index: cached_index.unwrap_or_default(),
+            roots,
+            target_size,
+            search_depth,
+            indexed,
             index_rx: None,
+            decode_tx: None,
+            decode_rx: None,
+            pending_decodes: 0,
+            cache_path,
+            cache_fingerprint,
         }
     }
 
@@ -412,6 +453,10 @@ impl IconCache {
 
     pub fn has_pending_index(&self) -> bool {
         self.index_rx.is_some()
+    }
+
+    pub fn has_pending_decodes(&self) -> bool {
+        self.pending_decodes > 0
     }
 
     pub fn start_index(&mut self) {
@@ -440,8 +485,30 @@ impl IconCache {
         self.index = index;
         self.indexed = true;
         self.index_rx = None;
-        self.entries.retain(|_, raster| raster.is_some());
+        // Drop entries that resolved to nothing while the index was still building so
+        // they get another chance now that path resolution can succeed.
+        self.entries
+            .retain(|_, slot| matches!(slot, IconSlot::Ready(_)));
+        if let Some(path) = self.cache_path.as_ref() {
+            write_index_cache(path, self.cache_fingerprint.as_str(), &self.index);
+        }
         Some(self.index.len())
+    }
+
+    /// Drain any icons the worker thread finished decoding into the cache. Returns true
+    /// if a redraw is warranted because a previously pending icon became available.
+    pub fn poll_decodes(&mut self) -> bool {
+        let Some(rx) = self.decode_rx.as_ref() else {
+            return false;
+        };
+        let mut changed = false;
+        while let Ok((key, raster)) = rx.try_recv() {
+            let slot = raster.map_or(IconSlot::Missing, IconSlot::Ready);
+            self.entries.insert(key, slot);
+            self.pending_decodes = self.pending_decodes.saturating_sub(1);
+            changed = true;
+        }
+        changed
     }
 
     fn load(&mut self, name: &str) -> Option<&IconRaster> {
@@ -450,12 +517,50 @@ impl IconCache {
             return None;
         }
         if !self.entries.contains_key(&key) {
-            let raster = self
-                .resolve_icon_path(&key)
-                .and_then(|path| load_icon(path.as_path(), self.target_size));
-            self.entries.insert(key.clone(), raster);
+            match self.resolve_icon_path(&key) {
+                Some(path) => {
+                    self.entries.insert(key.clone(), IconSlot::Pending);
+                    self.ensure_decode_worker();
+                    if let Some(tx) = self.decode_tx.as_ref()
+                        && tx.send((key.clone(), path)).is_ok()
+                    {
+                        self.pending_decodes += 1;
+                    }
+                }
+                // Before the index is ready, resolution always fails; leave the entry
+                // unrecorded so it retries once the index lands. Once indexed, an
+                // unresolved name is genuinely missing and is cached as such.
+                None if self.indexed => {
+                    self.entries.insert(key.clone(), IconSlot::Missing);
+                }
+                None => {}
+            }
         }
-        self.entries.get(&key).and_then(Option::as_ref)
+        match self.entries.get(&key) {
+            Some(IconSlot::Ready(raster)) => Some(raster),
+            _ => None,
+        }
+    }
+
+    /// Spawn the decode worker on first use. It outlives individual requests and exits
+    /// when the cache (and thus the job sender) is dropped.
+    fn ensure_decode_worker(&mut self) {
+        if self.decode_tx.is_some() {
+            return;
+        }
+        let (job_tx, job_rx) = mpsc::channel::<(String, PathBuf)>();
+        let (res_tx, res_rx) = mpsc::channel::<(String, Option<IconRaster>)>();
+        let target_size = self.target_size;
+        thread::spawn(move || {
+            while let Ok((key, path)) = job_rx.recv() {
+                let raster = load_icon(path.as_path(), target_size);
+                if res_tx.send((key, raster)).is_err() {
+                    break;
+                }
+            }
+        });
+        self.decode_tx = Some(job_tx);
+        self.decode_rx = Some(res_rx);
     }
 
     fn resolve_icon_path(&self, name: &str) -> Option<PathBuf> {
@@ -463,25 +568,21 @@ impl IconCache {
         if path.is_absolute() && path.is_file() {
             return Some(path.to_path_buf());
         }
+        // Resolution relies entirely on the pre-built index. Until it is ready we return
+        // None rather than walking the icon tree per-request, which would stall the UI.
+        if !self.indexed {
+            return None;
+        }
         let mut candidates = Vec::new();
         push_icon_candidate(&mut candidates, name.to_string());
         if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
             push_icon_candidate(&mut candidates, stem.to_string());
         }
-        if self.indexed {
-            candidates.iter().find_map(|candidate| {
-                self.index
-                    .get(&candidate.to_ascii_lowercase())
-                    .map(|entry| entry.path.clone())
-            })
-        } else {
-            find_direct_icon(
-                self.roots.as_slice(),
-                candidates.as_slice(),
-                self.target_size,
-                self.search_depth,
-            )
-        }
+        candidates.iter().find_map(|candidate| {
+            self.index
+                .get(&candidate.to_ascii_lowercase())
+                .map(|entry| entry.path.clone())
+        })
     }
 }
 
@@ -1240,6 +1341,87 @@ fn build_icon_index(
     index
 }
 
+/// Location of the persisted icon path index, under `$XDG_CACHE_HOME/halley` (or
+/// `~/.cache/halley`). Returns `None` if neither is available.
+fn icon_index_cache_path() -> Option<PathBuf> {
+    let base = match env::var_os("XDG_CACHE_HOME") {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => PathBuf::from(env::var_os("HOME")?).join(".cache"),
+    };
+    Some(base.join("halley").join("lens-icons"))
+}
+
+/// Canonical description of the inputs that determine the index contents. A cache file
+/// is only reused when this matches, so changing the theme, size, search depth, or the
+/// set/mtime of the icon roots transparently invalidates it.
+fn index_fingerprint(
+    roots: &[PathBuf],
+    theme: &str,
+    target_size: u32,
+    search_depth: usize,
+) -> String {
+    let mut out = format!("v1\nsize={target_size}\ndepth={search_depth}\ntheme={theme}\n");
+    for root in roots {
+        let mtime = fs::metadata(root)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |dur| dur.as_secs());
+        out.push_str(&format!("root={}|{mtime}\n", root.display()));
+    }
+    out
+}
+
+const ICON_CACHE_SEPARATOR: &str = "\n==INDEX==\n";
+
+fn load_index_cache(path: &Path, fingerprint: &str) -> Option<HashMap<String, IconIndexEntry>> {
+    let contents = fs::read_to_string(path).ok()?;
+    let (header, body) = contents.split_once(ICON_CACHE_SEPARATOR)?;
+    if header != fingerprint {
+        return None;
+    }
+    let mut index = HashMap::new();
+    for line in body.lines() {
+        let mut parts = line.splitn(3, '\t');
+        let (Some(name), Some(score), Some(icon_path)) = (parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        let Ok(score) = score.parse::<i32>() else {
+            continue;
+        };
+        index.insert(
+            name.to_string(),
+            IconIndexEntry {
+                score,
+                path: PathBuf::from(icon_path),
+            },
+        );
+    }
+    Some(index)
+}
+
+fn write_index_cache(path: &Path, fingerprint: &str, index: &HashMap<String, IconIndexEntry>) {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let mut out = String::with_capacity(fingerprint.len() + index.len() * 48);
+    out.push_str(fingerprint);
+    out.push_str(ICON_CACHE_SEPARATOR);
+    for (name, entry) in index {
+        out.push_str(&format!(
+            "{name}\t{}\t{}\n",
+            entry.score,
+            entry.path.display()
+        ));
+    }
+    // Write through a temp file so a concurrent launch never reads a half-written cache.
+    let tmp = path.with_extension("tmp");
+    if fs::write(&tmp, out.as_bytes()).is_ok() {
+        let _ = fs::rename(&tmp, path);
+    }
+}
+
 fn icon_index_candidate(path: &Path, target_size: u32) -> Option<(String, i32)> {
     let stem = path.file_stem()?.to_str()?.to_ascii_lowercase();
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
@@ -1264,92 +1446,6 @@ fn walk_icon_files(dir: &Path, depth: usize, f: &mut impl FnMut(&Path)) {
             f(path.as_path());
         }
     }
-}
-
-fn find_direct_icon(
-    roots: &[PathBuf],
-    candidates: &[String],
-    target_size: u32,
-    search_depth: usize,
-) -> Option<PathBuf> {
-    let mut best: Option<(i32, PathBuf)> = None;
-    for root in roots {
-        for lookup_root in direct_icon_roots(root.as_path(), search_depth) {
-            for candidate in candidates {
-                for path in direct_icon_candidates(lookup_root.as_path(), candidate, target_size) {
-                    if !path.is_file() {
-                        continue;
-                    }
-                    let score = icon_path_score(path.as_path(), target_size);
-                    let replace = best.as_ref().is_none_or(|(best_score, best_path)| {
-                        score < *best_score || (score == *best_score && path < *best_path)
-                    });
-                    if replace {
-                        best = Some((score, path));
-                    }
-                }
-            }
-        }
-    }
-    best.map(|(_, path)| path)
-}
-
-fn direct_icon_roots(root: &Path, search_depth: usize) -> Vec<PathBuf> {
-    let mut roots = vec![root.to_path_buf()];
-    if search_depth <= 1 {
-        return roots;
-    }
-    let Ok(entries) = fs::read_dir(root) else {
-        return roots;
-    };
-    roots.extend(
-        entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir()),
-    );
-    roots
-}
-
-fn direct_icon_candidates(root: &Path, name: &str, target_size: u32) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    let filenames = icon_filenames(name);
-    let size_dir = format!("{}x{}", target_size, target_size);
-    let dirs = [
-        root.to_path_buf(),
-        root.join("apps"),
-        root.join("scalable"),
-        root.join("scalable/apps"),
-        root.join(size_dir.as_str()),
-        root.join(format!("{size_dir}/apps")),
-        root.join("48x48/apps"),
-        root.join("64x64/apps"),
-        root.join("128x128/apps"),
-        root.join("256x256/apps"),
-        root.join("hicolor/scalable/apps"),
-        root.join(format!("hicolor/{size_dir}/apps")),
-        root.join("hicolor/48x48/apps"),
-        root.join("hicolor/64x64/apps"),
-        root.join("hicolor/128x128/apps"),
-        root.join("hicolor/256x256/apps"),
-    ];
-    for dir in dirs {
-        for filename in &filenames {
-            paths.push(dir.join(filename));
-        }
-    }
-    paths
-}
-
-fn icon_filenames(name: &str) -> Vec<String> {
-    let path = Path::new(name);
-    if path.extension().is_some() {
-        return vec![name.to_string()];
-    }
-    ["svg", "png", "jpg", "jpeg"]
-        .into_iter()
-        .map(|ext| format!("{name}.{ext}"))
-        .collect()
 }
 
 fn icon_path_score(path: &Path, target_size: u32) -> i32 {

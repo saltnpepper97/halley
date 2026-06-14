@@ -5,13 +5,21 @@ All notable changes to this project will be documented in this file.
 ## [v0.5.0] - TBD
 
 ### Added
-- TBD
+- Add libinput input-device customization to the `input:` config section: per-class
+  `touchpad:` and `mouse:` blocks (tap-to-click, natural-scroll, disable-while-typing,
+  accel speed/profile, scroll method, click method, tap-button-map, middle-emulation,
+  left-handed, send-events) plus per-device override blocks under `input.devices.<name>:`
+  matched against the `libinput list-devices` name. Settings apply on device hotplug and
+  re-apply live on config reload; unset keys keep libinput's own defaults. Also adds an
+  `input.keyboard.model` xkb key. Wired into the internal template, bootstrap backfill, and
+  example configs.
 
 ### Changed
-- TBD
+- Decode Halley Lens result icons on a background worker thread and persist the resolved icon path index under `$XDG_CACHE_HOME/halley/lens-icons`, so icons no longer block the UI thread while decoding and warm launches skip the icon-directory walk entirely (the index is ready before the first draw on subsequent launches).
 
 ### Fixed
-- TBD
+- Keep the Halley Lens result highlight on the first entry while typing, so filtering a query no longer leaves the selection stranded on whatever row the mouse last hovered; the highlight only follows the pointer again once it is physically moved over a different entry.
+- Eliminate Halley Lens icon load stalls where some icons appeared instantly while others took seconds, by removing the per-request recursive icon-directory walk that ran on the UI thread before the icon index was ready.
 
 ## [v0.4.0] - 2026-06-12
 

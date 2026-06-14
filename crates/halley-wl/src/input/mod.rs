@@ -1,4 +1,5 @@
 pub(crate) mod ctx;
+pub(crate) mod device_config;
 pub(crate) mod events;
 pub(crate) mod keyboard;
 pub(crate) mod pointer;

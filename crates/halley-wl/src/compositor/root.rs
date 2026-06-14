@@ -69,6 +69,9 @@ pub(crate) struct UiState {
 
 pub(crate) struct InputState {
     pub(crate) interaction_state: InteractionState,
+    /// Live libinput devices, tracked so configured settings can be re-applied on reload.
+    /// Empty under the winit/nested backend, which has no libinput devices.
+    pub(crate) devices: Vec<smithay::reexports::input::Device>,
 }
 
 pub struct Halley {
@@ -418,6 +421,7 @@ impl Halley {
                     cursor_hidden_by_typing: false,
                     last_cursor_activity_at_ms: 0,
                 },
+                devices: Vec::new(),
             },
             portal: crate::protocol::wayland::portal::PortalState::default(),
             runtime: RuntimeState {

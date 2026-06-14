@@ -2,7 +2,7 @@ use std::error::Error;
 
 use smithay::{
     backend::renderer::{Color32F, gles::GlesFrame, gles::Uniform},
-    utils::{Buffer, Physical, Rectangle, Transform},
+    utils::{Buffer, Logical, Physical, Rectangle, Transform},
 };
 
 use crate::compositor::root::Halley;
@@ -10,12 +10,12 @@ use crate::render::draw_primitives::draw_rect;
 use crate::text::{draw_ui_text_in, ui_text_size_in};
 
 use super::{
-    BANNER_EDGE_PAD, FOCUS_CYCLE_BACKDROP_ALPHA, FOCUS_CYCLE_GAP,
-    FOCUS_CYCLE_LABEL_SCALE, FOCUS_CYCLE_META_SCALE, FOCUS_CYCLE_MONITOR_SCALE,
-    FOCUS_CYCLE_VISIBLE_RADIUS, OverlayView, OverlayVisuals, draw_overflow_member_chip,
-    draw_overlay_action_row, draw_overlay_chip, draw_overlay_chip_without_shadow,
-    overlay_accent_fill, overlay_action_row_size, overlay_text_color_for_fill,
-    resolve_overlay_visuals, truncate_overlay_text, truncate_overlay_text_to_width,
+    BANNER_EDGE_PAD, FOCUS_CYCLE_BACKDROP_ALPHA, FOCUS_CYCLE_GAP, FOCUS_CYCLE_LABEL_SCALE,
+    FOCUS_CYCLE_META_SCALE, FOCUS_CYCLE_MONITOR_SCALE, FOCUS_CYCLE_VISIBLE_RADIUS, OverlayView,
+    OverlayVisuals, draw_overflow_member_chip, draw_overlay_action_row, draw_overlay_chip,
+    draw_overlay_chip_without_shadow, overlay_accent_fill, overlay_action_row_size,
+    overlay_text_color_for_fill, resolve_overlay_visuals, truncate_overlay_text,
+    truncate_overlay_text_to_width,
 };
 
 fn focus_cycle_card_height(distance: i32, screen_h: i32) -> i32 {
@@ -42,9 +42,49 @@ fn focus_cycle_node_aspect(overlay: &OverlayView<'_>, node_id: halley_core::fiel
         .get(&node_id)
         .filter(|cache| cache.has_content)
         .and_then(|cache| cache.bbox)
-        .map(|bbox| bbox.size.w.max(1) as f32 / bbox.size.h.max(1) as f32)
+        .map(|bbox| {
+            let (_, _, w, h) = focus_cycle_preview_source(overlay, node_id, bbox);
+            w / h
+        })
         .unwrap_or(1.6)
         .clamp(0.7, 2.0)
+}
+
+/// Source rect inside the cached offscreen bbox. Some clients expose a surface
+/// tree bbox larger than their XDG window geometry, so sample the geometry area
+/// when available instead of preserving transparent/inset margins in the preview.
+fn focus_cycle_preview_source(
+    overlay: &OverlayView<'_>,
+    node_id: halley_core::field::NodeId,
+    bbox: Rectangle<i32, Logical>,
+) -> (f32, f32, f32, f32) {
+    let bbox_w = bbox.size.w.max(1) as f32;
+    let bbox_h = bbox.size.h.max(1) as f32;
+
+    let Some((geo_x, geo_y, geo_w, geo_h)) = overlay
+        .render_state
+        .cache
+        .window_geometry
+        .get(&node_id)
+        .copied()
+    else {
+        return (0.0, 0.0, bbox_w, bbox_h);
+    };
+    if geo_w <= 0.0 || geo_h <= 0.0 {
+        return (0.0, 0.0, bbox_w, bbox_h);
+    }
+
+    let left = (geo_x - bbox.loc.x as f32).clamp(0.0, bbox_w);
+    let top = (geo_y - bbox.loc.y as f32).clamp(0.0, bbox_h);
+    let right = (geo_x + geo_w - bbox.loc.x as f32).clamp(0.0, bbox_w);
+    let bottom = (geo_y + geo_h - bbox.loc.y as f32).clamp(0.0, bbox_h);
+    let w = right - left;
+    let h = bottom - top;
+    if w < 1.0 || h < 1.0 {
+        return (0.0, 0.0, bbox_w, bbox_h);
+    }
+
+    (left, top, w, h)
 }
 
 fn focus_cycle_card_size(
@@ -129,16 +169,15 @@ fn draw_focus_cycle_preview(
         .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)));
 
     if let Some((texture, bbox)) = preview {
-        let dst = focus_cycle_fit_rect(body, bbox.size.w, bbox.size.h);
+        let (src_x, src_y, src_w, src_h) = focus_cycle_preview_source(overlay, node_id, bbox);
+        let dst = focus_cycle_fit_rect(body, src_w.round() as i32, src_h.round() as i32);
         let src = Rectangle::<f64, Buffer>::new(
-            (0.0, 0.0).into(),
-            (bbox.size.w.max(1) as f64, bbox.size.h.max(1) as f64).into(),
+            (src_x as f64, src_y as f64).into(),
+            (src_w.max(1.0) as f64, src_h.max(1.0) as f64).into(),
         );
         // Round the thumbnail corners to nest inside the chip, reusing the same
         // shader the main pass uses for offscreen window textures.
-        let corner = radius
-            .min(dst.size.w.min(dst.size.h) as f32 / 2.0)
-            .max(0.0);
+        let corner = radius.min(dst.size.w.min(dst.size.h) as f32 / 2.0).max(0.0);
         let program = overlay.render_state.gpu.window_texture_program.as_ref();
         let uniforms = [
             Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
@@ -288,8 +327,12 @@ fn draw_focus_cycle_card(
         1 => FOCUS_CYCLE_LABEL_SCALE,
         _ => FOCUS_CYCLE_META_SCALE,
     };
-    let (_, title_h) =
-        ui_text_size_in(overlay.render_state, &overlay.tuning.font, "Mg", title_scale);
+    let (_, title_h) = ui_text_size_in(
+        overlay.render_state,
+        &overlay.tuning.font,
+        "Mg",
+        title_scale,
+    );
     let band_margin = 6;
     let band_h = (title_h + 10).min((body.size.h - band_margin * 2).max(1));
     let band_rect = Rectangle::<i32, Physical>::new(
@@ -395,7 +438,10 @@ pub(super) fn draw_focus_cycle_switcher(
         card_x.push(acc);
         acc += w + FOCUS_CYCLE_GAP;
     }
-    let selected_slot = slots.iter().position(|(offset, _)| *offset == 0).unwrap_or(0);
+    let selected_slot = slots
+        .iter()
+        .position(|(offset, _)| *offset == 0)
+        .unwrap_or(0);
     let selected_center = card_x[selected_slot] + sizes[selected_slot].0 / 2;
     let start_x = screen_w / 2 - selected_center;
 
@@ -414,8 +460,7 @@ pub(super) fn draw_focus_cycle_switcher(
         let distance = offset.abs();
         let (w, h) = sizes[slot_index];
         let x = start_x + card_x[slot_index];
-        let rect =
-            Rectangle::<i32, Physical>::new((x, center_y - h / 2).into(), (w, h).into());
+        let rect = Rectangle::<i32, Physical>::new((x, center_y - h / 2).into(), (w, h).into());
         let monitor = overlay
             .monitor_state
             .node_monitor

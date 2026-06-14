@@ -369,6 +369,17 @@ impl<T: DerefMut<Target = Halley>> RuntimeController<T> {
                 }
             }
         }
+        let device_config_changed = self.runtime.tuning.input.touchpad != prev_input.touchpad
+            || self.runtime.tuning.input.mouse != prev_input.mouse
+            || self.runtime.tuning.input.devices != prev_input.devices;
+        if device_config_changed {
+            // Clone so the device loop borrows `self.input` mutably without holding a
+            // borrow on `self.runtime` (which deref splitting can't prove disjoint here).
+            let input_cfg = self.runtime.tuning.input.clone();
+            for device in self.input.devices.iter_mut() {
+                crate::input::device_config::apply_device_config(device, &input_cfg);
+            }
+        }
         if self.runtime.tuning.font != prev_font {
             self.ui.render_state.invalidate_ui_text_cache();
         }

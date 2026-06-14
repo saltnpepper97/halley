@@ -164,6 +164,7 @@ pub(crate) struct PendingMovePress {
     pub(crate) press_global_sx: f32,
     pub(crate) press_global_sy: f32,
     pub(crate) workspace_active: bool,
+    pub(crate) restore_drag_offset: Option<Vec2>,
 }
 
 #[derive(Clone)]

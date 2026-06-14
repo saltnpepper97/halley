@@ -11,9 +11,10 @@ pub use keybinds::{
     TrailBindingAction, WHEEL_DOWN_CODE, WHEEL_UP_CODE,
 };
 pub use layout::{
-    AnimationToggleConfig, AnimationsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, ConfigPathSource,
-    CursorConfig, DebugConfig, DecorationBorderColor, DecorationsConfig, ExpandedPlacementConfig,
+    AccelProfile, AnimationToggleConfig, AnimationsConfig, ClickCollapsedOutsideFocusMode,
+    ClickCollapsedPanMode, ClickMethod, CloseRestorePanMode, ClusterBloomDirection,
+    ClusterDefaultLayout, ConfigPathSource, CursorConfig, DebugConfig, DecorationBorderColor,
+    DecorationsConfig, DeviceOverride, DeviceSettings, ExpandedPlacementConfig,
     ExpandedPlacementStrategy, FindEmptyMode, FontConfig, GamescopeConfig, GamescopeGameProfile,
     InitialWindowClusterParticipation, InitialWindowOverlapPolicy, InitialWindowSpawnPlacement,
     InputConfig, InputFocusMode, KeyboardConfig, LandmarkPlacementConfig,
@@ -21,8 +22,9 @@ pub use layout::{
     NormalBlockerPolicy, OverlayBorderSource, OverlayColorMode, OverlayShape, OverlayStyleConfig,
     PanToNewMode, PinBadgeCorner, PinnedBlockerPolicy, PinsConfig, PlacementConfig,
     PlacementRevealConfig, PrimaryBorderConfig, RaiseAnimationConfig, ResolvedConfigPath,
-    RuntimeTuning, ScreenshotConfig, SecondaryBorderConfig, ShadowColor, ShadowLayerConfig,
-    ShadowsConfig, ShapeStyle, TimedAnimationConfig, ViewportOutputConfig, ViewportVrrMode,
-    WindowCloseAnimationConfig, WindowCloseAnimationStyle, WindowRule, WindowRulePattern,
+    RuntimeTuning, ScreenshotConfig, ScrollMethod, SecondaryBorderConfig, ShadowColor,
+    ShadowLayerConfig, ShadowsConfig, ShapeStyle, TapButtonMap, TimedAnimationConfig,
+    ViewportOutputConfig, ViewportVrrMode, WindowCloseAnimationConfig, WindowCloseAnimationStyle,
+    WindowRule, WindowRulePattern,
 };
 pub use parse::{ConfigLoadDiagnostic, gather_dependencies_for_file};

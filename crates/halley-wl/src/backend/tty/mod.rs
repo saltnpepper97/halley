@@ -2124,6 +2124,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             },
                         );
                     }
+                    InputEvent::DeviceAdded { mut device } => {
+                        crate::input::device_config::apply_device_config(
+                            &mut device,
+                            &st.runtime.tuning.input,
+                        );
+                        st.input.devices.push(device);
+                    }
+                    InputEvent::DeviceRemoved { device } => {
+                        st.input.devices.retain(|d| d != &device);
+                    }
                     _ => {}
                 })?;
             info!("libinput event source enabled for tty backend");

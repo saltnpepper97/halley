@@ -1,17 +1,17 @@
 # Halley Lens
 
-Halley Lens is a standalone command palette for Halley. It runs as `halley-lens` and talks to the compositor through Halley's existing IPC APIs.
+Halley Lens is a standalone command palette for Halley. It is built from the `halley-lens` crate, installs as the `lens` binary, and talks to the compositor through Halley's existing IPC APIs.
 
 ## Run
 
 ```bash
-halley-lens
+lens
 ```
 
 You can also seed an initial query:
 
 ```bash
-halley-lens /cluster release
+lens /cluster release
 ```
 
 ## Search Prefixes

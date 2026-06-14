@@ -26,5 +26,5 @@ smithay-client-toolkit.workspace = true
 wayland-client.workspace = true
 
 [[bin]]
-name = "halley-lens"
+name = "lens"
 path = "src/main.rs"

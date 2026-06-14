@@ -450,8 +450,41 @@ end
         assert!(updated.contains("  raise-on-click true"));
         assert!(
             updated.contains(
-                "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end"
+                "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n    model \"\"\n  end"
             )
+        );
+    }
+
+    #[test]
+    fn updater_adds_missing_input_device_sections() {
+        let raw = r#"
+input:
+  repeat-rate 30
+  repeat-delay 500
+  focus-mode "click"
+  keyboard:
+    layout "us"
+    variant ""
+    options ""
+  end
+end
+"#;
+
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        // Existing keyboard values are preserved; new sub-sections are appended.
+        assert!(updated.contains("  keyboard:\n    layout \"us\""));
+        assert!(updated.contains("  touchpad:\n    tap true"));
+        assert!(updated.contains("  mouse:\n    natural-scroll false"));
+        assert!(updated.contains("    model \"\""));
+
+        // A second pass is a no-op.
+        assert!(
+            RuntimeTuning::update_user_config_text(updated.as_str(), &[])
+                .expect("second pass should succeed")
+                .is_none()
         );
     }
 
