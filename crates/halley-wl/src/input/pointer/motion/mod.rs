@@ -125,6 +125,10 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     };
 
     st.activate_monitor(routing.monitor.as_str());
+    // Keep the Xwayland RandR primary on the monitor under the cursor so XWayland
+    // games (which read the X primary at startup) get the resolution of the monitor
+    // they are launched on. Debounced internally; only acts on monitor changes.
+    st.sync_xwayland_primary(routing.monitor.as_str());
 
     let (_, hover_focus_blocked) = {
         let ps = ctx.pointer_state.borrow();

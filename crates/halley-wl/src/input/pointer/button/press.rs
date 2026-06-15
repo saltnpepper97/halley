@@ -136,6 +136,7 @@ pub(super) fn handle_left_press(
                 press_global_sx: frame.global_sx,
                 press_global_sy: frame.global_sy,
                 workspace_active: true,
+                restore_drag_offset: None,
             });
             backend.request_redraw();
             return;
@@ -162,6 +163,7 @@ pub(super) fn handle_left_press(
             press_global_sx: frame.global_sx,
             press_global_sy: frame.global_sy,
             workspace_active: false,
+            restore_drag_offset: None,
         });
         backend.request_redraw();
         return;

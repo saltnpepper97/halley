@@ -131,13 +131,7 @@ pub(crate) fn restore_live_camera_state(st: &mut Halley, state: LiveCameraState)
     }
 }
 
-pub(crate) fn apply_reloaded_tuning(
-    st: &mut Halley,
-    next: RuntimeTuning,
-    config_path: &str,
-    wayland_display: &str,
-    reason: &str,
-) {
+fn apply_reloaded_tuning_state(st: &mut Halley, next: RuntimeTuning) {
     let live_camera = capture_live_camera_state(st);
     st.apply_tuning(next);
     restore_live_camera_state(st, live_camera);
@@ -147,9 +141,33 @@ pub(crate) fn apply_reloaded_tuning(
     if opacity_changed {
         st.runtime.tty_redraw_all = true;
     }
+}
+
+pub(crate) fn apply_reloaded_tuning(
+    st: &mut Halley,
+    next: RuntimeTuning,
+    config_path: &str,
+    wayland_display: &str,
+    reason: &str,
+) {
+    apply_reloaded_tuning_state(st, next);
     // Clone to avoid borrow conflict when passing st mutably below.
     let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
     run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
+    debug!("{reason}: reloaded config from {}", config_path);
+    debug!(
+        "resolved zoom: {}",
+        st.runtime.tuning.zoom_resolved_summary()
+    );
+}
+
+pub(crate) fn apply_reloaded_tuning_without_autostart(
+    st: &mut Halley,
+    next: RuntimeTuning,
+    config_path: &str,
+    reason: &str,
+) {
+    apply_reloaded_tuning_state(st, next);
     debug!("{reason}: reloaded config from {}", config_path);
     debug!(
         "resolved zoom: {}",
@@ -399,7 +417,7 @@ mod tests {
     }
 }
 
-pub fn run() -> Result<(), Box<dyn Error>> {
+fn install_shutdown_signal_handlers() {
     // Register signal handlers before anything else so that SIGTERM (the
     // default signal sent by `pkill`/`kill`) triggers a clean shutdown.
     // This lets Drop run, which kills all spawned child process groups.
@@ -415,26 +433,52 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         let _ = kernel_sigaction(Signal::TERM, Some(action.clone()));
         let _ = kernel_sigaction(Signal::INT, Some(action));
     }
+}
 
+fn run_selected_backend(selected: RuntimeBackend, enable_ipc: bool) -> Result<(), Box<dyn Error>> {
     ensure_xdg_runtime_dir()?;
-    init_ipc()?;
+    if enable_ipc {
+        init_ipc()?;
+    }
 
-    let result = match RuntimeBackend::from_env()? {
-        RuntimeBackend::Auto => match auto_backend() {
-            RuntimeBackend::Tty => run_tty(),
-            RuntimeBackend::Winit | RuntimeBackend::Auto => run_winit(),
-        },
+    let result = match selected {
         RuntimeBackend::Winit => run_winit(),
         RuntimeBackend::Tty => run_tty(),
+        RuntimeBackend::Auto => unreachable!("backend selection must resolve auto"),
     };
 
-    shutdown_ipc();
+    if enable_ipc {
+        shutdown_ipc();
+    }
+
     result
+}
+
+fn resolve_runtime_backend() -> Result<RuntimeBackend, Box<dyn Error>> {
+    match RuntimeBackend::from_env()? {
+        RuntimeBackend::Auto => match auto_backend() {
+            RuntimeBackend::Tty => Ok(RuntimeBackend::Tty),
+            RuntimeBackend::Winit | RuntimeBackend::Auto => Ok(RuntimeBackend::Winit),
+        },
+        RuntimeBackend::Winit => Ok(RuntimeBackend::Winit),
+        RuntimeBackend::Tty => Ok(RuntimeBackend::Tty),
+    }
+}
+
+pub fn run() -> Result<(), Box<dyn Error>> {
+    install_shutdown_signal_handlers();
+
+    let selected = resolve_runtime_backend()?;
+    run_selected_backend(selected, selected == RuntimeBackend::Tty)
+}
+
+pub fn run_nested() -> Result<(), Box<dyn Error>> {
+    install_shutdown_signal_handlers();
+    run_selected_backend(RuntimeBackend::Winit, false)
 }
 
 pub fn run_session() -> Result<(), Box<dyn Error>> {
     unsafe {
-        env::set_var("HALLEY_WL_BACKEND", "tty");
         env::set_var("XDG_SESSION_TYPE", "wayland");
         env::set_var("XDG_CURRENT_DESKTOP", "Halley");
         env::set_var("XDG_SESSION_DESKTOP", "Halley");
@@ -444,7 +488,8 @@ pub fn run_session() -> Result<(), Box<dyn Error>> {
         env::remove_var("WAYLAND_SOCKET");
     }
 
-    run()
+    install_shutdown_signal_handlers();
+    run_selected_backend(RuntimeBackend::Tty, true)
 }
 
 pub fn run_winit() -> Result<(), Box<dyn Error>> {
@@ -480,7 +525,10 @@ pub(crate) fn init_logging() -> Result<(), Box<dyn Error>> {
         if let Err(err) = pollster::block_on(eventline::setup(Setup {
             verbose: true,
             level: Some(shared_level),
+            console_level: None,
+            file_level: None,
             file,
+            journal_retention: None,
         })) {
             warn!("failed to configure logging: {}", err);
         }

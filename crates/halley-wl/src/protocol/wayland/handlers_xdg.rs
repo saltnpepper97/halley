@@ -19,6 +19,36 @@ fn configure_popup_position(st: &mut Halley, popup: &PopupSurface, positioner: P
     super::handlers::constrain_layer_popup(st, popup, positioner);
 }
 
+fn restore_drag_offset_for_maximized_move(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+    monitor: &str,
+    press_global_sx: f32,
+    press_global_sy: f32,
+    now: std::time::Instant,
+) -> Option<halley_core::field::Vec2> {
+    let session = st.model.workspace_state.maximize_sessions.get(monitor)?;
+    let snapshot = session.node_snapshots.get(&node_id)?;
+    let (visual_center, visual_size) =
+        crate::compositor::workspace::state::maximized_visual_for_node_on_monitor_at(
+            st, node_id, monitor, now,
+        )?;
+    let (ws_w, ws_h, local_sx, local_sy) =
+        st.local_screen_in_monitor(monitor, press_global_sx, press_global_sy);
+    let pointer_world = crate::spatial::screen_to_world(st, ws_w, ws_h, local_sx, local_sy);
+    let ratio_x = ((pointer_world.x - (visual_center.x - visual_size.x * 0.5))
+        / visual_size.x.max(1.0))
+    .clamp(0.0, 1.0);
+    let ratio_y = ((pointer_world.y - (visual_center.y - visual_size.y * 0.5))
+        / visual_size.y.max(1.0))
+    .clamp(0.0, 1.0);
+
+    Some(halley_core::field::Vec2 {
+        x: (ratio_x - 0.5) * snapshot.size.x,
+        y: (ratio_y - 0.5) * snapshot.size.y,
+    })
+}
+
 impl XdgDecorationHandler for Halley {
     fn new_decoration(&mut self, toplevel: ToplevelSurface) {
         let mode = self.preferred_xdg_decoration_mode();
@@ -151,6 +181,26 @@ impl XdgShellHandler for Halley {
         let Some(node_id) = self.model.surface_to_node.get(&key).copied() else {
             return;
         };
+        let now = Instant::now();
+        let restore_drag_offset = self
+            .input
+            .interaction_state
+            .last_pointer_screen_global
+            .and_then(|(press_global_sx, press_global_sy)| {
+                crate::compositor::workspace::state::maximize_session_monitor_for_node(
+                    self, node_id,
+                )
+                .and_then(|monitor| {
+                    restore_drag_offset_for_maximized_move(
+                        self,
+                        node_id,
+                        monitor.as_str(),
+                        press_global_sx,
+                        press_global_sy,
+                        now,
+                    )
+                })
+            });
         if let Some(monitor) =
             crate::compositor::workspace::state::maximize_session_monitor_for_node(self, node_id)
         {
@@ -159,7 +209,6 @@ impl XdgShellHandler for Halley {
                 monitor.as_str(),
             );
         }
-        let now = Instant::now();
         let focus_target = surface::stack_focus_target_for_node(self, node_id).unwrap_or(node_id);
         self.set_recent_top_node(focus_target, now + std::time::Duration::from_millis(1200));
         self.set_interaction_focus(Some(focus_target), 700, now);
@@ -172,6 +221,7 @@ impl XdgShellHandler for Halley {
                     press_global_sx,
                     press_global_sy,
                     workspace_active: self.has_active_cluster_workspace(),
+                    restore_drag_offset,
                 });
         }
         self.request_maintenance();

@@ -13,7 +13,7 @@ use halley_api::{ApertureMode as IpcApertureMode, CompositorRequest, Request, Re
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rusttype::{Font, PositionedGlyph, Scale, point};
 use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState},
+    compositor::{CompositorHandler, CompositorState, Region},
     delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
@@ -168,6 +168,15 @@ impl StandaloneAperture {
             let mut runtime = ApertureRuntime::new(self.runtime.config().clone());
             runtime.jump_to_mode(self.mode_for_new_layer(output_name.as_deref()));
             layer.set_exclusive_zone(0);
+            // Aperture is display-only (no pointer/keyboard handlers). An empty input region
+            // makes the surface fully click-through, so windows overlapping the clock/tab
+            // still receive hover and click events instead of the compositor routing every
+            // pointer event in Aperture's rectangle to this surface.
+            if let Ok(region) = Region::new(&self.compositor) {
+                layer
+                    .wl_surface()
+                    .set_input_region(Some(region.wl_region()));
+            }
             layer.commit();
             self.layers.push(LayerInstance {
                 surface: layer,

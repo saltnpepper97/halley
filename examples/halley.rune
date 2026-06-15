@@ -52,6 +52,49 @@ input:
     layout "us"
     variant ""
     options ""
+    model ""
+  end
+
+  # libinput touchpad settings. Any key you omit keeps libinput's own default.
+  #   accel-profile : "adaptive" | "flat"
+  #   scroll-method : "two-finger" | "edge" | "on-button-down" | "no-scroll"
+  #   click-method  : "clickfinger" | "button-areas"
+  touchpad:
+    tap true
+    natural-scroll true
+    dwt true                  # disable while typing
+    accel-speed 0.3           # -1.0 .. 1.0
+    accel-profile "adaptive"
+    scroll-method "two-finger"
+    click-method "clickfinger"
+    tap-button-map "left-right-middle"
+    middle-emulation false
+    left-handed false
+    disabled-on-external-mouse false
+    enabled true              # send-events on/off
+  end
+
+  # libinput mouse / generic-pointer settings.
+  mouse:
+    natural-scroll false
+    accel-speed 0.0
+    accel-profile "flat"
+    middle-emulation false
+    left-handed false
+    enabled true
+  end
+
+  # Per-device overrides. Match the name from `libinput list-devices`
+  # (exact, case-insensitive, or substring). Each block layers on top of the
+  # matching touchpad/mouse section above, field by field.
+  devices:
+    "Logitech MX Master 3":
+      accel-speed 0.6
+      natural-scroll true
+    end
+    "SynPS/2 Synaptics TouchPad":
+      tap false
+    end
   end
 end
 

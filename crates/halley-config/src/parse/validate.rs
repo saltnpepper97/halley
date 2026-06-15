@@ -175,6 +175,9 @@ impl ConfigSchema {
             "font",
             "input",
             "input.keyboard",
+            "input.touchpad",
+            "input.mouse",
+            "input.devices",
             "nodes",
             "overlays",
             "placement",
@@ -306,6 +309,7 @@ impl ConfigSchema {
             "input.keyboard.layout",
             "input.keyboard.variant",
             "input.keyboard.options",
+            "input.keyboard.model",
             "nodes.primary-to-node-ms",
             "nodes.node-delay",
             "nodes.primary-to-preview-ms",
@@ -390,11 +394,13 @@ impl ConfigSchema {
             || self.ignored_sections.contains(path)
             || viewport_output_path(path)
                 .is_some_and(|rest| rest.is_empty() || rest == "focus-ring")
+            || input_device_override_section(path)
     }
 
     fn scalar_allowed(&self, path: &str) -> bool {
         self.scalars.contains(path)
             || viewport_output_path(path).is_some_and(|rest| viewport_output_scalar_allowed(rest))
+            || input_device_setting_key(path).is_some_and(input_device_setting_key_allowed)
     }
 
     fn suggestions_for_parent(&self, parent: &str) -> Vec<&'static str> {
@@ -544,7 +550,8 @@ fn numeric_scalar(path: &str) -> bool {
                 | "focus-ring.offset-x"
                 | "focus-ring.offset-y"
         )
-    })
+    }) || input_device_setting_key(path)
+        .is_some_and(|key| matches!(key, "accel-speed" | "scroll-button"))
 }
 
 fn bool_scalar(path: &str) -> bool {
@@ -585,6 +592,22 @@ fn bool_scalar(path: &str) -> bool {
             | "trail.wrap"
             | "trail.wrap-history"
     ) || viewport_output_path(path).is_some_and(|rest| matches!(rest, "enabled" | "active"))
+        || input_device_setting_key(path).is_some_and(|key| {
+            matches!(
+                key,
+                "tap"
+                    | "tap-to-click"
+                    | "natural-scroll"
+                    | "dwt"
+                    | "disable-while-typing"
+                    | "left-handed"
+                    | "middle-emulation"
+                    | "drag"
+                    | "drag-lock"
+                    | "disabled-on-external-mouse"
+                    | "enabled"
+            )
+        })
 }
 
 fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
@@ -652,7 +675,23 @@ fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
                 "adaptive",
             ])
         }
-        _ => None,
+        _ => match input_device_setting_key(path) {
+            Some("accel-profile") => Some(&["adaptive", "flat"]),
+            Some("scroll-method") => Some(&[
+                "no-scroll",
+                "none",
+                "two-finger",
+                "twofinger",
+                "edge",
+                "on-button-down",
+                "button",
+            ]),
+            Some("click-method") => Some(&["button-areas", "areas", "clickfinger", "click-finger"]),
+            Some("tap-button-map") => {
+                Some(&["left-right-middle", "lrm", "left-middle-right", "lmr"])
+            }
+            _ => None,
+        },
     }
 }
 
@@ -695,6 +734,51 @@ fn valid_overlay_color_value(value: &str) -> bool {
         || value.strip_prefix('#').is_some_and(|hex| {
             matches!(hex.len(), 3 | 6) && hex.chars().all(|ch| ch.is_ascii_hexdigit())
         })
+}
+
+/// True for a per-device override section header `input.devices.<name>` (a single segment
+/// after the `input.devices.` prefix; the device name itself is not validated).
+fn input_device_override_section(path: &str) -> bool {
+    path.strip_prefix("input.devices.")
+        .is_some_and(|rest| !rest.is_empty() && !rest.contains('.'))
+}
+
+/// For a scalar under `input.touchpad`, `input.mouse`, or `input.devices.<name>`, return the
+/// trailing device-setting key (e.g. `accel-speed`). Lets the touchpad/mouse type sections
+/// and per-device override blocks share one allowlist and one set of value validators.
+fn input_device_setting_key(path: &str) -> Option<&str> {
+    if let Some(rest) = path.strip_prefix("input.touchpad.") {
+        return Some(rest);
+    }
+    if let Some(rest) = path.strip_prefix("input.mouse.") {
+        return Some(rest);
+    }
+    let rest = path.strip_prefix("input.devices.")?;
+    // `input.devices.<name>.<key>` -> key; `input.devices.<name>` (section) -> None.
+    rest.split_once('.').map(|(_name, key)| key)
+}
+
+fn input_device_setting_key_allowed(key: &str) -> bool {
+    matches!(
+        key,
+        "tap"
+            | "tap-to-click"
+            | "natural-scroll"
+            | "dwt"
+            | "disable-while-typing"
+            | "accel-speed"
+            | "accel-profile"
+            | "scroll-method"
+            | "scroll-button"
+            | "click-method"
+            | "tap-button-map"
+            | "middle-emulation"
+            | "left-handed"
+            | "disabled-on-external-mouse"
+            | "enabled"
+            | "drag"
+            | "drag-lock"
+    )
 }
 
 fn viewport_output_path(path: &str) -> Option<&str> {
@@ -910,5 +994,71 @@ end
 
         assert_eq!(err.line, Some(3));
         assert!(err.message.contains("Invalid number `d` for `cursor.size`"));
+    }
+
+    #[test]
+    fn validation_accepts_input_device_sections() {
+        validate_known_config_keys(
+            r#"
+input:
+  keyboard:
+    layout "us"
+    model ""
+  end
+  touchpad:
+    tap true
+    natural-scroll true
+    dwt true
+    accel-speed 0.3
+    accel-profile "adaptive"
+    scroll-method "two-finger"
+    click-method "clickfinger"
+    tap-button-map "left-right-middle"
+    middle-emulation false
+    left-handed false
+    disabled-on-external-mouse false
+    enabled true
+  end
+  mouse:
+    natural-scroll false
+    accel-profile "flat"
+    scroll-button 274
+  end
+  devices:
+    "Logitech MX Master 3":
+      accel-speed 0.6
+      natural-scroll true
+    end
+  end
+end
+"#,
+            "halley.rune",
+        )
+        .expect("input device sections should validate");
+    }
+
+    #[test]
+    fn validation_rejects_unknown_touchpad_key() {
+        let err = validate_known_config_keys(
+            r#"
+input:
+  touchpad:
+    nonsense true
+  end
+end
+"#,
+            "halley.rune",
+        )
+        .expect_err("unknown touchpad key should fail");
+        assert!(err.message.contains("input.touchpad.nonsense"));
+    }
+
+    #[test]
+    fn validation_accepts_rendered_template() {
+        // The shipped internal template must always pass its own schema validator. This is
+        // the guard that the type structs/parser/template and this allowlist stay in sync.
+        let rendered = crate::layout::RuntimeTuning::render_fresh_config(&[]);
+        validate_known_config_keys(rendered.as_str(), "halley.rune")
+            .expect("internal template must satisfy the config schema");
     }
 }

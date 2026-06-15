@@ -46,7 +46,7 @@ mod stack;
 
 pub(crate) use capture::{
     capture_closing_window_animation, capture_window_to_png_via_renderer,
-    prewarm_visible_active_window_offscreen_caches,
+    prewarm_focus_cycle_previews, prewarm_visible_active_window_offscreen_caches,
 };
 pub(crate) use decoration::active_window_frame_pad_px;
 use decoration::{

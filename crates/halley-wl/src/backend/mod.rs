@@ -61,6 +61,7 @@ pub(crate) const HOVER_PREVIEW_DWELL_MS: u64 = 1_500;
 pub(crate) struct ResolvedXkbConfig {
     layout: String,
     variant: String,
+    model: String,
     options: Option<String>,
 }
 
@@ -69,6 +70,7 @@ impl ResolvedXkbConfig {
         Self {
             layout: input.keyboard.layout.clone(),
             variant: input.keyboard.variant.clone(),
+            model: input.keyboard.model.clone(),
             options: (!input.keyboard.options.is_empty()).then(|| input.keyboard.options.clone()),
         }
     }
@@ -76,7 +78,7 @@ impl ResolvedXkbConfig {
     pub(crate) fn as_smithay(&self) -> smithay::input::keyboard::XkbConfig<'_> {
         smithay::input::keyboard::XkbConfig {
             rules: "",
-            model: "",
+            model: self.model.as_str(),
             layout: self.layout.as_str(),
             variant: self.variant.as_str(),
             options: self.options.clone(),

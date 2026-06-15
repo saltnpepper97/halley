@@ -426,6 +426,8 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
     let is_mod_key = is_modifier_keycode(code);
     let layer_shell_keyboard_focus =
         crate::compositor::monitor::layer_shell::keyboard_focus_is_layer_surface(st);
+    let lens_keyboard_focus =
+        crate::compositor::monitor::layer_shell::keyboard_focus_is_lens_layer_surface(st);
     let session_lock_active = crate::protocol::wayland::session_lock::session_lock_active(st);
     let compositor_shortcuts_blocked = layer_shell_keyboard_focus || session_lock_active;
     let matched_action = if pressed && !is_mod_key && !compositor_shortcuts_blocked {
@@ -585,6 +587,11 @@ pub(crate) fn handle_keyboard_input<B: crate::backend::interface::BackendView>(
                 latch_hover_keyboard_spawn_monitor(st, pointer_screen);
             }
             if apply_bound_key(st, code, &mods, ctx.config_path, ctx.wayland_display) {
+                // fuzzel-style: a compositor keybind dismisses the launcher. The
+                // binding has already run; now close the lift so it doesn't linger.
+                if lens_keyboard_focus && first_binding_press {
+                    crate::compositor::monitor::layer_shell::close_any_lens_layer(st);
+                }
                 if matched_action.as_ref().is_some_and(|action| {
                     matches!(
                         action,

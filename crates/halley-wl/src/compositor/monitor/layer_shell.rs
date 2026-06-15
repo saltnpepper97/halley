@@ -20,7 +20,7 @@ use smithay::wayland::shell::xdg::PopupSurface;
 use smithay::wayland::shell::xdg::PositionerState;
 
 const APERTURE_LAYER_NAMESPACE: &str = "halley-aperture";
-const HALLEY_LENS_LAYER_NAMESPACE: &str = "halley-lens";
+const HALLEY_LENS_LAYER_NAMESPACE: &str = "halley-lift";
 
 #[derive(Clone)]
 pub(crate) struct LayerPlacement {
@@ -711,6 +711,26 @@ pub(crate) fn keyboard_focus_is_layer_surface(st: &Halley) -> bool {
     keyboard
         .current_focus()
         .is_some_and(|focus| is_layer_surface(st, &focus))
+}
+
+/// Returns true when the surface holding keyboard focus is the lens overlay
+/// (`halley-lift`). Used to dismiss the launcher when a compositor keybind fires,
+/// fuzzel-style.
+pub(crate) fn keyboard_focus_is_lens_layer_surface(st: &Halley) -> bool {
+    if let Some(focus_id) = st.model.monitor_state.layer_keyboard_focus.as_ref() {
+        return st
+            .model
+            .monitor_state
+            .layer_surface_namespace
+            .get(focus_id)
+            .is_some_and(|namespace| namespace == HALLEY_LENS_LAYER_NAMESPACE);
+    }
+    let Some(keyboard) = st.platform.seat.get_keyboard() else {
+        return false;
+    };
+    keyboard
+        .current_focus()
+        .is_some_and(|focus| is_lens_layer_surface(st, &focus))
 }
 
 fn layer_focus_surface(st: &Halley) -> Option<WlSurface> {

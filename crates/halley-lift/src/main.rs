@@ -4,9 +4,14 @@ mod model;
 mod providers;
 mod ui;
 
-use std::time::{Duration, Instant};
+use std::{
+    fs, io,
+    os::unix::{fs::PermissionsExt, net::UnixListener, net::UnixStream},
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
-use calloop::{EventLoop, LoopHandle};
+use calloop::{EventLoop, Interest, LoopHandle, Mode, PostAction, generic::Generic};
 use calloop_wayland_source::WaylandSource;
 use config::{LensConfig, default_config_path};
 use mode::{LensMode, ModeInputState, effective_mode_query, parse_initial_mode};
@@ -43,16 +48,20 @@ use wayland_client::{
     protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
 };
 
-const NAMESPACE: &str = "halley-lens";
+const NAMESPACE: &str = "halley-lift";
 
 fn main() {
     if let Err(err) = run() {
-        eprintln!("halley-lens: {err}");
+        eprintln!("halley-lift: {err}");
         std::process::exit(1);
     }
 }
 
 fn run() -> Result<(), String> {
+    let Some((_single_instance, instance_listener)) = acquire_single_instance()? else {
+        return Ok(());
+    };
+
     let start = Instant::now();
     let config_path = default_config_path();
     let config = LensConfig::load(config_path.as_path())?;
@@ -88,7 +97,11 @@ fn run() -> Result<(), String> {
     let height = panel_height(&config) as u32;
     let (anchor, margins) = layer_position(&config);
     layer.set_anchor(anchor);
-    layer.set_keyboard_interactivity(keyboard_interactivity(&config));
+    // A launcher is a modal grab: while it is open, keyboard input must go to it
+    // and nowhere else, so we always request exclusive interactivity. The
+    // compositor grabs the keyboard and deactivates toplevels in response (see
+    // apply_layer_surface_focus in halley-wl).
+    layer.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
     layer.set_size(width, height);
     layer.set_margin(margins.0, margins.1, margins.2, margins.3);
     layer.commit();
@@ -105,6 +118,25 @@ fn run() -> Result<(), String> {
     WaylandSource::new(conn.clone(), event_queue)
         .insert(loop_handle.clone())
         .map_err(|err| format!("wayland source: {err}"))?;
+
+    // A second invocation connects to our single-instance socket; treat that as a request
+    // to dismiss this instance (toggle), so launching halley-lift again from anywhere
+    // closes the open launcher instead of spawning a short-lived duplicate.
+    loop_handle
+        .insert_source(
+            Generic::new(instance_listener, Interest::READ, Mode::Level),
+            |_readiness, listener, app: &mut LensApp| {
+                loop {
+                    match listener.accept() {
+                        Ok(_) => app.exit = true,
+                        Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(_) => break,
+                    }
+                }
+                Ok(PostAction::Continue)
+            },
+        )
+        .map_err(|err| format!("instance socket source: {err}"))?;
 
     let mut app = LensApp {
         registry_state: RegistryState::new(&globals),
@@ -158,21 +190,78 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+struct SingleInstanceGuard {
+    socket_path: PathBuf,
+}
+
+impl Drop for SingleInstanceGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.socket_path);
+    }
+}
+
+/// Acquires single-instance ownership. On success returns the guard (which unlinks the
+/// socket on drop) plus the bound, nonblocking listener — the caller wires it into the
+/// event loop so a second invocation toggles this instance closed. Returns `Ok(None)` when
+/// another instance is already running and answering.
+fn acquire_single_instance() -> Result<Option<(SingleInstanceGuard, UnixListener)>, String> {
+    let socket_path = lift_socket_path()?;
+    for _ in 0..2 {
+        match UnixListener::bind(&socket_path) {
+            Ok(listener) => {
+                listener
+                    .set_nonblocking(true)
+                    .map_err(|err| format!("set instance socket nonblocking: {err}"))?;
+                return Ok(Some((SingleInstanceGuard { socket_path }, listener)));
+            }
+            Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
+                if UnixStream::connect(&socket_path).is_ok() {
+                    return Ok(None);
+                }
+                match fs::remove_file(&socket_path) {
+                    Ok(()) => continue,
+                    Err(err) if err.kind() == io::ErrorKind::NotFound => continue,
+                    Err(err) => {
+                        return Err(format!(
+                            "remove stale instance socket {}: {err}",
+                            socket_path.display()
+                        ));
+                    }
+                }
+            }
+            Err(err) => {
+                return Err(format!(
+                    "bind instance socket {}: {err}",
+                    socket_path.display()
+                ));
+            }
+        }
+    }
+
+    Err(format!(
+        "bind instance socket {} after stale cleanup",
+        socket_path.display()
+    ))
+}
+
+fn lift_socket_path() -> Result<PathBuf, String> {
+    let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR")
+        .ok_or_else(|| "XDG_RUNTIME_DIR is not set".to_string())?;
+    let dir = PathBuf::from(runtime_dir).join("halley");
+    fs::create_dir_all(&dir).map_err(|err| format!("create {}: {err}", dir.display()))?;
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
+        .map_err(|err| format!("chmod {}: {err}", dir.display()))?;
+    Ok(dir.join("halley-lift.sock"))
+}
+
 fn perf(args: std::fmt::Arguments<'_>) {
     if std::env::var_os("HALLEY_LENS_PERF").is_some() {
-        eprintln!("halley-lens perf: {args}");
+        eprintln!("halley-lift perf: {args}");
     }
 }
 
 fn perf_elapsed(label: &str, start: Instant) {
     perf(format_args!("{label}: {:.2?}", start.elapsed()));
-}
-
-fn keyboard_interactivity(config: &LensConfig) -> KeyboardInteractivity {
-    match config.keyboard_interactivity.to_ascii_lowercase().as_str() {
-        "on-demand" | "ondemand" | "on_demand" => KeyboardInteractivity::OnDemand,
-        _ => KeyboardInteractivity::Exclusive,
-    }
 }
 
 fn layer_position(config: &LensConfig) -> (Anchor, (i32, i32, i32, i32)) {
@@ -276,6 +365,14 @@ impl LensApp {
             self.results.len(),
             start.elapsed()
         ));
+    }
+
+    /// Refresh results after the user changed the query by typing. The highlight
+    /// snaps back to the first entry; a stationary cursor emits no motion event, so
+    /// it only moves again once the mouse is physically dragged over another row.
+    fn refresh_results_typed(&mut self) {
+        self.refresh_results();
+        self.selected = 0;
     }
 
     fn effective_search(&self) -> (LensMode, String) {
@@ -403,6 +500,9 @@ impl LensApp {
     fn poll_background_jobs(&mut self) {
         self.poll_live_refresh();
         self.poll_icon_index();
+        if self.icon_cache.poll_decodes() {
+            self.mark_redraw();
+        }
     }
 
     fn poll_live_refresh(&mut self) {
@@ -538,7 +638,7 @@ impl LensApp {
 
     fn debug(&self, args: std::fmt::Arguments<'_>) {
         if std::env::var_os("HALLEY_LENS_DEBUG").is_some() {
-            eprintln!("halley-lens: {args}");
+            eprintln!("halley-lift: {args}");
         }
     }
 
@@ -548,7 +648,9 @@ impl LensApp {
     }
 
     fn has_background_jobs(&self) -> bool {
-        self.index.has_pending_live_refresh() || self.icon_cache.has_pending_index()
+        self.index.has_pending_live_refresh()
+            || self.icon_cache.has_pending_index()
+            || self.icon_cache.has_pending_decodes()
     }
 
     fn handle_text(&mut self, text: &str) {
@@ -562,7 +664,7 @@ impl LensApp {
             return;
         }
         self.input.insert_text(text);
-        self.refresh_results();
+        self.refresh_results_typed();
     }
 
     fn selected_is_stageable(&self) -> bool {
@@ -597,11 +699,11 @@ impl LensApp {
                     self.input.query = format!("action {}", self.input.query.trim_start());
                 }
                 self.input.mode = LensMode::General;
-                self.refresh_results();
+                self.refresh_results_typed();
             }
             Keysym::BackSpace => {
                 self.input.backspace();
-                self.refresh_results();
+                self.refresh_results_typed();
             }
             Keysym::Return | Keysym::KP_Enter => {
                 if self.modifiers.ctrl {

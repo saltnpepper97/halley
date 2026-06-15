@@ -28,7 +28,7 @@ use crate::compositor::root::Halley;
 use crate::overlay::ensure_cluster_bloom_icon_resources;
 use crate::render::bearings::ensure_bearing_icon_resources;
 use crate::text::ensure_ui_text_resources;
-use crate::window::prewarm_visible_active_window_offscreen_caches;
+use crate::window::{prewarm_focus_cycle_previews, prewarm_visible_active_window_offscreen_caches};
 use draw::{draw_cursor_layer, draw_debug_frame_scene};
 use scene::{collect_cursor_scene, collect_debug_frame_scene, prepare_debug_frame_state};
 
@@ -265,6 +265,9 @@ pub(crate) fn draw_debug_frame_to_target(
     {
         ensure_app_icon_resources_for_node_ids(renderer, st, candidate_ids.into_iter())?;
     }
+    // Capture live/still window textures for the alt+tab switcher cards (no-op
+    // unless a focus-cycle session is active).
+    prewarm_focus_cycle_previews(renderer, st, prepared.now);
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_ui_text_resources(renderer, st)?;

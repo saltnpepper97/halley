@@ -13,6 +13,9 @@ use halley_api::{
     ApiError, CompositorRequest, LogicalOutputInfo, ModeInfo, OutputInfo, OutputStatus, Request,
     Response,
 };
+use smithay::reexports::winit::dpi::LogicalSize;
+use smithay::reexports::winit::platform::wayland::WindowAttributesExtWayland;
+use smithay::reexports::winit::window::Window;
 
 const CONFIG_RELOAD_SETTLE_MS: u64 = 100;
 
@@ -202,12 +205,21 @@ fn publish_winit_output_snapshot(
     }]);
 }
 
+fn warn_winit_physical_input_settings_ignored(input: &halley_config::InputConfig, source: &str) {
+    if input.has_physical_device_settings() {
+        warn!(
+            "{}: input.touchpad/input.mouse/input.devices are ignored by the winit backend; configure physical input devices in the host compositor or run Halley on tty",
+            source
+        );
+    }
+}
+
 fn apply_winit_reload(
     backend: &Rc<RefCell<smithay::backend::winit::WinitGraphicsBackend<GlesRenderer>>>,
     st: &mut Halley,
     mut next: RuntimeTuning,
     config_path: &str,
-    wayland_display: &str,
+    _wayland_display: &str,
     reason: &str,
 ) {
     let ws = backend.borrow().window_size();
@@ -218,6 +230,7 @@ fn apply_winit_reload(
     let live_camera = crate::bootstrap::capture_live_camera_state(st);
     st.apply_tuning(next);
     crate::bootstrap::restore_live_camera_state(st, live_camera);
+    warn_winit_physical_input_settings_ignored(&st.runtime.tuning.input, reason);
     crate::compositor::spawn::state::recompute_all_node_rule_opacities(st);
     st.ui.render_state.clear_window_offscreen_caches();
     st.request_maintenance();
@@ -228,8 +241,6 @@ fn apply_winit_reload(
             refresh: 0,
         },
     );
-    let reload_commands = st.runtime.tuning.autostart_on_reload.clone();
-    run_autostart_commands(st, &reload_commands, wayland_display, "autostart");
     debug!(
         "{}: reloaded config from {} with viewport {}x{}",
         reason,
@@ -249,6 +260,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             ensure_xdg_runtime_dir()?;
             ensure_dbus_session_bus_address();
             init_logging()?;
+            info!("running nested winit backend");
             let _host_backend_guard = ensure_host_display()?;
 
             let mut display: Display<Halley> = Display::new()?;
@@ -290,6 +302,7 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
             debug!("keybind modifier: {}", tuning.keybinds.modifier_name());
             debug!("resolved keybinds: {}", tuning.keybinds_resolved_summary());
             debug!("resolved zoom: {}", tuning.zoom_resolved_summary());
+            warn_winit_physical_input_settings_ignored(&tuning.input, "startup");
 
             let (watch_rx, _watcher): (Option<mpsc::Receiver<()>>, Option<RecommendedWatcher>) = {
                 let (watch_tx, watch_rx) = mpsc::channel::<()>();
@@ -341,18 +354,16 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 (Some(watch_rx), Some(watcher))
             };
 
-            let listening = ListeningSocketSource::new_auto().map_err(|err| {
-                let xdg_runtime_dir =
-                    env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "<unset>".to_string());
-                io::Error::other(format!(
-                    "failed to create WAYLAND listening socket (XDG_RUNTIME_DIR={}): {}",
-                    xdg_runtime_dir, err
-                ))
-            })?;
-            let sock_name = listening.socket_name().to_string_lossy().to_string();
-            info!("WAYLAND_DISPLAY={}", sock_name);
-
-            let (backend, winit_source) = smithay_winit::init::<GlesRenderer>().map_err(|err| {
+            info!("creating nested winit host window");
+            let window_attributes = Window::default_attributes()
+                .with_inner_size(LogicalSize::new(1280.0, 800.0))
+                .with_title("Halley")
+                .with_visible(true)
+                .with_name("halley", "");
+            let (backend, winit_source) = smithay_winit::init_from_attributes::<GlesRenderer>(
+                window_attributes,
+            )
+            .map_err(|err| {
                 let wayland_display =
                     env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "<unset>".to_string());
                 let x11_display = env::var("DISPLAY").unwrap_or_else(|_| "<unset>".to_string());
@@ -361,6 +372,21 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     wayland_display, x11_display, err
                 ))
             })?;
+            info!(
+                "nested winit host window ready: {:?}",
+                backend.window_size()
+            );
+
+            let listening = ListeningSocketSource::new_auto().map_err(|err| {
+                let xdg_runtime_dir =
+                    env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "<unset>".to_string());
+                io::Error::other(format!(
+                    "failed to create nested WAYLAND listening socket (XDG_RUNTIME_DIR={}): {}",
+                    xdg_runtime_dir, err
+                ))
+            })?;
+            let sock_name = listening.socket_name().to_string_lossy().to_string();
+            info!("nested WAYLAND_DISPLAY={}", sock_name);
             let backend = Rc::new(RefCell::new(backend));
             let backend_handle = WinitBackendHandle::new(backend.clone());
             let mut ev: EventLoop<Halley> = EventLoop::try_new()?;
@@ -402,8 +428,9 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                     crate::bootstrap::show_config_startup_error(&mut state, diagnostic);
                 }
             }
-            let autostart_once = state.runtime.tuning.autostart_once.clone();
-            run_autostart_commands(&mut state, &autostart_once, sock_name.as_str(), "autostart");
+            if !state.runtime.tuning.autostart_once.is_empty() {
+                info!("nested winit backend: skipping session autostart");
+            }
             apply_host_cursor(&backend, &state.effective_cursor_image_status());
             let backend_for_winit = backend.clone();
             let backend_for_timer = backend.clone();
@@ -774,11 +801,14 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                         "ipc",
                                     );
                                 } else {
-                                    crate::bootstrap::apply_reloaded_tuning(
+                                    crate::bootstrap::apply_reloaded_tuning_without_autostart(
                                         st,
                                         next,
                                         config_path_for_timer.as_str(),
-                                        wayland_display_for_timer.as_str(),
+                                        "ipc",
+                                    );
+                                    warn_winit_physical_input_settings_ignored(
+                                        &st.runtime.tuning.input,
                                         "ipc",
                                     );
                                 }
@@ -872,11 +902,14 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                                     "watch",
                                 );
                             } else {
-                                crate::bootstrap::apply_reloaded_tuning(
+                                crate::bootstrap::apply_reloaded_tuning_without_autostart(
                                     st,
                                     next,
                                     config_path_for_timer.as_str(),
-                                    wayland_display_for_timer.as_str(),
+                                    "watch",
+                                );
+                                warn_winit_physical_input_settings_ignored(
+                                    &st.runtime.tuning.input,
                                     "watch",
                                 );
                             }

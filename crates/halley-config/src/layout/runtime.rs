@@ -506,7 +506,30 @@ input:
     layout "us"
     variant ""
     options ""
+    model ""
   end
+  # Touchpad libinput settings. Unset keys keep libinput's own defaults.
+  touchpad:
+    tap true
+    natural-scroll true
+    dwt true
+    accel-profile "adaptive"
+    scroll-method "two-finger"
+    click-method "clickfinger"
+  end
+  # Mouse / generic-pointer libinput settings.
+  mouse:
+    natural-scroll false
+    accel-profile "flat"
+  end
+  # Per-device overrides layer on top of the type sections above. Match the name from
+  # `libinput list-devices` (exact or substring). Example:
+  # devices:
+  #   "Logitech MX Master 3":
+  #     accel-speed 0.6
+  #     natural-scroll true
+  #   end
+  # end
 end
 
 # Default font used for compositor UI like labels and overlays.
@@ -1167,9 +1190,15 @@ mod tests {
             rendered.contains("debug:\n  overlay-fps false\n  show-ring-when-resizing true\nend")
         );
         assert!(rendered.contains(
-            "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n  end\nend"
+            "  keyboard:\n    layout \"us\"\n    variant \"\"\n    options \"\"\n    model \"\"\n  end"
         ));
+        assert!(rendered.contains("  touchpad:\n    tap true\n    natural-scroll true"));
+        assert!(rendered.contains("  mouse:\n    natural-scroll false"));
+        // The compositor template must never absorb the standalone companion-app configs
+        // or the removed `rail` section.
         assert!(!rendered.contains("\nrail:"));
+        assert!(!rendered.contains("\naperture:"));
+        assert!(!rendered.contains("\nlens:"));
     }
 
     #[test]

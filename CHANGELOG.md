@@ -5,13 +5,54 @@ All notable changes to this project will be documented in this file.
 ## [v0.5.0] - TBD
 
 ### Added
-- TBD
+- Add libinput input-device customization to the `input:` config section: per-class
+  `touchpad:` and `mouse:` blocks (tap-to-click, natural-scroll, disable-while-typing,
+  accel speed/profile, scroll method, click method, tap-button-map, middle-emulation,
+  left-handed, send-events) plus per-device override blocks under `input.devices.<name>:`
+  matched against the `libinput list-devices` name. Settings apply on device hotplug and
+  re-apply live on config reload; unset keys keep libinput's own defaults. Also adds an
+  `input.keyboard.model` xkb key. Wired into the internal template, bootstrap backfill, and
+  example configs.
+- Add `halley --nested` as an explicit nested compositor launcher. It forces the winit
+  backend, creates a visible host window titled `Halley`, opens a nested Wayland socket for
+  clients, and avoids full-session startup behavior such as session autostart.
 
 ### Changed
-- TBD
+- Rename Halley Lens to Halley Lift (`halley-lift`) across the workspace, launcher layer
+  namespace, command bindings, README, and lockfile while preserving the command-palette
+  implementation. The first-party launcher binding now behaves like a toggle: pressing the
+  bound command closes an existing Lift overlay instead of racing a second instance, and
+  compositor keybinds dismiss the focused Lift layer fuzzel-style.
+- Rename the Aperture binary from `aperture` to `halley-aperture` for consistency with the
+  other first-party tools.
+- Clean up compositor startup ownership so backend selection happens before fixed IPC
+  initialization. TTY/session instances own `/run/user/$UID/halley/halley.sock`; nested winit
+  instances no longer create or replace that session IPC socket. `halley --session` now runs
+  the TTY/session path directly instead of setting `HALLEY_WL_BACKEND=tty` internally, and IPC
+  startup refuses to replace a live socket while still removing stale refused sockets.
+- Treat the winit backend as nested by default: create the host winit window before creating
+  the nested Wayland socket, skip session `autostart.once` commands on startup, skip reload
+  autostart commands on winit config reloads, and log when physical libinput settings are
+  configured on winit where the host compositor owns the devices.
+- Decode Halley Lens result icons on a background worker thread and persist the resolved icon path index under `$XDG_CACHE_HOME/halley/lens-icons`, so icons no longer block the UI thread while decoding and warm launches skip the icon-directory walk entirely (the index is ready before the first draw on subsequent launches).
+- Split TTY output/layout helpers and TTY frame-clock/presentation helpers out of
+  `backend/tty/mod.rs` into dedicated modules, reducing the monolithic TTY backend while
+  preserving behavior.
 
 ### Fixed
-- TBD
+- Let plain `halley` launched from inside Halley auto-select the nested winit backend by
+  removing inherited `HALLEY_WL_BACKEND` from spawned app environments. This keeps the session
+  wrapper explicit while preventing spawned nested compositors from being forced back into the
+  TTY path.
+- Stop forcing `SDL_VIDEODRIVER=wayland` for spawned applications so older SDL/Unity games can
+  fall back to X11/Xwayland when their native Wayland path fails.
+- Advertise the canonical/main TTY output first so Xwayland/XRandR sees the intended primary
+  output ordering for monitor selection.
+- Make winit/nested input-device configuration behavior explicit: `input.touchpad`,
+  `input.mouse`, and `input.devices` are applied on the TTY backend that owns libinput devices,
+  and winit now warns instead of silently appearing to ignore those settings.
+- Keep the Halley Lens result highlight on the first entry while typing, so filtering a query no longer leaves the selection stranded on whatever row the mouse last hovered; the highlight only follows the pointer again once it is physically moved over a different entry.
+- Eliminate Halley Lens icon load stalls where some icons appeared instantly while others took seconds, by removing the per-request recursive icon-directory walk that ran on the UI thread before the icon index was ready.
 
 ## [v0.4.0] - 2026-06-12
 

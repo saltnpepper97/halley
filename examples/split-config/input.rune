@@ -22,5 +22,30 @@ input:
     layout "us"
     variant ""
     options ""
+    model ""
+  end
+
+  # libinput touchpad settings (omitted keys keep libinput defaults).
+  touchpad:
+    tap true
+    natural-scroll true
+    dwt true
+    accel-profile "adaptive"
+    scroll-method "two-finger"
+    click-method "clickfinger"
+  end
+
+  # libinput mouse / generic-pointer settings.
+  mouse:
+    natural-scroll false
+    accel-profile "flat"
+  end
+
+  # Per-device overrides, matched by `libinput list-devices` name.
+  devices:
+    "Logitech MX Master 3":
+      accel-speed 0.6
+      natural-scroll true
+    end
   end
 end

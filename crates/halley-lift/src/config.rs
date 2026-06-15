@@ -15,9 +15,7 @@ pub struct LensConfig {
     pub icon_search_depth: usize,
     pub icon_theme: String,
     pub terminal: String,
-    pub keyboard_interactivity: String,
     pub close_on_focus_loss: bool,
-    pub close_on_click_away: bool,
     pub alt_number_jump: bool,
     pub ui: LensUiConfig,
     pub position: LensPositionConfig,
@@ -104,9 +102,7 @@ impl Default for LensConfig {
             icon_search_depth: 5,
             icon_theme: "auto".into(),
             terminal: "x-terminal-emulator -e".into(),
-            keyboard_interactivity: "exclusive".into(),
             close_on_focus_loss: false,
-            close_on_click_away: false,
             alt_number_jump: true,
             ui: LensUiConfig::default(),
             position: LensPositionConfig::default(),
@@ -228,12 +224,7 @@ impl LensConfig {
             .clamp(1, 8) as usize;
         out.icon_theme = cfg.get_or("lens.icon-theme", out.icon_theme.clone());
         out.terminal = cfg.get_or("lens.terminal", out.terminal.clone());
-        out.keyboard_interactivity = cfg.get_or(
-            "lens.keyboard-interactivity",
-            out.keyboard_interactivity.clone(),
-        );
         out.close_on_focus_loss = cfg.get_or("lens.close-on-focus-loss", out.close_on_focus_loss);
-        out.close_on_click_away = cfg.get_or("lens.close-on-click-away", out.close_on_click_away);
         out.alt_number_jump = cfg.get_or("lens.alt-number-jump", out.alt_number_jump);
         out.position.anchor = cfg.get_or("lens.position.anchor", out.position.anchor.clone());
         out.position.offset_x = cfg
@@ -355,12 +346,6 @@ fn validate(config: &LensConfig) -> Result<(), String> {
     }
     if config.visible_results == 0 || config.visible_results > config.max_results {
         return Err("lens.visible-results must be between 1 and lens.max-results".into());
-    }
-    if !matches!(
-        config.keyboard_interactivity.to_ascii_lowercase().as_str(),
-        "exclusive" | "on-demand" | "ondemand" | "on_demand"
-    ) {
-        return Err("lens.keyboard-interactivity must be `exclusive` or `on-demand`".into());
     }
     if !matches!(
         config.position.anchor.to_ascii_lowercase().as_str(),

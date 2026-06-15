@@ -1,12 +1,13 @@
 mod dpms;
 mod drm;
+mod frame;
+mod output;
 mod scheduler;
 mod stats;
 
 use super::*;
 
 use crate::input::ctx::InputCtx;
-use halley_config::{ViewportOutputConfig, ViewportVrrMode};
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -22,6 +23,17 @@ use crate::backend::tty::drm::{
     build_tty_dmabuf_output_feedbacks, current_tty_output_signature,
     probe_tty_drm_device_via_session, queue_tty_drm_frame, rebuild_tty_outputs,
 };
+use crate::backend::tty::frame::{
+    TtyFrameClock, VBlankMismatchState, drm_vblank_timestamp, monotonic_now_duration,
+    output_frame_interval, present_tty_frame_feedback, schedule_estimated_frame_callback,
+    send_due_estimated_frame_callbacks, sync_tty_frame_clocks,
+};
+use crate::backend::tty::output::{
+    active_mode_map, active_output_names, bootstrap_tty_viewports, canonical_tty_main_output_name,
+    effective_tty_viewports_for_outputs, layout_size_for_outputs,
+    log_effective_tty_viewport_fallback, output_advertise_order, outputs_match,
+    primary_tty_monitor_dims,
+};
 use crate::backend::tty::scheduler::{
     tty_animation_output_ready_for_redraw, tty_animation_redraw_active,
     tty_animation_redraw_outputs, tty_due_outputs_for_timer, tty_output_animation_redraw_active,
@@ -34,11 +46,9 @@ use crate::backend::vblank_throttle::VBlankThrottle;
 use crate::compositor::exit_confirm::exit_confirm_controller;
 use crate::compositor::interaction::ResizeCtx;
 use calloop::ping::make_ping;
-use smithay::backend::drm::{DrmEventMetadata, DrmEventTime, DrmNode};
+use smithay::backend::drm::DrmNode;
 use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::udev::{UdevBackend, UdevEvent};
-use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
-use smithay::wayland::presentation::Refresh;
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, Event, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
@@ -51,133 +61,6 @@ const PENDING_FRAME_TIMEOUT_MS: u64 = 1_500;
 
 const HALLEY_X11_DISPLAY_NUM: u32 = 0;
 
-#[derive(Clone, Debug, Default)]
-struct VBlankMismatchState {
-    first_seen_at: Option<Instant>,
-    reported_active: bool,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum TtyRedrawState {
-    Idle,
-    Queued,
-    WaitingForVBlank { redraw_needed: bool },
-    WaitingForEstimatedVBlank { due_at: Instant },
-    WaitingForEstimatedVBlankAndQueued { due_at: Instant },
-}
-
-#[derive(Clone, Copy, Debug)]
-struct TtyFrameClock {
-    refresh_interval: Duration,
-    last_presentation_time: Option<Duration>,
-    last_presentation_instant: Option<Instant>,
-    redraw_state: TtyRedrawState,
-}
-
-impl TtyFrameClock {
-    fn new(refresh_interval: Duration) -> Self {
-        Self {
-            refresh_interval,
-            last_presentation_time: None,
-            last_presentation_instant: None,
-            redraw_state: TtyRedrawState::Idle,
-        }
-    }
-
-    fn set_refresh_interval(&mut self, refresh_interval: Duration) {
-        self.refresh_interval = refresh_interval;
-    }
-
-    fn presented(&mut self, presentation_time: Duration, now: Instant) -> bool {
-        if !presentation_time.is_zero() {
-            self.last_presentation_time = Some(presentation_time);
-            self.last_presentation_instant = Some(now);
-        }
-        match std::mem::replace(&mut self.redraw_state, TtyRedrawState::Idle) {
-            TtyRedrawState::WaitingForVBlank { redraw_needed } => {
-                if redraw_needed {
-                    self.redraw_state = TtyRedrawState::Queued;
-                }
-                redraw_needed
-            }
-            TtyRedrawState::Queued | TtyRedrawState::WaitingForEstimatedVBlankAndQueued { .. } => {
-                self.redraw_state = TtyRedrawState::Queued;
-                true
-            }
-            TtyRedrawState::Idle | TtyRedrawState::WaitingForEstimatedVBlank { .. } => false,
-        }
-    }
-
-    fn queue_redraw(&mut self) {
-        self.redraw_state = match self.redraw_state {
-            TtyRedrawState::Idle => TtyRedrawState::Queued,
-            TtyRedrawState::WaitingForVBlank { .. } => TtyRedrawState::WaitingForVBlank {
-                redraw_needed: true,
-            },
-            TtyRedrawState::WaitingForEstimatedVBlank { due_at }
-            | TtyRedrawState::WaitingForEstimatedVBlankAndQueued { due_at } => {
-                TtyRedrawState::WaitingForEstimatedVBlankAndQueued { due_at }
-            }
-            TtyRedrawState::Queued => TtyRedrawState::Queued,
-        };
-    }
-
-    fn mark_submitted(&mut self) {
-        self.redraw_state = TtyRedrawState::WaitingForVBlank {
-            redraw_needed: false,
-        };
-    }
-
-    fn mark_estimated_wait(&mut self, due_at: Instant) {
-        self.redraw_state = match self.redraw_state {
-            TtyRedrawState::Queued | TtyRedrawState::WaitingForEstimatedVBlankAndQueued { .. } => {
-                TtyRedrawState::WaitingForEstimatedVBlankAndQueued { due_at }
-            }
-            _ => TtyRedrawState::WaitingForEstimatedVBlank { due_at },
-        };
-    }
-
-    fn consume_estimated_wait(&mut self) -> bool {
-        match std::mem::replace(&mut self.redraw_state, TtyRedrawState::Idle) {
-            TtyRedrawState::WaitingForEstimatedVBlankAndQueued { .. } | TtyRedrawState::Queued => {
-                self.redraw_state = TtyRedrawState::Queued;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn next_presentation_instant(&self, now: Instant) -> Instant {
-        let Some(last) = self.last_presentation_instant else {
-            return now + self.refresh_interval;
-        };
-        let mut next = last + self.refresh_interval;
-        while next <= now {
-            next += self.refresh_interval;
-        }
-        next
-    }
-}
-
-fn sync_tty_frame_clocks(
-    frame_clocks: &Rc<RefCell<HashMap<String, TtyFrameClock>>>,
-    outputs: &[TtyDrmOutput],
-) {
-    let mut clocks = frame_clocks.borrow_mut();
-    clocks.retain(|output_name, _| {
-        outputs
-            .iter()
-            .any(|output| output.connector_name == *output_name)
-    });
-    for output in outputs {
-        let interval = output_frame_interval(output);
-        clocks
-            .entry(output.connector_name.clone())
-            .and_modify(|clock| clock.set_refresh_interval(interval))
-            .or_insert_with(|| TtyFrameClock::new(interval));
-    }
-}
-
 fn tty_env_flag(name: &str) -> bool {
     std::env::var(name).is_ok_and(|value| {
         matches!(
@@ -185,117 +68,6 @@ fn tty_env_flag(name: &str) -> bool {
             "1" | "true" | "yes" | "on"
         )
     })
-}
-
-fn monotonic_now_duration() -> Duration {
-    smithay::utils::Clock::<smithay::utils::Monotonic>::new()
-        .now()
-        .into()
-}
-
-fn drm_vblank_timestamp(metadata: Option<&DrmEventMetadata>) -> Duration {
-    if let Some(metadata) = metadata {
-        if let DrmEventTime::Monotonic(timestamp) = metadata.time {
-            return timestamp;
-        }
-    }
-
-    monotonic_now_duration()
-}
-
-fn present_tty_frame_feedback<E: std::fmt::Display>(
-    output_name: &str,
-    submitted: Result<Option<smithay::desktop::utils::OutputPresentationFeedback>, E>,
-    presentation_time: Duration,
-    refresh_interval: Option<Duration>,
-    sequence: u64,
-) {
-    let Some(mut feedback) = (match submitted {
-        Ok(feedback) => feedback,
-        Err(err) => {
-            warn!(
-                "failed to mark drm frame submitted for {}: {}",
-                output_name, err
-            );
-            return;
-        }
-    }) else {
-        return;
-    };
-
-    let refresh = refresh_interval
-        .map(Refresh::Fixed)
-        .unwrap_or(Refresh::Unknown);
-    let mut flags =
-        wp_presentation_feedback::Kind::Vsync | wp_presentation_feedback::Kind::HwCompletion;
-    if !presentation_time.is_zero() {
-        flags.insert(wp_presentation_feedback::Kind::HwClock);
-    }
-    feedback.presented::<_, smithay::utils::Monotonic>(presentation_time, refresh, sequence, flags);
-}
-
-fn output_frame_interval(output: &TtyDrmOutput) -> Duration {
-    frame_interval_for_refresh_hz(Some(output.mode.vrefresh() as f64))
-}
-
-fn schedule_estimated_frame_callback(
-    estimated_frame_callbacks: &Rc<RefCell<HashMap<String, Instant>>>,
-    frame_clocks: &Rc<RefCell<HashMap<String, TtyFrameClock>>>,
-    output: &TtyDrmOutput,
-    now: Instant,
-) {
-    let due_at = frame_clocks
-        .borrow()
-        .get(output.connector_name.as_str())
-        .map(|clock| clock.next_presentation_instant(now))
-        .unwrap_or_else(|| now + output_frame_interval(output));
-    estimated_frame_callbacks
-        .borrow_mut()
-        .entry(output.connector_name.clone())
-        .or_insert(due_at);
-    frame_clocks
-        .borrow_mut()
-        .entry(output.connector_name.clone())
-        .or_insert_with(|| TtyFrameClock::new(output_frame_interval(output)))
-        .mark_estimated_wait(due_at);
-}
-
-fn send_due_estimated_frame_callbacks(
-    estimated_frame_callbacks: &Rc<RefCell<HashMap<String, Instant>>>,
-    frame_clocks: &Rc<RefCell<HashMap<String, TtyFrameClock>>>,
-    output_frame_pending: &Rc<RefCell<HashMap<String, bool>>>,
-    st: &mut Halley,
-    now: Instant,
-) {
-    let pending = output_frame_pending.borrow();
-    let due_outputs: Vec<String> = estimated_frame_callbacks
-        .borrow()
-        .iter()
-        .filter_map(|(output_name, due_at)| {
-            (now >= *due_at && !pending.get(output_name.as_str()).copied().unwrap_or(false))
-                .then_some(output_name.clone())
-        })
-        .collect();
-    drop(pending);
-
-    if due_outputs.is_empty() {
-        return;
-    }
-
-    let mut estimated = estimated_frame_callbacks.borrow_mut();
-    for output_name in due_outputs {
-        estimated.remove(output_name.as_str());
-        let redraw_queued = frame_clocks
-            .borrow_mut()
-            .get_mut(output_name.as_str())
-            .is_some_and(TtyFrameClock::consume_estimated_wait);
-        if redraw_queued {
-            st.runtime.tty_redraw_outputs.insert(output_name);
-        } else {
-            st.advance_tty_frame_callback_sequence(output_name.as_str());
-            crate::frame_loop::send_frame_callbacks_for_output(st, output_name.as_str(), now);
-        }
-    }
 }
 
 fn take_ready_tty_redraw_outputs(
@@ -643,249 +415,6 @@ fn reset_inherited_display_env() {
     }
 }
 
-fn active_output_names(outputs: &[TtyDrmOutput]) -> Vec<String> {
-    outputs
-        .iter()
-        .map(|output| output.connector_name.clone())
-        .collect()
-}
-
-fn active_mode_map(outputs: &[TtyDrmOutput]) -> HashMap<String, drm_control::Mode> {
-    outputs
-        .iter()
-        .map(|output| (output.connector_name.clone(), output.mode))
-        .collect()
-}
-
-fn outputs_match(a: &[TtyDrmOutput], b: &[TtyDrmOutput]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-
-    a.iter().all(|left| {
-        b.iter().any(|right| {
-            left.connector_name == right.connector_name
-                && left.crtc == right.crtc
-                && left.mode.size() == right.mode.size()
-                && left.mode.vrefresh() == right.mode.vrefresh()
-        })
-    })
-}
-
-fn bootstrap_tty_viewports(outputs: &[TtyDrmOutput]) -> Vec<ViewportOutputConfig> {
-    let mut ordered: Vec<_> = outputs
-        .iter()
-        .map(|output| {
-            let (width, height) = output.mode.size();
-            (
-                output.connector_name.clone(),
-                width as u32,
-                height as u32,
-                output.mode.vrefresh() as f64,
-            )
-        })
-        .collect();
-    ordered.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let mut offset_x = 0;
-    ordered
-        .into_iter()
-        .map(|(connector, width, height, refresh_rate)| {
-            let viewport = ViewportOutputConfig {
-                connector,
-                enabled: true,
-                offset_x,
-                offset_y: 0,
-                width,
-                height,
-                refresh_rate: Some(refresh_rate),
-                transform_degrees: 0,
-                vrr: ViewportVrrMode::Off,
-                focus_ring: None,
-            };
-            offset_x += width as i32;
-            viewport
-        })
-        .collect()
-}
-
-fn effective_tty_viewports_for_outputs(
-    tuning: &RuntimeTuning,
-    outputs: &[TtyDrmOutput],
-) -> Vec<ViewportOutputConfig> {
-    let active_names = active_output_names(outputs);
-    let configured: Vec<_> = tuning
-        .tty_viewports
-        .iter()
-        .filter(|viewport| viewport.enabled)
-        .filter(|viewport| active_names.iter().any(|name| name == &viewport.connector))
-        .cloned()
-        .collect();
-    if !configured.is_empty() {
-        return configured;
-    }
-
-    bootstrap_tty_viewports(outputs)
-}
-
-fn effective_tty_viewport_fallback_reason(
-    tuning: &RuntimeTuning,
-    outputs: &[TtyDrmOutput],
-) -> Option<&'static str> {
-    let active_names = active_output_names(outputs);
-    let enabled_configured = tuning
-        .tty_viewports
-        .iter()
-        .filter(|viewport| viewport.enabled);
-    let matched = enabled_configured
-        .clone()
-        .any(|viewport| active_names.iter().any(|name| name == &viewport.connector));
-    if matched {
-        return None;
-    }
-
-    if tuning.tty_viewports.is_empty() {
-        Some("no viewport outputs configured")
-    } else if tuning
-        .tty_viewports
-        .iter()
-        .all(|viewport| !viewport.enabled)
-    {
-        Some("viewport outputs configured but none are enabled")
-    } else {
-        Some("no enabled viewport outputs matched detected outputs")
-    }
-}
-
-fn log_effective_tty_viewport_fallback(
-    tuning: &RuntimeTuning,
-    outputs: &[TtyDrmOutput],
-    source: &str,
-) {
-    let Some(reason) = effective_tty_viewport_fallback_reason(tuning, outputs) else {
-        return;
-    };
-    let layout = effective_tty_viewports_for_outputs(tuning, outputs)
-        .into_iter()
-        .map(|viewport| {
-            let refresh = viewport
-                .refresh_rate
-                .map(|hz| format!("@{hz:.3}Hz"))
-                .unwrap_or_default();
-            format!(
-                "{}={}x{}{}+{}+{}",
-                viewport.connector,
-                viewport.width,
-                viewport.height,
-                refresh,
-                viewport.offset_x,
-                viewport.offset_y,
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    warn!(
-        "{}: tty monitor fallback active: {}; derived layout [{}]",
-        source, reason, layout
-    );
-}
-
-fn effective_tty_viewport_for_output<'a>(
-    tuning: &RuntimeTuning,
-    outputs: &'a [TtyDrmOutput],
-    output_name: &str,
-) -> Option<ViewportOutputConfig> {
-    effective_tty_viewports_for_outputs(tuning, outputs)
-        .into_iter()
-        .find(|viewport| viewport.connector == output_name)
-}
-
-fn canonical_tty_main_output_name(
-    outputs: &[TtyDrmOutput],
-    tuning: &RuntimeTuning,
-) -> Option<String> {
-    let effective_viewports = effective_tty_viewports_for_outputs(tuning, outputs);
-    outputs
-        .iter()
-        .min_by(|a, b| {
-            let a_viewport = effective_viewports
-                .iter()
-                .find(|viewport| viewport.connector == a.connector_name);
-            let b_viewport = effective_viewports
-                .iter()
-                .find(|viewport| viewport.connector == b.connector_name);
-
-            let a_offset_x = a_viewport.map(|viewport| viewport.offset_x).unwrap_or(0);
-            let b_offset_x = b_viewport.map(|viewport| viewport.offset_x).unwrap_or(0);
-            let a_offset_y = a_viewport.map(|viewport| viewport.offset_y).unwrap_or(0);
-            let b_offset_y = b_viewport.map(|viewport| viewport.offset_y).unwrap_or(0);
-
-            a_offset_x
-                .cmp(&b_offset_x)
-                .then(a_offset_y.cmp(&b_offset_y))
-                .then(a.connector_name.cmp(&b.connector_name))
-        })
-        .map(|output| output.connector_name.clone())
-}
-
-fn output_advertise_order(outputs: &[TtyDrmOutput], tuning: &RuntimeTuning) -> Vec<String> {
-    let main_output = canonical_tty_main_output_name(outputs, tuning);
-    let effective_viewports = effective_tty_viewports_for_outputs(tuning, outputs);
-    let mut ordered: Vec<(String, i32, i32, bool)> = outputs
-        .iter()
-        .map(|output| {
-            let (offset_x, offset_y) = effective_viewports
-                .iter()
-                .find(|viewport| viewport.connector == output.connector_name)
-                .map(|viewport| (viewport.offset_x, viewport.offset_y))
-                .unwrap_or((0, 0));
-            let is_main = main_output
-                .as_deref()
-                .is_some_and(|name| name == output.connector_name.as_str());
-            (output.connector_name.clone(), offset_x, offset_y, is_main)
-        })
-        .collect();
-
-    // Xwayland/XRandR output listing follows wl_output global creation order.
-    // Keep the compositor's canonical main output last, and advertise the rest
-    // from right-to-left so the wl_output/XRandR view stays stable even when
-    // connectors probe in a different order at boot.
-    ordered.sort_by(|a, b| {
-        a.3.cmp(&b.3)
-            .then(b.1.cmp(&a.1))
-            .then(a.2.cmp(&b.2))
-            .then(a.0.cmp(&b.0))
-    });
-
-    ordered.into_iter().map(|(name, _, _, _)| name).collect()
-}
-
-fn layout_size_for_outputs(tuning: &RuntimeTuning, outputs: &[TtyDrmOutput]) -> (i32, i32) {
-    let active_viewports = effective_tty_viewports_for_outputs(tuning, outputs);
-
-    if active_viewports.is_empty() {
-        return (
-            tuning.viewport_size.x.max(1.0).round() as i32,
-            tuning.viewport_size.y.max(1.0).round() as i32,
-        );
-    }
-
-    let min_x = active_viewports.iter().map(|v| v.offset_x).min().unwrap();
-    let max_x = active_viewports
-        .iter()
-        .map(|v| v.offset_x + v.width as i32)
-        .max()
-        .unwrap();
-    let min_y = active_viewports.iter().map(|v| v.offset_y).min().unwrap();
-    let max_y = active_viewports
-        .iter()
-        .map(|v| v.offset_y + v.height as i32)
-        .max()
-        .unwrap();
-
-    (max_x - min_x, max_y - min_y)
-}
-
 fn apply_tty_reload(
     drm_devices: &Rc<RefCell<Vec<TtyDrmDevice>>>,
     gpu_manager: &Rc<RefCell<TtyGpuManager>>,
@@ -1053,7 +582,6 @@ fn apply_tty_reload(
             st.advertise_output_with_physical_size(name.as_str(), (*mode).into(), physical_size_mm);
         }
     }
-
     publish_tty_outputs_snapshot_for_devices(
         &drm_devices.borrow(),
         &active_modes.borrow(),
@@ -1077,60 +605,6 @@ fn apply_tty_reload(
     );
 
     true
-}
-
-/// Returns `(width, height, offset_x, offset_y)` for the compositor's current
-/// tty monitor when available, otherwise for the canonical live main output.
-/// We use one real monitor's dimensions — not the full combined-layout size —
-/// when calling libinput's `x_transformed` / `y_transformed` so that the
-/// normalised [0,1] range maps to one monitor rather than being stretched
-/// across all of them.
-fn primary_tty_monitor_dims(
-    current_monitor: &str,
-    tuning: &RuntimeTuning,
-    outputs: &[TtyDrmOutput],
-) -> (i32, i32, i32, i32) {
-    let canonical_name = canonical_tty_main_output_name(outputs, tuning);
-    let preferred_name = if outputs
-        .iter()
-        .any(|output| output.connector_name == current_monitor)
-    {
-        Some(current_monitor)
-    } else {
-        canonical_name.as_deref()
-    };
-
-    preferred_name
-        .and_then(|name| effective_tty_viewport_for_output(tuning, outputs, name))
-        .map(|viewport| {
-            (
-                viewport.width as i32,
-                viewport.height as i32,
-                viewport.offset_x,
-                viewport.offset_y,
-            )
-        })
-        .or_else(|| {
-            outputs.iter().find_map(|output| {
-                (output.connector_name == current_monitor).then(|| {
-                    let (w, h) = output.mode.size();
-                    (w as i32, h as i32, 0, 0)
-                })
-            })
-        })
-        .or_else(|| {
-            canonical_tty_main_output_name(outputs, tuning).and_then(|name| {
-                effective_tty_viewport_for_output(tuning, outputs, name.as_str()).map(|viewport| {
-                    (
-                        viewport.width as i32,
-                        viewport.height as i32,
-                        viewport.offset_x,
-                        viewport.offset_y,
-                    )
-                })
-            })
-        })
-        .unwrap_or((1920, 1080, 0, 0))
 }
 
 pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
@@ -1668,7 +1142,11 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                             .borrow_mut()
                                             .get_mut(throttled_output_name.as_str())
                                             .is_some_and(|clock| {
-                                                clock.presented(presentation_time, Instant::now())
+                                                clock.presented(
+                                                    presentation_time,
+                                                    Instant::now(),
+                                                    throttled_output_name.as_str(),
+                                                )
                                             });
                                         if redraw_needed {
                                             state
@@ -1701,7 +1179,9 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                             let redraw_needed = frame_clocks_for_notifier
                                 .borrow_mut()
                                 .get_mut(output_name.as_str())
-                                .is_some_and(|clock| clock.presented(timestamp, now));
+                                .is_some_and(|clock| {
+                                    clock.presented(timestamp, now, output_name.as_str())
+                                });
                             if redraw_needed {
                                 st.runtime.tty_redraw_outputs.insert(output_name.clone());
                             }
@@ -2123,6 +1603,16 @@ pub(crate) fn run_tty_backend() -> Result<(), Box<dyn Error>> {
                                     .relative_direction(Axis::Vertical),
                             },
                         );
+                    }
+                    InputEvent::DeviceAdded { mut device } => {
+                        crate::input::device_config::apply_device_config(
+                            &mut device,
+                            &st.runtime.tuning.input,
+                        );
+                        st.input.devices.push(device);
+                    }
+                    InputEvent::DeviceRemoved { device } => {
+                        st.input.devices.retain(|d| d != &device);
                     }
                     _ => {}
                 })?;

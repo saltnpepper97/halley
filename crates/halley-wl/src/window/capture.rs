@@ -380,6 +380,100 @@ fn save_window_capture_png(
     Ok(())
 }
 
+/// Capture offscreen textures for the windows the alt+tab switcher is showing so
+/// each card can preview the real window instead of an app icon. Runs in the
+/// frame-prep phase (before the output `GlesFrame`) alongside the visible-window
+/// prewarm — render-to-texture can't happen mid-frame.
+///
+/// Hybrid liveness: the centered/selected card refreshes on every committed frame
+/// (a playing video animates as you tab), while the neighbouring cards capture
+/// once and reuse the still — this caps live render-to-texture to ~1/frame.
+/// Windows that must render live (`node_requires_live_surface_render`, e.g. the
+/// Wine secondary-monitor surfaces) are skipped and fall back to their icon.
+pub(crate) fn prewarm_focus_cycle_previews(
+    renderer: &mut GlesRenderer,
+    st: &mut Halley,
+    now: Instant,
+) {
+    let Some(slots) = st
+        .input
+        .interaction_state
+        .focus_cycle_session
+        .as_ref()
+        .filter(|session| session.candidates.len() >= 2)
+        .map(|session| session.visible_slots(crate::overlay::FOCUS_CYCLE_VISIBLE_RADIUS))
+    else {
+        return;
+    };
+
+    let node_surfaces: HashMap<NodeId, WlSurface> = st
+        .platform
+        .xdg_shell_state
+        .toplevel_surfaces()
+        .iter()
+        .filter_map(|toplevel| {
+            let wl = toplevel.wl_surface().clone();
+            let node_id = st.model.surface_to_node.get(&wl.id()).copied()?;
+            Some((node_id, wl))
+        })
+        .collect();
+
+    for (offset, node_id) in slots {
+        let Some(wl) = node_surfaces.get(&node_id).cloned() else {
+            continue;
+        };
+        if node_requires_live_surface_render(st, node_id) {
+            continue;
+        }
+        let Some(node) = st.model.field.node(node_id) else {
+            continue;
+        };
+        if node.state != halley_core::field::NodeState::Active {
+            continue;
+        }
+        let bbox = sync_node_size_from_surface(st, node_id, &wl);
+
+        // Only the selected card rebuilds on a dirty commit; neighbours reuse the
+        // first still capture. (The visible-window prewarm above never refreshes a
+        // complete-but-dirty cache, so static previews stay a single capture too.)
+        let selected = offset == 0;
+        let needs_capture = st
+            .ui
+            .render_state
+            .cache
+            .window_offscreen_cache
+            .get(&node_id)
+            .is_none_or(|cache| {
+                !cache.matches_size(bbox.size.w, bbox.size.h)
+                    || cache.texture.is_none()
+                    || cache.bbox.is_none()
+                    || !cache.has_content
+                    || (selected && cache.dirty)
+            });
+        if !needs_capture {
+            continue;
+        }
+
+        st.ui
+            .render_state
+            .ensure_window_offscreen_cache(node_id, bbox.size.w, bbox.size.h, now);
+
+        if let Ok(offscreen) = render_surface_tree_to_texture(renderer, &wl, 1.0, None) {
+            let cache = st
+                .ui
+                .render_state
+                .cache
+                .window_offscreen_cache
+                .get_mut(&node_id)
+                .expect("offscreen cache should exist after ensure");
+            cache.texture = Some(offscreen.texture);
+            cache.bbox = Some(offscreen.bbox);
+            cache.has_content = offscreen.has_content;
+            cache.mark_clean(now);
+        }
+    }
+}
+
 pub(crate) fn prewarm_visible_active_window_offscreen_caches(
     renderer: &mut GlesRenderer,
     st: &mut Halley,

@@ -29,10 +29,10 @@ fn apply_spawn_environment(
 ) {
     let path = augmented_spawn_path();
     cmd.env("WAYLAND_DISPLAY", wayland_display)
+        .env_remove("HALLEY_WL_BACKEND")
         .env("XDG_SESSION_TYPE", "wayland")
         .env("GDK_BACKEND", "wayland,x11")
         .env("QT_QPA_PLATFORM", "wayland;xcb")
-        .env("SDL_VIDEODRIVER", "wayland")
         .env("CLUTTER_BACKEND", "wayland")
         .env("MOZ_ENABLE_WAYLAND", "1")
         .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
@@ -209,6 +209,7 @@ mod tests {
             envs.get("WAYLAND_DISPLAY"),
             Some(&Some("wayland-7".to_string()))
         );
+        assert_eq!(envs.get("HALLEY_WL_BACKEND"), Some(&None));
         assert_eq!(envs.get("XCURSOR_THEME"), Some(&Some("Bibata".to_string())));
         assert_eq!(envs.get("XCURSOR_SIZE"), Some(&Some("32".to_string())));
         assert_eq!(

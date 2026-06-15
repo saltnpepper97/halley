@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use rune_cfg::RuneConfig;
 
 use crate::layout::{
-    ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, CloseRestorePanMode,
-    ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor, ExpandedPlacementStrategy,
-    FindEmptyMode, FocusRingConfig, InputFocusMode, LandmarkPlacementStrategy,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, NormalBlockerPolicy,
-    OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode, PinBadgeCorner,
-    PinnedBlockerPolicy, ShadowColor, ShapeStyle, WindowCloseAnimationStyle,
+    AccelProfile, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, ClickMethod,
+    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor,
+    ExpandedPlacementStrategy, FindEmptyMode, FocusRingConfig, InputFocusMode,
+    LandmarkPlacementStrategy, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
+    NormalBlockerPolicy, OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode,
+    PinBadgeCorner, PinnedBlockerPolicy, ScrollMethod, ShadowColor, ShapeStyle, TapButtonMap,
+    WindowCloseAnimationStyle,
 };
 
 pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -322,6 +323,73 @@ pub(crate) fn pick_string(cfg: &RuneConfig, paths: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+/// Presence-aware pickers: return `Some` only when the key is actually present, so input
+/// device settings left unset stay `None` (and libinput's own default is kept untouched).
+pub(crate) fn opt_bool(cfg: &RuneConfig, paths: &[&str]) -> Option<bool> {
+    for path in paths {
+        if let Ok(Some(v)) = cfg.get_optional::<bool>(path) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+pub(crate) fn opt_u32(cfg: &RuneConfig, paths: &[&str]) -> Option<u32> {
+    for path in paths {
+        if let Ok(Some(v)) = cfg.get_optional::<u32>(path) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+pub(crate) fn opt_f64(cfg: &RuneConfig, paths: &[&str]) -> Option<f64> {
+    for path in paths {
+        if let Ok(Some(v)) = cfg.get_optional::<f64>(path) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+pub(crate) fn opt_accel_profile(cfg: &RuneConfig, paths: &[&str]) -> Option<AccelProfile> {
+    let raw = pick_string(cfg, paths)?;
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "adaptive" => Some(AccelProfile::Adaptive),
+        "flat" => Some(AccelProfile::Flat),
+        _ => None,
+    }
+}
+
+pub(crate) fn opt_scroll_method(cfg: &RuneConfig, paths: &[&str]) -> Option<ScrollMethod> {
+    let raw = pick_string(cfg, paths)?;
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "no-scroll" | "no_scroll" | "none" => Some(ScrollMethod::NoScroll),
+        "two-finger" | "two_finger" | "twofinger" => Some(ScrollMethod::TwoFinger),
+        "edge" => Some(ScrollMethod::Edge),
+        "on-button-down" | "on_button_down" | "button" => Some(ScrollMethod::OnButtonDown),
+        _ => None,
+    }
+}
+
+pub(crate) fn opt_click_method(cfg: &RuneConfig, paths: &[&str]) -> Option<ClickMethod> {
+    let raw = pick_string(cfg, paths)?;
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "button-areas" | "button_areas" | "areas" => Some(ClickMethod::ButtonAreas),
+        "clickfinger" | "click-finger" | "click_finger" => Some(ClickMethod::Clickfinger),
+        _ => None,
+    }
+}
+
+pub(crate) fn opt_tap_button_map(cfg: &RuneConfig, paths: &[&str]) -> Option<TapButtonMap> {
+    let raw = pick_string(cfg, paths)?;
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "left-right-middle" | "left_right_middle" | "lrm" => Some(TapButtonMap::LeftRightMiddle),
+        "left-middle-right" | "left_middle_right" | "lmr" => Some(TapButtonMap::LeftMiddleRight),
+        _ => None,
+    }
 }
 
 pub(crate) fn pick_node_border_color_mode(
