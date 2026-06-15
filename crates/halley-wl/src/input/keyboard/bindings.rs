@@ -360,10 +360,38 @@ pub(crate) fn apply_bound_key(
 
     for binding in st.runtime.tuning.launch_bindings.clone() {
         if input_matches_binding(key_code, binding.key) && modifier_exact(mods, binding.modifiers) {
+            if command_is_launcher(binding.command.as_str()) {
+                return toggle_launcher(st, binding.command.as_str(), wayland_display);
+            }
             return spawn_launch_binding(st, binding.command.as_str(), wayland_display);
         }
     }
     false
+}
+
+/// The first-party launcher binary. A launch binding whose program resolves to this is
+/// treated as a toggle rather than a plain spawn, so the bound key opens the launcher when
+/// closed and dismisses it when open — without ever doing both (which would race the
+/// single-instance guard).
+const LAUNCHER_PROGRAM: &str = "halley-lift";
+
+/// Returns true when `command`'s program (first shell token, basename) is the launcher.
+/// Handles arguments (`halley-lift cluster`) and absolute paths (`/usr/bin/halley-lift`).
+fn command_is_launcher(command: &str) -> bool {
+    command
+        .split_whitespace()
+        .next()
+        .map(|program| program.rsplit('/').next().unwrap_or(program))
+        .is_some_and(|program| program == LAUNCHER_PROGRAM)
+}
+
+/// Toggle the launcher: if a lens overlay is currently open, close it and do not spawn;
+/// otherwise spawn it. Doing exactly one of the two keeps the bound key deterministic.
+fn toggle_launcher(st: &mut Halley, command: &str, wayland_display: &str) -> bool {
+    if crate::compositor::monitor::layer_shell::close_any_lens_layer(st) {
+        return true;
+    }
+    spawn_launch_binding(st, command, wayland_display)
 }
 
 pub(crate) fn apply_bound_pointer_input(
@@ -387,7 +415,7 @@ pub(crate) fn apply_bound_pointer_input(
 
 #[cfg(test)]
 mod tests {
-    use super::{compositor_action_allows_repeat, input_matches_binding};
+    use super::{command_is_launcher, compositor_action_allows_repeat, input_matches_binding};
     use halley_config::WHEEL_UP_CODE;
     use halley_config::keybinds::key_name_to_evdev;
     use halley_config::{CompositorBindingAction, TrailBindingAction};
@@ -395,6 +423,17 @@ mod tests {
     #[test]
     fn matcher_accepts_direct_wheel_codes() {
         assert!(input_matches_binding(WHEEL_UP_CODE, WHEEL_UP_CODE));
+    }
+
+    #[test]
+    fn launcher_command_is_recognized_with_args_and_paths() {
+        assert!(command_is_launcher("halley-lift"));
+        assert!(command_is_launcher("halley-lift cluster"));
+        assert!(command_is_launcher("/usr/bin/halley-lift"));
+        assert!(command_is_launcher("/usr/local/bin/halley-lift apps"));
+        assert!(!command_is_launcher("halley-lift-extra"));
+        assert!(!command_is_launcher("fuzzel"));
+        assert!(!command_is_launcher(""));
     }
 
     #[test]

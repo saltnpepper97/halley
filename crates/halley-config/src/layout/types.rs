@@ -595,6 +595,24 @@ pub struct DeviceSettings {
 }
 
 impl DeviceSettings {
+    pub fn has_any(&self) -> bool {
+        self.natural_scroll.is_some()
+            || self.accel_speed.is_some()
+            || self.accel_profile.is_some()
+            || self.scroll_method.is_some()
+            || self.scroll_button.is_some()
+            || self.left_handed.is_some()
+            || self.middle_emulation.is_some()
+            || self.enabled.is_some()
+            || self.tap.is_some()
+            || self.tap_button_map.is_some()
+            || self.dwt.is_some()
+            || self.click_method.is_some()
+            || self.drag.is_some()
+            || self.drag_lock.is_some()
+            || self.disabled_on_external_mouse.is_some()
+    }
+
     /// Layer `other` on top of `self`, taking each field from `other` only where it is set.
     pub fn overlay(&self, other: &DeviceSettings) -> DeviceSettings {
         DeviceSettings {
@@ -651,6 +669,56 @@ impl Default for InputConfig {
             mouse: DeviceSettings::default(),
             devices: Vec::new(),
         }
+    }
+}
+
+impl InputConfig {
+    pub fn has_physical_device_settings(&self) -> bool {
+        self.touchpad.has_any()
+            || self.mouse.has_any()
+            || self.devices.iter().any(|device| device.settings.has_any())
+    }
+}
+
+#[cfg(test)]
+mod input_config_tests {
+    use super::{AccelProfile, DeviceOverride, DeviceSettings, InputConfig};
+
+    #[test]
+    fn device_settings_has_any_detects_configured_fields() {
+        assert!(!DeviceSettings::default().has_any());
+
+        let settings = DeviceSettings {
+            accel_profile: Some(AccelProfile::Flat),
+            ..DeviceSettings::default()
+        };
+        assert!(settings.has_any());
+    }
+
+    #[test]
+    fn input_config_detects_physical_device_settings() {
+        assert!(!InputConfig::default().has_physical_device_settings());
+
+        let touchpad = InputConfig {
+            touchpad: DeviceSettings {
+                natural_scroll: Some(true),
+                ..DeviceSettings::default()
+            },
+            ..InputConfig::default()
+        };
+        assert!(touchpad.has_physical_device_settings());
+
+        let device_override = InputConfig {
+            devices: vec![DeviceOverride {
+                name: "Mouse".to_string(),
+                settings: DeviceSettings {
+                    accel_speed: Some(-0.25),
+                    ..DeviceSettings::default()
+                },
+            }],
+            ..InputConfig::default()
+        };
+        assert!(device_override.has_physical_device_settings());
     }
 }
 

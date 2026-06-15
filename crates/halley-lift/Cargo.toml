@@ -1,5 +1,5 @@
 [package]
-name = "halley-lens"
+name = "halley-lift"
 version = "0.1.0"
 edition.workspace = true
 authors.workspace = true
@@ -26,5 +26,5 @@ smithay-client-toolkit.workspace = true
 wayland-client.workspace = true
 
 [[bin]]
-name = "lens"
+name = "halley-lift"
 path = "src/main.rs"

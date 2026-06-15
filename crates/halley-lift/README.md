@@ -1,17 +1,17 @@
-# Halley Lens
+# Halley Lift
 
-Halley Lens is a standalone command palette for Halley. It is built from the `halley-lens` crate, installs as the `lens` binary, and talks to the compositor through Halley's existing IPC APIs.
+Halley Lift is a standalone command palette for Halley. It is built from the `halley-lift` crate, installs as the `halley-lift` binary, and talks to the compositor through Halley's existing IPC APIs.
 
 ## Run
 
 ```bash
-lens
+halley-lift
 ```
 
 You can also seed an initial query:
 
 ```bash
-lens /cluster release
+halley-lift /cluster release
 ```
 
 ## Search Prefixes
@@ -77,9 +77,7 @@ lens:
   icon-theme "auto"
   icon-search-depth 5
   terminal "x-terminal-emulator -e"
-  keyboard-interactivity "exclusive" # exclusive | on-demand
   close-on-focus-loss false
-  close-on-click-away false
   alt-number-jump true
 
   position:

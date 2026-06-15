@@ -211,9 +211,20 @@ fn version_info() -> VersionInfo {
 }
 
 fn remove_stale_socket(path: &Path) -> io::Result<()> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
+    if !path.exists() {
+        return Ok(());
+    }
+
+    match UnixStream::connect(path) {
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::AddrInUse,
+            format!(
+                "another Halley IPC listener is active at {}; refusing to replace it",
+                path.display()
+            ),
+        )),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::ConnectionRefused => fs::remove_file(path),
         Err(err) => Err(err),
     }
 }

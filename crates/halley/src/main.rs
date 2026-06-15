@@ -20,6 +20,8 @@ fn main() {
     }
     let result = if args.session {
         halley_wl::run_session()
+    } else if args.nested {
+        halley_wl::run_nested()
     } else {
         halley_wl::run()
     };
@@ -33,6 +35,7 @@ fn main() {
 #[derive(Debug, Default, Eq, PartialEq)]
 struct CliArgs {
     session: bool,
+    nested: bool,
     config: Option<OsString>,
 }
 
@@ -51,7 +54,17 @@ impl CliArgs {
                 return Ok(ParseResult::Help);
             }
             if arg == "--session" {
+                if out.nested {
+                    return Err("--session and --nested cannot be used together".to_string());
+                }
                 out.session = true;
+                continue;
+            }
+            if arg == "--nested" {
+                if out.session {
+                    return Err("--session and --nested cannot be used together".to_string());
+                }
+                out.nested = true;
                 continue;
             }
             if arg == "--config" || arg == "-c" {
@@ -92,7 +105,8 @@ Options:\n\
   -c, --config <PATH>  Use a specific config file\n\
   -h, --help           Show this help\n\
       --session        Run as a full desktop session; kept for session wrappers\n\
-                       and services. Normal users should launch halley-session."
+                       and services. Normal users should launch halley-session.\n\
+      --nested         Force the nested winit backend."
     );
 }
 
@@ -110,6 +124,7 @@ mod tests {
             CliArgs::parse(os(&["--config", "/tmp/halley.rune"])).unwrap(),
             ParseResult::Run(CliArgs {
                 session: false,
+                nested: false,
                 config: Some(OsString::from("/tmp/halley.rune")),
             })
         );
@@ -121,6 +136,7 @@ mod tests {
             CliArgs::parse(os(&["--config=/tmp/halley.rune"])).unwrap(),
             ParseResult::Run(CliArgs {
                 session: false,
+                nested: false,
                 config: Some(OsString::from("/tmp/halley.rune")),
             })
         );
@@ -132,9 +148,28 @@ mod tests {
             CliArgs::parse(os(&["--session", "-c", "/tmp/halley.rune"])).unwrap(),
             ParseResult::Run(CliArgs {
                 session: true,
+                nested: false,
                 config: Some(OsString::from("/tmp/halley.rune")),
             })
         );
+    }
+
+    #[test]
+    fn parses_nested() {
+        assert_eq!(
+            CliArgs::parse(os(&["--nested"])).unwrap(),
+            ParseResult::Run(CliArgs {
+                session: false,
+                nested: true,
+                config: None,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_nested_session_conflict() {
+        assert!(CliArgs::parse(os(&["--nested", "--session"])).is_err());
+        assert!(CliArgs::parse(os(&["--session", "--nested"])).is_err());
     }
 
     #[test]
