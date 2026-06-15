@@ -11,7 +11,80 @@ fn popup_positioner_geometry(positioner: PositionerState) -> Rectangle<i32, Logi
     positioner.get_geometry()
 }
 
+fn rectangle_fits_within(target: Rectangle<i32, Logical>, rect: Rectangle<i32, Logical>) -> bool {
+    rect.loc.x >= target.loc.x
+        && rect.loc.y >= target.loc.y
+        && (rect.loc.x as i64 + rect.size.w as i64) <= (target.loc.x as i64 + target.size.w as i64)
+        && (rect.loc.y as i64 + rect.size.h as i64) <= (target.loc.y as i64 + target.size.h as i64)
+}
+
+/// Unconstrain `positioner` within `target` (output working area expressed relative
+/// to the popup's parent), escalating to flip/slide/resize if it still overflows —
+/// mirrors `constrain_layer_popup`. This is what slides a corner-anchored popup
+/// (e.g. an XWayland override-redirect notification with `BottomRight` gravity) to
+/// the screen edge instead of leaving it floating relative to the parent.
+fn unconstrain_geometry_for_target(
+    positioner: PositionerState,
+    target: Rectangle<i32, Logical>,
+) -> (PositionerState, Rectangle<i32, Logical>) {
+    use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment;
+    let mut adjusted = positioner;
+    let mut geometry = adjusted.get_unconstrained_geometry(target);
+    if !rectangle_fits_within(target, geometry) {
+        adjusted.constraint_adjustment |= ConstraintAdjustment::FlipX
+            | ConstraintAdjustment::FlipY
+            | ConstraintAdjustment::SlideX
+            | ConstraintAdjustment::SlideY
+            | ConstraintAdjustment::ResizeX
+            | ConstraintAdjustment::ResizeY;
+        geometry = adjusted.get_unconstrained_geometry(target);
+    }
+    (adjusted, geometry)
+}
+
+/// For a popup whose root surface is a window node, the output working area of the
+/// parent's monitor expressed relative to the parent geometry's top-left. `None` for
+/// non-window popups (layer-shell etc.), which keep their existing handling.
+fn window_popup_constraint_target(
+    st: &Halley,
+    popup: &PopupSurface,
+) -> Option<Rectangle<i32, Logical>> {
+    let kind = PopupKind::from(popup.clone());
+    let root = find_popup_root_surface(&kind).ok()?;
+    let node_id = *st.model.surface_to_node.get(&root.id())?;
+    let monitor = st.model.monitor_state.node_monitor.get(&node_id)?.clone();
+    let viewport = st.usable_viewport_for_monitor(monitor.as_str());
+    let node = st.model.field.node(node_id)?;
+
+    let parent_tl_x = node.pos.x - node.intrinsic_size.x * 0.5;
+    let parent_tl_y = node.pos.y - node.intrinsic_size.y * 0.5;
+    let vp_tl_x = viewport.center.x - viewport.size.x * 0.5;
+    let vp_tl_y = viewport.center.y - viewport.size.y * 0.5;
+    let origin_x = (parent_tl_x - vp_tl_x).round() as i32;
+    let origin_y = (parent_tl_y - vp_tl_y).round() as i32;
+
+    Some(Rectangle::new(
+        (-origin_x, -origin_y).into(),
+        (
+            (viewport.size.x.round() as i32).max(1),
+            (viewport.size.y.round() as i32).max(1),
+        )
+            .into(),
+    ))
+}
+
 fn configure_popup_position(st: &mut Halley, popup: &PopupSurface, positioner: PositionerState) {
+    // Window-parented popups (incl. XWayland override-redirect overlays via
+    // xwayland-satellite) are unconstrained within the parent's monitor so corner
+    // overlays slide to the screen edge and off-screen ones are pulled on-screen.
+    if let Some(target) = window_popup_constraint_target(st, popup) {
+        let (adjusted, geometry) = unconstrain_geometry_for_target(positioner, target);
+        popup.with_pending_state(|state| {
+            state.positioner = adjusted;
+            state.geometry = geometry;
+        });
+        return;
+    }
     popup.with_pending_state(|state| {
         state.positioner = positioner;
         state.geometry = popup_positioner_geometry(positioner);
