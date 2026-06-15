@@ -6,12 +6,13 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Instant;
 
+use eventline::debug;
 use smithay::{
     output::{Mode as OutputMode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
     utils::{Logical, Physical, Raw, Size, Transform},
     wayland::{
-        compositor::{get_parent, with_states},
+        compositor::{get_parent, send_surface_state, with_states},
         fractional_scale::with_fractional_scale,
     },
 };
@@ -142,6 +143,51 @@ pub(crate) fn activate_monitor(st: &mut Halley, name: &str) -> bool {
     }
     sync_current_monitor_state(st);
     load_monitor_state(st, name)
+}
+
+thread_local! {
+    static LAST_XWAYLAND_PRIMARY: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Point the Xwayland (xwayland-satellite) RandR primary output at `monitor`.
+///
+/// XWayland clients such as SDL/Unity games read the X RandR *primary* at startup to
+/// pick their resolution and "current" monitor. xwayland-satellite only updates the
+/// primary on X-window focus and never resets a stale value, so a game launched on one
+/// monitor can read the leftover primary of another (renders at the wrong monitor's
+/// resolution and thinks it is on that monitor). The compositor therefore drives the
+/// primary to follow the active monitor (the one the cursor — and hence a freshly
+/// spawned window — is on), so it is already correct when the game reads it.
+///
+/// Runs `xrandr` against the satellite `DISPLAY` (X output names equal connector names).
+/// Debounced (called on every pointer motion), and a no-op when Xwayland is disabled
+/// (`DISPLAY` unset) or `monitor` is not a real output.
+pub(crate) fn sync_xwayland_primary(st: &mut Halley, monitor: &str) {
+    // Cheapest check first: this runs on every pointer-motion event.
+    let already = LAST_XWAYLAND_PRIMARY.with(|last| last.borrow().as_deref() == Some(monitor));
+    if already {
+        return;
+    }
+    let Ok(display) = std::env::var("DISPLAY") else {
+        return;
+    };
+    if display.trim().is_empty() || !st.model.monitor_state.outputs.contains_key(monitor) {
+        return;
+    }
+    LAST_XWAYLAND_PRIMARY.with(|last| *last.borrow_mut() = Some(monitor.to_string()));
+
+    let mut command = std::process::Command::new("xrandr");
+    command
+        .args(["--output", monitor, "--primary"])
+        .env("DISPLAY", display)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    match command.spawn() {
+        Ok(child) => st.runtime.spawned_children.push(child),
+        Err(err) => eventline::warn!("failed to set Xwayland primary to {}: {}", monitor, err),
+    }
 }
 
 pub(crate) fn begin_temporary_render_monitor(st: &mut Halley, name: &str) -> Option<String> {
@@ -513,24 +559,33 @@ pub(crate) fn advertise_output_with_physical_size(
     let physical_size: Size<i32, Raw> = physical_size_mm
         .map(|(w, h)| Size::from((w as i32, h as i32)))
         .unwrap_or_else(|| Size::from((0, 0)));
-    let output = st
-        .model
-        .monitor_state
-        .outputs
-        .entry(name.to_string())
-        .or_insert_with(|| {
-            let output = Output::new(
-                name.to_string(),
-                PhysicalProperties {
-                    size: physical_size,
-                    subpixel: Subpixel::Unknown,
-                    make: "halley".to_string(),
-                    model: name.to_string(),
-                },
-            );
-            let _ = output.create_global::<Halley>(&st.platform.display_handle);
-            output
-        });
+    let output = if let Some(output) = st.model.monitor_state.outputs.get(name) {
+        output.clone()
+    } else {
+        let output = Output::new(
+            name.to_string(),
+            PhysicalProperties {
+                size: physical_size,
+                subpixel: Subpixel::Unknown,
+                make: "halley".to_string(),
+                model: name.to_string(),
+            },
+        );
+        output.add_mode(mode);
+        output.set_preferred(mode);
+        output.change_current_state(
+            Some(mode),
+            Some(transform),
+            Some(Scale::Fractional(scale)),
+            Some(location),
+        );
+        let _ = output.create_global::<Halley>(&st.platform.display_handle);
+        st.model
+            .monitor_state
+            .outputs
+            .insert(name.to_string(), output.clone());
+        output
+    };
     output.add_mode(mode);
     output.set_preferred(mode);
     output.change_current_state(
@@ -538,6 +593,23 @@ pub(crate) fn advertise_output_with_physical_size(
         Some(transform),
         Some(Scale::Fractional(scale)),
         Some(location),
+    );
+    let logical_w = (mode.size.w as f64 / scale).round().max(1.0) as i32;
+    let logical_h = (mode.size.h as f64 / scale).round().max(1.0) as i32;
+    let logical_size: Size<i32, Logical> =
+        transform.transform_size(Size::from((logical_w, logical_h)));
+    debug!(
+        "advertised output {} mode={}x{} scale={:.3} logical={}x{} transform={:?} location=({}, {}) physical_mm={:?}",
+        name,
+        mode.size.w,
+        mode.size.h,
+        scale,
+        logical_size.w,
+        logical_size.h,
+        transform,
+        location.x,
+        location.y,
+        physical_size_mm,
     );
 }
 
@@ -560,7 +632,10 @@ pub(crate) fn set_surface_preferred_scale_for_monitor(
         .map(|monitor| monitor.scale)
         .filter(|scale| scale.is_finite() && *scale > 0.0)
         .unwrap_or(1.0);
+    let transform = output_transform_for(st, monitor);
     with_states(surface, |states| {
+        let output_scale = Scale::Fractional(scale);
+        send_surface_state(surface, states, output_scale.integer_scale(), transform);
         with_fractional_scale(states, |fractional| {
             fractional.set_preferred_scale(scale);
         });

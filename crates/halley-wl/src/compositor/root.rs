@@ -658,6 +658,10 @@ impl Halley {
         super::monitor::state::activate_monitor(self, name)
     }
 
+    pub(crate) fn sync_xwayland_primary(&mut self, name: &str) {
+        super::monitor::state::sync_xwayland_primary(self, name)
+    }
+
     pub(crate) fn begin_temporary_render_monitor(&mut self, name: &str) -> Option<String> {
         super::monitor::state::begin_temporary_render_monitor(self, name)
     }
