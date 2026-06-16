@@ -1,5 +1,5 @@
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum LensMode {
+pub enum LiftMode {
     #[default]
     General,
     Apps,
@@ -9,47 +9,47 @@ pub enum LensMode {
     Config,
 }
 
-fn prefix_mode_from_token(token: &str) -> Option<LensMode> {
+fn prefix_mode_from_token(token: &str) -> Option<LiftMode> {
     match token.trim().to_ascii_lowercase().as_str() {
-        "app" | "apps" | "/app" | "/apps" | "/a" => Some(LensMode::Apps),
-        "cluster" | "clusters" | "/cluster" | "/clusters" | "/c" => Some(LensMode::Clusters),
-        "node" | "nodes" | "/node" | "/nodes" | "/n" => Some(LensMode::Nodes),
-        "action" | "actions" | "/action" | "/actions" => Some(LensMode::Actions),
-        "config" | "/config" => Some(LensMode::Config),
+        "app" | "apps" | "/app" | "/apps" | "/a" => Some(LiftMode::Apps),
+        "cluster" | "clusters" | "/cluster" | "/clusters" | "/c" => Some(LiftMode::Clusters),
+        "node" | "nodes" | "/node" | "/nodes" | "/n" => Some(LiftMode::Nodes),
+        "action" | "actions" | "/action" | "/actions" => Some(LiftMode::Actions),
+        "config" | "/config" => Some(LiftMode::Config),
         _ => None,
     }
 }
 
-pub fn parse_initial_mode(raw: &str) -> (LensMode, String) {
-    (LensMode::General, raw.trim().to_string())
+pub fn parse_initial_mode(raw: &str) -> (LiftMode, String) {
+    (LiftMode::General, raw.trim().to_string())
 }
 
-pub fn effective_mode_query(mode: LensMode, query: &str) -> (LensMode, String) {
-    if mode != LensMode::General {
+pub fn effective_mode_query(mode: LiftMode, query: &str) -> (LiftMode, String) {
+    if mode != LiftMode::General {
         return (mode, query.trim().to_string());
     }
     let trimmed = query.trim_start();
     let Some((token, rest)) = trimmed.split_once(char::is_whitespace) else {
         return match prefix_mode_from_token(trimmed) {
             Some(mode) => (mode, String::new()),
-            None => (LensMode::General, query.trim().to_string()),
+            None => (LiftMode::General, query.trim().to_string()),
         };
     };
     match prefix_mode_from_token(token) {
         Some(mode) => (mode, rest.trim_start().to_string()),
-        None => (LensMode::General, query.trim().to_string()),
+        None => (LiftMode::General, query.trim().to_string()),
     }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ModeInputState {
-    pub mode: LensMode,
+    pub mode: LiftMode,
     pub query: String,
 }
 
 impl ModeInputState {
     pub fn remove_badge(&mut self) {
-        self.mode = LensMode::General;
+        self.mode = LiftMode::General;
     }
 
     pub fn backspace(&mut self) {
@@ -72,19 +72,19 @@ mod tests {
     #[test]
     fn parses_required_modes() {
         let cases = [
-            ("release", LensMode::General, "release"),
-            ("/cluster release", LensMode::General, "/cluster release"),
-            ("/clusters release", LensMode::General, "/clusters release"),
-            ("/c release", LensMode::General, "/c release"),
-            ("/node systemd", LensMode::General, "/node systemd"),
-            ("/n systemd", LensMode::General, "/n systemd"),
-            ("/app firefox", LensMode::General, "/app firefox"),
-            ("/app", LensMode::General, "/app"),
-            ("/a firefox", LensMode::General, "/a firefox"),
-            ("/a", LensMode::General, "/a"),
-            ("/c", LensMode::General, "/c"),
-            ("/n", LensMode::General, "/n"),
-            ("/config lens", LensMode::General, "/config lens"),
+            ("release", LiftMode::General, "release"),
+            ("/cluster release", LiftMode::General, "/cluster release"),
+            ("/clusters release", LiftMode::General, "/clusters release"),
+            ("/c release", LiftMode::General, "/c release"),
+            ("/node systemd", LiftMode::General, "/node systemd"),
+            ("/n systemd", LiftMode::General, "/n systemd"),
+            ("/app firefox", LiftMode::General, "/app firefox"),
+            ("/app", LiftMode::General, "/app"),
+            ("/a firefox", LiftMode::General, "/a firefox"),
+            ("/a", LiftMode::General, "/a"),
+            ("/c", LiftMode::General, "/c"),
+            ("/n", LiftMode::General, "/n"),
+            ("/config lift", LiftMode::General, "/config lift"),
         ];
         for (raw, mode, query) in cases {
             assert_eq!(parse_initial_mode(raw), (mode, query.to_string()));
@@ -94,32 +94,32 @@ mod tests {
     #[test]
     fn removing_badge_returns_to_general() {
         let mut state = ModeInputState {
-            mode: LensMode::Clusters,
+            mode: LiftMode::Clusters,
             query: "release".into(),
         };
         state.remove_badge();
-        assert_eq!(state.mode, LensMode::General);
+        assert_eq!(state.mode, LiftMode::General);
         assert_eq!(state.query, "release");
     }
 
     #[test]
     fn backspace_at_empty_query_removes_badge() {
         let mut state = ModeInputState {
-            mode: LensMode::Nodes,
+            mode: LiftMode::Nodes,
             query: String::new(),
         };
         state.backspace();
-        assert_eq!(state.mode, LensMode::General);
+        assert_eq!(state.mode, LiftMode::General);
     }
 
     #[test]
     fn entering_new_slash_mode_replaces_existing_mode() {
         let mut state = ModeInputState {
-            mode: LensMode::Nodes,
+            mode: LiftMode::Nodes,
             query: String::new(),
         };
         state.insert_text("/app firefox");
-        assert_eq!(state.mode, LensMode::Nodes);
+        assert_eq!(state.mode, LiftMode::Nodes);
         assert_eq!(state.query, "/app firefox");
     }
 
@@ -127,22 +127,22 @@ mod tests {
     fn effective_query_detects_mode_prefixes() {
         let mut state = ModeInputState::default();
         state.insert_text("action open");
-        assert_eq!(state.mode, LensMode::General);
+        assert_eq!(state.mode, LiftMode::General);
         assert_eq!(
             effective_mode_query(state.mode, state.query.as_str()),
-            (LensMode::Actions, "open".into())
+            (LiftMode::Actions, "open".into())
         );
     }
 
     #[test]
     fn effective_query_detects_cluster_prefixes_with_empty_filter() {
         assert_eq!(
-            effective_mode_query(LensMode::General, "cluster"),
-            (LensMode::Clusters, String::new())
+            effective_mode_query(LiftMode::General, "cluster"),
+            (LiftMode::Clusters, String::new())
         );
         assert_eq!(
-            effective_mode_query(LensMode::General, "clusters firefox"),
-            (LensMode::Clusters, "firefox".into())
+            effective_mode_query(LiftMode::General, "clusters firefox"),
+            (LiftMode::Clusters, "firefox".into())
         );
     }
 
@@ -150,7 +150,7 @@ mod tests {
     fn unknown_slash_command_stays_general_text() {
         assert_eq!(
             parse_initial_mode("/wat test"),
-            (LensMode::General, "/wat test".into())
+            (LiftMode::General, "/wat test".into())
         );
     }
 }

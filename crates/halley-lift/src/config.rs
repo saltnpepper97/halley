@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use rune_cfg::RuneConfig;
 
 #[derive(Clone, Debug)]
-pub struct LensConfig {
+pub struct LiftConfig {
     pub placeholder: String,
     pub width: u32,
     pub max_results: usize,
@@ -17,23 +17,24 @@ pub struct LensConfig {
     pub terminal: String,
     pub close_on_focus_loss: bool,
     pub alt_number_jump: bool,
-    pub ui: LensUiConfig,
-    pub position: LensPositionConfig,
-    pub rounding: LensRoundingConfig,
-    pub colors: LensColorConfig,
-    pub modes: LensModeConfig,
+    pub ui: LiftUiConfig,
+    pub position: LiftPositionConfig,
+    pub rounding: LiftRoundingConfig,
+    pub colors: LiftColorConfig,
+    pub cursor: LiftCursorConfig,
+    pub modes: LiftModeConfig,
     pub providers: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
-pub struct LensPositionConfig {
+pub struct LiftPositionConfig {
     pub anchor: String,
     pub offset_x: i32,
     pub offset_y: i32,
 }
 
 #[derive(Clone, Debug)]
-pub struct LensRoundingConfig {
+pub struct LiftRoundingConfig {
     pub panel: i32,
     pub dropdown: i32,
     pub search: i32,
@@ -43,7 +44,7 @@ pub struct LensRoundingConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct LensColorConfig {
+pub struct LiftColorConfig {
     pub panel: String,
     pub panel_border: String,
     pub dropdown: String,
@@ -60,7 +61,15 @@ pub struct LensColorConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct LensUiConfig {
+pub struct LiftCursorConfig {
+    pub enabled: bool,
+    pub width: i32,
+    pub blink_ms: u64,
+    pub stop_blink_after_ms: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct LiftUiConfig {
     pub top_margin: i32,
     pub padding: i32,
     pub dropdown_gap: i32,
@@ -80,7 +89,7 @@ pub struct LensUiConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct LensModeConfig {
+pub struct LiftModeConfig {
     pub apps: bool,
     pub clusters: bool,
     pub nodes: bool,
@@ -88,7 +97,7 @@ pub struct LensModeConfig {
     pub config: bool,
 }
 
-impl Default for LensConfig {
+impl Default for LiftConfig {
     fn default() -> Self {
         Self {
             placeholder: "Search apps, nodes, clusters, actions...".into(),
@@ -104,11 +113,12 @@ impl Default for LensConfig {
             terminal: "x-terminal-emulator -e".into(),
             close_on_focus_loss: false,
             alt_number_jump: true,
-            ui: LensUiConfig::default(),
-            position: LensPositionConfig::default(),
-            rounding: LensRoundingConfig::default(),
-            colors: LensColorConfig::default(),
-            modes: LensModeConfig::default(),
+            ui: LiftUiConfig::default(),
+            position: LiftPositionConfig::default(),
+            rounding: LiftRoundingConfig::default(),
+            colors: LiftColorConfig::default(),
+            cursor: LiftCursorConfig::default(),
+            modes: LiftModeConfig::default(),
             providers: vec![
                 "apps".into(),
                 "clusters".into(),
@@ -119,7 +129,7 @@ impl Default for LensConfig {
     }
 }
 
-impl Default for LensPositionConfig {
+impl Default for LiftPositionConfig {
     fn default() -> Self {
         Self {
             anchor: "center".into(),
@@ -129,7 +139,7 @@ impl Default for LensPositionConfig {
     }
 }
 
-impl Default for LensRoundingConfig {
+impl Default for LiftRoundingConfig {
     fn default() -> Self {
         Self {
             panel: 18,
@@ -142,7 +152,7 @@ impl Default for LensRoundingConfig {
     }
 }
 
-impl Default for LensColorConfig {
+impl Default for LiftColorConfig {
     fn default() -> Self {
         Self {
             panel: "#151720ee".into(),
@@ -162,7 +172,18 @@ impl Default for LensColorConfig {
     }
 }
 
-impl Default for LensUiConfig {
+impl Default for LiftCursorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            width: 2,
+            blink_ms: 500,
+            stop_blink_after_ms: 5000,
+        }
+    }
+}
+
+impl Default for LiftUiConfig {
     fn default() -> Self {
         Self {
             top_margin: 96,
@@ -185,7 +206,7 @@ impl Default for LensUiConfig {
     }
 }
 
-impl Default for LensModeConfig {
+impl Default for LiftModeConfig {
     fn default() -> Self {
         Self {
             apps: true,
@@ -197,7 +218,7 @@ impl Default for LensModeConfig {
     }
 }
 
-impl LensConfig {
+impl LiftConfig {
     pub fn load(path: &Path) -> Result<Self, String> {
         if !path.exists() {
             return Ok(Self::default());
@@ -205,118 +226,134 @@ impl LensConfig {
         let cfg = RuneConfig::from_file(path)
             .map_err(|err| format!("failed to parse {}: {err}", path.display()))?;
         let mut out = Self::default();
-        out.placeholder = cfg.get_or("lens.placeholder", out.placeholder.clone());
-        out.width = cfg.get_or("lens.width", out.width).clamp(420, 1400);
+        out.placeholder = cfg.get_or("lift.placeholder", out.placeholder.clone());
+        out.width = cfg.get_or("lift.width", out.width).clamp(420, 1400);
         out.max_results = cfg
-            .get_or::<u32>("lens.max-results", out.max_results as u32)
+            .get_or::<u32>("lift.max-results", out.max_results as u32)
             .clamp(3, 40) as usize;
         out.visible_results = cfg
-            .get_or::<u32>("lens.visible-results", out.visible_results as u32)
+            .get_or::<u32>("lift.visible-results", out.visible_results as u32)
             .clamp(3, out.max_results as u32) as usize;
-        out.fuzzy = cfg.get_or("lens.fuzzy", out.fuzzy);
-        out.show_section_labels = cfg.get_or("lens.show-section-labels", out.show_section_labels);
-        out.icons = cfg.get_or("lens.icons", out.icons);
+        out.fuzzy = cfg.get_or("lift.fuzzy", out.fuzzy);
+        out.show_section_labels = cfg.get_or("lift.show-section-labels", out.show_section_labels);
+        out.icons = cfg.get_or("lift.icons", out.icons);
         out.icon_size = cfg
-            .get_or::<u32>("lens.icon-size", out.icon_size)
+            .get_or::<u32>("lift.icon-size", out.icon_size)
             .clamp(16, 64);
         out.icon_search_depth = cfg
-            .get_or::<u32>("lens.icon-search-depth", out.icon_search_depth as u32)
+            .get_or::<u32>("lift.icon-search-depth", out.icon_search_depth as u32)
             .clamp(1, 8) as usize;
-        out.icon_theme = cfg.get_or("lens.icon-theme", out.icon_theme.clone());
-        out.terminal = cfg.get_or("lens.terminal", out.terminal.clone());
-        out.close_on_focus_loss = cfg.get_or("lens.close-on-focus-loss", out.close_on_focus_loss);
-        out.alt_number_jump = cfg.get_or("lens.alt-number-jump", out.alt_number_jump);
-        out.position.anchor = cfg.get_or("lens.position.anchor", out.position.anchor.clone());
+        out.icon_theme = cfg.get_or("lift.icon-theme", out.icon_theme.clone());
+        out.terminal = cfg.get_or("lift.terminal", out.terminal.clone());
+        out.close_on_focus_loss = cfg.get_or("lift.close-on-focus-loss", out.close_on_focus_loss);
+        out.alt_number_jump = cfg.get_or("lift.alt-number-jump", out.alt_number_jump);
+        out.position.anchor = cfg.get_or("lift.position.anchor", out.position.anchor.clone());
         out.position.offset_x = cfg
-            .get_or("lens.position.offset-x", out.position.offset_x)
+            .get_or("lift.position.offset-x", out.position.offset_x)
             .clamp(-2000, 2000);
         out.position.offset_y = cfg
-            .get_or("lens.position.offset-y", out.position.offset_y)
+            .get_or("lift.position.offset-y", out.position.offset_y)
             .clamp(-2000, 2000);
         out.rounding.panel = cfg
-            .get_or("lens.rounding.panel", out.rounding.panel)
+            .get_or("lift.rounding.panel", out.rounding.panel)
             .clamp(0, 48);
         out.rounding.dropdown = cfg
-            .get_or("lens.rounding.dropdown", out.rounding.dropdown)
+            .get_or("lift.rounding.dropdown", out.rounding.dropdown)
             .clamp(0, 48);
         out.rounding.search = cfg
-            .get_or("lens.rounding.search", out.rounding.search)
+            .get_or("lift.rounding.search", out.rounding.search)
             .clamp(0, 48);
         out.rounding.row = cfg
-            .get_or("lens.rounding.row", out.rounding.row)
+            .get_or("lift.rounding.row", out.rounding.row)
             .clamp(0, 48);
         out.rounding.badge = cfg
-            .get_or("lens.rounding.badge", out.rounding.badge)
+            .get_or("lift.rounding.badge", out.rounding.badge)
             .clamp(0, 48);
         out.rounding.draft = cfg
-            .get_or("lens.rounding.draft", out.rounding.draft)
+            .get_or("lift.rounding.draft", out.rounding.draft)
             .clamp(0, 48);
-        out.colors.panel = cfg.get_or("lens.colors.panel", out.colors.panel.clone());
+        out.colors.panel = cfg.get_or("lift.colors.panel", out.colors.panel.clone());
         out.colors.panel_border =
-            cfg.get_or("lens.colors.panel-border", out.colors.panel_border.clone());
-        out.colors.dropdown = cfg.get_or("lens.colors.dropdown", out.colors.dropdown.clone());
+            cfg.get_or("lift.colors.panel-border", out.colors.panel_border.clone());
+        out.colors.dropdown = cfg.get_or("lift.colors.dropdown", out.colors.dropdown.clone());
         out.colors.dropdown_border = cfg.get_or(
-            "lens.colors.dropdown-border",
+            "lift.colors.dropdown-border",
             out.colors.dropdown_border.clone(),
         );
-        out.colors.search = cfg.get_or("lens.colors.search", out.colors.search.clone());
+        out.colors.search = cfg.get_or("lift.colors.search", out.colors.search.clone());
         out.colors.row_selected =
-            cfg.get_or("lens.colors.row-selected", out.colors.row_selected.clone());
-        out.colors.divider = cfg.get_or("lens.colors.divider", out.colors.divider.clone());
-        out.colors.text = cfg.get_or("lens.colors.text", out.colors.text.clone());
-        out.colors.subtext = cfg.get_or("lens.colors.subtext", out.colors.subtext.clone());
-        out.colors.hint = cfg.get_or("lens.colors.hint", out.colors.hint.clone());
-        out.colors.accent = cfg.get_or("lens.colors.accent", out.colors.accent.clone());
-        out.colors.badge = cfg.get_or("lens.colors.badge", out.colors.badge.clone());
-        out.colors.danger = cfg.get_or("lens.colors.danger", out.colors.danger.clone());
+            cfg.get_or("lift.colors.row-selected", out.colors.row_selected.clone());
+        out.colors.divider = cfg.get_or("lift.colors.divider", out.colors.divider.clone());
+        out.colors.text = cfg.get_or("lift.colors.text", out.colors.text.clone());
+        out.colors.subtext = cfg.get_or("lift.colors.subtext", out.colors.subtext.clone());
+        out.colors.hint = cfg.get_or("lift.colors.hint", out.colors.hint.clone());
+        out.colors.accent = cfg.get_or("lift.colors.accent", out.colors.accent.clone());
+        out.colors.badge = cfg.get_or("lift.colors.badge", out.colors.badge.clone());
+        out.colors.danger = cfg.get_or("lift.colors.danger", out.colors.danger.clone());
+        out.cursor.enabled = cfg.get_or("lift.cursor.enabled", out.cursor.enabled);
+        out.cursor.width = cfg
+            .get_or("lift.cursor.width", out.cursor.width)
+            .clamp(1, 8);
+        out.cursor.blink_ms = cfg
+            .get_or::<u64>("lift.cursor.blink-ms", out.cursor.blink_ms)
+            .clamp(150, 2000);
+        let stop_blink_after_ms = cfg.get_or::<u64>(
+            "lift.cursor.stop-blink-after-ms",
+            out.cursor.stop_blink_after_ms,
+        );
+        out.cursor.stop_blink_after_ms = if stop_blink_after_ms == 0 {
+            0
+        } else {
+            stop_blink_after_ms.clamp(1000, 60_000)
+        };
         out.ui.top_margin = cfg
-            .get_or("lens.ui.top-margin", out.ui.top_margin)
+            .get_or("lift.ui.top-margin", out.ui.top_margin)
             .clamp(0, 480);
-        out.ui.padding = cfg.get_or("lens.ui.padding", out.ui.padding).clamp(8, 48);
+        out.ui.padding = cfg.get_or("lift.ui.padding", out.ui.padding).clamp(8, 48);
         out.ui.dropdown_gap = cfg
-            .get_or("lens.ui.dropdown-gap", out.ui.dropdown_gap)
+            .get_or("lift.ui.dropdown-gap", out.ui.dropdown_gap)
             .clamp(0, 32);
         out.ui.dropdown_padding = cfg
-            .get_or("lens.ui.dropdown-padding", out.ui.dropdown_padding)
+            .get_or("lift.ui.dropdown-padding", out.ui.dropdown_padding)
             .clamp(0, 32);
         out.ui.search_height = cfg
-            .get_or("lens.ui.search-height", out.ui.search_height)
+            .get_or("lift.ui.search-height", out.ui.search_height)
             .clamp(42, 96);
         out.ui.draft_height = cfg
-            .get_or("lens.ui.draft-height", out.ui.draft_height)
+            .get_or("lift.ui.draft-height", out.ui.draft_height)
             .clamp(28, 72);
         out.ui.row_height = cfg
-            .get_or("lens.ui.row-height", out.ui.row_height)
+            .get_or("lift.ui.row-height", out.ui.row_height)
             .clamp(46, 110);
-        out.ui.row_gap = cfg.get_or("lens.ui.row-gap", out.ui.row_gap).clamp(0, 20);
+        out.ui.row_gap = cfg.get_or("lift.ui.row-gap", out.ui.row_gap).clamp(0, 20);
         out.ui.section_height = cfg
-            .get_or("lens.ui.section-height", out.ui.section_height)
+            .get_or("lift.ui.section-height", out.ui.section_height)
             .clamp(0, 40);
         out.ui.footer_height = cfg
-            .get_or("lens.ui.footer-height", out.ui.footer_height)
+            .get_or("lift.ui.footer-height", out.ui.footer_height)
             .clamp(0, 70);
-        out.ui.font = cfg.get_or("lens.ui.font", out.ui.font.clone());
+        out.ui.font = cfg.get_or("lift.ui.font", out.ui.font.clone());
         out.ui.search_font_size = cfg
-            .get_or::<u32>("lens.ui.search-font-size", out.ui.search_font_size)
+            .get_or::<u32>("lift.ui.search-font-size", out.ui.search_font_size)
             .clamp(14, 42);
         out.ui.badge_font_size = cfg
-            .get_or::<u32>("lens.ui.badge-font-size", out.ui.badge_font_size)
+            .get_or::<u32>("lift.ui.badge-font-size", out.ui.badge_font_size)
             .clamp(10, 28);
         out.ui.title_font_size = cfg
-            .get_or::<u32>("lens.ui.title-font-size", out.ui.title_font_size)
+            .get_or::<u32>("lift.ui.title-font-size", out.ui.title_font_size)
             .clamp(12, 34);
         out.ui.subtitle_font_size = cfg
-            .get_or::<u32>("lens.ui.subtitle-font-size", out.ui.subtitle_font_size)
+            .get_or::<u32>("lift.ui.subtitle-font-size", out.ui.subtitle_font_size)
             .clamp(10, 26);
         out.ui.hint_font_size = cfg
-            .get_or::<u32>("lens.ui.hint-font-size", out.ui.hint_font_size)
+            .get_or::<u32>("lift.ui.hint-font-size", out.ui.hint_font_size)
             .clamp(10, 24);
-        out.modes.apps = cfg.get_or("lens.modes.apps", out.modes.apps);
-        out.modes.clusters = cfg.get_or("lens.modes.clusters", out.modes.clusters);
-        out.modes.nodes = cfg.get_or("lens.modes.nodes", out.modes.nodes);
-        out.modes.actions = cfg.get_or("lens.modes.actions", out.modes.actions);
-        out.modes.config = cfg.get_or("lens.modes.config", out.modes.config);
-        if let Ok(Some(providers)) = cfg.get_optional::<Vec<String>>("lens.providers") {
+        out.modes.apps = cfg.get_or("lift.modes.apps", out.modes.apps);
+        out.modes.clusters = cfg.get_or("lift.modes.clusters", out.modes.clusters);
+        out.modes.nodes = cfg.get_or("lift.modes.nodes", out.modes.nodes);
+        out.modes.actions = cfg.get_or("lift.modes.actions", out.modes.actions);
+        out.modes.config = cfg.get_or("lift.modes.config", out.modes.config);
+        if let Ok(Some(providers)) = cfg.get_optional::<Vec<String>>("lift.providers") {
             let providers = providers
                 .into_iter()
                 .filter(|p| known_provider(p))
@@ -334,34 +371,34 @@ fn known_provider(value: &str) -> bool {
     matches!(value, "apps" | "clusters" | "nodes" | "actions" | "config")
 }
 
-fn validate(config: &LensConfig) -> Result<(), String> {
+fn validate(config: &LiftConfig) -> Result<(), String> {
     if config.width < 420 {
-        return Err("lens.width must be at least 420".into());
+        return Err("lift.width must be at least 420".into());
     }
     if config.max_results == 0 {
-        return Err("lens.max-results must be greater than zero".into());
+        return Err("lift.max-results must be greater than zero".into());
     }
     if config.terminal.trim().is_empty() {
-        return Err("lens.terminal must not be empty".into());
+        return Err("lift.terminal must not be empty".into());
     }
     if config.visible_results == 0 || config.visible_results > config.max_results {
-        return Err("lens.visible-results must be between 1 and lens.max-results".into());
+        return Err("lift.visible-results must be between 1 and lift.max-results".into());
     }
     if !matches!(
         config.position.anchor.to_ascii_lowercase().as_str(),
         "center" | "top" | "top-left" | "top-right" | "bottom" | "bottom-left" | "bottom-right"
     ) {
-        return Err("lens.position.anchor must be center, top, top-left, top-right, bottom, bottom-left, or bottom-right".into());
+        return Err("lift.position.anchor must be center, top, top-left, top-right, bottom, bottom-left, or bottom-right".into());
     }
     Ok(())
 }
 
 pub fn default_config_path() -> PathBuf {
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-        return Path::new(&xdg).join("halley/lens.rune");
+        return Path::new(&xdg).join("halley/lift.rune");
     }
     if let Some(home) = std::env::var_os("HOME") {
-        return Path::new(&home).join(".config/halley/lens.rune");
+        return Path::new(&home).join(".config/halley/lift.rune");
     }
-    PathBuf::from("lens.rune")
+    PathBuf::from("lift.rune")
 }

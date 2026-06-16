@@ -128,12 +128,12 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         );
     }
     if matches!(button_state, ButtonState::Pressed) {
-        let press_on_lens = layer_focus.as_ref().is_some_and(|(surface, _)| {
-            crate::compositor::monitor::layer_shell::is_lens_layer_surface(st, surface)
+        let press_on_lift = layer_focus.as_ref().is_some_and(|(surface, _)| {
+            crate::compositor::monitor::layer_shell::is_lift_layer_surface(st, surface)
         });
-        if !press_on_lens {
-            let closed = crate::compositor::monitor::layer_shell::close_any_lens_layer(st);
-            debug!("lens dismiss check: press_on_lens={press_on_lens} closed_lens={closed}");
+        if !press_on_lift {
+            let closed = crate::compositor::monitor::layer_shell::close_any_lift_layer(st);
+            debug!("lift dismiss check: press_on_lift={press_on_lift} closed_lift={closed}");
             if closed {
                 return;
             }

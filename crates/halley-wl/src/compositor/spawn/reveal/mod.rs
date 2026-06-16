@@ -55,7 +55,7 @@ fn detected_initial_toplevel_size(toplevel: &ToplevelSurface) -> Option<(i32, i3
         ));
     }
 
-    if let Some(size) = toplevel.current_state().size {
+    if let Some(size) = toplevel.with_committed_state(|state| state.and_then(|state| state.size)) {
         return Some((
             size.w.max(min_size.0).max(96),
             size.h.max(min_size.1).max(72),

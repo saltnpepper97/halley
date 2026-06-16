@@ -52,6 +52,7 @@ pub(crate) use view::OverlayView;
 
 use action_row::{draw_overlay_action_row, overlay_action_row_size};
 use banner::draw_persistent_banner;
+pub(crate) use chip::with_overlay_blur_context;
 use chip::{
     draw_overlay_chip, draw_overlay_chip_with_border_color, draw_overlay_chip_without_shadow,
 };

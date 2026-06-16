@@ -301,7 +301,7 @@ pub fn active_zoom_lock_scale(_st: &Halley) -> f32 {
 /// - Zoomed out (zoom_ref_size grown)  -> returns < 1.0; windows appear smaller.
 ///
 /// Multiplying all per-window screen-pixel dimensions by this value produces
-/// optical (lens) zoom: positions, sizes, and gaps all scale by the same factor.
+/// optical zoom: positions, sizes, and gaps all scale by the same factor.
 pub fn camera_render_scale(st: &Halley) -> f32 {
     let vp_w = st.model.viewport.size.x.max(1.0);
     let view_w = camera_view_size(st).x.max(1.0);

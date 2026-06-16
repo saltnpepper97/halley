@@ -12,9 +12,9 @@ use crate::keybinds::{
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
-    DecorationsConfig, FontConfig, GamescopeConfig, InputConfig, NodeBackgroundColorMode,
-    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
-    PlacementConfig, RuntimeTuning, ScreenshotConfig, ShapeStyle,
+    DecorationsConfig, EffectsConfig, FontConfig, GamescopeConfig, InputConfig,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
+    PanToNewMode, PinsConfig, PlacementConfig, RuntimeTuning, ScreenshotConfig, ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -42,6 +42,7 @@ impl Default for RuntimeTuning {
             node_border_color_hover: NodeBorderColorMode::UseWindowActive,
             node_border_color_inactive: NodeBorderColorMode::UseWindowInactive,
             decorations: DecorationsConfig::default(),
+            effects: EffectsConfig::default(),
             click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode::Activate,
             click_collapsed_pan: ClickCollapsedPanMode::IfOffscreen,
             bearings: BearingsConfig {

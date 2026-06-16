@@ -1,6 +1,7 @@
 use smithay::backend::renderer::gles::{GlesTexProgram, GlesTexture};
 
 use super::RenderState;
+use crate::render::blur::BlurTextures;
 
 #[derive(Default)]
 pub(crate) struct RenderGpuState {
@@ -18,6 +19,13 @@ pub(crate) struct RenderGpuState {
     pub(crate) window_shadow_program_failed: bool,
     pub(crate) surface_clip_program: Option<GlesTexProgram>,
     pub(crate) surface_clip_program_failed: bool,
+    pub(crate) blur_down_program: Option<GlesTexProgram>,
+    pub(crate) blur_up_program: Option<GlesTexProgram>,
+    pub(crate) blur_composite_program: Option<GlesTexProgram>,
+    pub(crate) blur_composite_masked_program: Option<GlesTexProgram>,
+    pub(crate) blur_programs_failed: bool,
+    pub(crate) blur_textures: Option<BlurTextures>,
+    pub(crate) layer_mask_texture: Option<GlesTexture>,
 }
 
 impl RenderGpuState {

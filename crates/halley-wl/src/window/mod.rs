@@ -25,7 +25,7 @@ use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::monitor::layer_shell::layer_output_size_for_monitor;
 use crate::compositor::root::Halley;
 use crate::compositor::spawn::state::{
-    is_persistent_rule_top, node_floats_over_active_cluster, node_rule_opacity,
+    is_persistent_rule_top, node_floats_over_active_cluster, node_rule_opacity, node_wants_blur,
 };
 use crate::compositor::surface::{
     active_stacking_visible_members_for_monitor, is_active_cluster_workspace_member,
@@ -33,6 +33,7 @@ use crate::compositor::surface::{
 };
 use crate::input::active_resize_geometry_screen;
 use crate::presentation::world_to_screen;
+use crate::protocol::wayland::background_effect::surface_wants_background_blur;
 
 use crate::render::clipped_surface::ClippedSurfaceRenderElement;
 use crate::render::pin_icon::PinBadgeLayout;
@@ -94,6 +95,8 @@ pub(crate) struct ActiveBorderRect {
 pub(crate) struct OffscreenNodeTexture {
     pub texture: GlesTexture,
     pub alpha: f32,
+    /// Whether this window opted into backdrop blur (resolved via `node_wants_blur`).
+    pub blur: bool,
     pub corner_radius: f32,
     pub src_x: f64,
     pub src_y: f64,
@@ -209,7 +212,9 @@ pub(crate) fn surface_is_gamescope(st: &Halley, surface: &WlSurface) -> bool {
 }
 
 pub(crate) fn node_requires_live_surface_render(st: &Halley, node_id: NodeId) -> bool {
-    node_is_game_like(st, node_id) || st.fullscreen_monitor_for_node(node_id).is_some()
+    let needs_effects = node_wants_blur(st, node_id) || node_rule_opacity(st, node_id) < 0.999;
+    !needs_effects
+        && (node_is_game_like(st, node_id) || st.fullscreen_monitor_for_node(node_id).is_some())
 }
 
 fn rect_covers_output(rect: (i32, i32, i32, i32), output: Rectangle<i32, Physical>) -> bool {
@@ -633,8 +638,11 @@ pub(crate) fn collect_active_surfaces(
                 &mut pin_badges,
             );
         }
-        // Games/fullscreen processes bypass offscreen zoom for performance and compatibility.
-        let use_offscreen_zoom = !fullscreen_on_current_monitor && !live_surface_node;
+        // Opaque fullscreen/game surfaces can stay direct for performance, but
+        // effects require an offscreen texture so blur/opacity can be applied.
+        let needs_effects = node_wants_blur(st, node_id) || rule_opacity < 0.999;
+        let use_offscreen_zoom =
+            (!fullscreen_on_current_monitor || needs_effects) && !live_surface_node;
 
         if use_offscreen_zoom {
             let spawn_pan_pending = st
@@ -1036,6 +1044,7 @@ pub(crate) fn collect_active_surfaces(
                     let offscreen = OffscreenNodeTexture {
                         texture,
                         alpha,
+                        blur: node_wants_blur(st, node_id) || surface_wants_background_blur(&wl),
                         corner_radius: decoration_metrics.content_corner_radius_px as f32,
                         src_x,
                         src_y,
@@ -1168,6 +1177,7 @@ pub(crate) fn collect_active_surfaces(
                         let offscreen_texture = OffscreenNodeTexture {
                             texture: offscreen.texture,
                             alpha,
+                            blur: surface_wants_background_blur(popup.wl_surface()),
                             corner_radius: 0.0,
                             src_x,
                             src_y,

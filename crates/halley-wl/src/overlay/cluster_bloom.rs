@@ -17,6 +17,8 @@ use crate::render::state::NodeAppIconCacheEntry;
 use crate::render::{node_app_icon_fallback_glyph, node_app_icon_texture_allowed};
 use crate::text::{draw_ui_text_in, ui_text_size_in};
 
+use super::chip::draw_overlay_backdrop_blur;
+
 #[derive(Clone, Copy)]
 pub(crate) struct BloomTokenLayout {
     pub(crate) cluster_id: halley_core::cluster::ClusterId,
@@ -258,6 +260,7 @@ fn draw_bloom_token(
         (center_sx - radius, center_sy - radius).into(),
         (diameter, diameter).into(),
     );
+    draw_overlay_backdrop_blur(frame, dest, radius as f32, damage, alpha)?;
     let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
     let src = Rectangle::<f64, Buffer>::new(
         (0.0, 0.0).into(),
@@ -371,12 +374,13 @@ fn draw_bloom_anchor_dot(
         (x - radius, y - radius).into(),
         ((radius * 2).max(1), (radius * 2).max(1)).into(),
     );
+    let dot_alpha = alpha * (0.84 + 0.10 * pull_mix + 0.12 * pre_release_mix).clamp(0.0, 1.0);
+    draw_overlay_backdrop_blur(frame, rect, radius as f32, damage, dot_alpha)?;
     let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
     let src = Rectangle::<f64, Buffer>::new(
         (0.0, 0.0).into(),
         (tex_size.w as f64, tex_size.h as f64).into(),
     );
-    let dot_alpha = alpha * (0.84 + 0.10 * pull_mix + 0.12 * pre_release_mix).clamp(0.0, 1.0);
     let fill_color = themed_node_fill_color(overlay.tuning, false);
     let uniforms = [
         Uniform::new(
@@ -436,6 +440,7 @@ fn draw_cluster_join_affordance(
         (sx - radius, sy - radius).into(),
         (radius * 2, radius * 2).into(),
     );
+    draw_overlay_backdrop_blur(frame, rect, radius as f32, damage, 0.9)?;
     let Some(texture) = overlay.render_state.gpu.node_circle_texture.as_ref() else {
         return Ok(());
     };

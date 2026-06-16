@@ -14,10 +14,10 @@ use super::paths::{absolutize_path, default_config_path, global_config_path};
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
-    DecorationsConfig, FocusRingConfig, FontConfig, GamescopeConfig, InputConfig,
+    DecorationsConfig, EffectsConfig, FocusRingConfig, FontConfig, GamescopeConfig, InputConfig,
     NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
-    PanToNewMode, PinsConfig, PlacementConfig, ScreenshotConfig, ShapeStyle, ViewportOutputConfig,
-    WindowCloseAnimationStyle, WindowRule,
+    PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle,
+    ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,6 +66,7 @@ pub struct RuntimeTuning {
     pub node_border_color_hover: NodeBorderColorMode,
     pub node_border_color_inactive: NodeBorderColorMode,
     pub decorations: DecorationsConfig,
+    pub effects: EffectsConfig,
     pub click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode,
     pub click_collapsed_pan: ClickCollapsedPanMode,
     pub bearings: BearingsConfig,
@@ -293,6 +294,10 @@ impl RuntimeTuning {
 
     pub fn raise_animation_shadow_boost(&self) -> f32 {
         self.animations.raise.shadow_boost.clamp(0.0, 1.0)
+    }
+
+    pub fn raise_animation_trigger(&self) -> RaiseAnimationTrigger {
+        self.animations.raise.trigger
     }
 
     pub fn config_path() -> String {
@@ -741,24 +746,44 @@ animations:
     duration-ms 140
     scale 1.025
     shadow-boost 0.18
+    trigger "always"
   end
 end
 
-# Compositor-owned window borders managed by Halley.
-decorations:
-  border:
-    size 3
-    radius 0
-    colour-focused "#d65d26"
-    colour-unfocused "#333333"
-  end
-
-  secondary-border:
+# Renderer-level visual effects: backdrop blur and shadows.
+# These sample/composite the world behind a surface, so they live here rather
+# than under `decorations:` (which is compositor chrome attached to surfaces).
+effects:
+  blur:
+    # Master switch. When false, no blur is computed anywhere.
     enabled false
-    size 1
-    gap 2
-    colour-focused "#fabd2f"
-    colour-unfocused "#1f1f1f"
+
+    # Allow compositor-owned overlays (Lift/Monocle, Aperture, Alt-Tab,
+    # Overview backdrop, popups, labels) to use blur. Each overlay can still
+    # opt out via `overlays.blur`.
+    overlays true
+
+    # Client window blur behaviour:
+    #   "off"    = no global client-window blur (rules may still opt windows in)
+    #   "auto"   = blur only when useful (e.g. a translucent/opacity window)
+    #   "always" = blur eligible windows unless a rule opts them out
+    windows "auto"
+
+    # Layer-shell blur behaviour for bars, launchers, notifications, etc.:
+    #   "off"    = never blur layer-shell clients
+    #   "auto"   = blur top/overlay layer-shell clients
+    #   "always" = blur bottom/top/overlay layer-shell clients
+    layer-shell "off"
+
+    # Quality / performance. Dual Kawase is a downsampled multi-pass blur tuned
+    # to look Gaussian-ish without the cost of a true large-kernel Gaussian.
+    method "dual-kawase"
+    radius 24
+    passes 3
+
+    # Frosted-glass polish.
+    saturation 1.10
+    noise 0.012
   end
 
   shadows:
@@ -789,6 +814,24 @@ decorations:
       colour "#05030538"
     end
   end
+end
+
+# Compositor-owned window borders managed by Halley.
+decorations:
+  border:
+    size 3
+    radius 0
+    colour-focused "#d65d26"
+    colour-unfocused "#333333"
+  end
+
+  secondary-border:
+    enabled false
+    size 1
+    gap 2
+    colour-focused "#fabd2f"
+    colour-unfocused "#1f1f1f"
+  end
 
   resize-using-border true
 end
@@ -801,6 +844,9 @@ overlays:
   shape "square"
   borders "true"
   border-source "primary"
+
+  # Opt overlays into the global blur system (requires effects.blur.overlays).
+  blur true
 end
 
 # Main input bindings.
@@ -907,6 +953,10 @@ rules:
     #height 520
     # Optional window opacity from 0.0 through 1.0.
     #opacity 0.85
+    # Optional per-window backdrop blur override (true/false).
+    # `blur false` always wins; `blur true` opts a window in even when
+    # effects.blur.windows is "off" or "auto".
+    #blur true
     spawn-placement "center"
     cluster-participation "float"
   end
@@ -1146,6 +1196,10 @@ mod tests {
         assert_eq!(tuning.animations.fullscreen.duration_ms, 240);
         assert_eq!(tuning.animations.raise.duration_ms, 140);
         assert_eq!(tuning.animations.raise.scale, 1.025);
+        assert_eq!(
+            tuning.animations.raise.trigger,
+            RaiseAnimationTrigger::Always
+        );
     }
 
     #[test]
@@ -1177,6 +1231,7 @@ mod tests {
         assert!(rendered.contains("  fullscreen:\n    enabled true"));
         assert!(rendered.contains("    duration-ms 240"));
         assert!(rendered.contains("  raise:\n    enabled true\n    duration-ms 140"));
+        assert!(rendered.contains("    trigger \"always\""));
         assert!(rendered.contains("  shadows:\n    window:"));
         assert!(rendered.contains("      colour \"#05030530\""));
         assert!(rendered.contains("\"$var.mod+1\" \"cluster slot 1\""));
@@ -1194,11 +1249,9 @@ mod tests {
         ));
         assert!(rendered.contains("  touchpad:\n    tap true\n    natural-scroll true"));
         assert!(rendered.contains("  mouse:\n    natural-scroll false"));
-        // The compositor template must never absorb the standalone companion-app configs
-        // or the removed `rail` section.
-        assert!(!rendered.contains("\nrail:"));
+        // The compositor template must never absorb standalone companion-app configs.
         assert!(!rendered.contains("\naperture:"));
-        assert!(!rendered.contains("\nlens:"));
+        assert!(!rendered.contains("\nlift:"));
     }
 
     #[test]

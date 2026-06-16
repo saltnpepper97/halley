@@ -569,6 +569,7 @@ pub(crate) fn advertise_output_with_physical_size(
                 subpixel: Subpixel::Unknown,
                 make: "halley".to_string(),
                 model: name.to_string(),
+                serial_number: "unknown".to_string(),
             },
         );
         output.add_mode(mode);

@@ -1084,6 +1084,10 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             .fullscreen_state
             .fullscreen_scale_anim
             .remove(&node_id);
+        self.model
+            .fullscreen_state
+            .fullscreen_origin
+            .remove(&node_id);
         if !suspend {
             self.model
                 .fullscreen_state
@@ -1127,6 +1131,35 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         output: Option<WlOutput>,
         now: Instant,
     ) {
+        self.enter_fullscreen(
+            node_id,
+            output,
+            now,
+            crate::compositor::fullscreen::state::FullscreenOrigin::ClientRequest,
+        )
+    }
+
+    pub(crate) fn enter_user_fullscreen(
+        &mut self,
+        node_id: NodeId,
+        output: Option<WlOutput>,
+        now: Instant,
+    ) {
+        self.enter_fullscreen(
+            node_id,
+            output,
+            now,
+            crate::compositor::fullscreen::state::FullscreenOrigin::UserKeybind,
+        )
+    }
+
+    fn enter_fullscreen(
+        &mut self,
+        node_id: NodeId,
+        output: Option<WlOutput>,
+        now: Instant,
+        origin: crate::compositor::fullscreen::state::FullscreenOrigin,
+    ) {
         let monitor_name = self.fullscreen_monitor_name(node_id, output.as_ref());
 
         self.model
@@ -1141,6 +1174,10 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             .get(&monitor_name)
             == Some(&node_id)
         {
+            self.model
+                .fullscreen_state
+                .fullscreen_origin
+                .insert(node_id, origin);
             return;
         }
 
@@ -1282,6 +1319,10 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
             .fullscreen_state
             .fullscreen_active_node
             .insert(monitor_name, node_id);
+        self.model
+            .fullscreen_state
+            .fullscreen_origin
+            .insert(node_id, origin);
         self.set_interaction_focus(Some(node_id), 30_000, now);
         let _ = self.raise_overlap_policy_node(node_id);
         self.request_maintenance();
@@ -1353,6 +1394,7 @@ impl<T: DerefMut<Target = Halley>> FullscreenController<T> {
         }
 
         self.model.fullscreen_state.fullscreen_restore.remove(&id);
+        self.model.fullscreen_state.fullscreen_origin.remove(&id);
         self.model.fullscreen_state.fullscreen_motion.remove(&id);
         self.model
             .fullscreen_state

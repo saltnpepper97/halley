@@ -385,10 +385,10 @@ fn command_is_launcher(command: &str) -> bool {
         .is_some_and(|program| program == LAUNCHER_PROGRAM)
 }
 
-/// Toggle the launcher: if a lens overlay is currently open, close it and do not spawn;
+/// Toggle the launcher: if a Lift overlay is currently open, close it and do not spawn;
 /// otherwise spawn it. Doing exactly one of the two keeps the bound key deterministic.
 fn toggle_launcher(st: &mut Halley, command: &str, wayland_display: &str) -> bool {
-    if crate::compositor::monitor::layer_shell::close_any_lens_layer(st) {
+    if crate::compositor::monitor::layer_shell::close_any_lift_layer(st) {
         return true;
     }
     spawn_launch_binding(st, command, wayland_display)

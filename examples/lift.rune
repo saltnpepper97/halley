@@ -1,20 +1,27 @@
-@description "Halley Lens configuration"
+@description "Halley Lift configuration"
 
-lens:
+lift:
   placeholder "Search apps, nodes, clusters, actions..."
+
   width 760
+  
   max-results 12
+  
   visible-results 8
   fuzzy true
   show-section-labels true
+  
   icons true
   icon-size 28
   icon-theme "auto"
   icon-search-depth 5
+  
   terminal "x-terminal-emulator -e"
   keyboard-interactivity "exclusive"
+  
   close-on-focus-loss false
   close-on-click-away false
+  
   alt-number-jump true
 
   position:
@@ -46,6 +53,13 @@ lens:
     accent "#8fb5ff"
     badge "#334875f2"
     danger "#eb9a8f"
+  end
+
+  cursor:
+    enabled true
+    width 2
+    blink-ms 500
+    stop-blink-after-ms 5000
   end
 
   ui:

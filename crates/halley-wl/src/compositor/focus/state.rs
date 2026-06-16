@@ -142,6 +142,48 @@ impl<T: Deref<Target = Halley>> FocusStateController<T> {
             })
             .all(|(&id, _)| self.overlap_policy_stack_rank(id) <= target_rank)
     }
+
+    fn active_surface_world_rect(&self, node_id: NodeId) -> Option<(f32, f32, f32, f32)> {
+        let node = self.model.field.node(node_id)?;
+        if node.kind != halley_core::field::NodeKind::Surface
+            || node.state != halley_core::field::NodeState::Active
+            || !self.model.field.is_visible(node_id)
+        {
+            return None;
+        }
+        let size = node.intrinsic_size;
+        let left = node.pos.x - size.x * 0.5;
+        let top = node.pos.y - size.y * 0.5;
+        Some((left, top, left + size.x.max(1.0), top + size.y.max(1.0)))
+    }
+
+    fn active_surface_overlaps_visible_peer_on_monitor(&self, node_id: NodeId) -> bool {
+        let Some(target_monitor) = self.model.monitor_state.node_monitor.get(&node_id) else {
+            return false;
+        };
+        let Some(target_rect) = self.active_surface_world_rect(node_id) else {
+            return false;
+        };
+        self.model.field.nodes().iter().any(|(&id, node)| {
+            id != node_id
+                && node.kind == halley_core::field::NodeKind::Surface
+                && node.state == halley_core::field::NodeState::Active
+                && self.model.field.is_visible(id)
+                && self
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&id)
+                    .is_some_and(|monitor| monitor == target_monitor)
+                && self
+                    .active_surface_world_rect(id)
+                    .is_some_and(|rect| rects_overlap(target_rect, rect))
+        })
+    }
+}
+
+fn rects_overlap(a: (f32, f32, f32, f32), b: (f32, f32, f32, f32)) -> bool {
+    a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3
 }
 
 impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
@@ -393,7 +435,13 @@ impl<T: DerefMut<Target = Halley>> FocusStateController<T> {
             .focus_state
             .overlap_raise_order
             .insert(node_id, order);
-        if self.runtime.tuning.raise_animation_enabled() {
+        let should_animate_raise = match self.runtime.tuning.raise_animation_trigger() {
+            halley_config::RaiseAnimationTrigger::Always => true,
+            halley_config::RaiseAnimationTrigger::Overlap => {
+                self.active_surface_overlaps_visible_peer_on_monitor(node_id)
+            }
+        };
+        if self.runtime.tuning.raise_animation_enabled() && should_animate_raise {
             let now = Instant::now();
             self.request_window_animation_prewarm(node_id, now);
             let duration_ms = self.runtime.tuning.raise_animation_duration_ms();
@@ -435,20 +483,66 @@ mod tests {
     fn raising_active_window_starts_raise_animation() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let monitor = state.model.monitor_state.current_monitor.clone();
         let node = state.model.field.spawn_surface(
             "window",
             halley_core::field::Vec2 { x: 0.0, y: 0.0 },
             halley_core::field::Vec2 { x: 320.0, y: 200.0 },
         );
-        let _ = state
-            .model
-            .field
-            .set_state(node, halley_core::field::NodeState::Active);
+        let peer = state.model.field.spawn_surface(
+            "peer",
+            halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 320.0, y: 200.0 },
+        );
+        for node in [node, peer] {
+            state.assign_node_to_monitor(node, monitor.as_str());
+            let _ = state
+                .model
+                .field
+                .set_state(node, halley_core::field::NodeState::Active);
+        }
 
         assert!(state.raise_overlap_policy_node(node));
 
         assert!(
             state
+                .ui
+                .render_state
+                .window_animations
+                .raise_animations
+                .contains_key(&node)
+        );
+    }
+
+    #[test]
+    fn raising_non_overlapping_active_window_skips_raise_animation() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        state.runtime.tuning.animations.raise.trigger =
+            halley_config::RaiseAnimationTrigger::Overlap;
+        let monitor = state.model.monitor_state.current_monitor.clone();
+        let node = state.model.field.spawn_surface(
+            "window",
+            halley_core::field::Vec2 { x: -300.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 200.0, y: 200.0 },
+        );
+        let peer = state.model.field.spawn_surface(
+            "peer",
+            halley_core::field::Vec2 { x: 300.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 200.0, y: 200.0 },
+        );
+        for node in [node, peer] {
+            state.assign_node_to_monitor(node, monitor.as_str());
+            let _ = state
+                .model
+                .field
+                .set_state(node, halley_core::field::NodeState::Active);
+        }
+
+        assert!(state.raise_overlap_policy_node(node));
+        assert_eq!(state.model.focus_state.next_overlap_raise_order, 1);
+        assert!(
+            !state
                 .ui
                 .render_state
                 .window_animations

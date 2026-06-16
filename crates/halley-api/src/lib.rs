@@ -13,7 +13,7 @@ pub use types::{
     ApertureMode, ApertureOutputStatus, ApertureStatusResponse, BearingsStatusResponse,
     CaptureStatusResponse, ClusterDraftAppLaunch, ClusterDraftRequest, ClusterDraftSource,
     ClusterInfo, ClusterLayoutKind, ClusterListResponse, ClusterOutputGroup, ClusterSummary,
-    GamescopeTargetResponse, LensResultKind, LensSearchResponse, LensSearchResult,
+    GamescopeTargetResponse, LiftResultKind, LiftSearchResponse, LiftSearchResult,
     LogicalOutputInfo, ModeInfo, NodeInfo, NodeKind, NodeListResponse, NodeOutputGroup,
     NodeProtocolFamily, NodeRelationInfo, NodeRole, NodeState, OutputInfo, OutputStatus,
     OutputsResponse, TrailEntryInfo, TrailListResponse, VersionInfo,

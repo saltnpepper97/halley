@@ -555,7 +555,7 @@ pub(crate) fn take_presentation_feedback_for_output_with_states(
             .then(|| output.clone())
     };
     let feedback_flags = |surface: &WlSurface, _states: &SurfaceData| {
-        surface_presentation_feedback_flags_from_states(surface, render_element_states)
+        surface_presentation_feedback_flags_from_states(surface, None, render_element_states)
     };
 
     for layer in st.platform.wlr_layer_shell_state.layer_surfaces() {

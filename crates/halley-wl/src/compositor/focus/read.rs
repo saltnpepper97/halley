@@ -143,6 +143,33 @@ impl<'a> FocusReadContext<'a> {
             && node.pos.y + ext.bottom <= max_y
     }
 
+    /// True if any part of the surface overlaps the monitor's viewport rect.
+    ///
+    /// Unlike [`Self::surface_is_fully_visible_on_monitor`], a surface that is
+    /// partly clipped by an edge still counts as visible; only a surface entirely
+    /// outside the viewport returns false.
+    fn surface_has_visible_portion_on_monitor(
+        &self,
+        st: &Halley,
+        monitor: &str,
+        id: NodeId,
+    ) -> bool {
+        let Some(node) = self.field.node(id) else {
+            return false;
+        };
+        let ext = st.spawn_obstacle_extents_for_node(node);
+        let viewport = self.viewport_for_monitor(monitor);
+        let min_x = viewport.center.x - viewport.size.x * 0.5;
+        let max_x = viewport.center.x + viewport.size.x * 0.5;
+        let min_y = viewport.center.y - viewport.size.y * 0.5;
+        let max_y = viewport.center.y + viewport.size.y * 0.5;
+
+        node.pos.x + ext.right > min_x
+            && node.pos.x - ext.left < max_x
+            && node.pos.y + ext.bottom > min_y
+            && node.pos.y - ext.top < max_y
+    }
+
     fn minimal_reveal_center_for_surface_on_monitor(
         &self,
         st: &Halley,
@@ -217,7 +244,9 @@ impl<'a> FocusReadContext<'a> {
                 .map(|node| CloseRestorePanPlan::PanTo(node.pos))
                 .unwrap_or(CloseRestorePanPlan::None),
             CloseRestorePanMode::IfOffscreen => {
-                if self.surface_is_fully_visible_on_monitor(st, monitor, id) {
+                // Pan only when the surface is entirely off-screen; a partly
+                // clipped window stays put (panning it in is jarring).
+                if self.surface_has_visible_portion_on_monitor(st, monitor, id) {
                     CloseRestorePanPlan::None
                 } else {
                     self.minimal_reveal_center_for_surface_on_monitor(st, monitor, id)

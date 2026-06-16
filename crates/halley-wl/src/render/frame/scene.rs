@@ -10,7 +10,7 @@ use smithay::{
 
 use super::super::bearings::{BearingChipLayout, collect_bearing_layouts};
 use super::super::cursor_surface_hotspot;
-use super::super::layer_shell::collect_layer_surfaces;
+use super::super::layer_shell::{LayerGroups, collect_layer_surfaces};
 use super::super::node::{NodeSnapshot, collect_hover_preview};
 use super::super::pin_icon::PinBadgeLayout;
 use super::super::state::ClosingWindowAnimationSnapshot;
@@ -29,12 +29,49 @@ pub(super) struct PreparedFrameState {
     pub(super) now: Instant,
 }
 
+/// Screen-space rectangle of content that may need backdrop blur. Window entries
+/// use their real corner radius; layer-shell entries only reserve blur resources
+/// because their visible shape is supplied later by an alpha mask.
+#[derive(Clone, Copy)]
+pub(super) struct BlurRect {
+    pub(super) dst: Rectangle<i32, Physical>,
+    pub(super) corner_radius: f32,
+}
+
+fn collect_blur_rects(textures: &[OffscreenNodeTexture], out: &mut Vec<BlurRect>) {
+    for tex in textures {
+        if tex.blur {
+            out.push(BlurRect {
+                dst: Rectangle::<i32, Physical>::new(
+                    (tex.dst_x, tex.dst_y).into(),
+                    (tex.dst_w.max(1), tex.dst_h.max(1)).into(),
+                ),
+                corner_radius: tex.corner_radius,
+            });
+        }
+    }
+}
+
+fn collect_layer_blur_rects(
+    groups: &[super::super::layer_shell::LayerSurfaceRenderGroup],
+    out: &mut Vec<BlurRect>,
+) {
+    for group in groups {
+        if group.blur {
+            out.push(BlurRect {
+                dst: group.dst,
+                corner_radius: 0.0,
+            });
+        }
+    }
+}
+
 pub(super) struct SceneCollections {
     pub(super) session_lock_elements: Vec<SurfaceElement>,
-    pub(super) layer_background_elements: Vec<SurfaceElement>,
-    pub(super) layer_bottom_elements: Vec<SurfaceElement>,
-    pub(super) layer_top_elements: Vec<SurfaceElement>,
-    pub(super) layer_overlay_elements: Vec<SurfaceElement>,
+    pub(super) layer_background_elements: LayerGroups,
+    pub(super) layer_bottom_elements: LayerGroups,
+    pub(super) layer_top_elements: LayerGroups,
+    pub(super) layer_overlay_elements: LayerGroups,
     pub(super) active_elements: Vec<CroppedClippedSurfaceElement>,
     pub(super) resized_active_elements: Vec<CroppedClippedSurfaceElement>,
     pub(super) fullscreen_active_elements: Vec<CroppedClippedSurfaceElement>,
@@ -66,6 +103,7 @@ pub(super) struct SceneCollections {
     pub(super) hover_preview_elements: Vec<SurfaceElement>,
     pub(super) render_nodes: Vec<NodeSnapshot>,
     pub(super) bearing_layouts: Vec<BearingChipLayout>,
+    pub(super) blur_rects: Vec<BlurRect>,
 }
 
 pub(super) struct CursorScene {
@@ -152,6 +190,7 @@ pub(super) fn collect_debug_frame_scene(
             hover_preview_elements: Vec::new(),
             render_nodes: Vec::new(),
             bearing_layouts: Vec::new(),
+            blur_rects: Vec::new(),
         };
     }
 
@@ -239,6 +278,34 @@ pub(super) fn collect_debug_frame_scene(
     let bearing_layouts =
         collect_bearing_layouts(st, size.w, size.h, render_monitor.as_str(), bearings_mix);
 
+    let mut blur_rects = Vec::new();
+    collect_layer_blur_rects(&layer_background_elements, &mut blur_rects);
+    collect_layer_blur_rects(&layer_bottom_elements, &mut blur_rects);
+    collect_layer_blur_rects(&layer_top_elements, &mut blur_rects);
+    collect_layer_blur_rects(&layer_overlay_elements, &mut blur_rects);
+    collect_blur_rects(&window_plan.offscreen_textures, &mut blur_rects);
+    collect_blur_rects(&window_plan.resized_offscreen_textures, &mut blur_rects);
+    collect_blur_rects(&window_plan.fullscreen_offscreen_textures, &mut blur_rects);
+    collect_blur_rects(
+        &window_plan.above_fullscreen_offscreen_textures,
+        &mut blur_rects,
+    );
+    collect_blur_rects(&window_plan.popup_offscreen_textures, &mut blur_rects);
+    collect_blur_rects(
+        &window_plan.fullscreen_popup_offscreen_textures,
+        &mut blur_rects,
+    );
+    collect_blur_rects(
+        &window_plan.above_fullscreen_popup_offscreen_textures,
+        &mut blur_rects,
+    );
+    for unit in &window_plan.stack_window_units {
+        collect_blur_rects(&unit.offscreen_textures, &mut blur_rects);
+    }
+    for unit in &window_plan.above_fullscreen_stack_window_units {
+        collect_blur_rects(&unit.offscreen_textures, &mut blur_rects);
+    }
+
     SceneCollections {
         session_lock_elements: Vec::new(),
         layer_background_elements,
@@ -274,6 +341,7 @@ pub(super) fn collect_debug_frame_scene(
         hover_preview_elements,
         render_nodes,
         bearing_layouts,
+        blur_rects,
     }
 }
 

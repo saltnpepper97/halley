@@ -69,6 +69,11 @@ pub(crate) fn load_overlays_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.overlay_style.border_source,
     );
+    out.overlay_style.blur = pick_bool(
+        cfg,
+        &["overlay.blur", "overlays.blur"],
+        out.overlay_style.blur,
+    );
 }
 
 #[cfg(test)]
@@ -84,7 +89,7 @@ mod tests {
         let cfg = RuneConfig::from_str(
             r##"
 overlays:
-  background-colour "#223344"
+  background-colour "#22334480"
   text-colour "dark"
   error-colour "#fb4934"
   shape "rounded"
@@ -104,6 +109,7 @@ end
                 r: 0x22 as f32 / 255.0,
                 g: 0x33 as f32 / 255.0,
                 b: 0x44 as f32 / 255.0,
+                a: 0x80 as f32 / 255.0,
             }
         );
         assert_eq!(out.overlay_style.text_color, OverlayColorMode::Dark);
@@ -113,6 +119,7 @@ end
                 r: 0xfb as f32 / 255.0,
                 g: 0x49 as f32 / 255.0,
                 b: 0x34 as f32 / 255.0,
+                a: 1.0,
             }
         );
         assert_eq!(out.overlay_style.shape, OverlayShape::Rounded);
@@ -137,6 +144,7 @@ end
                 r: 0xfb as f32 / 255.0,
                 g: 0x49 as f32 / 255.0,
                 b: 0x34 as f32 / 255.0,
+                a: 1.0,
             }
         );
         assert_eq!(defaults.overlay_style.shape, OverlayShape::Square);

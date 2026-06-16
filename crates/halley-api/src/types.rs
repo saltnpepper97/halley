@@ -45,7 +45,7 @@ pub struct ApertureOutputStatus {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub enum LensResultKind {
+pub enum LiftResultKind {
     PinnedNode,
     Node,
     Cluster,
@@ -56,7 +56,7 @@ pub enum LensResultKind {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ClusterDraftSource {
-    HalleyLens,
+    HalleyLift,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -76,10 +76,10 @@ pub struct ClusterDraftRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LensSearchResult {
+pub struct LiftSearchResult {
     pub id: String,
     pub action_id: String,
-    pub kind: LensResultKind,
+    pub kind: LiftResultKind,
     pub title: String,
     pub subtitle: Option<String>,
     pub pinned: bool,
@@ -87,9 +87,9 @@ pub struct LensSearchResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LensSearchResponse {
+pub struct LiftSearchResponse {
     pub query: String,
-    pub results: Vec<LensSearchResult>,
+    pub results: Vec<LiftSearchResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

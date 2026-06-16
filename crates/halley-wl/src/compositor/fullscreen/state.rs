@@ -2,6 +2,12 @@ use std::collections::HashMap;
 
 use halley_core::field::{NodeId, Vec2};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FullscreenOrigin {
+    UserKeybind,
+    ClientRequest,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FullscreenSessionEntry {
     pub pos: Vec2,
@@ -42,6 +48,7 @@ pub(crate) struct FullscreenDirectScanoutState {
 
 pub(crate) struct FullscreenState {
     pub(crate) fullscreen_active_node: HashMap<String, NodeId>,
+    pub(crate) fullscreen_origin: HashMap<NodeId, FullscreenOrigin>,
     pub(crate) fullscreen_suspended_node: HashMap<String, NodeId>,
     pub(crate) fullscreen_soft_suspended_node: HashMap<String, NodeId>,
     pub(crate) fullscreen_restore: HashMap<NodeId, FullscreenSessionEntry>,

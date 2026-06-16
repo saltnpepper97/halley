@@ -17,6 +17,7 @@ use smithay::{
     },
     utils::{IsAlive, Logical, Point, Rectangle, Transform},
     wayland::{
+        background_effect::BackgroundEffectState,
         compositor::{CompositorState, add_blocker, send_surface_state, with_states},
         cursor_shape::CursorShapeManagerState,
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
@@ -56,6 +57,7 @@ fn should_apply_toplevel_tiled_hint(fullscreen: bool) -> bool {
 pub(crate) struct PlatformState {
     pub(crate) display_handle: DisplayHandle,
     pub(crate) compositor_state: CompositorState,
+    pub(crate) background_effect_state: BackgroundEffectState,
     pub(crate) viewporter_state: ViewporterState,
     pub(crate) xdg_shell_state: XdgShellState,
     pub(crate) xdg_activation_state: XdgActivationState,

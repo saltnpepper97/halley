@@ -10,13 +10,13 @@ use halley_api::{
     ClusterTarget, CompositorRequest, NodeKind, NodeRequest, NodeSelector, Request, Response,
 };
 
-use crate::config::{LensConfig, default_config_path};
-use crate::mode::LensMode;
-use crate::model::{ClusterDraft, LensAction, LensResult, LensResultKind, mode_allows};
+use crate::config::{LiftConfig, default_config_path};
+use crate::mode::LiftMode;
+use crate::model::{ClusterDraft, LiftAction, LiftResult, LiftResultKind, mode_allows};
 
 #[derive(Clone, Debug)]
 pub struct SearchContext {
-    pub mode: LensMode,
+    pub mode: LiftMode,
     pub query: String,
     pub query_lower: String,
     pub max_results: usize,
@@ -62,7 +62,7 @@ struct CachedCluster {
 }
 
 impl ProviderIndex {
-    pub fn load(config: &LensConfig) -> Self {
+    pub fn load(config: &LiftConfig) -> Self {
         Self {
             apps: load_desktop_apps(),
             nodes: Vec::new(),
@@ -104,31 +104,31 @@ impl ProviderIndex {
         Some((self.nodes.len(), self.clusters.len()))
     }
 
-    pub fn search(&self, ctx: &SearchContext) -> Vec<LensResult> {
+    pub fn search(&self, ctx: &SearchContext) -> Vec<LiftResult> {
         let mut results = Vec::new();
         if matches!(
             ctx.mode,
-            LensMode::General | LensMode::Apps | LensMode::Clusters
+            LiftMode::General | LiftMode::Apps | LiftMode::Clusters
         ) {
             results.extend(self.search_apps(ctx));
         }
         if matches!(
             ctx.mode,
-            LensMode::General | LensMode::Nodes | LensMode::Clusters
+            LiftMode::General | LiftMode::Nodes | LiftMode::Clusters
         ) {
             results.extend(self.search_nodes(ctx));
         }
-        if matches!(ctx.mode, LensMode::General | LensMode::Clusters) {
+        if matches!(ctx.mode, LiftMode::General | LiftMode::Clusters) {
             results.extend(self.search_clusters(ctx));
         }
-        if matches!(ctx.mode, LensMode::General | LensMode::Actions) {
+        if matches!(ctx.mode, LiftMode::General | LiftMode::Actions) {
             results.extend(search_actions(ctx));
         }
-        if matches!(ctx.mode, LensMode::General | LensMode::Config) {
+        if matches!(ctx.mode, LiftMode::General | LiftMode::Config) {
             results.extend(search_config(ctx));
         }
 
-        if ctx.mode == LensMode::Clusters && ctx.draft_count > 0 {
+        if ctx.mode == LiftMode::Clusters && ctx.draft_count > 0 {
             results.push(create_cluster_result(ctx.query.as_str()));
         }
 
@@ -140,7 +140,7 @@ impl ProviderIndex {
                 .then_with(|| a.section.cmp(&b.section))
                 .then_with(|| a.title.cmp(&b.title))
         });
-        let max_results = if matches!(ctx.mode, LensMode::Apps | LensMode::Clusters)
+        let max_results = if matches!(ctx.mode, LiftMode::Apps | LiftMode::Clusters)
             && ctx.query_lower.is_empty()
         {
             usize::MAX
@@ -153,13 +153,13 @@ impl ProviderIndex {
         results
     }
 
-    fn search_apps(&self, ctx: &SearchContext) -> Vec<LensResult> {
+    fn search_apps(&self, ctx: &SearchContext) -> Vec<LiftResult> {
         self.apps
             .iter()
             .filter_map(|app| {
                 let score = match_score(ctx.query_lower.as_str(), app.search_text.as_str())?;
-                Some(LensResult {
-                    section: if ctx.mode == LensMode::Clusters {
+                Some(LiftResult {
+                    section: if ctx.mode == LiftMode::Clusters {
                         "Apps"
                     } else {
                         "Applications"
@@ -168,18 +168,18 @@ impl ProviderIndex {
                     title: app.name.clone(),
                     subtitle: Some(app.comment.clone().unwrap_or_else(|| "Application".into())),
                     icon_name: app.icon_name.clone(),
-                    kind: LensResultKind::App,
+                    kind: LiftResultKind::App,
                     score,
                     is_field_pinned: false,
                     shortcut_hint: Some(
-                        if ctx.mode == LensMode::Clusters {
+                        if ctx.mode == LiftMode::Clusters {
                             "Space stage"
                         } else {
                             "Enter launch"
                         }
                         .into(),
                     ),
-                    action: LensAction::LaunchApp {
+                    action: LiftAction::LaunchApp {
                         app_id: app.id.clone(),
                     },
                 })
@@ -187,7 +187,7 @@ impl ProviderIndex {
             .collect()
     }
 
-    fn search_nodes(&self, ctx: &SearchContext) -> Vec<LensResult> {
+    fn search_nodes(&self, ctx: &SearchContext) -> Vec<LiftResult> {
         self.nodes
             .iter()
             .filter_map(|node| {
@@ -195,8 +195,8 @@ impl ProviderIndex {
                 if node.pinned {
                     score += 1000.0;
                 }
-                Some(LensResult {
-                    section: if ctx.mode == LensMode::Clusters {
+                Some(LiftResult {
+                    section: if ctx.mode == LiftMode::Clusters {
                         "Running Nodes"
                     } else {
                         "Nodes"
@@ -205,38 +205,38 @@ impl ProviderIndex {
                     title: node.title.clone(),
                     subtitle: Some(node.subtitle.clone()),
                     icon_name: None,
-                    kind: LensResultKind::Node,
+                    kind: LiftResultKind::Node,
                     score,
                     is_field_pinned: node.pinned,
                     shortcut_hint: Some(
-                        if ctx.mode == LensMode::Clusters {
+                        if ctx.mode == LiftMode::Clusters {
                             "Space stage"
                         } else {
                             "Enter open"
                         }
                         .into(),
                     ),
-                    action: LensAction::FocusNode { id: node.id },
+                    action: LiftAction::FocusNode { id: node.id },
                 })
             })
             .collect()
     }
 
-    fn search_clusters(&self, ctx: &SearchContext) -> Vec<LensResult> {
+    fn search_clusters(&self, ctx: &SearchContext) -> Vec<LiftResult> {
         self.clusters
             .iter()
             .filter_map(|cluster| {
                 let score = match_score(ctx.query_lower.as_str(), cluster.search_text.as_str())?;
-                Some(LensResult {
+                Some(LiftResult {
                     section: "Existing Clusters".into(),
                     title: cluster.title.clone(),
                     subtitle: Some(cluster.subtitle.clone()),
                     icon_name: None,
-                    kind: LensResultKind::Cluster,
+                    kind: LiftResultKind::Cluster,
                     score: score + 20.0,
                     is_field_pinned: false,
                     shortcut_hint: Some("Enter open".into()),
-                    action: LensAction::OpenCluster { id: cluster.id },
+                    action: LiftAction::OpenCluster { id: cluster.id },
                 })
             })
             .collect()
@@ -324,38 +324,38 @@ fn load_clusters() -> Vec<CachedCluster> {
     clusters
 }
 
-fn create_cluster_result(query: &str) -> LensResult {
+fn create_cluster_result(query: &str) -> LiftResult {
     let title = if query.trim().is_empty() {
         "Create cluster".into()
     } else {
         format!("Create cluster: {}", query.trim())
     };
-    LensResult {
+    LiftResult {
         section: "Create".into(),
         title,
         subtitle: Some("Open Cluster Finalize popup".into()),
         icon_name: None,
-        kind: LensResultKind::CreateCluster,
+        kind: LiftResultKind::CreateCluster,
         score: 0.0,
         is_field_pinned: false,
         shortcut_hint: Some("Ctrl+Enter".into()),
-        action: LensAction::CreateCluster,
+        action: LiftAction::CreateCluster,
     }
 }
 
-fn search_actions(ctx: &SearchContext) -> Vec<LensResult> {
+fn search_actions(ctx: &SearchContext) -> Vec<LiftResult> {
     let actions = [
         (
             "reload-config",
             "Reload Halley config",
             "Compositor action",
-            LensAction::ReloadConfig,
+            LiftAction::ReloadConfig,
         ),
         (
-            "open-lens-config",
-            "Open Lens config",
+            "open-lift-config",
+            "Open Lift config",
             "Config file",
-            LensAction::OpenPath {
+            LiftAction::OpenPath {
                 path: default_config_path().display().to_string(),
             },
         ),
@@ -367,12 +367,12 @@ fn search_actions(ctx: &SearchContext) -> Vec<LensResult> {
                 ctx.query_lower.as_str(),
                 title.to_ascii_lowercase().as_str(),
             )
-            .map(|score| LensResult {
+            .map(|score| LiftResult {
                 section: "Actions".into(),
                 title: title.into(),
                 subtitle: Some(subtitle.into()),
                 icon_name: None,
-                kind: LensResultKind::Action,
+                kind: LiftResultKind::Action,
                 score,
                 is_field_pinned: false,
                 shortcut_hint: Some("Enter".into()),
@@ -382,49 +382,49 @@ fn search_actions(ctx: &SearchContext) -> Vec<LensResult> {
         .collect()
 }
 
-fn search_config(ctx: &SearchContext) -> Vec<LensResult> {
+fn search_config(ctx: &SearchContext) -> Vec<LiftResult> {
     let path = default_config_path();
-    match_score(ctx.query_lower.as_str(), "lens config").map_or_else(Vec::new, |score| {
-        vec![LensResult {
+    match_score(ctx.query_lower.as_str(), "lift config").map_or_else(Vec::new, |score| {
+        vec![LiftResult {
             section: "Config".into(),
-            title: "Lens config".into(),
+            title: "Lift config".into(),
             subtitle: Some(path.display().to_string()),
             icon_name: None,
-            kind: LensResultKind::Config,
+            kind: LiftResultKind::Config,
             score,
             is_field_pinned: false,
             shortcut_hint: Some("Enter open".into()),
-            action: LensAction::OpenPath {
+            action: LiftAction::OpenPath {
                 path: path.display().to_string(),
             },
         }]
     })
 }
 
-pub fn activate_result(index: &ProviderIndex, result: &LensResult) -> Result<(), String> {
+pub fn activate_result(index: &ProviderIndex, result: &LiftResult) -> Result<(), String> {
     match &result.action {
-        LensAction::LaunchApp { app_id } => index.launch_app(app_id),
-        LensAction::OpenCluster { id } => expect_ok(halley_ipc::send_request(&Request::Cluster(
+        LiftAction::LaunchApp { app_id } => index.launch_app(app_id),
+        LiftAction::OpenCluster { id } => expect_ok(halley_ipc::send_request(&Request::Cluster(
             ClusterRequest::Open {
                 target: ClusterTarget::Id(*id),
                 output: None,
             },
         ))),
-        LensAction::FocusNode { id } => expect_ok(halley_ipc::send_request(&Request::Node(
+        LiftAction::FocusNode { id } => expect_ok(halley_ipc::send_request(&Request::Node(
             NodeRequest::Focus {
                 selector: Some(NodeSelector::Id(*id)),
                 output: None,
             },
         ))),
-        LensAction::ReloadConfig => expect_ok(halley_ipc::send_request(&Request::Compositor(
+        LiftAction::ReloadConfig => expect_ok(halley_ipc::send_request(&Request::Compositor(
             CompositorRequest::Reload,
         ))),
-        LensAction::OpenPath { path } => launch_exec(
+        LiftAction::OpenPath { path } => launch_exec(
             format!("xdg-open {}", shell_quote(path)).as_str(),
             false,
             index.terminal.as_str(),
         ),
-        LensAction::CreateCluster => Ok(()),
+        LiftAction::CreateCluster => Ok(()),
     }
 }
 
@@ -439,7 +439,7 @@ pub fn materialize_cluster_draft(
         app_ids: draft.app_ids.clone(),
         app_launches: index.draft_app_launches(&draft.app_ids),
         running_node_ids: draft.running_node_ids.clone(),
-        source: ClusterDraftSource::HalleyLens,
+        source: ClusterDraftSource::HalleyLift,
     };
     expect_ok(halley_ipc::send_request(&Request::Cluster(
         ClusterRequest::OpenFinalizeDraft {
@@ -690,7 +690,7 @@ mod tests {
             terminal: String::new(),
         };
         let results = index.search(&SearchContext {
-            mode: LensMode::Clusters,
+            mode: LiftMode::Clusters,
             query: String::new(),
             query_lower: String::new(),
             max_results: 3,

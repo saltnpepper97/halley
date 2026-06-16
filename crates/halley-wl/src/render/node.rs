@@ -675,7 +675,7 @@ pub(crate) fn draw_node_markers(
             draw_shadow_rect(
                 frame,
                 &st.ui.render_state,
-                st.runtime.tuning.decorations.shadows.node,
+                st.runtime.tuning.effects.shadows.node,
                 Rectangle::<i32, Physical>::new(
                     (sx - render_radius, sy - render_radius).into(),
                     (render_radius * 2, render_radius * 2).into(),

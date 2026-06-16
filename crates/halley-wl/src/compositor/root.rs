@@ -14,6 +14,7 @@ use smithay::{
     input::SeatState,
     reexports::wayland_server::{DisplayHandle, backend::ObjectId},
     wayland::{
+        background_effect::BackgroundEffectState,
         compositor::CompositorState,
         cursor_shape::CursorShapeManagerState,
         dmabuf::DmabufState,
@@ -189,6 +190,7 @@ impl Halley {
             platform: PlatformState {
                 display_handle: dh.clone(),
                 compositor_state: CompositorState::new::<Halley>(dh),
+                background_effect_state: BackgroundEffectState::new::<Halley>(dh),
                 viewporter_state: ViewporterState::new::<Halley>(dh),
                 xdg_shell_state: XdgShellState::new::<Halley>(dh),
                 xdg_activation_state: smithay::wayland::xdg_activation::XdgActivationState::new::<
@@ -272,7 +274,7 @@ impl Halley {
                     cluster_names: HashMap::new(),
                     cluster_name_prompt: HashMap::new(),
                     cluster_finalize_drafts: HashMap::new(),
-                    pending_lens_cluster_builds: HashMap::new(),
+                    pending_lift_cluster_builds: HashMap::new(),
                     active_cluster_workspaces: HashMap::new(),
                     cluster_bloom_open: HashMap::new(),
                     cluster_mode_selected_nodes: HashMap::new(),
@@ -302,6 +304,7 @@ impl Halley {
                 },
                 fullscreen_state: FullscreenState {
                     fullscreen_active_node: HashMap::new(),
+                    fullscreen_origin: HashMap::new(),
                     fullscreen_suspended_node: HashMap::new(),
                     fullscreen_soft_suspended_node: HashMap::new(),
                     fullscreen_restore: HashMap::new(),
@@ -1393,6 +1396,16 @@ impl Halley {
     ) {
         super::fullscreen::system::fullscreen_controller(self)
             .enter_xdg_fullscreen(node_id, output, now)
+    }
+
+    pub(crate) fn enter_user_fullscreen(
+        &mut self,
+        node_id: NodeId,
+        output: Option<smithay::reexports::wayland_server::protocol::wl_output::WlOutput>,
+        now: Instant,
+    ) {
+        super::fullscreen::system::fullscreen_controller(self)
+            .enter_user_fullscreen(node_id, output, now)
     }
 
     pub(crate) fn exit_xdg_fullscreen(&mut self, node_id: NodeId, now: Instant) {

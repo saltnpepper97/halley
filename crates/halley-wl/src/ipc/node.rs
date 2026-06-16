@@ -9,7 +9,9 @@ use halley_core::field::{NodeId, NodeKind as FieldNodeKind, NodeState as FieldNo
 use smithay::desktop::PopupManager;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::wayland::compositor::with_states;
-use smithay::wayland::shell::xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData};
+use smithay::wayland::shell::xdg::{
+    XdgPopupSurfaceData, XdgToplevelSurfaceData, dialog::ToplevelDialogHint,
+};
 
 use crate::compositor::actions::window::promote_node_level;
 use crate::compositor::root::Halley;
@@ -351,7 +353,10 @@ fn node_surface_metadata(st: &Halley, id: NodeId) -> NodeSurfaceMetadata {
     let xdg_toplevel = with_states(&surface, |states| {
         states.data_map.get::<XdgToplevelSurfaceData>().map(|data| {
             let guard = data.lock().expect("xdg toplevel data");
-            (guard.parent.clone(), guard.modal)
+            (
+                guard.parent.clone(),
+                guard.dialog_hint == ToplevelDialogHint::Modal,
+            )
         })
     });
     if let Some((parent_surface, modal)) = xdg_toplevel {

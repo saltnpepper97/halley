@@ -30,6 +30,50 @@ decorations:
   resize-using-border true
 end
 
+# Renderer-level visual effects: backdrop blur and shadows.
+effects:
+  blur:
+    enabled false
+    overlays true
+    windows "auto"
+    layer-shell "off"
+    method "dual-kawase"
+    radius 24
+    passes 3
+    saturation 1.10
+    noise 0.012
+  end
+
+  shadows:
+    window:
+      enabled true
+      blur-radius 8
+      spread 0
+      offset-x 0
+      offset-y 5
+      colour "#05030530"
+    end
+
+    node:
+      enabled true
+      blur-radius 14
+      spread 0
+      offset-x 0
+      offset-y 3
+      colour "#05030524"
+    end
+
+    overlay:
+      enabled true
+      blur-radius 24
+      spread 1
+      offset-x 0
+      offset-y 7
+      colour "#05030538"
+    end
+  end
+end
+
 node:
   show-labels "hover"
   show-app-icons "always"
@@ -45,6 +89,7 @@ overlays:
   shape "square"
   borders true
   border-source "primary"
+  blur true
 end
 
 animations:
@@ -69,5 +114,13 @@ animations:
     enabled true
     duration-ms 270
     style "shrink"
+  end
+
+  raise:
+    enabled true
+    duration-ms 140
+    scale 1.025
+    shadow-boost 0.18
+    trigger "always"
   end
 end

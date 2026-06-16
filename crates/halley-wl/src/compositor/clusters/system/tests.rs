@@ -326,7 +326,7 @@ fn cluster_mode_confirm_opens_name_prompt_before_creating() {
 }
 
 #[test]
-fn lens_finalize_prompt_selects_existing_matching_apps_without_banner() {
+fn lift_finalize_prompt_selects_existing_matching_apps_without_banner() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
     let now = Instant::now();
@@ -349,7 +349,7 @@ fn lens_finalize_prompt_selects_existing_matching_apps_without_banner() {
         .insert(second, "org.mozilla.firefox".to_string());
 
     assert!(
-        cluster_system_controller(&mut st).open_lens_cluster_finalize_draft(
+        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
             "monitor_a",
             Some("Browser".to_string()),
             vec!["org.mozilla.firefox.desktop".to_string()],
@@ -388,13 +388,13 @@ fn lens_finalize_prompt_selects_existing_matching_apps_without_banner() {
 }
 
 #[test]
-fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
+fn lift_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
     let now = Instant::now();
 
     assert!(
-        cluster_system_controller(&mut st).open_lens_cluster_finalize_draft(
+        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
             "monitor_a",
             Some("Work".to_string()),
             vec!["alpha.desktop".to_string(), "beta.desktop".to_string()],
@@ -419,7 +419,7 @@ fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     assert!(
         st.model
             .cluster_state
-            .pending_lens_cluster_builds
+            .pending_lift_cluster_builds
             .contains_key("monitor_a")
     );
     assert_eq!(st.model.field.cluster_ids().len(), 0);
@@ -438,7 +438,7 @@ fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     st.assign_node_to_monitor(beta, "monitor_a");
 
     assert!(
-        cluster_system_controller(&mut st).maybe_add_node_to_lens_cluster_finalize_draft(
+        cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
             "monitor_a",
             alpha,
             "alpha",
@@ -446,7 +446,7 @@ fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     );
     assert_eq!(st.model.field.cluster_ids().len(), 0);
     assert!(
-        cluster_system_controller(&mut st).maybe_add_node_to_lens_cluster_finalize_draft(
+        cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
             "monitor_a",
             beta,
             "beta",
@@ -457,7 +457,7 @@ fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     assert!(
         !st.model
             .cluster_state
-            .pending_lens_cluster_builds
+            .pending_lift_cluster_builds
             .contains_key("monitor_a")
     );
     assert!(st.model.field.cluster_id_for_member_public(alpha).is_some());

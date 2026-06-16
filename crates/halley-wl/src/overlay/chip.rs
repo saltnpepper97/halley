@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::{cell::Cell, ptr};
 
 use smithay::{
     backend::renderer::{
@@ -12,6 +13,46 @@ use crate::render::shadow::draw_shadow_rect;
 use crate::render::state::RenderState;
 
 use super::OverlayVisuals;
+
+thread_local! {
+    static OVERLAY_BLUR_CONTEXT: Cell<*mut ()> = const { Cell::new(ptr::null_mut()) };
+}
+
+pub(crate) fn with_overlay_blur_context<R>(
+    ctx: Option<&mut crate::render::frame::draw::FrameBlurContext<'_>>,
+    f: impl FnOnce() -> R,
+) -> R {
+    OVERLAY_BLUR_CONTEXT.with(|slot| {
+        let previous = slot.replace(
+            ctx.map(|ctx| ctx as *mut crate::render::frame::draw::FrameBlurContext<'_> as *mut ())
+                .unwrap_or_else(ptr::null_mut),
+        );
+        let result = f();
+        slot.set(previous);
+        result
+    })
+}
+
+pub(super) fn draw_overlay_backdrop_blur(
+    frame: &mut GlesFrame<'_, '_>,
+    rect: Rectangle<i32, Physical>,
+    corner_radius: f32,
+    damage: Rectangle<i32, Physical>,
+    alpha: f32,
+) -> Result<(), Box<dyn Error>> {
+    OVERLAY_BLUR_CONTEXT.with(|slot| {
+        let ptr = slot.get();
+        if ptr.is_null() {
+            return Ok(());
+        }
+        let ctx =
+            unsafe { &mut *(ptr as *mut crate::render::frame::draw::FrameBlurContext<'static>) };
+        if let Err(err) = ctx.draw_patch(frame, damage, rect, corner_radius, alpha) {
+            eventline::warn!("overlay blur skipped this frame: {err}");
+        }
+        Ok(())
+    })
+}
 
 pub(super) fn draw_overlay_chip(
     frame: &mut GlesFrame<'_, '_>,
@@ -121,6 +162,13 @@ fn draw_overlay_chip_impl(
             damage,
         )?;
     }
+    draw_overlay_backdrop_blur(
+        frame,
+        rect,
+        if visuals.rounded { corner_radius } else { 0.0 },
+        damage,
+        alpha,
+    )?;
     let tex_size: smithay::utils::Size<i32, Buffer> = texture.size();
     let src = Rectangle::<f64, Buffer>::new(
         (0.0, 0.0).into(),

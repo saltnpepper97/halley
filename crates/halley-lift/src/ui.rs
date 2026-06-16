@@ -11,9 +11,9 @@ use image::{RgbaImage, imageops};
 use resvg::{tiny_skia, usvg};
 use rusttype::{Font, PositionedGlyph, Scale, point};
 
-use crate::config::LensConfig;
-use crate::mode::{LensMode, ModeInputState};
-use crate::model::{ClusterDraft, LensResult};
+use crate::config::LiftConfig;
+use crate::mode::{LiftMode, ModeInputState};
+use crate::model::{ClusterDraft, LiftResult};
 
 #[derive(Clone, Copy)]
 pub struct Color(pub f32, pub f32, pub f32, pub f32);
@@ -28,17 +28,18 @@ pub struct Rect {
 
 #[derive(Clone, Copy)]
 pub struct View<'a> {
-    pub config: &'a LensConfig,
+    pub config: &'a LiftConfig,
     pub input: &'a ModeInputState,
-    pub mode: LensMode,
-    pub results: &'a [LensResult],
+    pub mode: LiftMode,
+    pub results: &'a [LiftResult],
     pub selected: usize,
     pub scroll_offset: usize,
     pub draft: &'a ClusterDraft,
     pub status: Option<&'a str>,
+    pub cursor_visible: bool,
 }
 
-pub fn panel_height(config: &LensConfig) -> i32 {
+pub fn panel_height(config: &LiftConfig) -> i32 {
     config.ui.search_height.max(1)
 }
 
@@ -51,7 +52,7 @@ pub fn surface_height(view: View<'_>) -> i32 {
     }
 
     height += ui.dropdown_gap + ui.dropdown_padding * 2;
-    if view.mode == LensMode::Clusters && view.draft.count() > 0 {
+    if view.mode == LiftMode::Clusters && view.draft.count() > 0 {
         height += ui.draft_height + ui.row_gap;
     }
 
@@ -81,11 +82,11 @@ pub fn surface_height(view: View<'_>) -> i32 {
 
 fn dropdown_visible(view: View<'_>) -> bool {
     !view.input.query.trim().is_empty()
-        || view.input.mode != LensMode::General
-        || (view.mode == LensMode::Clusters && view.draft.count() > 0)
+        || view.input.mode != LiftMode::General
+        || (view.mode == LiftMode::Clusters && view.draft.count() > 0)
 }
 
-fn list_bottom_padding(config: &LensConfig) -> i32 {
+fn list_bottom_padding(config: &LiftConfig) -> i32 {
     config.ui.row_gap.max(8)
 }
 
@@ -106,7 +107,7 @@ fn visible_section_count(view: View<'_>) -> usize {
     count
 }
 
-pub fn panel_rect(config: &LensConfig, width: u32, height: u32) -> Rect {
+pub fn panel_rect(config: &LiftConfig, width: u32, height: u32) -> Rect {
     let _ = config;
     Rect {
         x: 0,
@@ -133,7 +134,7 @@ pub fn result_index_at(view: View<'_>, width: u32, height: u32, sx: f64, sy: f64
         return None;
     }
     let mut y = panel.y + ui.search_height + ui.dropdown_gap + ui.dropdown_padding;
-    if view.mode == LensMode::Clusters && view.draft.count() > 0 {
+    if view.mode == LiftMode::Clusters && view.draft.count() > 0 {
         y += ui.draft_height + ui.row_gap;
     }
     let mut last_section = "";
@@ -209,6 +210,19 @@ impl FontRenderer {
             return (px as i32, px as i32);
         };
         ((bounds.2 - bounds.0).max(1), (bounds.3 - bounds.1).max(1))
+    }
+
+    fn advance_width(&self, text: &str, px: u32) -> i32 {
+        if text.is_empty() {
+            return 0;
+        }
+        let scale = Scale::uniform(px as f32);
+        let v = self.font.v_metrics(scale);
+        let mut width = 0.0f32;
+        for glyph in self.font.layout(text, scale, point(0.0, v.ascent)) {
+            width = glyph.position().x + glyph.unpositioned().h_metrics().advance_width;
+        }
+        width.ceil().max(1.0) as i32
     }
 
     fn fit_text(&self, text: &str, px: u32, max_width: i32) -> String {
@@ -405,7 +419,7 @@ struct IconIndexEntry {
 }
 
 impl IconCache {
-    pub fn new(config: &LensConfig) -> Self {
+    pub fn new(config: &LiftConfig) -> Self {
         let roots = if config.icons {
             icon_roots(config)
         } else {
@@ -627,6 +641,7 @@ pub fn draw_palette(
         panel,
         panel.y,
         expanded,
+        view.cursor_visible,
     );
 
     if !expanded {
@@ -673,7 +688,7 @@ pub fn draw_palette(
 
     let mut y = dropdown_y + ui.dropdown_padding;
 
-    if view.mode == LensMode::Clusters && view.draft.count() > 0 {
+    if view.mode == LiftMode::Clusters && view.draft.count() > 0 {
         draw_draft_summary(canvas, width, height, font, view, panel, y);
         y += ui.draft_height + ui.row_gap;
     }
@@ -696,7 +711,7 @@ struct Palette {
 }
 
 impl Palette {
-    fn from_config(config: &LensConfig) -> Self {
+    fn from_config(config: &LiftConfig) -> Self {
         Self {
             dropdown: parse_color(&config.colors.dropdown, Color(0.08, 0.09, 0.13, 0.94)),
             dropdown_border: parse_color(
@@ -721,10 +736,11 @@ fn draw_search_box(
     height: u32,
     font: &FontRenderer,
     input: &ModeInputState,
-    config: &LensConfig,
+    config: &LiftConfig,
     panel: Rect,
     y: i32,
     expanded: bool,
+    cursor_visible: bool,
 ) {
     let ui = &config.ui;
     let colors = Palette::from_config(config);
@@ -748,14 +764,22 @@ fn draw_search_box(
     );
     let text_x = panel.x + pad;
     let _ = input.mode;
+    let query_empty = input.query.is_empty();
+    let caret_w = config.cursor.width.max(1);
+    let caret_gap = 4;
+    let display_x = if query_empty && config.cursor.enabled {
+        text_x + caret_w + caret_gap
+    } else {
+        text_x
+    };
     let text_right = panel.x + panel.w - pad;
-    let text_width = (text_right - text_x).max(0);
-    let placeholder = if input.query.is_empty() {
+    let text_width = (text_right - display_x).max(0);
+    let display_text = if query_empty {
         font.fit_text(config.placeholder.as_str(), ui.search_font_size, text_width)
     } else {
         font.fit_text_tail(input.query.as_str(), ui.search_font_size, text_width)
     };
-    let color = if input.query.is_empty() {
+    let color = if query_empty {
         colors.hint
     } else {
         colors.text
@@ -766,12 +790,39 @@ fn draw_search_box(
         canvas,
         width,
         height,
-        text_x,
+        display_x,
         top_y,
-        placeholder.as_str(),
+        display_text.as_str(),
         ui.search_font_size,
         color,
     );
+    if config.cursor.enabled && cursor_visible {
+        let text_w = if query_empty {
+            0
+        } else {
+            font.advance_width(display_text.as_str(), ui.search_font_size)
+        };
+        let max_caret_h = (ui.search_height - 8).max(12);
+        let caret_h = (line_h + 4).min(max_caret_h).max(12);
+        let caret_x = if query_empty {
+            text_x
+        } else {
+            (text_x + text_w + caret_gap)
+                .min(text_right - caret_w)
+                .max(text_x)
+        };
+        let caret_y = y + (ui.search_height - caret_h) / 2;
+        fill_rect(
+            canvas,
+            width,
+            height,
+            caret_x,
+            caret_y,
+            caret_w,
+            caret_h,
+            colors.accent,
+        );
+    }
 }
 
 fn draw_draft_summary(
@@ -882,7 +933,7 @@ fn draw_result_row(
     icon_cache: &mut IconCache,
     view: View<'_>,
     panel: Rect,
-    result: &LensResult,
+    result: &LiftResult,
     index: usize,
     y: i32,
 ) {
@@ -904,7 +955,7 @@ fn draw_result_row(
         );
     }
 
-    if view.mode == LensMode::Clusters && view.draft.contains_result(result) {
+    if view.mode == LiftMode::Clusters && view.draft.contains_result(result) {
         let (_, check_h) = font.measure("✓", ui.hint_font_size + 3);
         font.draw(
             canvas,
@@ -1018,8 +1069,8 @@ fn draw_result_icon(
     width: u32,
     height: u32,
     icon_cache: &mut IconCache,
-    config: &LensConfig,
-    result: &LensResult,
+    config: &LiftConfig,
+    result: &LiftResult,
     x: i32,
     y: i32,
 ) {
@@ -1282,7 +1333,7 @@ fn push_icon_candidate(candidates: &mut Vec<String>, value: String) {
     }
 }
 
-fn icon_roots(config: &LensConfig) -> Vec<PathBuf> {
+fn icon_roots(config: &LiftConfig) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(home) = std::env::var_os("HOME") {
         if let Some(root) = themed_icon_root(Path::new(&home).join(".local/share/icons"), config) {
@@ -1305,7 +1356,7 @@ fn icon_roots(config: &LensConfig) -> Vec<PathBuf> {
     roots
 }
 
-fn themed_icon_root(root: PathBuf, config: &LensConfig) -> Option<PathBuf> {
+fn themed_icon_root(root: PathBuf, config: &LiftConfig) -> Option<PathBuf> {
     let theme = config.icon_theme.trim();
     if theme.is_empty() || theme.eq_ignore_ascii_case("auto") {
         return None;
@@ -1348,7 +1399,7 @@ fn icon_index_cache_path() -> Option<PathBuf> {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => PathBuf::from(env::var_os("HOME")?).join(".cache"),
     };
-    Some(base.join("halley").join("lens-icons"))
+    Some(base.join("halley").join("lift-icons"))
 }
 
 /// Canonical description of the inputs that determine the index contents. A cache file

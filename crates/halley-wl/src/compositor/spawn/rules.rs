@@ -5,7 +5,9 @@ use halley_config::{
 use halley_core::field::NodeId;
 use smithay::reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface};
 use smithay::wayland::compositor::with_states;
-use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface, XdgToplevelSurfaceData};
+use smithay::wayland::shell::xdg::{
+    SurfaceCachedState, ToplevelSurface, XdgToplevelSurfaceData, dialog::ToplevelDialogHint,
+};
 
 use crate::compositor::root::Halley;
 
@@ -265,6 +267,15 @@ pub(crate) fn user_window_rule_opacity_for_identity(
         .clamp(0.0, 1.0)
 }
 
+/// Per-window `blur` override from the matching user rule, if any.
+pub(crate) fn user_window_rule_blur_for_identity(
+    st: &Halley,
+    app_id: Option<&str>,
+    title: Option<&str>,
+) -> Option<bool> {
+    matching_user_window_rule(st, app_id, title).and_then(|rule| rule.blur)
+}
+
 fn matching_builtin_window_rule(
     app_id: Option<&str>,
     title: Option<&str>,
@@ -359,7 +370,7 @@ fn surface_is_xdg_dialog(surface: &WlSurface) -> bool {
             .get::<XdgToplevelSurfaceData>()
             .is_some_and(|data| {
                 let guard = data.lock().expect("xdg toplevel surface data");
-                guard.modal || guard.parent.is_some()
+                guard.dialog_hint == ToplevelDialogHint::Modal || guard.parent.is_some()
             })
     })
 }
@@ -429,6 +440,7 @@ mod tests {
                 cluster_participation: InitialWindowClusterParticipation::Float,
                 initial_size: None,
                 opacity: None,
+                blur: None,
             },
             WindowRule {
                 app_ids: vec![WindowRulePattern::Exact("firefox".to_string())],
@@ -438,6 +450,7 @@ mod tests {
                 cluster_participation: InitialWindowClusterParticipation::Layout,
                 initial_size: None,
                 opacity: None,
+                blur: None,
             },
         ];
         let state = Halley::new_for_test(&dh, tuning);
@@ -459,6 +472,7 @@ mod tests {
             cluster_participation: InitialWindowClusterParticipation::Float,
             initial_size: None,
             opacity: None,
+            blur: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -479,6 +493,7 @@ mod tests {
             cluster_participation: InitialWindowClusterParticipation::Layout,
             initial_size: None,
             opacity: None,
+            blur: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -589,6 +604,7 @@ mod tests {
             cluster_participation: InitialWindowClusterParticipation::Float,
             initial_size: None,
             opacity: None,
+            blur: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -614,6 +630,7 @@ mod tests {
             cluster_participation: InitialWindowClusterParticipation::Float,
             initial_size: None,
             opacity: None,
+            blur: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -629,6 +646,7 @@ mod tests {
             titles: Vec::new(),
             initial_size: Some((40, 50)),
             opacity: None,
+            blur: None,
             overlap_policy: InitialWindowOverlapPolicy::None,
             spawn_placement: InitialWindowSpawnPlacement::Center,
             cluster_participation: InitialWindowClusterParticipation::Float,
@@ -650,6 +668,7 @@ mod tests {
             titles: Vec::new(),
             initial_size: None,
             opacity: Some(0.72),
+            blur: None,
             overlap_policy: InitialWindowOverlapPolicy::None,
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,
@@ -690,6 +709,7 @@ mod tests {
             cluster_participation: InitialWindowClusterParticipation::Layout,
             initial_size: None,
             opacity: None,
+            blur: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -719,6 +739,7 @@ mod tests {
             cluster_participation: InitialWindowClusterParticipation::Layout,
             initial_size: None,
             opacity: None,
+            blur: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
 
@@ -768,6 +789,7 @@ mod tests {
             cluster_participation: InitialWindowClusterParticipation::Float,
             initial_size: None,
             opacity: None,
+            blur: None,
         }];
         let state = Halley::new_for_test(&dh, tuning);
         let intent = InitialWindowIntent {
