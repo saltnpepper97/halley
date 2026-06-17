@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [v0.5.0] - TBD
 
 ### Added
+- Add the Halley Discord community/support invite to the README.
 - Add `nodes.opacity` (`0.0`–`1.0`, default `1.0`) to dim the node/core marker *body* (its
   fill) so markers recede into the field; the border ring and app icon stay fully opaque.
   Implemented via a `fill_alpha` shader uniform that only fades the fill region. Node
