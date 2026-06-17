@@ -78,6 +78,7 @@ pub(crate) struct PendingMaximize {
 #[derive(Clone)]
 pub(crate) struct ActiveDragState {
     pub(crate) node_id: NodeId,
+    pub(crate) parallax_origin: Vec2,
     pub(crate) allow_monitor_transfer: bool,
     pub(crate) edge_pan_eligible: bool,
     pub(crate) current_offset: Vec2,

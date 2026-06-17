@@ -396,13 +396,16 @@ pub struct IconCache {
     pending_decodes: usize,
     cache_path: Option<PathBuf>,
     cache_fingerprint: String,
-    /// Lazily rasterized search-bar magnifier, keyed by the size it was rendered at.
+    /// Lazily rasterized search-bar glyphs, keyed by the size they were rendered at.
     search_icon: Option<(u32, IconRaster)>,
+    cluster_search_icon: Option<(u32, IconRaster)>,
 }
 
-/// Magnifier glyph shown in the search bar. Authored as a square monochrome SVG and
-/// rendered to an alpha mask that is tinted at draw time.
+/// Search-bar glyphs. Authored as square SVGs and rendered to alpha masks that are
+/// tinted at draw time.
 const SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/loupe.svg");
+const CLUSTER_SEARCH_ICON_SVG: &[u8] =
+    include_bytes!("../../halley-wl/src/compositor/clusters/assets/clusters.svg");
 
 /// State of a single icon in the in-memory cache. Decoding happens on a worker thread,
 /// so a freshly requested icon is `Pending` until its raster arrives.
@@ -465,18 +468,24 @@ impl IconCache {
             cache_path,
             cache_fingerprint,
             search_icon: None,
+            cluster_search_icon: None,
         }
     }
 
-    /// Returns the magnifier glyph rasterized at `size`, rendering (and caching) it on
+    /// Returns the search-bar glyph rasterized at `size`, rendering (and caching) it on
     /// first use or whenever the requested size changes.
-    fn search_glyph(&mut self, size: u32) -> Option<&IconRaster> {
+    fn search_glyph(&mut self, size: u32, mode: LiftMode) -> Option<&IconRaster> {
         let size = size.max(1);
-        if self.search_icon.as_ref().map(|(s, _)| *s) != Some(size) {
-            let raster = render_svg_data(SEARCH_ICON_SVG, None, size)?;
-            self.search_icon = Some((size, raster));
+        let (slot, svg) = if mode == LiftMode::Clusters {
+            (&mut self.cluster_search_icon, CLUSTER_SEARCH_ICON_SVG)
+        } else {
+            (&mut self.search_icon, SEARCH_ICON_SVG)
+        };
+        if slot.as_ref().map(|(s, _)| *s) != Some(size) {
+            let raster = render_svg_data(svg, None, size)?;
+            *slot = Some((size, raster));
         }
-        self.search_icon.as_ref().map(|(_, raster)| raster)
+        slot.as_ref().map(|(_, raster)| raster)
     }
 
     pub fn needs_index(&self) -> bool {
@@ -652,7 +661,7 @@ pub fn draw_palette(
     draw_chrome(canvas, width, height, view.config, &colors, panel, expanded);
 
     let search_icon = if view.config.search_icon.enabled {
-        icon_cache.search_glyph(view.config.search_icon.size.max(1) as u32)
+        icon_cache.search_glyph(view.config.search_icon.size.max(1) as u32, view.mode)
     } else {
         None
     };
@@ -767,6 +776,7 @@ fn draw_chrome(
             app_h,
             (top_r, top_r, bottom_r, bottom_r),
             colors.panel_border,
+            false,
         );
         let ix = panel.x + bw;
         let iw = (panel.w - 2 * bw).max(0);
@@ -784,6 +794,7 @@ fn draw_chrome(
                 (search_h - bw).max(0),
                 (top_in, top_in, 0, 0),
                 colors.search,
+                true,
             );
             // Dropdown fill: bottom corners rounded.
             fill_rounded_rect_radii(
@@ -796,6 +807,7 @@ fn draw_chrome(
                 (dropdown_h - bw).max(0),
                 (0, 0, bottom_in, bottom_in),
                 colors.dropdown,
+                true,
             );
             fill_rect(canvas, width, height, ix, divider_y, iw, 1, colors.divider);
         } else {
@@ -809,6 +821,7 @@ fn draw_chrome(
                 (search_h - 2 * bw).max(0),
                 (top_in, top_in, bottom_in, bottom_in),
                 colors.search,
+                true,
             );
         }
         return;
@@ -1342,6 +1355,27 @@ fn fill_rect(
     }
 }
 
+fn fill_rect_replace(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    color: Color,
+) {
+    let x0 = x.max(0) as u32;
+    let y0 = y.max(0) as u32;
+    let x1 = (x + w).clamp(0, width as i32) as u32;
+    let y1 = (y + h).clamp(0, height as i32) as u32;
+    for py in y0..y1 {
+        for px in x0..x1 {
+            set_pixel(canvas, ((py * width + px) * 4) as usize, color);
+        }
+    }
+}
+
 fn fill_rounded_rect(
     canvas: &mut [u8],
     width: u32,
@@ -1381,6 +1415,7 @@ fn fill_rounded_rect_radii(
     h: i32,
     radii: (i32, i32, i32, i32),
     color: Color,
+    replace_covered: bool,
 ) {
     let cap = (w / 2).min(h / 2).max(0);
     let (tl, tr, br, bl) = radii;
@@ -1391,7 +1426,11 @@ fn fill_rounded_rect_radii(
         bl.clamp(0, cap),
     );
     if tl == 0 && tr == 0 && br == 0 && bl == 0 {
-        fill_rect(canvas, width, height, x, y, w, h, color);
+        if replace_covered {
+            fill_rect_replace(canvas, width, height, x, y, w, h, color);
+        } else {
+            fill_rect(canvas, width, height, x, y, w, h, color);
+        }
         return;
     }
     let x0 = x.max(0);
@@ -1445,12 +1484,12 @@ fn fill_rounded_rect_radii(
             if coverage <= 0.0 {
                 continue;
             }
-            blend_coverage(
-                canvas,
-                ((py as u32 * width + px as u32) * 4) as usize,
-                color,
-                coverage,
-            );
+            let offset = ((py as u32 * width + px as u32) * 4) as usize;
+            if replace_covered && coverage >= 1.0 {
+                set_pixel(canvas, offset, color);
+            } else {
+                blend_coverage(canvas, offset, color, coverage);
+            }
         }
     }
 }
@@ -1595,6 +1634,18 @@ fn draw_raster_tinted(
 fn blend_coverage(canvas: &mut [u8], offset: usize, color: Color, coverage: f32) {
     let Color(r, g, b, a) = color;
     blend(canvas, offset, Color(r, g, b, a * coverage.clamp(0.0, 1.0)));
+}
+
+fn set_pixel(canvas: &mut [u8], offset: usize, color: Color) {
+    let Color(r, g, b, a) = color;
+    if a <= 0.0 || offset + 3 >= canvas.len() {
+        return;
+    }
+    let a = a.clamp(0.0, 1.0);
+    canvas[offset] = (b.clamp(0.0, 1.0) * a * 255.0).round() as u8;
+    canvas[offset + 1] = (g.clamp(0.0, 1.0) * a * 255.0).round() as u8;
+    canvas[offset + 2] = (r.clamp(0.0, 1.0) * a * 255.0).round() as u8;
+    canvas[offset + 3] = (a * 255.0).round() as u8;
 }
 
 fn blend(canvas: &mut [u8], offset: usize, color: Color) {
@@ -1927,5 +1978,58 @@ fn unpremultiply_rgba(pixels: &mut [u8]) {
         chunk[0] = ((chunk[0] as u32 * 255) / alpha).min(255) as u8;
         chunk[1] = ((chunk[1] as u32 * 255) / alpha).min(255) as u8;
         chunk[2] = ((chunk[2] as u32 * 255) / alpha).min(255) as u8;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outline_search_fill_preserves_configured_alpha() {
+        let mut config = LiftConfig::default();
+        config.border.enabled = true;
+        config.border.width = 4;
+        config.border.style = "outline".into();
+        config.colors.panel_border = "#ffffffff".into();
+        config.colors.search = "#ffffff80".into();
+        config.ui.search_height = 60;
+        config.rounding.search = 12;
+
+        let width = 120;
+        let height = 60;
+        let panel = Rect {
+            x: 0,
+            y: 0,
+            w: width as i32,
+            h: height as i32,
+        };
+        let colors = Palette::from_config(&config);
+        let mut canvas = vec![0; (width * height * 4) as usize];
+
+        draw_chrome(&mut canvas, width, height, &config, &colors, panel, false);
+
+        let center = (((height / 2) * width + (width / 2)) * 4) as usize;
+        assert_eq!(canvas[center + 3], 0x80);
+    }
+
+    #[test]
+    fn cluster_mode_uses_cluster_search_glyph() {
+        let mut config = LiftConfig::default();
+        config.icons = false;
+        let mut cache = IconCache::new(&config);
+
+        let loupe = cache
+            .search_glyph(24, LiftMode::General)
+            .expect("loupe glyph")
+            .rgba
+            .clone();
+        let cluster = cache
+            .search_glyph(24, LiftMode::Clusters)
+            .expect("cluster glyph")
+            .rgba
+            .clone();
+
+        assert_ne!(loupe, cluster);
     }
 }

@@ -144,6 +144,31 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     crate::compositor::interaction::state::tick_bloom_pull_preview(st, now_ms);
     tick_pending_core_hover_bloom(st, now_ms);
     camera_controller(&mut *st).tick_smoothing(now);
+
+    // Also ease the cameras of the other (non-active) monitors so a monitor that
+    // is mid-zoom keeps settling into place instead of freezing the moment the
+    // pointer crosses to another monitor (and resuming only when it returns).
+    // Both monitors are physically visible, so each must keep animating + repainting
+    // until it reaches its target.
+    let current = st.model.monitor_state.current_monitor.clone();
+    let others: Vec<String> = st
+        .model
+        .monitor_state
+        .monitors
+        .keys()
+        .filter(|name| **name != current)
+        .cloned()
+        .collect();
+    for name in others {
+        let previous = st.begin_temporary_render_monitor(&name);
+        if previous.is_some() {
+            let moved = camera_controller(&mut *st).tick_smoothing_passive(now);
+            if moved {
+                st.request_tty_redraw_for_monitor(&name);
+            }
+        }
+        st.end_temporary_render_monitor(previous);
+    }
 }
 
 #[inline]
@@ -883,6 +908,12 @@ mod tests {
         st.input.interaction_state.active_drag =
             Some(crate::compositor::interaction::state::ActiveDragState {
                 node_id,
+                parallax_origin: st
+                    .model
+                    .field
+                    .node(node_id)
+                    .map(|node| node.pos)
+                    .unwrap_or(Vec2 { x: 0.0, y: 0.0 }),
                 allow_monitor_transfer: true,
                 edge_pan_eligible: false,
                 current_offset: Vec2 { x: 0.0, y: 0.0 },

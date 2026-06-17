@@ -37,8 +37,9 @@ cluster release
 
 searches clusters for `release` while leaving the full text visible in the search field.
 
-`term`/`/term`/`/t` runs the typed command line in the configured `terminal` (wrapped in
-`sh -c`, so pipes and `&&` work) and then closes Lift:
+`term`/`/term`/`/t` runs the typed command line in the configured `terminal` through your
+interactive `$SHELL` (so aliases, pipes, and `&&` work), keeps a shell open afterward, and then
+closes Lift:
 
 ```text
 term journalctl -f | grep halley

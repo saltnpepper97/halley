@@ -34,7 +34,8 @@ All notable changes to this project will be documented in this file.
 - Add configurable Halley Lift caret settings for visibility, width, blink timing, and
   stop-blink timing.
 - Add a Halley Lift `term`/`/term`/`/t` search mode that runs the typed command line in the
-  configured `terminal` (wrapped in `sh -c`, so pipes/`&&`/quoting work) and then closes.
+  configured `terminal` through the user's interactive `$SHELL` (so aliases, pipes, `&&`, and
+  quoting work), keeps a shell open afterward, and then closes Lift.
 - Add a configurable Halley Lift `border:` block (`enabled`, `width`, `style`). `outline`
   wraps the whole app — the search bar when collapsed and the search bar plus results as one
   unit when expanded — keeping the top-corner radius continuous across the transition (top
@@ -58,6 +59,12 @@ All notable changes to this project will be documented in this file.
   clients, and avoids full-session startup behavior such as session autostart.
 
 ### Changed
+- Make camera zoom inertial, like a powered lens. Instead of easing to a fresh target on every
+  press, each zoom input injects velocity in log(view-size) space: repeating in the same
+  direction stacks velocity into an accelerating ramp, the opposite direction bleeds it off, and
+  friction coasts it to a smooth stop. A single press still travels ~one `field.zoom.step`, and
+  `field.zoom.smooth-rate` now doubles as the glide friction (higher = snappier, lower = longer
+  sweep). `field.zoom.smooth false` keeps instant jumps.
 - Move window/node/overlay shadows out of `decorations:` into the new `effects.shadows:` block;
   `decorations:` now holds only compositor chrome (borders, secondary border, resize-using-border).
   Legacy `decorations.shadows` configs are no longer parsed: the loader reports
@@ -96,6 +103,15 @@ All notable changes to this project will be documented in this file.
   `"overlap"`.
 
 ### Fixed
+- Keep a window raised after you resize it instead of snapping it back behind whatever it was
+  under. Resizing an occluded window now lifts it forward and *commits* that position on release
+  (using the same persistent overlap order as `raise-on-click`), rather than only floating it on
+  top for the duration of the drag. Honors the `input.raise-on-click` policy: with it off, the
+  window still returns to its stack position once the resize settles.
+- Keep a monitor's zoom animation easing to completion when the pointer crosses to another
+  monitor mid-zoom. Previously only the active monitor's camera was ticked, so a monitor caught
+  mid-zoom would freeze on screen and only resume when the pointer returned; every monitor's
+  camera now settles (and keeps repainting until it does), independent of pointer focus.
 - Let plain `halley` launched from inside Halley auto-select the nested winit backend by
   removing inherited `HALLEY_WL_BACKEND` from spawned app environments. This keeps the session
   wrapper explicit while preventing spawned nested compositors from being forced back into the

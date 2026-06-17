@@ -454,16 +454,47 @@ pub fn activate_result(index: &ProviderIndex, result: &LiftResult) -> Result<(),
         ),
         LiftAction::CreateCluster => Ok(()),
         LiftAction::RunInTerminal { command } => {
-            let cmd = command.trim();
-            if cmd.is_empty() {
-                return Ok(());
-            }
-            // Wrap in `sh -c` so the terminal's `-e` receives a single program and the
-            // user's full command line (pipes, `&&`, quoting) runs in a shell.
-            let full = format!("{} sh -c {}", index.terminal.trim(), shell_quote(cmd));
+            // Run through the user's interactive shell so aliases/functions are loaded,
+            // then exec back into that shell so short commands like `ls` stay visible.
+            let full = terminal_launch_command(index.terminal.as_str(), command.as_str());
             launch_exec(full.as_str(), false, index.terminal.as_str())
         }
     }
+}
+
+fn terminal_launch_command(terminal_command: &str, command: &str) -> String {
+    terminal_launch_command_with_shell(terminal_command, command, user_shell().as_str())
+}
+
+fn terminal_launch_command_with_shell(
+    terminal_command: &str,
+    command: &str,
+    shell: &str,
+) -> String {
+    format!(
+        "{} {}",
+        terminal_command.trim(),
+        terminal_shell_invocation(command, shell)
+    )
+}
+
+fn terminal_shell_invocation(command: &str, shell: &str) -> String {
+    let command = command.trim();
+    let shell = shell.trim();
+    let shell = if shell.is_empty() { "sh" } else { shell };
+    let shell = shell_quote(shell);
+    if command.is_empty() {
+        return format!("{shell} -i");
+    }
+    let script = format!("{command}\nexec {shell} -i");
+    format!("{shell} -ic {}", shell_quote(script.as_str()))
+}
+
+fn user_shell() -> String {
+    std::env::var("SHELL")
+        .ok()
+        .filter(|shell| !shell.trim().is_empty())
+        .unwrap_or_else(|| "sh".into())
 }
 
 pub fn materialize_cluster_draft(
@@ -698,6 +729,29 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_shell_invocation_keeps_shell_open_after_command() {
+        assert_eq!(
+            terminal_shell_invocation(" ls -la ", "/bin/zsh"),
+            r#"'/bin/zsh' -ic 'ls -la
+exec '\''/bin/zsh'\'' -i'"#
+        );
+    }
+
+    #[test]
+    fn terminal_shell_invocation_opens_shell_for_empty_command() {
+        assert_eq!(terminal_shell_invocation("  ", "/bin/zsh"), "'/bin/zsh' -i");
+    }
+
+    #[test]
+    fn terminal_launch_command_quotes_full_shell_payload() {
+        assert_eq!(
+            terminal_launch_command_with_shell("kitty -e", "printf 'hi' && true", "/bin/zsh"),
+            r#"kitty -e '/bin/zsh' -ic 'printf '\''hi'\'' && true
+exec '\''/bin/zsh'\'' -i'"#
+        );
+    }
 
     #[test]
     fn cluster_mode_empty_query_keeps_all_stageable_results() {

@@ -25,7 +25,9 @@ use super::pin_icon::ensure_pin_icon_resources;
 use super::screenshot_icon::ensure_screenshot_menu_icon_resources;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
-use crate::overlay::ensure_cluster_bloom_icon_resources;
+use crate::overlay::{
+    ensure_cluster_bloom_icon_resources, prime_cluster_naming_dialog_text_resources,
+};
 use crate::render::bearings::ensure_bearing_icon_resources;
 use crate::text::ensure_ui_text_resources;
 use crate::window::{prewarm_focus_cycle_previews, prewarm_visible_active_window_offscreen_caches};
@@ -369,6 +371,7 @@ pub(crate) fn draw_debug_frame_to_target(
     prewarm_focus_cycle_previews(renderer, st, prepared.now);
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
+    prime_cluster_naming_dialog_text_resources(st, size.w, size.h);
     ensure_ui_text_resources(renderer, st)?;
     let resources_ms = resources_start.map(crate::perf::elapsed_ms);
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);

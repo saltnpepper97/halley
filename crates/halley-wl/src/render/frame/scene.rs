@@ -16,6 +16,7 @@ use super::super::pin_icon::PinBadgeLayout;
 use super::super::state::ClosingWindowAnimationSnapshot;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
+use crate::presentation::drag_parallax_position;
 use crate::window::{
     ActiveBorderRect, CroppedClippedSurfaceElement, OffscreenNodeTexture, StackWindowDrawUnit,
     WindowShadowRect, collect_active_surfaces,
@@ -264,10 +265,18 @@ pub(super) fn collect_debug_frame_scene(
             {
                 return None;
             }
+            let pos = if matches!(
+                node.state,
+                halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
+            ) {
+                drag_parallax_position(st, id, node.pos)
+            } else {
+                node.pos
+            };
             Some(NodeSnapshot {
                 id,
                 state: node.state.clone(),
-                pos: node.pos,
+                pos,
                 intrinsic_size: node.intrinsic_size,
                 label: node.label.clone(),
             })

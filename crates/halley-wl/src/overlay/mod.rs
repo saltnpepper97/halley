@@ -30,6 +30,7 @@ pub(crate) use cluster_bloom::{
 };
 pub(crate) use cluster_naming::{
     ClusterNamingDialogHit, cluster_naming_dialog_hit_test, draw_cluster_naming_dialog,
+    prime_cluster_naming_dialog_text_resources,
 };
 pub(crate) use cluster_overflow::{
     cluster_overflow_icon_hit_test, cluster_overflow_strip_slot_at,

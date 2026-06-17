@@ -191,6 +191,19 @@ fn refresh_resize_preview_state(st: &mut Halley, resize: &mut ResizeCtx, now: In
     apply_resize_preview_state(st, resize)
 }
 
+/// Keep a just-resized window forward on release. With `raise-on-click` enabled
+/// (the same policy a click uses) the window *stays* raised by bumping the
+/// persistent overlap order, so it isn't snapped back behind whatever it was
+/// under. With the policy off, fall back to a brief recent-top grace and let it
+/// return to its stack position once the resize settles.
+fn keep_resized_window_forward(st: &mut Halley, node_id: halley_core::field::NodeId, now: Instant) {
+    if st.runtime.tuning.input.raise_on_click {
+        let _ = st.raise_overlap_policy_node(node_id);
+    } else {
+        st.set_recent_top_node(node_id, now + Duration::from_millis(600));
+    }
+}
+
 fn finish_resize_interaction(
     st: &mut Halley,
     ps: &mut PointerState,
@@ -213,7 +226,7 @@ fn finish_resize_interaction(
                 false,
             );
         }
-        st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
+        keep_resized_window_forward(st, resize.node_id, now);
         st.end_resize_interaction(now);
         st.resolve_overlap_now();
         return;
@@ -243,7 +256,7 @@ fn finish_resize_interaction(
             y: final_bbox_h,
         },
     );
-    st.set_recent_top_node(resize.node_id, now + Duration::from_millis(600));
+    keep_resized_window_forward(st, resize.node_id, now);
     st.end_resize_interaction(now);
     st.resolve_landmarks_overlapped_by_active_window(resize.node_id);
     st.resolve_overlap_now();

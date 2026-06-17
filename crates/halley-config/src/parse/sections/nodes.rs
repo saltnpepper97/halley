@@ -131,14 +131,7 @@ pub(crate) fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.node_icon_size,
     );
-    out.node_opacity = pick_f32(
-        cfg,
-        &[
-            "node.opacity",
-            "nodes.opacity",
-        ],
-        out.node_opacity,
-    );
+    out.node_opacity = pick_f32(cfg, &["node.opacity", "nodes.opacity"], out.node_opacity);
     out.node_background_color = pick_node_background_color_mode(
         cfg,
         &[

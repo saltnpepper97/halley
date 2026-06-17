@@ -246,12 +246,22 @@ pub(super) fn resolve_window_render_layout(
     } else {
         raise_anim.shadow_boost
     };
-    let p = stack_transition_pose
+    let base_p = stack_transition_pose
         .map(|pose| pose.center)
         .or_else(|| tiling_tile_transition.map(|rect| rect.center))
         .or_else(|| fullscreen_visual.map(|(center, _)| center))
         .or_else(|| maximized_visual.map(|(center, _)| center))
         .unwrap_or(node_pos);
+    let p = if stack_transition_pose.is_none()
+        && tiling_tile_transition.is_none()
+        && fullscreen_visual.is_none()
+        && maximized_visual.is_none()
+        && !active_cluster_member
+    {
+        drag_parallax_position(st, node_id, base_p)
+    } else {
+        base_p
+    };
     let local_bbox = (
         bbox.loc.x as f32,
         bbox.loc.y as f32,

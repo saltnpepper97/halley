@@ -98,6 +98,11 @@ impl<T: DerefMut<Target = Halley>> CameraController<T> {
     pub(crate) fn tick_smoothing(&mut self, now: Instant) {
         tick_camera_smoothing(self, now)
     }
+
+    #[inline]
+    pub(crate) fn tick_smoothing_passive(&mut self, now: Instant) -> bool {
+        tick_camera_smoothing_passive(self, now)
+    }
 }
 
 #[inline]
@@ -174,6 +179,12 @@ pub(crate) fn update_zoom_live_surface_sizes(st: &mut Halley) {
     st.ui.render_state.cache.zoom_last_observed_size.clear();
 }
 
+/// Inertial-zoom tuning. Zoom velocity lives in log(view-size) units per second.
+/// `STACK_MAX` caps how much quick repeated zooming can pile up (the accel
+/// ceiling); `VEL_EPS` is the speed below which the glide snaps to rest.
+const ZOOM_VEL_STACK_MAX: f32 = 6.0;
+const ZOOM_VEL_EPS: f32 = 0.02;
+
 pub(crate) fn zoom_by_steps(st: &mut Halley, steps: f32) {
     if !st.runtime.tuning.zoom_enabled {
         return;
@@ -186,14 +197,29 @@ pub(crate) fn zoom_by_steps(st: &mut Halley, steps: f32) {
         return;
     }
 
-    let factor = zoom_step(st).powf(steps);
-    set_camera_target_view_size(
-        st,
-        Vec2 {
-            x: st.model.camera_target_view_size.x / factor,
-            y: st.model.camera_target_view_size.y / factor,
-        },
-    );
+    if !st.runtime.tuning.zoom_smooth {
+        // Instant zoom: jump the target, no inertia.
+        let factor = zoom_step(st).powf(steps);
+        set_camera_target_view_size(
+            st,
+            Vec2 {
+                x: st.model.camera_target_view_size.x / factor,
+                y: st.model.camera_target_view_size.y / factor,
+            },
+        );
+        return;
+    }
+
+    // Inertial/lens zoom: inject velocity in log space. Repeating in the same
+    // direction stacks velocity (an accelerating ramp); the opposite direction
+    // bleeds it off or reverses. One isolated press travels ~one `zoom_step`
+    // (impulse / friction == ln(step)) and then coasts to a stop.
+    let friction = zoom_smooth_rate(st);
+    let step_impulse = friction * zoom_step(st).ln();
+    let cap = step_impulse * ZOOM_VEL_STACK_MAX;
+    // zoom-in (+steps) shrinks the view -> negative log velocity.
+    st.model.zoom_log_vel = (st.model.zoom_log_vel - steps * step_impulse).clamp(-cap, cap);
+    st.request_maintenance();
 }
 
 pub(crate) fn reset_zoom(st: &mut Halley) {
@@ -203,21 +229,41 @@ pub(crate) fn reset_zoom(st: &mut Halley) {
     if zoom_blocked_by_interaction(st) {
         return;
     }
+    st.model.zoom_log_vel = 0.0;
     set_camera_target_view_size(st, st.model.viewport.size);
 }
 
 pub(crate) fn tick_camera_smoothing(st: &mut Halley, now: Instant) {
-    if st.input.interaction_state.viewport_pan_anim.is_some() {
+    let _ = tick_camera_smoothing_inner(st, now, false);
+}
+
+/// Advance a non-active monitor's camera toward its targets without the
+/// live-interaction guards (the pan-anim snap and the edge-pan notify, which
+/// only apply to the monitor being interacted with). Returns whether anything
+/// moved, so the caller can keep that monitor repainting until it settles —
+/// otherwise a monitor mid-zoom freezes when the pointer leaves it.
+pub(crate) fn tick_camera_smoothing_passive(st: &mut Halley, now: Instant) -> bool {
+    tick_camera_smoothing_inner(st, now, true)
+}
+
+fn tick_camera_smoothing_inner(st: &mut Halley, now: Instant, passive: bool) -> bool {
+    if !passive && st.input.interaction_state.viewport_pan_anim.is_some() {
+        st.model.zoom_log_vel = 0.0;
         snap_camera_targets_to_live(st);
-        return;
+        return false;
     }
 
     if !st.runtime.tuning.physics_enabled {
+        let changed = st.model.viewport.center != st.model.camera_target_center
+            || st.model.zoom_ref_size != st.model.camera_target_view_size;
         st.model.viewport.center = st.model.camera_target_center;
         st.model.zoom_ref_size = st.model.camera_target_view_size;
-        st.runtime.tuning.viewport_center = st.model.viewport.center;
-        st.runtime.tuning.viewport_size = st.model.zoom_ref_size;
-        return;
+        st.model.zoom_log_vel = 0.0;
+        if !passive {
+            st.runtime.tuning.viewport_center = st.model.viewport.center;
+            st.runtime.tuning.viewport_size = st.model.zoom_ref_size;
+        }
+        return changed;
     }
 
     let dt = now
@@ -226,6 +272,7 @@ pub(crate) fn tick_camera_smoothing(st: &mut Halley, now: Instant) {
         .clamp(1.0 / 240.0, 1.0 / 20.0);
     if !st.runtime.tuning.zoom_enabled {
         st.model.camera_target_view_size = st.model.viewport.size;
+        st.model.zoom_log_vel = 0.0;
     }
 
     let smooth_rate = zoom_smooth_rate(st);
@@ -261,33 +308,60 @@ pub(crate) fn tick_camera_smoothing(st: &mut Halley, now: Instant) {
         changed = true;
     }
 
-    let next_size = Vec2 {
-        x: st.model.zoom_ref_size.x
-            + (st.model.camera_target_view_size.x - st.model.zoom_ref_size.x) * zoom_alpha,
-        y: st.model.zoom_ref_size.y
-            + (st.model.camera_target_view_size.y - st.model.zoom_ref_size.y) * zoom_alpha,
-    };
-    if (st.model.camera_target_view_size.x - next_size.x).abs() < 0.2 {
-        st.model.zoom_ref_size.x = st.model.camera_target_view_size.x;
-    } else {
-        st.model.zoom_ref_size.x = next_size.x;
+    if st.runtime.tuning.zoom_smooth && st.model.zoom_log_vel.abs() > ZOOM_VEL_EPS {
+        // Inertial zoom: integrate log-space velocity with friction so a sweep
+        // accelerates as input stacks and then coasts to a smooth stop, like a
+        // powered lens. Working in log space keeps the perceptual zoom rate even.
+        let friction = smooth_rate;
+        let factor = (st.model.zoom_log_vel * dt).exp();
+        let raw = Vec2 {
+            x: st.model.zoom_ref_size.x * factor,
+            y: st.model.zoom_ref_size.y * factor,
+        };
+        let clamped = clamp_camera_view_size(st, raw);
+        let hit_bound = clamped.x != raw.x || clamped.y != raw.y;
+        st.model.zoom_ref_size = clamped;
+        st.model.zoom_log_vel *= (-friction * dt).exp();
+        if hit_bound || st.model.zoom_log_vel.abs() <= ZOOM_VEL_EPS {
+            st.model.zoom_log_vel = 0.0;
+        }
+        // Pin the target to where we coasted so the ease path below and the
+        // per-monitor save/restore stay consistent.
+        st.model.camera_target_view_size = clamped;
         changed = true;
-    }
-    if (st.model.camera_target_view_size.y - next_size.y).abs() < 0.2 {
-        st.model.zoom_ref_size.y = st.model.camera_target_view_size.y;
     } else {
-        st.model.zoom_ref_size.y = next_size.y;
-        changed = true;
+        st.model.zoom_log_vel = 0.0;
+        let next_size = Vec2 {
+            x: st.model.zoom_ref_size.x
+                + (st.model.camera_target_view_size.x - st.model.zoom_ref_size.x) * zoom_alpha,
+            y: st.model.zoom_ref_size.y
+                + (st.model.camera_target_view_size.y - st.model.zoom_ref_size.y) * zoom_alpha,
+        };
+        if (st.model.camera_target_view_size.x - next_size.x).abs() < 0.2 {
+            st.model.zoom_ref_size.x = st.model.camera_target_view_size.x;
+        } else {
+            st.model.zoom_ref_size.x = next_size.x;
+            changed = true;
+        }
+        if (st.model.camera_target_view_size.y - next_size.y).abs() < 0.2 {
+            st.model.zoom_ref_size.y = st.model.camera_target_view_size.y;
+        } else {
+            st.model.zoom_ref_size.y = next_size.y;
+            changed = true;
+        }
     }
 
-    st.runtime.tuning.viewport_center = st.model.viewport.center;
-    st.runtime.tuning.viewport_size = st.model.zoom_ref_size;
+    if !passive {
+        st.runtime.tuning.viewport_center = st.model.viewport.center;
+        st.runtime.tuning.viewport_size = st.model.zoom_ref_size;
+    }
     if changed {
-        if st.input.interaction_state.grabbed_edge_pan_active {
+        if !passive && st.input.interaction_state.grabbed_edge_pan_active {
             st.note_pan_viewport_change(now);
         }
         st.request_maintenance();
     }
+    changed
 }
 
 pub fn active_zoom_lock_scale(_st: &Halley) -> f32 {
@@ -442,8 +516,8 @@ mod tests {
         let before = state.model.camera_target_view_size;
         camera_controller(&mut state).zoom_by_steps(-1.0);
 
-        assert!(state.model.camera_target_view_size.x > before.x);
-        assert!(state.model.camera_target_view_size.y > before.y);
+        assert_eq!(state.model.camera_target_view_size, before);
+        assert!(state.model.zoom_log_vel > 0.0);
     }
 
     #[test]

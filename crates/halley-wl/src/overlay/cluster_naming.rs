@@ -9,7 +9,7 @@ use crate::compositor::clusters::state::ClusterNamingPromptState;
 use crate::compositor::root::Halley;
 use crate::render::draw_primitives::draw_rect;
 use crate::render::state::RenderState;
-use crate::text::{draw_ui_text_in, ui_text_size_in};
+use crate::text::{draw_ui_text_in, prime_ui_text_in, ui_text_size_in};
 
 use super::{
     ACTION_ROW_GAP_Y, BANNER_GAP, BANNER_META_SCALE, BANNER_TITLE_SCALE,
@@ -313,6 +313,56 @@ pub(crate) fn cluster_naming_dialog_hit_test(
         caret = idx + 1;
     }
     Some(ClusterNamingDialogHit::InputCaret(caret))
+}
+
+pub(crate) fn prime_cluster_naming_dialog_text_resources(
+    st: &Halley,
+    screen_w: i32,
+    screen_h: i32,
+) {
+    let monitor = st.model.monitor_state.current_monitor.clone();
+    let Some(mut prompt) = st
+        .model
+        .cluster_state
+        .cluster_name_prompt
+        .get(monitor.as_str())
+        .cloned()
+    else {
+        return;
+    };
+    let overlay = OverlayView::from_halley(st);
+    let visuals = resolve_overlay_visuals(overlay.tuning);
+    let layout = cluster_naming_dialog_layout(&overlay, screen_w, screen_h, &mut prompt);
+    let visible_text = prompt_slice(
+        prompt.input.as_str(),
+        layout.text_visible_start,
+        layout.text_visible_end,
+    );
+    prime_ui_text_in(
+        overlay.render_state,
+        &overlay.tuning.font,
+        visible_text.as_str(),
+        CLUSTER_DIALOG_SCALE,
+        visuals.palette.text.alpha(1.0),
+    );
+
+    if layout.has_visible_selection
+        && let Some((sel_start, sel_end)) = prompt_selection_range(&prompt)
+    {
+        let vis_start = sel_start.clamp(layout.text_visible_start, layout.text_visible_end);
+        let vis_end = sel_end.clamp(layout.text_visible_start, layout.text_visible_end);
+        if vis_start < vis_end {
+            let selection_fill = overlay_accent_fill(&visuals, 0.78, 0.92);
+            let selected_text = prompt_slice(prompt.input.as_str(), vis_start, vis_end);
+            prime_ui_text_in(
+                overlay.render_state,
+                &overlay.tuning.font,
+                selected_text.as_str(),
+                CLUSTER_DIALOG_SCALE,
+                overlay_text_color_for_fill(selection_fill, 1.0),
+            );
+        }
+    }
 }
 
 pub(crate) fn draw_cluster_naming_dialog(

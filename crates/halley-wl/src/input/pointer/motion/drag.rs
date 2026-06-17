@@ -9,6 +9,7 @@ use crate::compositor::surface::{
     active_stacking_front_member_for_monitor, is_active_stacking_workspace_member,
     node_blocks_interactive_transform,
 };
+use crate::presentation::drag_parallax_position;
 
 pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
     if st.is_fullscreen_active(node_id) {
@@ -125,6 +126,69 @@ fn join_active_stacking_layout_at(
     true
 }
 
+fn commit_drag_parallax_release_positions(
+    st: &mut Halley,
+    released_node: halley_core::field::NodeId,
+) {
+    let Some(active_drag) = st.input.interaction_state.active_drag.as_ref() else {
+        return;
+    };
+    if active_drag.node_id != released_node
+        || active_drag.pointer_monitor != st.model.monitor_state.current_monitor
+    {
+        return;
+    }
+
+    let ids = st.model.field.nodes().keys().copied().collect::<Vec<_>>();
+    let updates = ids
+        .into_iter()
+        .filter_map(|id| {
+            if id == released_node
+                || !st.model.field.participates_in_field_view(id)
+                || !st.model.field.is_visible(id)
+                || !st
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(&id)
+                    .is_some_and(|monitor| monitor == &active_drag.pointer_monitor)
+                || st.model.field.is_active_cluster_member(id)
+                || st.fullscreen_monitor_for_node(id).is_some()
+                || crate::compositor::workspace::state::node_in_maximize_session(st, id)
+            {
+                return None;
+            }
+
+            let node = st.model.field.node(id)?;
+            if node.pinned
+                || !matches!(
+                    node.state,
+                    halley_core::field::NodeState::Active
+                        | halley_core::field::NodeState::Node
+                        | halley_core::field::NodeState::Core
+                )
+            {
+                return None;
+            }
+
+            let shifted = drag_parallax_position(st, id, node.pos);
+            ((shifted.x - node.pos.x).abs() > 0.01 || (shifted.y - node.pos.y).abs() > 0.01)
+                .then_some((id, shifted))
+        })
+        .collect::<Vec<_>>();
+
+    if updates.is_empty() {
+        return;
+    }
+
+    for (id, pos) in updates {
+        if let Some(node) = st.model.field.node_mut(id) {
+            node.pos = pos;
+        }
+    }
+    st.request_maintenance();
+}
+
 fn drag_edge_pan_eligible(
     st: &Halley,
     node_id: halley_core::field::NodeId,
@@ -181,6 +245,12 @@ pub(crate) fn begin_drag(
         );
     }
     let drag_monitor = st.monitor_for_node_or_current(hit.node_id);
+    let parallax_origin = st
+        .model
+        .field
+        .node(hit.node_id)
+        .map(|node| node.pos)
+        .unwrap_or(world_now);
     let edge_pan_eligible = drag_edge_pan_eligible(
         st,
         hit.node_id,
@@ -229,6 +299,7 @@ pub(crate) fn begin_drag(
     crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
     st.input.interaction_state.active_drag = Some(ActiveDragState {
         node_id: hit.node_id,
+        parallax_origin,
         allow_monitor_transfer,
         edge_pan_eligible,
         current_offset: drag_ctx.current_offset,
@@ -322,6 +393,49 @@ mod tests {
         st.assign_node_to_monitor(core, monitor.as_str());
         assert!(st.enter_cluster_workspace_by_core(core, monitor.as_str(), Instant::now()));
         members
+    }
+
+    #[test]
+    fn release_commits_zoom_parallax_positions() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        let monitor = st.model.monitor_state.current_monitor.clone();
+        let dragged = st.model.field.spawn_surface(
+            "dragged",
+            halley_core::field::Vec2 { x: 100.0, y: 0.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        let background = st.model.field.spawn_surface(
+            "background",
+            halley_core::field::Vec2 { x: 20.0, y: 10.0 },
+            halley_core::field::Vec2 { x: 400.0, y: 260.0 },
+        );
+        st.assign_node_to_monitor(dragged, monitor.as_str());
+        st.assign_node_to_monitor(background, monitor.as_str());
+        st.model.zoom_ref_size.x = st.model.viewport.size.x * 2.0;
+        st.model.zoom_ref_size.y = st.model.viewport.size.y * 2.0;
+        st.input.interaction_state.active_drag = Some(ActiveDragState {
+            node_id: dragged,
+            parallax_origin: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            allow_monitor_transfer: true,
+            edge_pan_eligible: false,
+            current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
+            pointer_monitor: monitor,
+            pointer_workspace_size: (1600, 1200),
+            pointer_screen_local: (200.0, 120.0),
+            edge_pan_x: DragAxisMode::Free,
+            edge_pan_y: DragAxisMode::Free,
+            last_edge_pan_at: Instant::now(),
+        });
+
+        commit_drag_parallax_release_positions(&mut st, dragged);
+
+        let background_pos = st.model.field.node(background).expect("background").pos;
+        let dragged_pos = st.model.field.node(dragged).expect("dragged").pos;
+        assert!(background_pos.x < 20.0);
+        assert_eq!(background_pos.y, 10.0);
+        assert_eq!(dragged_pos.x, 100.0);
+        assert_eq!(dragged_pos.y, 0.0);
     }
 
     #[test]
@@ -585,6 +699,7 @@ mod tests {
         st.input.interaction_state.drag_authority_node = Some(front);
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: front,
+            parallax_origin: original_pos,
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -627,6 +742,7 @@ mod tests {
         st.input.interaction_state.drag_authority_node = Some(front);
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: front,
+            parallax_origin: st.model.field.node(front).expect("front").pos,
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -667,6 +783,7 @@ mod tests {
         st.input.interaction_state.drag_authority_node = Some(front);
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: front,
+            parallax_origin: st.model.field.node(front).expect("front").pos,
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -717,6 +834,7 @@ mod tests {
         st.input.interaction_state.drag_authority_node = Some(floating);
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: floating,
+            parallax_origin: st.model.field.node(floating).expect("floating").pos,
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -771,6 +889,7 @@ mod tests {
         let mut ps = PointerState::default();
         st.input.interaction_state.active_drag = Some(ActiveDragState {
             node_id: dragged,
+            parallax_origin: st.model.field.node(dragged).expect("dragged").pos,
             allow_monitor_transfer: true,
             edge_pan_eligible: false,
             current_offset: halley_core::field::Vec2 { x: 0.0, y: 0.0 },
@@ -815,6 +934,7 @@ pub(crate) fn finish_pointer_drag(
         .as_ref()
         .map(|drag| drag.pointer_monitor.clone())
         .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone());
+    commit_drag_parallax_release_positions(st, node_id);
     crate::compositor::interaction::state::clear_grabbed_edge_pan_state(st);
     st.input.interaction_state.active_drag = None;
     let joined = st.commit_ready_cluster_join_for_node(node_id, now)
@@ -959,6 +1079,13 @@ pub(super) fn handle_drag_motion(
     st.input.interaction_state.drag_authority_velocity = next_drag.release_velocity;
     st.input.interaction_state.active_drag = Some(ActiveDragState {
         node_id: drag.node_id,
+        parallax_origin: st
+            .input
+            .interaction_state
+            .active_drag
+            .as_ref()
+            .map(|drag| drag.parallax_origin)
+            .unwrap_or(desired_to),
         allow_monitor_transfer: drag_allow_monitor_transfer,
         edge_pan_eligible: next_drag.edge_pan_eligible,
         current_offset: next_drag.current_offset,

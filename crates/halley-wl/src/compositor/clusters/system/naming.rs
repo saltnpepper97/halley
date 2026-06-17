@@ -908,15 +908,31 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return true;
         }
         self.launch_pending_lift_cluster_apps(monitor, now);
-        let now_ms = self.now_ms(now);
-        self.ui.render_state.show_overlay_toast(
-            monitor,
-            "Building cluster\nLaunching staged apps",
-            3000,
-            now_ms,
-        );
         self.request_maintenance();
         true
+    }
+
+    fn finish_lift_finalized_cluster(
+        &mut self,
+        cid: ClusterId,
+        monitor: &str,
+        name_record: ClusterNameRecord,
+        now: Instant,
+    ) -> Option<NodeId> {
+        self.model
+            .cluster_state
+            .cluster_names
+            .insert(cid, name_record);
+        let core_id = self.collapse_cluster(cid)?;
+        let _ = self.sync_cluster_monitor(cid, Some(monitor));
+        let target_pos = self.view_center_for_monitor(monitor);
+        if let Some(core) = self.model.field.node_mut(core_id) {
+            core.pos = target_pos;
+        }
+        let now_ms = self.now_ms(now);
+        let _ = self.model.field.touch(core_id, now_ms);
+        self.set_interaction_focus(Some(core_id), 30_000, now);
+        Some(core_id)
     }
 
     fn launch_pending_lift_cluster_apps(&mut self, monitor: &str, now: Instant) {
@@ -983,20 +999,8 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         for member in &members {
             let _ = self.model.field.set_detached(*member, false);
         }
-        let now_ms = self.now_ms(now);
         let created = self.create_cluster(members).ok().and_then(|cid| {
-            self.model
-                .cluster_state
-                .cluster_names
-                .insert(cid, build.name_record.clone());
-            let core = self.collapse_cluster(cid);
-            if let Some(core_id) = core {
-                self.assign_node_to_monitor(core_id, monitor);
-                let _ = self.sync_cluster_name_for_monitor(cid, monitor);
-                let _ = self.model.field.touch(core_id, now_ms);
-                self.set_interaction_focus(Some(core_id), 30_000, now);
-            }
-            core
+            self.finish_lift_finalized_cluster(cid, monitor, build.name_record.clone(), now)
         });
         if created.is_none() {
             return false;
@@ -1005,9 +1009,6 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .cluster_state
             .pending_lift_cluster_builds
             .remove(monitor);
-        self.ui
-            .render_state
-            .show_overlay_toast(monitor, "Cluster ready", 1800, now_ms);
         true
     }
 
@@ -1065,20 +1066,24 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return false;
         }
         let members = self.order_cluster_creation_members(selected_nodes.iter().copied().collect());
-        let now_ms = self.now_ms(now);
         let created = self.create_cluster(members).ok().and_then(|cid| {
-            self.model
-                .cluster_state
-                .cluster_names
-                .insert(cid, name_record.clone());
-            let core = self.collapse_cluster(cid);
-            if let Some(core_id) = core {
-                self.assign_node_to_monitor(core_id, monitor);
-                let _ = self.sync_cluster_name_for_monitor(cid, monitor);
-                let _ = self.model.field.touch(core_id, now_ms);
-                self.set_interaction_focus(Some(core_id), 30_000, now);
+            if draft.is_some() {
+                self.finish_lift_finalized_cluster(cid, monitor, name_record.clone(), now)
+            } else {
+                let now_ms = self.now_ms(now);
+                self.model
+                    .cluster_state
+                    .cluster_names
+                    .insert(cid, name_record.clone());
+                let core = self.collapse_cluster(cid);
+                if let Some(core_id) = core {
+                    self.assign_node_to_monitor(core_id, monitor);
+                    let _ = self.sync_cluster_name_for_monitor(cid, monitor);
+                    let _ = self.model.field.touch(core_id, now_ms);
+                    self.set_interaction_focus(Some(core_id), 30_000, now);
+                }
+                core
             }
-            core
         });
         if created.is_some() {
             self.model.cluster_state.cluster_name_prompt.remove(monitor);
