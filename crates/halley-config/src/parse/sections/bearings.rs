@@ -25,4 +25,5 @@ pub(crate) fn load_bearings_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         &["bearings.fade-distance", "bearings.fade_distance"],
         out.bearings.fade_distance,
     );
+    out.bearings.blur = pick_bool(cfg, &["bearings.blur"], out.bearings.blur);
 }

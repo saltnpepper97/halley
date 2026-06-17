@@ -145,6 +145,7 @@ end
                 r: 0xd6 as f32 / 255.0,
                 g: 0x5d as f32 / 255.0,
                 b: 0x26 as f32 / 255.0,
+                a: 1.0,
             }
         );
         assert_eq!(out.pins.background_color, OverlayColorMode::Dark);

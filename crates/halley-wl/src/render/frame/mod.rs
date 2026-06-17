@@ -1,6 +1,6 @@
 use std::error::Error;
 
-mod draw;
+pub(crate) mod draw;
 mod scene;
 
 use smithay::{
@@ -11,7 +11,7 @@ use smithay::{
         },
         winit::WinitGraphicsBackend,
     },
-    utils::{Physical, Rectangle, Transform},
+    utils::{Physical, Rectangle, Size, Transform},
 };
 
 use super::app_icon::{ensure_app_icon_resources_for_node_ids, ensure_node_app_icon_resources};
@@ -25,18 +25,45 @@ use super::pin_icon::ensure_pin_icon_resources;
 use super::screenshot_icon::ensure_screenshot_menu_icon_resources;
 use crate::compositor::interaction::ResizeCtx;
 use crate::compositor::root::Halley;
-use crate::overlay::ensure_cluster_bloom_icon_resources;
+use crate::overlay::{
+    ensure_cluster_bloom_icon_resources, prime_cluster_naming_dialog_text_resources,
+};
 use crate::render::bearings::ensure_bearing_icon_resources;
 use crate::text::ensure_ui_text_resources;
 use crate::window::{prewarm_focus_cycle_previews, prewarm_visible_active_window_offscreen_caches};
-use draw::{draw_cursor_layer, draw_debug_frame_scene};
+use draw::{
+    FrameBlurContext, draw_cursor_layer, draw_debug_frame_scene, draw_scene_below_windows,
+    draw_scene_windows_and_hud,
+};
 use scene::{collect_cursor_scene, collect_debug_frame_scene, prepare_debug_frame_state};
+
+fn max_layer_mask_size(scene: &scene::SceneCollections) -> Option<Size<i32, Physical>> {
+    [
+        &scene.layer_background_elements,
+        &scene.layer_bottom_elements,
+        &scene.layer_top_elements,
+        &scene.layer_overlay_elements,
+    ]
+    .into_iter()
+    .flat_map(|groups| groups.iter())
+    .filter(|group| group.blur && group.dst.size.w > 0 && group.dst.size.h > 0)
+    .fold(None, |acc: Option<Size<i32, Physical>>, group| {
+        Some(match acc {
+            Some(size) => Size::from((size.w.max(group.dst.size.w), size.h.max(group.dst.size.h))),
+            None => group.dst.size,
+        })
+    })
+}
 
 pub(crate) use draw::{draw_offscreen_textures, draw_window_borders};
 
 const WINDOW_TEXTURE_SHADER: &str = include_str!("../shaders/window_rounded_texture.frag");
 const WINDOW_SHADOW_SHADER: &str = include_str!("../shaders/window_shadow.frag");
 const SURFACE_CLIP_SHADER: &str = include_str!("../shaders/surface_clipped_texture.frag");
+const BLUR_DOWN_SHADER: &str = include_str!("../shaders/blur_down.frag");
+const BLUR_UP_SHADER: &str = include_str!("../shaders/blur_up.frag");
+const BLUR_COMPOSITE_SHADER: &str = include_str!("../shaders/blur_composite.frag");
+const BLUR_COMPOSITE_MASKED_SHADER: &str = include_str!("../shaders/blur_composite_masked.frag");
 
 pub(crate) fn ensure_window_texture_program(renderer: &mut GlesRenderer, st: &mut Halley) {
     if st.ui.render_state.gpu.window_texture_program.is_some()
@@ -127,6 +154,77 @@ fn ensure_surface_clip_program(renderer: &mut GlesRenderer, st: &mut Halley) {
     }
 }
 
+pub(crate) fn ensure_blur_programs(renderer: &mut GlesRenderer, st: &mut Halley) {
+    let gpu = &st.ui.render_state.gpu;
+    if gpu.blur_programs_failed
+        || (gpu.blur_down_program.is_some()
+            && gpu.blur_up_program.is_some()
+            && gpu.blur_composite_program.is_some()
+            && gpu.blur_composite_masked_program.is_some())
+    {
+        return;
+    }
+
+    let kawase_uniforms = [
+        UniformName::new("halfpixel", UniformType::_2f),
+        UniformName::new("offset", UniformType::_1f),
+    ];
+    let down = renderer.compile_custom_texture_shader(BLUR_DOWN_SHADER, &kawase_uniforms);
+    let up = renderer.compile_custom_texture_shader(BLUR_UP_SHADER, &kawase_uniforms);
+    let composite = renderer.compile_custom_texture_shader(
+        BLUR_COMPOSITE_SHADER,
+        &[
+            UniformName::new("rect_size", UniformType::_2f),
+            UniformName::new("patch_origin_uv", UniformType::_2f),
+            UniformName::new("patch_size_uv", UniformType::_2f),
+            UniformName::new("corner_radius", UniformType::_1f),
+            UniformName::new("saturation", UniformType::_1f),
+            UniformName::new("noise", UniformType::_1f),
+        ],
+    );
+    let masked_composite = renderer.compile_custom_texture_shader(
+        BLUR_COMPOSITE_MASKED_SHADER,
+        &[
+            UniformName::new("mask_tex", UniformType::_1i),
+            UniformName::new("patch_origin_uv", UniformType::_2f),
+            UniformName::new("patch_size_uv", UniformType::_2f),
+            UniformName::new("mask_uv_scale", UniformType::_2f),
+            UniformName::new("saturation", UniformType::_1f),
+            UniformName::new("noise", UniformType::_1f),
+        ],
+    );
+
+    match (down, up, composite, masked_composite) {
+        (Ok(down), Ok(up), Ok(composite), Ok(masked_composite)) => {
+            st.ui.render_state.gpu.blur_down_program = Some(down);
+            st.ui.render_state.gpu.blur_up_program = Some(up);
+            st.ui.render_state.gpu.blur_composite_program = Some(composite);
+            st.ui.render_state.gpu.blur_composite_masked_program = Some(masked_composite);
+        }
+        (down, up, composite, masked_composite) => {
+            st.ui.render_state.gpu.blur_programs_failed = true;
+            for (shader, role, result) in [
+                ("render/shaders/blur_down.frag", "blur-down", down.err()),
+                ("render/shaders/blur_up.frag", "blur-up", up.err()),
+                (
+                    "render/shaders/blur_composite.frag",
+                    "blur-composite",
+                    composite.err(),
+                ),
+                (
+                    "render/shaders/blur_composite_masked.frag",
+                    "blur-composite-masked",
+                    masked_composite.err(),
+                ),
+            ] {
+                if let Some(err) = result {
+                    log_rounded_shader_failure(shader, role, &err);
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn draw_debug_frame(
     backend: &mut WinitGraphicsBackend<GlesRenderer>,
     st: &mut Halley,
@@ -201,6 +299,9 @@ pub(crate) fn draw_debug_frame_to_target(
     ensure_window_texture_program(renderer, st);
     ensure_window_shadow_program(renderer, st);
     ensure_surface_clip_program(renderer, st);
+    if st.runtime.tuning.effects.blur.enabled {
+        ensure_blur_programs(renderer, st);
+    }
 
     let frame_perf_start = crate::perf::start();
     let prewarm_start = crate::perf::start();
@@ -270,14 +371,114 @@ pub(crate) fn draw_debug_frame_to_target(
     prewarm_focus_cycle_previews(renderer, st, prepared.now);
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
+    prime_cluster_naming_dialog_text_resources(st, size.w, size.h);
     ensure_ui_text_resources(renderer, st)?;
     let resources_ms = resources_start.map(crate::perf::elapsed_ms);
     let cursor = collect_cursor_scene(renderer, cursor_screen, cursor_image);
     let draw_start = crate::perf::start();
-    let mut frame = renderer.render(framebuffer, size, frame_transform)?;
-    frame.clear(Color32F::new(0.04, 0.05, 0.06, 1.0), &[prepared.damage])?;
+    let clear_color = Color32F::new(0.04, 0.05, 0.06, 1.0);
 
-    draw_debug_frame_scene(&mut frame, st, size, &prepared, &scene, hover_node)?;
+    // Backdrop blur is active only when enabled, shaders are compiled, and at
+    // least one window, layer-shell surface, or compositor overlay can use it.
+    // When inactive we keep the direct-to-framebuffer path with zero extra work.
+    let blur_cfg = st.runtime.tuning.effects.blur;
+    let blur_ready = blur_cfg.enabled
+        && !st.ui.render_state.gpu.blur_programs_failed
+        && st.ui.render_state.gpu.blur_down_program.is_some()
+        && st.ui.render_state.gpu.blur_up_program.is_some()
+        && st.ui.render_state.gpu.blur_composite_program.is_some()
+        && st
+            .ui
+            .render_state
+            .gpu
+            .blur_composite_masked_program
+            .is_some();
+    let has_blur_window = scene
+        .blur_rects
+        .iter()
+        .any(|rect| rect.dst.size.w > 0 && rect.dst.size.h > 0 && rect.corner_radius >= 0.0);
+    let overlay_blur_enabled = halley_config::overlay_blur_enabled(
+        &st.runtime.tuning.effects.blur,
+        &st.runtime.tuning.overlay_style,
+    );
+    let layer_mask_size = max_layer_mask_size(&scene);
+    let has_blur_content = has_blur_window || overlay_blur_enabled || layer_mask_size.is_some();
+
+    let down = st.ui.render_state.gpu.blur_down_program.clone();
+    let up = st.ui.render_state.gpu.blur_up_program.clone();
+    let composite = st.ui.render_state.gpu.blur_composite_program.clone();
+    let masked_composite = st.ui.render_state.gpu.blur_composite_masked_program.clone();
+    let mut blur_textures = None;
+    let mut layer_mask_texture = None;
+    if blur_ready && has_blur_content {
+        match crate::render::blur::ensure_blur_textures(
+            renderer,
+            &mut st.ui.render_state.gpu.blur_textures,
+            size,
+            blur_cfg.passes,
+        ) {
+            Ok(()) => blur_textures = st.ui.render_state.gpu.blur_textures.take(),
+            Err(err) => {
+                eventline::warn!("blur disabled this frame: texture allocation failed: {err}")
+            }
+        }
+        if let Some(mask_size) = layer_mask_size {
+            match crate::render::blur::ensure_scratch_texture(
+                renderer,
+                &mut st.ui.render_state.gpu.layer_mask_texture,
+                mask_size,
+            ) {
+                Ok(()) => layer_mask_texture = st.ui.render_state.gpu.layer_mask_texture.take(),
+                Err(err) => eventline::warn!(
+                    "layer-shell blur disabled this frame: mask texture allocation failed: {err}"
+                ),
+            }
+        }
+    }
+
+    let mut frame = renderer.render(framebuffer, size, frame_transform)?;
+    frame.clear(clear_color, &[prepared.damage])?;
+
+    if let (Some(down), Some(up), Some(composite), Some(masked_composite), Some(textures)) = (
+        down.as_ref(),
+        up.as_ref(),
+        composite.as_ref(),
+        masked_composite.as_ref(),
+        blur_textures.as_mut(),
+    ) {
+        let mut blur_ctx = FrameBlurContext {
+            textures,
+            down_program: down,
+            up_program: up,
+            composite_program: composite,
+            masked_composite_program: masked_composite,
+            offset: crate::render::blur::blur_offset(blur_cfg.radius),
+            saturation: blur_cfg.saturation,
+            noise: blur_cfg.noise,
+            layer_mask_texture: layer_mask_texture.as_mut(),
+        };
+        draw_scene_below_windows(
+            &mut frame,
+            st,
+            size,
+            &prepared,
+            &scene,
+            hover_node,
+            Some(&mut blur_ctx),
+        )?;
+        draw_scene_windows_and_hud(
+            &mut frame,
+            st,
+            size,
+            &prepared,
+            &scene,
+            hover_node,
+            Some(&mut blur_ctx),
+        )?;
+    } else {
+        draw_scene_below_windows(&mut frame, st, size, &prepared, &scene, hover_node, None)?;
+        draw_scene_windows_and_hud(&mut frame, st, size, &prepared, &scene, hover_node, None)?;
+    }
     let cursor_config = st.runtime.tuning.cursor.clone();
     draw_cursor_layer(
         &mut frame,
@@ -289,6 +490,12 @@ pub(crate) fn draw_debug_frame_to_target(
     )?;
 
     let _ = frame.finish()?;
+    if let Some(blur_textures) = blur_textures {
+        st.ui.render_state.gpu.blur_textures = Some(blur_textures);
+    }
+    if let Some(layer_mask_texture) = layer_mask_texture {
+        st.ui.render_state.gpu.layer_mask_texture = Some(layer_mask_texture);
+    }
     let draw_ms = draw_start.map(crate::perf::elapsed_ms);
     if let Some(start) = frame_perf_start {
         // Refresh-aware budget: a fixed 24ms threshold never fires on a 180Hz

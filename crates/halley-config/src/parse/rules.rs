@@ -10,6 +10,7 @@ struct PartialWindowRule {
     width: Option<u32>,
     height: Option<u32>,
     opacity: Option<f32>,
+    blur: Option<bool>,
     overlap_policy: Option<InitialWindowOverlapPolicy>,
     spawn_placement: Option<InitialWindowSpawnPlacement>,
     cluster_participation: Option<InitialWindowClusterParticipation>,
@@ -100,6 +101,7 @@ fn finalize_window_rule(rule: &PartialWindowRule, line_no: usize) -> Result<Wind
         titles: rule.titles.clone(),
         initial_size,
         opacity: rule.opacity,
+        blur: rule.blur,
         overlap_policy: rule
             .overlap_policy
             .unwrap_or(InitialWindowOverlapPolicy::None),
@@ -142,6 +144,9 @@ fn parse_rule_entry(
         }
         "opacity" => {
             rule.opacity = Some(parse_rule_opacity(value, line_no)?);
+        }
+        "blur" => {
+            rule.blur = Some(parse_rule_bool(value, line_no, "blur")?);
         }
         "overlap-policy" | "overlap_policy" => {
             // Deprecated: expanded windows always allow overlap with other expanded
@@ -203,6 +208,16 @@ fn parse_rule_dimension(value: &str, line_no: usize, field_name: &str) -> Result
             value.trim()
         )
     })
+}
+
+fn parse_rule_bool(value: &str, line_no: usize, field_name: &str) -> Result<bool, String> {
+    match value.trim() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        other => Err(format!(
+            "line {line_no}: invalid {field_name} `{other}`; expected `true` or `false`"
+        )),
+    }
 }
 
 fn parse_rule_opacity(value: &str, line_no: usize) -> Result<f32, String> {
@@ -394,6 +409,46 @@ end
 
         assert_eq!(tuning.window_rules.len(), 1);
         assert_eq!(tuning.window_rules[0].opacity, Some(0.85));
+    }
+
+    #[test]
+    fn rule_blur_parses_true_and_false() {
+        let tuning = RuntimeTuning::from_rune_str(
+            r#"
+rules:
+  rule:
+    app-id "Alacritty"
+    opacity 0.86
+    blur true
+  end
+  rule:
+    app-id "mpv"
+    blur false
+  end
+end
+"#,
+        )
+        .expect("config should parse");
+
+        assert_eq!(tuning.window_rules.len(), 2);
+        assert_eq!(tuning.window_rules[0].blur, Some(true));
+        assert_eq!(tuning.window_rules[1].blur, Some(false));
+    }
+
+    #[test]
+    fn rule_blur_rejects_non_bool() {
+        let tuning = RuntimeTuning::from_rune_str(
+            r#"
+rules:
+  rule:
+    app-id "Alacritty"
+    blur yes
+  end
+end
+"#,
+        );
+
+        assert!(tuning.is_none());
     }
 
     #[test]

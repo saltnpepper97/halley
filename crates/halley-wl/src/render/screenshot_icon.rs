@@ -90,7 +90,7 @@ pub(crate) fn screenshot_menu_background_color(tuning: &RuntimeTuning) -> Decora
     match tuning.screenshot.background_color {
         OverlayColorMode::Auto | OverlayColorMode::Light => LIGHT_OVERLAY_FILL,
         OverlayColorMode::Dark => DARK_OVERLAY_FILL,
-        OverlayColorMode::Fixed { r, g, b } => DecorationBorderColor { r, g, b },
+        OverlayColorMode::Fixed { r, g, b, .. } => DecorationBorderColor { r, g, b },
     }
 }
 
@@ -107,7 +107,7 @@ pub(crate) fn screenshot_menu_highlight_color(tuning: &RuntimeTuning) -> Decorat
         }
         OverlayColorMode::Light => LIGHT_OVERLAY_TEXT,
         OverlayColorMode::Dark => DARK_OVERLAY_TEXT,
-        OverlayColorMode::Fixed { r, g, b } => DecorationBorderColor { r, g, b },
+        OverlayColorMode::Fixed { r, g, b, .. } => DecorationBorderColor { r, g, b },
     }
 }
 
@@ -196,6 +196,7 @@ mod tests {
             r: 0.90,
             g: 0.80,
             b: 0.10,
+            a: 1.0,
         };
 
         assert_eq!(screenshot_menu_active_rgba(&tuning), [230, 204, 26, 255]);
@@ -208,11 +209,13 @@ mod tests {
             r: 0.20,
             g: 0.30,
             b: 0.40,
+            a: 1.0,
         };
         tuning_a.screenshot.highlight_color = OverlayColorMode::Fixed {
             r: 0.90,
             g: 0.80,
             b: 0.10,
+            a: 1.0,
         };
 
         let mut tuning_b = tuning_a.clone();
@@ -220,6 +223,7 @@ mod tests {
             r: 0.02,
             g: 0.04,
             b: 0.90,
+            a: 1.0,
         };
 
         let inactive_a = screenshot_menu_inactive_highlight_color(&tuning_a);

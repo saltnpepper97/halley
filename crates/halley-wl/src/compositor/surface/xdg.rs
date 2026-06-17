@@ -431,7 +431,7 @@ pub(crate) fn current_surface_size_for_node(
                 y: g.size.h.max(1) as f32,
             });
         }
-        if let Some(sz) = top.current_state().size {
+        if let Some(sz) = top.with_committed_state(|state| state.and_then(|state| state.size)) {
             return Some(halley_core::field::Vec2 {
                 x: sz.w.max(1) as f32,
                 y: sz.h.max(1) as f32,
@@ -480,7 +480,7 @@ pub(crate) fn window_geometry_for_node(
                 g.size.h as f32,
             ));
         }
-        if let Some(sz) = top.current_state().size {
+        if let Some(sz) = top.with_committed_state(|state| state.and_then(|state| state.size)) {
             return Some((0.0, 0.0, sz.w as f32, sz.h as f32));
         }
         let bbox = bbox_from_surface_tree(wl, (0, 0));

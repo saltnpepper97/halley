@@ -11,9 +11,9 @@ use image::{RgbaImage, imageops};
 use resvg::{tiny_skia, usvg};
 use rusttype::{Font, PositionedGlyph, Scale, point};
 
-use crate::config::LensConfig;
-use crate::mode::{LensMode, ModeInputState};
-use crate::model::{ClusterDraft, LensResult};
+use crate::config::LiftConfig;
+use crate::mode::{LiftMode, ModeInputState};
+use crate::model::{ClusterDraft, LiftResult, LiftResultKind};
 
 #[derive(Clone, Copy)]
 pub struct Color(pub f32, pub f32, pub f32, pub f32);
@@ -28,17 +28,18 @@ pub struct Rect {
 
 #[derive(Clone, Copy)]
 pub struct View<'a> {
-    pub config: &'a LensConfig,
+    pub config: &'a LiftConfig,
     pub input: &'a ModeInputState,
-    pub mode: LensMode,
-    pub results: &'a [LensResult],
+    pub mode: LiftMode,
+    pub results: &'a [LiftResult],
     pub selected: usize,
     pub scroll_offset: usize,
     pub draft: &'a ClusterDraft,
     pub status: Option<&'a str>,
+    pub cursor_visible: bool,
 }
 
-pub fn panel_height(config: &LensConfig) -> i32 {
+pub fn panel_height(config: &LiftConfig) -> i32 {
     config.ui.search_height.max(1)
 }
 
@@ -51,7 +52,7 @@ pub fn surface_height(view: View<'_>) -> i32 {
     }
 
     height += ui.dropdown_gap + ui.dropdown_padding * 2;
-    if view.mode == LensMode::Clusters && view.draft.count() > 0 {
+    if view.mode == LiftMode::Clusters && view.draft.count() > 0 {
         height += ui.draft_height + ui.row_gap;
     }
 
@@ -81,11 +82,11 @@ pub fn surface_height(view: View<'_>) -> i32 {
 
 fn dropdown_visible(view: View<'_>) -> bool {
     !view.input.query.trim().is_empty()
-        || view.input.mode != LensMode::General
-        || (view.mode == LensMode::Clusters && view.draft.count() > 0)
+        || view.input.mode != LiftMode::General
+        || (view.mode == LiftMode::Clusters && view.draft.count() > 0)
 }
 
-fn list_bottom_padding(config: &LensConfig) -> i32 {
+fn list_bottom_padding(config: &LiftConfig) -> i32 {
     config.ui.row_gap.max(8)
 }
 
@@ -106,7 +107,7 @@ fn visible_section_count(view: View<'_>) -> usize {
     count
 }
 
-pub fn panel_rect(config: &LensConfig, width: u32, height: u32) -> Rect {
+pub fn panel_rect(config: &LiftConfig, width: u32, height: u32) -> Rect {
     let _ = config;
     Rect {
         x: 0,
@@ -133,7 +134,7 @@ pub fn result_index_at(view: View<'_>, width: u32, height: u32, sx: f64, sy: f64
         return None;
     }
     let mut y = panel.y + ui.search_height + ui.dropdown_gap + ui.dropdown_padding;
-    if view.mode == LensMode::Clusters && view.draft.count() > 0 {
+    if view.mode == LiftMode::Clusters && view.draft.count() > 0 {
         y += ui.draft_height + ui.row_gap;
     }
     let mut last_section = "";
@@ -211,15 +212,28 @@ impl FontRenderer {
         ((bounds.2 - bounds.0).max(1), (bounds.3 - bounds.1).max(1))
     }
 
+    fn advance_width(&self, text: &str, px: u32) -> i32 {
+        if text.is_empty() {
+            return 0;
+        }
+        let scale = Scale::uniform(px as f32);
+        let v = self.font.v_metrics(scale);
+        let mut width = 0.0f32;
+        for glyph in self.font.layout(text, scale, point(0.0, v.ascent)) {
+            width = glyph.position().x + glyph.unpositioned().h_metrics().advance_width;
+        }
+        width.ceil().max(1.0) as i32
+    }
+
     fn fit_text(&self, text: &str, px: u32, max_width: i32) -> String {
         if max_width <= 0 || text.is_empty() {
             return String::new();
         }
-        if self.measure(text, px).0 <= max_width {
+        if self.advance_width(text, px) <= max_width {
             return text.to_string();
         }
         let ellipsis = "...";
-        let ellipsis_width = self.measure(ellipsis, px).0;
+        let ellipsis_width = self.advance_width(ellipsis, px);
         if ellipsis_width > max_width {
             return String::new();
         }
@@ -228,7 +242,7 @@ impl FontRenderer {
         for ch in text.chars() {
             fitted.push(ch);
             let candidate = format!("{}{}", fitted.trim_end(), ellipsis);
-            if self.measure(candidate.as_str(), px).0 > max_width {
+            if self.advance_width(candidate.as_str(), px) > max_width {
                 fitted.pop();
                 break;
             }
@@ -245,11 +259,11 @@ impl FontRenderer {
         if max_width <= 0 || text.is_empty() {
             return String::new();
         }
-        if self.measure(text, px).0 <= max_width {
+        if self.advance_width(text, px) <= max_width {
             return text.to_string();
         }
         let ellipsis = "...";
-        let ellipsis_width = self.measure(ellipsis, px).0;
+        let ellipsis_width = self.advance_width(ellipsis, px);
         if ellipsis_width > max_width {
             return String::new();
         }
@@ -258,7 +272,7 @@ impl FontRenderer {
         for ch in text.chars().rev() {
             fitted.insert(0, ch);
             let candidate = format!("{ellipsis}{fitted}");
-            if self.measure(candidate.as_str(), px).0 > max_width {
+            if self.advance_width(candidate.as_str(), px) > max_width {
                 fitted.remove(0);
                 break;
             }
@@ -382,7 +396,16 @@ pub struct IconCache {
     pending_decodes: usize,
     cache_path: Option<PathBuf>,
     cache_fingerprint: String,
+    /// Lazily rasterized search-bar glyphs, keyed by the size they were rendered at.
+    search_icon: Option<(u32, IconRaster)>,
+    cluster_search_icon: Option<(u32, IconRaster)>,
 }
+
+/// Search-bar glyphs. Authored as square SVGs and rendered to alpha masks that are
+/// tinted at draw time.
+const SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/loupe.svg");
+const CLUSTER_SEARCH_ICON_SVG: &[u8] =
+    include_bytes!("../../halley-wl/src/compositor/clusters/assets/clusters.svg");
 
 /// State of a single icon in the in-memory cache. Decoding happens on a worker thread,
 /// so a freshly requested icon is `Pending` until its raster arrives.
@@ -405,7 +428,7 @@ struct IconIndexEntry {
 }
 
 impl IconCache {
-    pub fn new(config: &LensConfig) -> Self {
+    pub fn new(config: &LiftConfig) -> Self {
         let roots = if config.icons {
             icon_roots(config)
         } else {
@@ -444,7 +467,25 @@ impl IconCache {
             pending_decodes: 0,
             cache_path,
             cache_fingerprint,
+            search_icon: None,
+            cluster_search_icon: None,
         }
+    }
+
+    /// Returns the search-bar glyph rasterized at `size`, rendering (and caching) it on
+    /// first use or whenever the requested size changes.
+    fn search_glyph(&mut self, size: u32, mode: LiftMode) -> Option<&IconRaster> {
+        let size = size.max(1);
+        let (slot, svg) = if mode == LiftMode::Clusters {
+            (&mut self.cluster_search_icon, CLUSTER_SEARCH_ICON_SVG)
+        } else {
+            (&mut self.search_icon, SEARCH_ICON_SVG)
+        };
+        if slot.as_ref().map(|(s, _)| *s) != Some(size) {
+            let raster = render_svg_data(svg, None, size)?;
+            *slot = Some((size, raster));
+        }
+        slot.as_ref().map(|(_, raster)| raster)
     }
 
     pub fn needs_index(&self) -> bool {
@@ -617,6 +658,13 @@ pub fn draw_palette(
     let colors = Palette::from_config(view.config);
     let expanded = dropdown_visible(view);
 
+    draw_chrome(canvas, width, height, view.config, &colors, panel, expanded);
+
+    let search_icon = if view.config.search_icon.enabled {
+        icon_cache.search_glyph(view.config.search_icon.size.max(1) as u32, view.mode)
+    } else {
+        None
+    };
     draw_search_box(
         canvas,
         width,
@@ -626,7 +674,8 @@ pub fn draw_palette(
         view.config,
         panel,
         panel.y,
-        expanded,
+        view.cursor_visible,
+        search_icon,
     );
 
     if !expanded {
@@ -634,46 +683,9 @@ pub fn draw_palette(
     }
 
     let dropdown_y = panel.y + ui.search_height + ui.dropdown_gap;
-    let dropdown_h = panel.h - ui.search_height - ui.dropdown_gap;
-    let divider_y = panel.y + ui.search_height;
-    fill_rect(
-        canvas,
-        width,
-        height,
-        panel.x,
-        divider_y,
-        panel.w,
-        1,
-        colors.divider,
-    );
-    fill_rounded_rect_corners(
-        canvas,
-        width,
-        height,
-        panel.x,
-        dropdown_y,
-        panel.w,
-        dropdown_h,
-        view.config.rounding.dropdown,
-        (false, false, true, true),
-        colors.dropdown_border,
-    );
-    fill_rounded_rect_corners(
-        canvas,
-        width,
-        height,
-        panel.x + 1,
-        dropdown_y + 1,
-        panel.w - 2,
-        dropdown_h - 2,
-        view.config.rounding.dropdown.saturating_sub(1),
-        (false, false, true, true),
-        colors.dropdown,
-    );
-
     let mut y = dropdown_y + ui.dropdown_padding;
 
-    if view.mode == LensMode::Clusters && view.draft.count() > 0 {
+    if view.mode == LiftMode::Clusters && view.draft.count() > 0 {
         draw_draft_summary(canvas, width, height, font, view, panel, y);
         y += ui.draft_height + ui.row_gap;
     }
@@ -685,6 +697,7 @@ pub fn draw_palette(
 struct Palette {
     dropdown: Color,
     dropdown_border: Color,
+    panel_border: Color,
     search: Color,
     row_selected: Color,
     divider: Color,
@@ -696,13 +709,14 @@ struct Palette {
 }
 
 impl Palette {
-    fn from_config(config: &LensConfig) -> Self {
+    fn from_config(config: &LiftConfig) -> Self {
         Self {
             dropdown: parse_color(&config.colors.dropdown, Color(0.08, 0.09, 0.13, 0.94)),
             dropdown_border: parse_color(
                 &config.colors.dropdown_border,
                 Color(0.17, 0.20, 0.28, 0.80),
             ),
+            panel_border: parse_color(&config.colors.panel_border, Color(0.17, 0.20, 0.28, 0.80)),
             search: parse_color(&config.colors.search, Color(0.02, 0.025, 0.04, 0.80)),
             row_selected: parse_color(&config.colors.row_selected, Color(0.18, 0.27, 0.46, 0.92)),
             divider: parse_color(&config.colors.divider, Color(0.17, 0.20, 0.28, 0.60)),
@@ -715,21 +729,106 @@ impl Palette {
     }
 }
 
-fn draw_search_box(
+/// Draws the launcher backgrounds and border. The search-bar text/caret and the
+/// results content are drawn separately on top of this.
+fn draw_chrome(
     canvas: &mut [u8],
     width: u32,
     height: u32,
-    font: &FontRenderer,
-    input: &ModeInputState,
-    config: &LensConfig,
+    config: &LiftConfig,
+    colors: &Palette,
     panel: Rect,
-    y: i32,
     expanded: bool,
 ) {
     let ui = &config.ui;
-    let colors = Palette::from_config(config);
-    let pad = ui.padding;
-    let corners = if expanded {
+    let search_h = ui.search_height;
+    let dropdown_y = panel.y + search_h + ui.dropdown_gap;
+    let dropdown_h = panel.h - search_h - ui.dropdown_gap;
+    let divider_y = panel.y + search_h;
+
+    let bw = if config.border.enabled {
+        config.border.width.max(0)
+    } else {
+        0
+    };
+    // "outline" wraps the whole app; any other style keeps the legacy
+    // dropdown-only ("inset") border.
+    let outline = config.border.enabled && config.border.style != "inset";
+
+    if outline {
+        // One border ring around the whole app, interior inset by the border width.
+        // The top corners always use the search-bar radius and the bottom corners the
+        // panel radius, so the top is continuous whether or not results are showing.
+        let top_r = config.rounding.search;
+        let bottom_r = if expanded {
+            config.rounding.panel
+        } else {
+            config.rounding.search
+        };
+        let app_h = if expanded { panel.h } else { search_h };
+        fill_rounded_rect_radii(
+            canvas,
+            width,
+            height,
+            panel.x,
+            panel.y,
+            panel.w,
+            app_h,
+            (top_r, top_r, bottom_r, bottom_r),
+            colors.panel_border,
+            false,
+        );
+        let ix = panel.x + bw;
+        let iw = (panel.w - 2 * bw).max(0);
+        let top_in = (top_r - bw).max(0);
+        let bottom_in = (bottom_r - bw).max(0);
+        if expanded {
+            // Search fill: top corners rounded, bottom flush to the divider.
+            fill_rounded_rect_radii(
+                canvas,
+                width,
+                height,
+                ix,
+                panel.y + bw,
+                iw,
+                (search_h - bw).max(0),
+                (top_in, top_in, 0, 0),
+                colors.search,
+                true,
+            );
+            // Dropdown fill: bottom corners rounded.
+            fill_rounded_rect_radii(
+                canvas,
+                width,
+                height,
+                ix,
+                dropdown_y,
+                iw,
+                (dropdown_h - bw).max(0),
+                (0, 0, bottom_in, bottom_in),
+                colors.dropdown,
+                true,
+            );
+            fill_rect(canvas, width, height, ix, divider_y, iw, 1, colors.divider);
+        } else {
+            fill_rounded_rect_radii(
+                canvas,
+                width,
+                height,
+                ix,
+                panel.y + bw,
+                iw,
+                (search_h - 2 * bw).max(0),
+                (top_in, top_in, bottom_in, bottom_in),
+                colors.search,
+                true,
+            );
+        }
+        return;
+    }
+
+    // Legacy / "inset" look: search bar has no border; the dropdown is bordered.
+    let search_corners = if expanded {
         (true, true, false, false)
     } else {
         (true, true, true, true)
@@ -739,23 +838,104 @@ fn draw_search_box(
         width,
         height,
         panel.x,
-        y,
+        panel.y,
         panel.w,
-        ui.search_height,
+        search_h,
         config.rounding.search,
-        corners,
+        search_corners,
         colors.search,
     );
-    let text_x = panel.x + pad;
+    if !expanded {
+        return;
+    }
+    fill_rect(
+        canvas,
+        width,
+        height,
+        panel.x,
+        divider_y,
+        panel.w,
+        1,
+        colors.divider,
+    );
+    if bw > 0 {
+        fill_rounded_rect_corners(
+            canvas,
+            width,
+            height,
+            panel.x,
+            dropdown_y,
+            panel.w,
+            dropdown_h,
+            config.rounding.dropdown,
+            (false, false, true, true),
+            colors.dropdown_border,
+        );
+    }
+    fill_rounded_rect_corners(
+        canvas,
+        width,
+        height,
+        panel.x + bw,
+        dropdown_y + bw,
+        (panel.w - 2 * bw).max(0),
+        (dropdown_h - 2 * bw).max(0),
+        (config.rounding.dropdown - bw).max(0),
+        (false, false, true, true),
+        colors.dropdown,
+    );
+}
+
+fn draw_search_box(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    font: &FontRenderer,
+    input: &ModeInputState,
+    config: &LiftConfig,
+    panel: Rect,
+    y: i32,
+    cursor_visible: bool,
+    search_icon: Option<&IconRaster>,
+) {
+    let ui = &config.ui;
+    let colors = Palette::from_config(config);
+    let pad = ui.padding;
+    let mut text_x = panel.x + pad;
+    let mut text_right = panel.x + panel.w - pad;
+    // Magnifier glyph, tinted and placed on the configured side, with the text column
+    // shrunk to make room for it.
+    if let Some(raster) = search_icon {
+        let isize = config.search_icon.size.clamp(1, ui.search_height);
+        let gap = 8;
+        let iy = y + (ui.search_height - isize) / 2;
+        let tint = parse_color(&config.colors.search_icon, colors.hint);
+        if config.search_icon.side.eq_ignore_ascii_case("right") {
+            let ix = panel.x + panel.w - pad - isize;
+            draw_raster_tinted(canvas, width, height, raster, ix, iy, isize, isize, tint);
+            text_right = ix - gap;
+        } else {
+            let ix = panel.x + pad;
+            draw_raster_tinted(canvas, width, height, raster, ix, iy, isize, isize, tint);
+            text_x = ix + isize + gap;
+        }
+    }
     let _ = input.mode;
-    let text_right = panel.x + panel.w - pad;
-    let text_width = (text_right - text_x).max(0);
-    let placeholder = if input.query.is_empty() {
+    let query_empty = input.query.is_empty();
+    let caret_w = config.cursor.width.max(1);
+    let caret_gap = 4;
+    let display_x = if query_empty && config.cursor.enabled {
+        text_x + caret_w + caret_gap
+    } else {
+        text_x
+    };
+    let text_width = (text_right - display_x).max(0);
+    let display_text = if query_empty {
         font.fit_text(config.placeholder.as_str(), ui.search_font_size, text_width)
     } else {
         font.fit_text_tail(input.query.as_str(), ui.search_font_size, text_width)
     };
-    let color = if input.query.is_empty() {
+    let color = if query_empty {
         colors.hint
     } else {
         colors.text
@@ -766,12 +946,39 @@ fn draw_search_box(
         canvas,
         width,
         height,
-        text_x,
+        display_x,
         top_y,
-        placeholder.as_str(),
+        display_text.as_str(),
         ui.search_font_size,
         color,
     );
+    if config.cursor.enabled && cursor_visible {
+        let text_w = if query_empty {
+            0
+        } else {
+            font.advance_width(display_text.as_str(), ui.search_font_size)
+        };
+        let max_caret_h = (ui.search_height - 8).max(12);
+        let caret_h = (line_h + 4).min(max_caret_h).max(12);
+        let caret_x = if query_empty {
+            text_x
+        } else {
+            (text_x + text_w + caret_gap)
+                .min(text_right - caret_w)
+                .max(text_x)
+        };
+        let caret_y = y + (ui.search_height - caret_h) / 2;
+        fill_rect(
+            canvas,
+            width,
+            height,
+            caret_x,
+            caret_y,
+            caret_w,
+            caret_h,
+            colors.accent,
+        );
+    }
 }
 
 fn draw_draft_summary(
@@ -882,7 +1089,7 @@ fn draw_result_row(
     icon_cache: &mut IconCache,
     view: View<'_>,
     panel: Rect,
-    result: &LensResult,
+    result: &LiftResult,
     index: usize,
     y: i32,
 ) {
@@ -904,7 +1111,7 @@ fn draw_result_row(
         );
     }
 
-    if view.mode == LensMode::Clusters && view.draft.contains_result(result) {
+    if view.mode == LiftMode::Clusters && view.draft.contains_result(result) {
         let (_, check_h) = font.measure("✓", ui.hint_font_size + 3);
         font.draw(
             canvas,
@@ -1018,19 +1225,67 @@ fn draw_result_icon(
     width: u32,
     height: u32,
     icon_cache: &mut IconCache,
-    config: &LensConfig,
-    result: &LensResult,
+    config: &LiftConfig,
+    result: &LiftResult,
     x: i32,
     y: i32,
 ) {
-    // Only render a resolvable raster icon; results without an icon render nothing (no
-    // placeholder glyph).
+    if !config.icons {
+        return;
+    }
     let size = config.icon_size as i32;
-    if config.icons
-        && let Some(name) = result.icon_name.as_deref()
+    // Prefer a resolvable raster icon (apps); fall back to a drawn shape for kinds that
+    // never carry one so the slot isn't blank.
+    if let Some(name) = result.icon_name.as_deref()
         && let Some(raster) = icon_cache.load(name)
     {
         draw_raster(canvas, width, height, raster, x, y, size, size);
+        return;
+    }
+    let colors = Palette::from_config(config);
+    let radius = size / 3;
+    match result.kind {
+        LiftResultKind::Node => {
+            fill_rounded_rect(
+                canvas,
+                width,
+                height,
+                x,
+                y,
+                size,
+                size,
+                radius,
+                colors.accent,
+            );
+        }
+        LiftResultKind::Term => {
+            // Ring variant: accent squircle with the panel color punched out, so it
+            // reads differently from a node.
+            let inset = (size / 6).max(2);
+            fill_rounded_rect(
+                canvas,
+                width,
+                height,
+                x,
+                y,
+                size,
+                size,
+                radius,
+                colors.accent,
+            );
+            fill_rounded_rect(
+                canvas,
+                width,
+                height,
+                x + inset,
+                y + inset,
+                size - 2 * inset,
+                size - 2 * inset,
+                (radius - inset).max(0),
+                colors.dropdown,
+            );
+        }
+        _ => {}
     }
 }
 
@@ -1100,6 +1355,27 @@ fn fill_rect(
     }
 }
 
+fn fill_rect_replace(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    color: Color,
+) {
+    let x0 = x.max(0) as u32;
+    let y0 = y.max(0) as u32;
+    let x1 = (x + w).clamp(0, width as i32) as u32;
+    let y1 = (y + h).clamp(0, height as i32) as u32;
+    for py in y0..y1 {
+        for px in x0..x1 {
+            set_pixel(canvas, ((py * width + px) * 4) as usize, color);
+        }
+    }
+}
+
 fn fill_rounded_rect(
     canvas: &mut [u8],
     width: u32,
@@ -1123,6 +1399,99 @@ fn fill_rounded_rect(
         (true, true, true, true),
         color,
     );
+}
+
+/// Rounded-rect fill with an independent radius per corner: `(top_left, top_right,
+/// bottom_right, bottom_left)`. Lets the outline keep the search-bar radius on top while
+/// using the panel radius on the bottom, so collapsed→expanded transitions are seamless.
+#[allow(clippy::too_many_arguments)]
+fn fill_rounded_rect_radii(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    radii: (i32, i32, i32, i32),
+    color: Color,
+    replace_covered: bool,
+) {
+    let cap = (w / 2).min(h / 2).max(0);
+    let (tl, tr, br, bl) = radii;
+    let (tl, tr, br, bl) = (
+        tl.clamp(0, cap),
+        tr.clamp(0, cap),
+        br.clamp(0, cap),
+        bl.clamp(0, cap),
+    );
+    if tl == 0 && tr == 0 && br == 0 && bl == 0 {
+        if replace_covered {
+            fill_rect_replace(canvas, width, height, x, y, w, h, color);
+        } else {
+            fill_rect(canvas, width, height, x, y, w, h, color);
+        }
+        return;
+    }
+    let x0 = x.max(0);
+    let y0 = y.max(0);
+    let x1 = (x + w).min(width as i32);
+    let y1 = (y + h).min(height as i32);
+    let midx = x as f32 + w as f32 / 2.0;
+    let midy = y as f32 + h as f32 / 2.0;
+    for py in y0..y1 {
+        for px in x0..x1 {
+            let cx = px as f32 + 0.5;
+            let cy = py as f32 + 0.5;
+            let left = cx < midx;
+            let top = cy < midy;
+            // Pick the nearest corner's radius and arc centre.
+            let (r, ax, ay, in_corner) = if left && top {
+                (
+                    tl,
+                    x + tl,
+                    y + tl,
+                    cx < (x + tl) as f32 && cy < (y + tl) as f32,
+                )
+            } else if !left && top {
+                (
+                    tr,
+                    x + w - tr,
+                    y + tr,
+                    cx > (x + w - tr) as f32 && cy < (y + tr) as f32,
+                )
+            } else if !left && !top {
+                (
+                    br,
+                    x + w - br,
+                    y + h - br,
+                    cx > (x + w - br) as f32 && cy > (y + h - br) as f32,
+                )
+            } else {
+                (
+                    bl,
+                    x + bl,
+                    y + h - bl,
+                    cx < (x + bl) as f32 && cy > (y + h - bl) as f32,
+                )
+            };
+            let coverage = if r <= 0 || !in_corner {
+                1.0
+            } else {
+                let dist = ((cx - ax as f32).powi(2) + (cy - ay as f32).powi(2)).sqrt();
+                (r as f32 + 0.5 - dist).clamp(0.0, 1.0)
+            };
+            if coverage <= 0.0 {
+                continue;
+            }
+            let offset = ((py as u32 * width + px as u32) * 4) as usize;
+            if replace_covered && coverage >= 1.0 {
+                set_pixel(canvas, offset, color);
+            } else {
+                blend_coverage(canvas, offset, color, coverage);
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1228,10 +1597,55 @@ fn draw_raster(
     }
 }
 
+/// Blits `raster` using only its alpha channel as coverage, painting every covered pixel
+/// with `tint`. Lets a monochrome glyph take a themed color.
+fn draw_raster_tinted(
+    canvas: &mut [u8],
+    width: u32,
+    height: u32,
+    raster: &IconRaster,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    tint: Color,
+) {
+    for dy in 0..h.max(1) {
+        for dx in 0..w.max(1) {
+            let px = x + dx;
+            let py = y + dy;
+            if px < 0 || py < 0 || px >= width as i32 || py >= height as i32 {
+                continue;
+            }
+            let sx = (dx as u32 * raster.width / w as u32).min(raster.width.saturating_sub(1));
+            let sy = (dy as u32 * raster.height / h as u32).min(raster.height.saturating_sub(1));
+            let src = ((sy * raster.width + sx) * 4) as usize;
+            let coverage = raster.rgba[src + 3] as f32 / 255.0;
+            if coverage <= 0.0 {
+                continue;
+            }
+            let offset = ((py as u32 * width + px as u32) * 4) as usize;
+            blend_coverage(canvas, offset, tint, coverage);
+        }
+    }
+}
+
 /// Source-over blend with the source alpha scaled by `coverage` (0..1) for anti-aliased edges.
 fn blend_coverage(canvas: &mut [u8], offset: usize, color: Color, coverage: f32) {
     let Color(r, g, b, a) = color;
     blend(canvas, offset, Color(r, g, b, a * coverage.clamp(0.0, 1.0)));
+}
+
+fn set_pixel(canvas: &mut [u8], offset: usize, color: Color) {
+    let Color(r, g, b, a) = color;
+    if a <= 0.0 || offset + 3 >= canvas.len() {
+        return;
+    }
+    let a = a.clamp(0.0, 1.0);
+    canvas[offset] = (b.clamp(0.0, 1.0) * a * 255.0).round() as u8;
+    canvas[offset + 1] = (g.clamp(0.0, 1.0) * a * 255.0).round() as u8;
+    canvas[offset + 2] = (r.clamp(0.0, 1.0) * a * 255.0).round() as u8;
+    canvas[offset + 3] = (a * 255.0).round() as u8;
 }
 
 fn blend(canvas: &mut [u8], offset: usize, color: Color) {
@@ -1282,7 +1696,7 @@ fn push_icon_candidate(candidates: &mut Vec<String>, value: String) {
     }
 }
 
-fn icon_roots(config: &LensConfig) -> Vec<PathBuf> {
+fn icon_roots(config: &LiftConfig) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(home) = std::env::var_os("HOME") {
         if let Some(root) = themed_icon_root(Path::new(&home).join(".local/share/icons"), config) {
@@ -1305,7 +1719,7 @@ fn icon_roots(config: &LensConfig) -> Vec<PathBuf> {
     roots
 }
 
-fn themed_icon_root(root: PathBuf, config: &LensConfig) -> Option<PathBuf> {
+fn themed_icon_root(root: PathBuf, config: &LiftConfig) -> Option<PathBuf> {
     let theme = config.icon_theme.trim();
     if theme.is_empty() || theme.eq_ignore_ascii_case("auto") {
         return None;
@@ -1348,7 +1762,7 @@ fn icon_index_cache_path() -> Option<PathBuf> {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => PathBuf::from(env::var_os("HOME")?).join(".cache"),
     };
-    Some(base.join("halley").join("lens-icons"))
+    Some(base.join("halley").join("lift-icons"))
 }
 
 /// Canonical description of the inputs that determine the index contents. A cache file
@@ -1519,13 +1933,21 @@ fn normalize_icon_canvas(source: RgbaImage, target_size: u32) -> RgbaImage {
 }
 
 fn load_svg_icon(path: &Path, target_size: u32) -> Option<IconRaster> {
+    let data = fs::read(path).ok()?;
+    render_svg_data(&data, path.parent().map(Path::to_path_buf), target_size)
+}
+
+fn render_svg_data(
+    data: &[u8],
+    resources_dir: Option<PathBuf>,
+    target_size: u32,
+) -> Option<IconRaster> {
     let target_size = target_size.max(1);
     let options = usvg::Options {
-        resources_dir: path.parent().map(Path::to_path_buf),
+        resources_dir,
         ..usvg::Options::default()
     };
-    let data = fs::read(path).ok()?;
-    let tree = usvg::Tree::from_data(&data, &options).ok()?;
+    let tree = usvg::Tree::from_data(data, &options).ok()?;
     let svg_size = tree.size().to_int_size();
     if svg_size.width() == 0 || svg_size.height() == 0 {
         return None;
@@ -1556,5 +1978,58 @@ fn unpremultiply_rgba(pixels: &mut [u8]) {
         chunk[0] = ((chunk[0] as u32 * 255) / alpha).min(255) as u8;
         chunk[1] = ((chunk[1] as u32 * 255) / alpha).min(255) as u8;
         chunk[2] = ((chunk[2] as u32 * 255) / alpha).min(255) as u8;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outline_search_fill_preserves_configured_alpha() {
+        let mut config = LiftConfig::default();
+        config.border.enabled = true;
+        config.border.width = 4;
+        config.border.style = "outline".into();
+        config.colors.panel_border = "#ffffffff".into();
+        config.colors.search = "#ffffff80".into();
+        config.ui.search_height = 60;
+        config.rounding.search = 12;
+
+        let width = 120;
+        let height = 60;
+        let panel = Rect {
+            x: 0,
+            y: 0,
+            w: width as i32,
+            h: height as i32,
+        };
+        let colors = Palette::from_config(&config);
+        let mut canvas = vec![0; (width * height * 4) as usize];
+
+        draw_chrome(&mut canvas, width, height, &config, &colors, panel, false);
+
+        let center = (((height / 2) * width + (width / 2)) * 4) as usize;
+        assert_eq!(canvas[center + 3], 0x80);
+    }
+
+    #[test]
+    fn cluster_mode_uses_cluster_search_glyph() {
+        let mut config = LiftConfig::default();
+        config.icons = false;
+        let mut cache = IconCache::new(&config);
+
+        let loupe = cache
+            .search_glyph(24, LiftMode::General)
+            .expect("loupe glyph")
+            .rgba
+            .clone();
+        let cluster = cache
+            .search_glyph(24, LiftMode::Clusters)
+            .expect("cluster glyph")
+            .rgba
+            .clone();
+
+        assert_ne!(loupe, cluster);
     }
 }

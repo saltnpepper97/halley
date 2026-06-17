@@ -1,36 +1,38 @@
-use crate::mode::LensMode;
+use crate::mode::LiftMode;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum LensResultKind {
+pub enum LiftResultKind {
     App,
     Cluster,
     Node,
     Action,
     Config,
     CreateCluster,
+    Term,
 }
 
 #[derive(Clone, Debug)]
-pub enum LensAction {
+pub enum LiftAction {
     LaunchApp { app_id: String },
     OpenCluster { id: u64 },
     FocusNode { id: u64 },
     CreateCluster,
     ReloadConfig,
     OpenPath { path: String },
+    RunInTerminal { command: String },
 }
 
 #[derive(Clone, Debug)]
-pub struct LensResult {
+pub struct LiftResult {
     pub section: String,
     pub title: String,
     pub subtitle: Option<String>,
     pub icon_name: Option<String>,
-    pub kind: LensResultKind,
+    pub kind: LiftResultKind,
     pub score: f64,
     pub is_field_pinned: bool,
     pub shortcut_hint: Option<String>,
-    pub action: LensAction,
+    pub action: LiftAction,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -45,18 +47,18 @@ impl ClusterDraft {
         self.app_ids.len() + self.running_node_ids.len()
     }
 
-    pub fn toggle_result(&mut self, result: &LensResult) -> bool {
+    pub fn toggle_result(&mut self, result: &LiftResult) -> bool {
         match &result.action {
-            LensAction::LaunchApp { app_id } => toggle_string(&mut self.app_ids, app_id),
-            LensAction::FocusNode { id } => toggle_u64(&mut self.running_node_ids, *id),
+            LiftAction::LaunchApp { app_id } => toggle_string(&mut self.app_ids, app_id),
+            LiftAction::FocusNode { id } => toggle_u64(&mut self.running_node_ids, *id),
             _ => false,
         }
     }
 
-    pub fn contains_result(&self, result: &LensResult) -> bool {
+    pub fn contains_result(&self, result: &LiftResult) -> bool {
         match &result.action {
-            LensAction::LaunchApp { app_id } => self.app_ids.iter().any(|id| id == app_id),
-            LensAction::FocusNode { id } => self.running_node_ids.contains(id),
+            LiftAction::LaunchApp { app_id } => self.app_ids.iter().any(|id| id == app_id),
+            LiftAction::FocusNode { id } => self.running_node_ids.contains(id),
             _ => false,
         }
     }
@@ -80,19 +82,20 @@ fn toggle_u64(values: &mut Vec<u64>, value: u64) -> bool {
     true
 }
 
-pub fn mode_allows(mode: LensMode, kind: &LensResultKind) -> bool {
+pub fn mode_allows(mode: LiftMode, kind: &LiftResultKind) -> bool {
     match mode {
-        LensMode::General => true,
-        LensMode::Apps => matches!(kind, LensResultKind::App),
-        LensMode::Clusters => matches!(
+        LiftMode::General => true,
+        LiftMode::Apps => matches!(kind, LiftResultKind::App),
+        LiftMode::Clusters => matches!(
             kind,
-            LensResultKind::Cluster
-                | LensResultKind::CreateCluster
-                | LensResultKind::App
-                | LensResultKind::Node
+            LiftResultKind::Cluster
+                | LiftResultKind::CreateCluster
+                | LiftResultKind::App
+                | LiftResultKind::Node
         ),
-        LensMode::Nodes => matches!(kind, LensResultKind::Node),
-        LensMode::Actions => matches!(kind, LensResultKind::Action),
-        LensMode::Config => matches!(kind, LensResultKind::Config),
+        LiftMode::Nodes => matches!(kind, LiftResultKind::Node),
+        LiftMode::Actions => matches!(kind, LiftResultKind::Action),
+        LiftMode::Config => matches!(kind, LiftResultKind::Config),
+        LiftMode::Term => matches!(kind, LiftResultKind::Term),
     }
 }

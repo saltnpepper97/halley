@@ -313,6 +313,11 @@ pub(crate) fn run_winit_backend() -> Result<(), Box<dyn Error>> {
                 config_watch_targets.extend(halley_config::gather_dependencies_for_file(
                     config_path.as_str(),
                 ));
+                // Also watch the aperture config's gather deps (e.g. pywal colours),
+                // otherwise a rewrite of the gathered cache file won't trigger a reload.
+                config_watch_targets.extend(halley_config::gather_dependencies_for_file(
+                    aperture_config_path.to_string_lossy().as_ref(),
+                ));
                 let config_watch_targets_for_callback = config_watch_targets.clone();
                 let mut watcher: RecommendedWatcher = notify::recommended_watcher(
                     move |result: Result<notify::Event, notify::Error>| {

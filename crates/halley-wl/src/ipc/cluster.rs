@@ -117,7 +117,7 @@ fn open_finalize_draft(
     let now = Instant::now();
     focus_output_if_needed(st, monitor.as_str(), now);
     if crate::compositor::clusters::system::cluster_system_controller(st)
-        .open_lens_cluster_finalize_draft(
+        .open_lift_cluster_finalize_draft(
             monitor.as_str(),
             draft.name_hint,
             draft.app_ids,

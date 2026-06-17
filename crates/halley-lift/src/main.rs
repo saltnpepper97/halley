@@ -13,9 +13,9 @@ use std::{
 
 use calloop::{EventLoop, Interest, LoopHandle, Mode, PostAction, generic::Generic};
 use calloop_wayland_source::WaylandSource;
-use config::{LensConfig, default_config_path};
-use mode::{LensMode, ModeInputState, effective_mode_query, parse_initial_mode};
-use model::{ClusterDraft, LensAction, LensResult, LensResultKind};
+use config::{LiftConfig, default_config_path};
+use mode::{LiftMode, ModeInputState, effective_mode_query, parse_initial_mode};
+use model::{ClusterDraft, LiftAction, LiftResult, LiftResultKind};
 use providers::{ProviderIndex, SearchContext, activate_result, materialize_cluster_draft};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -64,7 +64,7 @@ fn run() -> Result<(), String> {
 
     let start = Instant::now();
     let config_path = default_config_path();
-    let config = LensConfig::load(config_path.as_path())?;
+    let config = LiftConfig::load(config_path.as_path())?;
     perf_elapsed("config load", start);
     let initial_raw = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
     let (initial_mode, initial_query) = parse_initial_mode(initial_raw.as_str());
@@ -112,7 +112,7 @@ fn run() -> Result<(), String> {
     let icon_cache = IconCache::new(&config);
     perf_elapsed("icon cache init", start);
 
-    let mut event_loop: EventLoop<'static, LensApp> =
+    let mut event_loop: EventLoop<'static, LiftApp> =
         EventLoop::try_new().map_err(|err| format!("event loop: {err}"))?;
     let loop_handle = event_loop.handle();
     WaylandSource::new(conn.clone(), event_queue)
@@ -125,7 +125,7 @@ fn run() -> Result<(), String> {
     loop_handle
         .insert_source(
             Generic::new(instance_listener, Interest::READ, Mode::Level),
-            |_readiness, listener, app: &mut LensApp| {
+            |_readiness, listener, app: &mut LiftApp| {
                 loop {
                     match listener.accept() {
                         Ok(_) => app.exit = true,
@@ -138,7 +138,7 @@ fn run() -> Result<(), String> {
         )
         .map_err(|err| format!("instance socket source: {err}"))?;
 
-    let mut app = LensApp {
+    let mut app = LiftApp {
         registry_state: RegistryState::new(&globals),
         seat_state: SeatState::new(&globals, &qh),
         output_state: OutputState::new(&globals, &qh),
@@ -155,6 +155,9 @@ fn run() -> Result<(), String> {
         configured: false,
         prefetched_live: false,
         needs_redraw: false,
+        cursor_visible: true,
+        cursor_last_blink: Instant::now(),
+        cursor_last_activity: Instant::now(),
         width,
         height,
         exit: false,
@@ -172,19 +175,20 @@ fn run() -> Result<(), String> {
         modifiers: Modifiers::default(),
         status: None,
     };
-    if app.input.mode != LensMode::General || !app.input.query.trim().is_empty() {
+    if app.input.mode != LiftMode::General || !app.input.query.trim().is_empty() {
         app.refresh_results();
     } else {
         perf(format_args!("skip hidden empty-startup search"));
     }
 
     while !app.exit {
-        let timeout = app.background_poll_interval();
+        let timeout = app.dispatch_timeout();
         if let Err(err) = event_loop.dispatch(timeout, &mut app) {
             app.debug(format_args!("event dispatch error: {err}"));
             return Err(format!("event dispatch: {err}"));
         }
         app.poll_background_jobs();
+        app.poll_cursor_blink();
         app.flush_redraw();
     }
     Ok(())
@@ -255,7 +259,7 @@ fn lift_socket_path() -> Result<PathBuf, String> {
 }
 
 fn perf(args: std::fmt::Arguments<'_>) {
-    if std::env::var_os("HALLEY_LENS_PERF").is_some() {
+    if std::env::var_os("HALLEY_LIFT_PERF").is_some() {
         eprintln!("halley-lift perf: {args}");
     }
 }
@@ -264,7 +268,7 @@ fn perf_elapsed(label: &str, start: Instant) {
     perf(format_args!("{label}: {:.2?}", start.elapsed()));
 }
 
-fn layer_position(config: &LensConfig) -> (Anchor, (i32, i32, i32, i32)) {
+fn layer_position(config: &LiftConfig) -> (Anchor, (i32, i32, i32, i32)) {
     let pad = config.ui.padding;
     let top = config.ui.top_margin + config.position.offset_y;
     let bottom = config.ui.top_margin - config.position.offset_y;
@@ -306,7 +310,7 @@ fn sane_dimension(configured: u32, fallback: u32, max: u32) -> u32 {
     }
 }
 
-struct LensApp {
+struct LiftApp {
     registry_state: RegistryState,
     seat_state: SeatState,
     output_state: OutputState,
@@ -315,7 +319,7 @@ struct LensApp {
     _shm: Shm,
     pool: SlotPool,
     layer: LayerSurface,
-    loop_handle: LoopHandle<'static, LensApp>,
+    loop_handle: LoopHandle<'static, LiftApp>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
     keyboard_focused: bool,
@@ -323,26 +327,29 @@ struct LensApp {
     configured: bool,
     prefetched_live: bool,
     needs_redraw: bool,
+    cursor_visible: bool,
+    cursor_last_blink: Instant,
+    cursor_last_activity: Instant,
     width: u32,
     height: u32,
     exit: bool,
-    config: LensConfig,
+    config: LiftConfig,
     font: FontRenderer,
     index: ProviderIndex,
     icon_cache: IconCache,
     input: ModeInputState,
-    results: Vec<LensResult>,
+    results: Vec<LiftResult>,
     selected: usize,
     draft: ClusterDraft,
     modifiers: Modifiers,
     status: Option<String>,
 }
 
-impl LensApp {
+impl LiftApp {
     fn refresh_results(&mut self) {
         let start = Instant::now();
         let (mode, query) = self.effective_search();
-        if mode == LensMode::Clusters {
+        if mode == LiftMode::Clusters {
             let hint = query.trim();
             self.draft.name_hint = (!hint.is_empty()).then(|| hint.to_string());
         }
@@ -375,7 +382,7 @@ impl LensApp {
         self.selected = 0;
     }
 
-    fn effective_search(&self) -> (LensMode, String) {
+    fn effective_search(&self) -> (LiftMode, String) {
         effective_mode_query(self.input.mode, self.input.query.as_str())
     }
 
@@ -393,7 +400,7 @@ impl LensApp {
 
     fn live_results_needed(&self) -> bool {
         let (mode, _) = self.effective_search();
-        matches!(mode, LensMode::Nodes | LensMode::Clusters)
+        matches!(mode, LiftMode::Nodes | LiftMode::Clusters)
     }
 
     fn draw(&mut self) -> Result<(), String> {
@@ -432,6 +439,7 @@ impl LensApp {
                 scroll_offset,
                 draft: &self.draft,
                 status: self.status.as_deref(),
+                cursor_visible: self.cursor_visible,
             },
         );
         self.layer
@@ -512,8 +520,8 @@ impl LensApp {
                 nodes, clusters
             ));
             let (mode, query) = self.effective_search();
-            if matches!(mode, LensMode::Nodes | LensMode::Clusters)
-                || (mode == LensMode::General && !query.trim().is_empty())
+            if matches!(mode, LiftMode::Nodes | LiftMode::Clusters)
+                || (mode == LiftMode::General && !query.trim().is_empty())
             {
                 self.refresh_results();
                 self.mark_redraw();
@@ -566,7 +574,7 @@ impl LensApp {
         }
     }
 
-    fn selected_result(&self) -> Option<&LensResult> {
+    fn selected_result(&self) -> Option<&LiftResult> {
         self.results.get(self.selected)
     }
 
@@ -580,6 +588,7 @@ impl LensApp {
             scroll_offset: self.scroll_offset(),
             draft: &self.draft,
             status: self.status.as_deref(),
+            cursor_visible: self.cursor_visible,
         }
     }
 
@@ -587,7 +596,7 @@ impl LensApp {
         let Some(result) = self.selected_result().cloned() else {
             return;
         };
-        if matches!(result.kind, LensResultKind::App | LensResultKind::Node) {
+        if matches!(result.kind, LiftResultKind::App | LiftResultKind::Node) {
             self.draft.toggle_result(&result);
             self.status = None;
             self.refresh_results();
@@ -598,13 +607,13 @@ impl LensApp {
         let Some(result) = self.selected_result().cloned() else {
             return;
         };
-        if matches!(result.action, LensAction::CreateCluster) {
+        if matches!(result.action, LiftAction::CreateCluster) {
             self.materialize_draft();
             return;
         }
         let (mode, _) = self.effective_search();
-        if mode == LensMode::Clusters {
-            if matches!(result.kind, LensResultKind::App | LensResultKind::Node) {
+        if mode == LiftMode::Clusters {
+            if matches!(result.kind, LiftResultKind::App | LiftResultKind::Node) {
                 self.toggle_selected();
                 return;
             }
@@ -617,7 +626,7 @@ impl LensApp {
 
     fn materialize_draft(&mut self) {
         let (mode, query) = self.effective_search();
-        if mode != LensMode::Clusters {
+        if mode != LiftMode::Clusters {
             self.status = Some("Use cluster search before finalizing a draft".into());
             return;
         }
@@ -637,7 +646,7 @@ impl LensApp {
     }
 
     fn debug(&self, args: std::fmt::Arguments<'_>) {
-        if std::env::var_os("HALLEY_LENS_DEBUG").is_some() {
+        if std::env::var_os("HALLEY_LIFT_DEBUG").is_some() {
             eprintln!("halley-lift: {args}");
         }
     }
@@ -653,10 +662,79 @@ impl LensApp {
             || self.icon_cache.has_pending_decodes()
     }
 
+    fn dispatch_timeout(&self) -> Option<Duration> {
+        match (self.background_poll_interval(), self.cursor_poll_interval()) {
+            (Some(background), Some(cursor)) => Some(background.min(cursor)),
+            (Some(background), None) => Some(background),
+            (None, Some(cursor)) => Some(cursor),
+            (None, None) => None,
+        }
+    }
+
+    fn cursor_poll_interval(&self) -> Option<Duration> {
+        if !self.config.cursor.enabled || self.cursor_blink_stopped() {
+            return None;
+        }
+        let blink_remaining = self
+            .cursor_blink_interval()
+            .saturating_sub(self.cursor_last_blink.elapsed());
+        let Some(stop_remaining) = self.cursor_stop_remaining() else {
+            return Some(blink_remaining);
+        };
+        Some(blink_remaining.min(stop_remaining))
+    }
+
+    fn cursor_blink_interval(&self) -> Duration {
+        Duration::from_millis(self.config.cursor.blink_ms.max(1))
+    }
+
+    fn cursor_stop_interval(&self) -> Option<Duration> {
+        (self.config.cursor.stop_blink_after_ms > 0)
+            .then(|| Duration::from_millis(self.config.cursor.stop_blink_after_ms))
+    }
+
+    fn cursor_stop_remaining(&self) -> Option<Duration> {
+        self.cursor_stop_interval()
+            .map(|interval| interval.saturating_sub(self.cursor_last_activity.elapsed()))
+    }
+
+    fn cursor_blink_stopped(&self) -> bool {
+        self.cursor_stop_interval()
+            .is_some_and(|interval| self.cursor_last_activity.elapsed() >= interval)
+    }
+
+    fn reset_cursor_blink(&mut self) {
+        self.cursor_visible = true;
+        self.cursor_last_blink = Instant::now();
+        self.cursor_last_activity = Instant::now();
+    }
+
+    fn poll_cursor_blink(&mut self) {
+        if !self.config.cursor.enabled {
+            if self.cursor_visible {
+                self.cursor_visible = false;
+                self.mark_redraw();
+            }
+            return;
+        }
+        if self.cursor_blink_stopped() {
+            if !self.cursor_visible {
+                self.cursor_visible = true;
+                self.mark_redraw();
+            }
+            return;
+        }
+        if self.cursor_last_blink.elapsed() >= self.cursor_blink_interval() {
+            self.cursor_visible = !self.cursor_visible;
+            self.cursor_last_blink = Instant::now();
+            self.mark_redraw();
+        }
+    }
+
     fn handle_text(&mut self, text: &str) {
         let (mode, query) = self.effective_search();
         if text == " "
-            && mode == LensMode::Clusters
+            && mode == LiftMode::Clusters
             && !query.trim().is_empty()
             && self.selected_is_stageable()
         {
@@ -664,12 +742,13 @@ impl LensApp {
             return;
         }
         self.input.insert_text(text);
+        self.reset_cursor_blink();
         self.refresh_results_typed();
     }
 
     fn selected_is_stageable(&self) -> bool {
         self.selected_result()
-            .is_some_and(|result| matches!(result.kind, LensResultKind::App | LensResultKind::Node))
+            .is_some_and(|result| matches!(result.kind, LiftResultKind::App | LiftResultKind::Node))
     }
 
     fn handle_key(&mut self, event: KeyEvent) {
@@ -698,11 +777,13 @@ impl LensApp {
                 } else {
                     self.input.query = format!("action {}", self.input.query.trim_start());
                 }
-                self.input.mode = LensMode::General;
+                self.input.mode = LiftMode::General;
+                self.reset_cursor_blink();
                 self.refresh_results_typed();
             }
             Keysym::BackSpace => {
                 self.input.backspace();
+                self.reset_cursor_blink();
                 self.refresh_results_typed();
             }
             Keysym::Return | Keysym::KP_Enter => {
@@ -710,6 +791,14 @@ impl LensApp {
                     self.materialize_draft();
                 } else {
                     self.activate_selected();
+                }
+            }
+            // Handle Space by keysym rather than relying on `utf8`, which some keymaps
+            // leave empty for the space key (so a trailing space would not register until
+            // the next character arrived).
+            Keysym::space | Keysym::KP_Space => {
+                if !self.modifiers.ctrl && !self.modifiers.alt {
+                    self.handle_text(" ");
                 }
             }
             _ => {
@@ -742,7 +831,7 @@ fn alt_number_offset(keysym: Keysym) -> Option<usize> {
     }
 }
 
-impl CompositorHandler for LensApp {
+impl CompositorHandler for LiftApp {
     fn scale_factor_changed(
         &mut self,
         _: &Connection,
@@ -778,7 +867,7 @@ impl CompositorHandler for LensApp {
     }
 }
 
-impl OutputHandler for LensApp {
+impl OutputHandler for LiftApp {
     fn output_state(&mut self) -> &mut OutputState {
         &mut self.output_state
     }
@@ -787,7 +876,7 @@ impl OutputHandler for LensApp {
     fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
 }
 
-impl LayerShellHandler for LensApp {
+impl LayerShellHandler for LiftApp {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) {
         self.exit("layer-closed");
     }
@@ -810,11 +899,12 @@ impl LayerShellHandler for LensApp {
             configure.new_size.0, configure.new_size.1, self.width, self.height
         ));
         self.configured = true;
+        self.reset_cursor_blink();
         self.mark_redraw();
     }
 }
 
-impl SeatHandler for LensApp {
+impl SeatHandler for LiftApp {
     fn seat_state(&mut self) -> &mut SeatState {
         &mut self.seat_state
     }
@@ -833,7 +923,7 @@ impl SeatHandler for LensApp {
                 &seat,
                 None,
                 handle,
-                Box::new(|app: &mut LensApp, _kbd, event| {
+                Box::new(|app: &mut LiftApp, _kbd, event| {
                     app.handle_key(event);
                     app.mark_redraw();
                 }),
@@ -868,7 +958,7 @@ impl SeatHandler for LensApp {
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
 }
 
-impl KeyboardHandler for LensApp {
+impl KeyboardHandler for LiftApp {
     fn enter(
         &mut self,
         _: &Connection,
@@ -882,6 +972,7 @@ impl KeyboardHandler for LensApp {
         if self.layer.wl_surface() == surface {
             self.keyboard_focused = true;
             self.had_keyboard_focus = true;
+            self.reset_cursor_blink();
         }
     }
     fn leave(
@@ -944,7 +1035,7 @@ impl KeyboardHandler for LensApp {
     }
 }
 
-impl PointerHandler for LensApp {
+impl PointerHandler for LiftApp {
     fn pointer_frame(
         &mut self,
         _: &Connection,
@@ -1003,22 +1094,22 @@ impl PointerHandler for LensApp {
     }
 }
 
-impl ShmHandler for LensApp {
+impl ShmHandler for LiftApp {
     fn shm_state(&mut self) -> &mut Shm {
         &mut self._shm
     }
 }
 
-delegate_compositor!(LensApp);
-delegate_output!(LensApp);
-delegate_shm!(LensApp);
-delegate_layer!(LensApp);
-delegate_seat!(LensApp);
-delegate_keyboard!(LensApp);
-delegate_pointer!(LensApp);
-delegate_registry!(LensApp);
+delegate_compositor!(LiftApp);
+delegate_output!(LiftApp);
+delegate_shm!(LiftApp);
+delegate_layer!(LiftApp);
+delegate_seat!(LiftApp);
+delegate_keyboard!(LiftApp);
+delegate_pointer!(LiftApp);
+delegate_registry!(LiftApp);
 
-impl ProvidesRegistryState for LensApp {
+impl ProvidesRegistryState for LiftApp {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }

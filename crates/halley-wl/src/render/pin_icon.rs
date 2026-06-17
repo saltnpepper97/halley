@@ -90,6 +90,7 @@ pub(crate) fn draw_pin_badge(
         layout.radius.max(1),
         super::node::NodeRoundShape::Circle,
         alpha,
+        1.0,
         Color32F::new(fill.r(), fill.g(), fill.b(), 0.0),
         fill,
         false,
@@ -152,7 +153,7 @@ fn pin_glyph_rgb(tuning: &halley_config::RuntimeTuning) -> (f32, f32, f32) {
         }
         halley_config::OverlayColorMode::Light => (0.08, 0.10, 0.12),
         halley_config::OverlayColorMode::Dark => (0.94, 0.96, 0.98),
-        halley_config::OverlayColorMode::Fixed { r, g, b } => (r, g, b),
+        halley_config::OverlayColorMode::Fixed { r, g, b, .. } => (r, g, b),
     };
     (
         color.0.clamp(0.0, 1.0),
@@ -169,7 +170,7 @@ fn pin_badge_fill_rgb(tuning: &halley_config::RuntimeTuning) -> (f32, f32, f32) 
         }
         halley_config::OverlayColorMode::Light => (0.92, 0.95, 0.98),
         halley_config::OverlayColorMode::Dark => (0.15, 0.18, 0.22),
-        halley_config::OverlayColorMode::Fixed { r, g, b } => (r, g, b),
+        halley_config::OverlayColorMode::Fixed { r, g, b, .. } => (r, g, b),
     };
     (
         color.0.clamp(0.0, 1.0),
@@ -236,6 +237,7 @@ mod tests {
             r: 1.0,
             g: 0.5,
             b: 0.0,
+            a: 1.0,
         };
 
         assert_eq!(pin_rgba(&tuning), [255, 128, 0, 255]);
@@ -248,6 +250,7 @@ mod tests {
             r: 0.25,
             g: 0.5,
             b: 0.75,
+            a: 1.0,
         };
 
         assert_eq!(pin_badge_fill_rgb(&tuning), (0.25, 0.5, 0.75));

@@ -152,6 +152,42 @@ pub(crate) fn node_has_overlap_policy(st: &Halley, node_id: NodeId) -> bool {
         .is_some_and(|rule| rule.overlap_policy != InitialWindowOverlapPolicy::None)
 }
 
+/// Whether a client window should be drawn with backdrop blur this frame.
+///
+/// Combines the global `effects.blur` policy, the window's per-rule `blur`
+/// override, its resolved opacity, and an exclusion check for
+/// fullscreen/presentation/gamescope surfaces. See
+/// [`halley_config::window_blur_enabled`] for the precedence rules.
+pub(crate) fn node_wants_blur(st: &Halley, node_id: NodeId) -> bool {
+    let blur = &st.runtime.tuning.effects.blur;
+    if !blur.enabled {
+        return false;
+    }
+    let app_id = st.model.node_app_ids.get(&node_id).cloned();
+    let title = st.model.field.node(node_id).map(|node| node.label.clone());
+    let rule_blur =
+        super::rules::user_window_rule_blur_for_identity(st, app_id.as_deref(), title.as_deref());
+    let user_keybind_fullscreen = st
+        .model
+        .fullscreen_state
+        .fullscreen_origin
+        .get(&node_id)
+        .is_some_and(|origin| {
+            matches!(
+                origin,
+                crate::compositor::fullscreen::state::FullscreenOrigin::UserKeybind
+            )
+        });
+    let client_fullscreen = st.is_fullscreen_active(node_id) && !user_keybind_fullscreen;
+    let is_excluded = client_fullscreen
+        || node_has_overlap_policy(st, node_id)
+        || crate::window::node_is_game_like(st, node_id)
+        || app_id
+            .as_deref()
+            .is_some_and(|a| a.eq_ignore_ascii_case("gamescope"));
+    halley_config::window_blur_enabled(blur, rule_blur, node_rule_opacity(st, node_id), is_excluded)
+}
+
 pub(crate) fn node_rule_opacity(st: &Halley, node_id: NodeId) -> f32 {
     st.model
         .spawn_state
@@ -607,6 +643,7 @@ mod tests {
             titles: Vec::new(),
             initial_size: None,
             opacity: Some(0.5),
+            blur: None,
             overlap_policy: InitialWindowOverlapPolicy::None,
             spawn_placement: InitialWindowSpawnPlacement::Adjacent,
             cluster_participation: InitialWindowClusterParticipation::Layout,

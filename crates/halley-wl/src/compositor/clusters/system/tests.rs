@@ -326,7 +326,7 @@ fn cluster_mode_confirm_opens_name_prompt_before_creating() {
 }
 
 #[test]
-fn lens_finalize_prompt_selects_existing_matching_apps_without_banner() {
+fn lift_finalize_prompt_selects_existing_matching_apps_without_banner() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
     let now = Instant::now();
@@ -349,7 +349,7 @@ fn lens_finalize_prompt_selects_existing_matching_apps_without_banner() {
         .insert(second, "org.mozilla.firefox".to_string());
 
     assert!(
-        cluster_system_controller(&mut st).open_lens_cluster_finalize_draft(
+        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
             "monitor_a",
             Some("Browser".to_string()),
             vec!["org.mozilla.firefox.desktop".to_string()],
@@ -388,13 +388,91 @@ fn lens_finalize_prompt_selects_existing_matching_apps_without_banner() {
 }
 
 #[test]
-fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
+fn lift_finalize_cross_monitor_selection_centers_core_on_target_monitor() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, dual_monitor_tuning());
+    let now = Instant::now();
+
+    let first = st.model.field.spawn_surface(
+        "Left A",
+        Vec2 { x: 120.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    let second = st.model.field.spawn_surface(
+        "Left B",
+        Vec2 { x: 360.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    st.assign_node_to_monitor(first, "monitor_a");
+    st.assign_node_to_monitor(second, "monitor_a");
+
+    assert!(
+        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
+            "monitor_b",
+            Some("Cross".to_string()),
+            Vec::new(),
+            Vec::new(),
+            vec![first, second],
+            now,
+        )
+    );
+    assert!(
+        cluster_system_controller(&mut st)
+            .confirm_cluster_name_prompt_for_monitor("monitor_b", now,)
+    );
+
+    let cid = st
+        .model
+        .field
+        .cluster_ids()
+        .into_iter()
+        .next()
+        .expect("cluster");
+    let core = st
+        .model
+        .field
+        .cluster(cid)
+        .and_then(|cluster| cluster.core)
+        .expect("core");
+    let target = st.view_center_for_monitor("monitor_b");
+    let pos = core_pos(&st, core);
+
+    assert_close(pos.x, target.x);
+    assert_close(pos.y, target.y);
+    assert_eq!(
+        st.model
+            .monitor_state
+            .node_monitor
+            .get(&core)
+            .map(String::as_str),
+        Some("monitor_b")
+    );
+    assert_eq!(
+        st.model
+            .monitor_state
+            .node_monitor
+            .get(&first)
+            .map(String::as_str),
+        Some("monitor_b")
+    );
+    assert_eq!(
+        st.model
+            .monitor_state
+            .node_monitor
+            .get(&second)
+            .map(String::as_str),
+        Some("monitor_b")
+    );
+}
+
+#[test]
+fn lift_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
     let now = Instant::now();
 
     assert!(
-        cluster_system_controller(&mut st).open_lens_cluster_finalize_draft(
+        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
             "monitor_a",
             Some("Work".to_string()),
             vec!["alpha.desktop".to_string(), "beta.desktop".to_string()],
@@ -419,7 +497,7 @@ fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     assert!(
         st.model
             .cluster_state
-            .pending_lens_cluster_builds
+            .pending_lift_cluster_builds
             .contains_key("monitor_a")
     );
     assert_eq!(st.model.field.cluster_ids().len(), 0);
@@ -438,7 +516,7 @@ fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     st.assign_node_to_monitor(beta, "monitor_a");
 
     assert!(
-        cluster_system_controller(&mut st).maybe_add_node_to_lens_cluster_finalize_draft(
+        cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
             "monitor_a",
             alpha,
             "alpha",
@@ -446,7 +524,7 @@ fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     );
     assert_eq!(st.model.field.cluster_ids().len(), 0);
     assert!(
-        cluster_system_controller(&mut st).maybe_add_node_to_lens_cluster_finalize_draft(
+        cluster_system_controller(&mut st).maybe_add_node_to_lift_cluster_finalize_draft(
             "monitor_a",
             beta,
             "beta",
@@ -457,11 +535,67 @@ fn lens_finalize_launches_after_confirm_and_absorbs_matching_windows() {
     assert!(
         !st.model
             .cluster_state
-            .pending_lens_cluster_builds
+            .pending_lift_cluster_builds
             .contains_key("monitor_a")
     );
     assert!(st.model.field.cluster_id_for_member_public(alpha).is_some());
     assert!(st.model.field.cluster_id_for_member_public(beta).is_some());
+}
+
+#[test]
+fn lift_finalize_pending_completion_does_not_show_ready_toast() {
+    let dh = Display::<Halley>::new().expect("display").handle();
+    let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
+    let now = Instant::now();
+
+    let alpha = st.model.field.spawn_surface(
+        "Alpha",
+        Vec2 { x: 160.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    let beta = st.model.field.spawn_surface(
+        "Beta",
+        Vec2 { x: 460.0, y: 160.0 },
+        Vec2 { x: 220.0, y: 160.0 },
+    );
+    st.assign_node_to_monitor(alpha, "monitor_a");
+    st.assign_node_to_monitor(beta, "monitor_a");
+    st.model.node_app_ids.insert(alpha, "alpha".to_string());
+    st.model.node_app_ids.insert(beta, "beta".to_string());
+
+    assert!(
+        cluster_system_controller(&mut st).open_lift_cluster_finalize_draft(
+            "monitor_a",
+            Some("Work".to_string()),
+            Vec::new(),
+            vec![
+                crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                    app_id: "alpha.desktop".to_string(),
+                    command: "true".to_string(),
+                },
+                crate::compositor::clusters::state::ClusterFinalizeAppLaunch {
+                    app_id: "beta.desktop".to_string(),
+                    command: "true".to_string(),
+                },
+            ],
+            Vec::new(),
+            now,
+        )
+    );
+    assert!(
+        cluster_system_controller(&mut st)
+            .confirm_cluster_name_prompt_for_monitor("monitor_a", now,)
+    );
+    assert_eq!(st.model.field.cluster_ids().len(), 1);
+    assert_eq!(
+        st.ui
+            .render_state
+            .overlays
+            .overlay_toast
+            .get("monitor_a")
+            .and_then(|toast| toast.message.as_deref()),
+        None
+    );
 }
 
 #[test]

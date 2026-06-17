@@ -12,9 +12,9 @@ use crate::keybinds::{
 use super::{
     AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
     CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
-    DecorationsConfig, FontConfig, GamescopeConfig, InputConfig, NodeBackgroundColorMode,
-    NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig, PanToNewMode, PinsConfig,
-    PlacementConfig, RuntimeTuning, ScreenshotConfig, ShapeStyle,
+    DecorationsConfig, EffectsConfig, FontConfig, GamescopeConfig, InputConfig,
+    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
+    PanToNewMode, PinsConfig, PlacementConfig, RuntimeTuning, ScreenshotConfig, ShapeStyle,
 };
 
 impl Default for RuntimeTuning {
@@ -38,10 +38,12 @@ impl Default for RuntimeTuning {
             node_shape: ShapeStyle::Squircle,
             node_label_shape: ShapeStyle::Squircle,
             node_icon_size: 0.72,
+            node_opacity: 1.0,
             node_background_color: NodeBackgroundColorMode::Auto,
             node_border_color_hover: NodeBorderColorMode::UseWindowActive,
             node_border_color_inactive: NodeBorderColorMode::UseWindowInactive,
             decorations: DecorationsConfig::default(),
+            effects: EffectsConfig::default(),
             click_collapsed_outside_focus: ClickCollapsedOutsideFocusMode::Activate,
             click_collapsed_pan: ClickCollapsedPanMode::IfOffscreen,
             bearings: BearingsConfig {
@@ -49,6 +51,7 @@ impl Default for RuntimeTuning {
                 show_icons: true,
                 show_pinned: true,
                 fade_distance: 1200.0,
+                blur: true,
             },
 
             cluster_distance_px: 280.0,

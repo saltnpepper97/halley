@@ -37,7 +37,7 @@ pub enum OverlayColorMode {
     Auto,
     Light,
     Dark,
-    Fixed { r: f32, g: f32, b: f32 },
+    Fixed { r: f32, g: f32, b: f32, a: f32 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -85,6 +85,7 @@ pub struct OverlayStyleConfig {
     pub shape: OverlayShape,
     pub borders: bool,
     pub border_source: OverlayBorderSource,
+    pub blur: bool,
 }
 
 impl Default for OverlayStyleConfig {
@@ -96,10 +97,12 @@ impl Default for OverlayStyleConfig {
                 r: 0xfb as f32 / 255.0,
                 g: 0x49 as f32 / 255.0,
                 b: 0x34 as f32 / 255.0,
+                a: 1.0,
             },
             shape: OverlayShape::Square,
             borders: true,
             border_source: OverlayBorderSource::Primary,
+            blur: true,
         }
     }
 }
@@ -159,11 +162,18 @@ pub struct WindowCloseAnimationConfig {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RaiseAnimationTrigger {
+    Always,
+    Overlap,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RaiseAnimationConfig {
     pub enabled: bool,
     pub duration_ms: u64,
     pub scale: f32,
     pub shadow_boost: f32,
+    pub trigger: RaiseAnimationTrigger,
 }
 
 impl RaiseAnimationConfig {
@@ -173,6 +183,7 @@ impl RaiseAnimationConfig {
             duration_ms,
             scale,
             shadow_boost,
+            trigger: RaiseAnimationTrigger::Always,
         }
     }
 }
@@ -287,11 +298,198 @@ pub struct ShadowsConfig {
     pub overlay: ShadowLayerConfig,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClientBlurMode {
+    Off,
+    Auto,
+    Always,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BlurMethod {
+    DualKawase,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BlurConfig {
+    pub enabled: bool,
+    pub overlays: bool,
+    pub windows: ClientBlurMode,
+    pub layer_shell: ClientBlurMode,
+    pub method: BlurMethod,
+    pub radius: f32,
+    pub passes: u32,
+    pub saturation: f32,
+    pub noise: f32,
+}
+
+impl Default for BlurConfig {
+    fn default() -> Self {
+        Self {
+            // Conservative: blur is opt-in so upgrading users do not pay a new
+            // GPU cost unless they ask for it. The shipped template/config turns
+            // it on explicitly.
+            enabled: false,
+            overlays: true,
+            windows: ClientBlurMode::Auto,
+            layer_shell: ClientBlurMode::Off,
+            method: BlurMethod::DualKawase,
+            radius: 24.0,
+            passes: 3,
+            saturation: 1.10,
+            noise: 0.012,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EffectsConfig {
+    pub blur: BlurConfig,
+    pub shadows: ShadowsConfig,
+}
+
+impl Default for EffectsConfig {
+    fn default() -> Self {
+        Self {
+            blur: BlurConfig::default(),
+            shadows: ShadowsConfig::default(),
+        }
+    }
+}
+
+/// Whether a compositor-owned overlay should be drawn with backdrop blur.
+///
+/// Requires global blur on, the overlay channel allowed globally, and the
+/// overlay style opting in.
+pub fn overlay_blur_enabled(blur: &BlurConfig, overlay_style: &OverlayStyleConfig) -> bool {
+    blur.enabled && blur.overlays && overlay_style.blur
+}
+
+/// Whether a client window should be drawn with backdrop blur.
+///
+/// Policy (rule-level `blur false` always wins; rule-level `blur true` can opt a
+/// window in even when the global window mode is `off`/`auto`):
+/// - global blur off, or surface excluded (fullscreen/presentation/video/
+///   gamescope) -> never blur.
+/// - rule `blur false` -> never blur.
+/// - rule `blur true` -> always blur.
+/// - otherwise by window mode: `off` -> no; `always` -> yes; `auto` -> only when
+///   the surface is actually translucent (blur would matter).
+pub fn window_blur_enabled(
+    blur: &BlurConfig,
+    rule_blur: Option<bool>,
+    opacity: f32,
+    is_excluded: bool,
+) -> bool {
+    if !blur.enabled || is_excluded {
+        return false;
+    }
+    match rule_blur {
+        Some(false) => false,
+        Some(true) => true,
+        None => match blur.windows {
+            ClientBlurMode::Off => false,
+            ClientBlurMode::Always => true,
+            ClientBlurMode::Auto => opacity < 0.999,
+        },
+    }
+}
+
+#[cfg(test)]
+mod blur_policy_tests {
+    use super::*;
+
+    fn blur(enabled: bool, windows: ClientBlurMode) -> BlurConfig {
+        BlurConfig {
+            enabled,
+            windows,
+            layer_shell: ClientBlurMode::Off,
+            ..BlurConfig::default()
+        }
+    }
+
+    #[test]
+    fn overlay_blur_requires_all_three_gates() {
+        let mut style = OverlayStyleConfig::default();
+        let mut b = BlurConfig::default();
+        b.enabled = true;
+        b.overlays = true;
+        style.blur = true;
+        assert!(overlay_blur_enabled(&b, &style));
+
+        style.blur = false;
+        assert!(!overlay_blur_enabled(&b, &style));
+
+        style.blur = true;
+        b.overlays = false;
+        assert!(!overlay_blur_enabled(&b, &style));
+
+        b.overlays = true;
+        b.enabled = false;
+        assert!(!overlay_blur_enabled(&b, &style));
+    }
+
+    #[test]
+    fn window_blur_global_off_disables_everything() {
+        let b = blur(false, ClientBlurMode::Always);
+        assert!(!window_blur_enabled(&b, Some(true), 0.5, false));
+        assert!(!window_blur_enabled(&b, None, 0.5, false));
+    }
+
+    #[test]
+    fn window_blur_excluded_surface_never_blurs() {
+        let b = blur(true, ClientBlurMode::Always);
+        assert!(!window_blur_enabled(&b, Some(true), 0.5, true));
+    }
+
+    #[test]
+    fn window_blur_rule_false_always_wins() {
+        for mode in [
+            ClientBlurMode::Off,
+            ClientBlurMode::Auto,
+            ClientBlurMode::Always,
+        ] {
+            let b = blur(true, mode);
+            assert!(!window_blur_enabled(&b, Some(false), 0.5, false));
+        }
+    }
+
+    #[test]
+    fn window_blur_rule_true_opts_in_under_off_and_auto() {
+        for mode in [
+            ClientBlurMode::Off,
+            ClientBlurMode::Auto,
+            ClientBlurMode::Always,
+        ] {
+            let b = blur(true, mode);
+            assert!(window_blur_enabled(&b, Some(true), 1.0, false));
+        }
+    }
+
+    #[test]
+    fn window_blur_mode_off_without_rule_is_no() {
+        let b = blur(true, ClientBlurMode::Off);
+        assert!(!window_blur_enabled(&b, None, 0.5, false));
+    }
+
+    #[test]
+    fn window_blur_mode_always_blurs_eligible() {
+        let b = blur(true, ClientBlurMode::Always);
+        assert!(window_blur_enabled(&b, None, 1.0, false));
+    }
+
+    #[test]
+    fn window_blur_mode_auto_only_when_translucent() {
+        let b = blur(true, ClientBlurMode::Auto);
+        assert!(window_blur_enabled(&b, None, 0.85, false));
+        assert!(!window_blur_enabled(&b, None, 1.0, false));
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DecorationsConfig {
     pub border: PrimaryBorderConfig,
     pub secondary_border: SecondaryBorderConfig,
-    pub shadows: ShadowsConfig,
     pub resize_using_border: bool,
 }
 
@@ -385,7 +583,6 @@ impl Default for DecorationsConfig {
         Self {
             border: PrimaryBorderConfig::default(),
             secondary_border: SecondaryBorderConfig::default(),
-            shadows: ShadowsConfig::default(),
             resize_using_border: false,
         }
     }
@@ -804,6 +1001,9 @@ pub struct BearingsConfig {
     pub show_icons: bool,
     pub show_pinned: bool,
     pub fade_distance: f32,
+    /// Frosted-glass backdrop blur behind each bearing chip. Also requires the
+    /// global overlay blur (`effects.blur.overlays`) to be enabled.
+    pub blur: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -924,6 +1124,7 @@ pub struct WindowRule {
     pub titles: Vec<WindowRulePattern>,
     pub initial_size: Option<(u32, u32)>,
     pub opacity: Option<f32>,
+    pub blur: Option<bool>,
     pub overlap_policy: InitialWindowOverlapPolicy,
     pub spawn_placement: InitialWindowSpawnPlacement,
     pub cluster_participation: InitialWindowClusterParticipation,

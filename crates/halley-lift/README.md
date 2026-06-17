@@ -16,7 +16,7 @@ halley-lift /cluster release
 
 ## Search Prefixes
 
-Lens searches everything by default. Prefixing the query with a provider name filters results without changing the search text into a badge.
+Lift searches everything by default. Prefixing the query with a provider name filters results without changing the search text into a badge.
 
 Supported modes:
 
@@ -26,6 +26,7 @@ cluster /cluster /clusters /c
 node /node /nodes /n
 action /actions
 config /config
+term /term /t
 ```
 
 Example:
@@ -35,6 +36,14 @@ cluster release
 ```
 
 searches clusters for `release` while leaving the full text visible in the search field.
+
+`term`/`/term`/`/t` runs the typed command line in the configured `terminal` through your
+interactive `$SHELL` (so aliases, pipes, and `&&` work), keeps a shell open afterward, and then
+closes Lift:
+
+```text
+term journalctl -f | grep halley
+```
 
 ## Cluster Drafts
 
@@ -46,28 +55,28 @@ After at least one item is staged in cluster mode, `Ctrl+Enter` or activating `C
 Cluster Draft: release · 3 selected
 ```
 
-At that point Lens opens Halley's existing Cluster Finalize popup with a name hint and selected running node IDs. Staged apps are launched only during this handoff, and the compositor auto-selects matching newly appearing nodes while that finalize prompt is active.
+At that point Lift opens Halley's existing Cluster Finalize popup with a name hint and selected running node IDs. Staged apps are launched only during this handoff, and the compositor auto-selects matching newly appearing nodes while that finalize prompt is active.
 
-Lens does not directly persist clusters. The finalize popup owns naming, confirmation, and final creation.
+Lift does not directly persist clusters. The finalize popup owns naming, confirmation, and final creation.
 
 ## Pins
 
-Lens does not keep its own favorites database. Field/Bearings-pinned nodes come from Halley and rank above normal matching nodes.
+Lift does not keep its own favorites database. Field/Bearings-pinned nodes come from Halley and rank above normal matching nodes.
 
 ## Config
 
 Config path:
 
 ```text
-~/.config/halley/lens.rune
+~/.config/halley/lift.rune
 ```
 
-Example config lives at `examples/lens.rune`.
+Example config lives at `examples/lift.rune`.
 
 Useful layout keys:
 
 ```rune
-lens:
+lift:
   placeholder "Search apps, nodes, clusters, actions..."
   width 760
   max-results 40
@@ -109,6 +118,26 @@ lens:
     accent "#8fb5ff"
     badge "#334875f2"
     danger "#eb9a8f"
+    search-icon "" # magnifier tint; empty = follow `hint`
+  end
+
+  border:
+    enabled true
+    width 1          # thickness in px
+    style "outline"  # "outline" wraps the whole app; "inset" borders only the results
+  end
+
+  search-icon:
+    enabled true
+    side "left"      # "left" or "right" of the search text
+    size 22
+  end
+
+  cursor:
+    enabled true
+    width 2
+    blink-ms 500
+    stop-blink-after-ms 5000
   end
 
   ui:
@@ -129,10 +158,10 @@ lens:
 end
 ```
 
-`max-results` controls how many results Lens computes. `visible-results` controls how many rows are visible at once; keyboard selection scrolls through the full result set.
+`max-results` controls how many results Lift computes. `visible-results` controls how many rows are visible at once; keyboard selection scrolls through the full result set.
 
-App icons are read from `.desktop` `Icon=` entries and resolved lazily from common XDG icon locations while drawing visible rows. Lens builds a broader icon index only after the first draw, then refreshes cached misses. PNG, JPEG, and SVG icons are supported. Missing icons fall back to built-in glyphs.
+App icons are read from `.desktop` `Icon=` entries and resolved lazily from common XDG icon locations while drawing visible rows. Lift builds a broader icon index only after the first draw, then refreshes cached misses. PNG, JPEG, and SVG icons are supported. Missing icons fall back to built-in glyphs.
 
 `terminal` is prepended to `.desktop` apps with `Terminal=true`, so terminal apps such as `micro` or `nvim` open in the configured terminal.
 
-Mouse support includes hover selection, row click activation, and wheel navigation inside the Lens panel. Empty general search shows only the rounded search bar; typing or entering a slash mode expands a connected results body below it. Keyboard navigation supports held direction keys, Left/Right, PageUp/PageDown, Home/End, and Alt+1 through Alt+0 visible-row activation.
+Mouse support includes hover selection, row click activation, and wheel navigation inside the Lift panel. Empty general search shows only the rounded search bar; typing or entering a slash mode expands a connected results body below it. Keyboard navigation supports held direction keys, Left/Right, PageUp/PageDown, Home/End, and Alt+1 through Alt+0 visible-row activation.

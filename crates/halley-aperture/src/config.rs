@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt;
+use std::path::Path;
 
 use rune_cfg::RuneConfig;
 
@@ -132,6 +133,9 @@ pub struct AperturePeekConfig {
     pub background: PeekBackgroundColor,
     pub radius_px: u32,
     pub clock: ClockConfig,
+    /// Frosted-glass backdrop blur behind the peek panel. Applied by the
+    /// compositor's layer-shell blur path; the standalone renderer ignores it.
+    pub blur: bool,
 }
 
 impl Default for AperturePeekConfig {
@@ -141,6 +145,7 @@ impl Default for AperturePeekConfig {
             background: PeekBackgroundColor::default(),
             radius_px: 24,
             clock: ClockConfig::default(),
+            blur: true,
         }
     }
 }
@@ -182,7 +187,18 @@ impl ApertureConfig {
         let cfg = RuneConfig::from_str(raw).map_err(|err| {
             ApertureConfigError::new(format!("aperture config parse error: {err}"))
         })?;
+        Ok(Self::from_rune_config(cfg))
+    }
 
+    /// Load from a file path, resolving `gather` imports (e.g. pywal colours).
+    pub fn parse_file(path: &Path) -> Result<Self, ApertureConfigError> {
+        let cfg = RuneConfig::from_file(path).map_err(|err| {
+            ApertureConfigError::new(format!("aperture config parse error: {err}"))
+        })?;
+        Ok(Self::from_rune_config(cfg))
+    }
+
+    fn from_rune_config(cfg: RuneConfig) -> Self {
         let mut out = Self::default();
         out.placement = pick_string(&cfg, &["aperture.placement"])
             .as_deref()
@@ -202,6 +218,7 @@ impl ApertureConfig {
             ],
             out.peek.background,
         );
+        out.peek.blur = pick_bool(&cfg, &["aperture-peek.blur"], out.peek.blur);
         out.peek.radius_px = pick_u32(
             &cfg,
             &[
@@ -281,8 +298,17 @@ impl ApertureConfig {
             out.peek.clock.color,
         );
 
-        Ok(out)
+        out
     }
+}
+
+fn pick_bool(cfg: &RuneConfig, paths: &[&str], default: bool) -> bool {
+    for path in paths {
+        if let Ok(Some(value)) = cfg.get_optional::<bool>(path) {
+            return value;
+        }
+    }
+    default
 }
 
 fn pick_u32(cfg: &RuneConfig, paths: &[&str], default: u32) -> u32 {

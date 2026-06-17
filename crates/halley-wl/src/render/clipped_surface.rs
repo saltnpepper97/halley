@@ -150,6 +150,7 @@ impl RenderElement<GlesRenderer> for ClippedSurfaceRenderElement {
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
         opaque_regions: &[Rectangle<i32, Physical>],
+        _cache: Option<&smithay::utils::user_data::UserDataMap>,
     ) -> Result<(), GlesError> {
         match self.inner.texture() {
             WaylandSurfaceTexture::Texture(texture) => {

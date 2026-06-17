@@ -357,9 +357,23 @@ pub(crate) fn draw_bearings(
 ) -> Result<(), Box<dyn Error>> {
     let rounded = st.runtime.tuning.window_border_radius_px() > 0;
     let (chip_fill_color, chip_text_color) = overlay_fill_and_text_colors(&st.runtime.tuning);
+    let blur = st.runtime.tuning.bearings.blur;
     for layout in layouts {
         if layout.alpha <= 0.002 {
             continue;
+        }
+
+        // Frosted backdrop behind the chip. Pass the chip's own fade alpha so the
+        // blur recedes in lockstep with the bearing as the node goes far. Skip the
+        // (full-framebuffer) capture once the chip is nearly invisible.
+        if blur && layout.alpha >= 0.04 {
+            crate::overlay::draw_overlay_backdrop_blur(
+                frame,
+                layout.chip_rect,
+                if rounded { 11.0 } else { 0.0 },
+                damage,
+                layout.alpha,
+            )?;
         }
 
         draw_shader_label(

@@ -54,6 +54,13 @@ rules:
     spawn-placement "center"
     cluster-participation "float"
   end
+
+  # Per-window backdrop blur override (requires effects.blur enabled).
+  rule:
+    app-id "Alacritty"
+    opacity 0.86
+    blur true
+  end
 end
 
 debug:

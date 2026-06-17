@@ -19,6 +19,7 @@ impl RuntimeTuning {
         self.primary_hot_inner_frac = self.primary_hot_inner_frac.clamp(0.1, 1.0);
         self.primary_to_node_ms = self.primary_to_node_ms.clamp(250, 7_200_000);
         self.node_icon_size = self.node_icon_size.clamp(0.35, 0.95);
+        self.node_opacity = self.node_opacity.clamp(0.0, 1.0);
         self.decorations.border.size_px = self.decorations.border.size_px.clamp(0, 64);
         self.decorations.border.radius_px = self.decorations.border.radius_px.clamp(0, 256);
         self.decorations.secondary_border.size_px =
@@ -26,9 +27,9 @@ impl RuntimeTuning {
         self.decorations.secondary_border.gap_px =
             self.decorations.secondary_border.gap_px.clamp(0, 8);
         for shadow in [
-            &mut self.decorations.shadows.window,
-            &mut self.decorations.shadows.node,
-            &mut self.decorations.shadows.overlay,
+            &mut self.effects.shadows.window,
+            &mut self.effects.shadows.node,
+            &mut self.effects.shadows.overlay,
         ] {
             shadow.blur_radius = shadow.blur_radius.clamp(0.0, 256.0);
             shadow.spread = shadow.spread.clamp(0.0, 256.0);
@@ -39,6 +40,10 @@ impl RuntimeTuning {
             shadow.color.b = shadow.color.b.clamp(0.0, 1.0);
             shadow.color.a = shadow.color.a.clamp(0.0, 1.0);
         }
+        self.effects.blur.radius = self.effects.blur.radius.clamp(0.0, 64.0);
+        self.effects.blur.passes = self.effects.blur.passes.clamp(1, 5);
+        self.effects.blur.saturation = self.effects.blur.saturation.clamp(0.0, 4.0);
+        self.effects.blur.noise = self.effects.blur.noise.clamp(0.0, 1.0);
         self.bearings.fade_distance = self.bearings.fade_distance.clamp(120.0, 100_000.0);
 
         self.cluster_distance_px = self.cluster_distance_px.clamp(24.0, 4_000.0);

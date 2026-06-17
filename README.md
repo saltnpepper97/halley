@@ -215,6 +215,14 @@ On first launch Halley bootstraps `~/.config/halley/halley.rune` for you from an
 
 Handled by `crates/halley-config`. Covers input settings like repeat/focus mode, keybinds, focus ring shape and size, decay threshold, max windows per Field, viewports, autostart programs and much **more**.
 
+## Community / Support
+
+Halley has a Discord for practical support, bug triage, release updates, packaging discussion, and focused contributor coordination.
+
+Halley remains maintainer-directed. Discord is not a roadmap vote or public steering committee. Please read the rules and start in `#intake` so you can be routed to support, config help, bugs, packaging, contributing, or release-only updates.
+
+Join the Discord: https://discord.gg/cjutpDv6q
+
 ## Contributing
 
 View the [contributing](CONTRIBUTING.md) guidelines before making any pull requests.

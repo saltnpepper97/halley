@@ -76,7 +76,8 @@ impl RuntimeTuning {
         let template = Self::render_fresh_config(tty_viewports);
         let mut existing_doc = parse_scope(raw);
         let template_doc = parse_scope(template.as_str());
-        let mut changed = merge_non_keybind_sections(&mut existing_doc, &template_doc);
+        let mut changed = migrate_legacy_sections(&mut existing_doc);
+        changed |= merge_non_keybind_sections(&mut existing_doc, &template_doc);
         changed |= merge_keybinds(&mut existing_doc, &template_doc, raw)?;
 
         if !changed {
@@ -85,6 +86,62 @@ impl RuntimeTuning {
 
         Ok(Some(existing_doc.render()))
     }
+}
+
+/// Rewrite config blocks that moved between releases so existing user files keep
+/// working after a structural change.
+///
+/// `decorations.shadows` was relocated to `effects.shadows`. We move the user's
+/// existing shadows block (preserving their customized values) rather than drop
+/// it; the later template merge fills in any new `effects.blur` defaults.
+fn migrate_legacy_sections(existing: &mut ParsedScope) -> bool {
+    let mut changed = false;
+
+    let Some(decorations) = find_section_mut(existing, "decorations") else {
+        return changed;
+    };
+    let Some(shadows) = take_subsection(&mut decorations.body, "shadows") else {
+        return changed;
+    };
+    changed = true;
+
+    // Land it under `effects:`, preferring an existing effects.shadows if the
+    // user somehow already has one.
+    if let Some(effects) = find_section_mut(existing, "effects") {
+        if find_section(&effects.body, "shadows").is_none() {
+            let mut item = shadows;
+            item.leading = String::from("\n");
+            effects.body.items.push(item);
+        }
+        return changed;
+    }
+
+    let mut effects_body = ParsedScope {
+        items: vec![shadows],
+        suffix: String::new(),
+    };
+    if let Some(first) = effects_body.items.first_mut() {
+        first.leading = String::new();
+    }
+    existing.items.push(ScopeItem {
+        leading: String::from("\n"),
+        kind: ScopeItemKind::Section(SectionItem {
+            name: String::from("effects"),
+            header_line: String::from("effects:"),
+            body: effects_body,
+            end_line: String::from("end"),
+        }),
+    });
+
+    changed
+}
+
+/// Remove and return a named sub-section from a scope body, if present.
+fn take_subsection(scope: &mut ParsedScope, name: &str) -> Option<ScopeItem> {
+    let idx = scope.items.iter().position(
+        |item| matches!(&item.kind, ScopeItemKind::Section(section) if section.name == name),
+    )?;
+    Some(scope.items.remove(idx))
 }
 
 fn merge_non_keybind_sections(existing: &mut ParsedScope, template: &ParsedScope) -> bool {
@@ -426,6 +483,7 @@ end
         assert!(updated.contains("  fullscreen:\n    enabled true"));
         assert!(updated.contains("    duration-ms 240"));
         assert!(updated.contains("  raise:\n    enabled true\n    duration-ms 140"));
+        assert!(updated.contains("    trigger \"always\""));
         assert!(updated.contains("smooth-resize:\n    enabled true\n    duration-ms 90"));
     }
 
@@ -552,7 +610,7 @@ end
     }
 
     #[test]
-    fn updater_adds_missing_decoration_shadow_defaults() {
+    fn updater_injects_effects_block_with_blur_and_shadows() {
         let raw = r##"
 decorations:
   border:
@@ -570,12 +628,72 @@ end
             .expect("config should update")
             .expect("config should change");
 
+        assert!(updated.contains("effects:"));
+        assert!(updated.contains("  blur:"));
+        assert!(updated.contains("    layer-shell \"off\""));
         assert!(updated.contains("  shadows:\n    window:"));
         assert!(updated.contains("      blur-radius 8"));
         assert!(updated.contains("      colour \"#05030530\""));
         assert!(updated.contains("    node:\n      enabled true\n      blur-radius 14"));
         assert!(updated.contains("    overlay:\n      enabled true\n      blur-radius 24"));
         assert!(updated.contains("      colour \"#05030538\""));
+        // The migrated config must parse and validate cleanly.
+        assert!(RuntimeTuning::from_rune_str(&updated).is_some());
+    }
+
+    #[test]
+    fn updater_migrates_decorations_shadows_to_effects() {
+        let raw = r##"
+decorations:
+  border:
+    size 3
+    radius 0
+    colour-focused "#d65d26"
+    colour-unfocused "#333333"
+  end
+
+  shadows:
+    window:
+      enabled true
+      blur-radius 10
+      spread 10
+      offset-x 0
+      offset-y 5
+      colour "#05030520"
+    end
+  end
+
+  resize-using-border true
+end
+"##;
+
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        // shadows must no longer live under decorations...
+        let decorations_block = updated
+            .split("decorations:")
+            .nth(1)
+            .and_then(|rest| rest.split("\nend").next())
+            .unwrap_or_default();
+        assert!(!decorations_block.contains("shadows:"));
+
+        // ...and the user's customized values must survive under effects.shadows.
+        assert!(updated.contains("effects:"));
+        assert!(updated.contains("  shadows:\n    window:"));
+        assert!(updated.contains("blur-radius 10"));
+        assert!(updated.contains("spread 10"));
+        // The template merge should also have added effects.blur defaults.
+        assert!(updated.contains("  blur:"));
+        assert!(updated.contains("windows \"auto\""));
+        assert!(updated.contains("layer-shell \"off\""));
+
+        let parsed = parse_scope(updated.as_str());
+        assert!(find_section(&parsed, "decorations").is_some());
+        let effects = find_section(&parsed, "effects").expect("effects section present");
+        assert!(find_section(&effects.body, "shadows").is_some());
+        assert!(find_section(&effects.body, "blur").is_some());
     }
 
     #[test]

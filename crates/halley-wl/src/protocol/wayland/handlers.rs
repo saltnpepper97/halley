@@ -90,16 +90,12 @@ impl IdleNotifierHandler for Halley {
 }
 
 impl DataDeviceHandler for Halley {
-    fn data_device_state(&self) -> &DataDeviceState {
-        &self.platform.data_device_state
+    fn data_device_state(&mut self) -> &mut DataDeviceState {
+        &mut self.platform.data_device_state
     }
 }
 
-impl ClientDndGrabHandler for Halley {}
-
-impl ServerDndGrabHandler for Halley {
-    fn send(&mut self, _mime_type: String, _fd: std::os::unix::io::OwnedFd, _seat: Seat<Self>) {}
-}
+impl WaylandDndGrabHandler for Halley {}
 
 delegate_data_device!(Halley);
 
@@ -253,16 +249,16 @@ impl PointerConstraintsHandler for Halley {
 mod tests {}
 
 impl PrimarySelectionHandler for Halley {
-    fn primary_selection_state(&self) -> &PrimarySelectionState {
-        &self.platform.primary_selection_state
+    fn primary_selection_state(&mut self) -> &mut PrimarySelectionState {
+        &mut self.platform.primary_selection_state
     }
 }
 
 delegate_primary_selection!(Halley);
 
 impl DataControlHandler for Halley {
-    fn data_control_state(&self) -> &DataControlState {
-        &self.platform.data_control_state
+    fn data_control_state(&mut self) -> &mut DataControlState {
+        &mut self.platform.data_control_state
     }
 }
 

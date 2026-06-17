@@ -293,7 +293,7 @@ fn draw_screenshot_menu(
     draw_shadow_rect(
         frame,
         overlay.render_state,
-        overlay.tuning.decorations.shadows.overlay,
+        overlay.tuning.effects.shadows.overlay,
         bar_rect,
         if style.rounded {
             style.bar_corner_radius

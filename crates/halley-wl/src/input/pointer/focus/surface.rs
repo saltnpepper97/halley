@@ -136,8 +136,7 @@ fn popup_focus_for_screen(
             .get(&node_id)
             .map(|&(x, y, w, h)| (x, y, w.max(1.0), h.max(1.0)))
             .unwrap_or_else(|| {
-                top.current_state()
-                    .size
+                top.with_committed_state(|state| state.and_then(|state| state.size))
                     .map(|sz| (0.0, 0.0, sz.w.max(1) as f32, sz.h.max(1) as f32))
                     .unwrap_or((
                         0.0,

@@ -9,7 +9,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::{Bind, Color32F, ExportMem, Frame, Offscreen, Renderer};
 use smithay::utils::{Buffer, Rectangle, Transform};
 
-use crate::compositor::spawn::state::node_rule_opacity;
+use crate::compositor::spawn::state::{node_rule_opacity, node_wants_blur};
 use crate::render::{
     draw_offscreen_textures, draw_window_borders, ensure_node_circle_resources,
     ensure_window_texture_program,
@@ -209,6 +209,7 @@ pub(crate) fn capture_closing_window_animation(
     let offscreen = OffscreenNodeTexture {
         texture,
         alpha: opacity,
+        blur: node_wants_blur(st, node_id),
         corner_radius: decoration_metrics.content_corner_radius_px as f32,
         src_x,
         src_y,
@@ -292,6 +293,7 @@ pub(crate) fn capture_window_to_png_via_renderer(
                 damage,
                 &offscreen_textures,
                 st.ui.render_state.gpu.window_texture_program.as_ref(),
+                None,
             )?;
             draw_window_borders(&mut frame, bounds.size, damage, &border_rects, st)?;
             let _ = frame.finish()?;

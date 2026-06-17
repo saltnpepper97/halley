@@ -4,7 +4,8 @@ use halley_core::field::Vec2;
 use halley_core::viewport::FocusRing;
 use smithay::{
     backend::renderer::{
-        Color32F, Frame, Texture,
+        Bind, Color32F, Frame, FrameContext, Renderer, Texture,
+        element::utils::{Relocate, RelocateRenderElement},
         gles::{GlesFrame, GlesTexProgram, Uniform},
         utils::draw_render_elements,
     },
@@ -24,12 +25,130 @@ use crate::compositor::root::Halley;
 use crate::overlay::{
     OverlayView, draw_cluster_bloom, draw_cluster_overflow_promotion, draw_cluster_overflow_strip,
     draw_cluster_selection_markers, draw_monitor_hud, draw_overlay_hover_label,
+    draw_overlay_hover_preview_card,
 };
 use crate::presentation::world_to_screen;
+use crate::render::blur::{BlurTextures, capture_current_framebuffer_blur_patch};
+use crate::render::layer_shell::LayerSurfaceRenderGroup;
 use crate::render::shadow::draw_shadow_rect;
 use crate::window::{
     ActiveBorderRect, OffscreenNodeTexture, StackWindowDrawUnit, WindowShadowRect,
 };
+
+pub(crate) struct FrameBlurContext<'a> {
+    pub(super) textures: &'a mut BlurTextures,
+    pub(super) down_program: &'a GlesTexProgram,
+    pub(super) up_program: &'a GlesTexProgram,
+    pub(super) composite_program: &'a GlesTexProgram,
+    pub(super) masked_composite_program: &'a GlesTexProgram,
+    pub(super) offset: f32,
+    pub(super) saturation: f32,
+    pub(super) noise: f32,
+    pub(super) layer_mask_texture: Option<&'a mut smithay::backend::renderer::gles::GlesTexture>,
+}
+
+impl FrameBlurContext<'_> {
+    pub(crate) fn draw_patch(
+        &mut self,
+        frame: &mut GlesFrame<'_, '_>,
+        damage: Rectangle<i32, Physical>,
+        dst: Rectangle<i32, Physical>,
+        corner_radius: f32,
+        alpha: f32,
+    ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+        capture_current_framebuffer_blur_patch(
+            frame,
+            self.textures,
+            self.down_program,
+            self.up_program,
+            self.composite_program,
+            dst,
+            corner_radius,
+            self.saturation,
+            self.noise,
+            alpha,
+            damage,
+            self.offset,
+        )
+    }
+
+    fn draw_before_texture(
+        &mut self,
+        frame: &mut GlesFrame<'_, '_>,
+        damage: Rectangle<i32, Physical>,
+        tex: &OffscreenNodeTexture,
+    ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+        if !tex.blur {
+            return Ok(());
+        }
+        let dst = Rectangle::<i32, Physical>::new(
+            (tex.dst_x, tex.dst_y).into(),
+            (tex.dst_w.max(1), tex.dst_h.max(1)).into(),
+        );
+        if let Err(err) = self.draw_patch(frame, damage, dst, tex.corner_radius, 1.0) {
+            eventline::warn!("window blur skipped this frame: {err}");
+        }
+        Ok(())
+    }
+
+    fn draw_layer_group_blur(
+        &mut self,
+        frame: &mut GlesFrame<'_, '_>,
+        damage: Rectangle<i32, Physical>,
+        group: &LayerSurfaceRenderGroup,
+    ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+        let Some(mask) = self.layer_mask_texture.take() else {
+            return Ok(());
+        };
+
+        let result = (|| {
+            render_layer_group_mask(frame, group, mask)?;
+            crate::render::blur::capture_current_framebuffer_blur_patch_masked(
+                frame,
+                self.textures,
+                self.down_program,
+                self.up_program,
+                self.masked_composite_program,
+                group.dst,
+                mask,
+                self.saturation,
+                self.noise,
+                1.0,
+                damage,
+                self.offset,
+            )
+        })();
+        self.layer_mask_texture = Some(mask);
+        result
+    }
+}
+
+fn render_layer_group_mask(
+    frame: &mut GlesFrame<'_, '_>,
+    group: &LayerSurfaceRenderGroup,
+    mask: &mut smithay::backend::renderer::gles::GlesTexture,
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+    if group.dst.size.w <= 0 || group.dst.size.h <= 0 || group.elements.is_empty() {
+        return Ok(());
+    }
+
+    let offset = (-group.dst.loc.x, -group.dst.loc.y);
+    let relocated = group
+        .elements
+        .iter()
+        .map(|element| RelocateRenderElement::from_element(element, offset, Relocate::Relative))
+        .collect::<Vec<_>>();
+    let damage = Rectangle::<i32, Physical>::from_size(group.dst.size);
+
+    let mut renderer_guard = frame.renderer();
+    let renderer = renderer_guard.as_mut();
+    let mut bound = renderer.bind(mask)?;
+    let mut mask_frame = renderer.render(&mut bound, group.dst.size, Transform::Normal)?;
+    mask_frame.clear(Color32F::TRANSPARENT, &[damage])?;
+    let _ = draw_render_elements(&mut mask_frame, 1.0, &relocated, &[damage])?;
+    let _ = mask_frame.finish()?;
+    Ok(())
+}
 
 fn focus_ring_screen_radii(
     view_size: Vec2,
@@ -98,18 +217,35 @@ pub(super) fn draw_debug_frame_scene(
         return Ok(());
     }
 
-    if !scene.layer_background_elements.is_empty() {
-        let _ = draw_render_elements(
-            frame,
-            1.0,
-            &scene.layer_background_elements,
-            &[prepared.damage],
-        );
-    }
+    draw_scene_below_windows(frame, st, size, prepared, scene, hover_node, None)?;
+    draw_scene_windows_and_hud(frame, st, size, prepared, scene, hover_node, None)?;
+    Ok(())
+}
 
-    if !scene.layer_bottom_elements.is_empty() {
-        let _ = draw_render_elements(frame, 1.0, &scene.layer_bottom_elements, &[prepared.damage]);
-    }
+/// Everything drawn behind client windows: background/bottom layer surfaces, node
+/// markers, and window shadows. Blur captures start after this content is on the
+/// real framebuffer, immediately before each blur-enabled window is drawn.
+pub(super) fn draw_scene_below_windows(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &mut Halley,
+    size: smithay::utils::Size<i32, Physical>,
+    prepared: &PreparedFrameState,
+    scene: &SceneCollections,
+    hover_node: Option<halley_core::field::NodeId>,
+    mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
+) -> Result<(), Box<dyn Error>> {
+    draw_layer_groups(
+        frame,
+        prepared.damage,
+        &scene.layer_background_elements,
+        blur_ctx.as_deref_mut(),
+    )?;
+    draw_layer_groups(
+        frame,
+        prepared.damage,
+        &scene.layer_bottom_elements,
+        blur_ctx.as_deref_mut(),
+    )?;
 
     draw_node_markers(
         frame,
@@ -122,6 +258,21 @@ pub(super) fn draw_debug_frame_scene(
     )?;
 
     draw_window_shadows(frame, size, prepared.damage, &scene.shadow_rects, st)?;
+    Ok(())
+}
+
+/// Client windows (all routes), popups, fullscreen, top/overlay layers, focus
+/// ring, and the monitor HUD. Drawn on top of the (optionally blur-patched)
+/// below-windows content.
+pub(super) fn draw_scene_windows_and_hud(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &mut Halley,
+    size: smithay::utils::Size<i32, Physical>,
+    prepared: &PreparedFrameState,
+    scene: &SceneCollections,
+    hover_node: Option<halley_core::field::NodeId>,
+    mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
+) -> Result<(), Box<dyn Error>> {
     if !scene.active_elements.is_empty() {
         let _ = draw_render_elements(frame, 1.0, &scene.active_elements, &[prepared.damage]);
     }
@@ -131,9 +282,17 @@ pub(super) fn draw_debug_frame_scene(
         prepared.damage,
         &scene.offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
     )?;
     draw_window_borders(frame, size, prepared.damage, &scene.border_rects, st)?;
-    draw_stack_window_units(frame, size, prepared.damage, &scene.stack_window_units, st)?;
+    draw_stack_window_units(
+        frame,
+        size,
+        prepared.damage,
+        &scene.stack_window_units,
+        st,
+        blur_ctx.as_deref_mut(),
+    )?;
     draw_window_shadows(
         frame,
         size,
@@ -155,6 +314,7 @@ pub(super) fn draw_debug_frame_scene(
         prepared.damage,
         &scene.resized_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
     )?;
     draw_window_borders(
         frame,
@@ -168,6 +328,7 @@ pub(super) fn draw_debug_frame_scene(
         prepared.damage,
         &scene.popup_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
     )?;
 
     if !scene.popup_elements.is_empty() {
@@ -182,57 +343,75 @@ pub(super) fn draw_debug_frame_scene(
         st,
     )?;
 
-    draw_geometry_overlays(frame, st, size, prepared.damage, scene)?;
+    let overlay_blur_enabled = halley_config::overlay_blur_enabled(
+        &st.runtime.tuning.effects.blur,
+        &st.runtime.tuning.overlay_style,
+    );
+    let overlay_blur_ctx = if overlay_blur_enabled {
+        blur_ctx.as_deref_mut()
+    } else {
+        None
+    };
+    crate::overlay::with_overlay_blur_context(
+        overlay_blur_ctx,
+        || -> Result<(), Box<dyn Error>> {
+            draw_geometry_overlays(frame, st, size, prepared.damage, scene)?;
 
-    if !scene.bearing_layouts.is_empty() {
-        draw_bearings(frame, st, prepared.damage, &scene.bearing_layouts)?;
-    }
-    let bloom_monitor = st.model.monitor_state.current_monitor.clone();
-    draw_cluster_bloom(
-        frame,
-        st,
-        size.w,
-        size.h,
-        bloom_monitor.as_str(),
-        prepared.damage,
-    )?;
-    let overlay = OverlayView::from_halley(st);
-    draw_cluster_overflow_strip(
-        frame,
-        &overlay,
-        bloom_monitor.as_str(),
-        prepared.damage,
-        st.now_ms(prepared.now),
-    )?;
-    draw_cluster_overflow_promotion(
-        frame,
-        &overlay,
-        bloom_monitor.as_str(),
-        prepared.damage,
-        st.now_ms(prepared.now),
-    )?;
-    drop(overlay);
-    draw_overlay_hover_label(frame, st, size.w, size.h, prepared.damage)?;
+            if !scene.bearing_layouts.is_empty() {
+                draw_bearings(frame, st, prepared.damage, &scene.bearing_layouts)?;
+            }
+            let bloom_monitor = st.model.monitor_state.current_monitor.clone();
+            draw_cluster_bloom(
+                frame,
+                st,
+                size.w,
+                size.h,
+                bloom_monitor.as_str(),
+                prepared.damage,
+            )?;
+            let overlay = OverlayView::from_halley(st);
+            draw_cluster_overflow_strip(
+                frame,
+                &overlay,
+                bloom_monitor.as_str(),
+                prepared.damage,
+                st.now_ms(prepared.now),
+            )?;
+            draw_cluster_overflow_promotion(
+                frame,
+                &overlay,
+                bloom_monitor.as_str(),
+                prepared.damage,
+                st.now_ms(prepared.now),
+            )?;
+            drop(overlay);
+            draw_overlay_hover_label(frame, st, size.w, size.h, prepared.damage)?;
 
-    if st.cluster_mode_active() {
-        let overlay = OverlayView::from_halley(st);
-        draw_cluster_selection_markers(frame, &overlay, size.w, size.h, prepared.damage)?;
-    }
+            if st.cluster_mode_active() {
+                let overlay = OverlayView::from_halley(st);
+                draw_cluster_selection_markers(frame, &overlay, size.w, size.h, prepared.damage)?;
+            }
 
-    draw_hover_preview(frame, prepared.damage, scene)?;
-    draw_node_hover_labels(
-        frame,
-        st,
-        size,
-        &scene.render_nodes,
-        hover_node,
-        prepared.damage,
-        prepared.now,
+            draw_hover_preview(frame, st, prepared.damage, scene)?;
+            draw_node_hover_labels(
+                frame,
+                st,
+                size,
+                &scene.render_nodes,
+                hover_node,
+                prepared.damage,
+                prepared.now,
+            )?;
+            Ok(())
+        },
     )?;
 
-    if !scene.layer_top_elements.is_empty() {
-        let _ = draw_render_elements(frame, 1.0, &scene.layer_top_elements, &[prepared.damage]);
-    }
+    draw_layer_groups(
+        frame,
+        prepared.damage,
+        &scene.layer_top_elements,
+        blur_ctx.as_deref_mut(),
+    )?;
 
     if !scene.fullscreen_active_elements.is_empty() {
         let _ = draw_render_elements(
@@ -247,12 +426,14 @@ pub(super) fn draw_debug_frame_scene(
         prepared.damage,
         &scene.fullscreen_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
     )?;
     draw_offscreen_textures(
         frame,
         prepared.damage,
         &scene.fullscreen_popup_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
     )?;
     if !scene.fullscreen_popup_elements.is_empty() {
         let _ = draw_render_elements(
@@ -282,6 +463,7 @@ pub(super) fn draw_debug_frame_scene(
         prepared.damage,
         &scene.above_fullscreen_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
     )?;
     draw_window_borders(
         frame,
@@ -296,12 +478,14 @@ pub(super) fn draw_debug_frame_scene(
         prepared.damage,
         &scene.above_fullscreen_stack_window_units,
         st,
+        blur_ctx.as_deref_mut(),
     )?;
     draw_offscreen_textures(
         frame,
         prepared.damage,
         &scene.above_fullscreen_popup_offscreen_textures,
         st.ui.render_state.gpu.window_texture_program.as_ref(),
+        blur_ctx.as_deref_mut(),
     )?;
     if !scene.above_fullscreen_popup_elements.is_empty() {
         let _ = draw_render_elements(
@@ -314,14 +498,12 @@ pub(super) fn draw_debug_frame_scene(
 
     draw_pin_badges(frame, st, &scene.pin_badges, prepared.damage)?;
 
-    if !scene.layer_overlay_elements.is_empty() {
-        let _ = draw_render_elements(
-            frame,
-            1.0,
-            &scene.layer_overlay_elements,
-            &[prepared.damage],
-        );
-    }
+    draw_layer_groups(
+        frame,
+        prepared.damage,
+        &scene.layer_overlay_elements,
+        blur_ctx.as_deref_mut(),
+    )?;
 
     if st.should_draw_focus_ring_preview(prepared.now) {
         let focus_ring = st.active_focus_ring();
@@ -341,7 +523,14 @@ pub(super) fn draw_debug_frame_scene(
         )?;
     }
 
-    draw_monitor_hud(frame, st, size.w, size.h, prepared.damage, prepared.now)?;
+    let overlay_blur_ctx = if overlay_blur_enabled {
+        blur_ctx.as_deref_mut()
+    } else {
+        None
+    };
+    crate::overlay::with_overlay_blur_context(overlay_blur_ctx, || {
+        draw_monitor_hud(frame, st, size.w, size.h, prepared.damage, prepared.now)
+    })?;
     Ok(())
 }
 
@@ -350,8 +539,43 @@ pub(crate) fn draw_offscreen_textures(
     damage: Rectangle<i32, Physical>,
     offscreen_textures: &[OffscreenNodeTexture],
     window_texture_program: Option<&GlesTexProgram>,
+    mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
     for tex in offscreen_textures {
+        if let Some(ctx) = blur_ctx.as_deref_mut() {
+            ctx.draw_before_texture(frame, damage, tex)?;
+        }
+        draw_single_offscreen_texture(frame, damage, tex, window_texture_program)?;
+    }
+    Ok(())
+}
+
+fn draw_layer_groups(
+    frame: &mut GlesFrame<'_, '_>,
+    damage: Rectangle<i32, Physical>,
+    groups: &[LayerSurfaceRenderGroup],
+    mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+    for group in groups {
+        if group.blur
+            && let Some(ctx) = blur_ctx.as_deref_mut()
+        {
+            if let Err(err) = ctx.draw_layer_group_blur(frame, damage, group) {
+                eventline::warn!("layer-shell blur skipped this frame: {err}");
+            }
+        }
+        let _ = draw_render_elements(frame, 1.0, &group.elements, &[damage])?;
+    }
+    Ok(())
+}
+
+pub(crate) fn draw_single_offscreen_texture(
+    frame: &mut GlesFrame<'_, '_>,
+    damage: Rectangle<i32, Physical>,
+    tex: &OffscreenNodeTexture,
+    window_texture_program: Option<&GlesTexProgram>,
+) -> Result<(), smithay::backend::renderer::gles::GlesError> {
+    {
         let tex_size = tex.texture.size();
         let max_src_w = (tex_size.w as f64 - tex.src_x).max(1.0);
         let max_src_h = (tex_size.h as f64 - tex.src_y).max(1.0);
@@ -374,7 +598,7 @@ pub(crate) fn draw_offscreen_textures(
         .intersection(damage)
         .unwrap_or_else(|| Rectangle::<i32, Physical>::new((0, 0).into(), (0, 0).into()));
         if visible.size.w <= 0 || visible.size.h <= 0 {
-            continue;
+            return Ok(());
         }
         let local_damage = Rectangle::<i32, Physical>::new(
             (visible.loc.x - dst.loc.x, visible.loc.y - dst.loc.y).into(),
@@ -494,6 +718,7 @@ fn draw_closing_window_animations(
             damage,
             &scaled_textures,
             st.ui.render_state.gpu.window_texture_program.as_ref(),
+            None,
         )?;
         if !border_rects.is_empty() {
             let scaled_border_rects = border_rects
@@ -540,6 +765,7 @@ fn draw_stack_window_units(
     damage: Rectangle<i32, Physical>,
     stack_window_units: &[StackWindowDrawUnit],
     st: &mut Halley,
+    mut blur_ctx: Option<&mut FrameBlurContext<'_>>,
 ) -> Result<(), Box<dyn Error>> {
     for unit in stack_window_units {
         draw_window_shadows(frame, size, damage, &unit.shadow_rects, st)?;
@@ -551,6 +777,7 @@ fn draw_stack_window_units(
             damage,
             &unit.offscreen_textures,
             st.ui.render_state.gpu.window_texture_program.as_ref(),
+            blur_ctx.as_deref_mut(),
         )?;
         if !unit.border_rects.is_empty() {
             draw_window_borders(frame, size, damage, &unit.border_rects, st)?;
@@ -573,7 +800,7 @@ pub(crate) fn draw_window_shadows(
         return Ok(());
     }
 
-    let config = st.runtime.tuning.decorations.shadows.window;
+    let config = st.runtime.tuning.effects.shadows.window;
     if !config.enabled || config.color.a <= 0.0 || config.blur_radius <= 0.0 {
         return Ok(());
     }
@@ -753,23 +980,15 @@ where
 
 fn draw_hover_preview(
     frame: &mut GlesFrame<'_, '_>,
+    st: &Halley,
     damage: Rectangle<i32, Physical>,
     scene: &SceneCollections,
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
-    if let Some((px, py, pw, ph)) = scene.hover_preview_rect
-        && !scene.hover_preview_elements.is_empty()
-    {
-        let dl = damage.loc.x;
-        let dt = damage.loc.y;
-        let dr = damage.loc.x + damage.size.w;
-        let db = damage.loc.y + damage.size.h;
-        let l = px.max(dl);
-        let t = py.max(dt);
-        let r = (px + pw).min(dr);
-        let b = (py + ph).min(db);
-        if r > l && b > t {
-            let clip = Rectangle::new((l, t).into(), ((r - l), (b - t)).into());
-            let _ = draw_render_elements(frame, 1.0, &scene.hover_preview_elements, &[clip]);
+    if let Some(card) = scene.hover_preview_card {
+        if let Err(err) =
+            draw_overlay_hover_preview_card(frame, st, card.rect, card.node_id, card.alpha, damage)
+        {
+            eventline::warn!("hover preview card skipped this frame: {err}");
         }
     }
 

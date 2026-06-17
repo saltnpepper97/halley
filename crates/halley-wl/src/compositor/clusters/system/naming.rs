@@ -2,7 +2,7 @@ use super::*;
 
 use crate::compositor::clusters::state::{
     ClusterFinalizeAppLaunch, ClusterFinalizeDraftState, ClusterNameRecord,
-    ClusterNamingPromptState, PendingLensClusterBuildState,
+    ClusterNamingPromptState, PendingLiftClusterBuildState,
 };
 use crate::compositor::interaction::state::{
     ClusterNamePromptRepeatAction, ClusterNamePromptRepeatState,
@@ -290,7 +290,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         true
     }
 
-    pub(crate) fn open_lens_cluster_finalize_draft(
+    pub(crate) fn open_lift_cluster_finalize_draft(
         &mut self,
         monitor: &str,
         name_hint: Option<String>,
@@ -374,7 +374,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         opened
     }
 
-    pub(crate) fn maybe_add_node_to_lens_cluster_finalize_draft(
+    pub(crate) fn maybe_add_node_to_lift_cluster_finalize_draft(
         &mut self,
         monitor: &str,
         node_id: NodeId,
@@ -387,7 +387,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         if let Some(build) = self
             .model
             .cluster_state
-            .pending_lens_cluster_builds
+            .pending_lift_cluster_builds
             .get_mut(monitor)
         {
             let app_ids = build
@@ -406,7 +406,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 .pending_initial_reveal
                 .remove(&node_id);
             let _ = self.model.field.set_detached(node_id, true);
-            let completed = self.try_complete_pending_lens_cluster_build(monitor, Instant::now());
+            let completed = self.try_complete_pending_lift_cluster_build(monitor, Instant::now());
             if !completed {
                 self.request_maintenance();
             }
@@ -862,7 +862,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         })
     }
 
-    fn pending_lens_expected_members(
+    fn pending_lift_expected_members(
         &self,
         selected_nodes: &std::collections::HashSet<NodeId>,
         app_launches: &[ClusterFinalizeAppLaunch],
@@ -876,7 +876,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         (selected_nodes.len() + missing_launches).max(2)
     }
 
-    fn start_pending_lens_cluster_build(
+    fn start_pending_lift_cluster_build(
         &mut self,
         monitor: &str,
         draft: ClusterFinalizeDraftState,
@@ -884,7 +884,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         now: Instant,
     ) -> bool {
         let expected_members = self
-            .pending_lens_expected_members(&draft.selected_node_ids, draft.app_launches.as_slice());
+            .pending_lift_expected_members(&draft.selected_node_ids, draft.app_launches.as_slice());
         self.model.cluster_state.cluster_name_prompt.remove(monitor);
         self.model
             .cluster_state
@@ -894,9 +894,9 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             .cluster_mutation_controller()
             .exit_cluster_mode(monitor);
         self.ui.render_state.clear_persistent_mode_banner(monitor);
-        self.model.cluster_state.pending_lens_cluster_builds.insert(
+        self.model.cluster_state.pending_lift_cluster_builds.insert(
             monitor.to_string(),
-            PendingLensClusterBuildState {
+            PendingLiftClusterBuildState {
                 selected_node_ids: draft.selected_node_ids,
                 app_launches: draft.app_launches,
                 name_record,
@@ -904,27 +904,43 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 launched: false,
             },
         );
-        if self.try_complete_pending_lens_cluster_build(monitor, now) {
+        if self.try_complete_pending_lift_cluster_build(monitor, now) {
             return true;
         }
-        self.launch_pending_lens_cluster_apps(monitor, now);
-        let now_ms = self.now_ms(now);
-        self.ui.render_state.show_overlay_toast(
-            monitor,
-            "Building cluster\nLaunching staged apps",
-            3000,
-            now_ms,
-        );
+        self.launch_pending_lift_cluster_apps(monitor, now);
         self.request_maintenance();
         true
     }
 
-    fn launch_pending_lens_cluster_apps(&mut self, monitor: &str, now: Instant) {
+    fn finish_lift_finalized_cluster(
+        &mut self,
+        cid: ClusterId,
+        monitor: &str,
+        name_record: ClusterNameRecord,
+        now: Instant,
+    ) -> Option<NodeId> {
+        self.model
+            .cluster_state
+            .cluster_names
+            .insert(cid, name_record);
+        let core_id = self.collapse_cluster(cid)?;
+        let _ = self.sync_cluster_monitor(cid, Some(monitor));
+        let target_pos = self.view_center_for_monitor(monitor);
+        if let Some(core) = self.model.field.node_mut(core_id) {
+            core.pos = target_pos;
+        }
+        let now_ms = self.now_ms(now);
+        let _ = self.model.field.touch(core_id, now_ms);
+        self.set_interaction_focus(Some(core_id), 30_000, now);
+        Some(core_id)
+    }
+
+    fn launch_pending_lift_cluster_apps(&mut self, monitor: &str, now: Instant) {
         let (selected, launches) = {
             let Some(build) = self
                 .model
                 .cluster_state
-                .pending_lens_cluster_builds
+                .pending_lift_cluster_builds
                 .get_mut(monitor)
             else {
                 return;
@@ -955,7 +971,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 wayland_display.as_str(),
                 &self.runtime.tuning.cursor,
                 None,
-                "lens cluster app",
+                "lift cluster app",
             ) {
                 self.runtime.spawned_children.push(child);
             }
@@ -963,11 +979,11 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         let _ = now;
     }
 
-    fn try_complete_pending_lens_cluster_build(&mut self, monitor: &str, now: Instant) -> bool {
+    fn try_complete_pending_lift_cluster_build(&mut self, monitor: &str, now: Instant) -> bool {
         let Some(build) = self
             .model
             .cluster_state
-            .pending_lens_cluster_builds
+            .pending_lift_cluster_builds
             .get(monitor)
             .cloned()
         else {
@@ -983,31 +999,16 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         for member in &members {
             let _ = self.model.field.set_detached(*member, false);
         }
-        let now_ms = self.now_ms(now);
         let created = self.create_cluster(members).ok().and_then(|cid| {
-            self.model
-                .cluster_state
-                .cluster_names
-                .insert(cid, build.name_record.clone());
-            let core = self.collapse_cluster(cid);
-            if let Some(core_id) = core {
-                self.assign_node_to_monitor(core_id, monitor);
-                let _ = self.sync_cluster_name_for_monitor(cid, monitor);
-                let _ = self.model.field.touch(core_id, now_ms);
-                self.set_interaction_focus(Some(core_id), 30_000, now);
-            }
-            core
+            self.finish_lift_finalized_cluster(cid, monitor, build.name_record.clone(), now)
         });
         if created.is_none() {
             return false;
         }
         self.model
             .cluster_state
-            .pending_lens_cluster_builds
+            .pending_lift_cluster_builds
             .remove(monitor);
-        self.ui
-            .render_state
-            .show_overlay_toast(monitor, "Cluster ready", 1800, now_ms);
         true
     }
 
@@ -1044,7 +1045,7 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
         if let Some(draft) = draft.clone()
             && !draft.app_launches.is_empty()
         {
-            return self.start_pending_lens_cluster_build(monitor, draft, name_record, now);
+            return self.start_pending_lift_cluster_build(monitor, draft, name_record, now);
         }
         if selected_nodes.len() < 2 {
             if self
@@ -1065,20 +1066,24 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
             return false;
         }
         let members = self.order_cluster_creation_members(selected_nodes.iter().copied().collect());
-        let now_ms = self.now_ms(now);
         let created = self.create_cluster(members).ok().and_then(|cid| {
-            self.model
-                .cluster_state
-                .cluster_names
-                .insert(cid, name_record.clone());
-            let core = self.collapse_cluster(cid);
-            if let Some(core_id) = core {
-                self.assign_node_to_monitor(core_id, monitor);
-                let _ = self.sync_cluster_name_for_monitor(cid, monitor);
-                let _ = self.model.field.touch(core_id, now_ms);
-                self.set_interaction_focus(Some(core_id), 30_000, now);
+            if draft.is_some() {
+                self.finish_lift_finalized_cluster(cid, monitor, name_record.clone(), now)
+            } else {
+                let now_ms = self.now_ms(now);
+                self.model
+                    .cluster_state
+                    .cluster_names
+                    .insert(cid, name_record.clone());
+                let core = self.collapse_cluster(cid);
+                if let Some(core_id) = core {
+                    self.assign_node_to_monitor(core_id, monitor);
+                    let _ = self.sync_cluster_name_for_monitor(cid, monitor);
+                    let _ = self.model.field.touch(core_id, now_ms);
+                    self.set_interaction_focus(Some(core_id), 30_000, now);
+                }
+                core
             }
-            core
         });
         if created.is_some() {
             self.model.cluster_state.cluster_name_prompt.remove(monitor);

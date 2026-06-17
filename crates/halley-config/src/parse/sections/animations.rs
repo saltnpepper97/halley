@@ -2,7 +2,9 @@ use rune_cfg::RuneConfig;
 
 use crate::layout::RuntimeTuning;
 
-use super::super::primitives::{pick_bool, pick_f32, pick_u64, pick_window_close_animation_style};
+use super::super::primitives::{
+    pick_bool, pick_f32, pick_raise_animation_trigger, pick_u64, pick_window_close_animation_style,
+};
 
 pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     out.animations.enabled = pick_bool(
@@ -193,6 +195,11 @@ pub(crate) fn load_animations_section(cfg: &RuneConfig, out: &mut RuntimeTuning)
         ],
         out.animations.raise.shadow_boost,
     );
+    out.animations.raise.trigger = pick_raise_animation_trigger(
+        cfg,
+        &["animation.raise.trigger", "animations.raise.trigger"],
+        out.animations.raise.trigger,
+    );
 }
 
 #[cfg(test)]
@@ -243,6 +250,7 @@ animations:
     duration-ms 155
     scale 1.04
     shadow-boost 0.25
+    trigger "overlap"
   end
 end
 "#,
@@ -275,6 +283,10 @@ end
         assert_eq!(out.animations.raise.duration_ms, 155);
         assert_eq!(out.animations.raise.scale, 1.04);
         assert_eq!(out.animations.raise.shadow_boost, 0.25);
+        assert_eq!(
+            out.animations.raise.trigger,
+            crate::layout::RaiseAnimationTrigger::Overlap
+        );
     }
 
     #[test]
@@ -301,6 +313,10 @@ end
         assert_eq!(out.animations.raise.duration_ms, 140);
         assert_eq!(out.animations.raise.scale, 1.025);
         assert_eq!(out.animations.raise.shadow_boost, 0.18);
+        assert_eq!(
+            out.animations.raise.trigger,
+            crate::layout::RaiseAnimationTrigger::Always
+        );
     }
 
     #[test]

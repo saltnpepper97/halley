@@ -1,5 +1,5 @@
 use halley_config::{NodeBackgroundColorMode, NodeBorderColorMode, RuntimeTuning};
-use halley_core::field::Vec2;
+use halley_core::field::{NodeId, Vec2};
 use smithay::backend::renderer::Color32F;
 
 use crate::animation::{ease_in_out_cubic, proxy_anim_scale};
@@ -17,6 +17,46 @@ pub(crate) fn world_to_screen(st: &Halley, w: i32, h: i32, x: f32, y: f32) -> (i
     let sx = (nx * w as f32).round() as i32;
     let sy = (ny * h as f32).round() as i32;
     (sx, sy)
+}
+
+pub(crate) fn drag_parallax_position(st: &Halley, node_id: NodeId, pos: Vec2) -> Vec2 {
+    const DEAD_ZONE: f32 = 0.01;
+    const MAX_STRENGTH: f32 = 0.08;
+
+    let Some(active_drag) = st.input.interaction_state.active_drag.as_ref() else {
+        return pos;
+    };
+    if active_drag.node_id == node_id
+        || active_drag.pointer_monitor != st.model.monitor_state.current_monitor
+    {
+        return pos;
+    }
+    if st.model.field.node(node_id).is_some_and(|node| node.pinned) {
+        return pos;
+    }
+
+    let cam_scale = st.camera_render_scale();
+    let zoom_delta = (cam_scale - 1.0).abs();
+    if zoom_delta <= DEAD_ZONE {
+        return pos;
+    }
+
+    let Some(dragged_node) = st.model.field.node(active_drag.node_id) else {
+        return pos;
+    };
+    let drag_delta = Vec2 {
+        x: dragged_node.pos.x - active_drag.parallax_origin.x,
+        y: dragged_node.pos.y - active_drag.parallax_origin.y,
+    };
+    if drag_delta.x.abs() <= 0.1 && drag_delta.y.abs() <= 0.1 {
+        return pos;
+    }
+
+    let strength = MAX_STRENGTH * (zoom_delta / 0.75).clamp(0.0, 1.0);
+    Vec2 {
+        x: pos.x - drag_delta.x * strength,
+        y: pos.y - drag_delta.y * strength,
+    }
 }
 
 pub(crate) fn preview_proxy_size(_real_w: f32, _real_h: f32) -> (f32, f32) {
@@ -181,9 +221,56 @@ pub(crate) fn themed_node_label_colors(
 
 #[cfg(test)]
 mod tests {
-    use halley_config::{DecorationBorderColor, NodeBorderColorMode, RuntimeTuning};
+    use std::time::Instant;
 
-    use super::themed_node_ring_color;
+    use halley_config::{DecorationBorderColor, NodeBorderColorMode, RuntimeTuning};
+    use halley_core::field::Vec2;
+    use smithay::reexports::wayland_server::Display;
+
+    use super::{drag_parallax_position, themed_node_ring_color};
+    use crate::compositor::interaction::DragAxisMode;
+    use crate::compositor::interaction::state::ActiveDragState;
+    use crate::compositor::root::Halley;
+
+    #[test]
+    fn drag_parallax_is_zoom_gated() {
+        let dh = Display::<Halley>::new().expect("display").handle();
+        let mut st = Halley::new_for_test(&dh, RuntimeTuning::default());
+        let dragged = st.model.field.spawn_surface(
+            "dragged",
+            Vec2 { x: 100.0, y: 0.0 },
+            Vec2 { x: 400.0, y: 260.0 },
+        );
+        let background = st.model.field.spawn_surface(
+            "background",
+            Vec2 { x: 0.0, y: 0.0 },
+            Vec2 { x: 400.0, y: 260.0 },
+        );
+        st.input.interaction_state.active_drag = Some(ActiveDragState {
+            node_id: dragged,
+            parallax_origin: Vec2 { x: 0.0, y: 0.0 },
+            allow_monitor_transfer: true,
+            edge_pan_eligible: false,
+            current_offset: Vec2 { x: 0.0, y: 0.0 },
+            pointer_monitor: st.model.monitor_state.current_monitor.clone(),
+            pointer_workspace_size: (1600, 1200),
+            pointer_screen_local: (200.0, 120.0),
+            edge_pan_x: DragAxisMode::Free,
+            edge_pan_y: DragAxisMode::Free,
+            last_edge_pan_at: Instant::now(),
+        });
+
+        let pos = Vec2 { x: 20.0, y: 10.0 };
+        assert_eq!(drag_parallax_position(&st, background, pos), pos);
+
+        st.model.zoom_ref_size.x = st.model.viewport.size.x * 2.0;
+        st.model.zoom_ref_size.y = st.model.viewport.size.y * 2.0;
+        let shifted = drag_parallax_position(&st, background, pos);
+
+        assert!(shifted.x < pos.x);
+        assert_eq!(shifted.y, pos.y);
+        assert_eq!(drag_parallax_position(&st, dragged, pos), pos);
+    }
 
     #[test]
     fn themed_node_ring_color_uses_secondary_border_when_enabled() {

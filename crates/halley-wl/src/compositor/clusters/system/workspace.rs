@@ -403,10 +403,11 @@ impl<T: DerefMut<Target = Halley>> ClusterSystemController<T> {
                 y: g.size.h.max(1) as f32,
             })
             .or_else(|| {
-                top.current_state().size.map(|sz| Vec2 {
-                    x: sz.w.max(1) as f32,
-                    y: sz.h.max(1) as f32,
-                })
+                top.with_committed_state(|state| state.and_then(|state| state.size))
+                    .map(|sz| Vec2 {
+                        x: sz.w.max(1) as f32,
+                        y: sz.h.max(1) as f32,
+                    })
             })
             .unwrap_or_else(|| {
                 let bbox = bbox_from_surface_tree(wl, (0, 0));

@@ -137,7 +137,7 @@ pub struct Node {
     pub pinned: bool,
 
     /// Routing marker: important node that should always be surfaced in navigation
-    /// (Bearings/Lens). Does NOT bypass visibility rules.
+    /// (Bearings/Lift). Does NOT bypass visibility rules.
     pub anchor: bool,
 
     /// Semantic visibility / participation flags.

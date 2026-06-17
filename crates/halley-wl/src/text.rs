@@ -158,17 +158,13 @@ impl UiTextRenderer {
         let swash_cache = self.swash_cache.get_or_insert_with(SwashCache::new);
         let resolved_family = resolve_named_family(font_system, key.family.as_str());
         let mut buffer = Buffer::new(font_system, metrics);
-        buffer.set_hinting(
-            font_system,
-            if key.size_px <= UI_TEXT_HINTING_MAX_SIZE_PX {
-                Hinting::Enabled
-            } else {
-                Hinting::Disabled
-            },
-        );
-        buffer.set_size(font_system, None, None);
+        buffer.set_hinting(if key.size_px <= UI_TEXT_HINTING_MAX_SIZE_PX {
+            Hinting::Enabled
+        } else {
+            Hinting::Disabled
+        });
+        buffer.set_size(None, None);
         buffer.set_text(
-            font_system,
             key.text.as_str(),
             &attrs_for_key(key, resolved_family.as_deref()),
             Shaping::Advanced,

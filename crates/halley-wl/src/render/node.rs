@@ -7,7 +7,6 @@ use smithay::{
         allocator::Fourcc,
         renderer::{
             Color32F, ImportMem, Texture,
-            element::{Kind, surface::render_elements_from_surface_tree},
             gles::{GlesFrame, GlesRenderer, Uniform, UniformName, UniformType},
         },
     },
@@ -29,6 +28,7 @@ use crate::presentation::{
 use crate::render::pin_icon::{PinBadgeLayout, draw_pin_badge};
 use crate::render::shadow::draw_shadow_rect;
 use crate::render::state::{ClosingWindowAnimationKind, ClosingWindowAnimationSnapshot};
+use crate::render::surface_capture::render_surface_tree_to_texture;
 use crate::text::{draw_ui_text, ui_text_size};
 
 const NODE_SQUARE_SHADER: &str = include_str!("shaders/node_square_shader.frag");
@@ -52,6 +52,13 @@ pub(crate) struct NodeSnapshot {
     pub pos: halley_core::field::Vec2,
     pub intrinsic_size: halley_core::field::Vec2,
     pub label: String,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct HoverPreviewCard {
+    pub(crate) node_id: halley_core::field::NodeId,
+    pub(crate) rect: Rectangle<i32, Physical>,
+    pub(crate) alpha: f32,
 }
 
 pub(crate) fn ensure_node_circle_resources(
@@ -78,6 +85,7 @@ pub(crate) fn ensure_node_circle_resources(
                     UniformName::new("fill_color", UniformType::_4f),
                     UniformName::new("flat_fill", UniformType::_1f),
                     UniformName::new("center_flat_fill", UniformType::_1f),
+                    UniformName::new("fill_alpha", UniformType::_1f),
                 ],
             )?);
     }
@@ -90,6 +98,7 @@ pub(crate) fn ensure_node_circle_resources(
                 UniformName::new("fill_color", UniformType::_4f),
                 UniformName::new("flat_fill", UniformType::_1f),
                 UniformName::new("center_flat_fill", UniformType::_1f),
+                UniformName::new("fill_alpha", UniformType::_1f),
             ],
         )?);
     }
@@ -102,6 +111,7 @@ pub(crate) fn ensure_node_circle_resources(
                 UniformName::new("fill_color", UniformType::_4f),
                 UniformName::new("flat_fill", UniformType::_1f),
                 UniformName::new("center_flat_fill", UniformType::_1f),
+                UniformName::new("fill_alpha", UniformType::_1f),
             ],
         )?);
     }
@@ -173,6 +183,7 @@ pub(crate) fn draw_shader_circle(
     radius: i32,
     round_shape: NodeRoundShape,
     alpha: f32,
+    fill_alpha: f32,
     border_color: Color32F,
     fill_color: Color32F,
     flat_fill: bool,
@@ -226,6 +237,7 @@ pub(crate) fn draw_shader_circle(
             "center_flat_fill",
             if center_flat_fill { 1.0f32 } else { 0.0f32 },
         ),
+        Uniform::new("fill_alpha", fill_alpha.clamp(0.0, 1.0)),
     ];
 
     frame.render_texture_from_to(
@@ -414,10 +426,7 @@ pub(crate) fn collect_hover_preview(
     overlay_hover_preview: Option<(halley_core::field::NodeId, (i32, i32), bool)>,
     hover_node: Option<halley_core::field::NodeId>,
     now: Instant,
-) -> (
-    Option<(i32, i32, i32, i32)>,
-    Vec<smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement<GlesRenderer>>,
-) {
+) -> Option<HoverPreviewCard> {
     let _ = hover_node;
 
     let preview_target = overlay_hover_preview
@@ -428,10 +437,10 @@ pub(crate) fn collect_hover_preview(
         .render_state
         .node_preview_hover_anim_for_monitor(monitor, preview_target)
     else {
-        return (None, Vec::new());
+        return None;
     };
     let Some(wl) = node_surface_map.get(&preview_id) else {
-        return (None, Vec::new());
+        return None;
     };
     let Some((node_state, node_pos, label_len)) = st
         .model
@@ -439,7 +448,7 @@ pub(crate) fn collect_hover_preview(
         .node(preview_id)
         .map(|n| (n.state.clone(), n.pos, n.label.len()))
     else {
-        return (None, Vec::new());
+        return None;
     };
 
     let live_overlay_anchor = overlay_hover_preview
@@ -474,12 +483,12 @@ pub(crate) fn collect_hover_preview(
             halley_core::field::NodeState::Node | halley_core::field::NodeState::Core
         )
     {
-        return (None, Vec::new());
+        return None;
     }
 
     let bbox = bbox_from_surface_tree(wl, (0, 0));
     if bbox.size.w <= 0 || bbox.size.h <= 0 {
-        return (None, Vec::new());
+        return None;
     }
 
     let preview_mix = ease_in_out_cubic(preview_mix_raw.clamp(0.0, 1.0));
@@ -510,7 +519,7 @@ pub(crate) fn collect_hover_preview(
         node_marker_bounds(cx, cy, dot_half, 0, 0, dot_half * 2, render_pad)
     };
 
-    let inset = 10i32;
+    let inset = 12i32;
     let source_side = bbox.size.w.max(bbox.size.h).max(1);
     let base_side = (source_side + inset * 2).clamp(120, preview_size_base);
     let preview_size = ((base_side as f32) * (0.94 + 0.06 * preview_mix))
@@ -526,17 +535,51 @@ pub(crate) fn collect_hover_preview(
         preview_y = preview_y.clamp(10, (size.h - preview_size - 10).max(10));
     }
 
-    let sx = preview_x + inset - bbox.loc.x;
-    let sy = preview_y + inset - bbox.loc.y;
-    let alpha = (preview_mix * preview_mix).clamp(0.0, 1.0);
+    let fade = (preview_mix * preview_mix).clamp(0.0, 1.0);
+    if fade <= 0.01 {
+        return None;
+    }
 
-    let elements =
-        render_elements_from_surface_tree(renderer, wl, (sx, sy), 1.0f64, alpha, Kind::Unspecified);
+    let cache_miss = st
+        .ui
+        .render_state
+        .cache
+        .window_offscreen_cache
+        .get(&preview_id)
+        .is_none_or(|cache| {
+            !cache.matches_size(bbox.size.w, bbox.size.h)
+                || cache.texture.is_none()
+                || cache.bbox.is_none()
+                || !cache.has_content
+                || cache.dirty
+        });
+    if cache_miss && !crate::window::node_requires_live_surface_render(st, preview_id) {
+        st.ui
+            .render_state
+            .ensure_window_offscreen_cache(preview_id, bbox.size.w, bbox.size.h, now);
+        if let Ok(offscreen) = render_surface_tree_to_texture(renderer, wl, 1.0, None)
+            && let Some(cache) = st
+                .ui
+                .render_state
+                .cache
+                .window_offscreen_cache
+                .get_mut(&preview_id)
+        {
+            cache.texture = Some(offscreen.texture);
+            cache.bbox = Some(offscreen.bbox);
+            cache.has_content = offscreen.has_content;
+            cache.mark_clean(now);
+        }
+    }
 
-    (
-        Some((preview_x, preview_y, preview_size, preview_size)),
-        elements,
-    )
+    Some(HoverPreviewCard {
+        node_id: preview_id,
+        rect: Rectangle::<i32, Physical>::new(
+            (preview_x, preview_y).into(),
+            (preview_size, preview_size).into(),
+        ),
+        alpha: fade,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -563,6 +606,7 @@ pub(crate) fn draw_node_markers(
         let id = *id;
         let node_pos = *node_pos;
         let intrinsic_size = *intrinsic_size;
+        let node_op = st.runtime.tuning.node_opacity;
 
         let anim = anim_style_for(st, id, node_state.clone(), now);
 
@@ -638,6 +682,7 @@ pub(crate) fn draw_node_markers(
                 proxy_radius,
                 round_shape,
                 1.0 - border_mix,
+                node_op,
                 proxy_col,
                 proxy_col,
                 false,
@@ -675,7 +720,7 @@ pub(crate) fn draw_node_markers(
             draw_shadow_rect(
                 frame,
                 &st.ui.render_state,
-                st.runtime.tuning.decorations.shadows.node,
+                st.runtime.tuning.effects.shadows.node,
                 Rectangle::<i32, Physical>::new(
                     (sx - render_radius, sy - render_radius).into(),
                     (render_radius * 2, render_radius * 2).into(),
@@ -692,6 +737,7 @@ pub(crate) fn draw_node_markers(
                 render_radius,
                 round_shape,
                 ring_mix,
+                node_op,
                 node_color,
                 fill_color,
                 fill_flat,
@@ -905,6 +951,7 @@ pub(crate) fn draw_closing_node_markers(
         let node_color = Color32F::new(nc.r(), nc.g(), nc.b(), border_frac);
         let fill_color = node_fill_color(st, false);
         let fill_flat = node_fill_uses_flat_mode(st);
+        let node_op = st.runtime.tuning.node_opacity;
 
         draw_shader_circle(
             frame,
@@ -914,6 +961,7 @@ pub(crate) fn draw_closing_node_markers(
             render_radius,
             round_shape,
             alpha,
+            node_op,
             node_color,
             fill_color,
             fill_flat,

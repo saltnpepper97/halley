@@ -213,7 +213,7 @@ pub(super) fn build_window_shadow_rect(
     metrics: WindowDecorationMetrics,
     fullscreen_on_current_monitor: bool,
 ) -> Option<WindowShadowRect> {
-    let shadows = st.runtime.tuning.decorations.shadows.window;
+    let shadows = st.runtime.tuning.effects.shadows.window;
     if !shadows.enabled
         || fullscreen_on_current_monitor
         || shadows.color.a <= 0.0

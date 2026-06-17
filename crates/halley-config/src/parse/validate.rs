@@ -56,6 +56,11 @@ pub(crate) fn validate_known_config_keys(
             }
 
             if !schema.section_allowed(next_path.as_str()) {
+                if let Some(diag) =
+                    deprecated_key_diagnostic(path, raw, line_no, next_path.as_str())
+                {
+                    return Err(diag);
+                }
                 return Err(unknown_key_diagnostic(
                     path,
                     raw,
@@ -85,6 +90,9 @@ pub(crate) fn validate_known_config_keys(
         }
         let full_path = path_with(&stack, key.as_str());
         if !schema.scalar_allowed(full_path.as_str()) {
+            if let Some(diag) = deprecated_key_diagnostic(path, raw, line_no, full_path.as_str()) {
+                return Err(diag);
+            }
             return Err(unknown_key_diagnostic(
                 path,
                 raw,
@@ -126,6 +134,7 @@ impl ConfigSchema {
             "debug",
             "decay",
             "decorations",
+            "effects",
             "env",
             "field",
             "focus-ring",
@@ -164,10 +173,12 @@ impl ConfigSchema {
             "decorations",
             "decorations.border",
             "decorations.secondary-border",
-            "decorations.shadows",
-            "decorations.shadows.window",
-            "decorations.shadows.node",
-            "decorations.shadows.overlay",
+            "effects",
+            "effects.blur",
+            "effects.shadows",
+            "effects.shadows.window",
+            "effects.shadows.node",
+            "effects.shadows.overlay",
             "field",
             "field.pins",
             "field.zoom",
@@ -212,10 +223,12 @@ impl ConfigSchema {
             "animations.raise.duration-ms",
             "animations.raise.scale",
             "animations.raise.shadow-boost",
+            "animations.raise.trigger",
             "bearings.show-distance",
             "bearings.show-icons",
             "bearings.show-pinned",
             "bearings.fade-distance",
+            "bearings.blur",
             "clusters.distance-px",
             "clusters.cluster-dwell-ms",
             "clusters.dwell-ms",
@@ -246,28 +259,38 @@ impl ConfigSchema {
             "decorations.secondary-border.color-focused",
             "decorations.secondary-border.colour-unfocused",
             "decorations.secondary-border.color-unfocused",
-            "decorations.shadows.window.enabled",
-            "decorations.shadows.window.blur-radius",
-            "decorations.shadows.window.spread",
-            "decorations.shadows.window.offset-x",
-            "decorations.shadows.window.offset-y",
-            "decorations.shadows.window.colour",
-            "decorations.shadows.window.color",
-            "decorations.shadows.node.enabled",
-            "decorations.shadows.node.blur-radius",
-            "decorations.shadows.node.spread",
-            "decorations.shadows.node.offset-x",
-            "decorations.shadows.node.offset-y",
-            "decorations.shadows.node.colour",
-            "decorations.shadows.node.color",
-            "decorations.shadows.overlay.enabled",
-            "decorations.shadows.overlay.blur-radius",
-            "decorations.shadows.overlay.spread",
-            "decorations.shadows.overlay.offset-x",
-            "decorations.shadows.overlay.offset-y",
-            "decorations.shadows.overlay.colour",
-            "decorations.shadows.overlay.color",
             "decorations.resize-using-border",
+            "effects.blur.enabled",
+            "effects.blur.overlays",
+            "effects.blur.windows",
+            "effects.blur.layer-shell",
+            "effects.blur.layer_shell",
+            "effects.blur.method",
+            "effects.blur.radius",
+            "effects.blur.passes",
+            "effects.blur.saturation",
+            "effects.blur.noise",
+            "effects.shadows.window.enabled",
+            "effects.shadows.window.blur-radius",
+            "effects.shadows.window.spread",
+            "effects.shadows.window.offset-x",
+            "effects.shadows.window.offset-y",
+            "effects.shadows.window.colour",
+            "effects.shadows.window.color",
+            "effects.shadows.node.enabled",
+            "effects.shadows.node.blur-radius",
+            "effects.shadows.node.spread",
+            "effects.shadows.node.offset-x",
+            "effects.shadows.node.offset-y",
+            "effects.shadows.node.colour",
+            "effects.shadows.node.color",
+            "effects.shadows.overlay.enabled",
+            "effects.shadows.overlay.blur-radius",
+            "effects.shadows.overlay.spread",
+            "effects.shadows.overlay.offset-x",
+            "effects.shadows.overlay.offset-y",
+            "effects.shadows.overlay.colour",
+            "effects.shadows.overlay.color",
             "field.gap",
             "field.gap-px",
             "field.active-windows-allowed",
@@ -326,6 +349,7 @@ impl ConfigSchema {
             "nodes.node-label-shape",
             "nodes.label-shape",
             "nodes.icon-size",
+            "nodes.opacity",
             "nodes.background-colour",
             "nodes.background-color",
             "nodes.border-colour-hover",
@@ -343,6 +367,7 @@ impl ConfigSchema {
             "overlays.shape",
             "overlays.borders",
             "overlays.border-source",
+            "overlays.blur",
             "placement.expanded.strategy",
             "placement.expanded.fallback",
             "placement.expanded.find-empty-mode",
@@ -438,7 +463,7 @@ fn validate_scalar_value(path: &str, line: &str) -> Option<String> {
     }
     if color_scalar(path) && quoted && !valid_overlay_color_value(value.as_str()) {
         return Some(format!(
-            "Invalid colour `{value}` for `{path}`; expected `auto`, `light`, `dark`, or `#rrggbb`"
+            "Invalid colour `{value}` for `{path}`; expected `auto`, `light`, `dark`, `#rrggbb`, or `#rrggbbaa`"
         ));
     }
     None
@@ -471,18 +496,22 @@ fn numeric_scalar(path: &str) -> bool {
             | "decorations.border.radius"
             | "decorations.secondary-border.size"
             | "decorations.secondary-border.gap"
-            | "decorations.shadows.window.blur-radius"
-            | "decorations.shadows.window.spread"
-            | "decorations.shadows.window.offset-x"
-            | "decorations.shadows.window.offset-y"
-            | "decorations.shadows.node.blur-radius"
-            | "decorations.shadows.node.spread"
-            | "decorations.shadows.node.offset-x"
-            | "decorations.shadows.node.offset-y"
-            | "decorations.shadows.overlay.blur-radius"
-            | "decorations.shadows.overlay.spread"
-            | "decorations.shadows.overlay.offset-x"
-            | "decorations.shadows.overlay.offset-y"
+            | "effects.blur.radius"
+            | "effects.blur.passes"
+            | "effects.blur.saturation"
+            | "effects.blur.noise"
+            | "effects.shadows.window.blur-radius"
+            | "effects.shadows.window.spread"
+            | "effects.shadows.window.offset-x"
+            | "effects.shadows.window.offset-y"
+            | "effects.shadows.node.blur-radius"
+            | "effects.shadows.node.spread"
+            | "effects.shadows.node.offset-x"
+            | "effects.shadows.node.offset-y"
+            | "effects.shadows.overlay.blur-radius"
+            | "effects.shadows.overlay.spread"
+            | "effects.shadows.overlay.offset-x"
+            | "effects.shadows.overlay.offset-y"
             | "field.gap"
             | "field.gap-px"
             | "field.active-windows-allowed"
@@ -512,6 +541,7 @@ fn numeric_scalar(path: &str) -> bool {
             | "nodes.primary-hot-inner-frac"
             | "nodes.hot-inner-frac"
             | "nodes.icon-size"
+            | "nodes.opacity"
             | "placement.reveal.max-pan-px"
             | "placement.reveal.animation-ms"
             | "physics.damping"
@@ -569,16 +599,20 @@ fn bool_scalar(path: &str) -> bool {
             | "bearings.show-distance"
             | "bearings.show-icons"
             | "bearings.show-pinned"
+            | "bearings.blur"
             | "clusters.show-icons"
             | "cursor.hide-while-typing"
             | "cursor.hide-when-typing"
             | "debug.overlay-fps"
             | "debug.show-ring-when-resizing"
             | "decorations.secondary-border.enabled"
-            | "decorations.shadows.window.enabled"
-            | "decorations.shadows.node.enabled"
-            | "decorations.shadows.overlay.enabled"
+            | "effects.blur.enabled"
+            | "effects.blur.overlays"
+            | "effects.shadows.window.enabled"
+            | "effects.shadows.node.enabled"
+            | "effects.shadows.overlay.enabled"
             | "decorations.resize-using-border"
+            | "overlays.blur"
             | "field.close-restore-focus"
             | "field.zoom.enabled"
             | "field.zoom.smooth"
@@ -649,6 +683,10 @@ fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
         "nodes.show-labels" | "nodes.show-app-icons" | "nodes.show-icons" => {
             Some(&["off", "false", "hover", "always", "on", "true"])
         }
+        "effects.blur.windows" | "effects.blur.layer-shell" | "effects.blur.layer_shell" => {
+            Some(&["off", "auto", "always"])
+        }
+        "effects.blur.method" => Some(&["dual-kawase", "dual_kawase", "kawase"]),
         "overlays.shape" => Some(&["square", "rounded"]),
         "overlays.border-source" => Some(&["primary", "secondary"]),
         "placement.expanded.strategy" | "placement.expanded.fallback" => {
@@ -662,6 +700,7 @@ fn enum_allowed_values(path: &str) -> Option<&'static [&'static str]> {
             Some(&["never", "if-needed", "if_needed", "always", "true", "false"])
         }
         "animations.window-close.style" => Some(&["shrink", "fade"]),
+        "animations.raise.trigger" => Some(&["always", "overlap"]),
         path if viewport_output_path(path)
             .is_some_and(|rest| rest == "vrr" || rest == "variable-refresh-rate") =>
         {
@@ -732,7 +771,7 @@ fn color_scalar(path: &str) -> bool {
 fn valid_overlay_color_value(value: &str) -> bool {
     matches!(value, "auto" | "light" | "dark")
         || value.strip_prefix('#').is_some_and(|hex| {
-            matches!(hex.len(), 3 | 6) && hex.chars().all(|ch| ch.is_ascii_hexdigit())
+            matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|ch| ch.is_ascii_hexdigit())
         })
 }
 
@@ -821,6 +860,30 @@ fn viewport_output_scalar_allowed(rest: &str) -> bool {
             | "focus-ring.offset-x"
             | "focus-ring.offset-y"
     )
+}
+
+/// Friendly migration errors for config keys that moved between sections.
+///
+/// `decorations.shadows` was relocated to `effects.shadows`. Rather than emit a
+/// confusing Levenshtein "unknown key" suggestion, point users at the new home.
+fn deprecated_key_diagnostic(
+    path: &str,
+    raw: &str,
+    line: usize,
+    key: &str,
+) -> Option<ConfigLoadDiagnostic> {
+    if key == "decorations.shadows" || key.starts_with("decorations.shadows.") {
+        let moved = key.replacen("decorations.shadows", "effects.shadows", 1);
+        return Some(ConfigLoadDiagnostic {
+            path: path.to_string(),
+            line: Some(line),
+            column: None,
+            message: "decorations.shadows has moved to effects.shadows".to_string(),
+            hint: Some(format!("Use `{moved}` instead.")),
+            source_line: source_line(raw, line),
+        });
+    }
+    None
 }
 
 fn unknown_key_diagnostic(
@@ -964,6 +1027,51 @@ end
         assert_eq!(err.line, Some(3));
         assert!(err.message.contains("overlays.shap"));
         assert_eq!(err.hint.as_deref(), Some("Did you mean `overlays.shape`?"));
+    }
+
+    #[test]
+    fn validation_reports_decorations_shadows_migration() {
+        let err = validate_known_config_keys(
+            r#"
+decorations:
+  shadows:
+    window:
+      enabled true
+    end
+  end
+end
+"#,
+            "halley.rune",
+        )
+        .expect_err("decorations.shadows should be rejected");
+
+        assert!(
+            err.message
+                .contains("decorations.shadows has moved to effects.shadows")
+        );
+        assert_eq!(err.hint.as_deref(), Some("Use `effects.shadows` instead."));
+    }
+
+    #[test]
+    fn validation_accepts_effects_block() {
+        validate_known_config_keys(
+            r#"
+effects:
+  blur:
+    enabled true
+    windows "auto"
+  end
+  shadows:
+    window:
+      enabled true
+      blur-radius 8
+    end
+  end
+end
+"#,
+            "halley.rune",
+        )
+        .expect("effects block should validate");
     }
 
     #[test]

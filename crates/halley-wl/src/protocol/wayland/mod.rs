@@ -5,16 +5,18 @@ use std::time::Instant;
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
     backend::renderer::utils::on_commit_buffer_handler,
-    delegate_compositor, delegate_cursor_shape, delegate_data_control, delegate_data_device,
-    delegate_dmabuf, delegate_drm_syncobj, delegate_fractional_scale, delegate_idle_notify,
-    delegate_layer_shell, delegate_output, delegate_pointer_constraints, delegate_presentation,
-    delegate_primary_selection, delegate_relative_pointer, delegate_seat, delegate_shm,
-    delegate_viewporter, delegate_xdg_activation, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_background_effect, delegate_compositor, delegate_cursor_shape, delegate_data_control,
+    delegate_data_device, delegate_dmabuf, delegate_drm_syncobj, delegate_fractional_scale,
+    delegate_idle_notify, delegate_layer_shell, delegate_output, delegate_pointer_constraints,
+    delegate_presentation, delegate_primary_selection, delegate_relative_pointer, delegate_seat,
+    delegate_shm, delegate_viewporter, delegate_xdg_activation, delegate_xdg_decoration,
+    delegate_xdg_shell,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
     output::Output,
     reexports::wayland_server::{Client, Resource, backend::ObjectId, protocol::wl_seat},
     utils::Serial,
     wayland::{
+        background_effect::BackgroundEffectState,
         buffer::BufferHandler,
         compositor::{CompositorClientState, CompositorHandler, CompositorState},
         cursor_shape::CursorShapeManagerState,
@@ -28,8 +30,7 @@ use smithay::{
         selection::{
             SelectionHandler,
             data_device::{
-                ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
-                set_data_device_focus,
+                DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler, set_data_device_focus,
             },
             primary_selection::{
                 PrimarySelectionHandler, PrimarySelectionState, set_primary_focus,
@@ -56,6 +57,7 @@ use smithay::{
 use crate::compositor::root::Halley;
 
 pub(crate) mod activation;
+pub(crate) mod background_effect;
 pub(crate) mod client_state;
 mod handlers;
 mod handlers_xdg;

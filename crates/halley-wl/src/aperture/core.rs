@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
+use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
 
 use chrono::{DateTime, Local, Timelike};
@@ -123,6 +124,9 @@ pub(crate) struct AperturePeekConfig {
     pub(crate) background: PeekBackgroundColor,
     pub(crate) radius_px: u32,
     pub(crate) clock: ClockConfig,
+    /// Frosted-glass backdrop blur behind the peek panel. Honoured by the
+    /// compositor's layer-shell blur path (the standalone renderer ignores it).
+    pub(crate) blur: bool,
 }
 
 impl Default for AperturePeekConfig {
@@ -132,6 +136,7 @@ impl Default for AperturePeekConfig {
             background: PeekBackgroundColor::default(),
             radius_px: 24,
             clock: ClockConfig::default(),
+            blur: true,
         }
     }
 }
@@ -165,15 +170,16 @@ impl fmt::Display for ApertureConfigError {
 impl Error for ApertureConfigError {}
 
 impl ApertureConfig {
-    pub(crate) fn parse_str(raw: &str) -> Result<Self, ApertureConfigError> {
-        if raw.trim().is_empty() {
-            return Ok(Self::default());
-        }
-
-        let cfg = RuneConfig::from_str(raw).map_err(|err| {
+    /// Load from a file path, resolving `gather` imports (e.g. pywal colours).
+    /// An empty file yields defaults.
+    pub(crate) fn parse_file(path: &Path) -> Result<Self, ApertureConfigError> {
+        let cfg = RuneConfig::from_file(path).map_err(|err| {
             ApertureConfigError::new(format!("aperture config parse error: {err}"))
         })?;
+        Ok(Self::from_rune_config(cfg))
+    }
 
+    fn from_rune_config(cfg: RuneConfig) -> Self {
         let mut out = Self::default();
         out.placement = pick_string(&cfg, &["aperture.placement"])
             .as_deref()
@@ -193,6 +199,7 @@ impl ApertureConfig {
             ],
             out.peek.background,
         );
+        out.peek.blur = pick_bool(&cfg, &["aperture-peek.blur"], out.peek.blur);
         out.peek.radius_px = pick_u32(
             &cfg,
             &[
@@ -272,7 +279,7 @@ impl ApertureConfig {
             out.peek.clock.color,
         );
 
-        Ok(out)
+        out
     }
 }
 
@@ -378,6 +385,15 @@ pub(crate) fn minimal_font_px(normal_font_px: u32) -> u32 {
 fn pick_u32(cfg: &RuneConfig, paths: &[&str], default: u32) -> u32 {
     for path in paths {
         if let Ok(Some(value)) = cfg.get_optional::<u32>(path) {
+            return value;
+        }
+    }
+    default
+}
+
+fn pick_bool(cfg: &RuneConfig, paths: &[&str], default: bool) -> bool {
+    for path in paths {
+        if let Ok(Some(value)) = cfg.get_optional::<bool>(path) {
             return value;
         }
     }

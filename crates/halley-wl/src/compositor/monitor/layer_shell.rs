@@ -20,7 +20,7 @@ use smithay::wayland::shell::xdg::PopupSurface;
 use smithay::wayland::shell::xdg::PositionerState;
 
 const APERTURE_LAYER_NAMESPACE: &str = "halley-aperture";
-const HALLEY_LENS_LAYER_NAMESPACE: &str = "halley-lift";
+const HALLEY_LIFT_LAYER_NAMESPACE: &str = "halley-lift";
 
 #[derive(Clone)]
 pub(crate) struct LayerPlacement {
@@ -353,6 +353,18 @@ pub(crate) fn aperture_layer_present_for_monitor(st: &Halley, monitor: &str) -> 
         .contains(monitor)
 }
 
+/// Monitor for a layer surface that requested no specific output. Lift
+/// (`NAMESPACE` in `crates/halley-lift/src/main.rs`) follows the cursor; every
+/// other namespace falls back to the current (focused) monitor.
+fn assigned_monitor_for_no_output(st: &Halley, namespace: &str) -> String {
+    if namespace == "halley-lift" {
+        if let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global {
+            return st.monitor_for_screen_or_current(sx, sy);
+        }
+    }
+    st.model.monitor_state.current_monitor.clone()
+}
+
 fn register_layer_surface_impl(
     st: &mut Halley,
     surface: LayerSurface,
@@ -368,7 +380,7 @@ fn register_layer_surface_impl(
             .find_map(|(name, output)| output.owns(requested_output).then_some(name.clone()))
             .unwrap_or_else(|| st.model.monitor_state.current_monitor.clone())
     } else {
-        st.model.monitor_state.current_monitor.clone()
+        assigned_monitor_for_no_output(st, &namespace)
     };
 
     st.assign_layer_surface_to_monitor(surface.wl_surface(), assigned_monitor.clone());
@@ -554,6 +566,11 @@ fn layer_surface_namespace(st: &Halley, surface: &WlSurface) -> Option<String> {
         .cloned()
 }
 
+/// True when the layer surface is Halley's own aperture-peek client.
+pub(crate) fn surface_is_aperture(st: &Halley, surface: &WlSurface) -> bool {
+    layer_surface_namespace(st, surface).as_deref() == Some(APERTURE_LAYER_NAMESPACE)
+}
+
 fn aperture_layer_height_from_committed_surface(st: &Halley, surface: &WlSurface) -> Option<i32> {
     st.platform
         .wlr_layer_shell_state
@@ -713,24 +730,24 @@ pub(crate) fn keyboard_focus_is_layer_surface(st: &Halley) -> bool {
         .is_some_and(|focus| is_layer_surface(st, &focus))
 }
 
-/// Returns true when the surface holding keyboard focus is the lens overlay
+/// Returns true when the surface holding keyboard focus is the Lift overlay
 /// (`halley-lift`). Used to dismiss the launcher when a compositor keybind fires,
 /// fuzzel-style.
-pub(crate) fn keyboard_focus_is_lens_layer_surface(st: &Halley) -> bool {
+pub(crate) fn keyboard_focus_is_lift_layer_surface(st: &Halley) -> bool {
     if let Some(focus_id) = st.model.monitor_state.layer_keyboard_focus.as_ref() {
         return st
             .model
             .monitor_state
             .layer_surface_namespace
             .get(focus_id)
-            .is_some_and(|namespace| namespace == HALLEY_LENS_LAYER_NAMESPACE);
+            .is_some_and(|namespace| namespace == HALLEY_LIFT_LAYER_NAMESPACE);
     }
     let Some(keyboard) = st.platform.seat.get_keyboard() else {
         return false;
     };
     keyboard
         .current_focus()
-        .is_some_and(|focus| is_lens_layer_surface(st, &focus))
+        .is_some_and(|focus| is_lift_layer_surface(st, &focus))
 }
 
 fn layer_focus_surface(st: &Halley) -> Option<WlSurface> {
@@ -757,8 +774,8 @@ pub(crate) fn focus_layer_surface(st: &mut Halley, surface: &WlSurface) -> bool 
 }
 
 /// Returns true if `surface` (or its layer-surface root, for subsurfaces/popups)
-/// is the lens overlay.
-pub(crate) fn is_lens_layer_surface(st: &Halley, surface: &WlSurface) -> bool {
+/// is the Lift overlay.
+pub(crate) fn is_lift_layer_surface(st: &Halley, surface: &WlSurface) -> bool {
     let Some(root) = layer_surface_root_for_surface(st, surface) else {
         return false;
     };
@@ -766,21 +783,21 @@ pub(crate) fn is_lens_layer_surface(st: &Halley, surface: &WlSurface) -> bool {
         .monitor_state
         .layer_surface_namespace
         .get(&root.id())
-        .is_some_and(|namespace| namespace == HALLEY_LENS_LAYER_NAMESPACE)
+        .is_some_and(|namespace| namespace == HALLEY_LIFT_LAYER_NAMESPACE)
 }
 
-/// Closes any open lens overlay, regardless of which monitor it lives on. Used
-/// for click-away dismissal — like Spotlight, clicking anywhere outside the lens
-/// closes it. Returns true if a lens was closed.
-pub(crate) fn close_any_lens_layer(st: &mut Halley) -> bool {
+/// Closes any open Lift overlay, regardless of which monitor it lives on. Used
+/// for click-away dismissal: clicking anywhere outside Lift closes it. Returns
+/// true if a Lift layer was closed.
+pub(crate) fn close_any_lift_layer(st: &mut Halley) -> bool {
     if let Some(focus_id) = st.model.monitor_state.layer_keyboard_focus.clone() {
-        let focused_lens = st
+        let focused_lift = st
             .model
             .monitor_state
             .layer_surface_namespace
             .get(&focus_id)
-            .is_some_and(|namespace| namespace == HALLEY_LENS_LAYER_NAMESPACE);
-        if focused_lens {
+            .is_some_and(|namespace| namespace == HALLEY_LIFT_LAYER_NAMESPACE);
+        if focused_lift {
             if let Some(layer) = st
                 .platform
                 .wlr_layer_shell_state
@@ -802,7 +819,7 @@ pub(crate) fn close_any_lens_layer(st: &mut Halley) -> bool {
                 .monitor_state
                 .layer_surface_namespace
                 .get(&layer.wl_surface().id())
-                .is_some_and(|namespace| namespace == HALLEY_LENS_LAYER_NAMESPACE)
+                .is_some_and(|namespace| namespace == HALLEY_LIFT_LAYER_NAMESPACE)
         })
     else {
         return false;
@@ -979,6 +996,73 @@ mod tests {
         assert_eq!(
             state.model.spawn_state.pending_spawn_monitor.as_deref(),
             Some("left")
+        );
+    }
+
+    #[test]
+    fn lift_opens_on_monitor_under_cursor_not_focused_monitor() {
+        let mut tuning = halley_config::RuntimeTuning::default();
+        tuning.tty_viewports = vec![
+            halley_config::ViewportOutputConfig {
+                connector: "left".to_string(),
+                enabled: true,
+                offset_x: 0,
+                offset_y: 0,
+                width: 2560,
+                height: 1440,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+            halley_config::ViewportOutputConfig {
+                connector: "right".to_string(),
+                enabled: true,
+                offset_x: 2560,
+                offset_y: 0,
+                width: 1920,
+                height: 1200,
+                refresh_rate: None,
+                transform_degrees: 0,
+                vrr: halley_config::ViewportVrrMode::Off,
+                focus_ring: None,
+            },
+        ];
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, tuning);
+
+        // Focus on the left monitor, but the cursor is over the right one.
+        state.model.monitor_state.current_monitor = "left".to_string();
+        state.input.interaction_state.last_pointer_screen_global = Some((3200.0, 300.0));
+
+        assert_eq!(
+            super::assigned_monitor_for_no_output(&state, "halley-lift"),
+            "right",
+            "Lift should open on the monitor under the cursor"
+        );
+
+        // A non-Lift namespace still follows the focused/current monitor.
+        assert_eq!(
+            super::assigned_monitor_for_no_output(&state, "halley-panel"),
+            "left",
+            "other layer surfaces keep current-monitor placement"
+        );
+    }
+
+    #[test]
+    fn lift_falls_back_to_current_monitor_without_cursor() {
+        let dh = smithay::reexports::wayland_server::Display::<Halley>::new()
+            .expect("display")
+            .handle();
+        let mut state = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
+        state.input.interaction_state.last_pointer_screen_global = None;
+
+        let current = state.model.monitor_state.current_monitor.clone();
+        assert_eq!(
+            super::assigned_monitor_for_no_output(&state, "halley-lift"),
+            current
         );
     }
 

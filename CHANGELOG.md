@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 ## [v0.5.0] - TBD
 
 ### Added
+- Add the Halley Discord community/support invite to the README.
+- Add `nodes.opacity` (`0.0`–`1.0`, default `1.0`) to dim the node/core marker *body* (its
+  fill) so markers recede into the field; the border ring and app icon stay fully opaque.
+  Implemented via a `fill_alpha` shader uniform that only fades the fill region. Node
+  backdrop blur was intentionally not added — nodes never overlap windows, so their only
+  backdrop is the wallpaper; use `effects.shadows.node` for node depth instead.
+- Add frosted-glass backdrop blur behind the aperture-peek clock (`aperture-peek.blur`,
+  default `true`) and behind bearing chips (`bearings.blur`, default `true`). The aperture
+  panel is blurred via the layer-shell path keyed on its `halley-aperture` namespace; bearing
+  blur is drawn as a compositor overlay and fades in lockstep with each chip's distance fade,
+  so it disappears as the node recedes. Both honour the global `effects.blur` switches.
+- Add a top-level `effects:` config section for renderer-level visual effects. It holds an
+  `effects.blur:` block (`enabled`, `overlays`, `windows` = `off`/`auto`/`always`, `method`,
+  `radius`, `passes`, `saturation`, `noise`) and the relocated `effects.shadows:` blocks
+  (window/node/overlay). Backdrop blur targets compositor overlays and client windows only
+  (not nodes/node chrome). Overlays opt in via `overlays.blur`; individual windows opt in/out
+  via a per-rule `blur true/false`. Resolution policy: global `effects.blur.enabled` gates
+  everything; rule-level `blur false` always wins; rule-level `blur true` opts a window in even
+  under `windows "off"`/`"auto"`; `auto` blurs only translucent windows. Wired into the internal
+  template, bootstrap backfill, and example configs (defaults to `enabled false`).
+- Add `effects.blur.layer-shell` with `off`/`auto`/`always`, enabling compositor-controlled
+  backdrop blur for layer-shell clients such as launchers, notifications, and their popups.
+- Add Smithay `ext-background-effect` protocol support with the blur capability advertised and
+  conservative rendering integration for XDG toplevels, XDG popups, layer-shell surfaces, and
+  layer-shell popups.
+- Add RGBA overlay background parsing for `#rgba` and `#rrggbbaa`, so compositor overlays can
+  use configured translucent backgrounds.
+- Add configurable Halley Lift caret settings for visibility, width, blink timing, and
+  stop-blink timing.
+- Add a Halley Lift `term`/`/term`/`/t` search mode that runs the typed command line in the
+  configured `terminal` through the user's interactive `$SHELL` (so aliases, pipes, `&&`, and
+  quoting work), keeps a shell open afterward, and then closes Lift.
+- Add a configurable Halley Lift `border:` block (`enabled`, `width`, `style`). `outline`
+  wraps the whole app — the search bar when collapsed and the search bar plus results as one
+  unit when expanded — keeping the top-corner radius continuous across the transition (top
+  corners use `rounding.search`, the expanded bottom uses `rounding.panel`); `inset` keeps the
+  legacy results-only border. Uses `colors.panel-border`.
+- Add a Halley Lift search-bar magnifier icon: a `search-icon:` block (`enabled`, `side`
+  `left`/`right`, `size`) with a `colors.search-icon` tint (empty follows `hint`). The bundled
+  square SVG is rendered to an alpha mask and tinted at draw time.
+- Add drawn fallback glyphs for Halley Lift result rows without a raster icon: a squircle for
+  nodes and a ring for `term` entries.
 - Add libinput input-device customization to the `input:` config section: per-class
   `touchpad:` and `mouse:` blocks (tap-to-click, natural-scroll, disable-while-typing,
   accel speed/profile, scroll method, click method, tap-button-map, middle-emulation,
@@ -18,7 +60,19 @@ All notable changes to this project will be documented in this file.
   clients, and avoids full-session startup behavior such as session autostart.
 
 ### Changed
-- Rename Halley Lens to Halley Lift (`halley-lift`) across the workspace, launcher layer
+- Make camera zoom inertial, like a powered lens. Instead of easing to a fresh target on every
+  press, each zoom input injects velocity in log(view-size) space: repeating in the same
+  direction stacks velocity into an accelerating ramp, the opposite direction bleeds it off, and
+  friction coasts it to a smooth stop. A single press still travels ~one `field.zoom.step`, and
+  `field.zoom.smooth-rate` now doubles as the glide friction (higher = snappier, lower = longer
+  sweep). `field.zoom.smooth false` keeps instant jumps.
+- Move window/node/overlay shadows out of `decorations:` into the new `effects.shadows:` block;
+  `decorations:` now holds only compositor chrome (borders, secondary border, resize-using-border).
+  Legacy `decorations.shadows` configs are no longer parsed: the loader reports
+  `decorations.shadows has moved to effects.shadows`, and the config auto-updater relocates an
+  existing `decorations.shadows` block (preserving customized values) into `effects.shadows` on
+  reload.
+- Rename Halley Lift (`halley-lift`) across the workspace, launcher layer
   namespace, command bindings, README, and lockfile while preserving the command-palette
   implementation. The first-party launcher binding now behaves like a toggle: pressing the
   bound command closes an existing Lift overlay instead of racing a second instance, and
@@ -34,12 +88,31 @@ All notable changes to this project will be documented in this file.
   the nested Wayland socket, skip session `autostart.once` commands on startup, skip reload
   autostart commands on winit config reloads, and log when physical libinput settings are
   configured on winit where the host compositor owns the devices.
-- Decode Halley Lens result icons on a background worker thread and persist the resolved icon path index under `$XDG_CACHE_HOME/halley/lens-icons`, so icons no longer block the UI thread while decoding and warm launches skip the icon-directory walk entirely (the index is ready before the first draw on subsequent launches).
+- Decode Halley Lift result icons on a background worker thread and persist the resolved icon path index under `$XDG_CACHE_HOME/halley/lift-icons`, so icons no longer block the UI thread while decoding and warm launches skip the icon-directory walk entirely (the index is ready before the first draw on subsequent launches).
 - Split TTY output/layout helpers and TTY frame-clock/presentation helpers out of
   `backend/tty/mod.rs` into dedicated modules, reducing the monolithic TTY backend while
   preserving behavior.
+- Rework backdrop blur rendering around z-ordered framebuffer capture. Each blurred window,
+  layer-shell surface, popup, or compositor overlay now captures the framebuffer immediately before
+  drawing its blur patch instead of using a stale global below-window snapshot.
+- Render layer-shell blur through an alpha-mask pass so transparent client pixels and rounded
+  client shapes cut out the blurred backdrop correctly.
+- Track compositor-keybind fullscreen separately from client-requested fullscreen so user-keybind
+  fullscreen windows can blur when policy requests it while game-like, gamescope, browser-video,
+  and client-requested fullscreen surfaces remain excluded.
+- Add configurable raise animation triggering via `animations.raise.trigger "always"` or
+  `"overlap"`.
 
 ### Fixed
+- Keep a window raised after you resize it instead of snapping it back behind whatever it was
+  under. Resizing an occluded window now lifts it forward and *commits* that position on release
+  (using the same persistent overlap order as `raise-on-click`), rather than only floating it on
+  top for the duration of the drag. Honors the `input.raise-on-click` policy: with it off, the
+  window still returns to its stack position once the resize settles.
+- Keep a monitor's zoom animation easing to completion when the pointer crosses to another
+  monitor mid-zoom. Previously only the active monitor's camera was ticked, so a monitor caught
+  mid-zoom would freeze on screen and only resume when the pointer returned; every monitor's
+  camera now settles (and keeps repainting until it does), independent of pointer focus.
 - Let plain `halley` launched from inside Halley auto-select the nested winit backend by
   removing inherited `HALLEY_WL_BACKEND` from spawned app environments. This keeps the session
   wrapper explicit while preventing spawned nested compositors from being forced back into the
@@ -51,8 +124,18 @@ All notable changes to this project will be documented in this file.
 - Make winit/nested input-device configuration behavior explicit: `input.touchpad`,
   `input.mouse`, and `input.devices` are applied on the TTY backend that owns libinput devices,
   and winit now warns instead of silently appearing to ignore those settings.
-- Keep the Halley Lens result highlight on the first entry while typing, so filtering a query no longer leaves the selection stranded on whatever row the mouse last hovered; the highlight only follows the pointer again once it is physically moved over a different entry.
-- Eliminate Halley Lens icon load stalls where some icons appeared instantly while others took seconds, by removing the per-request recursive icon-directory walk that ran on the UI thread before the icon index was ready.
+- Keep the Halley Lift result highlight on the first entry while typing, so filtering a query no longer leaves the selection stranded on whatever row the mouse last hovered; the highlight only follows the pointer again once it is physically moved over a different entry.
+- Eliminate Halley Lift icon load stalls where some icons appeared instantly while others took seconds, by removing the per-request recursive icon-directory walk that ran on the UI thread before the icon index was ready.
+- Fix backdrop blur shader coordinate mapping so rounded and masked blur patches sample local
+  surface coordinates correctly on non-origin surfaces.
+- Prevent blur render failures from aborting the whole frame by logging and skipping the failed
+  blur patch for that frame.
+- Allocate blur resources for overlay-only frames so built-in compositor overlays can blur even
+  when no client window blur is active.
+- Blur raw cluster overlay primitives such as bloom tokens and join-affordance circles that bypass
+  the shared overlay chip renderer.
+- Fix Halley Lift caret placement so trailing spaces advance the caret immediately and empty input
+  still shows the caret.
 
 ## [v0.4.0] - 2026-06-12
 
@@ -66,8 +149,8 @@ All notable changes to this project will be documented in this file.
 - Add an Aperture `Minimal` mode across IPC, compositor status, and the standalone clock so maximized windows and tiled cluster workspaces can use a compact top tab instead of the larger collapsed clock.
 - Add `HALLEY_WL_PERF`-gated slow-frame and cluster-workspace entry timing logs for diagnosing render hitches without hot-path timestamp overhead when disabled.
 - Add a `debug:` config section with `overlay-fps` and `show-ring-when-resizing` toggles, including a legible top-left FPS HUD and control over focus-ring config-change previews.
-- Add Halley Lens, a standalone command palette for apps, nodes, clusters, actions, and config search, with slash modes, configurable UI, and cluster draft handoff support.
-- Add a Halley Lens `terminal` config key for launching `.desktop` apps that require a terminal.
+- Add Halley Lift, a standalone command palette for apps, nodes, clusters, actions, and config search, with slash modes, configurable UI, and cluster draft handoff support.
+- Add a Halley Lift `terminal` config key for launching `.desktop` apps that require a terminal.
 - Add first-class Gamescope integration through a top-level `gamescope:` config section, including global defaults, repeated per-game profiles, and per-game opt-outs, wired through `halleyctl gamescope run -- <command>` for use in Steam launch options.
 - Add automatic Gamescope resolution selection from the selected Halley viewport (`monitor` selector `focused`/`cursor`/`primary`/connector), so matching games launch with monitor-sized output and game dimensions by default.
 - Add clear diagnostics when Gamescope is enabled but the `gamescope` binary is unavailable, falling back to launching the game unwrapped instead of blocking it.
@@ -92,11 +175,11 @@ All notable changes to this project will be documented in this file.
 - Use the reserved usable viewport for maximize targets and maximized visuals so top clearance reservations are honored consistently.
 - Soften window shadows with a Gaussian/error-function falloff for a more natural shadow tail.
 - Treat Gamescope-managed games (and `steam_app_*` windows) as contained sessions: while they hold a pointer lock/confine, Halley suppresses its own overlay reveals so desktop UI cannot pop over the game (config-gated via `gamescope.suppress-overlays`).
-- Archive the experimental rail app and remove its public IPC surface ahead of Lens work.
+- Archive the experimental launcher prototype and remove its public IPC surface ahead of Lift work.
 
 ### Fixed
-- Make Halley Lens startup and general search responsive by removing synchronous icon indexing, caching live IPC snapshots outside keystroke search, and precomputing app search text.
-- Restore broader Halley Lens icon coverage with background indexing, support live provider prefixes such as `action open` without badges, show all apps for an empty Apps search, keep cluster draft staging explicit to `cluster`/`/cluster` searches, and ellipsize overlong search text from the left so the latest input remains visible.
+- Make Halley Lift startup and general search responsive by removing synchronous icon indexing, caching live IPC snapshots outside keystroke search, and precomputing app search text.
+- Restore broader Halley Lift icon coverage with background indexing, support live provider prefixes such as `action open` without badges, show all apps for an empty Apps search, keep cluster draft staging explicit to `cluster`/`/cluster` searches, and ellipsize overlong search text from the left so the latest input remains visible.
 - Avoid spatial-camera input remapping for Gamescope-managed pointer surfaces (config-gated via `gamescope.bypass-spatial-camera`) so the nested game receives a 1:1 pointer mapping while normal output and buffer scale handling are preserved.
 - Avoid auto-creating `~/.config/halley/halley.rune` when `/etc/halley/halley.rune` exists, preventing system configs from being shadowed on first startup.
 - Treat empty or whitespace-only `HALLEY_WL_CONFIG` as unset.

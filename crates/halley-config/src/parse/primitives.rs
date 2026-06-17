@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use rune_cfg::RuneConfig;
 
 use crate::layout::{
-    AccelProfile, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, ClickMethod,
-    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, DecorationBorderColor,
-    ExpandedPlacementStrategy, FindEmptyMode, FocusRingConfig, InputFocusMode,
-    LandmarkPlacementStrategy, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    NormalBlockerPolicy, OverlayBorderSource, OverlayColorMode, OverlayShape, PanToNewMode,
-    PinBadgeCorner, PinnedBlockerPolicy, ScrollMethod, ShadowColor, ShapeStyle, TapButtonMap,
-    WindowCloseAnimationStyle,
+    AccelProfile, BlurMethod, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode, ClickMethod,
+    ClientBlurMode, CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout,
+    DecorationBorderColor, ExpandedPlacementStrategy, FindEmptyMode, FocusRingConfig,
+    InputFocusMode, LandmarkPlacementStrategy, NodeBackgroundColorMode, NodeBorderColorMode,
+    NodeDisplayPolicy, NormalBlockerPolicy, OverlayBorderSource, OverlayColorMode, OverlayShape,
+    PanToNewMode, PinBadgeCorner, PinnedBlockerPolicy, RaiseAnimationTrigger, ScrollMethod,
+    ShadowColor, ShapeStyle, TapButtonMap, WindowCloseAnimationStyle,
 };
 
 pub(crate) fn merge_env_map(cfg: &RuneConfig, out: &mut HashMap<String, String>, path: &str) {
@@ -506,8 +506,8 @@ pub(crate) fn pick_overlay_color_mode(
         "auto" => OverlayColorMode::Auto,
         "light" => OverlayColorMode::Light,
         "dark" => OverlayColorMode::Dark,
-        _ => parse_hex_rgb(value)
-            .map(|(r, g, b)| OverlayColorMode::Fixed { r, g, b })
+        _ => parse_hex_rgba(value)
+            .map(|(r, g, b, a)| OverlayColorMode::Fixed { r, g, b, a })
             .unwrap_or(default),
     }
 }
@@ -523,6 +523,36 @@ pub(crate) fn pick_overlay_shape(
     match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
         "square" => OverlayShape::Square,
         "rounded" => OverlayShape::Rounded,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_client_blur_mode(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: ClientBlurMode,
+) -> ClientBlurMode {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "off" => ClientBlurMode::Off,
+        "auto" => ClientBlurMode::Auto,
+        "always" => ClientBlurMode::Always,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_blur_method(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: BlurMethod,
+) -> BlurMethod {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "dual-kawase" | "dual_kawase" | "kawase" => BlurMethod::DualKawase,
         _ => default,
     }
 }
@@ -553,6 +583,21 @@ pub(crate) fn pick_window_close_animation_style(
     match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
         "shrink" => WindowCloseAnimationStyle::Shrink,
         "fade" => WindowCloseAnimationStyle::Fade,
+        _ => default,
+    }
+}
+
+pub(crate) fn pick_raise_animation_trigger(
+    cfg: &RuneConfig,
+    paths: &[&str],
+    default: RaiseAnimationTrigger,
+) -> RaiseAnimationTrigger {
+    let Some(raw) = pick_string(cfg, paths) else {
+        return default;
+    };
+    match raw.trim().trim_matches('"').to_ascii_lowercase().as_str() {
+        "always" => RaiseAnimationTrigger::Always,
+        "overlap" | "overlapping" => RaiseAnimationTrigger::Overlap,
         _ => default,
     }
 }
@@ -604,7 +649,7 @@ pub(crate) fn parse_hex_rgb(value: &str) -> Option<(f32, f32, f32)> {
     Some((r, g, b))
 }
 
-fn parse_hex_rgba(value: &str) -> Option<(f32, f32, f32, f32)> {
+pub(crate) fn parse_hex_rgba(value: &str) -> Option<(f32, f32, f32, f32)> {
     let hex = value.strip_prefix('#').unwrap_or(value);
     let expanded = match hex.len() {
         3 => {

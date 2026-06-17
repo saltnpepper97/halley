@@ -558,7 +558,7 @@ pub(crate) fn toggle_focused_fullscreen_node_state(st: &mut Halley) -> bool {
     if node.state == halley_core::field::NodeState::Node {
         uncollapse_surface_node_for_action(st, id, now);
     }
-    st.enter_xdg_fullscreen(id, None, now);
+    st.enter_user_fullscreen(id, None, now);
     true
 }
 

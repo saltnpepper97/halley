@@ -1,11 +1,12 @@
 pub(crate) mod app_icon;
 mod bearings;
+pub(crate) mod blur;
 pub(crate) mod clipped_surface;
 mod cluster_icon;
 mod cursor;
 mod cursor_theme;
 pub(crate) mod draw_primitives;
-mod frame;
+pub(crate) mod frame;
 mod icon_tint;
 pub mod layer_shell;
 mod node;

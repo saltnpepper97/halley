@@ -8,11 +8,12 @@ pub(crate) struct OverlayRgb {
     pub(crate) r: f32,
     pub(crate) g: f32,
     pub(crate) b: f32,
+    pub(crate) a: f32,
 }
 
 impl OverlayRgb {
     pub(crate) fn alpha(self, alpha: f32) -> Color32F {
-        Color32F::new(self.r, self.g, self.b, alpha)
+        Color32F::new(self.r, self.g, self.b, self.a * alpha)
     }
 
     pub(crate) fn mix(self, other: Self, amount: f32) -> Self {
@@ -21,6 +22,7 @@ impl OverlayRgb {
             r: self.r + (other.r - self.r) * t,
             g: self.g + (other.g - self.g) * t,
             b: self.b + (other.b - self.b) * t,
+            a: self.a + (other.a - self.a) * t,
         }
     }
 
@@ -52,33 +54,38 @@ const LIGHT_OVERLAY_FILL: OverlayRgb = OverlayRgb {
     r: 0.92,
     g: 0.95,
     b: 0.98,
+    a: 1.0,
 };
 const DARK_OVERLAY_FILL: OverlayRgb = OverlayRgb {
     r: 0.15,
     g: 0.18,
     b: 0.22,
+    a: 1.0,
 };
 const LIGHT_OVERLAY_TEXT: OverlayRgb = OverlayRgb {
     r: 0.08,
     g: 0.10,
     b: 0.12,
+    a: 1.0,
 };
 const DARK_OVERLAY_TEXT: OverlayRgb = OverlayRgb {
     r: 0.94,
     g: 0.96,
     b: 0.98,
+    a: 1.0,
 };
 const DEFAULT_ERROR_COLOR: OverlayRgb = OverlayRgb {
     r: 0xfb as f32 / 255.0,
     g: 0x49 as f32 / 255.0,
     b: 0x34 as f32 / 255.0,
+    a: 1.0,
 };
 
 fn resolve_overlay_base_background(mode: OverlayColorMode) -> OverlayRgb {
     match mode {
         OverlayColorMode::Auto | OverlayColorMode::Light => LIGHT_OVERLAY_FILL,
         OverlayColorMode::Dark => DARK_OVERLAY_FILL,
-        OverlayColorMode::Fixed { r, g, b } => OverlayRgb { r, g, b },
+        OverlayColorMode::Fixed { r, g, b, a } => OverlayRgb { r, g, b, a },
     }
 }
 
@@ -93,13 +100,13 @@ fn resolve_overlay_base_text(mode: OverlayColorMode, background: OverlayRgb) -> 
         }
         OverlayColorMode::Light => LIGHT_OVERLAY_TEXT,
         OverlayColorMode::Dark => DARK_OVERLAY_TEXT,
-        OverlayColorMode::Fixed { r, g, b } => OverlayRgb { r, g, b },
+        OverlayColorMode::Fixed { r, g, b, a } => OverlayRgb { r, g, b, a },
     }
 }
 
 fn resolve_overlay_error_color(mode: OverlayColorMode) -> OverlayRgb {
     match mode {
-        OverlayColorMode::Fixed { r, g, b } => OverlayRgb { r, g, b },
+        OverlayColorMode::Fixed { r, g, b, a } => OverlayRgb { r, g, b, a },
         OverlayColorMode::Auto | OverlayColorMode::Light | OverlayColorMode::Dark => {
             DEFAULT_ERROR_COLOR
         }
@@ -121,6 +128,7 @@ fn resolve_overlay_border_color(tuning: &RuntimeTuning) -> OverlayRgb {
         r: color.r,
         g: color.g,
         b: color.b,
+        a: 1.0,
     }
 }
 
@@ -148,7 +156,7 @@ pub(crate) fn resolve_overlay_visuals(tuning: &RuntimeTuning) -> OverlayVisuals 
     OverlayVisuals {
         rounded: matches!(tuning.overlay_style.shape, OverlayShape::Rounded),
         border_px: resolve_overlay_border_width(tuning),
-        shadow: tuning.decorations.shadows.overlay,
+        shadow: tuning.effects.shadows.overlay,
         palette: OverlayPalette {
             fill,
             text,

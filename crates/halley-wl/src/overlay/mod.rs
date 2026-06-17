@@ -30,12 +30,13 @@ pub(crate) use cluster_bloom::{
 };
 pub(crate) use cluster_naming::{
     ClusterNamingDialogHit, cluster_naming_dialog_hit_test, draw_cluster_naming_dialog,
+    prime_cluster_naming_dialog_text_resources,
 };
 pub(crate) use cluster_overflow::{
     cluster_overflow_icon_hit_test, cluster_overflow_strip_slot_at,
     draw_cluster_overflow_promotion, draw_cluster_overflow_strip,
 };
-pub(crate) use hover_label::draw_overlay_hover_label;
+pub(crate) use hover_label::{draw_overlay_hover_label, draw_overlay_hover_preview_card};
 pub(crate) use screenshot::{ScreenshotMenuHit, draw_screenshot_overlay, screenshot_menu_hit_test};
 pub(crate) use selection_marker::draw_cluster_selection_markers;
 pub(crate) use state::{
@@ -52,6 +53,7 @@ pub(crate) use view::OverlayView;
 
 use action_row::{draw_overlay_action_row, overlay_action_row_size};
 use banner::draw_persistent_banner;
+pub(crate) use chip::{draw_overlay_backdrop_blur, with_overlay_blur_context};
 use chip::{
     draw_overlay_chip, draw_overlay_chip_with_border_color, draw_overlay_chip_without_shadow,
 };

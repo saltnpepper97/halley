@@ -133,8 +133,9 @@ impl RenderElement<GlesRenderer> for PrimaryGpuTextureElement {
         dst: smithay::utils::Rectangle<i32, Physical>,
         damage: &[smithay::utils::Rectangle<i32, Physical>],
         opaque_regions: &[smithay::utils::Rectangle<i32, Physical>],
+        cache: Option<&smithay::utils::user_data::UserDataMap>,
     ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
-        RenderElement::<GlesRenderer>::draw(&self.0, frame, src, dst, damage, opaque_regions)
+        RenderElement::<GlesRenderer>::draw(&self.0, frame, src, dst, damage, opaque_regions, cache)
     }
 
     fn underlying_storage(&self, _renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
@@ -150,6 +151,7 @@ impl<'render> RenderElement<TtyMultiRenderer<'render>> for PrimaryGpuTextureElem
         dst: smithay::utils::Rectangle<i32, Physical>,
         damage: &[smithay::utils::Rectangle<i32, Physical>],
         opaque_regions: &[smithay::utils::Rectangle<i32, Physical>],
+        cache: Option<&smithay::utils::user_data::UserDataMap>,
     ) -> Result<(), <TtyMultiRenderer<'render> as smithay::backend::renderer::RendererSuper>::Error>
     {
         RenderElement::<GlesRenderer>::draw(
@@ -159,6 +161,7 @@ impl<'render> RenderElement<TtyMultiRenderer<'render>> for PrimaryGpuTextureElem
             dst,
             damage,
             opaque_regions,
+            cache,
         )?;
         Ok(())
     }
@@ -817,7 +820,7 @@ fn build_tty_outputs(
 
         // GbmFramebufferExporter wraps the GBM device so DrmCompositor can
         // export rendered GBM buffers as KMS framebuffers.
-        let exporter = GbmFramebufferExporter::new(gbm.clone(), None);
+        let exporter = GbmFramebufferExporter::new(gbm.clone(), None.into());
 
         let (mw, mh) = mode.size();
 
@@ -854,7 +857,7 @@ fn build_tty_outputs(
                     gbm.clone(),
                     GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
                 );
-                let exporter = GbmFramebufferExporter::new(gbm.clone(), None);
+                let exporter = GbmFramebufferExporter::new(gbm.clone(), None.into());
                 let invalid_modifier_formats = render_formats
                     .iter()
                     .copied()

@@ -11,7 +11,8 @@ use halley_config::{
     ScrollMethod as CfgScrollMethod, TapButtonMap as CfgTapButtonMap,
 };
 use smithay::reexports::input::{
-    AccelProfile, ClickMethod, Device, DeviceCapability, ScrollMethod, SendEventsMode, TapButtonMap,
+    AccelProfile, ClickMethod, Device, DeviceCapability, DragLockState, ScrollMethod,
+    SendEventsMode, TapButtonMap,
 };
 
 use eventline::debug;
@@ -109,7 +110,11 @@ fn apply_settings(device: &mut Device, s: &DeviceSettings, name: &str) {
         let _ = device.config_tap_set_drag_enabled(v);
     }
     if let Some(v) = s.drag_lock {
-        let _ = device.config_tap_set_drag_lock_enabled(v);
+        let _ = device.config_tap_set_drag_lock_enabled(if v {
+            DragLockState::EnabledTimeout
+        } else {
+            DragLockState::Disabled
+        });
     }
     // `enabled` and `disabled_on_external_mouse` both drive the send-events mode; the
     // external-mouse mode takes precedence when set.
