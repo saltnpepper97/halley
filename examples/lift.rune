@@ -53,6 +53,19 @@ lift:
     accent "#8fb5ff"
     badge "#334875f2"
     danger "#eb9a8f"
+    search-icon ""
+  end
+
+  border:
+    enabled true
+    width 1
+    style "outline"
+  end
+
+  search-icon:
+    enabled true
+    side "left"
+    size 22
   end
 
   cursor:

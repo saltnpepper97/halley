@@ -7,6 +7,7 @@ pub enum LiftMode {
     Nodes,
     Actions,
     Config,
+    Term,
 }
 
 fn prefix_mode_from_token(token: &str) -> Option<LiftMode> {
@@ -16,6 +17,7 @@ fn prefix_mode_from_token(token: &str) -> Option<LiftMode> {
         "node" | "nodes" | "/node" | "/nodes" | "/n" => Some(LiftMode::Nodes),
         "action" | "actions" | "/action" | "/actions" => Some(LiftMode::Actions),
         "config" | "/config" => Some(LiftMode::Config),
+        "term" | "/term" | "/t" => Some(LiftMode::Term),
         _ => None,
     }
 }
@@ -131,6 +133,22 @@ mod tests {
         assert_eq!(
             effective_mode_query(state.mode, state.query.as_str()),
             (LiftMode::Actions, "open".into())
+        );
+    }
+
+    #[test]
+    fn effective_query_detects_term_prefix() {
+        assert_eq!(
+            effective_mode_query(LiftMode::General, "term echo hi"),
+            (LiftMode::Term, "echo hi".into())
+        );
+        assert_eq!(
+            effective_mode_query(LiftMode::General, "/t ls -la"),
+            (LiftMode::Term, "ls -la".into())
+        );
+        assert_eq!(
+            effective_mode_query(LiftMode::General, "term"),
+            (LiftMode::Term, String::new())
         );
     }
 

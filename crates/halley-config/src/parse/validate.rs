@@ -228,6 +228,7 @@ impl ConfigSchema {
             "bearings.show-icons",
             "bearings.show-pinned",
             "bearings.fade-distance",
+            "bearings.blur",
             "clusters.distance-px",
             "clusters.cluster-dwell-ms",
             "clusters.dwell-ms",
@@ -348,6 +349,7 @@ impl ConfigSchema {
             "nodes.node-label-shape",
             "nodes.label-shape",
             "nodes.icon-size",
+            "nodes.opacity",
             "nodes.background-colour",
             "nodes.background-color",
             "nodes.border-colour-hover",
@@ -539,6 +541,7 @@ fn numeric_scalar(path: &str) -> bool {
             | "nodes.primary-hot-inner-frac"
             | "nodes.hot-inner-frac"
             | "nodes.icon-size"
+            | "nodes.opacity"
             | "placement.reveal.max-pan-px"
             | "placement.reveal.animation-ms"
             | "physics.damping"
@@ -596,6 +599,7 @@ fn bool_scalar(path: &str) -> bool {
             | "bearings.show-distance"
             | "bearings.show-icons"
             | "bearings.show-pinned"
+            | "bearings.blur"
             | "clusters.show-icons"
             | "cursor.hide-while-typing"
             | "cursor.hide-when-typing"

@@ -48,7 +48,26 @@ pub(super) fn tty_output_animation_redraw_active(
     output_name: &str,
     now: Instant,
 ) -> bool {
-    if !pointer_state.borrow().move_anim.is_empty() {
+    let pointer_state = pointer_state.borrow();
+    if !pointer_state.move_anim.is_empty() {
+        return true;
+    }
+    if pointer_state.hover_node.is_some_and(|node_id| {
+        st.model
+            .monitor_state
+            .node_monitor
+            .get(&node_id)
+            .is_none_or(|monitor| monitor == output_name)
+    }) {
+        return true;
+    }
+    if st
+        .input
+        .interaction_state
+        .overlay_hover_target
+        .as_ref()
+        .is_some_and(|target| target.monitor == output_name)
+    {
         return true;
     }
 

@@ -131,6 +131,14 @@ pub(crate) fn load_nodes_section(cfg: &RuneConfig, out: &mut RuntimeTuning) {
         ],
         out.node_icon_size,
     );
+    out.node_opacity = pick_f32(
+        cfg,
+        &[
+            "node.opacity",
+            "nodes.opacity",
+        ],
+        out.node_opacity,
+    );
     out.node_background_color = pick_node_background_color_mode(
         cfg,
         &[
@@ -227,5 +235,34 @@ end
             out.node_border_color_inactive,
             NodeBorderColorMode::UseWindowSecondaryInactive
         );
+    }
+
+    #[test]
+    fn nodes_section_parses_opacity() {
+        let cfg = RuneConfig::from_str(
+            r##"
+nodes:
+  opacity 0.4
+end
+"##,
+        )
+        .expect("node config should parse");
+
+        let mut out = RuntimeTuning::default();
+        load_nodes_section(&cfg, &mut out);
+
+        assert!((out.node_opacity - 0.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn nodes_opacity_is_clamped_by_guard() {
+        let mut out = RuntimeTuning::default();
+        out.node_opacity = 2.5;
+        out.clamp_values();
+        assert!((out.node_opacity - 1.0).abs() < 1e-6);
+
+        out.node_opacity = -0.5;
+        out.clamp_values();
+        assert!((out.node_opacity).abs() < 1e-6);
     }
 }

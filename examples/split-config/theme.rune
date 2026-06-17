@@ -80,6 +80,7 @@ node:
   node-shape "square"
   node-label-shape "square"
   icon-size 0.72
+  opacity 1.0
   background-colour "auto"
 end
 

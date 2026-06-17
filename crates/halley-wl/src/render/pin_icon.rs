@@ -90,6 +90,7 @@ pub(crate) fn draw_pin_badge(
         layout.radius.max(1),
         super::node::NodeRoundShape::Circle,
         alpha,
+        1.0,
         Color32F::new(fill.r(), fill.g(), fill.b(), 0.0),
         fill,
         false,

@@ -25,6 +25,7 @@ use crate::compositor::root::Halley;
 use crate::overlay::{
     OverlayView, draw_cluster_bloom, draw_cluster_overflow_promotion, draw_cluster_overflow_strip,
     draw_cluster_selection_markers, draw_monitor_hud, draw_overlay_hover_label,
+    draw_overlay_hover_preview_card,
 };
 use crate::presentation::world_to_screen;
 use crate::render::blur::{BlurTextures, capture_current_framebuffer_blur_patch};
@@ -391,7 +392,7 @@ pub(super) fn draw_scene_windows_and_hud(
                 draw_cluster_selection_markers(frame, &overlay, size.w, size.h, prepared.damage)?;
             }
 
-            draw_hover_preview(frame, prepared.damage, scene)?;
+            draw_hover_preview(frame, st, prepared.damage, scene)?;
             draw_node_hover_labels(
                 frame,
                 st,
@@ -979,23 +980,15 @@ where
 
 fn draw_hover_preview(
     frame: &mut GlesFrame<'_, '_>,
+    st: &Halley,
     damage: Rectangle<i32, Physical>,
     scene: &SceneCollections,
 ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
-    if let Some((px, py, pw, ph)) = scene.hover_preview_rect
-        && !scene.hover_preview_elements.is_empty()
-    {
-        let dl = damage.loc.x;
-        let dt = damage.loc.y;
-        let dr = damage.loc.x + damage.size.w;
-        let db = damage.loc.y + damage.size.h;
-        let l = px.max(dl);
-        let t = py.max(dt);
-        let r = (px + pw).min(dr);
-        let b = (py + ph).min(db);
-        if r > l && b > t {
-            let clip = Rectangle::new((l, t).into(), ((r - l), (b - t)).into());
-            let _ = draw_render_elements(frame, 1.0, &scene.hover_preview_elements, &[clip]);
+    if let Some(card) = scene.hover_preview_card {
+        if let Err(err) =
+            draw_overlay_hover_preview_card(frame, st, card.rect, card.node_id, card.alpha, damage)
+        {
+            eventline::warn!("hover preview card skipped this frame: {err}");
         }
     }
 

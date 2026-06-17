@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 ## [v0.5.0] - TBD
 
 ### Added
+- Add `nodes.opacity` (`0.0`–`1.0`, default `1.0`) to dim the node/core marker *body* (its
+  fill) so markers recede into the field; the border ring and app icon stay fully opaque.
+  Implemented via a `fill_alpha` shader uniform that only fades the fill region. Node
+  backdrop blur was intentionally not added — nodes never overlap windows, so their only
+  backdrop is the wallpaper; use `effects.shadows.node` for node depth instead.
+- Add frosted-glass backdrop blur behind the aperture-peek clock (`aperture-peek.blur`,
+  default `true`) and behind bearing chips (`bearings.blur`, default `true`). The aperture
+  panel is blurred via the layer-shell path keyed on its `halley-aperture` namespace; bearing
+  blur is drawn as a compositor overlay and fades in lockstep with each chip's distance fade,
+  so it disappears as the node recedes. Both honour the global `effects.blur` switches.
 - Add a top-level `effects:` config section for renderer-level visual effects. It holds an
   `effects.blur:` block (`enabled`, `overlays`, `windows` = `off`/`auto`/`always`, `method`,
   `radius`, `passes`, `saturation`, `noise`) and the relocated `effects.shadows:` blocks
@@ -23,6 +33,18 @@ All notable changes to this project will be documented in this file.
   use configured translucent backgrounds.
 - Add configurable Halley Lift caret settings for visibility, width, blink timing, and
   stop-blink timing.
+- Add a Halley Lift `term`/`/term`/`/t` search mode that runs the typed command line in the
+  configured `terminal` (wrapped in `sh -c`, so pipes/`&&`/quoting work) and then closes.
+- Add a configurable Halley Lift `border:` block (`enabled`, `width`, `style`). `outline`
+  wraps the whole app — the search bar when collapsed and the search bar plus results as one
+  unit when expanded — keeping the top-corner radius continuous across the transition (top
+  corners use `rounding.search`, the expanded bottom uses `rounding.panel`); `inset` keeps the
+  legacy results-only border. Uses `colors.panel-border`.
+- Add a Halley Lift search-bar magnifier icon: a `search-icon:` block (`enabled`, `side`
+  `left`/`right`, `size`) with a `colors.search-icon` tint (empty follows `hint`). The bundled
+  square SVG is rendered to an alpha mask and tinted at draw time.
+- Add drawn fallback glyphs for Halley Lift result rows without a raster icon: a squircle for
+  nodes and a ring for `term` entries.
 - Add libinput input-device customization to the `input:` config section: per-class
   `touchpad:` and `mouse:` blocks (tap-to-click, natural-scroll, disable-while-typing,
   accel speed/profile, scroll method, click method, tap-button-map, middle-emulation,

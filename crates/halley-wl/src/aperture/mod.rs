@@ -58,11 +58,10 @@ impl ApertureState {
 }
 
 pub(crate) fn try_load_aperture_config_from_path(path: &Path) -> Result<ApertureConfig, String> {
-    match std::fs::read_to_string(path) {
-        Ok(raw) => ApertureConfig::parse_str(raw.as_str()).map_err(|err| err.to_string()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(ApertureConfig::default()),
-        Err(err) => Err(format!("failed to read {}: {err}", path.display())),
+    if !path.exists() {
+        return Ok(ApertureConfig::default());
     }
+    ApertureConfig::parse_file(path).map_err(|err| err.to_string())
 }
 
 pub(crate) fn load_aperture_config_from_path(path: &Path) -> ApertureConfig {

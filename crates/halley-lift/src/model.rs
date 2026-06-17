@@ -8,6 +8,7 @@ pub enum LiftResultKind {
     Action,
     Config,
     CreateCluster,
+    Term,
 }
 
 #[derive(Clone, Debug)]
@@ -18,6 +19,7 @@ pub enum LiftAction {
     CreateCluster,
     ReloadConfig,
     OpenPath { path: String },
+    RunInTerminal { command: String },
 }
 
 #[derive(Clone, Debug)]
@@ -94,5 +96,6 @@ pub fn mode_allows(mode: LiftMode, kind: &LiftResultKind) -> bool {
         LiftMode::Nodes => matches!(kind, LiftResultKind::Node),
         LiftMode::Actions => matches!(kind, LiftResultKind::Action),
         LiftMode::Config => matches!(kind, LiftResultKind::Config),
+        LiftMode::Term => matches!(kind, LiftResultKind::Term),
     }
 }

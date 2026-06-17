@@ -16,6 +16,7 @@ exclude.workspace = true
 chrono.workspace = true
 fontdb = "0.23.0"
 halley-api.workspace = true
+halley-config.workspace = true
 halley-ipc.workspace = true
 rusttype = "0.9.3"
 rune-cfg.workspace = true

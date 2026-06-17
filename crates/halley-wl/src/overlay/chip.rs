@@ -33,7 +33,7 @@ pub(crate) fn with_overlay_blur_context<R>(
     })
 }
 
-pub(super) fn draw_overlay_backdrop_blur(
+pub(crate) fn draw_overlay_backdrop_blur(
     frame: &mut GlesFrame<'_, '_>,
     rect: Rectangle<i32, Physical>,
     corner_radius: f32,

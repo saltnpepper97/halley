@@ -19,6 +19,7 @@ impl RuntimeTuning {
         self.primary_hot_inner_frac = self.primary_hot_inner_frac.clamp(0.1, 1.0);
         self.primary_to_node_ms = self.primary_to_node_ms.clamp(250, 7_200_000);
         self.node_icon_size = self.node_icon_size.clamp(0.35, 0.95);
+        self.node_opacity = self.node_opacity.clamp(0.0, 1.0);
         self.decorations.border.size_px = self.decorations.border.size_px.clamp(0, 64);
         self.decorations.border.radius_px = self.decorations.border.radius_px.clamp(0, 256);
         self.decorations.secondary_border.size_px =

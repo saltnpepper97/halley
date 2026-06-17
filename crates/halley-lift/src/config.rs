@@ -21,9 +21,23 @@ pub struct LiftConfig {
     pub position: LiftPositionConfig,
     pub rounding: LiftRoundingConfig,
     pub colors: LiftColorConfig,
+    pub border: LiftBorderConfig,
+    pub search_icon: LiftSearchIconConfig,
     pub cursor: LiftCursorConfig,
     pub modes: LiftModeConfig,
     pub providers: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LiftBorderConfig {
+    /// Whether to draw a border at all.
+    pub enabled: bool,
+    /// Border thickness in pixels.
+    pub width: i32,
+    /// "outline" wraps the whole app (search bar when collapsed, search +
+    /// results as one unit when expanded). "inset" keeps the legacy look where
+    /// only the results dropdown is bordered.
+    pub style: String,
 }
 
 #[derive(Clone, Debug)]
@@ -58,6 +72,18 @@ pub struct LiftColorConfig {
     pub accent: String,
     pub badge: String,
     pub danger: String,
+    /// Tint for the search-bar magnifier. Empty falls back to the hint color.
+    pub search_icon: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct LiftSearchIconConfig {
+    /// Whether to show the magnifier glyph in the search bar.
+    pub enabled: bool,
+    /// "left" or "right" of the search text.
+    pub side: String,
+    /// Glyph size in pixels.
+    pub size: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -117,6 +143,8 @@ impl Default for LiftConfig {
             position: LiftPositionConfig::default(),
             rounding: LiftRoundingConfig::default(),
             colors: LiftColorConfig::default(),
+            border: LiftBorderConfig::default(),
+            search_icon: LiftSearchIconConfig::default(),
             cursor: LiftCursorConfig::default(),
             modes: LiftModeConfig::default(),
             providers: vec![
@@ -168,6 +196,27 @@ impl Default for LiftColorConfig {
             accent: "#8fb5ff".into(),
             badge: "#334875f2".into(),
             danger: "#eb9a8f".into(),
+            search_icon: String::new(),
+        }
+    }
+}
+
+impl Default for LiftBorderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            width: 1,
+            style: "outline".into(),
+        }
+    }
+}
+
+impl Default for LiftSearchIconConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            side: "left".into(),
+            size: 22,
         }
     }
 }
@@ -290,6 +339,18 @@ impl LiftConfig {
         out.colors.accent = cfg.get_or("lift.colors.accent", out.colors.accent.clone());
         out.colors.badge = cfg.get_or("lift.colors.badge", out.colors.badge.clone());
         out.colors.danger = cfg.get_or("lift.colors.danger", out.colors.danger.clone());
+        out.border.enabled = cfg.get_or("lift.border.enabled", out.border.enabled);
+        out.border.width = cfg
+            .get_or("lift.border.width", out.border.width)
+            .clamp(0, 16);
+        out.border.style = cfg.get_or("lift.border.style", out.border.style.clone());
+        out.search_icon.enabled = cfg.get_or("lift.search-icon.enabled", out.search_icon.enabled);
+        out.search_icon.side = cfg.get_or("lift.search-icon.side", out.search_icon.side.clone());
+        out.search_icon.size = cfg
+            .get_or("lift.search-icon.size", out.search_icon.size)
+            .clamp(8, 48);
+        out.colors.search_icon =
+            cfg.get_or("lift.colors.search-icon", out.colors.search_icon.clone());
         out.cursor.enabled = cfg.get_or("lift.cursor.enabled", out.cursor.enabled);
         out.cursor.width = cfg
             .get_or("lift.cursor.width", out.cursor.width)

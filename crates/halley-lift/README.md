@@ -26,6 +26,7 @@ cluster /cluster /clusters /c
 node /node /nodes /n
 action /actions
 config /config
+term /term /t
 ```
 
 Example:
@@ -35,6 +36,13 @@ cluster release
 ```
 
 searches clusters for `release` while leaving the full text visible in the search field.
+
+`term`/`/term`/`/t` runs the typed command line in the configured `terminal` (wrapped in
+`sh -c`, so pipes and `&&` work) and then closes Lift:
+
+```text
+term journalctl -f | grep halley
+```
 
 ## Cluster Drafts
 
@@ -109,6 +117,19 @@ lift:
     accent "#8fb5ff"
     badge "#334875f2"
     danger "#eb9a8f"
+    search-icon "" # magnifier tint; empty = follow `hint`
+  end
+
+  border:
+    enabled true
+    width 1          # thickness in px
+    style "outline"  # "outline" wraps the whole app; "inset" borders only the results
+  end
+
+  search-icon:
+    enabled true
+    side "left"      # "left" or "right" of the search text
+    size 22
   end
 
   cursor:

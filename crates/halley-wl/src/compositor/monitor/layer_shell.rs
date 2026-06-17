@@ -566,6 +566,11 @@ fn layer_surface_namespace(st: &Halley, surface: &WlSurface) -> Option<String> {
         .cloned()
 }
 
+/// True when the layer surface is Halley's own aperture-peek client.
+pub(crate) fn surface_is_aperture(st: &Halley, surface: &WlSurface) -> bool {
+    layer_surface_namespace(st, surface).as_deref() == Some(APERTURE_LAYER_NAMESPACE)
+}
+
 fn aperture_layer_height_from_committed_surface(st: &Halley, surface: &WlSurface) -> Option<i32> {
     st.platform
         .wlr_layer_shell_state

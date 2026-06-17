@@ -793,6 +793,14 @@ impl LiftApp {
                     self.activate_selected();
                 }
             }
+            // Handle Space by keysym rather than relying on `utf8`, which some keymaps
+            // leave empty for the space key (so a trailing space would not register until
+            // the next character arrived).
+            Keysym::space | Keysym::KP_Space => {
+                if !self.modifiers.ctrl && !self.modifiers.alt {
+                    self.handle_text(" ");
+                }
+            }
             _ => {
                 if !self.modifiers.ctrl
                     && !self.modifiers.alt

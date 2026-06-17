@@ -130,6 +130,45 @@ fn cluster_name_prompt_hover_animating(st: &Halley, monitor: &str) -> bool {
         .is_some_and(|prompt| prompt.confirm_hover_mix > 0.015 && prompt.confirm_hover_mix < 0.985)
 }
 
+fn node_hover_ui_animating(st: &Halley, monitor: &str) -> bool {
+    if st
+        .input
+        .interaction_state
+        .overlay_hover_target
+        .as_ref()
+        .is_some_and(|target| target.monitor == monitor)
+    {
+        return true;
+    }
+
+    if st
+        .ui
+        .render_state
+        .view
+        .node_preview_hover
+        .get(monitor)
+        .is_some_and(|state| state.mix > 0.002)
+    {
+        return true;
+    }
+
+    st.ui
+        .render_state
+        .view
+        .node_hover_mix
+        .iter()
+        .any(|(node_id, mix)| {
+            *mix > 0.01
+                && *mix < 0.99
+                && st
+                    .model
+                    .monitor_state
+                    .node_monitor
+                    .get(node_id)
+                    .is_none_or(|node_monitor| node_monitor == monitor)
+        })
+}
+
 pub(crate) fn tty_output_animation_redraw_state(
     st: &Halley,
     monitor: &str,
@@ -222,6 +261,7 @@ pub(crate) fn tty_output_animation_redraw_state(
             || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
             || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05);
     let overlay_active = monitor_overlay_animation_active_at(st, monitor, now_ms)
+        || node_hover_ui_animating(st, monitor)
         || st
             .ui
             .render_state

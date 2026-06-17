@@ -62,6 +62,7 @@ pub struct RuntimeTuning {
     pub node_shape: ShapeStyle,
     pub node_label_shape: ShapeStyle,
     pub node_icon_size: f32,
+    pub node_opacity: f32,
     pub node_background_color: NodeBackgroundColorMode,
     pub node_border_color_hover: NodeBorderColorMode,
     pub node_border_color_inactive: NodeBorderColorMode,
@@ -631,6 +632,10 @@ node:
 
   # Size is a fraction of the node diameter.
   icon-size 0.72
+
+  # Node body (fill) opacity (0.0–1.0). Lower values let the marker fill
+  # recede into the field; the border ring and app icon stay opaque.
+  opacity 1.0
 
   # Auto tints the node fill from its border colour.
   background-colour "auto"

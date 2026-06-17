@@ -127,6 +127,9 @@ impl ProviderIndex {
         if matches!(ctx.mode, LiftMode::General | LiftMode::Config) {
             results.extend(search_config(ctx));
         }
+        if ctx.mode == LiftMode::Term {
+            results.extend(search_term(ctx));
+        }
 
         if ctx.mode == LiftMode::Clusters && ctx.draft_count > 0 {
             results.push(create_cluster_result(ctx.query.as_str()));
@@ -401,6 +404,31 @@ fn search_config(ctx: &SearchContext) -> Vec<LiftResult> {
     })
 }
 
+fn search_term(ctx: &SearchContext) -> Vec<LiftResult> {
+    let command = ctx.query.trim();
+    let (title, subtitle) = if command.is_empty() {
+        (
+            "Open terminal".to_string(),
+            "Type a command to run".to_string(),
+        )
+    } else {
+        (command.to_string(), "Run in terminal".to_string())
+    };
+    vec![LiftResult {
+        section: "Terminal".into(),
+        title,
+        subtitle: Some(subtitle),
+        icon_name: None,
+        kind: LiftResultKind::Term,
+        score: 1.0,
+        is_field_pinned: false,
+        shortcut_hint: Some("Enter run".into()),
+        action: LiftAction::RunInTerminal {
+            command: command.to_string(),
+        },
+    }]
+}
+
 pub fn activate_result(index: &ProviderIndex, result: &LiftResult) -> Result<(), String> {
     match &result.action {
         LiftAction::LaunchApp { app_id } => index.launch_app(app_id),
@@ -425,6 +453,16 @@ pub fn activate_result(index: &ProviderIndex, result: &LiftResult) -> Result<(),
             index.terminal.as_str(),
         ),
         LiftAction::CreateCluster => Ok(()),
+        LiftAction::RunInTerminal { command } => {
+            let cmd = command.trim();
+            if cmd.is_empty() {
+                return Ok(());
+            }
+            // Wrap in `sh -c` so the terminal's `-e` receives a single program and the
+            // user's full command line (pipes, `&&`, quoting) runs in a shell.
+            let full = format!("{} sh -c {}", index.terminal.trim(), shell_quote(cmd));
+            launch_exec(full.as_str(), false, index.terminal.as_str())
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -61,9 +61,7 @@ pub fn run() -> Result<(), String> {
     let config_path = default_aperture_config_path();
     let initial_config = load_aperture_config(config_path.as_path());
     let font_renderer = load_font_renderer(initial_config.peek.clock.font_family.as_str())?;
-    let config_mtime = fs::metadata(config_path.as_path())
-        .and_then(|meta| meta.modified())
-        .ok();
+    let config_signature = aperture_config_signature(config_path.as_path());
     let pool = SlotPool::new(4096, &shm).map_err(|err| format!("slot pool: {err}"))?;
     let mut app = StandaloneAperture {
         registry_state: RegistryState::new(&globals),
@@ -75,7 +73,7 @@ pub fn run() -> Result<(), String> {
         runtime: ApertureRuntime::new(initial_config),
         font_renderer,
         config_path,
-        config_mtime,
+        config_signature,
         next_config_poll: Instant::now(),
         next_status_poll: Instant::now(),
         next_clock_redraw: Instant::now(),
@@ -119,7 +117,7 @@ struct StandaloneAperture {
     runtime: ApertureRuntime,
     font_renderer: FontRenderer,
     config_path: PathBuf,
-    config_mtime: Option<SystemTime>,
+    config_signature: ConfigSignature,
     next_config_poll: Instant,
     next_status_poll: Instant,
     next_clock_redraw: Instant,
@@ -329,10 +327,8 @@ impl StandaloneAperture {
         }
         self.next_config_poll = now + CONFIG_POLL_INTERVAL;
 
-        let next_mtime = fs::metadata(self.config_path.as_path())
-            .and_then(|meta| meta.modified())
-            .ok();
-        if self.config_mtime == next_mtime {
+        let next_signature = aperture_config_signature(self.config_path.as_path());
+        if self.config_signature == next_signature {
             return false;
         }
 
@@ -344,13 +340,13 @@ impl StandaloneAperture {
                 for layer in &mut self.layers {
                     layer.runtime.apply_config(self.runtime.config().clone());
                 }
-                self.config_mtime = next_mtime;
+                self.config_signature = next_signature;
                 self.monitor_fallback_warned = false;
                 true
             }
             Err(err) => {
                 eprintln!("halley-aperture config reload skipped: {err}");
-                self.config_mtime = next_mtime;
+                self.config_signature = next_signature;
                 false
             }
         }
@@ -1169,10 +1165,35 @@ fn map_ipc_mode(mode: IpcApertureMode) -> ApertureMode {
 }
 
 fn load_aperture_config(path: &Path) -> ApertureConfig {
-    match fs::read_to_string(path) {
-        Ok(raw) => ApertureConfig::parse_str(raw.as_str()).unwrap_or_default(),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => ApertureConfig::default(),
-        Err(_) => ApertureConfig::default(),
+    if !path.exists() {
+        return ApertureConfig::default();
+    }
+    ApertureConfig::parse_file(path).unwrap_or_default()
+}
+
+type ConfigSignature = Vec<(PathBuf, Option<SystemTime>)>;
+
+fn aperture_config_signature(path: &Path) -> ConfigSignature {
+    let mut paths = Vec::new();
+    let mut seen = HashSet::new();
+    push_unique_path(&mut paths, &mut seen, path.to_path_buf());
+    for dep in halley_config::gather_dependencies_for_file(path.to_string_lossy().as_ref()) {
+        push_unique_path(&mut paths, &mut seen, dep);
+    }
+    paths
+        .into_iter()
+        .map(|path| {
+            let mtime = fs::metadata(path.as_path())
+                .and_then(|meta| meta.modified())
+                .ok();
+            (path, mtime)
+        })
+        .collect()
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
+    if seen.insert(path.clone()) {
+        paths.push(path);
     }
 }
 

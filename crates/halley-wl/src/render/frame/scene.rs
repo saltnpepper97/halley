@@ -11,7 +11,7 @@ use smithay::{
 use super::super::bearings::{BearingChipLayout, collect_bearing_layouts};
 use super::super::cursor_surface_hotspot;
 use super::super::layer_shell::{LayerGroups, collect_layer_surfaces};
-use super::super::node::{NodeSnapshot, collect_hover_preview};
+use super::super::node::{HoverPreviewCard, NodeSnapshot, collect_hover_preview};
 use super::super::pin_icon::PinBadgeLayout;
 use super::super::state::ClosingWindowAnimationSnapshot;
 use crate::compositor::interaction::ResizeCtx;
@@ -99,8 +99,7 @@ pub(super) struct SceneCollections {
     pub(super) above_fullscreen_border_rects: Vec<ActiveBorderRect>,
     pub(super) closing_window_animations: Vec<ClosingWindowAnimationSnapshot>,
     pub(super) pin_badges: Vec<PinBadgeLayout>,
-    pub(super) hover_preview_rect: Option<(i32, i32, i32, i32)>,
-    pub(super) hover_preview_elements: Vec<SurfaceElement>,
+    pub(super) hover_preview_card: Option<HoverPreviewCard>,
     pub(super) render_nodes: Vec<NodeSnapshot>,
     pub(super) bearing_layouts: Vec<BearingChipLayout>,
     pub(super) blur_rects: Vec<BlurRect>,
@@ -186,8 +185,7 @@ pub(super) fn collect_debug_frame_scene(
             above_fullscreen_border_rects: Vec::new(),
             closing_window_animations: Vec::new(),
             pin_badges: Vec::new(),
-            hover_preview_rect: None,
-            hover_preview_elements: Vec::new(),
+            hover_preview_card: None,
             render_nodes: Vec::new(),
             bearing_layouts: Vec::new(),
             blur_rects: Vec::new(),
@@ -239,7 +237,7 @@ pub(super) fn collect_debug_frame_scene(
                     .is_none()
         })
         .map(|target| (target.node_id, target.screen_anchor, target.prefer_left));
-    let (hover_preview_rect, hover_preview_elements) = collect_hover_preview(
+    let hover_preview_card = collect_hover_preview(
         renderer,
         st,
         size,
@@ -337,8 +335,7 @@ pub(super) fn collect_debug_frame_scene(
         above_fullscreen_border_rects: window_plan.above_fullscreen_border_rects,
         closing_window_animations,
         pin_badges: window_plan.pin_badges,
-        hover_preview_rect,
-        hover_preview_elements,
+        hover_preview_card,
         render_nodes,
         bearing_layouts,
         blur_rects,

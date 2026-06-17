@@ -174,7 +174,12 @@ pub(crate) fn collect_layer_surfaces(
                 placement.size,
             ),
             blur: layer_shell_blur_enabled(st, placement.layer)
-                || surface_wants_background_blur(&placement.wl_surface),
+                || surface_wants_background_blur(&placement.wl_surface)
+                || (st.aperture_config().peek.blur
+                    && crate::compositor::monitor::layer_shell::surface_is_aperture(
+                        st,
+                        &placement.wl_surface,
+                    )),
             elements,
         };
 

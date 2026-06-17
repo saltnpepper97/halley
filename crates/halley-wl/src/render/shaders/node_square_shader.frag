@@ -8,6 +8,7 @@ uniform vec4 node_color;
 uniform vec4 fill_color;
 uniform float flat_fill;
 uniform float center_flat_fill;
+uniform float fill_alpha;
 
 void main() {
     vec2 p = v_coords * 2.0 - 1.0;
@@ -51,7 +52,9 @@ void main() {
 
     vec3 color = mix(shaded_fill, shaded_border, in_border);
     float edge_aa = 1.0 - smoothstep(0.96, 1.0, dist);
-    float final_alpha = alpha * edge_aa;
+    // fill_alpha dims only the node body; the border ring stays at `alpha`.
+    float region_alpha = mix(fill_alpha, 1.0, in_border);
+    float final_alpha = alpha * edge_aa * region_alpha;
 
     gl_FragColor = vec4(color * final_alpha, final_alpha);
 }

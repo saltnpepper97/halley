@@ -1001,6 +1001,9 @@ pub struct BearingsConfig {
     pub show_icons: bool,
     pub show_pinned: bool,
     pub fade_distance: f32,
+    /// Frosted-glass backdrop blur behind each bearing chip. Also requires the
+    /// global overlay blur (`effects.blur.overlays`) to be enabled.
+    pub blur: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

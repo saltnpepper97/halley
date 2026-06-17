@@ -1119,6 +1119,7 @@ dependencies = [
  "chrono",
  "fontdb",
  "halley-api",
+ "halley-config",
  "halley-ipc",
  "rune-cfg",
  "rustix 1.1.4",

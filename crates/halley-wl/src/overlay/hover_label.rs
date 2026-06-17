@@ -1,15 +1,17 @@
 use std::error::Error;
 
 use smithay::{
-    backend::renderer::gles::GlesFrame,
-    utils::{Physical, Rectangle},
+    backend::renderer::{Color32F, gles::GlesFrame, gles::Uniform},
+    utils::{Buffer, Physical, Rectangle, Transform},
 };
 
 use crate::compositor::root::Halley;
 use crate::presentation::themed_node_label_colors;
 use crate::text::{draw_ui_text, ui_text_size};
 
-use super::{BANNER_EDGE_PAD, draw_overlay_chip, resolve_overlay_visuals};
+use super::{
+    BANNER_EDGE_PAD, draw_overlay_chip, draw_overlay_chip_without_shadow, resolve_overlay_visuals,
+};
 
 pub(crate) fn draw_overlay_hover_label(
     frame: &mut GlesFrame<'_, '_>,
@@ -130,4 +132,201 @@ pub(crate) fn draw_overlay_hover_label(
         damage,
     )?;
     Ok(())
+}
+
+/// Draws the frosted backdrop card that sits behind the live hover-preview
+/// thumbnail: a Dual-Kawase backdrop blur plus a subtle translucent fill,
+/// matching the rest of the overlay chips. Must be called while the overlay
+/// blur context is active (it is, around `draw_hover_preview`); the blur is a
+/// no-op when overlay blur is disabled, leaving just the translucent fill.
+pub(crate) fn draw_overlay_hover_preview_card(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &Halley,
+    rect: Rectangle<i32, Physical>,
+    node_id: halley_core::field::NodeId,
+    alpha: f32,
+    damage: Rectangle<i32, Physical>,
+) -> Result<(), Box<dyn Error>> {
+    if alpha <= 0.01 {
+        return Ok(());
+    }
+    let visuals = resolve_overlay_visuals(&st.runtime.tuning);
+    let corner_radius = (rect.size.w.min(rect.size.h) as f32 * 0.075).clamp(14.0, 22.0);
+    let (fill_color, text_color) =
+        themed_node_label_colors(&st.runtime.tuning, true, 0.86 * alpha, 0.94 * alpha);
+    draw_overlay_chip(
+        frame,
+        &st.ui.render_state,
+        &visuals,
+        rect,
+        corner_radius,
+        fill_color,
+        true,
+        damage,
+        alpha,
+    )?;
+
+    let pad = ((rect.size.w.min(rect.size.h) as f32) * 0.045).round() as i32;
+    let label_h = 30.min((rect.size.h / 5).max(22));
+    let body = Rectangle::<i32, Physical>::new(
+        (rect.loc.x + pad, rect.loc.y + pad).into(),
+        (
+            (rect.size.w - pad * 2).max(1),
+            (rect.size.h - pad * 2 - label_h).max(1),
+        )
+            .into(),
+    );
+    let preview_radius = (corner_radius - pad as f32).max(8.0);
+    draw_cached_hover_thumbnail(frame, st, node_id, body, preview_radius, damage, alpha)?;
+
+    if let Some(label) = st
+        .model
+        .field
+        .node(node_id)
+        .map(|node| node.label.trim().to_string())
+        && !label.is_empty()
+    {
+        let text_scale = 2;
+        let max_chars = 24usize;
+        let text = if label.chars().count() > max_chars {
+            let mut truncated = label
+                .chars()
+                .take(max_chars.saturating_sub(3))
+                .collect::<String>();
+            truncated.push_str("...");
+            truncated
+        } else {
+            label
+        };
+        let (text_w, text_h) = ui_text_size(st, &text, text_scale);
+        let label_y = rect.loc.y + rect.size.h - pad - label_h + ((label_h - text_h).max(0) / 2);
+        draw_ui_text(
+            frame,
+            st,
+            rect.loc.x + ((rect.size.w - text_w).max(0) / 2),
+            label_y,
+            &text,
+            text_scale,
+            text_color,
+            damage,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn draw_cached_hover_thumbnail(
+    frame: &mut GlesFrame<'_, '_>,
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+    body: Rectangle<i32, Physical>,
+    radius: f32,
+    damage: Rectangle<i32, Physical>,
+    alpha: f32,
+) -> Result<(), Box<dyn Error>> {
+    let preview = st
+        .ui
+        .render_state
+        .cache
+        .window_offscreen_cache
+        .get(&node_id)
+        .filter(|cache| cache.has_content)
+        .and_then(|cache| Some((cache.texture.as_ref()?, cache.bbox?)));
+    let Some((texture, bbox)) = preview else {
+        let visuals = resolve_overlay_visuals(&st.runtime.tuning);
+        draw_overlay_chip_without_shadow(
+            frame,
+            &st.ui.render_state,
+            &visuals,
+            body,
+            radius,
+            Color32F::new(0.02, 0.03, 0.05, 0.76 * alpha),
+            false,
+            damage,
+            alpha,
+        )?;
+        return Ok(());
+    };
+
+    let (src_x, src_y, src_w, src_h) = hover_preview_source(st, node_id, bbox);
+    let dst = aspect_fit_rect(body, src_w.round() as i32, src_h.round() as i32);
+    let src = Rectangle::<f64, Buffer>::new(
+        (src_x as f64, src_y as f64).into(),
+        (src_w.max(1.0) as f64, src_h.max(1.0) as f64).into(),
+    );
+    let corner = radius.min(dst.size.w.min(dst.size.h) as f32 / 2.0).max(0.0);
+    let program = st.ui.render_state.gpu.window_texture_program.as_ref();
+    let uniforms = [
+        Uniform::new("rect_size", (dst.size.w as f32, dst.size.h as f32)),
+        Uniform::new("corner_radius", corner),
+        Uniform::new("border_px", 0.0f32),
+        Uniform::new("border_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+        Uniform::new("fill_color", (0.0f32, 0.0f32, 0.0f32, 0.0f32)),
+        Uniform::new("content_alpha_scale", 1.0f32),
+        Uniform::new("geo_offset", (0.0f32, 0.0f32)),
+        Uniform::new("geo_size", (dst.size.w as f32, dst.size.h as f32)),
+    ];
+    frame.render_texture_from_to(
+        texture,
+        src,
+        dst,
+        &[damage],
+        &[],
+        Transform::Normal,
+        alpha.clamp(0.0, 1.0),
+        program,
+        if program.is_some() { &uniforms } else { &[] },
+    )?;
+    Ok(())
+}
+
+fn hover_preview_source(
+    st: &Halley,
+    node_id: halley_core::field::NodeId,
+    bbox: smithay::utils::Rectangle<i32, smithay::utils::Logical>,
+) -> (f32, f32, f32, f32) {
+    let bbox_w = bbox.size.w.max(1) as f32;
+    let bbox_h = bbox.size.h.max(1) as f32;
+    let Some((geo_x, geo_y, geo_w, geo_h)) = st
+        .ui
+        .render_state
+        .cache
+        .window_geometry
+        .get(&node_id)
+        .copied()
+    else {
+        return (0.0, 0.0, bbox_w, bbox_h);
+    };
+    if geo_w <= 0.0 || geo_h <= 0.0 {
+        return (0.0, 0.0, bbox_w, bbox_h);
+    }
+    let left = (geo_x - bbox.loc.x as f32).clamp(0.0, bbox_w);
+    let top = (geo_y - bbox.loc.y as f32).clamp(0.0, bbox_h);
+    let right = (geo_x + geo_w - bbox.loc.x as f32).clamp(0.0, bbox_w);
+    let bottom = (geo_y + geo_h - bbox.loc.y as f32).clamp(0.0, bbox_h);
+    if right <= left || bottom <= top {
+        (0.0, 0.0, bbox_w, bbox_h)
+    } else {
+        (left, top, right - left, bottom - top)
+    }
+}
+
+fn aspect_fit_rect(
+    body: Rectangle<i32, Physical>,
+    src_w: i32,
+    src_h: i32,
+) -> Rectangle<i32, Physical> {
+    let src_w = src_w.max(1) as f32;
+    let src_h = src_h.max(1) as f32;
+    let scale = (body.size.w as f32 / src_w).min(body.size.h as f32 / src_h);
+    let w = (src_w * scale).round().max(1.0) as i32;
+    let h = (src_h * scale).round().max(1.0) as i32;
+    Rectangle::<i32, Physical>::new(
+        (
+            body.loc.x + (body.size.w - w) / 2,
+            body.loc.y + (body.size.h - h) / 2,
+        )
+            .into(),
+        (w, h).into(),
+    )
 }

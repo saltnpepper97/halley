@@ -463,10 +463,12 @@ pub(crate) fn collect_active_surfaces(
             let key = wl.id();
             let node_id = st.model.surface_to_node.get(&key).copied()?;
             let node = st.model.field.node(node_id)?;
-            if node.state != halley_core::field::NodeState::Active
-                || !st.model.field.is_visible(node_id)
-                || !st.node_assigned_to_current_monitor(node_id)
+            if !st.model.field.is_visible(node_id) || !st.node_assigned_to_current_monitor(node_id)
             {
+                return None;
+            }
+            node_surface_map.insert(node_id, wl.clone());
+            if node.state != halley_core::field::NodeState::Active {
                 return None;
             }
             Some((node_id, wl))
@@ -482,7 +484,6 @@ pub(crate) fn collect_active_surfaces(
             sync_node_size_from_surface(st, node_id, &wl)
         };
 
-        node_surface_map.insert(node_id, wl.clone());
         let Some(window_layout) = resolve_window_render_layout(
             st,
             node_id,
