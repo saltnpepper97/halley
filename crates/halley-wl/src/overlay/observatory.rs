@@ -295,6 +295,7 @@ fn draw_badge(
 
 fn draw_core_tile(
     frame: &mut GlesFrame<'_, '_>,
+    st: &Halley,
     overlay: &OverlayView<'_>,
     visuals: &OverlayVisuals,
     tile: &ApogeeTile,
@@ -314,6 +315,34 @@ fn draw_core_tile(
         damage,
         alpha,
     )?;
+    if let Some(icon) = crate::render::cluster_core_icon_texture(st, false) {
+        let side = (rect.size.w.min(rect.size.h) as f32 * 0.62).round() as i32;
+        let side = side.clamp(20, rect.size.w.min(rect.size.h).max(1));
+        let dest = Rectangle::<i32, Physical>::new(
+            (
+                rect.loc.x + (rect.size.w - side) / 2,
+                rect.loc.y + (rect.size.h - side) / 2,
+            )
+                .into(),
+            (side, side).into(),
+        );
+        let src = Rectangle::<f64, Buffer>::new(
+            (0.0, 0.0).into(),
+            (icon.width as f64, icon.height as f64).into(),
+        );
+        frame.render_texture_from_to(
+            &icon.texture,
+            src,
+            dest,
+            &[damage],
+            &[],
+            Transform::Normal,
+            alpha,
+            None,
+            &[],
+        )?;
+        return Ok(());
+    }
     let label = tile_label(overlay, tile);
     let label = truncate_overlay_text_to_width(
         overlay.render_state,
@@ -396,7 +425,9 @@ pub(super) fn draw_observatory(
         if rect.loc.x > screen_w || rect.loc.x + rect.size.w < 0 {
             continue;
         }
-        draw_core_tile(frame, &overlay, &visuals, tile, rect, tile_alpha, damage)?;
+        draw_core_tile(
+            frame, &*st, &overlay, &visuals, tile, rect, tile_alpha, damage,
+        )?;
     }
 
     for tile in &tiles {

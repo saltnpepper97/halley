@@ -133,13 +133,16 @@ fn generic_cluster_names_are_monitor_local_reclaimable_and_moveable() {
         "Cluster 2"
     );
 
-    let member_to_remove = st
+    let members_to_remove = st
         .model
         .field
         .cluster(cid_a1)
         .expect("cluster a1")
-        .members()[0];
-    let _ = st.remove_node_from_field(member_to_remove, st.now_ms(Instant::now()));
+        .members()
+        .to_vec();
+    for member_to_remove in members_to_remove {
+        let _ = st.remove_node_from_field(member_to_remove, st.now_ms(Instant::now()));
+    }
 
     let (_cid_a3, core_a3) = create_named_test_cluster(&mut st, "monitor_a", ["a5", "a6"], 220.0);
     assert_eq!(
@@ -543,7 +546,7 @@ fn lift_finalize_launches_after_confirm_and_absorbs_matching_windows() {
 }
 
 #[test]
-fn lift_finalize_pending_completion_does_not_show_ready_toast() {
+fn lift_finalize_app_launches_do_not_select_existing_matching_windows() {
     let dh = Display::<Halley>::new().expect("display").handle();
     let mut st = Halley::new_for_test(&dh, single_monitor_tuning());
     let now = Instant::now();
@@ -586,7 +589,15 @@ fn lift_finalize_pending_completion_does_not_show_ready_toast() {
         cluster_system_controller(&mut st)
             .confirm_cluster_name_prompt_for_monitor("monitor_a", now,)
     );
-    assert_eq!(st.model.field.cluster_ids().len(), 1);
+    assert_eq!(st.model.field.cluster_ids().len(), 0);
+    assert!(
+        st.model
+            .cluster_state
+            .pending_lift_cluster_builds
+            .contains_key("monitor_a")
+    );
+    assert!(st.model.field.cluster_id_for_member_public(alpha).is_none());
+    assert!(st.model.field.cluster_id_for_member_public(beta).is_none());
     assert_eq!(
         st.ui
             .render_state

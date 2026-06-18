@@ -258,7 +258,7 @@ pub(super) fn resolve_window_render_layout(
         && maximized_visual.is_none()
         && !active_cluster_member
     {
-        drag_parallax_position(st, node_id, base_p)
+        cursor_parallax_position(st, node_id, base_p)
     } else {
         base_p
     };

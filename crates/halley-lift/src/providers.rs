@@ -31,6 +31,7 @@ pub struct ProviderIndex {
     live_loaded: bool,
     live_rx: Option<Receiver<(Vec<CachedNode>, Vec<CachedCluster>)>>,
     terminal: String,
+    terminal_icon_name: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -63,13 +64,17 @@ struct CachedCluster {
 
 impl ProviderIndex {
     pub fn load(config: &LiftConfig) -> Self {
+        let apps = load_desktop_apps();
+        let terminal = config.terminal.trim().to_string();
+        let terminal_icon_name = terminal_icon_name_for_apps(&apps, terminal.as_str());
         Self {
-            apps: load_desktop_apps(),
+            apps,
             nodes: Vec::new(),
             clusters: Vec::new(),
             live_loaded: false,
             live_rx: None,
-            terminal: config.terminal.trim().to_string(),
+            terminal,
+            terminal_icon_name,
         }
     }
 
@@ -128,7 +133,7 @@ impl ProviderIndex {
             results.extend(search_config(ctx));
         }
         if ctx.mode == LiftMode::Term {
-            results.extend(search_term(ctx));
+            results.extend(self.search_term(ctx));
         }
 
         if ctx.mode == LiftMode::Clusters && ctx.draft_count > 0 {
@@ -243,6 +248,31 @@ impl ProviderIndex {
                 })
             })
             .collect()
+    }
+
+    fn search_term(&self, ctx: &SearchContext) -> Vec<LiftResult> {
+        let command = ctx.query.trim();
+        let (title, subtitle) = if command.is_empty() {
+            (
+                "Open terminal".to_string(),
+                "Type a command to run".to_string(),
+            )
+        } else {
+            (command.to_string(), "Run in terminal".to_string())
+        };
+        vec![LiftResult {
+            section: "Terminal".into(),
+            title,
+            subtitle: Some(subtitle),
+            icon_name: self.terminal_icon_name.clone(),
+            kind: LiftResultKind::Term,
+            score: 1.0,
+            is_field_pinned: false,
+            shortcut_hint: Some("Enter run".into()),
+            action: LiftAction::RunInTerminal {
+                command: command.to_string(),
+            },
+        }]
     }
 
     pub fn launch_app(&self, app_id: &str) -> Result<(), String> {
@@ -404,31 +434,6 @@ fn search_config(ctx: &SearchContext) -> Vec<LiftResult> {
     })
 }
 
-fn search_term(ctx: &SearchContext) -> Vec<LiftResult> {
-    let command = ctx.query.trim();
-    let (title, subtitle) = if command.is_empty() {
-        (
-            "Open terminal".to_string(),
-            "Type a command to run".to_string(),
-        )
-    } else {
-        (command.to_string(), "Run in terminal".to_string())
-    };
-    vec![LiftResult {
-        section: "Terminal".into(),
-        title,
-        subtitle: Some(subtitle),
-        icon_name: None,
-        kind: LiftResultKind::Term,
-        score: 1.0,
-        is_field_pinned: false,
-        shortcut_hint: Some("Enter run".into()),
-        action: LiftAction::RunInTerminal {
-            command: command.to_string(),
-        },
-    }]
-}
-
 pub fn activate_result(index: &ProviderIndex, result: &LiftResult) -> Result<(), String> {
     match &result.action {
         LiftAction::LaunchApp { app_id } => index.launch_app(app_id),
@@ -502,14 +507,7 @@ pub fn materialize_cluster_draft(
     draft: &ClusterDraft,
     query: &str,
 ) -> Result<(), String> {
-    let name_hint = query.trim();
-    let request = ClusterDraftRequest {
-        name_hint: (!name_hint.is_empty()).then(|| name_hint.to_string()),
-        app_ids: draft.app_ids.clone(),
-        app_launches: index.draft_app_launches(&draft.app_ids),
-        running_node_ids: draft.running_node_ids.clone(),
-        source: ClusterDraftSource::HalleyLift,
-    };
+    let request = build_cluster_draft_request(index, draft, query);
     expect_ok(halley_ipc::send_request(&Request::Cluster(
         ClusterRequest::OpenFinalizeDraft {
             draft: request,
@@ -519,12 +517,99 @@ pub fn materialize_cluster_draft(
     Ok(())
 }
 
+fn build_cluster_draft_request(
+    index: &ProviderIndex,
+    draft: &ClusterDraft,
+    query: &str,
+) -> ClusterDraftRequest {
+    let name_hint = query.trim();
+    ClusterDraftRequest {
+        name_hint: (!name_hint.is_empty()).then(|| name_hint.to_string()),
+        app_ids: Vec::new(),
+        app_launches: index.draft_app_launches(&draft.app_ids),
+        running_node_ids: draft.running_node_ids.clone(),
+        source: ClusterDraftSource::HalleyLift,
+    }
+}
+
 fn app_launch_command(app: &DesktopApp, terminal_command: &str) -> String {
     if app.terminal {
         format!("{} {}", terminal_command.trim(), app.exec)
     } else {
         app.exec.clone()
     }
+}
+
+fn terminal_icon_name_for_apps(apps: &[DesktopApp], terminal_command: &str) -> Option<String> {
+    let terminal = command_program_name(terminal_command)?.to_ascii_lowercase();
+    apps.iter()
+        .filter_map(|app| {
+            terminal_app_match_score(app, terminal.as_str())
+                .map(|score| (score, app.icon_name.clone()))
+        })
+        .max_by_key(|(score, _)| *score)
+        .and_then(|(_, icon_name)| icon_name)
+}
+
+fn terminal_app_match_score(app: &DesktopApp, terminal: &str) -> Option<i32> {
+    let id = app.id.to_ascii_lowercase();
+    let name = app.name.to_ascii_lowercase();
+    let exec = command_program_name(app.exec.as_str()).map(|value| value.to_ascii_lowercase());
+
+    if id == terminal || id.ends_with(&format!(".{terminal}")) {
+        return Some(100);
+    }
+    if exec.as_deref() == Some(terminal) {
+        return Some(90);
+    }
+    if name == terminal {
+        return Some(80);
+    }
+    if id.contains(terminal) {
+        return Some(60);
+    }
+    if name.contains(terminal) || app.search_text.contains(terminal) {
+        return Some(40);
+    }
+    None
+}
+
+fn command_program_name(command: &str) -> Option<String> {
+    shell_words(command).into_iter().find_map(|word| {
+        if word == "env" || (word.contains('=') && !word.contains('/')) {
+            return None;
+        }
+        let file_name = Path::new(&word).file_name()?.to_str()?.trim();
+        (!file_name.is_empty()).then(|| file_name.to_string())
+    })
+}
+
+fn shell_words(command: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut chars = command.chars().peekable();
+    let mut quote = None;
+    while let Some(ch) = chars.next() {
+        match (quote, ch) {
+            (None, '\'' | '"') => quote = Some(ch),
+            (Some(active), ch) if ch == active => quote = None,
+            (None, ch) if ch.is_whitespace() => {
+                if !current.is_empty() {
+                    words.push(std::mem::take(&mut current));
+                }
+            }
+            (_, '\\') => {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
 }
 
 fn expect_ok(response: Result<Response, halley_ipc::CodecError>) -> Result<(), String> {
@@ -780,6 +865,7 @@ exec '\''/bin/zsh'\'' -i'"#
             live_loaded: true,
             live_rx: None,
             terminal: String::new(),
+            terminal_icon_name: None,
         };
         let results = index.search(&SearchContext {
             mode: LiftMode::Clusters,
@@ -796,5 +882,90 @@ exec '\''/bin/zsh'\'' -i'"#
                 .iter()
                 .any(|result| result.section == "Running Nodes")
         );
+    }
+
+    fn app(id: &str, name: &str, exec: &str, icon: &str) -> DesktopApp {
+        DesktopApp {
+            id: id.into(),
+            name: name.into(),
+            comment: None,
+            icon_name: Some(icon.into()),
+            exec: exec.into(),
+            terminal: false,
+            search_text: format!("{id} {name}").to_ascii_lowercase(),
+        }
+    }
+
+    #[test]
+    fn terminal_icon_resolves_from_simple_terminal_command() {
+        let apps = vec![app("kitty", "Kitty", "kitty", "kitty")];
+
+        assert_eq!(
+            terminal_icon_name_for_apps(&apps, "kitty -e"),
+            Some("kitty".into())
+        );
+    }
+
+    #[test]
+    fn terminal_icon_resolves_from_path_command() {
+        let apps = vec![app(
+            "com.mitchellh.ghostty",
+            "Ghostty",
+            "ghostty",
+            "ghostty",
+        )];
+
+        assert_eq!(
+            terminal_icon_name_for_apps(&apps, "/usr/bin/ghostty -e"),
+            Some("ghostty".into())
+        );
+    }
+
+    #[test]
+    fn terminal_icon_resolves_from_quoted_command() {
+        let apps = vec![app(
+            "org.wezfurlong.wezterm",
+            "WezTerm",
+            "wezterm start",
+            "wezterm",
+        )];
+
+        assert_eq!(
+            terminal_icon_name_for_apps(&apps, "'/usr/bin/wezterm' start --"),
+            Some("wezterm".into())
+        );
+    }
+
+    #[test]
+    fn terminal_icon_missing_when_no_desktop_app_matches() {
+        let apps = vec![app("kitty", "Kitty", "kitty", "kitty")];
+
+        assert_eq!(terminal_icon_name_for_apps(&apps, "foot -e"), None);
+    }
+
+    #[test]
+    fn cluster_draft_sends_selected_apps_only_as_launches() {
+        let index = ProviderIndex {
+            apps: vec![app("kitty", "Kitty", "kitty", "kitty")],
+            nodes: Vec::new(),
+            clusters: Vec::new(),
+            live_loaded: true,
+            live_rx: None,
+            terminal: "foot -e".into(),
+            terminal_icon_name: None,
+        };
+        let draft = ClusterDraft {
+            name_hint: None,
+            app_ids: vec!["kitty".into()],
+            running_node_ids: vec![42],
+        };
+
+        let request = build_cluster_draft_request(&index, &draft, "dev");
+
+        assert!(request.app_ids.is_empty());
+        assert_eq!(request.app_launches.len(), 1);
+        assert_eq!(request.app_launches[0].app_id, "kitty");
+        assert_eq!(request.app_launches[0].command, "kitty");
+        assert_eq!(request.running_node_ids, vec![42]);
     }
 }

@@ -256,6 +256,21 @@ pub(crate) struct PointerContents {
     pub(crate) is_session_lock_surface: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CursorParallaxState {
+    pub(crate) current: Vec2,
+    pub(crate) target: Vec2,
+}
+
+impl Default for CursorParallaxState {
+    fn default() -> Self {
+        Self {
+            current: Vec2 { x: 0.0, y: 0.0 },
+            target: Vec2 { x: 0.0, y: 0.0 },
+        }
+    }
+}
+
 pub(crate) struct InteractionState {
     pub(crate) reset_input_state_requested: bool,
     pub(crate) pending_pointer_screen_hint: Option<(f32, f32)>,
@@ -275,6 +290,8 @@ pub(crate) struct InteractionState {
     pub(crate) physics_velocity: HashMap<NodeId, Vec2>,
     pub(crate) physics_last_tick: Instant,
     pub(crate) smoothed_render_pos: HashMap<NodeId, Vec2>,
+    pub(crate) cursor_parallax: HashMap<String, CursorParallaxState>,
+    pub(crate) cursor_parallax_last_tick: Instant,
     pub(crate) viewport_pan_anim: Option<ViewportPanAnim>,
     pub(crate) pan_dominant_until_ms: u64,
     /// Maximize requested mid-trail; deferred until `viewport_pan_anim` finishes so the pan

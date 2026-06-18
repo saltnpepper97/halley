@@ -32,7 +32,7 @@ use crate::compositor::surface::{
     window_geometry_for_node,
 };
 use crate::input::active_resize_geometry_screen;
-use crate::presentation::{drag_parallax_position, world_to_screen};
+use crate::presentation::{cursor_parallax_position, world_to_screen};
 use crate::protocol::wayland::background_effect::surface_wants_background_blur;
 
 use crate::render::clipped_surface::ClippedSurfaceRenderElement;

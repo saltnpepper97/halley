@@ -16,8 +16,9 @@ use super::{
     ClickCollapsedPanMode, CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout,
     CursorConfig, DebugConfig, DecorationsConfig, EffectsConfig, FocusRingConfig, FontConfig,
     GamescopeConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
-    OverlayStyleConfig, PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger,
-    ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    OverlayStyleConfig, PanToNewMode, ParallaxConfig, PinsConfig, PlacementConfig,
+    RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle, ViewportOutputConfig,
+    WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -95,6 +96,7 @@ pub struct RuntimeTuning {
     pub pan_to_new: PanToNewMode,
     pub placement: PlacementConfig,
     pub pins: PinsConfig,
+    pub parallax: ParallaxConfig,
     pub close_restore_focus: bool,
     pub close_restore_pan: CloseRestorePanMode,
     pub zoom_enabled: bool,
@@ -597,6 +599,14 @@ field:
     max 1.35
     smooth true
     smooth-rate 12.5
+  end
+
+  # Subtle cursor-driven depth while zoomed out. `strength` controls distance;
+  # `tau-ms` controls easing (higher = floatier, lower = snappier).
+  parallax:
+    enabled true
+    strength 0.035
+    tau-ms 90
   end
 end
 

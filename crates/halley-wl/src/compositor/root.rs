@@ -396,6 +396,8 @@ impl Halley {
                     physics_velocity: HashMap::new(),
                     physics_last_tick: now,
                     smoothed_render_pos: HashMap::new(),
+                    cursor_parallax: HashMap::new(),
+                    cursor_parallax_last_tick: now,
                     viewport_pan_anim: None,
                     pan_dominant_until_ms: 0,
                     pending_maximize: None,

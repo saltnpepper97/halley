@@ -262,6 +262,8 @@ pub(crate) fn tty_output_animation_redraw_state(
             || (st.model.viewport.center.y - st.model.camera_target_center.y).abs() > 0.05
             || (st.model.zoom_ref_size.x - st.model.camera_target_view_size.x).abs() > 0.05
             || (st.model.zoom_ref_size.y - st.model.camera_target_view_size.y).abs() > 0.05);
+    let cursor_parallax_active =
+        crate::presentation::cursor_parallax_active_for_monitor(st, monitor);
     let overlay_active = monitor_overlay_animation_active_at(st, monitor, now_ms)
         || node_hover_ui_animating(st, monitor)
         || st
@@ -293,6 +295,7 @@ pub(crate) fn tty_output_animation_redraw_state(
         || landmark_slide_active
         || viewport_pan_active
         || camera_smoothing_active
+        || cursor_parallax_active
         || overlay_active;
 
     TtyOutputAnimationRedrawState {

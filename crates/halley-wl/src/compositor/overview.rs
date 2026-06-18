@@ -411,9 +411,14 @@ fn build_apogee_tiles(
             w: (node.footprint.x * scale_x).max(8.0),
             h: (node.footprint.y * scale_y).max(8.0),
         };
-        let aspect = window_aspect(&view, *node_id, node.footprint);
+        let preview_size = if matches!(kind, ApogeeTileKind::Window) {
+            apogee_window_preview_size(&view, *node_id, node.intrinsic_size)
+        } else {
+            node.footprint
+        };
+        let aspect = window_aspect(&view, *node_id, preview_size);
         let weight = if matches!(kind, ApogeeTileKind::Window) {
-            (node.footprint.x * node.footprint.y).max(1.0)
+            (preview_size.x * preview_size.y).max(1.0)
         } else {
             0.15
         };
@@ -599,6 +604,31 @@ fn window_aspect(view: &OverlayView<'_>, node_id: NodeId, footprint: Vec2) -> f3
         .clamp(0.25, 4.5)
 }
 
+fn apogee_window_preview_size(view: &OverlayView<'_>, node_id: NodeId, fallback: Vec2) -> Vec2 {
+    if let Some((_, _, w, h)) = view
+        .render_state
+        .cache
+        .window_geometry
+        .get(&node_id)
+        .copied()
+        && w >= 1.0
+        && h >= 1.0
+    {
+        return Vec2 { x: w, y: h };
+    }
+    view.render_state
+        .cache
+        .window_offscreen_cache
+        .get(&node_id)
+        .filter(|cache| cache.has_content)
+        .and_then(|cache| cache.bbox)
+        .map(|bbox| Vec2 {
+            x: bbox.size.w.max(1) as f32,
+            y: bbox.size.h.max(1) as f32,
+        })
+        .unwrap_or(fallback)
+}
+
 /// Spatial reading order: top-to-bottom by y band, left-to-right within a band.
 /// Returns indices into `items`. Banding keeps roughly-aligned rows together so the
 /// mosaic mirrors the field's geography instead of jittering on tiny y differences.
@@ -655,6 +685,10 @@ pub(crate) fn layout_mosaic(
     let margin = (gap * 2.0).max(32.0);
     let avail_w = (screen_w as f32 - margin * 2.0).max(64.0);
     let avail_h = (screen_h as f32 - margin * 2.0).max(64.0);
+    if n == 1 {
+        out[0] = single_window_mosaic_slot(items[0], screen_w, screen_h, avail_w, avail_h);
+        return out;
+    }
     let max_rows = max_rows.clamp(1, 5).min(n.max(1));
     let sizes = natural_mosaic_sizes(items, avail_w, avail_h, max_rows, gap);
     let order = packing_order(items, &sizes);
@@ -692,6 +726,39 @@ pub(crate) fn layout_mosaic(
         };
     }
     out
+}
+
+fn single_window_mosaic_slot(
+    item: ApogeeLayoutItem,
+    screen_w: i32,
+    screen_h: i32,
+    avail_w: f32,
+    avail_h: f32,
+) -> TileRect {
+    if item.marker {
+        let side = avail_w.min(avail_h).clamp(48.0, 82.0);
+        return TileRect {
+            cx: screen_w as f32 * 0.5,
+            cy: screen_h as f32 * 0.5,
+            w: side,
+            h: side,
+        };
+    }
+    let aspect = item.aspect.clamp(0.25, 4.5);
+    let max_w = (screen_w as f32 * 0.62).min(avail_w).max(64.0);
+    let max_h = (screen_h as f32 * 0.56).min(avail_h).max(64.0);
+    let mut w = max_w;
+    let mut h = w / aspect;
+    if h > max_h {
+        h = max_h;
+        w = h * aspect;
+    }
+    TileRect {
+        cx: screen_w as f32 * 0.5,
+        cy: screen_h as f32 * 0.5,
+        w: w.clamp(64.0, max_w),
+        h: h.clamp(64.0, max_h),
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1391,6 +1458,18 @@ mod tests {
         let avg_h = slots.iter().map(|slot| slot.h).sum::<f32>() / slots.len() as f32;
 
         assert!(max_y - min_y <= avg_h * 1.20);
+    }
+
+    #[test]
+    fn single_window_mosaic_stays_readable_not_fullscreen() {
+        let items = vec![item(0.0, 0.0)];
+        let slots = layout_mosaic(&items, 1920, 880, 24.0, 3);
+
+        assert_eq!(slots.len(), 1);
+        assert!(slots[0].w <= 1920.0 * 0.62 + 1.0);
+        assert!(slots[0].h <= 880.0 * 0.56 + 1.0);
+        assert_eq!(slots[0].cx, 960.0);
+        assert_eq!(slots[0].cy, 440.0);
     }
 
     #[test]

@@ -147,6 +147,7 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     crate::compositor::interaction::state::tick_bloom_pull_preview(st, now_ms);
     tick_pending_core_hover_bloom(st, now_ms);
     st.tick_apogee(now);
+    crate::presentation::tick_cursor_parallax(st, now);
     camera_controller(&mut *st).tick_smoothing(now);
 
     // Also ease the cameras of the other (non-active) monitors so a monitor that

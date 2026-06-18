@@ -610,6 +610,24 @@ end
     }
 
     #[test]
+    fn updater_adds_missing_parallax_defaults() {
+        let raw = r#"
+field:
+  gap 20.0
+end
+"#;
+
+        let updated = RuntimeTuning::update_user_config_text(raw, &[])
+            .expect("config should update")
+            .expect("config should change");
+
+        assert!(
+            updated.contains("  parallax:\n    enabled true\n    strength 0.035\n    tau-ms 90")
+        );
+        assert!(RuntimeTuning::from_rune_str(&updated).is_some());
+    }
+
+    #[test]
     fn updater_injects_effects_block_with_blur_and_shadows() {
         let raw = r##"
 decorations:

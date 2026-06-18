@@ -50,7 +50,7 @@ pub struct Cluster {
 
 impl Cluster {
     pub fn new(id: ClusterId, members: Vec<NodeId>) -> Option<Self> {
-        if members.len() < 2 {
+        if members.is_empty() {
             return None;
         }
         if has_duplicates(&members) {
@@ -180,7 +180,7 @@ impl Cluster {
         if !self.members.contains(&member) {
             return None;
         }
-        if self.members.len() <= 2 {
+        if self.members.len() <= 1 {
             return Some(ClusterRemoveMemberOutcome::RequiresDissolve);
         }
 

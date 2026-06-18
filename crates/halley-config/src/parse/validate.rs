@@ -182,6 +182,7 @@ impl ConfigSchema {
             "effects.shadows.node",
             "effects.shadows.overlay",
             "field",
+            "field.parallax",
             "field.pins",
             "field.zoom",
             "focus-ring",
@@ -322,6 +323,13 @@ impl ConfigSchema {
             "field.pins.bg-colour",
             "field.pins.bg-color",
             "field.pins.size",
+            "field.parallax.enabled",
+            "field.parallax.strength",
+            "field.parallax.tau-ms",
+            "field.parallax.tau_ms",
+            "field.parallax_enabled",
+            "field.parallax_strength",
+            "field.parallax_tau_ms",
             "field.close-restore-focus",
             "field.close-restore-pan",
             "field.zoom.enabled",
@@ -541,6 +549,10 @@ fn numeric_scalar(path: &str) -> bool {
             | "field.gap-px"
             | "field.active-windows-allowed"
             | "field.pins.size"
+            | "field.parallax.strength"
+            | "field.parallax.tau-ms"
+            | "field.parallax.tau_ms"
+            | "field.parallax_tau_ms"
             | "field.zoom.step"
             | "field.zoom.min"
             | "field.zoom.max"
@@ -644,6 +656,8 @@ fn bool_scalar(path: &str) -> bool {
             | "decorations.resize-using-border"
             | "overlays.blur"
             | "field.close-restore-focus"
+            | "field.parallax.enabled"
+            | "field.parallax_enabled"
             | "field.zoom.enabled"
             | "field.zoom.smooth"
             | "input.raise-on-click"

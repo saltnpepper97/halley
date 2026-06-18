@@ -21,7 +21,7 @@ pub use layout::{
     InputConfig, InputFocusMode, KeyboardConfig, LandmarkPlacementConfig,
     LandmarkPlacementStrategy, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
     NormalBlockerPolicy, OverlayBorderSource, OverlayColorMode, OverlayShape, OverlayStyleConfig,
-    PanToNewMode, PinBadgeCorner, PinnedBlockerPolicy, PinsConfig, PlacementConfig,
+    PanToNewMode, ParallaxConfig, PinBadgeCorner, PinnedBlockerPolicy, PinsConfig, PlacementConfig,
     PlacementRevealConfig, PrimaryBorderConfig, RaiseAnimationConfig, RaiseAnimationTrigger,
     ResolvedConfigPath, RuntimeTuning, ScreenshotConfig, ScrollMethod, SecondaryBorderConfig,
     ShadowColor, ShadowLayerConfig, ShadowsConfig, ShapeStyle, TapButtonMap, TimedAnimationConfig,

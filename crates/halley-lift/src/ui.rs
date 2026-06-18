@@ -399,11 +399,13 @@ pub struct IconCache {
     /// Lazily rasterized search-bar glyphs, keyed by the size they were rendered at.
     search_icon: Option<(u32, IconRaster)>,
     cluster_search_icon: Option<(u32, IconRaster)>,
+    term_icon: Option<(u32, IconRaster)>,
 }
 
 /// Search-bar glyphs. Authored as square SVGs and rendered to alpha masks that are
 /// tinted at draw time.
 const SEARCH_ICON_SVG: &[u8] = include_bytes!("../assets/loupe.svg");
+const TERM_ICON_SVG: &[u8] = include_bytes!("../assets/term.svg");
 const CLUSTER_SEARCH_ICON_SVG: &[u8] =
     include_bytes!("../../halley-wl/src/compositor/clusters/assets/clusters.svg");
 
@@ -469,6 +471,7 @@ impl IconCache {
             cache_fingerprint,
             search_icon: None,
             cluster_search_icon: None,
+            term_icon: None,
         }
     }
 
@@ -476,16 +479,25 @@ impl IconCache {
     /// first use or whenever the requested size changes.
     fn search_glyph(&mut self, size: u32, mode: LiftMode) -> Option<&IconRaster> {
         let size = size.max(1);
-        let (slot, svg) = if mode == LiftMode::Clusters {
-            (&mut self.cluster_search_icon, CLUSTER_SEARCH_ICON_SVG)
-        } else {
-            (&mut self.search_icon, SEARCH_ICON_SVG)
+        let (slot, svg) = match mode {
+            LiftMode::Clusters => (&mut self.cluster_search_icon, CLUSTER_SEARCH_ICON_SVG),
+            LiftMode::Term => (&mut self.term_icon, TERM_ICON_SVG),
+            _ => (&mut self.search_icon, SEARCH_ICON_SVG),
         };
         if slot.as_ref().map(|(s, _)| *s) != Some(size) {
             let raster = render_svg_data(svg, None, size)?;
             *slot = Some((size, raster));
         }
         slot.as_ref().map(|(_, raster)| raster)
+    }
+
+    fn term_glyph(&mut self, size: u32) -> Option<&IconRaster> {
+        let size = size.max(1);
+        if self.term_icon.as_ref().map(|(s, _)| *s) != Some(size) {
+            let raster = render_svg_data(TERM_ICON_SVG, None, size)?;
+            self.term_icon = Some((size, raster));
+        }
+        self.term_icon.as_ref().map(|(_, raster)| raster)
     }
 
     pub fn needs_index(&self) -> bool {
@@ -1259,31 +1271,19 @@ fn draw_result_icon(
             );
         }
         LiftResultKind::Term => {
-            // Ring variant: accent squircle with the panel color punched out, so it
-            // reads differently from a node.
-            let inset = (size / 6).max(2);
-            fill_rounded_rect(
-                canvas,
-                width,
-                height,
-                x,
-                y,
-                size,
-                size,
-                radius,
-                colors.accent,
-            );
-            fill_rounded_rect(
-                canvas,
-                width,
-                height,
-                x + inset,
-                y + inset,
-                size - 2 * inset,
-                size - 2 * inset,
-                (radius - inset).max(0),
-                colors.dropdown,
-            );
+            if let Some(raster) = icon_cache.term_glyph(config.icon_size) {
+                draw_raster_tinted(
+                    canvas,
+                    width,
+                    height,
+                    raster,
+                    x,
+                    y,
+                    size,
+                    size,
+                    colors.accent,
+                );
+            }
         }
         _ => {}
     }
@@ -2031,5 +2031,25 @@ mod tests {
             .clone();
 
         assert_ne!(loupe, cluster);
+    }
+
+    #[test]
+    fn term_mode_uses_terminal_search_glyph() {
+        let mut config = LiftConfig::default();
+        config.icons = false;
+        let mut cache = IconCache::new(&config);
+
+        let loupe = cache
+            .search_glyph(24, LiftMode::General)
+            .expect("loupe glyph")
+            .rgba
+            .clone();
+        let term = cache
+            .search_glyph(24, LiftMode::Term)
+            .expect("term glyph")
+            .rgba
+            .clone();
+
+        assert_ne!(loupe, term);
     }
 }

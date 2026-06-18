@@ -9,7 +9,6 @@ use crate::compositor::surface::{
     active_stacking_front_member_for_monitor, is_active_stacking_workspace_member,
     node_blocks_interactive_transform,
 };
-use crate::presentation::drag_parallax_position;
 
 pub(crate) fn node_is_pointer_draggable(st: &Halley, node_id: halley_core::field::NodeId) -> bool {
     if st.is_fullscreen_active(node_id) {
@@ -130,63 +129,7 @@ fn commit_drag_parallax_release_positions(
     st: &mut Halley,
     released_node: halley_core::field::NodeId,
 ) {
-    let Some(active_drag) = st.input.interaction_state.active_drag.as_ref() else {
-        return;
-    };
-    if active_drag.node_id != released_node
-        || active_drag.pointer_monitor != st.model.monitor_state.current_monitor
-    {
-        return;
-    }
-
-    let ids = st.model.field.nodes().keys().copied().collect::<Vec<_>>();
-    let updates = ids
-        .into_iter()
-        .filter_map(|id| {
-            if id == released_node
-                || !st.model.field.participates_in_field_view(id)
-                || !st.model.field.is_visible(id)
-                || !st
-                    .model
-                    .monitor_state
-                    .node_monitor
-                    .get(&id)
-                    .is_some_and(|monitor| monitor == &active_drag.pointer_monitor)
-                || st.model.field.is_active_cluster_member(id)
-                || st.fullscreen_monitor_for_node(id).is_some()
-                || crate::compositor::workspace::state::node_in_maximize_session(st, id)
-            {
-                return None;
-            }
-
-            let node = st.model.field.node(id)?;
-            if node.pinned
-                || !matches!(
-                    node.state,
-                    halley_core::field::NodeState::Active
-                        | halley_core::field::NodeState::Node
-                        | halley_core::field::NodeState::Core
-                )
-            {
-                return None;
-            }
-
-            let shifted = drag_parallax_position(st, id, node.pos);
-            ((shifted.x - node.pos.x).abs() > 0.01 || (shifted.y - node.pos.y).abs() > 0.01)
-                .then_some((id, shifted))
-        })
-        .collect::<Vec<_>>();
-
-    if updates.is_empty() {
-        return;
-    }
-
-    for (id, pos) in updates {
-        if let Some(node) = st.model.field.node_mut(id) {
-            node.pos = pos;
-        }
-    }
-    st.request_maintenance();
+    let _ = (st, released_node);
 }
 
 fn drag_edge_pan_eligible(
@@ -396,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn release_commits_zoom_parallax_positions() {
+    fn release_does_not_commit_cursor_parallax_positions() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, halley_config::RuntimeTuning::default());
         let monitor = st.model.monitor_state.current_monitor.clone();
@@ -432,7 +375,7 @@ mod tests {
 
         let background_pos = st.model.field.node(background).expect("background").pos;
         let dragged_pos = st.model.field.node(dragged).expect("dragged").pos;
-        assert!(background_pos.x < 20.0);
+        assert_eq!(background_pos.x, 20.0);
         assert_eq!(background_pos.y, 10.0);
         assert_eq!(dragged_pos.x, 100.0);
         assert_eq!(dragged_pos.y, 0.0);
@@ -724,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn dropping_two_window_stack_member_outside_dissolves_cluster() {
+    fn dropping_two_window_stack_member_outside_leaves_singleton_cluster() {
         let dh = Display::<Halley>::new().expect("display").handle();
         let mut st = Halley::new_for_test(&dh, stacking_tuning());
         let members = open_stacking_cluster(&mut st, &["front", "back"]);
@@ -757,7 +700,9 @@ mod tests {
         let mut ps = PointerState::default();
         finish_pointer_drag(&mut st, &mut ps, front, true, drop_pos, Instant::now());
 
-        assert!(st.model.field.cluster(cid).is_none());
+        let cluster = st.model.field.cluster(cid).expect("cluster");
+        assert_eq!(cluster.members().len(), 1);
+        assert!(!cluster.contains(front));
         assert_eq!(st.model.field.cluster_id_for_member_public(front), None);
         let final_pos = st.model.field.node(front).expect("front").pos;
         assert!((final_pos.x - drop_pos.x).abs() <= 0.5);

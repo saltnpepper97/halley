@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [v0.5.0] - TBD
 
 ### Added
+- Add `field.parallax` config for zoomed-out cursor depth (`enabled`, `strength`, `tau-ms`),
+  with eased per-monitor parallax so crossing monitors ramps the effect in/out instead of snapping.
 - Add the Halley Discord community/support invite to the README.
 - Add `nodes.opacity` (`0.0`–`1.0`, default `1.0`) to dim the node/core marker *body* (its
   fill) so markers recede into the field; the border ring and app icon stay fully opaque.
@@ -104,6 +106,8 @@ All notable changes to this project will be documented in this file.
   `"overlap"`.
 
 ### Fixed
+- Render collapsed surface nodes in Apogee using the original window preview aspect/weight instead
+  of the collapsed marker footprint, so they match the shape they had before collapsing.
 - Keep a window raised after you resize it instead of snapping it back behind whatever it was
   under. Resizing an occluded window now lifts it forward and *commits* that position on release
   (using the same persistent overlap order as `raise-on-click`), rather than only floating it on
