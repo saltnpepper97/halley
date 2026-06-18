@@ -476,6 +476,112 @@ pub(crate) fn prewarm_focus_cycle_previews(
     }
 }
 
+pub(crate) fn prewarm_apogee_previews(renderer: &mut GlesRenderer, st: &mut Halley, now: Instant) {
+    use crate::compositor::overview::{ApogeePhase, ApogeeTileKind};
+
+    let Some(session) = st.input.interaction_state.apogee_session.as_ref() else {
+        return;
+    };
+    if session.phase != ApogeePhase::Open {
+        return;
+    }
+    if let Some((sx, sy)) = st.input.interaction_state.last_pointer_screen_global {
+        if st.monitor_for_screen_or_interaction(sx, sy) != session.monitor {
+            return;
+        }
+    }
+
+    let live = st.runtime.tuning.apogee.live_previews;
+    let mut missing = Vec::new();
+    let mut dirty = Vec::new();
+    for tile in session
+        .tiles
+        .iter()
+        .filter(|tile| matches!(tile.kind, ApogeeTileKind::Window))
+    {
+        let cache = st
+            .ui
+            .render_state
+            .cache
+            .window_offscreen_cache
+            .get(&tile.node_id);
+        let needs_initial = cache.is_none_or(|cache| {
+            cache.texture.is_none() || cache.bbox.is_none() || !cache.has_content
+        });
+        if needs_initial {
+            missing.push(tile.node_id);
+        } else if live && cache.is_some_and(|cache| cache.dirty) {
+            dirty.push(tile.node_id);
+        }
+    }
+    missing.extend(dirty);
+    if missing.is_empty() {
+        return;
+    }
+
+    let budget = 1;
+    let wanted: HashSet<NodeId> = missing.iter().take(budget).copied().collect();
+    let node_surfaces: HashMap<NodeId, WlSurface> = st
+        .platform
+        .xdg_shell_state
+        .toplevel_surfaces()
+        .iter()
+        .filter_map(|toplevel| {
+            let wl = toplevel.wl_surface().clone();
+            let node_id = st.model.surface_to_node.get(&wl.id()).copied()?;
+            wanted.contains(&node_id).then_some((node_id, wl))
+        })
+        .collect();
+
+    for node_id in missing.into_iter().take(budget) {
+        let Some(wl) = node_surfaces.get(&node_id).cloned() else {
+            continue;
+        };
+        if node_requires_live_surface_render(st, node_id) {
+            continue;
+        }
+        let Some(node) = st.model.field.node(node_id) else {
+            continue;
+        };
+        if node.state != halley_core::field::NodeState::Active {
+            continue;
+        }
+        let bbox = sync_node_size_from_surface(st, node_id, &wl);
+        let needs_capture = st
+            .ui
+            .render_state
+            .cache
+            .window_offscreen_cache
+            .get(&node_id)
+            .is_none_or(|cache| {
+                !cache.matches_size(bbox.size.w, bbox.size.h)
+                    || cache.texture.is_none()
+                    || cache.bbox.is_none()
+                    || !cache.has_content
+                    || (live && cache.dirty)
+            });
+        if !needs_capture {
+            continue;
+        }
+        st.ui
+            .render_state
+            .ensure_window_offscreen_cache(node_id, bbox.size.w, bbox.size.h, now);
+        if let Ok(offscreen) = render_surface_tree_to_texture(renderer, &wl, 1.0, None) {
+            let cache = st
+                .ui
+                .render_state
+                .cache
+                .window_offscreen_cache
+                .get_mut(&node_id)
+                .expect("offscreen cache should exist after ensure");
+            cache.texture = Some(offscreen.texture);
+            cache.bbox = Some(offscreen.bbox);
+            cache.has_content = offscreen.has_content;
+            cache.mark_clean(now);
+        }
+    }
+}
+
 pub(crate) fn prewarm_visible_active_window_offscreen_caches(
     renderer: &mut GlesRenderer,
     st: &mut Halley,

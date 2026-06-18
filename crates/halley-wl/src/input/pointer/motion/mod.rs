@@ -28,6 +28,19 @@ use super::resize::handle_resize_motion;
 use super::screenshot::handle_screenshot_pointer_motion;
 use crate::input::keyboard::modkeys::modifier_active;
 
+fn request_apogee_cursor_redraw<B: BackendView>(
+    ctx: &InputCtx<'_, B>,
+    previous_monitor: Option<&str>,
+    target_monitor: &str,
+) {
+    if let Some(previous_monitor) = previous_monitor
+        && previous_monitor != target_monitor
+    {
+        ctx.backend.request_output_redraw(previous_monitor);
+    }
+    ctx.backend.request_output_redraw(target_monitor);
+}
+
 #[inline]
 fn event_time_msec(time_usec: u64) -> u32 {
     (time_usec / 1_000).min(u32::MAX as u64) as u32
@@ -46,6 +59,71 @@ pub(crate) fn handle_pointer_motion_absolute<B: BackendView>(
     time_usec: u64,
 ) {
     if exit_confirm_controller(&*st).active() {
+        return;
+    }
+
+    if st.input.interaction_state.apogee_session.is_some()
+        && !crate::protocol::wayland::session_lock::session_lock_active(st)
+    {
+        let now_ms = st.now_ms(Instant::now());
+        st.input.interaction_state.last_cursor_activity_at_ms = now_ms;
+        let previous_monitor = st
+            .input
+            .interaction_state
+            .last_pointer_screen_global
+            .map(|(last_sx, last_sy)| st.monitor_for_screen_or_interaction(last_sx, last_sy));
+        let apogee_monitor = st
+            .input
+            .interaction_state
+            .apogee_session
+            .as_ref()
+            .map(|session| session.monitor.clone());
+        let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
+        if apogee_monitor.as_deref() != Some(target_monitor.as_str()) {
+            let (local_w, local_h, _, _) =
+                st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
+            let mut ps = ctx.pointer_state.borrow_mut();
+            ps.screen = (sx, sy);
+            ps.workspace_size = (local_w, local_h);
+            ps.hover_node = None;
+            ps.hover_started_at = None;
+            drop(ps);
+            st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
+            st.input.interaction_state.overlay_hover_target = None;
+            st.input.interaction_state.pending_core_hover = None;
+            request_apogee_cursor_redraw(ctx, previous_monitor.as_deref(), target_monitor.as_str());
+            return;
+        }
+
+        let now = Instant::now();
+        let (local_w, local_h, local_sx, local_sy) =
+            st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
+        {
+            let mut ps = ctx.pointer_state.borrow_mut();
+            ps.screen = (sx, sy);
+            ps.workspace_size = (local_w, local_h);
+            ps.hover_node = None;
+            ps.hover_started_at = None;
+        }
+        st.input.interaction_state.last_pointer_screen_global = Some((sx, sy));
+        st.input.interaction_state.overlay_hover_target = None;
+        st.input.interaction_state.pending_core_hover = None;
+        let hit = crate::compositor::overview::apogee_tile_at(
+            st,
+            target_monitor.as_str(),
+            local_sx,
+            local_sy,
+            now,
+        );
+        let icon = if hit.is_some() {
+            Some(smithay::input::pointer::CursorIcon::Pointer)
+        } else {
+            Some(smithay::input::pointer::CursorIcon::Default)
+        };
+        if st.input.interaction_state.cursor_override_icon != icon {
+            crate::compositor::interaction::pointer::set_cursor_override_icon(st, icon);
+        }
+        request_apogee_cursor_redraw(ctx, previous_monitor.as_deref(), target_monitor.as_str());
         return;
     }
 

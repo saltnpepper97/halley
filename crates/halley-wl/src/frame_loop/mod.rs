@@ -98,6 +98,9 @@ pub(crate) fn begin_render_frame(st: &mut Halley, now: Instant) {
                 .map(|(_, node_id)| node_id),
         );
     }
+    if let Some(session) = st.input.interaction_state.apogee_session.as_ref() {
+        keep_warm.extend(session.tiles.iter().map(|tile| tile.node_id));
+    }
     st.ui
         .render_state
         .prune_window_offscreen_cache(&alive, &keep_warm, now);
@@ -143,6 +146,7 @@ pub(crate) fn tick_frame_effects(st: &mut Halley, now: Instant) {
     crate::compositor::interaction::state::tick_cluster_join_candidate_ready(st, now_ms);
     crate::compositor::interaction::state::tick_bloom_pull_preview(st, now_ms);
     tick_pending_core_hover_bloom(st, now_ms);
+    st.tick_apogee(now);
     camera_controller(&mut *st).tick_smoothing(now);
 
     // Also ease the cameras of the other (non-active) monitors so a monitor that

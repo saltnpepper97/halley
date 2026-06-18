@@ -10,6 +10,7 @@ pub mod fullscreen;
 pub mod interaction;
 pub mod monitor;
 pub mod overlap;
+pub mod overview;
 pub mod platform;
 pub mod root;
 pub mod runtime;

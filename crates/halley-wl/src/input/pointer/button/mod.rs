@@ -82,6 +82,29 @@ pub(crate) fn handle_pointer_button_input<B: BackendView>(
         dispatch_pointer_button(st, frame, resize, button_code, button_state);
         return;
     }
+    if st.input.interaction_state.apogee_session.is_some() {
+        let now = Instant::now();
+        let hit = if matches!(button_state, ButtonState::Pressed) && left {
+            crate::compositor::overview::apogee_tile_at(
+                st,
+                target_monitor.as_str(),
+                local_sx,
+                local_sy,
+                now,
+            )
+        } else {
+            None
+        };
+        drop(ps);
+        if matches!(button_state, ButtonState::Pressed) && left {
+            if let Some(node_id) = hit {
+                crate::compositor::overview::activate_apogee_target(st, node_id, now);
+            }
+            st.close_apogee(now);
+            ctx.backend.request_redraw();
+        }
+        return;
+    }
     if matches!(button_state, ButtonState::Pressed)
         && right
         && crate::overlay::error_toast_hit_test(

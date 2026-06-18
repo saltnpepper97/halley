@@ -10,13 +10,13 @@ use super::keybinds::{
 };
 use super::rules::load_rules_section;
 use super::sections::{
-    load_animations_section, load_autostart_section, load_bearings_section, load_clusters_section,
-    load_cursor_section, load_debug_section, load_decay_section, load_decorations_section,
-    load_effects_section, load_env_section, load_field_section, load_focus_ring_section,
-    load_font_section, load_gamescope_section, load_input_section, load_keybind_sections,
-    load_nodes_section, load_overlays_section, load_physics_section, load_placement_section,
-    load_screenshot_section, load_stacking_section, load_tile_section, load_trail_section,
-    load_viewport_section,
+    load_animations_section, load_apogee_section, load_autostart_section, load_bearings_section,
+    load_clusters_section, load_cursor_section, load_debug_section, load_decay_section,
+    load_decorations_section, load_effects_section, load_env_section, load_field_section,
+    load_focus_ring_section, load_font_section, load_gamescope_section, load_input_section,
+    load_keybind_sections, load_nodes_section, load_overlays_section, load_physics_section,
+    load_placement_section, load_screenshot_section, load_stacking_section, load_tile_section,
+    load_trail_section, load_viewport_section,
 };
 use super::validate::validate_known_config_keys;
 
@@ -127,6 +127,7 @@ fn load_config_sections(cfg: &RuneConfig, out: &mut RuntimeTuning) {
     load_cursor_section(cfg, out);
     load_font_section(cfg, out);
     load_debug_section(cfg, out);
+    load_apogee_section(cfg, out);
     load_viewport_section(cfg, out);
     load_focus_ring_section(cfg, out);
     load_bearings_section(cfg, out);
@@ -446,6 +447,7 @@ fn sanitized_config_temp_path(source_path: &Path, temp_dir: &Path, index: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keybinds::CompositorBindingAction;
     use crate::layout::{OverlayColorMode, PinBadgeCorner};
 
     #[test]
@@ -568,6 +570,49 @@ end
 
         assert!(tuning.debug.overlay_fps);
         assert!(!tuning.debug.show_ring_when_resizing);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn from_rune_file_validates_and_loads_apogee_section() {
+        let dir = test_temp_dir("apogee-section");
+        let config_path = dir.join("halley.rune");
+
+        std::fs::write(
+            &config_path,
+            r#"apogee:
+  enabled true
+  live-previews false
+  transition-ms 320
+  gap 24.0
+  max-rows 3
+  background-dim 0.85
+end
+
+keybinds:
+  mod "super"
+  "$var.mod+a" "apogee"
+end
+"#,
+        )
+        .unwrap();
+
+        let tuning = RuntimeTuning::from_rune_file(config_path.to_str().unwrap())
+            .expect("apogee section should pass strict validation and load");
+
+        assert!(tuning.apogee.enabled);
+        assert!(!tuning.apogee.live_previews);
+        assert_eq!(tuning.apogee.transition_ms, 320);
+        assert_eq!(tuning.apogee.gap, 24.0);
+        assert_eq!(tuning.apogee.max_rows, 3);
+        assert_eq!(tuning.apogee.background_dim, 0.85);
+        assert!(
+            tuning
+                .compositor_bindings
+                .iter()
+                .any(|binding| binding.action == CompositorBindingAction::Apogee)
+        );
 
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -12,12 +12,12 @@ use crate::keybinds::{CompositorBinding, Keybinds, LaunchBinding, PointerBinding
 
 use super::paths::{absolutize_path, default_config_path, global_config_path};
 use super::{
-    AnimationsConfig, BearingsConfig, ClickCollapsedOutsideFocusMode, ClickCollapsedPanMode,
-    CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout, CursorConfig, DebugConfig,
-    DecorationsConfig, EffectsConfig, FocusRingConfig, FontConfig, GamescopeConfig, InputConfig,
-    NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy, OverlayStyleConfig,
-    PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger, ScreenshotConfig, ShapeStyle,
-    ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
+    AnimationsConfig, ApogeeConfig, BearingsConfig, ClickCollapsedOutsideFocusMode,
+    ClickCollapsedPanMode, CloseRestorePanMode, ClusterBloomDirection, ClusterDefaultLayout,
+    CursorConfig, DebugConfig, DecorationsConfig, EffectsConfig, FocusRingConfig, FontConfig,
+    GamescopeConfig, InputConfig, NodeBackgroundColorMode, NodeBorderColorMode, NodeDisplayPolicy,
+    OverlayStyleConfig, PanToNewMode, PinsConfig, PlacementConfig, RaiseAnimationTrigger,
+    ScreenshotConfig, ShapeStyle, ViewportOutputConfig, WindowCloseAnimationStyle, WindowRule,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -124,6 +124,7 @@ pub struct RuntimeTuning {
     pub cursor: CursorConfig,
     pub font: FontConfig,
     pub debug: DebugConfig,
+    pub apogee: ApogeeConfig,
     pub animations: AnimationsConfig,
     pub overlay_style: OverlayStyleConfig,
     pub screenshot: ScreenshotConfig,
@@ -554,6 +555,17 @@ end
 debug:
   overlay-fps false
   show-ring-when-resizing true
+end
+
+# Apogee is the flat overview mosaic. It uses cached window snapshots by default
+# so opening it has alt-tab-like performance instead of continuously rendering all windows.
+apogee:
+  enabled true
+  live-previews false
+  transition-ms 320
+  gap 24
+  max-rows 3
+  background-dim 0.85
 end
 
 "##;

@@ -129,6 +129,22 @@ pub(crate) fn handle_pointer_axis_input<B: BackendView>(
         let ps = ctx.pointer_state.borrow();
         (ps.screen.0, ps.screen.1)
     };
+    if st.input.interaction_state.apogee_session.is_some() {
+        let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
+        let (_, local_h, _local_sx, local_sy) =
+            st.local_screen_in_monitor(target_monitor.as_str(), sx, sy);
+        let region = crate::compositor::overview::apogee_region_for_point(local_h, local_sy);
+        let delta = amount_vertical
+            .or_else(|| amount_v120_vertical.map(|v| v / 8.0))
+            .unwrap_or(0.0) as f32
+            * 48.0;
+        if delta.abs() > f32::EPSILON
+            && st.adjust_apogee_orbit(target_monitor.as_str(), delta, region)
+        {
+            ctx.backend.request_redraw();
+        }
+        return;
+    }
     let target_monitor = st.monitor_for_screen_or_interaction(sx, sy);
     st.activate_monitor(target_monitor.as_str());
     let context = pointer_screen_context_for_monitor(st, target_monitor, (sx, sy), true, true);

@@ -194,6 +194,15 @@ pub(crate) fn effective_cursor_image_status(st: &Halley) -> CursorImageStatus {
         }
     }
 
+    if st.input.interaction_state.apogee_session.is_some() {
+        return CursorImageStatus::Named(
+            st.input
+                .interaction_state
+                .cursor_override_icon
+                .unwrap_or(smithay::input::pointer::CursorIcon::Default),
+        );
+    }
+
     if st.input.interaction_state.cursor_hidden_by_typing {
         return CursorImageStatus::Hidden;
     }

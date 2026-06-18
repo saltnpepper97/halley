@@ -113,6 +113,29 @@ pub struct DebugConfig {
     pub show_ring_when_resizing: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ApogeeConfig {
+    pub enabled: bool,
+    pub live_previews: bool,
+    pub transition_ms: u64,
+    pub gap: f32,
+    pub max_rows: u32,
+    pub background_dim: f32,
+}
+
+impl Default for ApogeeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            live_previews: false,
+            transition_ms: 320,
+            gap: 24.0,
+            max_rows: 3,
+            background_dim: 0.85,
+        }
+    }
+}
+
 impl Default for DebugConfig {
     fn default() -> Self {
         Self {

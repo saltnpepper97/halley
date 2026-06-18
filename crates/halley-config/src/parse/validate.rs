@@ -127,6 +127,7 @@ impl ConfigSchema {
     fn new() -> Self {
         let known_top_sections = HashSet::from([
             "animations",
+            "apogee",
             "autostart",
             "bearings",
             "clusters",
@@ -165,6 +166,7 @@ impl ConfigSchema {
             "animations.tile",
             "animations.stack",
             "animations.raise",
+            "apogee",
             "bearings",
             "clusters",
             "cursor",
@@ -224,6 +226,20 @@ impl ConfigSchema {
             "animations.raise.scale",
             "animations.raise.shadow-boost",
             "animations.raise.trigger",
+            "apogee.enabled",
+            "apogee.live-previews",
+            "apogee.live_previews",
+            "apogee.transition-ms",
+            "apogee.transition_ms",
+            "apogee.gap",
+            "apogee.gap-px",
+            "apogee.max-rows",
+            "apogee.max_rows",
+            "apogee.rows",
+            "apogee.show-collapsed-as-nodes",
+            "apogee.show_collapsed_as_nodes",
+            "apogee.background-dim",
+            "apogee.background_dim",
             "bearings.show-distance",
             "bearings.show-icons",
             "bearings.show-pinned",
@@ -482,6 +498,15 @@ fn numeric_scalar(path: &str) -> bool {
             | "animations.raise.duration-ms"
             | "animations.raise.scale"
             | "animations.raise.shadow-boost"
+            | "apogee.transition-ms"
+            | "apogee.transition_ms"
+            | "apogee.gap"
+            | "apogee.gap-px"
+            | "apogee.max-rows"
+            | "apogee.max_rows"
+            | "apogee.rows"
+            | "apogee.background-dim"
+            | "apogee.background_dim"
             | "bearings.fade-distance"
             | "clusters.distance-px"
             | "clusters.cluster-dwell-ms"
@@ -596,6 +621,11 @@ fn bool_scalar(path: &str) -> bool {
             | "animations.tile.enabled"
             | "animations.stack.enabled"
             | "animations.raise.enabled"
+            | "apogee.enabled"
+            | "apogee.live-previews"
+            | "apogee.live_previews"
+            | "apogee.show-collapsed-as-nodes"
+            | "apogee.show_collapsed_as_nodes"
             | "bearings.show-distance"
             | "bearings.show-icons"
             | "bearings.show-pinned"

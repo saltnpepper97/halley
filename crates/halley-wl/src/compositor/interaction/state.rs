@@ -295,6 +295,7 @@ pub(crate) struct InteractionState {
     pub(crate) modal_release_keys: HashSet<u32>,
     pub(crate) pending_modal_focus_restore: Option<PendingModalFocusRestore>,
     pub(crate) focus_cycle_session: Option<FocusCycleSession>,
+    pub(crate) apogee_session: Option<crate::compositor::overview::ApogeeSession>,
     pub(crate) overlay_hover_target: Option<OverlayHoverTarget>,
     pub(crate) cursor_override_until_ms: Option<u64>,
     pub(crate) pending_core_hover: Option<PendingCoreHover>,

@@ -57,6 +57,7 @@ fn monitor_overlay_requires_full_repaint_at(st: &Halley, monitor: &str, now_ms: 
             .get(monitor)
             .is_some_and(|until_ms| *until_ms > now_ms)
         || st.input.interaction_state.focus_cycle_session.is_some()
+        || crate::compositor::overview::apogee_render_pending(st)
         || st
             .model
             .cluster_state
@@ -112,6 +113,7 @@ fn monitor_overlay_animation_active_at(st: &Halley, monitor: &str, now_ms: u64) 
             .get(monitor)
             .is_some_and(|until_ms| *until_ms > now_ms)
         || st.input.interaction_state.focus_cycle_session.is_some()
+        || crate::compositor::overview::apogee_render_pending(st)
         || cluster_name_prompt_hover_animating(st, monitor)
         || screenshot_controller(st).screenshot_session_active()
         || st

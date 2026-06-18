@@ -414,6 +414,7 @@ impl Halley {
                     modal_release_keys: HashSet::new(),
                     pending_modal_focus_restore: None,
                     focus_cycle_session: None,
+                    apogee_session: None,
                     overlay_hover_target: None,
                     cursor_override_until_ms: None,
                     pending_core_hover: None,

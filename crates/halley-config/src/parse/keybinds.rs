@@ -285,6 +285,15 @@ fn apply_explicit_binding(
                 CompositorBindingAction::ClusterMode,
             );
         }
+        "apogee" | "overview" => {
+            upsert_compositor_binding(
+                out,
+                CompositorBindingScope::Global,
+                mods,
+                key,
+                CompositorBindingAction::Apogee,
+            );
+        }
         "cycle_focus" | "cycle-focus" | "focus_cycle" | "focus-cycle" => {
             upsert_compositor_binding(
                 out,
@@ -833,6 +842,22 @@ end
         assert!(out.compositor_bindings.iter().any(|binding| {
             binding.scope == CompositorBindingScope::Global
                 && binding.action == CompositorBindingAction::OpenTerminal
+        }));
+    }
+
+    #[test]
+    fn apogee_keyword_parses_as_compositor_action() {
+        let mut out = RuntimeTuning::default();
+        out.compositor_bindings.clear();
+        out.launch_bindings.clear();
+
+        let bindings = vec![("mod+a".to_string(), "apogee".to_string())];
+        assert!(apply_explicit_keybind_overrides_entries(&bindings, &mut out).is_ok());
+
+        assert!(out.launch_bindings.is_empty());
+        assert!(out.compositor_bindings.iter().any(|binding| {
+            binding.scope == CompositorBindingScope::Global
+                && binding.action == CompositorBindingAction::Apogee
         }));
     }
 

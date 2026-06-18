@@ -8,6 +8,7 @@ mod exit_confirm;
 mod focus_cycle;
 mod fps;
 mod hover_label;
+mod observatory;
 mod screenshot;
 mod selection_marker;
 mod state;
@@ -61,6 +62,7 @@ use cluster_overflow::draw_overflow_member_chip;
 use exit_confirm::draw_exit_confirmation;
 use focus_cycle::draw_focus_cycle_switcher;
 use fps::draw_debug_fps_overlay;
+use observatory::draw_observatory;
 use text::{truncate_overlay_text, truncate_overlay_text_to_width, visible_overlay_text_window};
 use toast::draw_toast;
 
@@ -139,6 +141,9 @@ pub(crate) fn draw_monitor_hud(
         return Ok(());
     }
     if draw_focus_cycle_switcher(frame, st, screen_w, screen_h, damage)? {
+        return Ok(());
+    }
+    if draw_observatory(frame, st, screen_w, screen_h, damage, now)? {
         return Ok(());
     }
     if let Some(banner) = st

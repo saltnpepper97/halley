@@ -30,7 +30,10 @@ use crate::overlay::{
 };
 use crate::render::bearings::ensure_bearing_icon_resources;
 use crate::text::ensure_ui_text_resources;
-use crate::window::{prewarm_focus_cycle_previews, prewarm_visible_active_window_offscreen_caches};
+use crate::window::{
+    prewarm_apogee_previews, prewarm_focus_cycle_previews,
+    prewarm_visible_active_window_offscreen_caches,
+};
 use draw::{
     FrameBlurContext, draw_cursor_layer, draw_debug_frame_scene, draw_scene_below_windows,
     draw_scene_windows_and_hud,
@@ -305,7 +308,9 @@ pub(crate) fn draw_debug_frame_to_target(
 
     let frame_perf_start = crate::perf::start();
     let prewarm_start = crate::perf::start();
-    prewarm_visible_active_window_offscreen_caches(renderer, st, prepared.now);
+    if st.input.interaction_state.apogee_session.is_none() {
+        prewarm_visible_active_window_offscreen_caches(renderer, st, prepared.now);
+    }
     let prewarm_ms = prewarm_start.map(crate::perf::elapsed_ms);
 
     let collect_start = crate::perf::start();
@@ -369,6 +374,7 @@ pub(crate) fn draw_debug_frame_to_target(
     // Capture live/still window textures for the alt+tab switcher cards (no-op
     // unless a focus-cycle session is active).
     prewarm_focus_cycle_previews(renderer, st, prepared.now);
+    prewarm_apogee_previews(renderer, st, prepared.now);
     ensure_cluster_bloom_icon_resources(renderer, st, current_monitor.as_str())?;
     ensure_bearing_icon_resources(renderer, st, current_monitor.as_str())?;
     prime_cluster_naming_dialog_text_resources(st, size.w, size.h);
